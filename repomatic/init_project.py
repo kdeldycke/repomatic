@@ -738,7 +738,8 @@ def run_init(
 
         config = load_repomatic_config()
         init_exclude: list[str] = config.get(
-            "init-exclude", ["labels", "linters", "skills"],
+            "init-exclude",
+            ["labels", "linters", "skills"],
         )
         if init_exclude:
             exclude_set = set(init_exclude)

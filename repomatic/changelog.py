@@ -463,9 +463,7 @@ class Changelog:
             date=date,
             version=version,
         )
-        heading = (
-            render_template("release-notes", **asdict(elements)) + "\n"
-        )
+        heading = render_template("release-notes", **asdict(elements)) + "\n"
 
         # Find the right insertion point: before the first heading whose
         # version is lower than this one.
@@ -580,9 +578,7 @@ class Changelog:
                 exclude_regions.append((match.start(), match.end()))
             # else: unknown admonition, preserved in changes.
 
-        elements.availability_admonition = "\n\n".join(
-            availability_parts
-        )
+        elements.availability_admonition = "\n\n".join(availability_parts)
 
         # Build changes from everything not in excluded regions.
         parts: list[str] = []
@@ -622,9 +618,7 @@ class Changelog:
         if old_section == formatted:
             return False
         self.content = (
-            self.content[: match.start()]
-            + formatted
-            + self.content[match.end() :]
+            self.content[: match.start()] + formatted + self.content[match.end() :]
         )
         return True
 
@@ -879,8 +873,7 @@ def lint_changelog_dates(
     if orphans:
         for orphan in sorted(orphans, key=Version):
             logging.warning(
-                f"⚠ {orphan}: found in external sources but missing"
-                " from changelog"
+                f"⚠ {orphan}: found in external sources but missing from changelog"
             )
             emit_annotation(
                 AnnotationLevel.WARNING,
@@ -999,9 +992,7 @@ def lint_changelog_dates(
                 else ""
             )
             github_url = (
-                GITHUB_RELEASE_URL.format(
-                    repo_url=repo_url, version=version
-                )
+                GITHUB_RELEASE_URL.format(repo_url=repo_url, version=version)
                 if on_github and repo_url
                 else ""
             )
@@ -1055,9 +1046,7 @@ def lint_changelog_dates(
             # Combine NOTE and WARNING admonitions. Both can appear
             # when a version is on one platform but not the other.
             admonitions = [a for a in (note, warning) if a]
-            elements.availability_admonition = (
-                "\n\n".join(admonitions)
-            )
+            elements.availability_admonition = "\n\n".join(admonitions)
 
             if is_yanked:
                 yanked_url = PYPI_PROJECT_URL.format(
@@ -1069,12 +1058,8 @@ def lint_changelog_dates(
                     pypi_url=yanked_url,
                 )
 
-            new_section = render_template(
-                "release-notes", **asdict(elements)
-            )
-            modified |= changelog.replace_section(
-                version, new_section
-            )
+            new_section = render_template("release-notes", **asdict(elements))
+            modified |= changelog.replace_section(version, new_section)
 
     if fix and modified:
         changelog_path.write_text(changelog.content, encoding="UTF-8")

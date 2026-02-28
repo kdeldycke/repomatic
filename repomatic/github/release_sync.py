@@ -101,9 +101,7 @@ def build_expected_body(
         elements.availability_admonition = admonition_override
     # Extract tag range from compare URL (e.g. "v1.1.0...v2.0.0").
     tag_range = (
-        elements.compare_url.rsplit("/compare/", 1)[-1]
-        if elements.compare_url
-        else ""
+        elements.compare_url.rsplit("/compare/", 1)[-1] if elements.compare_url else ""
     )
     return render_template(
         "github-releases",
@@ -172,33 +170,33 @@ def sync_github_releases(
 
         if not expected:
             result.missing_changelog += 1
-            logging.debug(
-                f"Changelog section for {version} is empty."
-            )
+            logging.debug(f"Changelog section for {version} is empty.")
             continue
 
         actual = releases[version].body
 
         if _normalize_body(expected) == _normalize_body(actual):
             result.in_sync += 1
-            result.rows.append(SyncRow(
-                action=SyncAction.SKIPPED,
-                version=version,
-                release_url=release_url,
-            ))
+            result.rows.append(
+                SyncRow(
+                    action=SyncAction.SKIPPED,
+                    version=version,
+                    release_url=release_url,
+                )
+            )
             continue
 
         result.drifted += 1
 
         if dry_run:
-            logging.info(
-                f"[dry-run] Would update release notes for v{version}."
+            logging.info(f"[dry-run] Would update release notes for v{version}.")
+            result.rows.append(
+                SyncRow(
+                    action=SyncAction.DRY_RUN,
+                    version=version,
+                    release_url=release_url,
+                )
             )
-            result.rows.append(SyncRow(
-                action=SyncAction.DRY_RUN,
-                version=version,
-                release_url=release_url,
-            ))
             continue
 
         # Live mode: update the release body.
@@ -213,19 +211,23 @@ def sync_github_releases(
                 expected,
             ])
             result.updated += 1
-            result.rows.append(SyncRow(
-                action=SyncAction.UPDATED,
-                version=version,
-                release_url=release_url,
-            ))
+            result.rows.append(
+                SyncRow(
+                    action=SyncAction.UPDATED,
+                    version=version,
+                    release_url=release_url,
+                )
+            )
             logging.info(f"Updated release notes for v{version}.")
         except RuntimeError:
             result.failed += 1
-            result.rows.append(SyncRow(
-                action=SyncAction.FAILED,
-                version=version,
-                release_url=release_url,
-            ))
+            result.rows.append(
+                SyncRow(
+                    action=SyncAction.FAILED,
+                    version=version,
+                    release_url=release_url,
+                )
+            )
             logging.warning(f"Failed to update release notes for v{version}.")
 
     return result
@@ -264,9 +266,7 @@ def render_sync_report(result: SyncResult) -> str:
         )
 
     # Per-release details.
-    drifted_rows = [
-        row for row in result.rows if row.action != SyncAction.SKIPPED
-    ]
+    drifted_rows = [row for row in result.rows if row.action != SyncAction.SKIPPED]
     details_section = ""
     if drifted_rows:
         detail_lines = [

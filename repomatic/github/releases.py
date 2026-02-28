@@ -77,9 +77,7 @@ def get_github_releases(repo_url: str) -> dict[str, GitHubRelease]:
             if tag.startswith("v"):
                 version = tag[1:]
                 # Prefer published_at, fall back to created_at.
-                raw_date = release.get("published_at") or release.get(
-                    "created_at", ""
-                )
+                raw_date = release.get("published_at") or release.get("created_at", "")
                 date = raw_date[:10] if raw_date else ""
                 if date:
                     body = release.get("body", "")

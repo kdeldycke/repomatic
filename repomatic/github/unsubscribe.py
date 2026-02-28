@@ -494,10 +494,7 @@ def render_report(result: UnsubscribeResult) -> str:
     stale_count = p1.threads_unsubscribed + p1.threads_failed
     state_breakdown_rows = "\n".join([
         f"| \U0001f7e2 Open | {p1.threads_skipped_open} |",
-        (
-            "| \U0001f7e1 Closed (active since cutoff)"
-            f" | {p1.threads_skipped_recent} |"
-        ),
+        (f"| \U0001f7e1 Closed (active since cutoff) | {p1.threads_skipped_recent} |"),
         f"| \U0001f534 Closed (inactive, eligible) | {stale_count} |",
         f"| \u26aa Unknown | {p1.threads_skipped_unknown} |",
     ])
@@ -516,10 +513,7 @@ def render_report(result: UnsubscribeResult) -> str:
                 "> Oldest activity seen in this batch:"
                 f" `{oldest_str}` (cutoff: `{cutoff_str}`)."
             ),
-            (
-                "> The notification API does not sort by issue activity,"
-                " so the current"
-            ),
+            ("> The notification API does not sort by issue activity, so the current"),
             (
                 f"> batch of {p1.threads_inspected} threads did not reach"
                 " any old-enough candidates."
@@ -618,9 +612,7 @@ def unsubscribe_threads(
     cutoff = _compute_cutoff(months)
     prefix = "[dry-run] " if dry_run else ""
 
-    logging.info(
-        f"Cutoff date: {cutoff.strftime('%Y-%m-%d')} ({months} months ago)."
-    )
+    logging.info(f"Cutoff date: {cutoff.strftime('%Y-%m-%d')} ({months} months ago).")
 
     # Phase 1: REST notification threads.
     logging.info("Phase 1: Processing REST notification threads...")
@@ -648,9 +640,7 @@ def unsubscribe_threads(
         updated_str = details.get("updated_at", "")
         updated_at = None
         try:
-            updated_at = datetime.fromisoformat(
-                updated_str.replace("Z", "+00:00")
-            )
+            updated_at = datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
         except (ValueError, AttributeError):
             pass
 
@@ -680,41 +670,45 @@ def unsubscribe_threads(
         html_url = details.get("html_url", subject_url)
         number = details.get("number")
 
-        logging.info(
-            f"  {prefix}Unsubscribing from thread {thread_id} ({html_url})."
-        )
+        logging.info(f"  {prefix}Unsubscribing from thread {thread_id} ({html_url}).")
         if dry_run:
             p1.threads_unsubscribed += 1
-            p1.rows.append(DetailRow(
-                action=ItemAction.DRY_RUN,
-                html_url=html_url,
-                number=number,
-                repo=thread_repo,
-                title=thread_title,
-                updated_at=updated_at,
-            ))
+            p1.rows.append(
+                DetailRow(
+                    action=ItemAction.DRY_RUN,
+                    html_url=html_url,
+                    number=number,
+                    repo=thread_repo,
+                    title=thread_title,
+                    updated_at=updated_at,
+                )
+            )
             continue
 
         if _unsubscribe_rest_thread(str(thread_id)):
             p1.threads_unsubscribed += 1
-            p1.rows.append(DetailRow(
-                action=ItemAction.UNSUBSCRIBED,
-                html_url=html_url,
-                number=number,
-                repo=thread_repo,
-                title=thread_title,
-                updated_at=updated_at,
-            ))
+            p1.rows.append(
+                DetailRow(
+                    action=ItemAction.UNSUBSCRIBED,
+                    html_url=html_url,
+                    number=number,
+                    repo=thread_repo,
+                    title=thread_title,
+                    updated_at=updated_at,
+                )
+            )
         else:
             p1.threads_failed += 1
-            p1.rows.append(DetailRow(
-                action=ItemAction.FAILED,
-                html_url=html_url,
-                number=number,
-                repo=thread_repo,
-                title=thread_title,
-                updated_at=updated_at,
-            ))
+            p1.rows.append(
+                DetailRow(
+                    action=ItemAction.FAILED,
+                    html_url=html_url,
+                    number=number,
+                    repo=thread_repo,
+                    title=thread_title,
+                    updated_at=updated_at,
+                )
+            )
 
     # Phase 2: GraphQL threadless subscriptions.
     logging.info("Phase 2: Processing GraphQL threadless subscriptions...")
@@ -725,13 +719,9 @@ def unsubscribe_threads(
     try:
         username = _get_authenticated_username()
     except RuntimeError:
-        logging.warning(
-            "Failed to get authenticated username. Skipping Phase 2."
-        )
+        logging.warning("Failed to get authenticated username. Skipping Phase 2.")
         p2.skipped = True
-        p2.skip_reason = (
-            "Failed to get authenticated username. Skipping Phase 2."
-        )
+        p2.skip_reason = "Failed to get authenticated username. Skipping Phase 2."
         return result
 
     cutoff_date = cutoff.strftime("%Y-%m-%d")
@@ -762,41 +752,45 @@ def unsubscribe_threads(
             gql_url = item.get("url", "")
             title = item.get("title", "")
 
-            logging.info(
-                f"  {prefix}Unsubscribing from {repo}#{number} (GraphQL)."
-            )
+            logging.info(f"  {prefix}Unsubscribing from {repo}#{number} (GraphQL).")
             if dry_run:
                 p2.graphql_unsubscribed += 1
-                p2.rows.append(DetailRow(
-                    action=ItemAction.DRY_RUN,
-                    html_url=gql_url,
-                    number=number,
-                    repo=repo,
-                    title=title,
-                    updated_at=gql_updated_at,
-                ))
+                p2.rows.append(
+                    DetailRow(
+                        action=ItemAction.DRY_RUN,
+                        html_url=gql_url,
+                        number=number,
+                        repo=repo,
+                        title=title,
+                        updated_at=gql_updated_at,
+                    )
+                )
                 continue
 
             if _graphql_unsubscribe(node_id):
                 p2.graphql_unsubscribed += 1
-                p2.rows.append(DetailRow(
-                    action=ItemAction.UNSUBSCRIBED,
-                    html_url=gql_url,
-                    number=number,
-                    repo=repo,
-                    title=title,
-                    updated_at=gql_updated_at,
-                ))
+                p2.rows.append(
+                    DetailRow(
+                        action=ItemAction.UNSUBSCRIBED,
+                        html_url=gql_url,
+                        number=number,
+                        repo=repo,
+                        title=title,
+                        updated_at=gql_updated_at,
+                    )
+                )
             else:
                 p2.graphql_failed += 1
-                p2.rows.append(DetailRow(
-                    action=ItemAction.FAILED,
-                    html_url=gql_url,
-                    number=number,
-                    repo=repo,
-                    title=title,
-                    updated_at=gql_updated_at,
-                ))
+                p2.rows.append(
+                    DetailRow(
+                        action=ItemAction.FAILED,
+                        html_url=gql_url,
+                        number=number,
+                        repo=repo,
+                        title=title,
+                        updated_at=gql_updated_at,
+                    )
+                )
     except RuntimeError:
         logging.warning(
             "GraphQL search failed. Phase 2 may be incomplete. "
@@ -804,8 +798,7 @@ def unsubscribe_threads(
         )
         p2.skipped = True
         p2.skip_reason = (
-            "GraphQL search failed. Fine-grained PATs may not support"
-            " GraphQL search."
+            "GraphQL search failed. Fine-grained PATs may not support GraphQL search."
         )
 
     return result

@@ -25,7 +25,6 @@ from tempfile import NamedTemporaryFile
 import pytest
 
 from repomatic.init_project import (
-    ALL_COMPONENTS,
     COMPONENT_FILES,
     DEFAULT_COMPONENTS,
     INIT_CONFIGS,
@@ -412,13 +411,13 @@ def test_init_default_components():
     assert "bumpversion" not in DEFAULT_COMPONENTS
 
 
-def test_init_creates_all_default_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_init_creates_all_default_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Verify all default component files are created (with no exclusions)."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\n\n'
-        "[tool.repomatic]\n"
-        "init-exclude = []\n",
+        '[project]\nname = "test"\n\n[tool.repomatic]\ninit-exclude = []\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -1045,4 +1044,6 @@ def test_init_workflow_exclude_unknown_warns(
     with caplog.at_level("WARNING"):
         run_init(output_dir=tmp_path)
 
-    assert "Unknown workflow in workflow-sync-exclude: 'nonexistent.yaml'" in caplog.text
+    assert (
+        "Unknown workflow in workflow-sync-exclude: 'nonexistent.yaml'" in caplog.text
+    )

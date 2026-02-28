@@ -52,13 +52,17 @@ def test_format_file_size(size_bytes: int, expected: str) -> None:
 
 def test_optimization_result_saved_bytes() -> None:
     """Saved bytes is the difference between before and after."""
-    result = OptimizationResult(path=Path("test.png"), before_bytes=1000, after_bytes=800)
+    result = OptimizationResult(
+        path=Path("test.png"), before_bytes=1000, after_bytes=800
+    )
     assert result.saved_bytes == 200
 
 
 def test_optimization_result_saved_pct() -> None:
     """Saved percentage is computed from before/after."""
-    result = OptimizationResult(path=Path("test.png"), before_bytes=1000, after_bytes=800)
+    result = OptimizationResult(
+        path=Path("test.png"), before_bytes=1000, after_bytes=800
+    )
     assert result.saved_pct == pytest.approx(20.0)
 
 
