@@ -34,7 +34,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Run repomatic metadata
         id: project-metadata
-        run: uvx --no-progress 'repomatic==6.2.0' --verbosity DEBUG metadata --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress --from . repomatic --verbosity DEBUG metadata --output "$GITHUB_OUTPUT"
       - name: Extend matrix with ubuntu-slim
         id: extend-matrix
         run: |
