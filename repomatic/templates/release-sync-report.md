@@ -4,9 +4,9 @@ args: [mode, summary_rows, details_section]
 
 ## 🔄 Release notes sync (\$mode)
 
-| Metric | Value |
-| --- | --- |
-\$summary_rows
+| Metric         | Value |
+| -------------- | ----- |
+| \$summary_rows |       |
 
 \$details_section
 

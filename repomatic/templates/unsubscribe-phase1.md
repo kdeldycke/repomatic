@@ -8,15 +8,15 @@ args: [mode, summary_line, batch_details_rows, state_breakdown_rows, backlog_war
 
 ### 📊 Batch details
 
-| Metric | Value |
-| --- | --- |
-\$batch_details_rows
+| Metric               | Value |
+| -------------------- | ----- |
+| \$batch_details_rows |       |
 
 ### 🏷️ Breakdown by state
 
-| State | Count |
-| --- | --- |
-\$state_breakdown_rows
+| State                  | Count |
+| ---------------------- | ----- |
+| \$state_breakdown_rows |       |
 
 \$backlog_warning
 
