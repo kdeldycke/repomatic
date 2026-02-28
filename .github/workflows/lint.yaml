@@ -35,7 +35,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Run repomatic metadata
         id: project-metadata
-        run: uvx --no-progress --from . repomatic metadata --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.2.0' metadata --output "$GITHUB_OUTPUT"
 
   lint-repo:
     name: 🏠 Lint repo
@@ -49,7 +49,7 @@ jobs:
       - name: Lint repository metadata
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx --no-progress --from . repomatic lint-repo
+        run: uvx --no-progress 'repomatic==6.2.0' lint-repo
 
   lint-types:
     name: 🛡️ Lint types
@@ -166,7 +166,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Generate zizmor config if missing
         if: hashFiles('zizmor.yaml') == ''
-        run: uvx --no-progress --from . repomatic init linters --overwrite
+        run: uvx --no-progress 'repomatic==6.2.0' init linters --overwrite
       - name: Run zizmor
         run: uvx --no-progress 'zizmor==1.22.0' --format github --offline .
 

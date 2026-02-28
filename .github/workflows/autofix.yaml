@@ -33,7 +33,7 @@ jobs:
       - name: Manage setup guide issue
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uvx --no-progress --from . repomatic setup-guide
+        run: uvx --no-progress 'repomatic==6.2.0' setup-guide
 
   project-metadata:
     name: 🧬 Project metadata
@@ -55,7 +55,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Run repomatic metadata
         id: project-metadata
-        run: uvx --no-progress --from . repomatic metadata --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.2.0' metadata --output "$GITHUB_OUTPUT"
 
   # --- Formatters: rewrite files to enforce canonical style. ---
 
@@ -84,7 +84,7 @@ jobs:
         # Projects with existing ruff config will keep their settings.
         run: |
           uv tool install 'ruff==0.15.1'
-          uvx --no-progress --from . repomatic init ruff
+          uvx --no-progress 'repomatic==6.2.0' init ruff
       # XXX Ruff is planning to support linting and formatting in one unified command at one point.
       #     See: https://github.com/astral-sh/ruff/issues/8232
       - name: Run Ruff
@@ -93,7 +93,7 @@ jobs:
           ruff format --output-format github
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template format-python
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -123,7 +123,7 @@ jobs:
           pyproject.toml || true
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template format-pyproject
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -192,7 +192,7 @@ jobs:
           -exec gawk -i inplace '!/^- \[(Contents|Contributing|Footnotes|Related Lists)\]\(#.+\)$/{print}' "{}" \;
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template format-markdown
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -231,7 +231,7 @@ jobs:
           ${{ needs.project-metadata.outputs.json_files }}
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template format-json
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -261,7 +261,7 @@ jobs:
         run: typos --write-changes
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template fix-typos
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -296,10 +296,10 @@ jobs:
       - name: Fix changelog dates and admonitions
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uvx --no-progress --from . repomatic lint-changelog --fix
+        run: uvx --no-progress 'repomatic==6.2.0' lint-changelog --fix
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template fix-changelog
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -328,12 +328,12 @@ jobs:
       - name: Optimize images
         id: optimize
         run: >
-          uvx --no-progress --from . repomatic optimize-images
+          uvx --no-progress 'repomatic==6.2.0' optimize-images
           --output "$GITHUB_OUTPUT"
       - id: pr-metadata
         env:
           GHA_PR_BODY_PREFIX: ${{ steps.optimize.outputs.markdown }}
-        run: uvx --no-progress --from . repomatic pr-body --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.2.0' pr-body --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
         with:
           assignees: ${{ github.actor }}
@@ -355,10 +355,10 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Sync .gitignore
-        run: uvx --no-progress --from . repomatic sync-gitignore
+        run: uvx --no-progress 'repomatic==6.2.0' sync-gitignore
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template sync-gitignore
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -377,10 +377,10 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Sync bumpversion config
-        run: uvx --no-progress --from . repomatic sync-bumpversion
+        run: uvx --no-progress 'repomatic==6.2.0' sync-bumpversion
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template sync-bumpversion
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -399,10 +399,10 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Sync linter configs
-        run: uvx --no-progress --from . repomatic sync-linter-configs
+        run: uvx --no-progress 'repomatic==6.2.0' sync-linter-configs
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template sync-linter-configs
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -426,10 +426,10 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Sync Renovate config
-        run: uvx --no-progress --from . repomatic sync-renovate
+        run: uvx --no-progress 'repomatic==6.2.0' sync-renovate
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template sync-renovate
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -454,10 +454,10 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Sync .mailmap
-        run: uvx --no-progress --from . repomatic sync-mailmap --skip-if-missing
+        run: uvx --no-progress 'repomatic==6.2.0' sync-mailmap --skip-if-missing
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template sync-mailmap
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -483,10 +483,10 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Generate graph
         # Package name and output path are auto-detected from pyproject.toml.
-        run: uvx --no-progress --from . repomatic update-deps-graph
+        run: uvx --no-progress 'repomatic==6.2.0' update-deps-graph
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template update-deps-graph
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -521,7 +521,7 @@ jobs:
           fi
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template update-docs
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -541,12 +541,12 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Re-create thin caller workflows
-        run: uvx --no-progress --from . repomatic workflow sync --format thin-caller
+        run: uvx --no-progress 'repomatic==6.2.0' workflow sync --format thin-caller
       - name: Sync non-reusable workflow headers
-        run: uvx --no-progress --from . repomatic workflow sync --format header-only
+        run: uvx --no-progress 'repomatic==6.2.0' workflow sync --format header-only
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template sync-workflows
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8.1.0
@@ -587,7 +587,7 @@ jobs:
           GHA_PR_BODY_PREFIX: |
             Files synced from [`kdeldycke/awesome-template@${TEMPLATE_GIT_HASH}`
             repository](${SOURCE_REPO}/tree/${TEMPLATE_GIT_HASH}).
-        run: uvx --no-progress --from . repomatic pr-body --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.2.0' pr-body --output "$GITHUB_OUTPUT"
       - name: Sync from template repo
         id: template_sync
         uses: AndreasAugustin/actions-template-sync@v2.5.2

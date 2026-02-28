@@ -132,7 +132,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Run repomatic metadata
         id: project-metadata
-        run: uvx --no-progress --from . repomatic metadata --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.2.0' metadata --output "$GITHUB_OUTPUT"
 
   validate-arch:
     # Check architecture matches the one expected from the runner image. This is to ensure that the OS does not rely on

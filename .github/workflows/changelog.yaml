@@ -64,7 +64,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Run repomatic metadata
         id: project-metadata
-        run: uvx --no-progress --from . repomatic metadata --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.2.0' metadata --output "$GITHUB_OUTPUT"
 
   bump-versions:
     name: 🆙 Bump versions
@@ -100,7 +100,7 @@ jobs:
       - id: pr-metadata
         if: needs.project-metadata.outputs[format('{0}_bump_allowed', matrix.part)] == 'true'
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template bump-version
           --part "${{ matrix.part }}"
           --output "$GITHUB_OUTPUT"
@@ -138,7 +138,7 @@ jobs:
       - name: Prepare release
         # Updates changelog and citation dates, comparison URL, and removes warning.
         # Also hard-codes version in workflow URLs for kdeldycke/repomatic repository.
-        run: uvx --no-progress --from . repomatic release-prep
+        run: uvx --no-progress 'repomatic==6.2.0' release-prep
       - name: Prepare repository
         run: |
           git config --global user.name "${{ github.actor }}"
@@ -150,9 +150,9 @@ jobs:
       - name: Re-target main branch in workflows
         # This step is only used in the original repository to automate remote URL tagging.
         if: github.repository == 'kdeldycke/repomatic'
-        run: uvx --no-progress --from . repomatic release-prep --post-release
+        run: uvx --no-progress 'repomatic==6.2.0' release-prep --post-release
       - name: Add new changelog entry
-        run: uvx --no-progress --from . repomatic changelog ./changelog.md
+        run: uvx --no-progress 'repomatic==6.2.0' changelog ./changelog.md
       - name: Version bump
         run: bump-my-version bump --verbose patch
       - name: Sync uv.lock
@@ -163,7 +163,7 @@ jobs:
           v${{ steps.get_version.outputs.current_version }} → v$(bump-my-version show current_version)"
       - id: pr-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template prepare-release
           --version "${{ steps.get_version.outputs.current_version }}"
           --output "$GITHUB_OUTPUT"

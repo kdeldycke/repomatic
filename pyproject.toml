@@ -5,7 +5,7 @@ requires = [ "uv-build>=0.9" ]
 [project]
 # Docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 name = "repomatic"
-version = "6.2.0.dev0"
+version = "6.2.0"
 description = "🏭 Automate repository maintenance, releases, and CI/CD workflows"
 readme = "readme.md"
 keywords = [
@@ -118,7 +118,7 @@ repomatic = "repomatic.__main__:main"
 
 [project.urls]
 "Changelog" = "https://github.com/kdeldycke/repomatic/blob/main/changelog.md"
-"Download" = "https://github.com/kdeldycke/repomatic/releases/tag/v6.2.0.dev0"
+"Download" = "https://github.com/kdeldycke/repomatic/releases/tag/v6.2.0"
 "Funding" = "https://github.com/sponsors/kdeldycke"
 "Homepage" = "https://github.com/kdeldycke/repomatic"
 "Issues" = "https://github.com/kdeldycke/repomatic/issues"
@@ -222,7 +222,7 @@ run.source = [ "repomatic" ]
 report.precision = 2
 
 [tool.bumpversion]
-current_version = "6.2.0.dev0"
+current_version = "6.2.0"
 allow_dirty = true
 ignore_missing_files = true
 # Parse versions with an optional .devN suffix (PEP 440).

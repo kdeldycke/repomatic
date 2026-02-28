@@ -66,7 +66,7 @@ jobs:
       - name: Generate issue body
         id: issue-metadata
         run: >
-          uvx --no-progress --from . repomatic pr-body
+          uvx --no-progress 'repomatic==6.2.0' pr-body
           --template detect-squash-merge
           --pr-ref "${{ steps.extract.outputs.pr_ref }}"
           --output "$GITHUB_OUTPUT"
@@ -121,7 +121,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Run repomatic metadata
         id: project-metadata
-        run: uvx --no-progress --from . repomatic metadata --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.2.0' metadata --output "$GITHUB_OUTPUT"
 
   build-package:
     name: 📦 Build package
@@ -186,7 +186,7 @@ jobs:
       - name: Pre-bake version with commit hash
         if: contains(matrix.current_version, '.dev')
         run: >
-          uvx --no-progress --from . repomatic
+          uvx --no-progress 'repomatic==6.2.0'
           prebake-version --hash "${{ matrix.short_sha }}"
       - name: Nuitka + compilers versions
         run: uv --no-progress run --frozen -- nuitka --version
@@ -221,7 +221,7 @@ jobs:
         run: choco install exiftool --no-progress --yes --retry-count=3
       - name: Verify binary architecture
         run: >
-          uvx --no-progress --from . repomatic
+          uvx --no-progress 'repomatic==6.2.0'
           verify-binary --target "${{ matrix.target }}" --binary "${{ matrix.bin_name }}"
       - name: Upload binaries
         uses: actions/upload-artifact@v6.0.0
@@ -278,7 +278,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Run test plan for binary
         run: >
-          uvx --no-progress --from . repomatic test-plan
+          uvx --no-progress 'repomatic==6.2.0' test-plan
           --binary "${{ steps.artifacts.outputs.download-path }}/${{ matrix.bin_name }}"
 
   create-tag:
@@ -302,7 +302,7 @@ jobs:
         # Idempotent: skips if tag already exists instead of failing. This allows re-running
         # workflows interrupted after tag creation.
         run: >
-          uvx --no-progress --from . repomatic git-tag
+          uvx --no-progress 'repomatic==6.2.0' git-tag
           --tag "v${{ matrix.current_version }}"
           --commit "${{ matrix.commit }}"
           --skip-existing
@@ -384,7 +384,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_UPDATE_GITHUB_PAT || secrets.GITHUB_TOKEN }}
-        run: uvx --no-progress --from . repomatic sync-dev-release --live --delete
+        run: uvx --no-progress 'repomatic==6.2.0' sync-dev-release --live --delete
       - name: Create GitHub release draft
         uses: softprops/action-gh-release@v2.5.0
         # PAT required so tag pushes trigger downstream on.push.tags workflows.
@@ -447,7 +447,7 @@ jobs:
       - name: Sync dev release metadata
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uvx --no-progress --from . repomatic sync-dev-release --live
+        run: uvx --no-progress 'repomatic==6.2.0' sync-dev-release --live
       - name: Download all build artifacts
         uses: actions/download-artifact@v7.0.0
         with:

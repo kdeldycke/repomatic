@@ -25,7 +25,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7.3.0
       - name: Run repomatic metadata
         id: project-metadata
-        run: uvx --no-progress --from . repomatic metadata --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.2.0' metadata --output "$GITHUB_OUTPUT"
 
   deploy-docs:
     name: 📖 Deploy Sphinx doc
@@ -111,7 +111,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
-          uvx --no-progress --from . repomatic broken-links
+          uvx --no-progress 'repomatic==6.2.0' broken-links
           ${{ steps.lychee_run.outputs.exit_code != '' && format(
             '--lychee-exit-code {0}',
             steps.lychee_run.outputs.exit_code) || '' }}
