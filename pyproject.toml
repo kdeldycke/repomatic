@@ -124,7 +124,6 @@ repomatic = "repomatic.__main__:main"
 "Issues" = "https://github.com/kdeldycke/repomatic/issues"
 "Repository" = "https://github.com/kdeldycke/repomatic"
 
-
 # Non-runtime development dependency groups.
 [dependency-groups]
 test = [
