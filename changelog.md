@@ -20,7 +20,12 @@
 - Add `sync-dev-release` CLI command and workflow job to maintain a rolling dev pre-release on GitHub with latest binaries and Python package.
 - Create dev pre-releases as drafts to stay compatible with GitHub immutable releases. Clean up all stale `.dev0` releases on each sync, not just the current version's.
 
-## [`6.1.0` (2026-02-26)](https://github.com/kdeldycke/repomatic/compare/v6.0.1...v6.1.0)
+## [`6.1.1.dev0` (2026-02-27)](https://github.com/kdeldycke/repomatic/compare/v6.1.0...v6.1.1.dev0)
+
+## [`6.1.0` (2026-02-27)](https://github.com/kdeldycke/repomatic/compare/v6.0.1...v6.1.0)
+
+> [!NOTE]
+> `6.1.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.1.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.1.0).
 
 - Add `unsubscribe-threads` CLI command to unsubscribe from closed, inactive GitHub notification threads.
 - Generate thin caller workflows with explicit secret forwarding instead of `secrets: inherit`, eliminating zizmor's `secrets-inherit` warnings in downstream repositories.
@@ -44,18 +49,41 @@
 ## [`6.0.1` (2026-02-24)](https://github.com/kdeldycke/repomatic/compare/v6.0.0...v6.0.1)
 
 > [!NOTE]
+> `6.0.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.0.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.0.1).
+
+> [!NOTE]
 > First release under the [`repomatic`](https://pypi.org/project/repomatic/) name on PyPI, after `repokit` was rejected for typo-squatting (see `6.0.0` below). The GitHub repository is [`kdeldycke/repomatic`](https://github.com/kdeldycke/repomatic).
 
 - Rename project from `repokit` to `repomatic`. Rename GitHub repository from `kdeldycke/repokit` to `kdeldycke/repomatic`.
 
-## [`6.0.0` (2026-02-24)](https://github.com/kdeldycke/repomatic/compare/v5.14.0...v6.0.0)
+## [`6.0.0` (2026-02-24)](https://github.com/kdeldycke/repomatic/compare/v5.14.1...v6.0.0)
+
+> [!NOTE]
+> `6.0.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.0.0).
+
+> [!WARNING]
+> `6.0.0` is **not available** on 🐍 PyPI.
 
 > [!CAUTION]
 > This release was deleted from PyPI. It was supposed to be published as `repokit`, but PyPI flagged the name as typo-squatting the pre-existing [`repo-kit`](https://pypi.org/project/repo-kit/) package.
 
 - Rename project from `gha-utils` to `repokit`. Rename GitHub repository from `kdeldycke/workflows` to `kdeldycke/repokit`.
 
+## [`5.14.1` (2026-02-24)](https://github.com/kdeldycke/repomatic/compare/v5.14.0...v5.14.1)
+
+> [!NOTE]
+> `5.14.1` is available on [🐍 PyPI](https://pypi.org/project/gha-utils/5.14.1/).
+
+> [!WARNING]
+> `5.14.1` is **not available** on 🐙 GitHub.
+
 ## [`5.14.0` (2026-02-24)](https://github.com/kdeldycke/repomatic/compare/v5.13.0...v5.14.0)
+
+> [!CAUTION]
+> `5.14.0` has been [yanked from PyPI](https://pypi.org/project/gha-utils/5.14.0/).
+
+> [!NOTE]
+> `5.14.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v5.14.0).
 
 > [!NOTE]
 > Final release under the [`gha-utils`](https://pypi.org/project/gha-utils/) name on PyPI. The project was renamed to [`repomatic`](https://pypi.org/project/repomatic/) in `6.0.1`. The GitHub repository moved from `kdeldycke/workflows` to `kdeldycke/repomatic`.
@@ -63,6 +91,9 @@
 - Add messages to redirect PyPI package from `gha-utils` to `repokit` and GitHub repository from `kdeldycke/workflows` to `kdeldycke/repokit`.
 
 ## [`5.13.0` (2026-02-23)](https://github.com/kdeldycke/repomatic/compare/v5.12.0...v5.13.0)
+
+> [!NOTE]
+> `5.13.0` is available on [🐍 PyPI](https://pypi.org/project/gha-utils/5.13.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v5.13.0).
 
 - Harmonize sync/update naming across CLI commands, workflow jobs, PR branches, and templates. `sync-X` means regenerate from a canonical source; `update-X` means compute from project state. Breaking renames: `update-gitignore` → `sync-gitignore`, `mailmap-sync` → `sync-mailmap`, `deps-graph` → `update-deps-graph`. New `sync-bumpversion` CLI command replaces `init bumpversion` in the autofix job. Fix `autofix-typo` branch → `fix-typos`.
 - Add Claude Code skills (`.claude/skills/`) wrapping `gha-utils` CLI commands as slash commands: `/gha-init`, `/gha-changelog`, `/gha-release`, `/gha-lint`, `/gha-sync`, `/gha-deps`, `/gha-test`, `/gha-metadata`. Distribute skills via `gha-utils init skills` and `gha-utils sync-skills` for downstream repos.
@@ -408,11 +439,11 @@
 
 ## [`5.0.0` (2026-01-22)](https://github.com/kdeldycke/repomatic/compare/v4.25.5...v5.0.0)
 
-> [!WARNING]
-> `5.0.0` is **not available** on 🐍 PyPI.
-
 > [!NOTE]
 > `5.0.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v5.0.0).
+
+> [!WARNING]
+> `5.0.0` is **not available** on 🐍 PyPI.
 
 - Duplicate workflow dependencies from `requirements/*.txt` files to `gha-utils` package as extra dependencies.
 - Replace Dependabot by Renovate for dependency updates. Closes #1728.
@@ -900,11 +931,11 @@
 
 ## [`4.14.1` (2025-02-16)](https://github.com/kdeldycke/repomatic/compare/v4.14.0...v4.14.1)
 
-> [!WARNING]
-> `4.14.1` is **not available** on 🐙 GitHub.
-
 > [!NOTE]
 > `4.14.1` is available on [🐍 PyPI](https://pypi.org/project/gha-utils/4.14.1/).
+
+> [!WARNING]
+> `4.14.1` is **not available** on 🐙 GitHub.
 
 - Add a new `test-plan-file` parameter to the `release` workflow.
 - Remove the `binaries-test-plan` parameter in `release` workflow.
@@ -1040,11 +1071,11 @@
 
 ## [`4.8.0` (2024-11-19)](https://github.com/kdeldycke/repomatic/compare/v4.7.2...v4.8.0)
 
-> [!WARNING]
-> `4.8.0` is **not available** on 🐍 PyPI.
-
 > [!NOTE]
 > `4.8.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v4.8.0).
+
+> [!WARNING]
+> `4.8.0` is **not available** on 🐍 PyPI.
 
 - Run Nuitka binary builds on Python 3.13.
 - Run a series of test calls on the binaries produced by the build job.
@@ -1067,11 +1098,11 @@
 
 ## [`4.7.0` (2024-11-03)](https://github.com/kdeldycke/repomatic/compare/v4.6.1...v4.7.0)
 
-> [!WARNING]
-> `4.7.0` is **not available** on 🐍 PyPI.
-
 > [!NOTE]
 > `4.7.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v4.7.0).
+
+> [!WARNING]
+> `4.7.0` is **not available** on 🐍 PyPI.
 
 - Remove `extra_python_params` variant in `nuitka_matrix` metadata.
 - Add official support of Python 3.13.
@@ -1082,11 +1113,11 @@
 
 ## [`4.6.1` (2024-09-26)](https://github.com/kdeldycke/repomatic/compare/v4.6.0...v4.6.1)
 
-> [!WARNING]
-> `4.6.1` is **not available** on 🐍 PyPI.
-
 > [!NOTE]
 > `4.6.1` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v4.6.1).
+
+> [!WARNING]
+> `4.6.1` is **not available** on 🐍 PyPI.
 
 - Use `uv` to publish Python packages.
 
@@ -3148,3 +3179,4 @@
 ## [`0.0.1` (2021-12-11)](https://github.com/kdeldycke/repomatic/compare/5cbdbb...v0.0.1)
 
 - Initial public release.
+
