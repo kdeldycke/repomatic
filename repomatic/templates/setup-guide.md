@@ -10,28 +10,28 @@ Some workflows need a **fine-grained personal access token** to create PRs that 
 
 4. Add these permissions:
 
-   | Permission            | Access                  | Reason                                                                                     |
-   | :-------------------- | :---------------------- | :----------------------------------------------------------------------------------------- |
-   | **Commit statuses**   | Read and Write          | Renovate `stability-days` status checks                                                    |
-   | **Contents**          | Read and Write          | Tag pushes, release publishing, PR branch creation                                         |
-   | **Dependabot alerts** | Read-only               | Renovate reads vulnerability alerts to create security PRs                                 |
-   | **Issues**            | Read and Write          | Renovate [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/)      |
-   | **Metadata**          | Read-only *(mandatory)* | Required for all fine-grained token API operations                                         |
-   | **Pull requests**     | Read and Write          | All PR-creating jobs (sync-workflows, fix-typos, prepare-release, Renovate)                |
-   | **Workflows**         | Read and Write          | Push changes to `.github/workflows/` files — not available via YAML `permissions:` at all  |
+   | Permission            | Access                  | Reason                                                                                    |
+   | :-------------------- | :---------------------- | :---------------------------------------------------------------------------------------- |
+   | **Commit statuses**   | Read and Write          | Renovate `stability-days` status checks                                                   |
+   | **Contents**          | Read and Write          | Tag pushes, release publishing, PR branch creation                                        |
+   | **Dependabot alerts** | Read-only               | Renovate reads vulnerability alerts to create security PRs                                |
+   | **Issues**            | Read and Write          | Renovate [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/)     |
+   | **Metadata**          | Read-only *(mandatory)* | Required for all fine-grained token API operations                                        |
+   | **Pull requests**     | Read and Write          | All PR-creating jobs (sync-workflows, fix-typos, prepare-release, Renovate)               |
+   | **Workflows**         | Read and Write          | Push changes to `.github/workflows/` files — not available via YAML `permissions:` at all |
 
 5. Click **Generate token** and copy it.
 
 ### Step 2: Add the secret
 
-1. Go to **this repo → [Settings → Secrets → Actions](${repo_url}/settings/secrets/actions)**.
+1. Go to **this repo → [Settings → Secrets → Actions]($%7Brepo_url%7D/settings/secrets/actions)**.
 2. Click **New repository secret**.
 3. Name: `WORKFLOW_UPDATE_GITHUB_PAT`
 4. Paste the token and click **Add secret**.
 
 ### Step 3: Configure Dependabot settings
 
-Go to **this repo → [Settings → Advanced Security → Dependabot](${repo_url}/settings/security_analysis)** and configure:
+Go to **this repo → [Settings → Advanced Security → Dependabot]($%7Brepo_url%7D/settings/security_analysis)** and configure:
 
 | Setting                         | Status      | Reason                                                |
 | :------------------------------ | :---------- | :---------------------------------------------------- |
@@ -45,7 +45,7 @@ Go to **this repo → [Settings → Advanced Security → Dependabot](${repo_url
 
 ### Step 4: Enable immutable releases
 
-Go to **this repo → [Settings → General](${repo_url}/settings)**, scroll to the **Releases** section, and enable **Release immutability**.
+Go to **this repo → [Settings → General]($%7Brepo_url%7D/settings)**, scroll to the **Releases** section, and enable **Release immutability**.
 
 This locks git tags and release assets after publication, preventing tampering. Release notes remain editable.
 
@@ -59,7 +59,7 @@ Re-run the workflow. Jobs should now update `.github/workflows/` files without e
 > [!WARNING]
 > **Token expiration**: Fine-grained PATs expire. Set a calendar reminder to rotate the token, or workflows will fail silently.
 
-$org_tip
+\$org_tip
 
 This issue will close automatically once the secret is detected.
 

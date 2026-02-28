@@ -4,9 +4,9 @@ args: [lychee_section, sphinx_section]
 
 # Broken links
 
-$lychee_section
+\$lychee_section
 
-$sphinx_section
+\$sphinx_section
 
 ---
 
