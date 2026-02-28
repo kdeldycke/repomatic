@@ -1,9 +1,11 @@
 # Changelog
 
-## [`6.2.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.1.0...main)
+## [`6.2.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.2.0...main)
 
 > [!WARNING]
 > This version is **not released yet** and is under active development.
+
+## [`6.2.0` (2026-02-28)](https://github.com/kdeldycke/repomatic/compare/v6.1.0...v6.2.0)
 
 - Consolidate documentation.
 - Trim verbose workflow YAML comments that are now documented in Python code, replacing them with brief pointers to the relevant module.
