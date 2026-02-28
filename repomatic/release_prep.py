@@ -142,7 +142,9 @@ class ReleasePrep:
         url_replace = f"/repomatic/v{self.current_version}/"
         # Action reference pattern: /repomatic/.github/...@main -> @v1.2.3
         action_search = f"/repomatic/.github/actions/pr-metadata@{self.default_branch}"
-        action_replace = f"/repomatic/.github/actions/pr-metadata@v{self.current_version}"
+        action_replace = (
+            f"/repomatic/.github/actions/pr-metadata@v{self.current_version}"
+        )
 
         for workflow_file in self.workflow_dir.glob("*.yaml"):
             original = workflow_file.read_text(encoding="UTF-8")
@@ -338,7 +340,9 @@ class ReleasePrep:
         url_search = f"/repomatic/v{self.current_version}/"
         url_replace = f"/repomatic/{self.default_branch}/"
         # Action reference pattern: @v1.2.3 -> @main
-        action_search = f"/repomatic/.github/actions/pr-metadata@v{self.current_version}"
+        action_search = (
+            f"/repomatic/.github/actions/pr-metadata@v{self.current_version}"
+        )
         action_replace = f"/repomatic/.github/actions/pr-metadata@{self.default_branch}"
 
         for workflow_file in self.workflow_dir.glob("*.yaml"):

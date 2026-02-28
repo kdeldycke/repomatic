@@ -311,17 +311,19 @@ def manage_combined_broken_links_issue(
     sphinx_section = ""
     if sphinx_output_json is not None:
         sphinx_content = (
-            sphinx_report.strip() if sphinx_has_broken
-            else "No broken links found."
+            sphinx_report.strip() if sphinx_has_broken else "No broken links found."
         )
         sphinx_section = f"## Sphinx linkcheck\n\n{sphinx_content}"
 
     has_broken_links = lychee_has_broken or sphinx_has_broken
-    body = render_template(
-        "broken-links-issue",
-        lychee_section=lychee_section,
-        sphinx_section=sphinx_section,
-    ) + "\n"
+    body = (
+        render_template(
+            "broken-links-issue",
+            lychee_section=lychee_section,
+            sphinx_section=sphinx_section,
+        )
+        + "\n"
+    )
 
     # Write combined body to a temporary file.
     with tempfile.NamedTemporaryFile(

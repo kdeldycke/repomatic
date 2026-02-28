@@ -85,9 +85,6 @@ from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
 )
 from .github.dev_release import (
-    delete_dev_release as _delete_dev_release,
-)
-from .github.dev_release import (
     sync_dev_release as _sync_dev_release,
 )
 from .github.release_sync import (
@@ -332,15 +329,9 @@ def init_project(
 
     # Print summary.
     if result.excluded_components:
-        echo(
-            "Excluded by config: "
-            + ", ".join(result.excluded_components)
-        )
+        echo("Excluded by config: " + ", ".join(result.excluded_components))
     if result.excluded_workflows:
-        echo(
-            "Excluded workflows by config: "
-            + ", ".join(result.excluded_workflows)
-        )
+        echo("Excluded workflows by config: " + ", ".join(result.excluded_workflows))
     if result.created:
         echo(f"Created {len(result.created)} file(s):")
         for path in result.created:
@@ -428,7 +419,9 @@ def metadata(ctx, format, overwrite, output):
     echo(content, file=prep_path(output))
 
 
-@repomatic.command(short_help="Maintain a Markdown-formatted changelog", section=_section_release)
+@repomatic.command(
+    short_help="Maintain a Markdown-formatted changelog", section=_section_release
+)
 @option(
     "--source",
     type=file_path(exists=True, readable=True, resolve_path=True),
@@ -573,7 +566,9 @@ def release_prep(
         logging.warning(f"{action}: no files were modified.")
 
 
-@repomatic.command(short_help="Check if a version bump is allowed", section=_section_release)
+@repomatic.command(
+    short_help="Check if a version bump is allowed", section=_section_release
+)
 @option(
     "--part",
     type=Choice(["minor", "major"], case_sensitive=False),
@@ -639,7 +634,9 @@ GITIGNORE_IO_URL = "https://www.toptal.com/developers/gitignore/api"
 """gitignore.io API endpoint for fetching ``.gitignore`` templates."""
 
 
-@repomatic.command(short_help="Sync .gitignore from gitignore.io templates", section=_section_sync)
+@repomatic.command(
+    short_help="Sync .gitignore from gitignore.io templates", section=_section_sync
+)
 @option(
     "--output",
     "output_path",
@@ -856,7 +853,9 @@ def _apply_workflow_config(
     return default_names
 
 
-@repomatic.group(short_help="Manage downstream workflow caller files", section=_section_setup)
+@repomatic.group(
+    short_help="Manage downstream workflow caller files", section=_section_setup
+)
 def workflow():
     """Manage downstream workflow caller files.
 
@@ -1031,7 +1030,10 @@ def lint(ctx, workflow_dir, repo, fatal):
     ctx.exit(exit_code)
 
 
-@repomatic.command(short_help="Sync Git's .mailmap file with missing contributors", section=_section_sync)
+@repomatic.command(
+    short_help="Sync Git's .mailmap file with missing contributors",
+    section=_section_sync,
+)
 @option(
     "--source",
     type=file_path(readable=True, resolve_path=True),
@@ -1105,7 +1107,9 @@ def sync_mailmap(ctx, source, create_if_missing, destination_mailmap):
     echo(generate_header(ctx) + new_content, file=prep_path(destination_mailmap))
 
 
-@repomatic.command(short_help="Run a test plan from a file against a binary", section=_section_lint)
+@repomatic.command(
+    short_help="Run a test plan from a file against a binary", section=_section_lint
+)
 @option(
     "--command",
     "--binary",
@@ -1283,7 +1287,9 @@ def test_plan(
         ctx.exit(1)
 
 
-@repomatic.command(short_help="Label issues/PRs from GitHub sponsors", section=_section_github)
+@repomatic.command(
+    short_help="Label issues/PRs from GitHub sponsors", section=_section_github
+)
 @option(
     "--owner",
     envvar="GITHUB_REPOSITORY_OWNER",
@@ -1618,7 +1624,9 @@ def deps_graph(
     echo(graph, file=prep_path(output))
 
 
-@repomatic.command(short_help="Manage broken links issue lifecycle", section=_section_github)
+@repomatic.command(
+    short_help="Manage broken links issue lifecycle", section=_section_github
+)
 @option(
     "--lychee-exit-code",
     type=int,
@@ -1712,7 +1720,9 @@ def broken_links(
     )
 
 
-@repomatic.command(short_help="Manage setup guide issue lifecycle", section=_section_github)
+@repomatic.command(
+    short_help="Manage setup guide issue lifecycle", section=_section_github
+)
 @option(
     "--has-pat",
     is_flag=True,
@@ -1839,7 +1849,9 @@ def unsubscribe_threads(months: int, batch_size: int, dry_run: bool) -> None:
     echo(_render_report(result))
 
 
-@repomatic.command(short_help="Verify binary architecture using exiftool", section=_section_lint)
+@repomatic.command(
+    short_help="Verify binary architecture using exiftool", section=_section_lint
+)
 @option(
     "--target",
     type=Choice(sorted(BINARY_ARCH_MAPPINGS.keys()), case_sensitive=False),
@@ -1874,7 +1886,10 @@ def verify_binary(target: str, binary_path: Path) -> None:
     echo(f"Binary architecture verified for {target}: {binary_path}")
 
 
-@repomatic.command(short_help="Re-lock and revert if only timestamp noise changed", section=_section_sync)
+@repomatic.command(
+    short_help="Re-lock and revert if only timestamp noise changed",
+    section=_section_sync,
+)
 @option(
     "--lockfile",
     type=file_path(resolve_path=True),
@@ -1904,7 +1919,9 @@ def sync_uv_lock_cmd(lockfile: Path) -> None:
         echo("Kept uv.lock: contains real dependency changes.")
 
 
-@repomatic.command(short_help="Sync bumpversion config from bundled template", section=_section_sync)
+@repomatic.command(
+    short_help="Sync bumpversion config from bundled template", section=_section_sync
+)
 def sync_bumpversion() -> None:
     """Sync ``[tool.bumpversion]`` config in ``pyproject.toml`` from the bundled
     template.
@@ -1926,7 +1943,10 @@ def sync_bumpversion() -> None:
         echo("bumpversion config is up to date.")
 
 
-@repomatic.command(short_help="Sync linter config files from bundled definitions", section=_section_sync)
+@repomatic.command(
+    short_help="Sync linter config files from bundled definitions",
+    section=_section_sync,
+)
 def sync_linter_configs() -> None:
     """Sync linter configuration files from the bundled definitions in ``repomatic``.
 
@@ -1946,7 +1966,9 @@ def sync_linter_configs() -> None:
         echo("Linter configs are up to date.")
 
 
-@repomatic.command(short_help="Sync Claude Code skills from bundled definitions", section=_section_sync)
+@repomatic.command(
+    short_help="Sync Claude Code skills from bundled definitions", section=_section_sync
+)
 def sync_skills() -> None:
     """Sync Claude Code skill files from the bundled definitions in ``repomatic``.
 
@@ -2037,7 +2059,9 @@ def list_skills() -> None:
     echo("")
 
 
-@repomatic.command(short_help="Sync Renovate config from canonical reference", section=_section_sync)
+@repomatic.command(
+    short_help="Sync Renovate config from canonical reference", section=_section_sync
+)
 @option(
     "--output",
     "output_path",
@@ -2071,7 +2095,9 @@ def sync_renovate(ctx: Context, output_path: Path) -> None:
     echo(content.rstrip(), file=prep_path(output_path))
 
 
-@repomatic.command(short_help="Check Renovate migration prerequisites", section=_section_lint)
+@repomatic.command(
+    short_help="Check Renovate migration prerequisites", section=_section_lint
+)
 @option(
     "--repo",
     default=None,
@@ -2158,7 +2184,9 @@ def check_renovate(
     echo(content, file=prep_path(output))
 
 
-@repomatic.command(short_help="Run repository consistency checks", section=_section_lint)
+@repomatic.command(
+    short_help="Run repository consistency checks", section=_section_lint
+)
 @option(
     "--repo-name",
     default=None,
@@ -2217,7 +2245,9 @@ def lint_repo(
     ctx.exit(exit_code)
 
 
-@repomatic.command(short_help="Check changelog dates against release dates", section=_section_lint)
+@repomatic.command(
+    short_help="Check changelog dates against release dates", section=_section_lint
+)
 @option(
     "--changelog",
     "changelog_path",
@@ -2379,7 +2409,9 @@ def git_tag(
         echo(f"created={'true' if created else 'false'}", file=prep_path(output))
 
 
-@repomatic.command(short_help="Generate PR body with workflow metadata", section=_section_github)
+@repomatic.command(
+    short_help="Generate PR body with workflow metadata", section=_section_github
+)
 @option(
     "--prefix",
     envvar="GHA_PR_BODY_PREFIX",
@@ -2519,7 +2551,9 @@ def pr_body(
     echo(content, file=prep_path(output))
 
 
-@repomatic.command(short_help="Update SHA-256 checksums for binary downloads", section=_section_setup)
+@repomatic.command(
+    short_help="Update SHA-256 checksums for binary downloads", section=_section_setup
+)
 @argument(
     "workflow_file",
     type=file_path(exists=True, readable=True, writable=True, resolve_path=True),
@@ -2632,7 +2666,9 @@ def optimize_images_cmd(min_savings: float, output: Path) -> None:
     echo(content, file=prep_path(output))
 
 
-@repomatic.command(short_help="Pre-bake __version__ with Git commit hash", section=_section_release)
+@repomatic.command(
+    short_help="Pre-bake __version__ with Git commit hash", section=_section_release
+)
 @option(
     "--hash",
     "git_hash",
@@ -2703,7 +2739,8 @@ def prebake_version_cmd(git_hash, module_path):
     seen: set[Path] = set()
     for _cli_id, module_id, _callable_id in metadata.script_entries:
         # Derive the top-level package directory from the module path.
-        # e.g., "repomatic.__main__" → "repomatic", "mail_deduplicate.cli" → "mail_deduplicate"
+        # e.g., "repomatic.__main__" → "repomatic", "mail_deduplicate.cli" →
+        # "mail_deduplicate"
         package_dir = module_id.split(".")[0]
         init_path = Path(package_dir) / "__init__.py"
         if init_path in seen:

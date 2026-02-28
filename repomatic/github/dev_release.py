@@ -69,9 +69,7 @@ def sync_dev_release(
 
     body = build_expected_body(changelog, version)
     if not body:
-        logging.warning(
-            f"Changelog section for {version} produced an empty body."
-        )
+        logging.warning(f"Changelog section for {version} produced an empty body.")
         return False
 
     tag = f"v{version}"

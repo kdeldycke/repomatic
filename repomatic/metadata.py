@@ -2076,10 +2076,7 @@ class Metadata:
         # pushes — building every commit in a multi-commit push is wasteful.
         # Package builds (build-package job) still use new_commits_matrix
         # since they're cheap.
-        build_commit_matrix = (
-            self.release_commits_matrix
-            or self.current_commit_matrix
-        )
+        build_commit_matrix = self.release_commits_matrix or self.current_commit_matrix
         assert build_commit_matrix
         # Extend the matrix with a new dimension: a list of commits.
         matrix.add_variation("commit", build_commit_matrix["commit"])
@@ -2177,16 +2174,22 @@ class Metadata:
             return None
 
         pypi_url = PYPI_PROJECT_URL.format(
-            package=self.package_name, version=version,
+            package=self.package_name,
+            version=version,
         )
         github_url = GITHUB_RELEASE_URL.format(
-            repo_url=repo_url, version=version,
+            repo_url=repo_url,
+            version=version,
         )
         admonition = build_release_admonition(
-            version, pypi_url=pypi_url, github_url=github_url,
+            version,
+            pypi_url=pypi_url,
+            github_url=github_url,
         )
         notes = build_expected_body(
-            changelog, version, admonition_override=admonition,
+            changelog,
+            version,
+            admonition_override=admonition,
         )
         return notes or None
 

@@ -261,9 +261,7 @@ DECOMPOSE_CHANGELOG = dedent(
         ),
     ],
 )
-def test_decompose_version(
-    version, expected_date, expected_url, contains, equals
-):
+def test_decompose_version(version, expected_date, expected_url, contains, equals):
     """Decompose versions with varying element combinations."""
     changelog = Changelog(DECOMPOSE_CHANGELOG)
     elements = changelog.decompose_version(version)
@@ -274,7 +272,7 @@ def test_decompose_version(
 
     for field, (_, targets) in contains.items():
         value = getattr(elements, field)
-        for target in (targets if isinstance(targets, list) else [targets]):
+        for target in targets if isinstance(targets, list) else [targets]:
             assert target in value
     for field, expected in equals.items():
         assert getattr(elements, field) == expected
@@ -1198,7 +1196,11 @@ def test_lint_orphan_uses_pypi_date(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "repomatic.changelog.get_github_releases",
-        _github_mock({"1.1.0": "2026-02-10", "1.0.5": "2026-01-18", "1.0.0": "2025-12-01"}),
+        _github_mock({
+            "1.1.0": "2026-02-10",
+            "1.0.5": "2026-01-18",
+            "1.0.0": "2025-12-01",
+        }),
     )
     _patch_tags(monkeypatch, {"1.0.5": "2026-01-15"})
 

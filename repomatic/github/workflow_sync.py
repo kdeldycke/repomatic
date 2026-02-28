@@ -431,9 +431,7 @@ def generate_thin_caller(
     if info.call_secrets:
         lines.append("    secrets:")
         for secret_name in info.call_secrets:
-            lines.append(
-                f"      {secret_name}: ${{{{ secrets.{secret_name} }}}}"
-            )
+            lines.append(f"      {secret_name}: ${{{{ secrets.{secret_name} }}}}")
 
     # Trailing newline.
     lines.append("")
