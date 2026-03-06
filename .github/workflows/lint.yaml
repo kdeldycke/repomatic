@@ -126,8 +126,8 @@ jobs:
       - name: Install actionlint and shellcheck
         run: |
           curl -fsSL --output /tmp/actionlint.tar.gz \
-            "https://github.com/rhysd/actionlint/releases/download/v1.7.10/actionlint_1.7.10_linux_amd64.tar.gz"
-          echo "f4c76b71db5755a713e6055cbb0857ed07e103e028bda117817660ebadb4386f  /tmp/actionlint.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_linux_amd64.tar.gz"
+          echo "900919a84f2229bac68ca9cd4103ea297abc35e9689ebb842c6e34a3d1b01b0a  /tmp/actionlint.tar.gz" \
             | sha256sum --check
           tar xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint
           sudo apt update
@@ -136,7 +136,7 @@ jobs:
         # Source: https://github.com/rhysd/actionlint/blob/main/docs/usage.md#problem-matchers
         run: |
           curl -fsSL --output ./.github/actionlint-matcher.json \
-            https://raw.githubusercontent.com/rhysd/actionlint/refs/tags/v1.7.10/.github/actionlint-matcher.json
+            https://raw.githubusercontent.com/rhysd/actionlint/refs/tags/v1.7.11/.github/actionlint-matcher.json
           echo "::add-matcher::.github/actionlint-matcher.json"
       - name: Run actionlint
         # XXX actionlint triggers this error:
