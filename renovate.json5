@@ -50,7 +50,7 @@
       matchFileNames: [".github/workflows/**"],
       postUpgradeTasks: {
         commands: [
-          "bash -c 'curl -fsSL https://github.com/astral-sh/uv/releases/download/0.10.4/uv-x86_64-unknown-linux-gnu.tar.gz --output /tmp/uv.tar.gz && echo 6b52a47358deea1c5e173278bf46b2b489747a59ae31f2a4362ed5c6c1c269f7  /tmp/uv.tar.gz | sha256sum --check && tar xzf /tmp/uv.tar.gz --strip-components=1 -C /tmp && /tmp/uvx --no-progress --from . repomatic update-checksums {{{packageFile}}}'",
+          "bash -c 'curl -fsSL https://github.com/astral-sh/uv/releases/download/0.10.6/uv-x86_64-unknown-linux-gnu.tar.gz --output /tmp/uv.tar.gz && echo aaa402e19d14a6b9a4267fcf4ec35380f804c68923525cea67cd6ee05bb4e930  /tmp/uv.tar.gz | sha256sum --check && tar xzf /tmp/uv.tar.gz --strip-components=1 -C /tmp && /tmp/uvx --no-progress --from . repomatic update-checksums {{{packageFile}}}'",
         ],
         fileFilters: [".github/workflows/**"],
         executionMode: "update",
@@ -171,7 +171,7 @@
       customType: "regex",
       fileMatch: ["renovate\\.json5$"],
       matchStrings: [
-        // Matches: uv/releases/download/0.10.4/
+        // Matches: uv/releases/download/0.10.6/
         "uv/releases/download/(?<currentValue>[0-9.]+)/",
       ],
       depNameTemplate: "astral-sh/uv",
