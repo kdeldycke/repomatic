@@ -635,15 +635,11 @@ def test_skills_consistency():
 
     # Collect skill directories from the filesystem.
     skills_dir = Path(__file__).resolve().parents[1] / ".claude" / "skills"
-    fs_skills = {
-        p.parent.name
-        for p in skills_dir.glob("*/SKILL.md")
-    }
+    fs_skills = {p.parent.name for p in skills_dir.glob("*/SKILL.md")}
 
     # Collect skills registered in COMPONENT_FILES.
     component_skills = {
-        rel_path.split("/")[2]
-        for _, rel_path in COMPONENT_FILES.get("skills", ())
+        rel_path.split("/")[2] for _, rel_path in COMPONENT_FILES.get("skills", ())
     }
 
     # Collect skills registered in _SKILL_PHASES.
@@ -652,8 +648,7 @@ def test_skills_consistency():
     # Collect data symlinks.
     data_dir = Path(__file__).resolve().parents[1] / "repomatic" / "data"
     data_skills = {
-        p.stem.removeprefix("skill-")
-        for p in data_dir.glob("skill-repomatic-*.md")
+        p.stem.removeprefix("skill-") for p in data_dir.glob("skill-repomatic-*.md")
     }
 
     assert fs_skills == component_skills, (
