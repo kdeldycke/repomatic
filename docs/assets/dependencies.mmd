@@ -6,12 +6,12 @@ flowchart LR
         click_extra{{"`click-extra`"}}
         pydriller{{"`pydriller`"}}
         wcmatch{{"`wcmatch`"}}
-        extra_platforms{{"`extra-platforms`"}}
         py_walk{{"`py-walk`"}}
         pyproject_metadata{{"`pyproject-metadata`"}}
         packaging{{"`packaging`"}}
         tomli{{"`tomli`"}}
         boltons{{"`boltons`"}}
+        extra_platforms{{"`extra-platforms`"}}
         backports_strenum{{"`backports-strenum`"}}
         pyyaml{{"`pyyaml`"}}
     end
@@ -46,7 +46,6 @@ flowchart LR
     bracex(["`bracex`"])
     charset_normalizer(["`charset-normalizer`"])
     deepmerge(["`deepmerge`"])
-    distro(["`distro`"])
     h11(["`h11`"])
     mdurl(["`mdurl`"])
     pathspec(["`pathspec`"])
@@ -82,8 +81,8 @@ flowchart LR
     repomatic ==>|" >=25 "| packaging
     repomatic ==>|" >=2.3 "| tomli
     repomatic ==>|" >=10 "| wcmatch
-    repomatic ==>|" >=8 "| extra_platforms
     repomatic ==>|" >=25 "| boltons
+    repomatic ==>|" >=8 "| extra_platforms
     repomatic ==>|" >=0.3.3 "| py_walk
     repomatic ==>|" >=0.9 "| pyproject_metadata
     repomatic ==>|" >=1.3.1 "| backports_strenum
@@ -109,8 +108,8 @@ flowchart LR
     click_extra ==> tomli
     click_extra ==> wcmatch
     click_extra --> cloup
-    click_extra ==> extra_platforms
     click_extra ==> boltons
+    click_extra ==> extra_platforms
     click_extra --> tabulate
     click_extra --> deepmerge
     pydriller --> lizard
@@ -126,7 +125,6 @@ flowchart LR
     pytest_cov --> pluggy
     wcmatch --> bracex
     coverage ==> tomli
-    extra_platforms --> distro
     py_walk --> sly
     pyproject_metadata ==> packaging
     pytest_github_actions_annotate_failures ==> pytest
@@ -190,7 +188,6 @@ flowchart LR
     click coverage "https://pypi.org/project/coverage/" _blank
     click decopatch "https://pypi.org/project/decopatch/" _blank
     click deepmerge "https://pypi.org/project/deepmerge/" _blank
-    click distro "https://pypi.org/project/distro/" _blank
     click exceptiongroup "https://pypi.org/project/exceptiongroup/" _blank
     click extra_platforms "https://pypi.org/project/extra-platforms/" _blank
     click gitdb "https://pypi.org/project/gitdb/" _blank
