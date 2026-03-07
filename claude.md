@@ -323,16 +323,16 @@ The `repomatic` ecosystem has two layers of automation:
 
 **What the autofix workflow already handles mechanically** (no skill needed to trigger these — they run on every push to `main`):
 
-| Autofix job | What it does |
-|---|---|
-| `sync-workflows` | Re-creates thin-caller workflows, syncs header-only workflow headers |
-| `sync-gitignore` | Syncs `.gitignore` from template |
-| `sync-bumpversion` | Syncs bumpversion config |
-| `sync-linter-configs` | Syncs ruff, zizmor configs |
-| `sync-renovate` | Syncs `renovate.json5` base config |
-| `sync-mailmap` | Syncs `.mailmap` from git history |
-| `update-deps-graph` | Regenerates dependency graph from lockfile |
-| `format-*` / `fix-*` | Formats Python, Markdown, JSON; fixes typos |
+| Autofix job           | What it does                                                         |
+| --------------------- | -------------------------------------------------------------------- |
+| `sync-workflows`      | Re-creates thin-caller workflows, syncs header-only workflow headers |
+| `sync-gitignore`      | Syncs `.gitignore` from template                                     |
+| `sync-bumpversion`    | Syncs bumpversion config                                             |
+| `sync-linter-configs` | Syncs ruff, zizmor configs                                           |
+| `sync-renovate`       | Syncs `renovate.json5` base config                                   |
+| `sync-mailmap`        | Syncs `.mailmap` from git history                                    |
+| `update-deps-graph`   | Regenerates dependency graph from lockfile                           |
+| `format-*` / `fix-*`  | Formats Python, Markdown, JSON; fixes typos                          |
 
 **What skills should focus on** — the gaps the mechanical layer cannot cover:
 
