@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.3.3.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.3.2...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.3.2` (2026-03-07)](https://github.com/kdeldycke/repomatic/compare/v6.3.1...v6.3.2)
 
 - Auto-remove legacy `.github/zizmor.yml` and `.github/zizmor.yaml` during `repomatic init` and `sync-linter-configs`, completing the migration to root-level `zizmor.yaml`.
