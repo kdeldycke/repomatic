@@ -9,13 +9,22 @@
 - Fix `optimize-images` job failing on `ubuntu-slim` because `oxipng` is not available there.
 - Add `date-released` update entry for `citation.cff` to the bundled `bumpversion.toml` template so downstream repos keep their release date in sync during version bumps.
 
-## [`6.3.1` (2026-03-06)](https://github.com/kdeldycke/repomatic/compare/v6.3.0...v6.3.1)
+## [`6.3.1` (2026-03-07)](https://github.com/kdeldycke/repomatic/compare/v6.3.0...v6.3.1)
+
+> [!NOTE]
+> `6.3.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.1/).
+
+> [!WARNING]
+> `6.3.1` is **not available** on 🐙 GitHub.
 
 - Register `repomatic-audit` skill in `COMPONENT_FILES`, data symlinks, and `_SKILL_PHASES` so it syncs to downstream repos.
 - Remove stale `repomatic-metadata` entry from `_SKILL_PHASES`.
 - Add `test_skills_consistency` test to catch mismatches between `.claude/skills/` directories and their registrations in code.
 
 ## [`6.3.0` (2026-03-06)](https://github.com/kdeldycke/repomatic/compare/v6.2.1...v6.3.0)
+
+> [!NOTE]
+> `6.3.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.3.0).
 
 - Make `repomatic init` always overwrite managed files (workflows, configs, skills) by default. Remove the `--overwrite` flag. `changelog.md` is never overwritten once it exists.
 - Remove `extend-include` for Markdown files now that ruff 0.15.5 discovers `*.md` by default in preview mode.
