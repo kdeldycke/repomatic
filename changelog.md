@@ -1,6 +1,6 @@
 # Changelog
 
-## [`6.3.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.3.1...main)
+## [`6.4.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.3.1...main)
 
 > [!WARNING]
 > This version is **not released yet** and is under active development.
