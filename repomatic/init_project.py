@@ -50,6 +50,7 @@ from pathlib import Path, PurePosixPath
 from urllib.request import urlretrieve
 
 import tomlkit
+from tomlkit.items import InlineTable
 
 from . import __version__
 from .config import Config, load_repomatic_config
@@ -78,7 +79,8 @@ else:
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
+    from typing import Any
 
     if sys.version_info >= (3, 11):
         from importlib.resources.abc import Traversable
@@ -242,16 +244,145 @@ def _template_to_table(template_text: str) -> tomlkit.items.Table:
     return table
 
 
+# Sentinel marking a key absent from the template, so a legitimate template
+# value of `None` is not mistaken for "missing" during the merge walk.
+_MISSING = object()
+
+
+def _graft_local_additions(
+    target: Any,
+    template: Mapping[str, Any],
+    existing: Mapping[str, Any],
+    existing_tk: Any,
+) -> None:
+    """Graft local-only content from an existing section onto a template table.
+
+    Walks the *existing* section against the *template* (both plain-dict views)
+    and copies into *target* (the tomlkit table built from the template) every
+    piece of local configuration the canonical template does not already carry:
+
+    - **Keys the template does not define** are grafted verbatim, so a
+      project-specific table like `[tool.typos.files]` survives untouched.
+    - **Tables present in both** are merged recursively, so local keys inside a
+      table the template also defines are kept (e.g. a downstream entry in
+      `[tool.typos.default.extend-identifiers]` next to the canonical ones).
+    - **Arrays present in both** gain their local-only items appended after the
+      template items (union by value). This serves scalar arrays
+      (`extend-ignore-re`, `serialize`) and arrays-of-tables
+      (`[[tool.bumpversion.files]]`) alike.
+    - **Scalars present in both** are left as the template defines them: the
+      canonical value wins, which is the point of an ongoing sync.
+
+    Grafted items are taken from *existing_tk* (the tomlkit view of the local
+    section), not the plain-dict view, so comments and inline formatting on
+    local additions carry over where tomlkit attaches them.
+
+    :param target: tomlkit table built from the bundled template, mutated in
+        place.
+    :param template: Plain-dict view of the bundled template section.
+    :param existing: Plain-dict view of the local section being synced.
+    :param existing_tk: tomlkit view of the local section, source of grafted
+        items.
+    """
+    for key, existing_value in existing.items():
+        template_value = template.get(key, _MISSING)
+        if template_value is _MISSING:
+            # Key the canonical template does not define: keep it verbatim.
+            target[key] = existing_tk[key]
+        elif isinstance(template_value, dict) and isinstance(existing_value, dict):
+            if isinstance(target[key], InlineTable):
+                # tomlkit corrupts an inline table when keys are inserted into
+                # it incrementally (it omits the comma separator), so rebuild
+                # it from scratch. Inline tables carry no comments, so nothing
+                # is lost. See https://github.com/python-poetry/tomlkit/issues/48.
+                target[key] = _merged_inline_table(template_value, existing_value)
+            else:
+                # Standard table: recurse so local-only sub-keys survive.
+                _graft_local_additions(
+                    target[key], template_value, existing_value, existing_tk[key]
+                )
+        elif isinstance(template_value, list) and isinstance(existing_value, list):
+            # Array in both: append local-only items, preserving their order.
+            for index, item in enumerate(existing_value):
+                if item not in template_value:
+                    target[key].append(existing_tk[key][index])
+        # Scalar in both: the canonical template value wins, nothing to graft.
+
+
+_BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+"""TOML bare-key pattern: keys outside it must be quoted in inline tables."""
+
+
+def _inline_key_text(key: str) -> str:
+    """Render an inline-table key, quoting it only when it is not a bare key."""
+    if _BARE_KEY.match(key):
+        return key
+    return tomlkit.string(key).as_string()
+
+
+def _inline_table_text(
+    template: Mapping[str, Any],
+    existing: Mapping[str, Any],
+) -> str:
+    """Render a merged inline table as `{ key = value, ... }` text.
+
+    Template keys come first in template order with the canonical value; keys
+    the template omits follow in their original order. Nested inline tables
+    recurse. The output uses pyproject-fmt spacing (`{ ... }`, `, ` separators)
+    so the merged section is stable under the `format-pyproject` autofix job,
+    which re-spaces a compact `{...}`.
+    """
+    parts: list[str] = []
+    for key, template_value in template.items():
+        existing_value = existing.get(key, _MISSING)
+        if isinstance(template_value, dict) and isinstance(existing_value, dict):
+            value_text = _inline_table_text(template_value, existing_value)
+        else:
+            # Canonical template value wins on keys present in both.
+            value_text = tomlkit.item(template_value).as_string()
+        parts.append(f"{_inline_key_text(key)} = {value_text}")
+    for key, existing_value in existing.items():
+        if key not in template:
+            value_text = tomlkit.item(existing_value).as_string()
+            parts.append(f"{_inline_key_text(key)} = {value_text}")
+    if not parts:
+        return "{}"
+    return "{ " + ", ".join(parts) + " }"
+
+
+def _merged_inline_table(
+    template: Mapping[str, Any],
+    existing: Mapping[str, Any],
+) -> InlineTable:
+    """Build a merged inline table that renders with pyproject-fmt spacing.
+
+    Rebuilt from rendered text rather than mutated in place because tomlkit
+    drops the comma separator when inserting into a parsed inline table
+    ([tomlkit#48](https://github.com/python-poetry/tomlkit/issues/48)), and
+    `tomlkit.inline_table()` emits a compact `{...}` that `format-pyproject`
+    would re-space. Parsing a spaced snippet sidesteps both.
+
+    :param template: Plain-dict view of the template inline table.
+    :param existing: Plain-dict view of the local inline table.
+    :return: A tomlkit inline table with the merged content.
+    """
+    table = tomlkit.parse(f"_ = {_inline_table_text(template, existing)}")["_"]
+    assert isinstance(table, InlineTable)
+    return table
+
+
 def _update_tool_config(
     content: str,
     comp: ToolConfigComponent,
     pyproject_path: Path,
 ) -> str | None:
-    """Replace an existing `[tool.X]` section from the bundled template.
+    """Re-derive an existing `[tool.X]` section from the bundled template.
 
-    Replaces the entire section with the canonical template, preserving
-    values for keys listed in `comp.preserved_keys` and any local
-    array-of-tables entries not present in the template.
+    Rebuilds the section from the canonical template, then grafts local-only
+    configuration back on via {func}`_graft_local_additions`: keys the template
+    omits, extra items in shared arrays, and extra keys in shared nested
+    tables. The template wins on shared scalars; `comp.preserved_keys`
+    overrides that for named top-level keys (e.g. `current_version`).
 
     ```{note}
     Comments attached to local array-of-tables entries are preserved
@@ -281,24 +412,6 @@ def _update_tool_config(
     native_source = export_content(comp.source_file)
     template_plain = tomllib.loads(native_source)
 
-    # Save preserved key values before replacing.
-    preserved: dict[str, object] = {}
-    for key in comp.preserved_keys:
-        if key in existing_section:
-            preserved[key] = existing_section[key]
-
-    # Save local array-of-tables entries (those not in the template).
-    local_aot: dict[str, list] = {}
-    for array_key in ("files",):
-        existing_entries = existing_plain.get(array_key, [])
-        template_entries = template_plain.get(array_key, [])
-        local_idx = [
-            i for i, e in enumerate(existing_entries) if e not in template_entries
-        ]
-        if local_idx and array_key in existing_section:
-            aot = existing_section[array_key]
-            local_aot[array_key] = [aot[i] for i in local_idx]
-
     # Build the replacement table from the template, stripping file-level
     # comments that only apply to the standalone format.
     native_lines = native_source.splitlines()
@@ -308,17 +421,18 @@ def _update_tool_config(
     native_stripped = "\n".join(native_lines[first_key:])
     new_section = _template_to_table(native_stripped)
 
-    # Restore preserved keys.
-    for key, value in preserved.items():
-        if key in new_section:
-            new_section[key] = value
+    # Graft local-only configuration on top of the canonical template: keys the
+    # template omits, extra items in shared arrays, and extra keys in shared
+    # nested tables all survive, while the template wins on shared scalars.
+    _graft_local_additions(
+        new_section, template_plain, existing_plain, existing_section
+    )
 
-    # Append local array-of-tables entries.
-    for array_key, entries in local_aot.items():
-        aot = new_section.get(array_key)
-        if aot is not None:
-            for entry in entries:
-                aot.append(entry)
+    # `preserved_keys` are authoritative locally (e.g. `current_version`): the
+    # local value overrides the template placeholder.
+    for key in comp.preserved_keys:
+        if key in existing_section:
+            new_section[key] = existing_section[key]
 
     # Replace the section in the document.
     tool_table[tool_name] = new_section

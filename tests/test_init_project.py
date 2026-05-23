@@ -1080,6 +1080,21 @@ replace = "## [{new_version} (unreleased)]("
 """
 
 
+# Mirrors the motivating downstream case (kdeldycke/dotfiles): a non-Python repo
+# that carries its own `[tool.typos]` (project-specific excludes and a couple of
+# local identifiers/words) but never received the bundled canonical identifiers.
+PYPROJECT_WITH_TYPOS = """\
+[tool.typos]
+files.extend-exclude = ["assets/Monokai Soda.terminal"]
+
+[tool.typos.default.extend-identifiers]
+automaticEmojiSubstitutionEnablediMessage = "automaticEmojiSubstitutionEnablediMessage"
+
+[tool.typos.default.extend-words]
+Sur = "Sur"
+"""
+
+
 def _make_pyproject_with_template_bumpversion(version: str = "7.5.3.dev0") -> str:
     """Generate a pyproject.toml with the bumpversion section from the template.
 
@@ -1381,6 +1396,108 @@ def test_local_entry_comments_preserved(tmp_path: Path) -> None:
     # The local entries themselves must survive.
     assert 'search = "raw.githubusercontent.com/test/main/"' in result
     assert 'search = "raw.githubusercontent.com/test/v{current_version}/"' in result
+
+
+def test_syncs_typos_identifiers_into_existing_section(tmp_path: Path) -> None:
+    """Canonical identifiers merge into a pre-existing typos section.
+
+    Regression test for the BOOTSTRAP footgun: a downstream repo carrying its
+    own `[tool.typos]` never received the bundled proper-noun identifiers,
+    because a BOOTSTRAP insert skipped the existing section and typos reads
+    `[tool.typos]` natively (no bundled fallback at runtime).
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(PYPROJECT_WITH_TYPOS, encoding="UTF-8")
+
+    result = init_config("typos", pyproject)
+
+    assert result is not None
+    identifiers = tomllib.loads(result)["tool"]["typos"]["default"][
+        "extend-identifiers"
+    ]
+    assert identifiers["Github"] == "GitHub"
+    assert identifiers["MacOS"] == "macOS"
+    assert identifiers["PyPi"] == "PyPI"
+
+
+def test_typos_preserves_local_inline_table_keys(tmp_path: Path) -> None:
+    """Local keys inside a shared inline table survive alongside canonical ones."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(PYPROJECT_WITH_TYPOS, encoding="UTF-8")
+
+    result = init_config("typos", pyproject)
+
+    assert result is not None
+    default = tomllib.loads(result)["tool"]["typos"]["default"]
+    # Local additions kept.
+    assert (
+        default["extend-identifiers"]["automaticEmojiSubstitutionEnablediMessage"]
+        == "automaticEmojiSubstitutionEnablediMessage"
+    )
+    assert default["extend-words"]["Sur"] == "Sur"
+    # Template entries present too.
+    assert default["extend-words"]["astroid"] == "astroid"
+    assert default["extend-ignore-re"]
+
+
+def test_typos_preserves_local_only_table(tmp_path: Path) -> None:
+    """A table the template omits (`files`) survives the sync untouched."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(PYPROJECT_WITH_TYPOS, encoding="UTF-8")
+
+    result = init_config("typos", pyproject)
+
+    assert result is not None
+    files = tomllib.loads(result)["tool"]["typos"]["files"]
+    assert files["extend-exclude"] == ["assets/Monokai Soda.terminal"]
+
+
+def test_typos_canonical_value_wins_on_conflict(tmp_path: Path) -> None:
+    """Canonical capitalization overrides a wrong local target on shared keys."""
+    content = '[tool.typos.default.extend-identifiers]\nGithub = "Github"\n'
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(content, encoding="UTF-8")
+
+    result = init_config("typos", pyproject)
+
+    assert result is not None
+    identifiers = tomllib.loads(result)["tool"]["typos"]["default"][
+        "extend-identifiers"
+    ]
+    assert identifiers["Github"] == "GitHub"
+
+
+def test_typos_update_idempotent(tmp_path: Path) -> None:
+    """The typos sync is a no-op on the second run."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(PYPROJECT_WITH_TYPOS, encoding="UTF-8")
+
+    first = init_config("typos", pyproject)
+    assert first is not None
+    pyproject.write_text(first, encoding="UTF-8")
+
+    assert init_config("typos", pyproject) is None
+
+
+def test_typos_merged_inline_tables_use_pyproject_fmt_spacing(tmp_path: Path) -> None:
+    """Merged inline tables render `{ ... }`, matching pyproject-fmt.
+
+    A compact `{...}` would be re-spaced by the `format-pyproject` autofix job,
+    producing churn on every run.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(PYPROJECT_WITH_TYPOS, encoding="UTF-8")
+
+    result = init_config("typos", pyproject)
+
+    assert result is not None
+    identifiers_line = next(
+        line
+        for line in result.splitlines()
+        if line.startswith("default.extend-identifiers")
+    )
+    assert "= { " in identifiers_line
+    assert identifiers_line.endswith(" }")
 
 
 # --- Init exclusion tests ---

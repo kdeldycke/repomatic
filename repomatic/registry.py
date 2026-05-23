@@ -240,8 +240,10 @@ class ToolConfigComponent(Component):
     """How this config behaves when the section already exists.
 
     `BOOTSTRAP`: insert once, skip if the section is present.
-    `ONGOING`: replace template content on every sync while preserving
-    local additions (extra array-of-tables entries, etc.).
+    `ONGOING`: re-derive the section from the template on every sync while
+    preserving local additions: keys the template omits, extra items in
+    shared arrays, and extra keys in shared nested tables. The template wins
+    on shared scalars; `preserved_keys` flips that for named top-level keys.
     """
 
     preserved_keys: tuple[str, ...] = ()
@@ -621,6 +623,13 @@ COMPONENTS: tuple[Component, ...] = (
         tool_section="tool.typos",
         insert_after=("tool.bumpversion",),
         insert_before=("tool.pytest",),
+        # Re-merge on every sync so the canonical proper-noun identifiers reach
+        # repos that already carry a project-specific `[tool.typos]`. typos has
+        # `reads_pyproject=True`, so the bundled defaults only take effect once
+        # they physically live in `[tool.typos]`; a BOOTSTRAP insert would skip
+        # the existing section and leave them inactive. Local additions
+        # (extra excludes, identifiers, words) survive via the merge.
+        sync_mode=SyncMode.ONGOING,
     ),
 )
 """The component registry.
