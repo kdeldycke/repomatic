@@ -269,6 +269,16 @@ class Matrix:
         after `exclude`. This allows you to use `include` to add back
         combinations that were previously excluded.
         ```
+
+        ```{note}
+        This is repomatic's own model of matrix expansion, for local inspection
+        and job counting. The authoritative expansion is GitHub's: downstream
+        workflows consume the serialized `variations` + `include` + `exclude`
+        dict from {meth}`matrix` and let GitHub expand it. The two can diverge
+        on include/exclude edge cases (notably whether an `include` resurrects
+        an excluded combination), so treat `solve()` as an approximation, not a
+        guarantee of GitHub's output.
+        ```
         """
         # GitHub jobs fails with the following message if the exclude directive is
         # referencing keys that are not present in the original base matrix:

@@ -2180,8 +2180,9 @@ class Metadata:
 
         :param matrix: The matrix to modify in-place.
         :param full: If `True`, also apply `variations` (extra dimension
-            values). Variations are only added to the full matrix, not the PR
-            matrix, to keep PR CI fast.
+            values) and `unstable` (continue-on-error markings). Both are added
+            to the full matrix only, not the PR matrix, to keep PR CI fast and
+            stable.
         """
         # Replacements first, then removals: both modify axis values in-place.
         for var_id, mapping in self.config.test_matrix.replace.items():
@@ -2193,6 +2194,11 @@ class Metadata:
         if full:
             for var_id, values in self.config.test_matrix.variations.items():
                 matrix.add_variation(var_id, values)
+            # Mark matching combinations continue-on-error via a `state`
+            # include. Full matrix only: in the PR matrix a non-base axis key
+            # (e.g. click-version) would be added to every job and hijack it.
+            for combination in self.config.test_matrix.unstable:
+                matrix.add_includes({**combination, "state": "unstable"})
         if self.config.test_matrix.exclude:
             matrix.add_excludes(*self.config.test_matrix.exclude)
         if self.config.test_matrix.include:
@@ -2235,6 +2241,29 @@ class Metadata:
         matrix.add_includes({"state": "stable"})
         self._apply_test_matrix_config(matrix, full=False)
         return matrix
+
+    @cached_property
+    def stale_test_matrix_excludes(self) -> list[dict[str, str]]:
+        """User `test-matrix.exclude` entries matching no full-matrix axis value.
+
+        An exclude naming a value absent from every axis (like a renamed
+        runner) can never match a combination, so `Matrix.prune()` drops it
+        silently and its exclusion intent is lost. This drift is common after
+        an upstream runner rename (such as `macos-15-intel` becoming
+        `macos-26-intel`). The `lint-repo` check surfaces these so the drift
+        fails loudly instead of silently.
+
+        :return: The offending exclude entries, in config order.
+        """
+        axes = self.test_matrix.all_variations()
+        return [
+            entry
+            for entry in self.config.test_matrix.exclude
+            if any(
+                key not in axes or value not in axes[key]
+                for key, value in entry.items()
+            )
+        ]
 
     @cached_property
     def release_notes(self) -> str | None:

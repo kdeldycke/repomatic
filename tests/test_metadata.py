@@ -1659,6 +1659,81 @@ os = ["windows-11-arm"]
     assert all(j["os"] != "windows-11-arm" for j in full_jobs)
 
 
+def test_test_matrix_config_unstable(tmp_path, monkeypatch):
+    """Test test-matrix.unstable flags full-matrix combos and skips the PR matrix."""
+    pyproject_content = """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[tool.repomatic.test-matrix]
+variations.click-version = ["released", "colorama"]
+unstable = [
+    {click-version = "colorama"},
+]
+"""
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(pyproject_content)
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+    metadata = Metadata()
+
+    # Full matrix: every colorama combo is flagged unstable, on every OS/Python.
+    full_jobs = list(metadata.test_matrix.solve())
+    colorama_jobs = [j for j in full_jobs if j.get("click-version") == "colorama"]
+    assert colorama_jobs
+    assert all(j["state"] == "unstable" for j in colorama_jobs)
+
+    # At a stable Python the marking is what flips state: colorama is unstable
+    # while released stays stable (released only goes unstable at a development
+    # Python, via the separate built-in rule).
+    colorama_stable_py = [j for j in colorama_jobs if j["python-version"] == "3.14"]
+    released_stable_py = [
+        j
+        for j in full_jobs
+        if j.get("click-version") == "released" and j["python-version"] == "3.14"
+    ]
+    assert colorama_stable_py and released_stable_py
+    assert all(j["state"] == "unstable" for j in colorama_stable_py)
+    assert all(j["state"] == "stable" for j in released_stable_py)
+
+    # PR matrix: the directive is full-only, so it is absent and no PR job is
+    # hijacked into the colorama click-version or flipped to unstable.
+    pr = metadata.test_matrix_pr.matrix()
+    assert {"state": "unstable", "click-version": "colorama"} not in pr.get(
+        "include", ()
+    )
+    pr_jobs = list(metadata.test_matrix_pr.solve())
+    assert all(j["state"] == "stable" for j in pr_jobs)
+    assert all(j.get("click-version") != "colorama" for j in pr_jobs)
+
+
+def test_stale_test_matrix_excludes(tmp_path, monkeypatch):
+    """Test detection of test-matrix.exclude entries that match no live axis."""
+    pyproject_content = """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[tool.repomatic.test-matrix]
+exclude = [
+    {os = "ubuntu-slim"},
+    {os = "macos-15-intel"},
+    {python-version = "9.99"},
+]
+"""
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(pyproject_content)
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+    metadata = Metadata()
+
+    # ubuntu-slim is a live runner, so its exclude is honored. The renamed
+    # macos-15-intel and the bogus Python version match no axis and are flagged.
+    stale = metadata.stale_test_matrix_excludes
+    assert {"os": "ubuntu-slim"} not in stale
+    assert {"os": "macos-15-intel"} in stale
+    assert {"python-version": "9.99"} in stale
+
+
 def test_unstable_targets_default(tmp_path, monkeypatch):
     """Test that unstable_targets defaults to an empty set."""
     pyproject_file = tmp_path / "pyproject.toml"

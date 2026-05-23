@@ -250,6 +250,13 @@ class TestMatrixConfig:
 
     Each entry is a dict of GitHub Actions matrix keys that adds or augments
     matrix combinations. Additive to the upstream default includes.
+
+    Because includes apply to both matrices, a directive whose keys are not PR
+    base axes is risky. In the PR matrix only `os` and `python-version` are base
+    axes, so a key like `click-version` (injected by another include) has
+    nothing to match and GitHub's expansion adds the directive to every PR job,
+    overwriting it. To flag a value continue-on-error, prefer `unstable` over an
+    `include` carrying `state: unstable`.
     """
 
     remove: dict[str, list[str]] = field(default_factory=dict)
@@ -266,6 +273,22 @@ class TestMatrixConfig:
     Outer key is the variation/axis ID (e.g., `os`, `python-version`).
     Inner dict maps old values to new values. Applied before removals,
     excludes, includes, and variations.
+    """
+
+    unstable: list[dict[str, str]] = field(default_factory=list)
+    """Full-matrix-only combinations to flag continue-on-error in CI.
+
+    Each entry is a dict of GitHub Actions matrix keys (like
+    `{"click-version": "main"}`). Every full-matrix combination matching an
+    entry gets a `state: unstable` value, which `tests.yaml` reads to set
+    `continue-on-error`. Like `variations`, this applies to the full matrix
+    only; the PR matrix stays a curated stable set.
+
+    Prefer this over an `include` entry carrying `state: unstable`. `include`
+    applies to both matrices, and in the PR matrix a key like `click-version`
+    is not a base axis (another `include` injects it), so GitHub's expansion
+    would add the directive to every PR job and overwrite it. `unstable` only
+    touches the full matrix, sidestepping that hijack.
     """
 
     variations: dict[str, list[str]] = field(default_factory=dict)

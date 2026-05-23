@@ -31,6 +31,7 @@ import yaml
 from .github.actions import AnnotationLevel, emit_annotation
 from .github.gh import run_gh_command
 from .github.token import check_all_pat_permissions
+from .metadata import Metadata
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     get_latest_release_file,
@@ -775,6 +776,42 @@ def check_workflow_permissions() -> list[tuple[str | None, str]]:
     return results
 
 
+def check_test_matrix_excludes() -> list[tuple[str | None, str]]:
+    """Flag `[tool.repomatic.test-matrix] exclude` entries that match no axis.
+
+    An exclude naming a value absent from every matrix axis (like a renamed
+    runner) can never match a combination, so `Matrix.prune()` drops it
+    silently and its exclusion intent is lost. Reporting it as a warning makes
+    the drift visible in CI instead of silently weakening the matrix.
+
+    :return: List of (warning_message or None, info_message) tuples.
+    """
+    metadata = Metadata()
+    if not metadata.config.test_matrix.exclude:
+        return [(None, "Test matrix excludes check: skipped (none configured).")]
+
+    axes = metadata.test_matrix.all_variations()
+    stale = metadata.stale_test_matrix_excludes
+    if not stale:
+        return [(None, "Test matrix excludes check: all entries match a live axis.")]
+
+    results: list[tuple[str | None, str]] = []
+    for entry in stale:
+        bad = {
+            key: value
+            for key, value in entry.items()
+            if key not in axes or value not in axes[key]
+        }
+        msg = (
+            f"Test matrix exclude {entry} references values absent from the "
+            f"matrix axes ({bad}); it is silently dropped and never takes "
+            "effect. Update it (for instance after an upstream runner rename) "
+            "or remove it."
+        )
+        results.append((msg, msg))
+    return results
+
+
 def run_repo_lint(
     package_name: str | None = None,
     repo_name: str | None = None,
@@ -911,6 +948,12 @@ def run_repo_lint(
 
     # Check 10: Workflow permissions declared on custom-step workflows.
     for warning, msg in check_workflow_permissions():
+        if warning:
+            emit_annotation(AnnotationLevel.WARNING, warning)
+        print(f"{'⚠' if warning else '✓'} {msg}")
+
+    # Check 10b: Test matrix excludes reference values present in a live axis.
+    for warning, msg in check_test_matrix_excludes():
         if warning:
             emit_annotation(AnnotationLevel.WARNING, warning)
         print(f"{'⚠' if warning else '✓'} {msg}")

@@ -35,11 +35,13 @@ from repomatic.lint_repo import (
     check_package_name_vs_repo,
     check_pypi_trusted_publisher,
     check_stale_draft_releases,
+    check_test_matrix_excludes,
     check_topics_subset_of_keywords,
     check_website_for_sphinx,
     get_repo_metadata,
     run_repo_lint,
 )
+from repomatic.metadata import Metadata
 from repomatic.pypi import TrustedPublisher
 
 
@@ -752,3 +754,31 @@ def test_pypi_trusted_publisher_repository_mismatch():
         passed, msg = check_pypi_trusted_publisher("owner/cherries", "cherries")
     assert passed is False
     assert "upstream/orchard" in msg
+
+
+def test_check_test_matrix_excludes_flags_stale(tmp_path, monkeypatch):
+    """A stale exclude (a renamed runner) is reported as a warning."""
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(
+        '[project]\nname = "p"\nversion = "1.0.0"\n\n'
+        "[tool.repomatic.test-matrix]\n"
+        'exclude = [{os = "macos-15-intel"}]\n'
+    )
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+
+    results = check_test_matrix_excludes()
+    assert any(warning and "macos-15-intel" in warning for warning, _ in results)
+
+
+def test_check_test_matrix_excludes_clean(tmp_path, monkeypatch):
+    """A live exclude produces no warning."""
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(
+        '[project]\nname = "p"\nversion = "1.0.0"\n\n'
+        "[tool.repomatic.test-matrix]\n"
+        'exclude = [{os = "ubuntu-slim"}]\n'
+    )
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+
+    results = check_test_matrix_excludes()
+    assert all(warning is None for warning, _ in results)

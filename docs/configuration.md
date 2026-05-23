@@ -108,6 +108,7 @@ workflow.ignore-paths = ["uv.lock"]
 | [`test-matrix.include`](#test-matrix-include)                 | Extra include directives applied to both full and PR test matrices.              | `[]`                                |
 | [`test-matrix.remove`](#test-matrix-remove)                   | Per-axis value removals applied to both full and PR test matrices.               | {}                                  |
 | [`test-matrix.replace`](#test-matrix-replace)                 | Per-axis value replacements applied to both full and PR test matrices.           | {}                                  |
+| [`test-matrix.unstable`](#test-matrix-unstable)               | Full-matrix-only combinations to flag continue-on-error in CI.                   | `[]`                                |
 | [`test-matrix.variations`](#test-matrix-variations)           | Extra matrix dimension values added to the full test matrix only.                | {}                                  |
 | [`test-plan.file`](#test-plan-file)                           | Path to the YAML test plan file for binary testing.                              | `"./tests/cli-test-plan.yaml"`      |
 | [`test-plan.inline`](#test-plan-inline)                       | Inline YAML test plan for binaries.                                              | *(none)*                            |
@@ -766,6 +767,13 @@ Extra include directives applied to both full and PR test matrices.
 Each entry is a dict of GitHub Actions matrix keys that adds or augments
 matrix combinations. Additive to the upstream default includes.
 
+Because includes apply to both matrices, a directive whose keys are not PR
+base axes is risky. In the PR matrix only `os` and `python-version` are base
+axes, so a key like `click-version` (injected by another include) has
+nothing to match and GitHub's expansion adds the directive to every PR job,
+overwriting it. To flag a value continue-on-error, prefer `unstable` over an
+`include` carrying `state: unstable`.
+
 **Example:**
 
 ```toml
@@ -792,6 +800,31 @@ Per-axis value replacements applied to both full and PR test matrices.
 Outer key is the variation/axis ID (e.g., `os`, `python-version`).
 Inner dict maps old values to new values. Applied before removals,
 excludes, includes, and variations.
+
+### `test-matrix.unstable`
+
+Full-matrix-only combinations to flag continue-on-error in CI.
+
+**Type:** `list[dict[str, str]]` | **Default:** `[]`
+
+Each entry is a dict of GitHub Actions matrix keys (like
+`{"click-version": "main"}`). Every full-matrix combination matching an
+entry gets a `state: unstable` value, which `tests.yaml` reads to set
+`continue-on-error`. Like `variations`, this applies to the full matrix
+only; the PR matrix stays a curated stable set.
+
+Prefer this over an `include` entry carrying `state: unstable`. `include`
+applies to both matrices, and in the PR matrix a key like `click-version`
+is not a base axis (another `include` injects it), so GitHub's expansion
+would add the directive to every PR job and overwrite it. `unstable` only
+touches the full matrix, sidestepping that hijack.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+test-matrix.unstable = []
+```
 
 ### `test-matrix.variations`
 
