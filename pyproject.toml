@@ -187,13 +187,7 @@ dependency-groups.docs = { requires-python = ">= 3.14" }
 # uv.lock for relative spans, so re-resolving never produces churn.
 exclude-newer = "1 week"
 # repomatic is pinned to git main.
-# Nuitka 4.1 fixes uv_build backend recognition
-# (https://github.com/Nuitka/Nuitka/issues/3750): bypass the cooldown so the
-# fix lands without waiting a week.
-# GitPython 3.1.50 patches CVE-2026-42215 bypass (newline injection in
-# config_writer section parameter): bypass the cooldown to pull the security
-# fix immediately.
-exclude-newer-package = { nuitka = "0 day", repomatic = "0 day" }
+exclude-newer-package = { repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
