@@ -211,13 +211,15 @@ include-data-files = [
 # Nuitka does not auto-bundle non-Python data files, so the binary crashes on
 # startup unless it is declared here.
 include-package-data = [ "click_extra" ]
-# A single square PNG drives all three platforms: Nuitka converts it for the
-# Windows .ico and ignores the icon flags that don't match the build OS.
+# Each platform points at its native icon format (all rendered from
+# favicon.svg). Passing a non-native image (like a PNG to
+# --windows-icon-from-ico) makes Nuitka require the imageio package to convert
+# it, which fails the build. Per-OS flags not matching the build host are ignored.
 linux-icon = "docs/assets/icon.png"
-macos-app-icon = "docs/assets/icon.png"
+macos-app-icon = "docs/assets/icon.icns"
 product-name = "Repomatic"
 product-version = "6.20.0"
-windows-icon-from-ico = "docs/assets/icon.png"
+windows-icon-from-ico = "docs/assets/icon.ico"
 
 [tool.ruff]
 preview = true
