@@ -1473,7 +1473,9 @@ def test_run_tool_mypy_without_computed_params(
 
 @patch("repomatic.tool_runner.subprocess.run")
 @patch("repomatic.tool_runner.is_github_ci", return_value=False)
-def test_run_tool_nuitka_uses_module_invocation(mock_ci, mock_run, tmp_path, monkeypatch):
+def test_run_tool_nuitka_uses_module_invocation(
+    mock_ci, mock_run, tmp_path, monkeypatch
+):
     """nuitka runs via `python -m nuitka` to avoid Windows script resolution issues."""
     monkeypatch.chdir(tmp_path)
     mock_run.return_value = MagicMock(returncode=0)
