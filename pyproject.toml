@@ -323,13 +323,9 @@ glob = "./**/__init__.py"
 ignore_missing_version = true
 
 [[tool.bumpversion.files]]
-# Update version in [project] section. Anchored to a line start (regex) so it
-# does not also match the file-version/product-version keys in [tool.nuitka],
-# which contain `version = "X"` as a substring (their values collide with the
-# package version on release commits, where the .devN suffix is absent).
+# Update version in [project] section.
 filename = "./pyproject.toml"
-regex = true
-search = '(?m)^version = "{current_version}"'
+search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
 [[tool.bumpversion.files]]
@@ -337,15 +333,6 @@ replace = 'version = "{new_version}"'
 filename = "./pyproject.toml"
 search = "releases/tag/v{current_version}"
 replace = "releases/tag/v{new_version}"
-
-[[tool.bumpversion.files]]
-# Keep the numeric file-version/product-version in [tool.nuitka] in sync. Nuitka
-# rejects PEP 440 .devN suffixes, so the file-specific serialize strips them; the
-# `-version = "` prefix matches both keys at once.
-filename = "./pyproject.toml"
-serialize = [ "{major}.{minor}.{patch}" ]
-search = '-version = "{current_version}"'
-replace = '-version = "{new_version}"'
 
 [[tool.bumpversion.files]]
 # Update the version in Markdown changelog.
@@ -365,6 +352,25 @@ filename = "./citation.cff"
 regex = true
 search = "date-released: \\d{{4}}-\\d{{2}}-\\d{{2}}"
 replace = "date-released: {utcnow:%Y-%m-%d}"
+
+[[tool.bumpversion.files]]
+# Update version in [project] section. Anchored to a line start (regex) so it
+# does not also match the file-version/product-version keys in [tool.nuitka],
+# which contain `version = "X"` as a substring (their values collide with the
+# package version on release commits, where the .devN suffix is absent).
+filename = "./pyproject.toml"
+regex = true
+search = '(?m)^version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+# Keep the numeric file-version/product-version in [tool.nuitka] in sync. Nuitka
+# rejects PEP 440 .devN suffixes, so the file-specific serialize strips them; the
+# `-version = "` prefix matches both keys at once.
+filename = "./pyproject.toml"
+serialize = [ "{major}.{minor}.{patch}" ]
+search = '-version = "{current_version}"'
+replace = '-version = "{new_version}"'
 
 [tool.mypy]
 check_untyped_defs = true
