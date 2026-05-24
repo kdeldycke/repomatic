@@ -13,6 +13,9 @@
 
 ## [`6.19.0` (2026-05-21)](https://github.com/kdeldycke/repomatic/compare/v6.18.4...v6.19.0)
 
+> [!NOTE]
+> `6.19.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.19.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.19.0).
+
 - Fix a flaky `.git/config.lock` conflict on `ubuntu-24.04-arm / py3.14t`: `test_skip_binary_build_property_is_bool` in `test_binary.py` accesses `Metadata.skip_binary_build` which, in a CI push event, triggers `Metadata.git` → `pydriller.Git(".")` on a separate xdist worker. The cross-worker lock race caused an `OSError` when the git-group worker ran `test_is_version_bump_allowed_current_repo` simultaneously. Adding `@pytest.mark.xdist_group("git")` to that test serializes it onto the same worker as the other git-touching tests.
 - Reconcile orphan version-bump PRs created by races between the `changelog.yaml` schedule and a competing push. The `bump-version` matrix job now always checks out the repo and runs `setup-uv`, and adds a new `Close stale ${{ matrix.part }} bump PR` step that runs when `${part}_bump_allowed` is `false`. The step invokes the new `repomatic close-stale-bump-pr --part minor|major` CLI command, which re-evaluates `is_version_bump_allowed` and closes any open PR on the matching `${part}-version-increment` branch (deleting the branch). Previously the gated steps silently skipped, leaving an orphan PR whose only diff against `main` was `uv.lock` churn from `uv lock --upgrade`. The new step is idempotent: a no-op when no open PR exists on the branch.
 - Expand sponsor benefits in the awesome template's `contributing.md`: sponsors now get a dedicated entry in the matching section (visible to readers and LLMs scanning the list body, not only the header banner) and a waiver on the licensing-marker requirement. Add a cross-reference note in the licensing-markers section and explicit heading anchors to support the links in both the English and Chinese variants.
