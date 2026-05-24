@@ -144,6 +144,10 @@ def test_tool_spec_integrity(name, spec):
         f"{name}: needs_venv and binary are mutually exclusive"
     )
 
+    # module requires needs_venv (module invocation uses the venv's Python).
+    if spec.module is not None:
+        assert spec.needs_venv, f"{name}: module requires needs_venv=True"
+
     # NativeFormat.FLAGS is mutually exclusive with file-based config: such tools
     # accept no config file and do not read [tool.X] natively.
     if spec.native_format is NativeFormat.FLAGS:
@@ -1465,6 +1469,25 @@ def test_run_tool_mypy_without_computed_params(
     cmd = mock_run.call_args[0][0]
     assert "--color-output" in cmd
     assert "--python-version" not in cmd
+
+
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_nuitka_uses_module_invocation(mock_ci, mock_run, tmp_path, monkeypatch):
+    """nuitka runs via `python -m nuitka` to avoid Windows script resolution issues."""
+    monkeypatch.chdir(tmp_path)
+    mock_run.return_value = MagicMock(returncode=0)
+
+    run_tool("nuitka", extra_args=("repomatic",))
+
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "uv"
+    assert "run" in cmd
+    assert "--frozen" in cmd
+    python_idx = cmd.index("python")
+    assert cmd[python_idx + 1] == "-m"
+    assert cmd[python_idx + 2] == "nuitka"
+    assert "repomatic" in cmd
 
 
 # ---------------------------------------------------------------------------

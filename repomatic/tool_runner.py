@@ -391,6 +391,16 @@ class ToolSpec:
     the registry key.
     """
 
+    module: str | None = None
+    """Python module name for `-m module` invocation, e.g. `'nuitka'`.
+
+    When set, the tool is invoked as `python -m <module>` instead of the
+    console script. Requires `needs_venv=True`. Use when the tool's script
+    entry point is not reliably found across platforms (for example, Nuitka
+    installs only a `.cmd` wrapper on Windows, which `uv run -- nuitka` cannot
+    locate).
+    """
+
     native_config_files: tuple[str, ...] = ()
     """Config filenames the tool auto-discovers, checked in order.
 
@@ -931,6 +941,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         config_docs_url="https://nuitka.net/doc/user-manual.html",
         cli_docs_url="https://nuitka.net/doc/user-manual.html",
         needs_venv=True,
+        module="nuitka",
         native_format=NativeFormat.FLAGS,
         default_flags=("--mode=onefile", "--assume-yes-for-downloads"),
     ),
@@ -1712,7 +1723,10 @@ def _build_install_args(spec: ToolSpec) -> list[str]:
 
     if spec.needs_venv:
         cmd = uv_cmd("run", frozen=True)
-        cmd.extend(["--with", package_pin, "--", executable])
+        if spec.module:
+            cmd.extend(["--with", package_pin, "--", "python", "-m", spec.module])
+        else:
+            cmd.extend(["--with", package_pin, "--", executable])
     else:
         cmd = uvx_cmd()
         for pkg in spec.with_packages:
