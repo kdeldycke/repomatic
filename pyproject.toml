@@ -290,7 +290,7 @@ addopts = [
   "--cov",
   "--cov-report=term",
   "--numprocesses=auto",
-  "--dist=loadfile",
+  "--dist=loadgroup",
 ]
 # Make sure tests that are expected to fail do not resurrect and start working all of a sudden.
 xfail_strict = true

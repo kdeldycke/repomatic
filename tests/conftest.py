@@ -57,7 +57,9 @@ def _cleanup_git_config_lock():
     Any test that calls ``pydriller.Git(".")`` directly or indirectly (via
     ``Metadata.git``, ``Metadata.skip_binary_build``, etc.) must carry
     ``@pytest.mark.xdist_group("git")`` so it runs on the same worker as the
-    git-group tests and avoids cross-worker lock conflicts.
+    git-group tests and avoids cross-worker lock conflicts.  This requires
+    ``--dist=loadgroup`` (the active mode in ``[tool.pytest].addopts``);
+    ``--dist=loadfile`` ignores xdist_group markers entirely.
     """
     try:
         Path(".git/config.lock").unlink(missing_ok=True)
