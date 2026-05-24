@@ -329,11 +329,15 @@ def _graft_local_additions(
             # Slots already claimed by the canonical template: a local entry
             # mapping to one of these is a (possibly stale) copy of a template
             # entry, so the template wins and the local copy is not re-added.
-            template_slots = {
-                _entry_identity(item, identity_keys)
-                for item in template_value
-                if isinstance(item, dict)
-            } if identity_keys else set()
+            template_slots = (
+                {
+                    _entry_identity(item, identity_keys)
+                    for item in template_value
+                    if isinstance(item, dict)
+                }
+                if identity_keys
+                else set()
+            )
             # Array in both: append local-only items, preserving their order.
             for index, item in enumerate(existing_value):
                 if (
