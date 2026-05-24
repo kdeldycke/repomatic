@@ -138,9 +138,8 @@ GitHub Actions has several design limitations that the workflows work around:
 
 #### 🔄 Sync bumpversion config (`sync-bumpversion`)
 
-- Syncs the `[tool.bumpversion]` configuration in `pyproject.toml` using [`repomatic sync-bumpversion`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
+- Re-derives the `[tool.bumpversion]` configuration in `pyproject.toml` from the bundled template on every run using [`repomatic sync-bumpversion`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py), overwriting canonical entries while preserving local-only additions
 - **Skipped if**:
-  - `[tool.bumpversion]` section already exists in `pyproject.toml`
   - `bumpversion.sync = false` in `[tool.repomatic]`
 
 #### 🔄 Sync repomatic (`sync-repomatic`)

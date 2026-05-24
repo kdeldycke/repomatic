@@ -249,11 +249,25 @@ def _template_to_table(template_text: str) -> tomlkit.items.Table:
 _MISSING = object()
 
 
+def _entry_identity(
+    entry: Mapping[str, Any], identity_keys: tuple[str, ...]
+) -> tuple[tuple[str, Any], ...]:
+    """Return the slot identity of an array-of-tables entry.
+
+    The identity is the tuple of `(key, value)` pairs for the `identity_keys`
+    the entry actually carries, so two entries map to the same slot when they
+    agree on every identity key they share. See
+    {attr}`~repomatic.registry.ToolConfigComponent.graft_identity_keys`.
+    """
+    return tuple((key, entry[key]) for key in identity_keys if key in entry)
+
+
 def _graft_local_additions(
     target: Any,
     template: Mapping[str, Any],
     existing: Mapping[str, Any],
     existing_tk: Any,
+    identity_keys: tuple[str, ...] = (),
 ) -> None:
     """Graft local-only content from an existing section onto a template table.
 
@@ -267,9 +281,12 @@ def _graft_local_additions(
       table the template also defines are kept (e.g. a downstream entry in
       `[tool.typos.default.extend-identifiers]` next to the canonical ones).
     - **Arrays present in both** gain their local-only items appended after the
-      template items (union by value). This serves scalar arrays
-      (`extend-ignore-re`, `serialize`) and arrays-of-tables
-      (`[[tool.bumpversion.files]]`) alike.
+      template items. Scalar arrays (`extend-ignore-re`, `serialize`) and
+      arrays-of-tables with no `identity_keys` use a plain union by value.
+      When `identity_keys` is set, an array-of-tables entry that shares a slot
+      identity with a template entry (`[[tool.bumpversion.files]]` whose
+      canonical `search` has evolved) is dropped in favour of the template
+      instead of appended as a duplicate.
     - **Scalars present in both** are left as the template defines them: the
       canonical value wins, which is the point of an ongoing sync.
 
@@ -283,6 +300,9 @@ def _graft_local_additions(
     :param existing: Plain-dict view of the local section being synced.
     :param existing_tk: tomlkit view of the local section, source of grafted
         items.
+    :param identity_keys: Keys identifying an array-of-tables entry's slot. When
+        set, a local entry sharing a slot with a template entry is dropped in
+        favour of the template rather than appended as a duplicate.
     """
     for key, existing_value in existing.items():
         template_value = template.get(key, _MISSING)
@@ -299,11 +319,29 @@ def _graft_local_additions(
             else:
                 # Standard table: recurse so local-only sub-keys survive.
                 _graft_local_additions(
-                    target[key], template_value, existing_value, existing_tk[key]
+                    target[key],
+                    template_value,
+                    existing_value,
+                    existing_tk[key],
+                    identity_keys,
                 )
         elif isinstance(template_value, list) and isinstance(existing_value, list):
+            # Slots already claimed by the canonical template: a local entry
+            # mapping to one of these is a (possibly stale) copy of a template
+            # entry, so the template wins and the local copy is not re-added.
+            template_slots = {
+                _entry_identity(item, identity_keys)
+                for item in template_value
+                if isinstance(item, dict)
+            } if identity_keys else set()
             # Array in both: append local-only items, preserving their order.
             for index, item in enumerate(existing_value):
+                if (
+                    isinstance(item, dict)
+                    and _entry_identity(item, identity_keys) in template_slots
+                ):
+                    # Same slot as a canonical entry: superseded by the template.
+                    continue
                 if item not in template_value:
                     target[key].append(existing_tk[key][index])
         # Scalar in both: the canonical template value wins, nothing to graft.
@@ -423,9 +461,14 @@ def _update_tool_config(
 
     # Graft local-only configuration on top of the canonical template: keys the
     # template omits, extra items in shared arrays, and extra keys in shared
-    # nested tables all survive, while the template wins on shared scalars.
+    # nested tables all survive, while the template wins on shared scalars and
+    # on array-of-tables entries that share a `graft_identity_keys` slot.
     _graft_local_additions(
-        new_section, template_plain, existing_plain, existing_section
+        new_section,
+        template_plain,
+        existing_plain,
+        existing_section,
+        comp.graft_identity_keys,
     )
 
     # `preserved_keys` are authoritative locally (e.g. `current_version`): the

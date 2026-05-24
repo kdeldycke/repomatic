@@ -324,9 +324,10 @@ ignore_missing_version = true
 
 [[tool.bumpversion.files]]
 # Update version in [project] section. Anchored to a line start (regex) so it
-# does not also match the file-version/product-version keys in [tool.nuitka],
-# which contain `version = "X"` as a substring (their values collide with the
-# package version on release commits, where the .devN suffix is absent).
+# does not also match version-suffixed keys like file-version/product-version
+# under [tool.nuitka], which contain `version = "X"` as a substring (their
+# values collide with the package version on release commits, where the .devN
+# suffix is absent).
 filename = "./pyproject.toml"
 regex = true
 search = '(?m)^version = "{current_version}"'
@@ -339,10 +340,12 @@ search = "releases/tag/v{current_version}"
 replace = "releases/tag/v{new_version}"
 
 [[tool.bumpversion.files]]
-# Keep the numeric file-version/product-version in [tool.nuitka] in sync. Nuitka
-# rejects PEP 440 .devN suffixes, so the file-specific serialize strips them; the
-# `-version = "` prefix matches both keys at once.
+# Keep the numeric file-version/product-version under [tool.nuitka] in sync,
+# when present. Nuitka rejects PEP 440 .devN suffixes, so the file-specific
+# serialize strips them; the `-version = "` prefix matches both keys at once.
+# ignore_missing_version makes this a no-op in projects without [tool.nuitka].
 filename = "./pyproject.toml"
+ignore_missing_version = true
 serialize = [ "{major}.{minor}.{patch}" ]
 search = '-version = "{current_version}"'
 replace = '-version = "{new_version}"'

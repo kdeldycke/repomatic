@@ -254,6 +254,24 @@ class ToolConfigComponent(Component):
     overwritten by the template placeholder.
     """
 
+    graft_identity_keys: tuple[str, ...] = ()
+    """Keys that identify the "slot" of an array-of-tables entry during a graft.
+
+    Only meaningful when `sync_mode` is `ONGOING`. When set, a local
+    array-of-tables entry that shares its identity tuple (the values of these
+    keys) with a template entry is treated as a stale copy of that canonical
+    entry: the template wins and the local entry is dropped rather than
+    appended as a duplicate. Local entries whose identity matches no template
+    entry are genuinely local and survive. Leave empty to fall back to a plain
+    union-by-value, which cannot tell an evolved canonical entry apart from a
+    new local one.
+
+    For `bumpversion`, the slot is `(filename | glob | key_path, replace)`:
+    `filename`/`glob`/`key_path` name the target file and `replace` names what
+    the entry writes there, so a stale entry whose `search` pattern evolved
+    (e.g. gaining a regex anchor) still maps to the same slot.
+    """
+
     def __post_init__(self) -> None:
         """Validate required fields."""
         if not self.source_file:
@@ -614,6 +632,7 @@ COMPONENTS: tuple[Component, ...] = (
         insert_before=("tool.typos",),
         sync_mode=SyncMode.ONGOING,
         preserved_keys=("current_version",),
+        graft_identity_keys=("filename", "glob", "key_path", "replace"),
     ),
     ToolConfigComponent(
         name="typos",

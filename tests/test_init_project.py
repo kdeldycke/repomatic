@@ -1320,11 +1320,50 @@ def test_ongoing_sync_no_duplicate_template_entries(tmp_path: Path) -> None:
     assert result is not None
     parsed = tomllib.loads(result)
     files_entries = parsed["tool"]["bumpversion"]["files"]
-    # Template entries for pyproject.toml should appear exactly twice (version + tag).
+    # The template's three pyproject.toml entries ([project] version, download
+    # URL, nuitka file-/product-version). The fixture's unanchored [project]
+    # entry shares the version slot and is superseded by the template, not added
+    # as a fourth entry.
     pyproject_entries = [
         e for e in files_entries if e.get("filename") == "./pyproject.toml"
     ]
-    assert len(pyproject_entries) == 2
+    assert len(pyproject_entries) == 3
+
+
+def test_evolved_canonical_entry_superseded_not_duplicated(tmp_path: Path) -> None:
+    """Verify a stale copy of a canonical entry is superseded, not duplicated.
+
+    The [project] version entry gained a regex anchor (so it cannot bleed into
+    `[tool.nuitka]`'s file-/product-version keys). A downstream repo still
+    carrying the old unanchored form must converge on the single canonical
+    anchored entry rather than ending up with both, which would break the bump.
+    """
+    content = (
+        '[project]\nname = "test"\nversion = "1.0.0.dev0"\n\n'
+        "[tool.bumpversion]\n"
+        'current_version = "1.0.0.dev0"\n'
+        "allow_dirty = true\n"
+        'parse = "(?P<major>\\\\d+)"\n'
+        'serialize = ["{major}"]\n\n'
+        "[[tool.bumpversion.files]]\n"
+        'filename = "./pyproject.toml"\n'
+        "search = 'version = \"{current_version}\"'\n"
+        "replace = 'version = \"{new_version}\"'\n"
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(content, encoding="UTF-8")
+
+    result = init_config("bumpversion", pyproject)
+
+    assert result is not None
+    files = tomllib.loads(result)["tool"]["bumpversion"]["files"]
+    version_entries = [
+        e for e in files if e.get("replace") == 'version = "{new_version}"'
+    ]
+    assert len(version_entries) == 1
+    # The survivor is the canonical anchored form, not the stale unanchored one.
+    assert version_entries[0].get("regex") is True
+    assert version_entries[0]["search"].startswith("(?m)")
 
 
 def test_local_entries_preserved_via_update(tmp_path: Path) -> None:
