@@ -1083,16 +1083,30 @@ replace = "## [{new_version} (unreleased)]("
 # Mirrors the motivating downstream case (kdeldycke/dotfiles): a non-Python repo
 # that carries its own `[tool.typos]` (project-specific excludes and a couple of
 # local identifiers/words) but never received the bundled canonical identifiers.
+# The local entries use domain-neutral placeholders `typos` does not flag, so
+# the `fix-typos` job cannot rewrite this fixture.
 PYPROJECT_WITH_TYPOS = """\
 [tool.typos]
 files.extend-exclude = ["assets/Monokai Soda.terminal"]
 
 [tool.typos.default.extend-identifiers]
-automaticEmojiSubstitutionEnablediMessage = "automaticEmojiSubstitutionEnablediMessage"
+getForecastForCity = "getForecastForCity"
 
 [tool.typos.default.extend-words]
-Sur = "Sur"
+monsoon = "monsoon"
 """
+
+
+def _canonical_typos_identifiers() -> dict[str, str]:
+    """Canonical proper-noun identifiers bundled in `repomatic/data/typos.toml`.
+
+    Loaded from the template so tests can assert on the canonical map of
+    misspelled keys to corrected values without writing those misspelled keys as
+    literals here, which the `fix-typos` job would otherwise "correct".
+    """
+    parsed = tomllib.loads(get_data_content("typos.toml"))
+    identifiers = parsed["default"]["extend-identifiers"]
+    return {str(k): str(v) for k, v in identifiers.items()}
 
 
 def _make_pyproject_with_template_bumpversion(version: str = "7.5.3.dev0") -> str:
@@ -1415,9 +1429,9 @@ def test_syncs_typos_identifiers_into_existing_section(tmp_path: Path) -> None:
     identifiers = tomllib.loads(result)["tool"]["typos"]["default"][
         "extend-identifiers"
     ]
-    assert identifiers["Github"] == "GitHub"
-    assert identifiers["MacOS"] == "macOS"
-    assert identifiers["PyPi"] == "PyPI"
+    # Compared against the bundled template so the misspelled canonical keys
+    # never appear as literals here, where `fix-typos` would "correct" them.
+    assert _canonical_typos_identifiers().items() <= identifiers.items()
 
 
 def test_typos_preserves_local_inline_table_keys(tmp_path: Path) -> None:
@@ -1430,11 +1444,8 @@ def test_typos_preserves_local_inline_table_keys(tmp_path: Path) -> None:
     assert result is not None
     default = tomllib.loads(result)["tool"]["typos"]["default"]
     # Local additions kept.
-    assert (
-        default["extend-identifiers"]["automaticEmojiSubstitutionEnablediMessage"]
-        == "automaticEmojiSubstitutionEnablediMessage"
-    )
-    assert default["extend-words"]["Sur"] == "Sur"
+    assert default["extend-identifiers"]["getForecastForCity"] == "getForecastForCity"
+    assert default["extend-words"]["monsoon"] == "monsoon"
     # Template entries present too.
     assert default["extend-words"]["astroid"] == "astroid"
     assert default["extend-ignore-re"]
@@ -1454,7 +1465,13 @@ def test_typos_preserves_local_only_table(tmp_path: Path) -> None:
 
 def test_typos_canonical_value_wins_on_conflict(tmp_path: Path) -> None:
     """Canonical capitalization overrides a wrong local target on shared keys."""
-    content = '[tool.typos.default.extend-identifiers]\nGithub = "Github"\n'
+    # Seed a canonical identifier with a wrong local target (the misspelled key
+    # mapped to itself), derived from the template so no misspelled literal
+    # appears in this file, then assert the canonical capitalization wins.
+    key, canonical = next(
+        (k, v) for k, v in _canonical_typos_identifiers().items() if k != v
+    )
+    content = f'[tool.typos.default.extend-identifiers]\n{key} = "{key}"\n'
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(content, encoding="UTF-8")
 
@@ -1464,7 +1481,7 @@ def test_typos_canonical_value_wins_on_conflict(tmp_path: Path) -> None:
     identifiers = tomllib.loads(result)["tool"]["typos"]["default"][
         "extend-identifiers"
     ]
-    assert identifiers["Github"] == "GitHub"
+    assert identifiers[key] == canonical
 
 
 def test_typos_update_idempotent(tmp_path: Path) -> None:
