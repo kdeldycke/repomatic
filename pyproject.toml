@@ -321,9 +321,13 @@ glob = "./**/__init__.py"
 ignore_missing_version = true
 
 [[tool.bumpversion.files]]
-# Update version in [project] section.
+# Update version in [project] section. Anchored to a line start (regex) so it
+# does not also match the file-version/product-version keys in [tool.nuitka],
+# which contain `version = "X"` as a substring (their values collide with the
+# package version on release commits, where the .devN suffix is absent).
 filename = "./pyproject.toml"
-search = 'version = "{current_version}"'
+regex = true
+search = '(?m)^version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
 [[tool.bumpversion.files]]
