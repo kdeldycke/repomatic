@@ -150,9 +150,7 @@ def test_tool_spec_integrity(name, spec):
         assert not spec.reads_pyproject, (
             f"{name}: FLAGS format conflicts with reads_pyproject"
         )
-        assert not spec.config_flag, (
-            f"{name}: FLAGS format conflicts with config_flag"
-        )
+        assert not spec.config_flag, f"{name}: FLAGS format conflicts with config_flag"
         assert not spec.native_config_files, (
             f"{name}: FLAGS format conflicts with native_config_files"
         )
