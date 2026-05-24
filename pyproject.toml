@@ -250,7 +250,7 @@ default.extend-ignore-identifiers-re = [
   #     ╭▸ ./repomatic/uv.py:82:55
   #     │
   #  82 │     r"^(\S+)\s+(\S+)\s+has\s+\d+\s+known\s+vulnerabilit"
-  #     ╰╴                                              ━━━━━━━━━━━━
+  #     ╰╴                                           ━━━━━━━━━━━━
   # Intentional truncation to match both "vulnerability" and "vulnerabilities".
   "vulnerabilit",
   # error: `WARNIN` should be `WARNING`
