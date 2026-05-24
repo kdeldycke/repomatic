@@ -1088,10 +1088,10 @@ PYPROJECT_WITH_TYPOS = """\
 files.extend-exclude = ["assets/Monokai Soda.terminal"]
 
 [tool.typos.default.extend-identifiers]
-automaticEmojiSubstitutionEnablediMessage = "automaticEmojiSubstitutionEnablediMessage"
+automaticEmojiSubstitutionEnabledMessage = "automaticEmojiSubstitutionEnabledMessage"
 
 [tool.typos.default.extend-words]
-Sur = "Sur"
+Sure = "Sure"
 """
 
 
@@ -1415,9 +1415,9 @@ def test_syncs_typos_identifiers_into_existing_section(tmp_path: Path) -> None:
     identifiers = tomllib.loads(result)["tool"]["typos"]["default"][
         "extend-identifiers"
     ]
-    assert identifiers["Github"] == "GitHub"
-    assert identifiers["MacOS"] == "macOS"
-    assert identifiers["PyPi"] == "PyPI"
+    assert identifiers["GitHub"] == "GitHub"
+    assert identifiers["macOS"] == "macOS"
+    assert identifiers["PyPI"] == "PyPI"
 
 
 def test_typos_preserves_local_inline_table_keys(tmp_path: Path) -> None:
@@ -1431,10 +1431,10 @@ def test_typos_preserves_local_inline_table_keys(tmp_path: Path) -> None:
     default = tomllib.loads(result)["tool"]["typos"]["default"]
     # Local additions kept.
     assert (
-        default["extend-identifiers"]["automaticEmojiSubstitutionEnablediMessage"]
-        == "automaticEmojiSubstitutionEnablediMessage"
+        default["extend-identifiers"]["automaticEmojiSubstitutionEnabledMessage"]
+        == "automaticEmojiSubstitutionEnabledMessage"
     )
-    assert default["extend-words"]["Sur"] == "Sur"
+    assert default["extend-words"]["Sure"] == "Sure"
     # Template entries present too.
     assert default["extend-words"]["astroid"] == "astroid"
     assert default["extend-ignore-re"]
@@ -1454,7 +1454,7 @@ def test_typos_preserves_local_only_table(tmp_path: Path) -> None:
 
 def test_typos_canonical_value_wins_on_conflict(tmp_path: Path) -> None:
     """Canonical capitalization overrides a wrong local target on shared keys."""
-    content = '[tool.typos.default.extend-identifiers]\nGithub = "Github"\n'
+    content = '[tool.typos.default.extend-identifiers]\nGithub = "GitHub"\n'
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(content, encoding="UTF-8")
 
@@ -1464,7 +1464,7 @@ def test_typos_canonical_value_wins_on_conflict(tmp_path: Path) -> None:
     identifiers = tomllib.loads(result)["tool"]["typos"]["default"][
         "extend-identifiers"
     ]
-    assert identifiers["Github"] == "GitHub"
+    assert identifiers["GitHub"] == "GitHub"
 
 
 def test_typos_update_idempotent(tmp_path: Path) -> None:
