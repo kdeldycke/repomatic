@@ -575,6 +575,13 @@ class Config:
 
     Project-specific flags (e.g., `--include-data-files`,
     `--include-package-data`) that are passed to the Nuitka build command.
+
+    The standard `[tool.nuitka]` section is read too: its keys are translated
+    to CLI flags (`key = true` → `--key`, `key = "value"` → `--key=value`,
+    `key = [...]` → a repeated flag, `key = false` skipped) and placed before
+    these `nuitka.extra-args` flags. Nuitka only consults `[tool.nuitka]`
+    itself when building a wheel as the build backend, not for the CLI onefile
+    build run here ([Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136)).
     """
 
     nuitka_unstable_targets: list[str] = field(

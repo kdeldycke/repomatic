@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 from extra_platforms import is_windows
 
+from repomatic.binary import nuitka_args_from_pyproject
 from repomatic.config import (
     Config,
     config_reference,
@@ -922,14 +923,14 @@ expected: dict[str, Any] = {
                 "callable_id": "main",
                 "module_path": regex(r"repomatic(/|\\)?"),
             },
-            # Nuitka extra args from [tool.repomatic] config plus
-            # auto-detected --python-flag=-m for __main__.py packages.
+            # Nuitka flags from [tool.repomatic] nuitka.extra-args plus the
+            # auto-detected --python-flag=-m, serialized as a JSON array.
             {
-                "nuitka_extra_args": (
-                    "--include-data-dir=repomatic/data/awesome_template=repomatic/data/awesome_template"
-                    " --include-data-files=repomatic/templates/*.md=repomatic/templates/"
-                    " --python-flag=-m"
-                ),
+                "nuitka_extra_args": json.dumps([
+                    "--include-data-dir=repomatic/data/awesome_template=repomatic/data/awesome_template",
+                    "--include-data-files=repomatic/templates/*.md=repomatic/templates/",
+                    "--python-flag=-m",
+                ]),
             },
             # State (fixed).
             {"state": "stable"},
@@ -1900,6 +1901,45 @@ nuitka.extra-args = [
         "--include-data-files=my_pkg/data/*.json=my_pkg/data/",
         "--include-package-data=my_pkg",
     ]
+
+
+@pytest.mark.parametrize(
+    "table, expected",
+    [
+        ({}, []),
+        ({"onefile": True}, ["--onefile"]),
+        ({"standalone": False}, []),
+        (
+            {"product-name": "Meta Package Manager"},
+            ["--product-name=Meta Package Manager"],
+        ),
+        ({"jobs": 4}, ["--jobs=4"]),
+        (
+            {"include-package-data": ["click_extra", "foo"]},
+            ["--include-package-data=click_extra", "--include-package-data=foo"],
+        ),
+        (
+            {
+                "product-name": "Meta Package Manager",
+                "show-scons": True,
+                "nofollow-import-to": ["*.tests", "*.distutils"],
+            },
+            [
+                "--product-name=Meta Package Manager",
+                "--show-scons",
+                "--nofollow-import-to=*.tests",
+                "--nofollow-import-to=*.distutils",
+            ],
+        ),
+    ],
+)
+def test_nuitka_args_from_pyproject(table, expected):
+    """[tool.nuitka] entries translate to Nuitka CLI flags.
+
+    `bool` true becomes a bare flag, `false` is skipped, scalars become
+    `--key=value`, lists repeat the flag, and declaration order is preserved.
+    """
+    assert nuitka_args_from_pyproject(table) == expected
 
 
 def test_load_repomatic_config_defaults(tmp_path, monkeypatch):

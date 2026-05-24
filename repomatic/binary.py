@@ -32,7 +32,8 @@ from extra_platforms import is_windows
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from typing import Final
+    from collections.abc import Mapping
+    from typing import Any, Final
 
 
 NUITKA_BUILD_TARGETS = {
@@ -243,6 +244,41 @@ ABI signatures reported by `file(1)` for each compiled binary:
 - `windows-arm64`: PE32+ executable (console) Aarch64, for MS Windows
 - `windows-x64`: PE32+ executable (console) x86-64, for MS Windows
 """
+
+
+def nuitka_args_from_pyproject(table: Mapping[str, Any]) -> list[str]:
+    """Translate a `[tool.nuitka]` table into Nuitka command-line flags.
+
+    Nuitka only reads `[tool.nuitka]` from `pyproject.toml` when it acts as the
+    build backend (setuptools-based wheel builds). The onefile builds driven here
+    invoke the Nuitka CLI directly, which ignores the section, so we translate it
+    following Nuitka's own conventions:
+
+    - `key = true` → `--key`
+    - `key = "value"` (or a number) → `--key=value`
+    - `key = ["a", "b"]` → `--key=a --key=b` (one flag per item)
+    - `key = false` is skipped: Nuitka has no universal `--no-<key>` form.
+
+    Keys keep their hyphenated spelling so they map straight onto Nuitka's long
+    options, and flags follow their declaration order in `pyproject.toml`.
+
+    ```{note}
+    Reading `[tool.nuitka]` for plain CLI builds is an open upstream feature
+    request: https://github.com/Nuitka/Nuitka/issues/2136. This bridges the gap.
+    ```
+    """
+    args: list[str] = []
+    for key, value in table.items():
+        # `bool` must be checked before the scalar fallback: it is a subclass of
+        # `int`, and only truthy flags map to a bare `--key`.
+        if isinstance(value, bool):
+            if value:
+                args.append(f"--{key}")
+        elif isinstance(value, (list, tuple)):
+            args.extend(f"--{key}={item}" for item in value)
+        else:
+            args.append(f"--{key}={value}")
+    return args
 
 
 def get_exiftool_command() -> str:

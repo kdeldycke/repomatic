@@ -327,6 +327,7 @@ from .binary import (
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     NUITKA_BUILD_TARGETS,
     SKIP_BINARY_BUILD_BRANCHES,
+    nuitka_args_from_pyproject,
 )
 from .changelog import (
     GITHUB_RELEASE_URL,
@@ -2092,8 +2093,15 @@ class Metadata:
         for target_data in FLAT_BUILD_TARGETS:
             matrix.add_includes(target_data)
 
-        # Collect extra Nuitka flags from config, plus any auto-detected ones.
-        nuitka_extra_args_list = list(self.config.nuitka_extra_args)
+        # Collect Nuitka flags: the standard [tool.nuitka] section first (which
+        # Nuitka itself reads only when it is the build backend, not for the CLI
+        # onefile build run here), then [tool.repomatic] nuitka.extra-args, then
+        # any auto-detected flags appended below.
+        nuitka_table = self.pyproject_toml.get("tool", {}).get("nuitka", {})
+        nuitka_extra_args_list = [
+            *nuitka_args_from_pyproject(nuitka_table),
+            *self.config.nuitka_extra_args,
+        ]
 
         # Filter entry points to those selected for Nuitka compilation.
         selected = set(self.nuitka_entry_points)
@@ -2160,8 +2168,10 @@ class Metadata:
             ).format(**variations)
             matrix.add_includes(bin_name_include)
 
-        # Pass project-specific and auto-detected Nuitka flags.
-        nuitka_extra_args = " ".join(nuitka_extra_args_list)
+        # Serialize the Nuitka flags as a JSON array so the release workflow can
+        # rebuild an argv list with `jq`, preserving values that contain spaces
+        # (e.g. --product-name="My App") that a space-joined string would split.
+        nuitka_extra_args = json.dumps(nuitka_extra_args_list)
         matrix.add_includes({"nuitka_extra_args": nuitka_extra_args})
 
         # All jobs are stable by default, unless marked otherwise by specific

@@ -205,18 +205,24 @@ jobs:
       - name: Build binary
         id: build-binary
         continue-on-error: true
-        # Project-specific Nuitka flags come from [tool.repomatic]
-        # nuitka-extra-args in pyproject.toml, passed via the build matrix.
+        # Nuitka flags come from the [tool.nuitka] section and [tool.repomatic]
+        # nuitka.extra-args in pyproject.toml, serialized by the metadata job as a
+        # JSON array so values containing spaces (like --product-name) survive.
         env:
           NUITKA_EXTRA_ARGS: ${{ matrix.nuitka_extra_args }}
           BIN_NAME: ${{ matrix.bin_name }}
           MODULE_PATH: ${{ matrix.module_path }}
         shell: bash
         run: |
-          # shellcheck disable=SC2086
+          # Rebuild the argv array from the JSON so quoted values stay intact.
+          # A `while read` loop (not `readarray`) keeps macOS bash 3.2 working.
+          extra_args=()
+          while IFS= read -r arg; do
+            extra_args+=("$arg")
+          done < <(printf '%s' "$NUITKA_EXTRA_ARGS" | jq -r '.[]')
           uv --no-progress run --frozen -- nuitka \
             --mode=onefile --assume-yes-for-downloads \
-            ${NUITKA_EXTRA_ARGS} \
+            "${extra_args[@]}" \
             --output-filename="${BIN_NAME}" "${MODULE_PATH}"
       - name: Upload Nuitka crash report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
