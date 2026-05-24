@@ -44,9 +44,6 @@ labels.extra-content-rules = "security:\n  - '(CVE|vulnerability)'"
 
 nuitka.enabled = false
 nuitka.entry-points = ["mpm"]
-nuitka.extra-args = [
-  "--include-data-files=my_pkg/data/*.json=my_pkg/data/",
-]
 nuitka.unstable-targets = ["linux-arm64", "windows-arm64"]
 
 test-plan.file = "./tests/cli-test-plan.yaml"
@@ -99,7 +96,6 @@ workflow.ignore-paths = ["uv.lock"]
 | [`notification.unsubscribe`](#notification-unsubscribe)       | Whether the unsubscribe-threads workflow is enabled.                             | `false`                             |
 | [`nuitka.enabled`](#nuitka-enabled)                           | Whether Nuitka binary compilation is enabled for this project.                   | `true`                              |
 | [`nuitka.entry-points`](#nuitka-entry-points)                 | Which `[project.scripts]` entry points produce Nuitka binaries.                  | `[]`                                |
-| [`nuitka.extra-args`](#nuitka-extra-args)                     | Extra Nuitka CLI arguments for binary compilation.                               | `[]`                                |
 | [`nuitka.unstable-targets`](#nuitka-unstable-targets)         | Nuitka build targets allowed to fail without blocking the release.               | `[]`                                |
 | [`pypi-package-history`](#pypi-package-history)               | Former PyPI package names for projects that were renamed.                        | `[]`                                |
 | [`setup-guide`](#setup-guide)                                 | Whether the setup guide issue is enabled for this project.                       | `true`                              |
@@ -656,29 +652,6 @@ when a project declares alias entry points (like both `mpm` and
 ```toml
 [tool.repomatic]
 nuitka.entry-points = []
-```
-
-### `nuitka.extra-args`
-
-Extra Nuitka CLI arguments for binary compilation.
-
-**Type:** `list[str]` | **Default:** `[]`
-
-Project-specific flags (e.g., `--include-data-files`,
-`--include-package-data`) that are passed to the Nuitka build command.
-
-The standard `[tool.nuitka]` section is read too: its keys are translated
-to CLI flags (`key = true` → `--key`, `key = "value"` → `--key=value`,
-`key = [...]` → a repeated flag, `key = false` skipped) and placed before
-these `nuitka.extra-args` flags. Nuitka only consults `[tool.nuitka]`
-itself when building a wheel as the build backend, not for the CLI onefile
-build run here ([Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136)).
-
-**Example:**
-
-```toml
-[tool.repomatic]
-nuitka.extra-args = []
 ```
 
 ### `nuitka.unstable-targets`

@@ -195,34 +195,29 @@ jobs:
       - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
       - name: Setup venv
         run: uv --no-progress venv --python 3.13
-      - name: Install Nuitka
-        run: uv --no-progress pip install 'nuitka[onefile]==4.1'
       - name: Pre-bake build metadata
         if: contains(matrix.current_version, '.dev')
         run: uvx --no-progress 'click-extra==7.13.0' prebake all
-      - name: Nuitka + compilers versions
-        run: uv --no-progress run --frozen -- nuitka --version
       - name: Build binary
         id: build-binary
         continue-on-error: true
-        # Nuitka flags come from the [tool.nuitka] section and [tool.repomatic]
-        # nuitka.extra-args in pyproject.toml, serialized by the metadata job as a
-        # JSON array so values containing spaces (like --product-name) survive.
+        # The onefile build runs through `repomatic run nuitka`: the tool runner
+        # installs the pinned Nuitka, translates the [tool.nuitka] section to CLI
+        # flags, and prepends --mode=onefile. The matrix supplies only repomatic's
+        # per-entry-point flags (like --python-flag=-m), which carry no spaces.
+        # User flags with spaces belong in [tool.nuitka], which the tool runner
+        # passes as a proper argv, so a plain word-split is enough here.
         env:
-          NUITKA_EXTRA_ARGS: ${{ matrix.nuitka_extra_args }}
+          NUITKA_PYTHON_FLAGS: ${{ matrix.nuitka_python_flags }}
           BIN_NAME: ${{ matrix.bin_name }}
           MODULE_PATH: ${{ matrix.module_path }}
         shell: bash
         run: |
-          # Rebuild the argv array from the JSON so quoted values stay intact.
-          # A `while read` loop (not `readarray`) keeps macOS bash 3.2 working.
-          extra_args=()
-          while IFS= read -r arg; do
-            extra_args+=("$arg")
-          done < <(printf '%s' "$NUITKA_EXTRA_ARGS" | jq -r '.[]')
-          uv --no-progress run --frozen -- nuitka \
-            --mode=onefile --assume-yes-for-downloads \
-            "${extra_args[@]}" \
+          # NUITKA_PYTHON_FLAGS holds the entry point's --python-flag (if any),
+          # meant to word-split.
+          # shellcheck disable=SC2086
+          uvx --no-progress --from . repomatic run nuitka -- \
+            ${NUITKA_PYTHON_FLAGS} \
             --output-filename="${BIN_NAME}" "${MODULE_PATH}"
       - name: Upload Nuitka crash report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

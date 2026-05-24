@@ -64,6 +64,7 @@ from repomatic.tool_runner import (
     binary_tool_context,
     find_unmodified_configs,
     get_data_file_path,
+    pyproject_table_to_flags,
     resolve_config,
     resolve_config_source,
     run_tool,
@@ -81,9 +82,10 @@ def test_tool_spec_integrity(name, spec):
     assert spec.name == name
     assert re.fullmatch(r"[a-z][a-z0-9-]*", name), f"{name}: invalid name format"
 
-    # version is non-empty semver.
-    assert re.fullmatch(r"\d+\.\d+\.\d+", spec.version), (
-        f"{name}: version {spec.version!r} is not semver"
+    # version is a pinned 2- or 3-component release. Most tools use 3-component
+    # semver; Nuitka ships 2-component releases (like `4.1`).
+    assert re.fullmatch(r"\d+\.\d+(\.\d+)?", spec.version), (
+        f"{name}: version {spec.version!r} is not a pinned release"
     )
 
     # package, when set, must differ from name (otherwise use None).
@@ -141,6 +143,19 @@ def test_tool_spec_integrity(name, spec):
     assert not (spec.needs_venv and spec.binary is not None), (
         f"{name}: needs_venv and binary are mutually exclusive"
     )
+
+    # NativeFormat.FLAGS is mutually exclusive with file-based config: such tools
+    # accept no config file and do not read [tool.X] natively.
+    if spec.native_format is NativeFormat.FLAGS:
+        assert not spec.reads_pyproject, (
+            f"{name}: FLAGS format conflicts with reads_pyproject"
+        )
+        assert not spec.config_flag, (
+            f"{name}: FLAGS format conflicts with config_flag"
+        )
+        assert not spec.native_config_files, (
+            f"{name}: FLAGS format conflicts with native_config_files"
+        )
 
     # with_packages is only meaningful for uvx-invoked tools.
     if spec.binary is not None:
@@ -1749,3 +1764,74 @@ def test_fix_myst_directive_options_multiple_directives(tmp_path):
         ":no-typesetting:\n"
         "```\n"
     )
+
+
+# ---------------------------------------------------------------------------
+# [tool.X] to CLI flags translation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("table", "expected"),
+    [
+        ({}, []),
+        ({"onefile": True}, ["--onefile"]),
+        ({"standalone": False}, []),
+        (
+            {"product-name": "Meta Package Manager"},
+            ["--product-name=Meta Package Manager"],
+        ),
+        ({"jobs": 4}, ["--jobs=4"]),
+        (
+            {"include-package-data": ["click_extra", "foo"]},
+            ["--include-package-data=click_extra", "--include-package-data=foo"],
+        ),
+        (
+            {
+                "product-name": "Meta Package Manager",
+                "show-scons": True,
+                "nofollow-import-to": ["*.tests", "*.distutils"],
+            },
+            [
+                "--product-name=Meta Package Manager",
+                "--show-scons",
+                "--nofollow-import-to=*.tests",
+                "--nofollow-import-to=*.distutils",
+            ],
+        ),
+    ],
+)
+def test_pyproject_table_to_flags(table, expected):
+    """A `[tool.X]` table translates to long-form CLI flags.
+
+    `bool` true becomes a bare flag, `false` is skipped, scalars become
+    `--key=value`, lists repeat the flag, and declaration order is preserved.
+    """
+    assert pyproject_table_to_flags(table) == expected
+
+
+def test_resolve_config_flags_format():
+    """A FLAGS-format spec turns `[tool.X]` into CLI args, not a file."""
+    spec = ToolSpec(name="nuitka", native_format=NativeFormat.FLAGS)
+    config_args, cleanup = resolve_config(
+        spec,
+        tool_config={"onefile": True, "include-package-data": ["foo", "bar"]},
+    )
+    assert config_args == [
+        "--onefile",
+        "--include-package-data=foo",
+        "--include-package-data=bar",
+    ]
+    assert cleanup is None
+
+
+def test_resolve_config_flags_format_empty():
+    """No `[tool.X]` section yields no flags and no cleanup file."""
+    spec = ToolSpec(name="nuitka", native_format=NativeFormat.FLAGS)
+    assert resolve_config(spec, tool_config={}) == ([], None)
+
+
+def test_native_format_flags_serialize_raises():
+    """FLAGS is not a file format, so serialize() rejects it."""
+    with pytest.raises(ValueError, match="not a file format"):
+        NativeFormat.FLAGS.serialize({"onefile": True})

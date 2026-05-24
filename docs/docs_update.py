@@ -296,7 +296,7 @@ _BADGE = "label=%20&style=flat-square"
 
 def tool_summary() -> str:
     """Generate the summary table of all managed tools."""
-    from repomatic.tool_runner import TOOL_REGISTRY
+    from repomatic.tool_runner import TOOL_REGISTRY, NativeFormat
 
     rows: list[list[str]] = []
     for key in sorted(TOOL_REGISTRY):
@@ -315,7 +315,7 @@ def tool_summary() -> str:
         parts: list[str] = []
         if spec.native_config_files:
             parts.extend(f"`{f}`" for f in spec.native_config_files)
-        if spec.reads_pyproject:
+        if spec.reads_pyproject or spec.native_format is NativeFormat.FLAGS:
             parts.append(f"`[tool.{spec.name}]` in `pyproject.toml`")
         config_str = ", ".join(parts) if parts else "CLI flags only"
 
@@ -338,7 +338,7 @@ def tool_summary() -> str:
 
 def tool_reference() -> str:
     """Generate per-tool detail sections + comparison tables."""
-    from repomatic.tool_runner import TOOL_REGISTRY
+    from repomatic.tool_runner import TOOL_REGISTRY, NativeFormat
 
     lines: list[str] = []
 
@@ -372,6 +372,12 @@ def tool_reference() -> str:
         elif spec.reads_pyproject:
             lines.append(
                 f"**Config:** `[tool.{spec.name}]` in `pyproject.toml` (native)"
+            )
+            lines.append("")
+        elif spec.native_format is NativeFormat.FLAGS:
+            lines.append(
+                f"**Config:** `[tool.{spec.name}]` in `pyproject.toml`"
+                " (translated to CLI flags)"
             )
             lines.append("")
         else:

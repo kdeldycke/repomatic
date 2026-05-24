@@ -327,7 +327,6 @@ from .binary import (
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     NUITKA_BUILD_TARGETS,
     SKIP_BINARY_BUILD_BRANCHES,
-    nuitka_args_from_pyproject,
 )
 from .changelog import (
     GITHUB_RELEASE_URL,
@@ -458,7 +457,6 @@ def metadata_keys_reference() -> list[tuple[str, str]]:
             f.name
             not in (
                 "nuitka_entry_points",
-                "nuitka_extra_args",
                 "nuitka_unstable_targets",
             )
             and f.name not in SUBCOMMAND_CONFIG_FIELDS
@@ -477,7 +475,6 @@ def all_metadata_keys() -> frozenset[str]:
         if f.name
         not in (
             "nuitka_entry_points",
-            "nuitka_extra_args",
             "nuitka_unstable_targets",
         )
         and f.name not in SUBCOMMAND_CONFIG_FIELDS
@@ -2093,16 +2090,9 @@ class Metadata:
         for target_data in FLAT_BUILD_TARGETS:
             matrix.add_includes(target_data)
 
-        # Collect Nuitka flags: the standard [tool.nuitka] section first (which
-        # Nuitka itself reads only when it is the build backend, not for the CLI
-        # onefile build run here), then [tool.repomatic] nuitka.extra-args, then
-        # any auto-detected flags appended below.
-        nuitka_table = self.pyproject_toml.get("tool", {}).get("nuitka", {})
-        nuitka_extra_args_list = [
-            *nuitka_args_from_pyproject(nuitka_table),
-            *self.config.nuitka_extra_args,
-        ]
-
+        # `[tool.nuitka]` is not assembled here: `repomatic run nuitka` resolves
+        # it at build time (the tool runner translates the section to CLI flags).
+        # Only the per-entry-point --python-flag=-m workaround is computed below.
         # Filter entry points to those selected for Nuitka compilation.
         selected = set(self.nuitka_entry_points)
         for cli_id, module_id, callable_id in self.script_entries:
@@ -2125,12 +2115,13 @@ class Metadata:
             # Nuitka expects the package directory (not the file) along
             # with `--python-flag=-m`.  Passing the file directly
             # produces a binary that silently exits without output.
+            python_flags = ""
             if module_path.name == "__main__.py":
                 package_dir = module_path.parent
                 init_file = package_dir / "__init__.py"
                 if init_file.exists():
                     module_path = package_dir
-                    nuitka_extra_args_list.append("--python-flag=-m")
+                    python_flags = "--python-flag=-m"
 
             matrix.add_includes({
                 "entry_point": cli_id,
@@ -2138,6 +2129,7 @@ class Metadata:
                 "module_id": module_id,
                 "callable_id": callable_id,
                 "module_path": str(module_path),
+                "nuitka_python_flags": python_flags,
             })
 
         # For releases, only build binaries for the release (freeze) commits. The
@@ -2167,12 +2159,6 @@ class Metadata:
                 "{cli_id}-{current_version}-{target}.{extension}"
             ).format(**variations)
             matrix.add_includes(bin_name_include)
-
-        # Serialize the Nuitka flags as a JSON array so the release workflow can
-        # rebuild an argv list with `jq`, preserving values that contain spaces
-        # (e.g. --product-name="My App") that a space-joined string would split.
-        nuitka_extra_args = json.dumps(nuitka_extra_args_list)
-        matrix.add_includes({"nuitka_extra_args": nuitka_extra_args})
 
         # All jobs are stable by default, unless marked otherwise by specific
         # configuration.
@@ -2483,7 +2469,6 @@ class Metadata:
                 f.name
                 not in (
                     "nuitka_entry_points",
-                    "nuitka_extra_args",
                     "nuitka_unstable_targets",
                 )
                 and f.name not in SUBCOMMAND_CONFIG_FIELDS

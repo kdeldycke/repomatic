@@ -78,7 +78,7 @@ else:
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
     from typing import Any, Literal
 
     from .metadata import Metadata
@@ -138,6 +138,9 @@ class NativeFormat(Enum):
     TOML = "toml"
     JSON = "json"
     EDITORCONFIG = "editorconfig"
+    # Not a file format: translate the table to CLI flags via
+    # `pyproject_table_to_flags` and pass them on the command line.
+    FLAGS = "flags"
 
     def _header(self, tool_name: str) -> str:
         """Return a generated-by header block in this format's comment syntax.
@@ -154,7 +157,11 @@ class NativeFormat(Enum):
 
         :param data: Configuration dictionary to serialize.
         :param tool_name: Tool name for the generated-by header comment.
+        :raises ValueError: For `FLAGS`, which is not a file format.
         """
+        if self is NativeFormat.FLAGS:
+            msg = "FLAGS is not a file format; use pyproject_table_to_flags()."
+            raise ValueError(msg)
         header = self._header(tool_name) if tool_name else ""
         if self is NativeFormat.YAML:
             return header + yaml.safe_dump(
@@ -397,7 +404,14 @@ class ToolSpec:
     """
 
     native_format: NativeFormat = NativeFormat.YAML
-    """Target format for `[tool.X]` translation."""
+    """Target format for `[tool.X]` translation.
+
+    `NativeFormat.FLAGS` translates the table to CLI flags (via
+    `pyproject_table_to_flags`) instead of a config file, for tools that expose
+    their config keys as long options but read no config file themselves. It is
+    mutually exclusive with `reads_pyproject`, `config_flag`, and
+    `native_config_files`.
+    """
 
     default_config: str | None = None
     """Filename in `repomatic/data/` for bundled defaults, stored in
@@ -908,6 +922,18 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         default_flags=("--color-output",),
         computed_params=lambda m: m.mypy_params or [],
     ),
+    "nuitka": ToolSpec(
+        name="nuitka",
+        display_name="Nuitka",
+        version="4.1",
+        package="nuitka[onefile]",
+        source_url="https://github.com/Nuitka/Nuitka",
+        config_docs_url="https://nuitka.net/doc/user-manual.html",
+        cli_docs_url="https://nuitka.net/doc/user-manual.html",
+        needs_venv=True,
+        native_format=NativeFormat.FLAGS,
+        default_flags=("--mode=onefile", "--assume-yes-for-downloads"),
+    ),
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
         version="2.16.2",
@@ -1229,6 +1255,35 @@ def _deliver_config(
     raise NotImplementedError(msg)
 
 
+def pyproject_table_to_flags(table: Mapping[str, Any]) -> list[str]:
+    """Translate a `[tool.X]` table into long-form CLI flags.
+
+    For tools whose command-line options mirror their config keys but which
+    cannot read `[tool.X]` from `pyproject.toml` themselves and accept no
+    config file. Follows the conventional mapping:
+
+    - `key = true` → `--key`
+    - `key = "value"` (or a number) → `--key=value`
+    - `key = ["a", "b"]` → `--key=a --key=b` (one flag per item)
+    - `key = false` is skipped: there is no universal `--no-<key>` form.
+
+    Keys keep their hyphenated spelling so they map straight onto long options,
+    and flags follow their declaration order in `pyproject.toml`.
+    """
+    args: list[str] = []
+    for key, value in table.items():
+        # `bool` must be checked before the scalar fallback: it is a subclass of
+        # `int`, and only truthy flags map to a bare `--key`.
+        if isinstance(value, bool):
+            if value:
+                args.append(f"--{key}")
+        elif isinstance(value, (list, tuple)):
+            args.extend(f"--{key}={item}" for item in value)
+        else:
+            args.append(f"--{key}={value}")
+    return args
+
+
 def resolve_config(
     spec: ToolSpec,
     tool_config: dict[str, Any] | None = None,
@@ -1263,6 +1318,16 @@ def resolve_config(
                 spec.name,
             )
             return [], None
+
+        if spec.native_format is NativeFormat.FLAGS:
+            flags = pyproject_table_to_flags(tool_config)
+            logging.info(
+                "%s: translated [tool.%s] to %d CLI flag(s) (level 2).",
+                spec.name,
+                spec.name,
+                len(flags),
+            )
+            return flags, None
 
         content = spec.native_format.serialize(tool_config, tool_name=spec.name)
         logging.debug(

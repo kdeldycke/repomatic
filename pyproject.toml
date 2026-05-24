@@ -197,6 +197,17 @@ exclude-newer-package = { nuitka = "0 day", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
+# Nuitka binary build options. repomatic translates this section to CLI flags
+# at build time via `repomatic run nuitka` (Nuitka itself only reads it when
+# acting as the wheel build backend: https://github.com/Nuitka/Nuitka/issues/2136).
+[tool.nuitka]
+include-data-dir = [
+  "repomatic/data/awesome_template=repomatic/data/awesome_template",
+]
+include-data-files = [
+  "repomatic/templates/*.md=repomatic/templates/",
+]
+
 [tool.ruff]
 preview = true
 fix = true
@@ -372,9 +383,5 @@ exclude_path = [
 ]
 
 [tool.repomatic]
-nuitka.extra-args = [
-  "--include-data-dir=repomatic/data/awesome_template=repomatic/data/awesome_template",
-  "--include-data-files=repomatic/templates/*.md=repomatic/templates/",
-]
 exclude = [ "workflows" ]
 pypi-package-history = [ "gha-utils", "repokit" ]

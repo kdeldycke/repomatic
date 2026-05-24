@@ -24,7 +24,6 @@ from typing import Any
 import pytest
 from extra_platforms import is_windows
 
-from repomatic.binary import nuitka_args_from_pyproject
 from repomatic.config import (
     Config,
     config_reference,
@@ -915,22 +914,16 @@ expected: dict[str, Any] = {
                 "arch": "x64",
                 "extension": "exe",
             },
-            # Entry point info (fixed, one per entry point).
+            # Entry point info (fixed, one per entry point). The --python-flag=-m
+            # workaround for __main__.py packages rides here, per entry point;
+            # [tool.nuitka] is resolved at build time by `repomatic run nuitka`.
             {
                 "entry_point": "repomatic",
                 "cli_id": "repomatic",
                 "module_id": "repomatic.__main__",
                 "callable_id": "main",
                 "module_path": regex(r"repomatic(/|\\)?"),
-            },
-            # Nuitka flags from [tool.repomatic] nuitka.extra-args plus the
-            # auto-detected --python-flag=-m, serialized as a JSON array.
-            {
-                "nuitka_extra_args": json.dumps([
-                    "--include-data-dir=repomatic/data/awesome_template=repomatic/data/awesome_template",
-                    "--include-data-files=repomatic/templates/*.md=repomatic/templates/",
-                    "--python-flag=-m",
-                ]),
+                "nuitka_python_flags": "--python-flag=-m",
             },
             # State (fixed).
             {"state": "stable"},
@@ -1872,76 +1865,6 @@ nuitka.entry-points = ["nonexistent"]
     assert metadata.nuitka_entry_points == ["short"]
 
 
-def test_nuitka_extra_args_default(tmp_path, monkeypatch):
-    """Test that nuitka.extra-args defaults to an empty list."""
-    monkeypatch.chdir(tmp_path)
-    config = load_repomatic_config()
-    assert config.nuitka_extra_args == []
-
-
-def test_nuitka_extra_args_custom(tmp_path, monkeypatch):
-    """Test that nuitka.extra-args reads custom values from pyproject.toml."""
-    pyproject_content = """\
-[project]
-name = "test-project"
-version = "1.0.0"
-
-[tool.repomatic]
-nuitka.extra-args = [
-  "--include-data-files=my_pkg/data/*.json=my_pkg/data/",
-  "--include-package-data=my_pkg",
-]
-"""
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
-    assert metadata.config.nuitka_extra_args == [
-        "--include-data-files=my_pkg/data/*.json=my_pkg/data/",
-        "--include-package-data=my_pkg",
-    ]
-
-
-@pytest.mark.parametrize(
-    "table, expected",
-    [
-        ({}, []),
-        ({"onefile": True}, ["--onefile"]),
-        ({"standalone": False}, []),
-        (
-            {"product-name": "Meta Package Manager"},
-            ["--product-name=Meta Package Manager"],
-        ),
-        ({"jobs": 4}, ["--jobs=4"]),
-        (
-            {"include-package-data": ["click_extra", "foo"]},
-            ["--include-package-data=click_extra", "--include-package-data=foo"],
-        ),
-        (
-            {
-                "product-name": "Meta Package Manager",
-                "show-scons": True,
-                "nofollow-import-to": ["*.tests", "*.distutils"],
-            },
-            [
-                "--product-name=Meta Package Manager",
-                "--show-scons",
-                "--nofollow-import-to=*.tests",
-                "--nofollow-import-to=*.distutils",
-            ],
-        ),
-    ],
-)
-def test_nuitka_args_from_pyproject(table, expected):
-    """[tool.nuitka] entries translate to Nuitka CLI flags.
-
-    `bool` true becomes a bare flag, `false` is skipped, scalars become
-    `--key=value`, lists repeat the flag, and declaration order is preserved.
-    """
-    assert nuitka_args_from_pyproject(table) == expected
-
-
 def test_load_repomatic_config_defaults(tmp_path, monkeypatch):
     """Test that load_repomatic_config returns a Config instance with defaults."""
     monkeypatch.chdir(tmp_path)
@@ -1958,7 +1881,6 @@ def test_load_repomatic_config_defaults(tmp_path, monkeypatch):
     assert config.dependency_graph.level is None
     assert config.nuitka_enabled is True
     assert config.nuitka_entry_points == []
-    assert config.nuitka_extra_args == []
     assert config.labels.extra_files == []
     assert config.labels.extra_file_rules == ""
     assert config.labels.extra_content_rules == ""
