@@ -194,7 +194,7 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
       - name: Setup venv
-        run: uv --no-progress venv --python 3.13
+        run: uv --no-progress venv --python 3.14
       - name: Pre-bake build metadata
         if: contains(matrix.current_version, '.dev')
         run: uvx --no-progress 'click-extra==7.13.0' prebake all
