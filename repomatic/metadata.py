@@ -372,6 +372,7 @@ from .pyproject import is_python_project as _is_python_project
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from typing import Any, Final, Literal
 
     from typing_extensions import Self
@@ -574,6 +575,22 @@ def is_version_bump_allowed(part: Literal["minor", "major"]) -> bool:
 
     logging.info(f"Version bump for {part} is allowed.")
     return True
+
+
+def stale_axis_values(
+    entry: Mapping[str, str], axes: Mapping[str, Sequence[str]]
+) -> dict[str, str]:
+    """Return the `entry` key/value pairs absent from the matrix `axes`.
+
+    A non-empty result means a `test-matrix.exclude` entry can never match a
+    combination: one of its keys is not a live axis, or its value is absent
+    from that axis. See {meth}`Metadata.stale_test_matrix_excludes`.
+    """
+    return {
+        key: value
+        for key, value in entry.items()
+        if key not in axes or value not in axes[key]
+    }
 
 
 class JSONMetadata(json.JSONEncoder):
@@ -2093,6 +2110,7 @@ class Metadata:
         # `[tool.nuitka]` is not assembled here: `repomatic run nuitka` resolves
         # it at build time (the tool runner translates the section to CLI flags).
         # Only the per-entry-point --python-flag=-m workaround is computed below.
+
         # Filter entry points to those selected for Nuitka compilation.
         selected = set(self.nuitka_entry_points)
         for cli_id, module_id, callable_id in self.script_entries:
@@ -2255,10 +2273,7 @@ class Metadata:
         return [
             entry
             for entry in self.config.test_matrix.exclude
-            if any(
-                key not in axes or value not in axes[key]
-                for key, value in entry.items()
-            )
+            if stale_axis_values(entry, axes)
         ]
 
     @cached_property

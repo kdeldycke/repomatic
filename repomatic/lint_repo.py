@@ -31,7 +31,7 @@ import yaml
 from .github.actions import AnnotationLevel, emit_annotation
 from .github.gh import run_gh_command
 from .github.token import check_all_pat_permissions
-from .metadata import Metadata
+from .metadata import Metadata, stale_axis_values
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     get_latest_release_file,
@@ -797,11 +797,7 @@ def check_test_matrix_excludes() -> list[tuple[str | None, str]]:
 
     results: list[tuple[str | None, str]] = []
     for entry in stale:
-        bad = {
-            key: value
-            for key, value in entry.items()
-            if key not in axes or value not in axes[key]
-        }
+        bad = stale_axis_values(entry, axes)
         msg = (
             f"Test matrix exclude {entry} references values absent from the "
             f"matrix axes ({bad}); it is silently dropped and never takes "
