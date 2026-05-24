@@ -194,13 +194,30 @@ build-backend.module-root = ""
 # Nuitka binary build options. repomatic translates this section to CLI flags
 # at build time via `repomatic run nuitka` (Nuitka itself only reads it when
 # acting as the wheel build backend: https://github.com/Nuitka/Nuitka/issues/2136).
+# Values with spaces are fine: the tool runner passes them as a proper argv.
 [tool.nuitka]
+copyright = "Kevin Deldycke <kevin@deldycke.com> and contributors. Distributed under GPL-2.0-or-later license."
+file-description = "🏭 Automate repository maintenance, releases, and CI/CD workflows"
+# Numeric only: Nuitka rejects PEP 440 .devN suffixes. Kept in sync with the
+# package version by the dedicated [tool.bumpversion] rule that strips the suffix.
+file-version = "6.20.0"
 include-data-dir = [
   "repomatic/data/awesome_template=repomatic/data/awesome_template",
 ]
 include-data-files = [
   "repomatic/templates/*.md=repomatic/templates/",
 ]
+# click-extra ships themes.toml as package data loaded via importlib.resources;
+# Nuitka does not auto-bundle non-Python data files, so the binary crashes on
+# startup unless it is declared here.
+include-package-data = [ "click_extra" ]
+# A single square PNG drives all three platforms: Nuitka converts it for the
+# Windows .ico and ignores the icon flags that don't match the build OS.
+linux-icon = "docs/assets/icon.png"
+macos-app-icon = "docs/assets/icon.png"
+product-name = "Repomatic"
+product-version = "6.20.0"
+windows-icon-from-ico = "docs/assets/icon.png"
 
 [tool.ruff]
 preview = true
@@ -314,6 +331,15 @@ replace = 'version = "{new_version}"'
 filename = "./pyproject.toml"
 search = "releases/tag/v{current_version}"
 replace = "releases/tag/v{new_version}"
+
+[[tool.bumpversion.files]]
+# Keep the numeric file-version/product-version in [tool.nuitka] in sync. Nuitka
+# rejects PEP 440 .devN suffixes, so the file-specific serialize strips them; the
+# `-version = "` prefix matches both keys at once.
+filename = "./pyproject.toml"
+serialize = [ "{major}.{minor}.{patch}" ]
+search = '-version = "{current_version}"'
+replace = '-version = "{new_version}"'
 
 [[tool.bumpversion.files]]
 # Update the version in Markdown changelog.
