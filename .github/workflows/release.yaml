@@ -75,7 +75,7 @@ jobs:
         env:
           PR_REF: ${{ steps.extract.outputs.pr_ref }}
         run: >
-          uvx --no-progress --from . repomatic pr-body --output-format github-actions
+          uvx --no-progress 'repomatic==6.20.0' pr-body --output-format github-actions
           --template detect-squash-merge
           --pr-ref "${PR_REF}"
           --output "$GITHUB_OUTPUT"
@@ -121,7 +121,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress --from . repomatic metadata
+          uvx --no-progress 'repomatic==6.20.0' metadata
           --format github-json --output "$GITHUB_OUTPUT"
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
           is_python_project package_name current_version released_version
@@ -221,7 +221,7 @@ jobs:
           # NUITKA_PYTHON_FLAGS holds the entry point's --python-flag (if any),
           # meant to word-split.
           # shellcheck disable=SC2086
-          uvx --no-progress --from . repomatic run nuitka -- \
+          uvx --no-progress 'repomatic==6.20.0' run nuitka -- \
             ${NUITKA_PYTHON_FLAGS} \
             --output-filename="${BIN_NAME}" "${MODULE_PATH}"
       - name: Upload Nuitka crash report
@@ -255,7 +255,7 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         run: >
-          uvx --no-progress --from . repomatic
+          uvx --no-progress 'repomatic==6.20.0'
           verify-binary --target "${TARGET}" --binary "${BIN_NAME}"
       - name: Upload binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -332,7 +332,7 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         run: >
-          uvx --no-progress --from . repomatic test-plan
+          uvx --no-progress 'repomatic==6.20.0' test-plan
           --binary "${DOWNLOAD_PATH}/${BIN_NAME}"
 
   create-tag:
@@ -361,7 +361,7 @@ jobs:
           CURRENT_VERSION: ${{ matrix.current_version }}
           COMMIT: ${{ matrix.commit }}
         run: >
-          uvx --no-progress --from . repomatic git-tag
+          uvx --no-progress 'repomatic==6.20.0' git-tag
           --tag "v${CURRENT_VERSION}"
           --commit "${COMMIT}"
           --skip-existing
@@ -434,7 +434,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uvx --no-progress --from . repomatic sync-dev-release --live --delete
+        run: uvx --no-progress 'repomatic==6.20.0' sync-dev-release --live --delete
       - name: Create GitHub release draft
         # Idempotent: skips if release already exists (e.g. workflow re-run).
         env:
@@ -559,7 +559,7 @@ jobs:
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
           CURRENT_VERSION: ${{ matrix.current_version }}
         run: >
-          uvx --no-progress --from . repomatic scan-virustotal
+          uvx --no-progress 'repomatic==6.20.0' scan-virustotal
           --tag "v${CURRENT_VERSION}"
           --repo "${{ github.repository }}"
           --binaries-dir ./binaries
@@ -569,7 +569,7 @@ jobs:
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
           CURRENT_VERSION: ${{ matrix.current_version }}
         run: >
-          uvx --no-progress --from . repomatic scan-virustotal
+          uvx --no-progress 'repomatic==6.20.0' scan-virustotal
           --tag "v${CURRENT_VERSION}"
           --repo "${{ github.repository }}"
           --poll
@@ -603,5 +603,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          uvx --no-progress --from . repomatic sync-dev-release --live
+          uvx --no-progress 'repomatic==6.20.0' sync-dev-release --live
           --upload-assets release_assets
