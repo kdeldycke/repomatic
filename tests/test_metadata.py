@@ -754,6 +754,7 @@ expected: dict[str, Any] = {
     "image_files": [
         "docs/assets/banner-social-dark.png",
         "docs/assets/banner-social-light.png",
+        "docs/assets/icon.png",
         "docs/assets/logo-banner-dark.png",
         "docs/assets/logo-banner-light.png",
         "docs/assets/logo-square-dark.png",
