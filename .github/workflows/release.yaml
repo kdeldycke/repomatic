@@ -21,6 +21,11 @@ name: 🚀 Build & release
         description: Python package name (empty when not a Python project).
         value: ${{ fromJSON(jobs.metadata.outputs.metadata).package_name }}
 
+  # Allow manual runs to exercise the binary builds without pushing a commit.
+  # Release-mutating jobs (tag, PyPI publish, GitHub release) stay gated on
+  # release-commit detection, so a manual run only builds and tests.
+  workflow_dispatch:
+
   # Targets are chosen so that all commits get a chance to have their package tested.
   push:
     branches:

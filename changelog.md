@@ -13,6 +13,8 @@
 - Add binary metadata to the Nuitka build through `[tool.nuitka]`: `product-name`, `file-description`, `copyright`, numeric `file-version`/`product-version` (a dedicated `[tool.bumpversion]` rule keeps them in sync while stripping the PEP 440 `.devN` suffix Nuitka rejects), and `linux-icon`/`macos-app-icon`/`windows-icon-from-ico` pointing at the new `docs/assets/icon.png` rendered from `favicon.svg`.
 - Add `include-package-data = ["click_extra"]` to `[tool.nuitka]` so click-extra's `themes.toml` (loaded via `importlib.resources`) is bundled into the binary; without it the compiled CLI crashes on startup.
 - Build Nuitka binaries on Python 3.14 instead of 3.13.
+- Add a `workflow_dispatch` trigger to `release.yaml` so the build-and-release workflow can be launched manually, handy for exercising the Nuitka binary builds without pushing a commit. Release-mutating jobs (tag, PyPI publish, GitHub release) stay gated on release-commit detection, so a manual run only builds and tests; downstream thin callers mirror the trigger when regenerated.
+- Add a `workflow_dispatch` trigger to the repomatic-internal `update-checksums.yaml` so its Renovate-branch checksum recomputation can be re-run manually.
 
 ## [`6.19.0` (2026-05-21)](https://github.com/kdeldycke/repomatic/compare/v6.18.4...v6.19.0)
 

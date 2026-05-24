@@ -1213,7 +1213,7 @@ def run_workflow_lint(
     Thin callers are exempt from {func}`check_has_workflow_dispatch` because
     {func}`check_triggers_match` is authoritative: a thin caller mirrors its
     canonical workflow exactly, and some canonical workflows (e.g.,
-    `cancel-runs.yaml`, `release.yaml`) intentionally lack `workflow_dispatch`.
+    `cancel-runs.yaml`) intentionally lack `workflow_dispatch`.
 
     :param workflow_dir: Directory containing workflow YAML files.
     :param repo: Upstream repository to match against.

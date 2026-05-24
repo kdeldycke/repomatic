@@ -12,6 +12,9 @@
 # downstream workflow registry in registry.py.
 name: 🔄 Update checksums
 "on":
+  # Allow manual runs to recompute checksums on a Renovate branch when the
+  # auto-trigger below was missed.
+  workflow_dispatch:
   push:
     branches:
       - "renovate/**"
