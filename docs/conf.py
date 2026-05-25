@@ -65,6 +65,13 @@ myst_fence_as_directive = ["mermaid"]
 
 mermaid_d3_zoom = True
 
+# Enable the `{click:run}`/`{click:source}` and `{python:*}` execution directives
+# the CLI reference and tool-runner pages rely on. Disabled by default upstream
+# since click-extra v7.15.0 because they execute arbitrary Python at build time;
+# without this flag every directive reference logs an "Unknown directive" warning
+# and the live blocks render empty.
+click_extra_enable_exec_directives = True
+
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 nitpicky = True

@@ -192,12 +192,12 @@ Now `repomatic run yamllint -- .` translates this to YAML, passes it via `--conf
 
 If your yamllint config grows complex, create a `.yamllint.yaml` directly. Once that file exists, repomatic defers to it (level 1 takes precedence) and the `[tool.yamllint]` section in `pyproject.toml` is ignored.
 
-### Cleaning up redundant configs
+### Cleaning up unmodified configs
 
-If you previously ran `repomatic init` and have a native config file that is identical to the bundled default, `repomatic init --clean-redundant-configs` removes it:
+If you previously ran `repomatic init` and have a native config file that is identical to the bundled default, `repomatic init --delete-unmodified` removes it:
 
 ```shell-session
-$ repomatic init --clean-redundant-configs
+$ repomatic init --delete-unmodified
 ```
 
 ## Overriding tool versions
