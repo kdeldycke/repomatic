@@ -924,7 +924,9 @@ tags = subprocess.run(
 ).stdout.split()
 hashes = {}
 for tag in tags:
-    blob = subprocess.run(["git", "show", f"{tag}:{src}"], capture_output=True, text=True)
+    blob = subprocess.run(
+        ["git", "show", f"{tag}:{src}"], capture_output=True, text=True, encoding="UTF-8"
+    )
     if blob.returncode == 0:
         normalized = blob.stdout.rstrip() + "\n"
         hashes.setdefault(hashlib.sha256(normalized.encode("UTF-8")).hexdigest(), tag)

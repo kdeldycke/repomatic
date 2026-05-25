@@ -240,6 +240,8 @@ When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Rel
 
   Model: `tests/test_readme.py::test_docs_generator_matches_in_tree_state` (every `docs_update.py` generator is a fixed point under `mdformat`). The common shape: enumerate the population, assert the invariant on each, fail with a message that names the violator.
 
+- **Pass `encoding="UTF-8"` to `subprocess.run(..., text=True)` whenever the output may contain non-ASCII bytes** (emoji in a workflow's `name:`, accented author names, translated strings). `text=True` alone decodes with the platform default — `cp1252` on Windows — so such output raises `UnicodeDecodeError` only in Windows CI while passing locally on macOS and Linux, where the default is already UTF-8. Test helpers that shell out to `git show`/`git cat-file` to read repo files are the usual offenders; production `read_text`/`write_text` calls already set it everywhere.
+
 ## Agent conventions
 
 This repository uses two Claude Code agents defined in `.claude/agents/`. Their definitions should be lean — if a rule belongs in `CLAUDE.md`, put it here and reference it from the agent file. Do not duplicate.

@@ -57,7 +57,7 @@ A change introduced and then reverted before release is a no-op for users: no ch
 
 The sweep just rewrote code, so prove it green **before** paying for a CI round-trip. This is the same fast local channel `/babysit-ci` polls, run *ahead* of the first push so the slow CI cycle starts mostly-green:
 
-- Launch the project's test, type, and lint checks in parallel in the background (`uv run pytest --no-header -q`, `uv run mypy`, `uv run ruff check`), plus `<cmd> lint-changelog`.
+- Launch the project's test, type, and lint checks in parallel in the background (`uv run pytest --no-header -q`, `<cmd> run mypy -- repomatic tests`, `uv run ruff check`), plus `<cmd> lint-changelog`.
 - Act on the **fastest** failing check: mypy and ruff return in seconds, pytest in a minute or two. Fix the cause in the working tree and re-run only what failed.
 - Iterate until every local check is green. Every regression caught here saves a slow CI round-trip and the babysit cycle that would otherwise chase it.
 
