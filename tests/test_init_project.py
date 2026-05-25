@@ -17,16 +17,22 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
+import subprocess
 import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import pytest
+from packaging.version import InvalidVersion, Version
 
+from repomatic import __version__
 from repomatic.config import Config
 from repomatic.init_project import (
     EXPORTABLE_FILES,
     RUNTIME_FRAGMENTS,
+    _detect_removed_assets,
     _resolve_agents_target,
     _resolve_skills_target,
     _strip_renovate_repo_settings,
@@ -42,13 +48,17 @@ from repomatic.registry import (
     ALL_COMPONENTS,
     ALL_WORKFLOW_FILES,
     COMPONENTS,
+    REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
     SKILL_PHASES,
     BundledComponent,
     GeneratedComponent,
+    RemovedAsset,
     TemplateComponent,
     ToolConfigComponent,
     WorkflowComponent,
+    _agent_target,
+    _skill_target,
     parse_component_entries,
     valid_file_ids,
 )
@@ -2444,6 +2454,291 @@ def test_init_cli_no_delete_excluded_warns(
     # File is still on disk.
     assert skill_file.exists()
     assert "--delete-excluded" in cli_result.output
+
+
+# --- Removed-asset (tombstone) tests ---
+
+
+def test_removed_assets_sorted() -> None:
+    """REMOVED_ASSETS is ordered by (component, target)."""
+    keys = [(a.component, a.target) for a in REMOVED_ASSETS]
+    assert keys == sorted(keys)
+
+
+def test_removed_assets_no_collision_with_live_registry() -> None:
+    """No tombstone may point at a path a live component still ships.
+
+    Guards against re-adding an asset without dropping its tombstone, which
+    would make ``init`` prune a file it just wrote.
+    """
+    live = {entry.target for comp in COMPONENTS for entry in comp.files}
+    for asset in REMOVED_ASSETS:
+        assert asset.target not in live, (
+            f"{asset.target!r} is both tombstoned and live in the registry"
+        )
+
+
+@pytest.mark.parametrize("asset", REMOVED_ASSETS, ids=lambda a: a.target)
+def test_removed_asset_metadata_valid(asset: RemovedAsset) -> None:
+    """Each tombstone carries 64-hex hashes and a bare, not-future version."""
+    assert asset.hashes, f"{asset.target} has no shipped hashes"
+    for digest in asset.hashes:
+        assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
+    assert not asset.removed_in.startswith("v"), asset.removed_in
+    assert Version(asset.removed_in) <= Version(__version__), asset.removed_in
+    if asset.component in ("skills", "agents"):
+        assert asset.component in ALL_COMPONENTS
+
+
+def test_detect_removed_assets_classifies_by_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_detect_removed_assets`` sorts orphans into prunable vs review by hash."""
+    rel = ".claude/skills/gone/SKILL.md"
+    content = "Old skill body.\n"
+    digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
+    asset = RemovedAsset("skills", rel, "1.0.0", (digest,), successor="moved on")
+    monkeypatch.setattr("repomatic.init_project.REMOVED_ASSETS", (asset,))
+
+    target = tmp_path / rel
+    target.parent.mkdir(parents=True)
+
+    # Absent on disk: neither list.
+    assert _detect_removed_assets(tmp_path, None) == ([], [])
+
+    # Byte-identical to last-shipped: prunable.
+    target.write_text(content, encoding="UTF-8")
+    assert _detect_removed_assets(tmp_path, None) == ([(rel, "moved on")], [])
+
+    # Trailing-whitespace churn is normalized away: still prunable.
+    target.write_text(content.rstrip() + "\n\n\n", encoding="UTF-8")
+    assert _detect_removed_assets(tmp_path, None) == ([(rel, "moved on")], [])
+
+    # Real content change: review, never prunable.
+    target.write_text(content + "local edit\n", encoding="UTF-8")
+    assert _detect_removed_assets(tmp_path, None) == ([], [(rel, "moved on")])
+
+
+def _seed_orphan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str) -> Path:
+    """Seed a minimal repo with a dropped-asset orphan and chdir into it."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "test"\nversion = "0.1.0"\n', encoding="UTF-8"
+    )
+    orphan = tmp_path / ".claude/skills/gone/SKILL.md"
+    orphan.parent.mkdir(parents=True)
+    orphan.write_text(content, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    return orphan
+
+
+def test_init_cli_prunes_unmodified_removed_asset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bare ``init`` deletes an unmodified orphan and its emptied parent dir."""
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    content = "Old skill body.\n"
+    digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
+    monkeypatch.setattr(
+        "repomatic.init_project.REMOVED_ASSETS",
+        (RemovedAsset("skills", ".claude/skills/gone/SKILL.md", "1.0.0", (digest,)),),
+    )
+    orphan = _seed_orphan(tmp_path, monkeypatch, content)
+
+    cli_result = CliRunner().invoke(repomatic, ["init", "--output-dir", str(tmp_path)])
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert not orphan.exists()
+    assert not orphan.parent.exists()
+    assert "Pruned" in cli_result.output
+
+
+def test_init_cli_keeps_modified_removed_asset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A locally modified orphan is reported for review, never auto-deleted."""
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    content = "Old skill body.\n"
+    digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
+    monkeypatch.setattr(
+        "repomatic.init_project.REMOVED_ASSETS",
+        (RemovedAsset("skills", ".claude/skills/gone/SKILL.md", "1.0.0", (digest,)),),
+    )
+    orphan = _seed_orphan(tmp_path, monkeypatch, content + "local edit\n")
+
+    cli_result = CliRunner().invoke(repomatic, ["init", "--output-dir", str(tmp_path)])
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert orphan.exists()
+    assert "Review manually" in cli_result.output
+
+
+def test_init_cli_keep_removed_preserves_unmodified_orphan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--keep-removed`` reports an unmodified orphan but does not delete it."""
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    content = "Old skill body.\n"
+    digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
+    monkeypatch.setattr(
+        "repomatic.init_project.REMOVED_ASSETS",
+        (RemovedAsset("skills", ".claude/skills/gone/SKILL.md", "1.0.0", (digest,)),),
+    )
+    orphan = _seed_orphan(tmp_path, monkeypatch, content)
+
+    cli_result = CliRunner().invoke(
+        repomatic, ["init", "--keep-removed", "--output-dir", str(tmp_path)]
+    )
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert orphan.exists()
+    assert "--keep-removed" in cli_result.output
+
+
+def test_detect_removed_assets_matches_any_shipped_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A copy matching any released revision (not just the last) is prunable."""
+    rel = ".claude/skills/gone/SKILL.md"
+    old_content = "Version 1 body.\n"
+    new_content = "Version 2 body.\n"
+    hashes = tuple(
+        hashlib.sha256(c.encode("UTF-8")).hexdigest()
+        for c in (old_content, new_content)
+    )
+    monkeypatch.setattr(
+        "repomatic.init_project.REMOVED_ASSETS",
+        (RemovedAsset("skills", rel, "1.0.0", hashes),),
+    )
+    target = tmp_path / rel
+    target.parent.mkdir(parents=True)
+
+    # A downstream repo still on the older shipped revision is recognized.
+    target.write_text(old_content, encoding="UTF-8")
+    assert _detect_removed_assets(tmp_path, None) == ([(rel, "")], [])
+
+    # Content that never shipped is treated as a local modification.
+    target.write_text("never shipped\n", encoding="UTF-8")
+    assert _detect_removed_assets(tmp_path, None) == ([], [(rel, "")])
+
+
+def test_init_cli_delete_removed_modified_forces_deletion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--delete-removed-modified`` deletes a locally modified orphan."""
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    content = "Old skill body.\n"
+    digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
+    monkeypatch.setattr(
+        "repomatic.init_project.REMOVED_ASSETS",
+        (RemovedAsset("skills", ".claude/skills/gone/SKILL.md", "1.0.0", (digest,)),),
+    )
+    orphan = _seed_orphan(tmp_path, monkeypatch, content + "local edit\n")
+
+    cli_result = CliRunner().invoke(
+        repomatic, ["init", "--delete-removed-modified", "--output-dir", str(tmp_path)]
+    )
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert not orphan.exists()
+    assert "Force-deleted" in cli_result.output
+
+
+def test_init_cli_keep_removed_and_force_are_exclusive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--keep-removed`` and ``--delete-removed-modified`` cannot combine."""
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    monkeypatch.chdir(tmp_path)
+    cli_result = CliRunner().invoke(
+        repomatic,
+        [
+            "init",
+            "--keep-removed",
+            "--delete-removed-modified",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert cli_result.exit_code != 0
+    assert "mutually exclusive" in cli_result.output
+
+
+@pytest.mark.once
+def test_removed_data_assets_are_tombstoned() -> None:
+    """A skill/agent data file dropped since the last release must be tombstoned.
+
+    Compares the bundled skill/agent data files at the most recent release tag
+    against the current tree. A file present then but gone now is a removed
+    asset that must have a matching ``RemovedAsset`` entry, or ``init`` would
+    leave orphans in downstream repos. Skips when git history or release tags
+    are unavailable (shallow clone, no tags).
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+            check=False,
+        )
+
+    tags_out = git("tag", "--list", "v*")
+    if tags_out.returncode != 0:
+        pytest.skip("git unavailable")
+    tags = [t for t in tags_out.stdout.split() if t]
+    if not tags:
+        pytest.skip("no release tags available")
+
+    def version_key(tag: str) -> Version:
+        try:
+            return Version(tag.lstrip("v"))
+        except InvalidVersion:
+            return Version("0")
+
+    prev = max(tags, key=version_key)
+    old_tree = git("ls-tree", "-r", "--name-only", prev, "repomatic/data/")
+    if old_tree.returncode != 0:
+        pytest.skip(f"cannot read tree at {prev}")
+
+    asset_re = re.compile(r"repomatic/data/((?:skill|agent)-.+\.md)$")
+    old_sources = {
+        m.group(1)
+        for line in old_tree.stdout.splitlines()
+        if (m := asset_re.match(line))
+    }
+    data_dir = repo_root / "repomatic" / "data"
+    current_sources = {p.name for p in data_dir.glob("skill-*.md")} | {
+        p.name for p in data_dir.glob("agent-*.md")
+    }
+
+    tombstoned = {a.target for a in REMOVED_ASSETS}
+    for source in sorted(old_sources - current_sources):
+        if source.startswith("skill-"):
+            target = _skill_target(source[len("skill-") : -len(".md")])
+        else:
+            target = _agent_target(source[len("agent-") : -len(".md")])
+        assert target in tombstoned, (
+            f"{source!r} shipped in {prev} but was removed without a RemovedAsset "
+            f"tombstone (expected target {target!r}); add one to REMOVED_ASSETS"
+        )
 
 
 def test_init_explicit_components_bypass_exclude(

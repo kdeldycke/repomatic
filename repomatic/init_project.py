@@ -41,6 +41,7 @@ config option in `[tool.repomatic]`.  Qualified entries like
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import sys
@@ -59,6 +60,7 @@ from .registry import (
     _BY_NAME,
     COMPONENTS,
     DEFAULT_REPO,
+    REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
     BundledComponent,
     GeneratedComponent,
@@ -618,6 +620,15 @@ class InitResult:
     unmodified_configs: list[str] = field(default_factory=list)
     """Relative paths of config files identical to bundled defaults."""
 
+    removed_prunable: list[tuple[str, str]] = field(default_factory=list)
+    """`(relative_path, successor)` for on-disk orphans of dropped assets
+    whose content matches the last-shipped version (safe to auto-delete)."""
+
+    removed_review: list[tuple[str, str]] = field(default_factory=list)
+    """`(relative_path, successor)` for on-disk orphans of dropped assets that
+    differ from the last-shipped version (locally modified: reported for
+    manual review, never auto-deleted)."""
+
     warnings: list[str] = field(default_factory=list)
     """Warning messages emitted during initialization."""
 
@@ -852,6 +863,14 @@ def run_init(
     for rel in sorted(scope_excluded_targets):
         if (output_dir / rel).exists():
             result.excluded_existing.append(rel)
+
+    # Detect orphans of assets repomatic has dropped (renamed or removed
+    # upstream). Suppressed in the source repo, where the data files for
+    # these tombstones no longer exist anyway.
+    if not is_source:
+        result.removed_prunable, result.removed_review = _detect_removed_assets(
+            output_dir, config
+        )
 
     # Dispatch by component type.
     tool_configs_to_merge: list[str] = []
@@ -1091,6 +1110,51 @@ def _resolve_skills_target(entry_target: str, config: Config | None) -> str:
     if custom == default:
         return entry_target
     return custom + entry_target[len(default) :]
+
+
+def _detect_removed_assets(
+    output_dir: Path, config: Config | None
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Find on-disk orphans of assets repomatic has dropped.
+
+    Walks {data}`~repomatic.registry.REMOVED_ASSETS`, resolving each
+    tombstone's target through the same path overrides as live files, and
+    classifies any that still exist on disk by comparing their normalized
+    content against the recorded last-shipped hash:
+
+    - *prunable*: content matches (an untouched orphan, safe to delete).
+    - *review*: content differs (locally modified, report but never delete).
+
+    :param output_dir: Root directory of the target repository.
+    :param config: Repomatic config for `skills.location` / `agents.location`
+        path overrides.
+    :return: `(prunable, review)`, each a list of `(relative_path,
+        successor)` tuples sorted by path.
+    """
+    prunable: list[tuple[str, str]] = []
+    review: list[tuple[str, str]] = []
+    for asset in REMOVED_ASSETS:
+        rel = asset.target
+        if asset.component == "agents":
+            rel = _resolve_agents_target(rel, config)
+        elif asset.component == "skills":
+            rel = _resolve_skills_target(rel, config)
+        path = output_dir / rel
+        if not path.exists():
+            continue
+        # Compare against the on-disk form init itself writes: rstrip()ed
+        # with a single trailing newline. A match against any released
+        # revision means the copy is untouched and safe to prune.
+        normalized = path.read_text(encoding="UTF-8").rstrip() + "\n"
+        digest = hashlib.sha256(normalized.encode("UTF-8")).hexdigest()
+        entry = (rel, asset.successor)
+        if digest in asset.hashes:
+            prunable.append(entry)
+        else:
+            review.append(entry)
+    prunable.sort()
+    review.sort()
+    return prunable, review
 
 
 def _init_config_files(

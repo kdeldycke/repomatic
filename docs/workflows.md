@@ -146,6 +146,7 @@ GitHub Actions has several design limitations that the workflows work around:
 
 - Runs [`repomatic init --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init_project.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
+- Prunes orphans of assets repomatic has dropped (renamed or removed skills, agents, or workflows): a downstream copy whose content matches any version repomatic shipped for that asset is deleted, so an upstream rename propagates automatically instead of leaving a stale file behind. A copy edited locally is reported for manual review, never deleted. Pass `--keep-removed` to report these without deleting, or `--delete-removed-modified` to also delete locally modified ones
 - In the upstream repository, regenerates the bundled `repomatic/data/renovate.json5` from the root config (workflows are excluded via `[tool.repomatic]`)
 
 #### 📬 Sync `.mailmap` (`sync-mailmap`)

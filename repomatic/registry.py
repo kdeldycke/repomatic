@@ -306,6 +306,54 @@ class GeneratedComponent(Component):
     """Relative output path in the target repository."""
 
 
+@dataclass(frozen=True)
+class RemovedAsset:
+    """An asset repomatic once shipped and has since dropped.
+
+    ```{note}
+    Stale-file detection in `init` only inspects files still listed in
+    {data}`COMPONENTS`. An asset removed from the registry (a renamed or
+    consolidated skill, a retired workflow) becomes invisible to it, so
+    downstream repos accumulate one orphan per upstream removal. Each
+    `RemovedAsset` is a tombstone that lets `init` find and prune those
+    orphans.
+    ```
+
+    Pruning is content-gated: `init` deletes the on-disk file only when its
+    normalized content matches {attr}`sha256` (the last version repomatic
+    shipped), proving it is an untouched copy. A locally modified orphan is
+    reported for manual review, never deleted.
+    """
+
+    component: str
+    """Component the asset belonged to (like `"skills"` or `"workflows"`)."""
+
+    target: str
+    """Relative output path the asset occupied, in default-location form
+    (like `.claude/skills/repomatic-release/SKILL.md`).
+
+    Build skill and agent targets with `_skill_target` / `_agent_target` so
+    they match the live registry: the `skills.location` and `agents.location`
+    overrides are re-applied at detection time."""
+
+    removed_in: str
+    """Bare package version that first stopped shipping the asset
+    (like `6.21.0`). Surfaced in the prune report."""
+
+    hashes: tuple[str, ...]
+    r"""Hex SHA-256 of every distinct normalized content repomatic shipped for
+    this asset (`content.rstrip() + "\n"`, exactly as `init` writes it to
+    disk). The prune gate: an on-disk file whose content hashes to any of
+    these is an untouched copy of some released version and is safe to delete.
+    Listing one hash per distinct released revision (not just the last) means
+    a downstream repo that synced an older version is still recognized and
+    pruned rather than flagged for manual review."""
+
+    successor: str = ""
+    """Optional human note describing what replaced the asset, shown in the
+    report (like `replaced by repomatic-ship`)."""
+
+
 # ---------------------------------------------------------------------------
 # Helpers for computed targets.
 # ---------------------------------------------------------------------------
@@ -642,6 +690,214 @@ behavioral flags. All derived constants are computed from this tuple.
 
 _BY_NAME: dict[str, Component] = {c.name: c for c in COMPONENTS}
 """Index for O(1) component lookup by name."""
+
+
+# ---------------------------------------------------------------------------
+# Removed assets (tombstones).
+# ---------------------------------------------------------------------------
+
+REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
+    RemovedAsset(
+        "skills",
+        _skill_target("gha-changelog"),
+        "6.0.0",
+        ("2c178a58e1106f08aa6e540cd022eff12c4e954942ec5d794282c7b640adf768",),
+        successor="renamed to repomatic-changelog",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("gha-deps"),
+        "6.0.0",
+        ("d0bcb44f81335f4aabcadb82085f5048be12db252fc0a1f8c6bda8d9e5292efd",),
+        successor="renamed to repomatic-deps",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("gha-init"),
+        "6.0.0",
+        ("0f4f23f424c73774dd6253d9cb547e7a1d52ed64266c93b5b7271f4bee492a25",),
+        successor="renamed to repomatic-init",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("gha-lint"),
+        "6.0.0",
+        ("7079f4d79c6347b03b4788de97db2e1839006b606e9dbacbfeb51e9cca04db20",),
+        successor="now handled by lint.yaml on every push",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("gha-metadata"),
+        "6.0.0",
+        ("74c6f7d3574236d20aa7011b92f174abd2f8fdda162131e7f61851dfee7145fa",),
+        successor="now handled by the repomatic metadata CLI command",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("gha-release"),
+        "6.0.0",
+        ("99a466bc4d377bb056c5696de8f0eae2b025b34505ac951d504bee55a42bdd1c",),
+        successor="replaced by repomatic-ship",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("gha-sync"),
+        "6.0.0",
+        ("f856f143db3f0ad37adb6c80b89c33efa5112e1307927ff3331f82857a71fef4",),
+        successor="now handled by autofix.yaml on every push",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("gha-test"),
+        "6.0.0",
+        ("4a00dac78e0ca3c598c2a3ae6e649f354f73e754c5aaea531d8409f1eff23434",),
+        successor="now handled by tests.yaml on every push",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repokit-changelog"),
+        "6.0.1",
+        ("6e176d9d0090afb9d9a10035e4c6721fff8fac4a1c313010fc04a7ab631be399",),
+        successor="renamed to repomatic-changelog",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repokit-deps"),
+        "6.0.1",
+        ("577687ae8481cc67b992497ee0de9fb38c0f26cd20a9b907a4bf78f834803cc0",),
+        successor="renamed to repomatic-deps",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repokit-init"),
+        "6.0.1",
+        ("c68a9108ead81c4bb5b33912770155f6a587188ca72c8ba8d08f7283fdcad281",),
+        successor="renamed to repomatic-init",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repokit-lint"),
+        "6.0.1",
+        ("1c05f0fb8c5ff8eed38ac02af2fff016e931fdf8866fd93a3fc6c61f84d4df52",),
+        successor="now handled by lint.yaml on every push",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repokit-metadata"),
+        "6.0.1",
+        ("0322f70cdd8e53d03fce2befbf904be1f0dc5596b79e41557ce8ec788a202cff",),
+        successor="now handled by the repomatic metadata CLI command",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repokit-release"),
+        "6.0.1",
+        ("a6ceb0394f084f481765bb834f275af0cb1cf58a9383059358ceec50ea87b93a",),
+        successor="replaced by repomatic-ship",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repokit-sync"),
+        "6.0.1",
+        ("412811337a541b6c4518e588240ce2cb13f3f476bcd311f32edcf04394e17ade",),
+        successor="now handled by autofix.yaml on every push",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repokit-test"),
+        "6.0.1",
+        ("63f0b532f379aa4400eea5a6284c3004ddc09749c8f476f4ea5a5e8ce3c4716f",),
+        successor="now handled by tests.yaml on every push",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repomatic-lint"),
+        "6.21.0",
+        (
+            "11131553c99adb7daf880b6b19b84e4d4573eedbe7b951092aa7d4a1f9357aab",
+            "d72cada008b46db93eff0b7a167f1f57346c528ec317fca73857205895fb1395",
+            "058b9cc3248cd1d537d8fbf7a0c1133e3107c6ed405859457e88625b9301d3d8",
+            "7ec6520cba0a14af07ed1bb4e2f0388109ac8db0509ca92ffa0829cf2967bd11",
+        ),
+        successor="now handled by lint.yaml on every push",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repomatic-metadata"),
+        "6.3.0",
+        (
+            "e94ba4246c0bf56b8dfb6a7e4d3ea2e9521c000e8322130b1746e7a54d3f260b",
+            "58c6eec756177f445893366960464c2d5872de994a692399440df0eb30b11e35",
+        ),
+        successor="now handled by the repomatic metadata CLI command",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repomatic-release"),
+        "6.21.0",
+        (
+            "0ecfa8ff5d55b33394d83bce76d39015450403124ff63e131fea14adf685c00b",
+            "8546a42c1ea44b2a4fa0ed1bc49f71eaf8be3b5656a323ee93957ea1fdb0bb38",
+            "778783f3ef6093d9892a4772fc312747155b399e18ba33f416fa9b138897b43d",
+            "b076cae374b3104f50996cf8b92eae6f53ec9546d3b0fab2c033c90cb1e8a107",
+            "8e93d723827042e90acbe22d038516400bcd743bf39f3fb45a65c115008a97d0",
+        ),
+        successor="replaced by repomatic-ship",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repomatic-sync"),
+        "6.21.0",
+        (
+            "3b36a8b4fc76282c280f6cc19fdc24aa826db8a81ee91a66737b24cb921c84d9",
+            "1460738708f7e878c17ef578a7fad14710962a5fd7e7789f3bc08ae6bc49247b",
+            "54a2b2aa40799c05d666295ee0a1f4d65946605c5397a006185123e4c2e9f1d0",
+            "771d4e15efab4739fb00a7c1ba20495e063025842beb2e54d84207e1410f40a1",
+            "687c7f9cae7271ee56f4d35b754325ba7a2c3b13537eee057679cc160e39471e",
+            "ceaf3141599850847ee51b2e4f85c76a4cae130a01b2a4fd820dd3b5c0dd0dc0",
+            "91add2c0b7686f64f810bb86fa70c3ac99d3940b37ba6fbe57c01a4d427cc902",
+        ),
+        successor="now handled by autofix.yaml on every push",
+    ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repomatic-test"),
+        "6.21.0",
+        (
+            "8bc5f054507b369f9be34dd4a34183e00b6a8e0186c34d4deb385032e6682e1a",
+            "cb987bfe342c2d00ea1a6226585238f19bc5a351a678124f7e6225d5c6122c2c",
+            "17bae80a4b98518b6037518ad340a60d117d35a4fa26725fa2ab685ebd23e8dd",
+        ),
+        successor="now handled by tests.yaml on every push",
+    ),
+)
+r"""Tombstones for assets repomatic has dropped (see {class}`RemovedAsset`).
+
+`init` prunes orphaned copies of these from downstream repos. Ordered by
+`(component, target)`.
+
+When you drop a bundled asset from {data}`COMPONENTS`, add an entry here so
+the removal propagates downstream on the next `init` instead of leaving an
+orphan. List one hash per distinct content the asset shipped across its
+released lifetime, collected from the release tags where its data file
+existed:
+
+```python
+import hashlib, subprocess
+
+src = "repomatic/data/skill-repomatic-release.md"  # the dropped data file
+tags = subprocess.run(
+    ["git", "tag", "--list", "v*"], capture_output=True, text=True, check=True
+).stdout.split()
+hashes = {}
+for tag in tags:
+    blob = subprocess.run(["git", "show", f"{tag}:{src}"], capture_output=True, text=True)
+    if blob.returncode == 0:
+        normalized = blob.stdout.rstrip() + "\n"
+        hashes.setdefault(hashlib.sha256(normalized.encode("UTF-8")).hexdigest(), tag)
+print(tuple(hashes))  # distinct contents, in first-shipped order
+```
+"""
 
 DEFAULT_REPO: str = "kdeldycke/repomatic"
 """Default upstream repository for reusable workflows."""

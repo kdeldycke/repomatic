@@ -382,6 +382,24 @@ class ComponentSelector(ParamType):
         return completions
 
 
+def _unlink_with_empty_parents(target: Path, root: Path) -> None:
+    """Delete `target`, then prune now-empty parent directories up to `root`."""
+    target.unlink()
+    parent = target.parent
+    while parent != root:
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+        parent = parent.parent
+
+
+def _removed_line(path: str, successor: str, color: str) -> str:
+    """Format one removed-asset report line, with an optional successor note."""
+    note = style(f"  ({successor})", dim=True) if successor else ""
+    return f"  {style(path, fg=color)}{note}"
+
+
 @repomatic.command(
     name="init",
     short_help="Bootstrap a repository to use reusable workflows",
@@ -422,6 +440,20 @@ class ComponentSelector(ParamType):
     default=False,
     help="Delete config files identical to bundled defaults.",
 )
+@option(
+    "--keep-removed",
+    is_flag=True,
+    default=False,
+    help="Keep orphaned files of assets repomatic no longer ships "
+    "(report them instead of auto-pruning).",
+)
+@option(
+    "--delete-removed-modified",
+    is_flag=True,
+    default=False,
+    help="Also delete orphaned files of removed assets that were modified "
+    "locally (normally reported for manual review, never deleted).",
+)
 def init_project(
     components,
     version_pin,
@@ -429,6 +461,8 @@ def init_project(
     output_dir,
     delete_excluded,
     delete_unmodified,
+    keep_removed,
+    delete_removed_modified,
 ):
     """Bootstrap a repository to use reusable workflows from kdeldycke/repomatic.
 
@@ -481,6 +515,11 @@ def init_project(
         repomatic init ruff bumpversion
 
     """
+    if keep_removed and delete_removed_modified:
+        raise UsageError(
+            "--keep-removed and --delete-removed-modified are mutually exclusive."
+        )
+
     result = run_init(
         output_dir=output_dir,
         components=components,
@@ -521,16 +560,7 @@ def init_project(
     if result.excluded_existing:
         if delete_excluded:
             for path in result.excluded_existing:
-                target = output_dir / path
-                target.unlink()
-                # Remove empty parent directories up to output_dir.
-                parent = target.parent
-                while parent != output_dir:
-                    try:
-                        parent.rmdir()
-                    except OSError:
-                        break
-                    parent = parent.parent
+                _unlink_with_empty_parents(output_dir / path, output_dir)
             echo(
                 style(
                     f"Deleted {len(result.excluded_existing)} excluded"
@@ -572,6 +602,55 @@ def init_project(
             )
         for path in result.unmodified_configs:
             echo(f"  {style(path, fg='cyan' if not delete_unmodified else 'red')}")
+    if result.removed_prunable or result.removed_review:
+        if result.removed_prunable and not keep_removed:
+            for path, _ in result.removed_prunable:
+                _unlink_with_empty_parents(output_dir / path, output_dir)
+            echo(
+                style(
+                    f"Pruned {len(result.removed_prunable)} removed-upstream"
+                    " file(s) (unmodified orphans):",
+                    fg="red",
+                    bold=True,
+                )
+            )
+            for path, successor in result.removed_prunable:
+                echo(_removed_line(path, successor, "red"))
+        elif result.removed_prunable:
+            echo(
+                style(
+                    f"Removed upstream: {len(result.removed_prunable)} unmodified"
+                    " orphan(s) on disk",
+                    fg="red",
+                )
+                + style(" (--keep-removed set; delete manually):", dim=True)
+            )
+            for path, successor in result.removed_prunable:
+                echo(_removed_line(path, successor, "red"))
+        if result.removed_review:
+            if delete_removed_modified:
+                for path, _ in result.removed_review:
+                    _unlink_with_empty_parents(output_dir / path, output_dir)
+                echo(
+                    style(
+                        f"Force-deleted {len(result.removed_review)} removed-upstream"
+                        " file(s) (locally modified):",
+                        fg="red",
+                        bold=True,
+                    )
+                )
+                for path, successor in result.removed_review:
+                    echo(_removed_line(path, successor, "red"))
+            else:
+                echo(
+                    style(
+                        f"Review manually: {len(result.removed_review)} removed-upstream"
+                        " file(s) modified since repomatic shipped them:",
+                        fg="yellow",
+                    )
+                )
+                for path, successor in result.removed_review:
+                    echo(_removed_line(path, successor, "yellow"))
     if result.warnings:
         for warning in result.warnings:
             echo(style("Warning: ", fg="yellow", bold=True) + warning)
