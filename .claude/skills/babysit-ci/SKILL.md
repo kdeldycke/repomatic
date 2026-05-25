@@ -15,6 +15,9 @@ This skill involves repeated `gh`, `git`, `uv run pytest`, `git commit`, and `gi
 $ claude --dangerously-skip-permissions --model sonnet /babysit-ci
 ```
 
+> [!WARNING]
+> `--dangerously-skip-permissions` bypasses every permission prompt for the whole session: shell commands, file edits, and pushes all run without asking. Only use it in an environment you trust, ideally a sandbox or disposable checkout, never against an unfamiliar repository or untrusted input.
+
 Because this loop runs autonomously without human review, commits must be attributed to Claude with a `Co-Authored-By` trailer. This is the one exception to the global no-AI-attribution rule.
 
 ## Timeline
