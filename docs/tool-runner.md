@@ -256,6 +256,21 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 <!-- actionlint-manual-start -->
 
+**Try it:**
+
+```shell-session
+$ repomatic run actionlint
+```
+
+**Minimal `[tool.actionlint]`:**
+
+```toml
+[tool.actionlint.self-hosted-runner]
+labels = ["my-linux-runner"]
+```
+
+With no arguments actionlint lints every workflow under `.github/workflows`. The `[tool.actionlint]` section is bridged to a temporary YAML config: declaring self-hosted runner labels stops custom `runs-on:` values being flagged as unknown.
+
 <!-- actionlint-manual-end -->
 
 ### [autopep8](https://github.com/hhatto/autopep8)
@@ -271,6 +286,14 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 [Source](https://github.com/hhatto/autopep8) | [CLI usage](https://pypi.org/project/autopep8/)
 
 <!-- autopep8-manual-start -->
+
+**Try it:**
+
+```shell-session
+$ repomatic run autopep8 -- .
+```
+
+autopep8 takes its configuration from CLI flags only. repomatic passes `--recursive --in-place --max-line-length 88 --select E501` by default; append more flags after `--`.
 
 <!-- autopep8-manual-end -->
 
@@ -288,6 +311,21 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 <!-- biome-manual-start -->
 
+**Try it:**
+
+```shell-session
+$ repomatic run biome -- check .
+```
+
+**Minimal `[tool.biome]`:**
+
+```toml
+[tool.biome.formatter]
+indentStyle = "space"
+```
+
+`biome check` reports formatting and lint issues; add `--write` after `--` to apply fixes. The `[tool.biome]` section is bridged to a temporary `biome.json`, so keys keep Biome's camelCase spelling.
+
 <!-- biome-manual-end -->
 
 ### [bump-my-version](https://github.com/callowayproject/bump-my-version)
@@ -301,6 +339,21 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 [Source](https://github.com/callowayproject/bump-my-version) | [Config reference](https://callowayproject.github.io/bump-my-version/reference/configuration/) | [CLI usage](https://callowayproject.github.io/bump-my-version/reference/cli/)
 
 <!-- bump-my-version-manual-start -->
+
+**Try it:**
+
+```shell-session
+$ repomatic run bump-my-version -- show-bump
+```
+
+**Minimal `[tool.bumpversion]`:**
+
+```toml
+[tool.bumpversion]
+current_version = "1.2.3"
+```
+
+The configuration table is `[tool.bumpversion]`, not `[tool.bump-my-version]`: the section name predates the project's rename. `show-bump` previews the next versions without writing; `repomatic run bump-my-version -- bump minor` performs the bump.
 
 <!-- bump-my-version-manual-end -->
 
@@ -318,6 +371,24 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 <!-- gitleaks-manual-start -->
 
+**Try it:**
+
+```shell-session
+$ repomatic run gitleaks -- dir .
+```
+
+**Minimal `[tool.gitleaks]`:**
+
+```toml
+[tool.gitleaks.extend]
+useDefault = true
+
+[tool.gitleaks.allowlist]
+paths = ['''\.env\.sample$''']
+```
+
+`gitleaks dir .` scans the working tree; `gitleaks git` scans history instead. The `[tool.gitleaks]` section is bridged to a temporary `.gitleaks.toml`: keep `extend.useDefault = true`, or a custom config silently replaces the built-in rule set.
+
 <!-- gitleaks-manual-end -->
 
 ### [labelmaker](https://github.com/jwodder/labelmaker)
@@ -332,6 +403,8 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 <!-- labelmaker-manual-start -->
 
+labelmaker syncs a repository's issue and PR labels from a label-definition file, so unlike the linters it needs a target repository and a `GITHUB_TOKEN`, not a path in the working tree. There is no `[tool.labelmaker]` section: the label file is the configuration. See the [upstream usage docs](https://github.com/jwodder/labelmaker) for its flags and file schema.
+
 <!-- labelmaker-manual-end -->
 
 ### [Lychee](https://github.com/lycheeverse/lychee)
@@ -345,6 +418,21 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 [Source](https://github.com/lycheeverse/lychee) | [Config reference](https://lychee.cli.rs/guides/config/) | [CLI usage](https://lychee.cli.rs/guides/cli/)
 
 <!-- lychee-manual-start -->
+
+**Try it:**
+
+```shell-session
+$ repomatic run lychee -- .
+```
+
+**Minimal `[tool.lychee]`:**
+
+```toml
+[tool.lychee]
+max_redirects = 5
+```
+
+lychee checks links found in the given path. Since v0.24 it reads `[tool.lychee]` from `pyproject.toml` natively, so repomatic does not translate it.
 
 <!-- lychee-manual-end -->
 
@@ -384,6 +472,21 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 <!-- mdformat-manual-start -->
 
+**Try it:**
+
+```shell-session
+$ repomatic run mdformat -- .
+```
+
+**Minimal `[tool.mdformat]`:**
+
+```toml
+[tool.mdformat]
+wrap = "no"
+```
+
+mdformat rewrites Markdown in place. repomatic bundles a plugin set (GFM, MyST, front-matter, and others) and a baseline `mdformat.toml`; `[tool.mdformat]` in your `pyproject.toml` overrides it.
+
 <!-- mdformat-manual-end -->
 
 ### [mypy](https://github.com/python/mypy)
@@ -399,6 +502,21 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 [Source](https://github.com/python/mypy) | [Config reference](https://mypy.readthedocs.io/en/stable/config_file.html) | [CLI usage](https://mypy.readthedocs.io/en/stable/command_line.html)
 
 <!-- mypy-manual-start -->
+
+**Try it:**
+
+```shell-session
+$ repomatic run mypy -- .
+```
+
+**Minimal `[tool.mypy]`:**
+
+```toml
+[tool.mypy]
+strict = true
+```
+
+mypy runs inside the project virtualenv (via `uv run`) so it can import your dependencies. repomatic derives `--python-version` from `requires-python`, so the check matches your lowest supported interpreter.
 
 <!-- mypy-manual-end -->
 
@@ -448,6 +566,21 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 
 <!-- pyproject-fmt-manual-start -->
 
+**Try it:**
+
+```shell-session
+$ repomatic run pyproject-fmt -- pyproject.toml
+```
+
+**Minimal `[tool.pyproject-fmt]`:**
+
+```toml
+[tool.pyproject-fmt]
+indent = 4
+```
+
+pyproject-fmt normalizes and reorders `pyproject.toml` in place. It reads its own `[tool.pyproject-fmt]` section natively.
+
 <!-- pyproject-fmt-manual-end -->
 
 ### [Ruff](https://github.com/astral-sh/ruff)
@@ -463,6 +596,21 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 [Source](https://github.com/astral-sh/ruff) | [Config reference](https://docs.astral.sh/ruff/configuration/) | [CLI usage](https://docs.astral.sh/ruff/configuration/#command-line-interface)
 
 <!-- ruff-manual-start -->
+
+**Try it:**
+
+```shell-session
+$ repomatic run ruff -- check .
+```
+
+**Minimal `[tool.ruff]`:**
+
+```toml
+[tool.ruff]
+line-length = 100
+```
+
+`ruff check .` lints; `ruff format .` reformats. Both read `[tool.ruff]` natively. With no project config, repomatic falls back to its bundled `ruff.toml` baseline.
 
 <!-- ruff-manual-end -->
 
@@ -480,6 +628,14 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 
 <!-- shfmt-manual-start -->
 
+**Try it:**
+
+```shell-session
+$ repomatic run shfmt -- .
+```
+
+shfmt formats shell scripts in place. It has no `[tool.shfmt]` section: indentation and style come from `.editorconfig` (`indent_size`, `shell_variant`, and the `shfmt`-specific keys).
+
 <!-- shfmt-manual-end -->
 
 ### [typos](https://github.com/crate-ci/typos)
@@ -495,6 +651,21 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 [Source](https://github.com/crate-ci/typos) | [Config reference](https://github.com/crate-ci/typos/blob/master/docs/reference.md) | [CLI usage](https://github.com/crate-ci/typos/blob/master/docs/reference.md)
 
 <!-- typos-manual-start -->
+
+**Try it:**
+
+```shell-session
+$ repomatic run typos -- .
+```
+
+**Minimal `[tool.typos]`:**
+
+```toml
+[tool.typos.files]
+extend-exclude = ["*.lock"]
+```
+
+typos scans the tree and, with repomatic's default `--write-changes`, fixes what it finds. It reads `[tool.typos]` natively; use `[tool.typos.default.extend-words]` to map project-specific terms to their intended spelling.
 
 <!-- typos-manual-end -->
 
@@ -518,6 +689,21 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 
 <!-- yamllint-manual-start -->
 
+**Try it:**
+
+```shell-session
+$ repomatic run yamllint -- .
+```
+
+**Minimal `[tool.yamllint]`:**
+
+```toml
+[tool.yamllint.rules.line-length]
+max = 120
+```
+
+yamllint has no native `pyproject.toml` support, so repomatic bridges `[tool.yamllint]` to a temporary YAML config passed via `--config-file`. With no project config it uses repomatic's strict bundled `yamllint.yaml`.
+
 <!-- yamllint-manual-end -->
 
 ### [zizmor](https://github.com/zizmorcore/zizmor)
@@ -539,6 +725,14 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 [Source](https://github.com/zizmorcore/zizmor) | [Config reference](https://docs.zizmor.sh/configuration/) | [CLI usage](https://docs.zizmor.sh/usage/)
 
 <!-- zizmor-manual-start -->
+
+**Try it:**
+
+```shell-session
+$ repomatic run zizmor -- .
+```
+
+zizmor audits GitHub Actions workflows for security issues, offline by default. repomatic bridges `[tool.zizmor]` to a temporary YAML config (passed via `--config`); with none, it uses the bundled `zizmor.yaml`. See the [configuration reference](https://docs.zizmor.sh/configuration/) for available keys.
 
 <!-- zizmor-manual-end -->
 
