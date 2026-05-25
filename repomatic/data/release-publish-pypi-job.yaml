@@ -40,6 +40,6 @@ publish-pypi:
   permissions:
     id-token: write
   steps:
-    - uses: kdeldycke/repomatic/.github/actions/publish-pypi@main
+    - uses: kdeldycke/repomatic/.github/actions/publish-pypi@v6.22.0
       with:
         artifact-name: ${{ github.event.repository.name }}-${{ matrix.short_sha }}
