@@ -2,6 +2,24 @@
 
 `repomatic run` is a unified entry point for running external linters, formatters, and security scanners. It installs each tool at a pinned version, resolves configuration through a strict precedence chain, and invokes the tool: no manual setup, no dotfile sprawl.
 
+## Why not run the tools directly?
+
+Installing a tool and running `yamllint .` yourself is fine for one tool on one machine. Once a project leans on a dozen, the same three chores repeat for each, and `repomatic run` takes care of all of them:
+
+- Configuration stays in `pyproject.toml`, one reviewed file rather than a dotfile per tool. Even tools that can't read `pyproject.toml` themselves get their `[tool.X]` table translated to a temporary native config at run time, following the [precedence chain](#config-resolution) below.
+- Installation is automatic: binaries come from GitHub Releases and are checksum-verified, PyPI tools run through `uvx`, and tools that import your code (mypy, Nuitka) run inside the project virtualenv.
+- Versions are pinned and re-verified on each use, so a check behaves the same on your laptop and in CI instead of drifting with whatever each machine happens to have installed.
+
+```{seealso}
+The tools repomatic bridges have standing upstream requests to read `[tool.X]` from `pyproject.toml` natively, all still unshipped:
+[actionlint#623](https://github.com/rhysd/actionlint/issues/623),
+[biome#9239](https://github.com/biomejs/biome/discussions/9239),
+[gitleaks#2066](https://github.com/gitleaks/gitleaks/issues/2066),
+[Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136),
+[zizmor#322](https://github.com/orgs/zizmorcore/discussions/322#discussioncomment-15919620).
+The same request for shfmt ([sh#1268](https://github.com/mvdan/sh/issues/1268)) was declined.
+```
+
 ## Quick start
 
 Run a tool against your project:
