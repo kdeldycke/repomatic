@@ -273,11 +273,11 @@ Patterns that recur across sessions — watch for these proactively:
 
 ### Skills
 
-Skills in `.claude/skills/` are user-invocable only (`disable-model-invocation: true`) and follow agent conventions: lean definitions, no duplication with `CLAUDE.md`, reference sections instead of restating rules. Run `repomatic list-skills` to see all skills with descriptions.
+Skills in `.claude/skills/` are user-invocable only (`disable-model-invocation: true`) by default and follow agent conventions: lean definitions, no duplication with `CLAUDE.md`, reference sections instead of restating rules. Run `repomatic list-skills` to see all skills with descriptions. **A skill that another skill invokes programmatically drops `disable-model-invocation`** so it is model-invocable: the flag blocks the `Skill` tool, not just auto-triggering. `repomatic-changelog` is unlocked this way so `/repomatic-release-prep` can run its consolidation during the end-of-cycle reconciliation sweep; the caller lists `Skill` and `Agent` in `allowed-tools` and guards for graceful degradation (next paragraph).
 
 **Skills must be self-contained for downstream portability.** Skills deploy to downstream repos via `repomatic init skills` as standalone SKILL.md files. Downstream repos have no `docs/` directory and skills typically lack `WebFetch`. All domain knowledge a skill needs must be inline in the SKILL.md: do not replace inline content with links to `docs/` pages. When the same knowledge appears in both a skill and a docs page, the duplication is intentional — `docs/` serves human readers, the skill serves Claude at runtime. Add a docs cross-reference but keep the full content inline.
 
-**Cross-references between skills and agents must degrade gracefully.** A "Next steps" line suggesting `/other-skill` is informational: the referenced skill may be excluded in this repo (via `[tool.repomatic] exclude` or scope filtering). Likewise, an agent mentioning its teammate must remain useful when invoked alone. Write skill and agent prose so a missing cross-reference is a no-op, not a blocker.
+**Cross-references between skills and agents must degrade gracefully.** A "Next steps" line suggesting `/other-skill` is informational: the referenced skill may be excluded in this repo (via `[tool.repomatic] exclude` or scope filtering). The same holds for a *programmatic* call: a skill that invokes another through the `Skill` tool must fall back to a subagent or inline work when the target is excluded, never letting a missing skill abort the caller. Likewise, an agent mentioning its teammate must remain useful when invoked alone. Write skill and agent prose so a missing cross-reference is a no-op, not a blocker.
 
 ### Mechanical vs analytical work
 

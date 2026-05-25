@@ -264,5 +264,4 @@ Common false-positive patterns to reject early:
 Suggest the user run:
 
 - `/repomatic-deps review all` to audit version floors and specifier policy.
-- `/repomatic-lint` to check repository metadata for issues.
 - `/repomatic-audit` for a comprehensive alignment check beyond dependencies.

@@ -475,28 +475,10 @@ COMPONENTS: tuple[Component, ...] = (
                 phase="Setup",
             ),
             FileEntry(
-                "skill-repomatic-lint.md",
-                _skill_target("repomatic-lint"),
-                "repomatic-lint",
-                phase="Quality",
-            ),
-            FileEntry(
-                "skill-repomatic-release.md",
-                _skill_target("repomatic-release"),
-                "repomatic-release",
+                "skill-repomatic-release-prep.md",
+                _skill_target("repomatic-release-prep"),
+                "repomatic-release-prep",
                 phase="Release",
-            ),
-            FileEntry(
-                "skill-repomatic-sync.md",
-                _skill_target("repomatic-sync"),
-                "repomatic-sync",
-                phase="Setup",
-            ),
-            FileEntry(
-                "skill-repomatic-test.md",
-                _skill_target("repomatic-test"),
-                "repomatic-test",
-                phase="Quality",
             ),
             FileEntry(
                 "skill-repomatic-topics.md",

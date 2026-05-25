@@ -1,1 +1,0 @@
-../../.claude/skills/repomatic-lint/SKILL.md
