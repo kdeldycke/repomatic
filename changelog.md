@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.22.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.22.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.22.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.21.0...v6.22.0)
 
 - `repomatic init` now prunes downstream orphans of skills, agents, and workflows that repomatic has renamed or removed, so an upstream change (a skill rename like `repomatic-release` becoming `repomatic-ship`, or the `label-sponsors` and `labeller-*` workflows being merged into `labels.yaml`) propagates automatically instead of leaving a stale file behind. A skill or agent copy is deleted when its content matches any version repomatic shipped; a workflow thin-caller is deleted when its `uses:` line still points at the dropped upstream workflow. A locally modified copy (edited content, or a thin-caller carrying extra jobs) is reported for manual review, never deleted. The seed list covers every asset dropped across the project's `gha-utils`, `repokit`, and `repomatic` naming eras, so a repo first set up under an earlier name sheds its legacy files on the next run. The `sync-repomatic` autofix job applies this on every push. Pass `--keep-removed` to report orphans without deleting them, or `--delete-removed-modified` to also delete locally modified ones.
