@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.21.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.21.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.21.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.20.0...v6.21.0)
 
 - Replace the `repomatic-release` skill with `repomatic-ship`, a release orchestrator: it reconciles the changelog, code, and docs to the net release state, then commits, pushes, and babysits CI (delegating to `babysit-ci`) until the release PR is ready to rebase-and-merge. Review-gated in normal use, fully autonomous under `--dangerously-skip-permissions`. It does not run the `release-prep` CLI itself (CI's `prepare-release` job does); the version read is advisory and never merges a bump PR.

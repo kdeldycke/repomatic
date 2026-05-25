@@ -5,7 +5,7 @@ requires = [ "uv-build>=0.9" ]
 [project]
 # Docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 name = "repomatic"
-version = "6.21.0"
+version = "6.21.1.dev0"
 description = "🏭 Automate repository maintenance, releases, and CI/CD workflows"
 readme = "readme.md"
 keywords = [
@@ -124,7 +124,7 @@ repomatic = "repomatic.__main__:main"
 [project.urls]
 "Changelog" = "https://github.com/kdeldycke/repomatic/blob/main/changelog.md"
 "Documentation" = "https://kdeldycke.github.io/repomatic"
-"Download" = "https://github.com/kdeldycke/repomatic/releases/tag/v6.21.0"
+"Download" = "https://github.com/kdeldycke/repomatic/releases/tag/v6.21.1.dev0"
 "Funding" = "https://github.com/sponsors/kdeldycke"
 "Homepage" = "https://github.com/kdeldycke/repomatic"
 "Issues" = "https://github.com/kdeldycke/repomatic/issues"
@@ -201,7 +201,7 @@ copyright = "Kevin Deldycke <kevin@deldycke.com> and contributors. Distributed u
 file-description = "🏭 Automate repository maintenance, releases, and CI/CD workflows"
 # Numeric only: Nuitka rejects PEP 440 .devN suffixes. Kept in sync with the
 # package version by the dedicated [tool.bumpversion] rule that strips the suffix.
-file-version = "6.21.0"
+file-version = "6.21.1"
 include-data-dir = [
   "repomatic/data/awesome_template=repomatic/data/awesome_template",
 ]
@@ -219,7 +219,7 @@ include-package-data = [ "click_extra" ]
 linux-icon = "docs/assets/icon.png"
 macos-app-icon = "docs/assets/icon.icns"
 product-name = "Repomatic"
-product-version = "6.21.0"
+product-version = "6.21.1"
 windows-icon-from-ico = "docs/assets/icon.ico"
 
 [tool.ruff]
@@ -303,7 +303,7 @@ run.source = [ "repomatic" ]
 report.precision = 2
 
 [tool.bumpversion]
-current_version = "6.21.0"
+current_version = "6.21.1.dev0"
 allow_dirty = true
 ignore_missing_files = true
 # Parse versions with an optional .devN suffix (PEP 440).
