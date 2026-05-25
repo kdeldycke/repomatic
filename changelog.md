@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix the downstream caller's `publish-pypi` job aborting every non-release `release.yaml` run with `Unexpected value ''` when evaluating its `strategy`. Its matrix now falls back to an empty `{"include":[]}` matrix when `release_commits_matrix` is empty, since GitHub evaluates `strategy.matrix` even for jobs that `if:` will skip; non-release pushes now skip the job cleanly instead of failing the run.
 - Seed the hand-maintained extra-docs region of every tool section in the [tool-runner docs](https://kdeldycke.github.io/repomatic/tool-runner.html#available-tools) with a runnable `repomatic run` example and, for configurable tools, a minimal `[tool.X]` snippet.
 
 ## [`6.21.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.20.0...v6.21.0)
