@@ -319,10 +319,20 @@ class RemovedAsset:
     orphans.
     ```
 
-    Pruning is content-gated: `init` deletes the on-disk file only when its
-    normalized content matches {attr}`sha256` (the last version repomatic
-    shipped), proving it is an untouched copy. A locally modified orphan is
-    reported for manual review, never deleted.
+    `init` finds an on-disk orphan and decides whether to prune it with one of
+    two gates, depending on the component:
+
+    - Content-gated (skills, agents): the file is deleted only when its
+      normalized content matches one of {attr}`hashes` (a version repomatic
+      shipped), proving it is an untouched copy.
+    - Fingerprint-gated (workflows): thin-callers are parameterized per repo
+      (version pin, `paths:` filters), so they carry no fixed content. The file
+      is deleted only when it is a repomatic-lineage thin-caller for this
+      workflow (its `uses:` line references an upstream slug, see
+      {data}`UPSTREAM_REPO_SLUGS`) with no extra downstream jobs.
+
+    Either way, a locally modified orphan is reported for manual review, never
+    deleted.
     """
 
     component: str
@@ -330,24 +340,29 @@ class RemovedAsset:
 
     target: str
     """Relative output path the asset occupied, in default-location form
-    (like `.claude/skills/repomatic-release/SKILL.md`).
+    (like `.claude/skills/repomatic-release/SKILL.md` or
+    `.github/workflows/label-sponsors.yaml`).
 
     Build skill and agent targets with `_skill_target` / `_agent_target` so
     they match the live registry: the `skills.location` and `agents.location`
-    overrides are re-applied at detection time."""
+    overrides are re-applied at detection time. Workflow targets are literal
+    (`.github/workflows/` is fixed by GitHub)."""
 
     removed_in: str
     """Bare package version that first stopped shipping the asset
     (like `6.21.0`). Surfaced in the prune report."""
 
-    hashes: tuple[str, ...]
-    r"""Hex SHA-256 of every distinct normalized content repomatic shipped for
-    this asset (`content.rstrip() + "\n"`, exactly as `init` writes it to
-    disk). The prune gate: an on-disk file whose content hashes to any of
-    these is an untouched copy of some released version and is safe to delete.
-    Listing one hash per distinct released revision (not just the last) means
-    a downstream repo that synced an older version is still recognized and
-    pruned rather than flagged for manual review."""
+    hashes: tuple[str, ...] = ()
+    r"""Content gate for skills and agents: the hex SHA-256 of every distinct
+    normalized content repomatic shipped for this asset (`content.rstrip() +
+    "\n"`, exactly as `init` writes it to disk). An on-disk file whose content
+    hashes to any of these is an untouched copy of some released version and is
+    safe to delete. Listing one hash per distinct released revision (not just
+    the last) means a downstream repo that synced an older version is still
+    recognized and pruned rather than flagged for review.
+
+    Empty for workflows, which are fingerprint-gated by their `uses:` line
+    instead (see the class docstring)."""
 
     successor: str = ""
     """Optional human note describing what replaced the asset, shown in the
@@ -870,6 +885,24 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
         ),
         successor="now handled by tests.yaml on every push",
     ),
+    RemovedAsset(
+        "workflows",
+        ".github/workflows/label-sponsors.yaml",
+        "4.25.0",
+        successor="merged into labels.yaml",
+    ),
+    RemovedAsset(
+        "workflows",
+        ".github/workflows/labeller-content-based.yaml",
+        "4.25.0",
+        successor="merged into labels.yaml",
+    ),
+    RemovedAsset(
+        "workflows",
+        ".github/workflows/labeller-file-based.yaml",
+        "4.25.0",
+        successor="merged into labels.yaml",
+    ),
 )
 r"""Tombstones for assets repomatic has dropped (see {class}`RemovedAsset`).
 
@@ -897,10 +930,25 @@ for tag in tags:
         hashes.setdefault(hashlib.sha256(normalized.encode("UTF-8")).hexdigest(), tag)
 print(tuple(hashes))  # distinct contents, in first-shipped order
 ```
+
+Removed *workflows* are fingerprint-gated, not hashed: omit `hashes` and give
+the workflow's downstream path as `target` (`.github/workflows/{name}`).
 """
 
 DEFAULT_REPO: str = "kdeldycke/repomatic"
 """Default upstream repository for reusable workflows."""
+
+UPSTREAM_REPO_SLUGS: tuple[str, ...] = (
+    "kdeldycke/repomatic",
+    "kdeldycke/repokit",
+    "kdeldycke/workflows",
+)
+"""Upstream repository slugs across the project's renames, current first.
+
+A downstream thin-caller's `uses:` line references whichever slug was current
+when it was generated. Workflow-tombstone detection matches against all of
+them (current first, since most callers are recent) so an orphaned thin-caller
+is recognized regardless of which era set it up."""
 
 UPSTREAM_SOURCE_GLOB: str = "repomatic/**"
 """Path glob for the upstream source directory in canonical workflows.

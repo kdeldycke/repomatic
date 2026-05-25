@@ -2480,14 +2480,18 @@ def test_removed_assets_no_collision_with_live_registry() -> None:
 
 @pytest.mark.parametrize("asset", REMOVED_ASSETS, ids=lambda a: a.target)
 def test_removed_asset_metadata_valid(asset: RemovedAsset) -> None:
-    """Each tombstone carries 64-hex hashes and a bare, not-future version."""
-    assert asset.hashes, f"{asset.target} has no shipped hashes"
-    for digest in asset.hashes:
-        assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
+    """Each tombstone has a valid gate, a bare version, and a known component."""
+    if asset.component == "workflows":
+        # Fingerprint-gated by the `uses:` line, never content-hashed.
+        assert asset.hashes == (), f"{asset.target} should be fingerprint-gated"
+    else:
+        # Content-gated: at least one 64-hex shipped-content hash.
+        assert asset.hashes, f"{asset.target} has no shipped hashes"
+        for digest in asset.hashes:
+            assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
     assert not asset.removed_in.startswith("v"), asset.removed_in
     assert Version(asset.removed_in) <= Version(__version__), asset.removed_in
-    if asset.component in ("skills", "agents"):
-        assert asset.component in ALL_COMPONENTS
+    assert asset.component in ALL_COMPONENTS
 
 
 def test_detect_removed_assets_classifies_by_content(
@@ -2677,6 +2681,141 @@ def test_init_cli_keep_removed_and_force_are_exclusive(
 
     assert cli_result.exit_code != 0
     assert "mutually exclusive" in cli_result.output
+
+
+# A removed reusable workflow seeded in REMOVED_ASSETS, used by the
+# fingerprint-gated workflow tests below.
+_REMOVED_WORKFLOW = ".github/workflows/label-sponsors.yaml"
+
+
+def _thin_caller(slug: str = "kdeldycke/repomatic", extra: str = "") -> str:
+    """A downstream thin-caller for the removed `label-sponsors` workflow."""
+    return (
+        "---\n"
+        "name: 🏷️ Label sponsors\n"
+        '"on":\n'
+        "  pull_request:\n\n"
+        "jobs:\n\n"
+        "  label-sponsors:\n"
+        f"    uses: {slug}/.github/workflows/label-sponsors.yaml@v4.24.6\n"
+        "    secrets:\n"
+        "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
+        f"{extra}"
+    )
+
+
+def _write_workflow(tmp_path: Path, content: str) -> Path:
+    wf = tmp_path / _REMOVED_WORKFLOW
+    wf.parent.mkdir(parents=True)
+    wf.write_text(content, encoding="UTF-8")
+    return wf
+
+
+@pytest.mark.parametrize(
+    "slug", ["kdeldycke/repomatic", "kdeldycke/repokit", "kdeldycke/workflows"]
+)
+def test_detect_prunes_thin_caller_any_slug(tmp_path: Path, slug: str) -> None:
+    """A pure thin-caller for a removed workflow is prunable, whatever the era slug."""
+    _write_workflow(tmp_path, _thin_caller(slug))
+    prunable, review = _detect_removed_assets(tmp_path, None)
+    assert (_REMOVED_WORKFLOW, "merged into labels.yaml") in prunable
+    assert review == []
+
+
+def test_detect_reviews_customized_thin_caller(tmp_path: Path) -> None:
+    """A thin-caller the user extended with extra jobs is reported, never pruned."""
+    extra = "  my-job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
+    _write_workflow(tmp_path, _thin_caller(extra=extra))
+    prunable, review = _detect_removed_assets(tmp_path, None)
+    assert (_REMOVED_WORKFLOW, "merged into labels.yaml") in review
+    assert prunable == []
+
+
+def test_detect_skips_unrelated_workflow(tmp_path: Path) -> None:
+    """A user's own workflow that merely shares the name is left untouched."""
+    _write_workflow(
+        tmp_path,
+        '---\nname: Mine\n"on": pull_request\njobs:\n'
+        "  labeller:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo mine\n",
+    )
+    prunable, review = _detect_removed_assets(tmp_path, None)
+    assert prunable == []
+    assert review == []
+
+
+def test_init_cli_prunes_orphaned_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bare init deletes a pure thin-caller for a removed reusable workflow."""
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "test"\nversion = "0.1.0"\n', encoding="UTF-8"
+    )
+    wf = _write_workflow(tmp_path, _thin_caller())
+    monkeypatch.chdir(tmp_path)
+
+    cli_result = CliRunner().invoke(repomatic, ["init", "--output-dir", str(tmp_path)])
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert not wf.exists()
+    assert "Pruned" in cli_result.output
+
+
+@pytest.mark.once
+def test_removed_reusable_workflows_are_tombstoned() -> None:
+    """A reusable workflow dropped since the last release must be tombstoned.
+
+    A workflow with a ``workflow_call`` trigger generates downstream
+    thin-callers; removing it without a ``RemovedAsset`` leaves orphaned
+    thin-callers. Skips when git history or release tags are unavailable.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], capture_output=True, text=True, cwd=repo_root, check=False
+        )
+
+    tags_out = git("tag", "--list", "v*")
+    if tags_out.returncode != 0 or not tags_out.stdout.split():
+        pytest.skip("git tags unavailable")
+
+    def version_key(tag: str) -> Version:
+        try:
+            return Version(tag.lstrip("v"))
+        except InvalidVersion:
+            return Version("0")
+
+    prev = max(tags_out.stdout.split(), key=version_key)
+    tree = git("ls-tree", "-r", prev, ".github/workflows/")
+    if tree.returncode != 0:
+        pytest.skip(f"cannot read tree at {prev}")
+
+    old_reusable = set()
+    for line in tree.stdout.splitlines():
+        meta, _, path = line.partition("\t")
+        parts = meta.split()
+        if len(parts) != 3 or parts[1] != "blob":
+            continue
+        m = re.search(r"\.github/workflows/([^/]+\.ya?ml)$", path)
+        if m and re.search(
+            r"^\s*workflow_call:", git("cat-file", "-p", parts[2]).stdout, re.MULTILINE
+        ):
+            old_reusable.add(m.group(1))
+
+    tombstoned = {
+        a.target.rsplit("/", 1)[-1]
+        for a in REMOVED_ASSETS
+        if a.component == "workflows"
+    }
+    for name in sorted(old_reusable - set(REUSABLE_WORKFLOWS)):
+        assert name in tombstoned, (
+            f"reusable workflow {name!r} present in {prev} but removed without a "
+            f"RemovedAsset tombstone; add one to REMOVED_ASSETS"
+        )
 
 
 @pytest.mark.once

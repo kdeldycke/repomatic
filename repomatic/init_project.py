@@ -62,6 +62,7 @@ from .registry import (
     DEFAULT_REPO,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
+    UPSTREAM_REPO_SLUGS,
     BundledComponent,
     GeneratedComponent,
     InitDefault,
@@ -1117,13 +1118,19 @@ def _detect_removed_assets(
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Find on-disk orphans of assets repomatic has dropped.
 
-    Walks {data}`~repomatic.registry.REMOVED_ASSETS`, resolving each
-    tombstone's target through the same path overrides as live files, and
-    classifies any that still exist on disk by comparing their normalized
-    content against the recorded last-shipped hash:
+    Walks {data}`~repomatic.registry.REMOVED_ASSETS`, resolves each tombstone's
+    target through the same path overrides as live files, and classifies any
+    that still exist on disk:
 
-    - *prunable*: content matches (an untouched orphan, safe to delete).
-    - *review*: content differs (locally modified, report but never delete).
+    - *prunable*: an untouched copy, safe to delete. For skills and agents the
+      normalized content matches one of the recorded shipped hashes; for
+      workflows the file is a repomatic-lineage thin-caller for the removed
+      workflow with no extra downstream jobs.
+    - *review*: present but customized locally (content differs, or a
+      thin-caller carries extra jobs). Reported, never deleted.
+
+    A file that is not recognizable as a repomatic-shipped orphan (a user's own
+    workflow that merely shares a name) is left untouched.
 
     :param output_dir: Root directory of the target repository.
     :param config: Repomatic config for `skills.location` / `agents.location`
@@ -1142,19 +1149,49 @@ def _detect_removed_assets(
         path = output_dir / rel
         if not path.exists():
             continue
-        # Compare against the on-disk form init itself writes: rstrip()ed
-        # with a single trailing newline. A match against any released
-        # revision means the copy is untouched and safe to prune.
-        normalized = path.read_text(encoding="UTF-8").rstrip() + "\n"
-        digest = hashlib.sha256(normalized.encode("UTF-8")).hexdigest()
         entry = (rel, asset.successor)
-        if digest in asset.hashes:
-            prunable.append(entry)
+        if asset.component == "workflows":
+            verdict = _classify_removed_workflow(path)
+            if verdict == "prune":
+                prunable.append(entry)
+            elif verdict == "review":
+                review.append(entry)
+            # "skip": not a lineage thin-caller, leave it untouched.
         else:
-            review.append(entry)
+            # Compare against the on-disk form init itself writes: rstrip()ed
+            # with a single trailing newline. A match against any released
+            # revision means the copy is untouched and safe to prune.
+            normalized = path.read_text(encoding="UTF-8").rstrip() + "\n"
+            digest = hashlib.sha256(normalized.encode("UTF-8")).hexdigest()
+            if digest in asset.hashes:
+                prunable.append(entry)
+            else:
+                review.append(entry)
     prunable.sort()
     review.sort()
     return prunable, review
+
+
+def _classify_removed_workflow(path: Path) -> str:
+    """Classify an on-disk workflow file as an orphan of a removed workflow.
+
+    Thin-callers are parameterized per repo (version pin, `paths:` filters), so
+    they carry no fixed content to hash. The file is matched instead by its
+    `uses:` fingerprint against the upstream slugs in
+    {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`.
+
+    :return: `"prune"` for a pure repomatic-lineage thin-caller for this
+        workflow, `"review"` when the user appended extra jobs, or `"skip"`
+        when the file is not a lineage thin-caller (leave it untouched).
+    """
+    # Lazy import to avoid a circular dependency with workflow_sync.
+    from .github.workflow_sync import extract_extra_jobs, identify_canonical_workflow
+
+    for slug in UPSTREAM_REPO_SLUGS:
+        if identify_canonical_workflow(path, slug) == path.name:
+            extra = extract_extra_jobs(path.read_text(encoding="UTF-8"), slug)
+            return "review" if extra.strip() else "prune"
+    return "skip"
 
 
 def _init_config_files(
