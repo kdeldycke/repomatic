@@ -2776,7 +2776,12 @@ def test_removed_reusable_workflows_are_tombstoned() -> None:
 
     def git(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["git", *args], capture_output=True, text=True, cwd=repo_root, check=False
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+            check=False,
         )
 
     tags_out = git("tag", "--list", "v*")
@@ -2835,6 +2840,7 @@ def test_removed_data_assets_are_tombstoned() -> None:
             ["git", *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             cwd=repo_root,
             check=False,
         )
