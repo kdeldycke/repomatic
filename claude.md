@@ -266,14 +266,14 @@ Patterns that recur across sessions — watch for these proactively:
 ### Agent behavior policy
 
 - **Never post to the web without explicit approval.** Do not create or comment on GitHub issues, PRs, or discussions, and do not post to any external service, without the user's explicit go-ahead. If approval is blocking, draft the content in a temporary markdown file and present it for review.
-- Agents make fixes in the working tree only. Never commit, push, or create PRs. Exception: skills that run autonomously (e.g., `/babysit-ci`) may commit and push, and must include a `Co-Authored-By` trailer for traceability; follow the skill's instructions when they explicitly override this rule.
+- Agents make fixes in the working tree only. Never commit, push, or create PRs. Exception: skills that run autonomously (e.g., `/babysit-ci` and `/repomatic-ship`) may commit and push, and must include a `Co-Authored-By` trailer for traceability; follow the skill's instructions when they explicitly override this rule.
 - Prefer mechanical enforcement (tests, autofix jobs, linting checks) over prose rules. If a rule can be checked by code, it should be.
 - Agent definitions should reference `CLAUDE.md` sections, not restate them.
 - qa-engineer is the gatekeeper for agent definition changes.
 
 ### Skills
 
-Skills in `.claude/skills/` are user-invocable only (`disable-model-invocation: true`) by default and follow agent conventions: lean definitions, no duplication with `CLAUDE.md`, reference sections instead of restating rules. Run `repomatic list-skills` to see all skills with descriptions. **A skill that another skill invokes programmatically drops `disable-model-invocation`** so it is model-invocable: the flag blocks the `Skill` tool, not just auto-triggering. `repomatic-changelog` is unlocked this way so `/repomatic-cut-release` can run its consolidation during the end-of-cycle reconciliation sweep; the caller lists `Skill` and `Agent` in `allowed-tools` and guards for graceful degradation (next paragraph).
+Skills in `.claude/skills/` are user-invocable only (`disable-model-invocation: true`) by default and follow agent conventions: lean definitions, no duplication with `CLAUDE.md`, reference sections instead of restating rules. Run `repomatic list-skills` to see all skills with descriptions. **A skill that another skill invokes programmatically drops `disable-model-invocation`** so it is model-invocable: the flag blocks the `Skill` tool, not just auto-triggering. `repomatic-changelog` is unlocked this way so `/repomatic-ship` can run its consolidation during the end-of-cycle reconciliation sweep; the caller lists `Skill` and `Agent` in `allowed-tools` and guards for graceful degradation (next paragraph).
 
 **Skills must be self-contained for downstream portability.** Skills deploy to downstream repos via `repomatic init skills` as standalone SKILL.md files. Downstream repos have no `docs/` directory and skills typically lack `WebFetch`. All domain knowledge a skill needs must be inline in the SKILL.md: do not replace inline content with links to `docs/` pages. When the same knowledge appears in both a skill and a docs page, the duplication is intentional — `docs/` serves human readers, the skill serves Claude at runtime. Add a docs cross-reference but keep the full content inline.
 
