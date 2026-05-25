@@ -9,6 +9,9 @@
 
 ## [`6.21.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.20.0...v6.21.0)
 
+> [!NOTE]
+> `6.21.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.21.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.21.0).
+
 - Replace the `repomatic-release` skill with `repomatic-ship`, a release orchestrator: it reconciles the changelog, code, and docs to the net release state, then commits, pushes, and babysits CI (delegating to `babysit-ci`) until the release PR is ready to rebase-and-merge. Review-gated in normal use, fully autonomous under `--dangerously-skip-permissions`. It does not run the `release-prep` CLI itself (CI's `prepare-release` job does); the version read is advisory and never merges a bump PR.
 - Add a `modernize` mode to the `repomatic-deps` skill: it reads the changelogs of dependencies upgraded since the last release and autonomously refactors code to adopt their new features (dropping workarounds, replacing hand-rolled logic, migrating off deprecations), gating each change on the local test suite.
 - Extend the `babysit-ci` skill to also monitor and triage the Nuitka `compile-binaries` job in `release.yaml`, catching binary-build breakage before a release reaches the immutable-release wall.
