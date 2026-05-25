@@ -84,3 +84,54 @@ $ claude --dangerously-skip-permissions /repomatic-ship
 ```
 
 The judgment-heavy sweep (changelog consolidation, the version read) runs on Opus, while the mechanical CI-fixing loop is delegated to a Sonnet subagent running [`/babysit-ci`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/babysit-ci/SKILL.md). Its autonomous commits carry a `Co-Authored-By` trailer, and it stops at a green release PR: the final "Rebase and merge" stays yours.
+
+The full sequence, with the parallel passes and the two convergence loops:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Op as Operator
+    participant Ship as repomatic-ship (Opus)
+    participant AG as Code and Docs agents
+    participant CL as repomatic-changelog
+    participant Local as Local checks
+    participant Main as main (git)
+    participant CI as CI jobs
+    participant BCI as babysit-ci (Sonnet)
+
+    Op->>Ship: claude --dangerously-skip-permissions /repomatic-ship
+
+    Note over Ship,CL: Phase 1 reconcile substance, then summarize
+    par code
+        Ship->>AG: code review (simplify, dedup, harmonize)
+    and docs
+        Ship->>AG: docs verification
+    end
+    Ship->>CL: consolidate changelog (reflects final code and docs)
+
+    Note over Ship,Local: Phase 2 local pre-push gate
+    loop until all green
+        par tests
+            Ship->>Local: pytest
+        and types
+            Ship->>Local: mypy
+        and lint
+            Ship->>Local: ruff and lint-changelog
+        end
+        Local-->>Ship: fastest failure
+        Ship->>Ship: fix in working tree
+    end
+
+    Note over Ship: Phase 3 and 4, version advisory then show diff
+    Ship->>Main: Phase 5 commit and push (clean, Co-Authored-By)
+    Main->>CI: prepare-release, tests, lint, binaries
+
+    Note over Ship,BCI: Phase 6 babysit (first run mostly green)
+    Ship->>BCI: run /babysit-ci (foreground Sonnet)
+    loop until main green
+        CI-->>BCI: only CI-exclusive failures (platform, Nuitka)
+        BCI->>Main: fix and push
+    end
+    BCI-->>Ship: green
+    Ship-->>Op: Phase 7 release PR ready, then Rebase and merge
+```
