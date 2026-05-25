@@ -32,6 +32,7 @@ from click_extra import TableFormat, render_table
 from repomatic.config import Config, config_full_descriptions, config_reference
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+TOOL_RUNNER_MD = PROJECT_ROOT / "docs" / "tool-runner.md"
 
 
 def replace_content(
@@ -336,8 +337,33 @@ def tool_summary() -> str:
     )
 
 
+def _tool_manual_block(key: str) -> str:
+    """Return the hand-maintained extra docs for a tool's section, if any.
+
+    Each per-tool section in ``tool-runner.md`` ends with a
+    ``<!-- {key}-manual-start -->`` / ``<!-- {key}-manual-end -->`` region whose
+    body is written by hand. The generator owns the metadata above the markers;
+    everything between them is merged back verbatim so ``update-docs`` never
+    clobbers the prose.
+    """
+    if not TOOL_RUNNER_MD.exists():
+        return ""
+    match = re.search(
+        rf"<!-- {re.escape(key)}-manual-start -->(.*?)<!-- {re.escape(key)}-manual-end -->",
+        TOOL_RUNNER_MD.read_text(encoding="UTF-8"),
+        re.DOTALL,
+    )
+    return match.group(1).strip() if match else ""
+
+
 def tool_reference() -> str:
-    """Generate per-tool detail sections + comparison tables."""
+    """Generate per-tool detail sections + comparison tables.
+
+    The metadata of each section (version, install, config, flags, links) is
+    generated from the registry. A trailing manual region per tool is preserved
+    across runs by :func:`_tool_manual_block`, so hand-written examples and
+    caveats survive regeneration.
+    """
     from repomatic.tool_runner import TOOL_REGISTRY, NativeFormat
 
     lines: list[str] = []
@@ -427,6 +453,18 @@ def tool_reference() -> str:
         if doc_links:
             lines.append(" | ".join(doc_links))
             lines.append("")
+
+        # Hand-maintained extra docs for this tool, merged back verbatim on
+        # every run. Authors add examples and caveats between the markers; the
+        # generator preserves them and never overwrites the prose.
+        manual = _tool_manual_block(key)
+        lines.append(f"<!-- {key}-manual-start -->")
+        lines.append("")
+        if manual:
+            lines.append(manual)
+            lines.append("")
+        lines.append(f"<!-- {key}-manual-end -->")
+        lines.append("")
 
     # --- Comparison table ---
     def _last_release(key, spec, repo):

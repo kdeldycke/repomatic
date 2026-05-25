@@ -107,9 +107,10 @@ def test_docs_bridge_table_covers_registry() -> None:
 
     A tool supports ``[tool.X]`` translation when it does not natively read
     ``pyproject.toml`` (``reads_pyproject=False``) and can receive a translated
-    config via either a ``config_flag`` or ``native_config_files`` in a
+    config via either a ``config_flag``, a ``native_config_files`` target in a
     non-editorconfig format (editorconfig files are shared across tools and
-    not suitable as single-tool bridge targets).
+    not suitable as single-tool bridge targets), or a ``FLAGS`` translation to
+    CLI options (like Nuitka).
     """
     tool_table = _parse_tool_runner_table()
     documented = {
@@ -122,6 +123,7 @@ def test_docs_bridge_table_covers_registry() -> None:
         if not spec.reads_pyproject
         and (
             spec.config_flag
+            or spec.native_format is NativeFormat.FLAGS
             or (
                 spec.native_config_files
                 and spec.native_format is not NativeFormat.EDITORCONFIG

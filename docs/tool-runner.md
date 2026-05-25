@@ -101,23 +101,24 @@ $ repomatic run yamllint -- .
 
 All tools that support `[tool.X]` sections in `pyproject.toml`, whether natively or via repomatic's translation bridge:
 
-| Tool                                                                                | Customizes                          | Section                                                                                              | Support                                                                                       |
-| :---------------------------------------------------------------------------------- | :---------------------------------- | :--------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------- |
-| [actionlint](https://github.com/rhysd/actionlint)                                   | Workflow linting rules              | [`[tool.actionlint]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)            | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → YAML |
-| [biome](https://biomejs.dev)                                                        | JSON/JS formatting and linting      | [`[tool.biome]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)                 | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → JSON |
-| [bump-my-version](https://callowayproject.github.io/bump-my-version/)               | Version bump patterns and files     | [`[tool.bumpversion]`](https://callowayproject.github.io/bump-my-version/reference/configuration/)   | Native                                                                                        |
-| [coverage.py](https://coverage.readthedocs.io/en/latest/config.html)                | Code coverage reporting             | [`[tool.coverage.*]`](https://coverage.readthedocs.io/en/latest/config.html#configuration-reference) | Native                                                                                        |
-| [gitleaks](https://github.com/gitleaks/gitleaks)                                    | Secret detection rules              | [`[tool.gitleaks]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)              | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → TOML |
-| [lychee](https://lychee.cli.rs)                                                     | Link checking rules                 | [`[tool.lychee]`](https://lychee.cli.rs/guides/config/)                                              | Native                                                                                        |
-| [mdformat](https://mdformat.readthedocs.io/en/stable/users/configuration_file.html) | Markdown formatting options         | [`[tool.mdformat]`](https://mdformat.readthedocs.io/en/stable/users/configuration_file.html)         | Native (via [`mdformat-pyproject`](https://github.com/csala/mdformat-pyproject))              |
-| [mypy](https://mypy.readthedocs.io/en/stable/config_file.html)                      | Static type checking                | [`[tool.mypy]`](https://mypy.readthedocs.io/en/stable/config_file.html#using-a-pyproject-toml-file)  | Native                                                                                        |
-| [pyproject-fmt](https://pyproject-fmt.readthedocs.io/en/latest/)                    | `pyproject.toml` formatting         | [`[tool.pyproject-fmt]`](https://pyproject-fmt.readthedocs.io/en/latest/)                            | Native                                                                                        |
-| [pytest](https://docs.pytest.org/en/stable/reference/customize.html)                | Test runner options                 | [`[tool.pytest]`](https://docs.pytest.org/en/stable/reference/customize.html#pyproject-toml)         | Native                                                                                        |
-| [ruff](https://docs.astral.sh/ruff/configuration/)                                  | Linting and formatting rules        | [`[tool.ruff]`](https://docs.astral.sh/ruff/configuration/#configuring-ruff)                         | Native                                                                                        |
-| [typos](https://github.com/crate-ci/typos)                                          | Spell-checking exceptions           | [`[tool.typos]`](https://github.com/crate-ci/typos/blob/master/docs/reference.md)                    | Native                                                                                        |
-| [uv](https://docs.astral.sh/uv/reference/settings/)                                 | Package resolution and build config | [`[tool.uv]`](https://docs.astral.sh/uv/reference/settings/)                                         | Native                                                                                        |
-| [yamllint](https://yamllint.readthedocs.io)                                         | YAML linting rules                  | [`[tool.yamllint]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)              | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → YAML |
-| [zizmor](https://docs.zizmor.sh)                                                    | Workflow security scanning          | [`[tool.zizmor]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)                | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → YAML |
+| Tool                                                                                | Customizes                          | Section                                                                                              | Support                                                                                                               |
+| :---------------------------------------------------------------------------------- | :---------------------------------- | :--------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------- |
+| [actionlint](https://github.com/rhysd/actionlint)                                   | Workflow linting rules              | [`[tool.actionlint]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)            | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → YAML                         |
+| [biome](https://biomejs.dev)                                                        | JSON/JS formatting and linting      | [`[tool.biome]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)                 | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → JSON                         |
+| [bump-my-version](https://callowayproject.github.io/bump-my-version/)               | Version bump patterns and files     | [`[tool.bumpversion]`](https://callowayproject.github.io/bump-my-version/reference/configuration/)   | Native                                                                                                                |
+| [coverage.py](https://coverage.readthedocs.io/en/latest/config.html)                | Code coverage reporting             | [`[tool.coverage.*]`](https://coverage.readthedocs.io/en/latest/config.html#configuration-reference) | Native                                                                                                                |
+| [gitleaks](https://github.com/gitleaks/gitleaks)                                    | Secret detection rules              | [`[tool.gitleaks]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)              | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → TOML                         |
+| [lychee](https://lychee.cli.rs)                                                     | Link checking rules                 | [`[tool.lychee]`](https://lychee.cli.rs/guides/config/)                                              | Native                                                                                                                |
+| [mdformat](https://mdformat.readthedocs.io/en/stable/users/configuration_file.html) | Markdown formatting options         | [`[tool.mdformat]`](https://mdformat.readthedocs.io/en/stable/users/configuration_file.html)         | Native (via [`mdformat-pyproject`](https://github.com/csala/mdformat-pyproject))                                      |
+| [mypy](https://mypy.readthedocs.io/en/stable/config_file.html)                      | Static type checking                | [`[tool.mypy]`](https://mypy.readthedocs.io/en/stable/config_file.html#using-a-pyproject-toml-file)  | Native                                                                                                                |
+| [nuitka](https://github.com/Nuitka/Nuitka)                                          | Standalone binary compilation       | [`[tool.nuitka]`](https://nuitka.net/doc/user-manual.html)                                           | [repomatic bridge](#nuitka) → CLI flags ([native support: Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136)) |
+| [pyproject-fmt](https://pyproject-fmt.readthedocs.io/en/latest/)                    | `pyproject.toml` formatting         | [`[tool.pyproject-fmt]`](https://pyproject-fmt.readthedocs.io/en/latest/)                            | Native                                                                                                                |
+| [pytest](https://docs.pytest.org/en/stable/reference/customize.html)                | Test runner options                 | [`[tool.pytest]`](https://docs.pytest.org/en/stable/reference/customize.html#pyproject-toml)         | Native                                                                                                                |
+| [ruff](https://docs.astral.sh/ruff/configuration/)                                  | Linting and formatting rules        | [`[tool.ruff]`](https://docs.astral.sh/ruff/configuration/#configuring-ruff)                         | Native                                                                                                                |
+| [typos](https://github.com/crate-ci/typos)                                          | Spell-checking exceptions           | [`[tool.typos]`](https://github.com/crate-ci/typos/blob/master/docs/reference.md)                    | Native                                                                                                                |
+| [uv](https://docs.astral.sh/uv/reference/settings/)                                 | Package resolution and build config | [`[tool.uv]`](https://docs.astral.sh/uv/reference/settings/)                                         | Native                                                                                                                |
+| [yamllint](https://yamllint.readthedocs.io)                                         | YAML linting rules                  | [`[tool.yamllint]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)              | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → YAML                         |
+| [zizmor](https://docs.zizmor.sh)                                                    | Workflow security scanning          | [`[tool.zizmor]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)                | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → YAML                         |
 
 See [Click Extra's inventory of `pyproject.toml`-aware tools](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) for a broader list.
 
@@ -253,6 +254,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/rhysd/actionlint) | [Config reference](https://github.com/rhysd/actionlint/blob/main/docs/config.md) | [CLI usage](https://github.com/rhysd/actionlint/blob/main/docs/usage.md)
 
+<!-- actionlint-manual-start -->
+
+<!-- actionlint-manual-end -->
+
 ### [autopep8](https://github.com/hhatto/autopep8)
 
 **Installed version:** `2.3.2`
@@ -264,6 +269,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 **Default flags:** `--recursive` `--in-place` `--max-line-length` `88` `--select` `E501`
 
 [Source](https://github.com/hhatto/autopep8) | [CLI usage](https://pypi.org/project/autopep8/)
+
+<!-- autopep8-manual-start -->
+
+<!-- autopep8-manual-end -->
 
 ### [Biome](https://github.com/biomejs/biome)
 
@@ -277,6 +286,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/biomejs/biome) | [Config reference](https://biomejs.dev/reference/configuration/) | [CLI usage](https://biomejs.dev/reference/cli/)
 
+<!-- biome-manual-start -->
+
+<!-- biome-manual-end -->
+
 ### [bump-my-version](https://github.com/callowayproject/bump-my-version)
 
 **Installed version:** `1.2.7`
@@ -286,6 +299,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 **Config:** `[tool.bump-my-version]` in `pyproject.toml` (native)
 
 [Source](https://github.com/callowayproject/bump-my-version) | [Config reference](https://callowayproject.github.io/bump-my-version/reference/configuration/) | [CLI usage](https://callowayproject.github.io/bump-my-version/reference/cli/)
+
+<!-- bump-my-version-manual-start -->
+
+<!-- bump-my-version-manual-end -->
 
 ### [Gitleaks](https://github.com/gitleaks/gitleaks)
 
@@ -299,6 +316,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/gitleaks/gitleaks) | [Config reference](https://github.com/gitleaks/gitleaks#configuration) | [CLI usage](https://github.com/gitleaks/gitleaks#usage)
 
+<!-- gitleaks-manual-start -->
+
+<!-- gitleaks-manual-end -->
+
 ### [labelmaker](https://github.com/jwodder/labelmaker)
 
 **Installed version:** `0.6.4`
@@ -309,6 +330,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/jwodder/labelmaker) | [CLI usage](https://github.com/jwodder/labelmaker)
 
+<!-- labelmaker-manual-start -->
+
+<!-- labelmaker-manual-end -->
+
 ### [Lychee](https://github.com/lycheeverse/lychee)
 
 **Installed version:** `0.24.2`
@@ -318,6 +343,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 **Config files:** `lychee.toml` and `[tool.lychee]` in `pyproject.toml` (native)
 
 [Source](https://github.com/lycheeverse/lychee) | [Config reference](https://lychee.cli.rs/guides/config/) | [CLI usage](https://lychee.cli.rs/guides/cli/)
+
+<!-- lychee-manual-start -->
+
+<!-- lychee-manual-end -->
 
 ### [mdformat](https://github.com/hukkin/mdformat)
 
@@ -353,6 +382,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/hukkin/mdformat) | [Config reference](https://mdformat.readthedocs.io/en/stable/users/configuration_file.html) | [CLI usage](https://mdformat.readthedocs.io/en/stable/users/installation_and_usage.html)
 
+<!-- mdformat-manual-start -->
+
+<!-- mdformat-manual-end -->
+
 ### [mypy](https://github.com/python/mypy)
 
 **Installed version:** `1.19.1`
@@ -364,6 +397,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 **Default flags:** `--color-output`
 
 [Source](https://github.com/python/mypy) | [Config reference](https://mypy.readthedocs.io/en/stable/config_file.html) | [CLI usage](https://mypy.readthedocs.io/en/stable/command_line.html)
+
+<!-- mypy-manual-start -->
+
+<!-- mypy-manual-end -->
 
 ### [Nuitka](https://github.com/Nuitka/Nuitka)
 
@@ -377,6 +414,26 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/Nuitka/Nuitka) | [Config reference](https://nuitka.net/doc/user-manual.html) | [CLI usage](https://nuitka.net/doc/user-manual.html)
 
+<!-- nuitka-manual-start -->
+
+**Try it:**
+
+```shell-session
+$ repomatic run nuitka -- my_app/__main__.py
+```
+
+**Minimal `[tool.nuitka]`:**
+
+```toml
+[tool.nuitka]
+onefile = true
+output-dir = "build"
+```
+
+repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka does not read `[tool.nuitka]` natively yet ([Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136)); repomatic's bridge fills the gap until it does.
+
+<!-- nuitka-manual-end -->
+
 ### [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)
 
 **Installed version:** `2.16.2`
@@ -388,6 +445,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 **Default flags:** `--expand-tables` `project.entry-points,project.optional-dependencies,project.urls,project.scripts`
 
 [Source](https://github.com/tox-dev/pyproject-fmt) | [Config reference](https://pyproject-fmt.readthedocs.io/en/latest/) | [CLI usage](https://pyproject-fmt.readthedocs.io/en/latest/)
+
+<!-- pyproject-fmt-manual-start -->
+
+<!-- pyproject-fmt-manual-end -->
 
 ### [Ruff](https://github.com/astral-sh/ruff)
 
@@ -401,6 +462,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/astral-sh/ruff) | [Config reference](https://docs.astral.sh/ruff/configuration/) | [CLI usage](https://docs.astral.sh/ruff/configuration/#command-line-interface)
 
+<!-- ruff-manual-start -->
+
+<!-- ruff-manual-end -->
+
 ### [shfmt](https://github.com/mvdan/sh)
 
 **Installed version:** `3.13.1`
@@ -413,6 +478,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/mvdan/sh) | [Config reference](https://github.com/mvdan/sh/blob/master/cmd/shfmt/shfmt.1.scd) | [CLI usage](https://github.com/mvdan/sh#shfmt)
 
+<!-- shfmt-manual-start -->
+
+<!-- shfmt-manual-end -->
+
 ### [typos](https://github.com/crate-ci/typos)
 
 **Installed version:** `1.46.1`
@@ -424,6 +493,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 **Default flags:** `--write-changes`
 
 [Source](https://github.com/crate-ci/typos) | [Config reference](https://github.com/crate-ci/typos/blob/master/docs/reference.md) | [CLI usage](https://github.com/crate-ci/typos/blob/master/docs/reference.md)
+
+<!-- typos-manual-start -->
+
+<!-- typos-manual-end -->
 
 ### [yamllint](https://github.com/adrienverge/yamllint)
 
@@ -443,6 +516,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 [Source](https://github.com/adrienverge/yamllint) | [Config reference](https://yamllint.readthedocs.io/en/stable/configuration.html) | [CLI usage](https://yamllint.readthedocs.io/en/stable/quickstart.html)
 
+<!-- yamllint-manual-start -->
+
+<!-- yamllint-manual-end -->
+
 ### [zizmor](https://github.com/zizmorcore/zizmor)
 
 **Installed version:** `1.23.0`
@@ -460,6 +537,10 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 **Bundled default:** [`zizmor.yaml`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/zizmor.yaml)
 
 [Source](https://github.com/zizmorcore/zizmor) | [Config reference](https://docs.zizmor.sh/configuration/) | [CLI usage](https://docs.zizmor.sh/usage/)
+
+<!-- zizmor-manual-start -->
+
+<!-- zizmor-manual-end -->
 
 ## Comparison
 
