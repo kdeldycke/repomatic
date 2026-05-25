@@ -35,7 +35,7 @@ invoke(repomatic, args=['list-skills'])
 | Maintenance | [`/sphinx-docs-sync`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/sphinx-docs-sync/SKILL.md) | Compare and sync Sphinx docs across sibling projects |
 | Maintenance | [`/translation-sync`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/translation-sync/SKILL.md) | Detect stale translations and draft updates (awesome-list only) |
 | Release | [`/repomatic-changelog`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-changelog/SKILL.md) | Draft, validate, and fix changelog entries |
-| Release | [`/repomatic-release-prep`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-release-prep/SKILL.md) | Reconcile changelog/code/docs and prepare the release |
+| Release | [`/repomatic-cut-release`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-cut-release/SKILL.md) | Reconcile changelog/code/docs and prepare the release |
 
 ## Recommended workflow
 
@@ -44,7 +44,7 @@ The typical lifecycle for maintaining a downstream repository follows this seque
 1. `/repomatic-init` — One-time setup: bootstrap workflows, labels, and configs
 2. `/repomatic-deps` — As needed: visualize the dependency tree
 3. `/repomatic-changelog` — Before release: draft and validate changelog entries
-4. `/repomatic-release-prep` — Release time: reconcile the tree and prepare the release before merging the release PR
+4. `/repomatic-cut-release` — Release time: reconcile the tree and prepare the release before merging the release PR
 
 ### Walkthrough: setup to first release
 
@@ -56,5 +56,13 @@ The typical lifecycle for maintaining a downstream repository follows this seque
 /repomatic-changelog add
 
 # Reconcile changelog/code/docs and prep the release
-/repomatic-release-prep
+/repomatic-cut-release
+
+# Commit and push — CI rebuilds the release PR from the new main
+git commit -am "…" && git push
+
+# Get main green (also catches Nuitka binary-build breakage)
+/babysit-ci
+
+# On GitHub, merge the release PR with "Rebase and merge" (never squash)
 ```

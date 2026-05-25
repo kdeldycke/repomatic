@@ -1,1 +1,0 @@
-../../.claude/skills/repomatic-release-prep/SKILL.md

@@ -713,6 +713,8 @@ Workflows in this repository are **self-referential**. The [`prepare-release`](h
 
 ### Release engineering
 
+A maintainer cuts a release with the [`/repomatic-cut-release`](skills.md) skill, then commits and pushes, runs `/babysit-ci` until `main` is green, and merges the release PR with "Rebase and merge". Everything below is what that merge triggers.
+
 A complete release consists of all of the following:
 
 - Git tag (`vX.Y.Z`) created on the freeze commit.

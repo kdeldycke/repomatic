@@ -5,7 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- Replace the `repomatic-release` skill with `repomatic-release-prep`, a single-purpose skill that reconciles the changelog, code, and docs to the net release state, recommends the version bump, and hands off to commit, CI, and merge. It no longer runs the `release-prep` CLI itself (CI's `prepare-release` job does), and drops the former `check` and `post-release` modes.
+- Replace the `repomatic-release` skill with `repomatic-cut-release`, a single-purpose skill that reconciles the changelog, code, and docs to the net release state, recommends the version bump, and hands off to commit, CI, and merge. It no longer runs the `release-prep` CLI itself (CI's `prepare-release` job does), and drops the former `check` and `post-release` modes.
 - Remove the `repomatic-sync`, `repomatic-lint`, and `repomatic-test` skills. Each only wrapped a CLI command that CI already runs on every push, duplicating the mechanical layer.
 - Extend the `babysit-ci` skill to also monitor and triage the Nuitka `compile-binaries` job in `release.yaml`, catching binary-build breakage before a release reaches the immutable-release wall.
 - Fix the `bump-version` job in `changelog.yaml` leaving an orphan minor/major version-bump PR open after a competing bump merged into `main`. The job's checkout now sets `fetch-tags: true` so the `close-stale-bump-pr` step's `is_version_bump_allowed` re-check can resolve the latest release tag. Previously the tag-less checkout made the re-check fall back to "allow", so it never closed the stale PR even though the `metadata` job (which does fetch tags) had correctly flagged it for cleanup.

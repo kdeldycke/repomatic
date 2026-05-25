@@ -1,5 +1,5 @@
 ---
-name: repomatic-release-prep
+name: repomatic-cut-release
 description: Reconcile the changelog, code, and docs to the net release state, recommend the version bump, then hand off to commit, CI, and merge. Run before merging the release PR.
 model: opus
 disable-model-invocation: true

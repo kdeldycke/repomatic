@@ -56,4 +56,4 @@ Follow `CLAUDE.md` § Changelog and readme updates (what-not-why, concise entrie
 
 Suggest the user run:
 
-- `/repomatic-release-prep` to reconcile the tree and prepare the release before merging the release PR.
+- `/repomatic-cut-release` to reconcile the tree and prepare the release before merging the release PR.

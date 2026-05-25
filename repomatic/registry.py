@@ -475,9 +475,9 @@ COMPONENTS: tuple[Component, ...] = (
                 phase="Setup",
             ),
             FileEntry(
-                "skill-repomatic-release-prep.md",
-                _skill_target("repomatic-release-prep"),
-                "repomatic-release-prep",
+                "skill-repomatic-cut-release.md",
+                _skill_target("repomatic-cut-release"),
+                "repomatic-cut-release",
                 phase="Release",
             ),
             FileEntry(
