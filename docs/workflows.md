@@ -411,6 +411,28 @@ docs = [
 
 **Cross-platform binaries** — Targets 6 platform/architecture combinations (Linux/macOS/Windows × `x86_64`/`arm64`). Unstable targets use `continue-on-error` so builds don't fail on experimental platforms. Job names are prefixed with ✅ (stable, must pass) or ⁉️ (unstable, allowed to fail) for quick visual triage in the GitHub Actions UI.
 
+At a glance, the jobs split into a package lane, a binary lane, and the tag-and-release sequence, with a separate dev-release path for non-release pushes (dotted edges are uploaded assets):
+
+```mermaid
+flowchart TD
+    push([Push to main]) --> squash{detect-squash-merge}
+    squash -->|squashed release PR| fail[Open issue, fail run]
+    squash -->|clean| build[build-package]
+    push --> nuitka[compile-binaries]
+    nuitka --> testbin[test-binaries]
+    build --> pypi[publish-pypi]
+    push --> relcommit{release commit?}
+    relcommit -->|no| dev[sync-dev-release]
+    relcommit -->|yes| tag[create-tag]
+    tag --> draft[create-release draft]
+    build -. wheel + sdist .-> draft
+    nuitka -. binaries .-> draft
+    draft --> pubrel[publish-release]
+    pubrel --> vt[scan-virustotal]
+    build -. assets .-> dev
+    nuitka -. assets .-> dev
+```
+
 #### 🧯 Detect squash merge (`detect-squash-merge`)
 
 - Detects squash-merged release PRs, opens a GitHub issue to notify the maintainer, and fails the workflow
@@ -735,6 +757,25 @@ The [`prepare-release`](#github-workflows-changelog-yaml-jobs) job creates a PR 
 The auto-tagging job depends on these being **separate commits**: it uses `release_commits_matrix` to identify and tag only the freeze commit. Squashing would merge both into one, breaking the tagging logic.
 
 On `main`, workflows use `--from . repomatic` to run the CLI from local source (dogfooding). The freeze commit pins these to `'repomatic==X.Y.Z'` so tagged releases reference a published package. The unfreeze commit reverts them for the next development cycle.
+
+The version string moves through the two commits and back to a fresh development cycle:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Development
+    Development: Dev cycle. X.Y.Z.dev0 on main, refs @main
+    Development --> ReleasePR: prepare-release opens the PR
+    state "Release PR, rebase-merge only" as ReleasePR {
+        [*] --> Freeze
+        Freeze: Freeze commit. Refs at @vX.Y.Z, CLI at X.Y.Z
+        Freeze --> Unfreeze
+        Unfreeze: Unfreeze commit. Refs back to @main, next patch
+    }
+    ReleasePR --> Tagged: rebase-merge, auto-tag hits the freeze commit
+    Tagged: Tagged release vX.Y.Z. Built, published, GitHub release
+    Tagged --> Development: unfreeze lands, main on next dev cycle
+```
 
 #### Squash merge safeguard
 

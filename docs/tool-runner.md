@@ -56,6 +56,17 @@ invoke(repomatic, args=['run', '--list'])
 
 When `repomatic run <tool>` is invoked, configuration is resolved through a 4-level precedence chain. The first match wins: no merging across levels.
 
+```mermaid
+flowchart TD
+    run([repomatic run TOOL]) --> l1{native config file?}
+    l1 -->|yes| u1[Level 1. Use the in-repo config file]
+    l1 -->|no| l2{tool.X in pyproject.toml?}
+    l2 -->|yes| u2[Level 2. Use tool.X, translate if needed]
+    l2 -->|no| l3{bundled default?}
+    l3 -->|yes| u3[Level 3. repomatic bundled baseline]
+    l3 -->|no| u4[Level 4. Bare invocation, tool defaults]
+```
+
 > [!TIP]
 > Run `repomatic --verbosity INFO run <tool>` to see which config level was selected and the exact command line being executed. This is useful for debugging unexpected behavior. For full detail (config file contents, environment, caching), use `--verbosity DEBUG`.
 
