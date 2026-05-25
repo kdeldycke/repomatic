@@ -15,6 +15,9 @@
 
 ## [`6.20.0` (2026-05-24)](https://github.com/kdeldycke/repomatic/compare/v6.19.0...v6.20.0)
 
+> [!NOTE]
+> `6.20.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.20.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.20.0).
+
 - **Breaking:** remove `[tool.repomatic] nuitka.extra-args`. Configure Nuitka flags through `[tool.nuitka]` in `pyproject.toml` instead: `--include-data-files=SRC=DEST` becomes `include-data-files = ["SRC=DEST"]`.
 - Integrate Nuitka with the tool runner: `repomatic run nuitka` installs the pinned Nuitka, reads `[tool.nuitka]` from `pyproject.toml`, and passes the section as CLI flags (a `true` value becomes a bare `--flag`, a string or number becomes `--key=value`, a list repeats the flag per item). Nuitka now appears in `repomatic run --list` and the tool-runner docs. Add binary metadata to repomatic's `[tool.nuitka]`: `product-name`, `file-description`, `copyright`, native per-OS icons (`icon.png`, `icon.icns`, `icon.ico`), `include-package-data = ["click_extra"]`, and numeric `file-version`/`product-version` kept in sync via a dedicated `[tool.bumpversion]` rule. Build Nuitka binaries on Python 3.14.
 - Switch `[tool.typos]` sync mode from `BOOTSTRAP` to `ONGOING`: canonical proper-noun identifiers (`GitHub`, `macOS`, `PyPI`, and the rest) are now merged into any pre-existing `[tool.typos]` section instead of skipping it. Local-only keys, extra `extend-identifiers`, `extend-words`, `extend-exclude`, and `[[files]]` entries survive the merge.
