@@ -17,6 +17,15 @@ name: 🚀 Build & release
           Matrix of release commits (used by the downstream caller's
           publish-pypi job to drive its own matrix and gate execution).
         value: ${{ toJSON(fromJSON(jobs.metadata.outputs.metadata).release_commits_matrix) }}
+      package_built:
+        description: >
+          Whether the build-package job fully succeeded ("true"/"false").
+          The downstream caller's publish-pypi job gates on this alongside
+          always(), so a healthy wheel still reaches PyPI when an unrelated
+          job (like binary tests) fails the overall run. The fromJSON(toJSON())
+          wrapper works around actions/runner#3087, where a bare
+          jobs.<id>.result resolves to an empty string in workflow_call outputs.
+        value: ${{ fromJSON(toJSON(jobs.build-package)).result == 'success' }}
       package_name:
         description: Python package name (empty when not a Python project).
         value: ${{ fromJSON(jobs.metadata.outputs.metadata).package_name }}

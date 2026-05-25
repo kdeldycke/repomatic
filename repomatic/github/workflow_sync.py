@@ -644,10 +644,13 @@ def _render_publish_pypi_job(
 ) -> list[str]:
     """Render the caller-side `publish-pypi` job for downstream `release.yaml`.
 
-    The job runs only when the upstream workflow emits a non-empty
-    `release_commits_matrix` (i.e., the push contains a release commit). The
-    composite action it invokes inherits the calling job's OIDC context, so
-    PyPI's Trusted Publisher matches the downstream's own workflow file path.
+    The job runs when the push carries a release commit (non-empty
+    `release_commits_matrix`) and the package built (`package_built` is
+    `"true"`). It is guarded by `always()`, so a healthy wheel still
+    publishes even when an unrelated upstream job (like binary tests) fails
+    the overall run. The composite action it invokes inherits the calling
+    job's OIDC context, so PyPI's Trusted Publisher matches the downstream's
+    own workflow file path.
 
     The job body lives in the bundled file
     `repomatic/data/release-publish-pypi-job.yaml` and ships with the upstream

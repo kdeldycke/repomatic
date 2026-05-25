@@ -463,8 +463,9 @@ docs = [
 - **Requires**:
   - A one-time PyPI Trusted Publisher registration for the downstream repository's caller workflow (see [PyPI Trusted Publishers docs](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)).
   - `id-token: write` permission on the caller-side job (auto-emitted by `repomatic init workflows`).
-  - The `release_commits_matrix` output from the upstream `release.yaml` (drives the matrix and the `if:` gate).
-  - Built packages from the upstream `build-package` job.
+  - The `release_commits_matrix` output from the upstream `release.yaml` (drives the matrix and gates the job to release commits).
+  - The `package_built` output from the upstream `release.yaml`, reflecting whether the `build-package` job succeeded.
+- The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
 
 #### 🐙 Create release draft (`create-release`)
 

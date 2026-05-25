@@ -274,6 +274,11 @@ def test_release_thin_caller_emits_publish_pypi_job() -> None:
     content = generate_thin_caller("release.yaml", version="v9.9.9")
     assert "  publish-pypi:" in content
     assert "needs: release" in content
+    # The gate is decoupled from the overall run result: always() + package_built
+    # let a healthy wheel publish even when an unrelated job (like binary tests)
+    # fails the run.
+    assert "always()" in content
+    assert "needs.release.outputs.package_built == 'true'" in content
     assert "needs.release.outputs.release_commits_matrix" in content
     assert "id-token: write" in content
     assert f"{DEFAULT_REPO}/.github/actions/publish-pypi@v9.9.9" in content
