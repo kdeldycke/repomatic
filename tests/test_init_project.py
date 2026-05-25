@@ -840,7 +840,7 @@ def test_init_only_skills(tmp_path: Path):
     """Verify only skill files are created.
 
     Scope exclusions are bypassed when components are explicitly requested,
-    so all 18 skills (including awesome-only ones) are created.
+    so all 15 skills (including awesome-only ones) are created.
     """
     result = run_init(output_dir=tmp_path, components=("skills",))
 
