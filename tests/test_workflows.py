@@ -477,6 +477,42 @@ def test_version_increments_runs_on_expected_events() -> None:
     assert "workflow_run" in condition, "metadata job should run on workflow_run events"
 
 
+# changelog.yaml jobs that evaluate `is_version_bump_allowed` and therefore
+# need the latest release tag in their checkout. `metadata` computes
+# `*_bump_allowed`; `bump-version` runs `close-stale-bump-pr`, which
+# re-evaluates the gate. Both resolve the release via `get_latest_tag_version()`,
+# so a tag-less checkout makes the decision fall back to "allow" — which
+# silently leaks orphan version-bump PRs from the cleanup step.
+CHANGELOG_JOBS_REQUIRING_TAGS = ("bump-version", "metadata")
+
+
+@pytest.mark.parametrize("job_name", CHANGELOG_JOBS_REQUIRING_TAGS)
+def test_bump_allowance_jobs_fetch_tags(job_name: str) -> None:
+    """Tag-sensitive changelog jobs must check out with `fetch-tags: true`.
+
+    `is_version_bump_allowed` resolves the latest release from Git tags. A job
+    that evaluates it without fetching tags falls back to "allow", which
+    neutralizes the `close-stale-bump-pr` cleanup and leaves orphan
+    version-bump PRs open on `main`.
+    """
+    jobs = load_workflow("changelog.yaml").get("jobs", {})
+    steps = jobs.get(job_name, {}).get("steps", [])
+
+    checkout_steps = [
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout")
+    ]
+    assert checkout_steps, f"{job_name} job must have an actions/checkout step"
+
+    for step in checkout_steps:
+        assert step.get("with", {}).get("fetch-tags") is True, (
+            f"{job_name} job's checkout must set `fetch-tags: true` so "
+            "`is_version_bump_allowed` can resolve the latest release tag. "
+            f"Found: {step.get('with', {})}"
+        )
+
+
 def test_post_release_commit_in_changelog_workflow() -> None:
     """Verify that changelog.yaml uses the correct post-release commit message."""
     workflow = load_workflow("changelog.yaml")

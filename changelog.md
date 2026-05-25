@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix the `bump-version` job in `changelog.yaml` leaving an orphan minor/major version-bump PR open after a competing bump merged into `main`. The job's checkout now sets `fetch-tags: true` so the `close-stale-bump-pr` step's `is_version_bump_allowed` re-check can resolve the latest release tag. Previously the tag-less checkout made the re-check fall back to "allow", so it never closed the stale PR even though the `metadata` job (which does fetch tags) had correctly flagged it for cleanup.
 - Switch `pytest-xdist` distribution mode from `--dist=loadfile` to `--dist=loadgroup` so `@pytest.mark.xdist_group("git")` markers are honored. With `loadfile`, xdist ignores group markers and assigns each file to its own worker, allowing `test_metadata.py` and `test_git_ops.py` workers to race for `.git/config.lock` simultaneously on Windows. With `loadgroup`, all tests sharing `xdist_group("git")` run on a single worker and the lock contention disappears.
 
 ## [`6.20.0` (2026-05-24)](https://github.com/kdeldycke/repomatic/compare/v6.19.0...v6.20.0)

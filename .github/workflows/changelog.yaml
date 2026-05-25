@@ -132,6 +132,11 @@ jobs:
         with:
           # Use github.sha, not workflow_run.head_sha (stale after release cycle).
           ref: ${{ github.sha }}
+          # Fetch tags so the close-stale-bump-pr step's is_version_bump_allowed
+          # re-check resolves the latest release tag. Without tags it falls back
+          # to "allow" and silently skips closing the orphan PR, leaving the
+          # decision inconsistent with the metadata job (which fetches tags).
+          fetch-tags: true
       - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
       - name: ${{ matrix.part }} version bump
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
