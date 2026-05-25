@@ -17,7 +17,7 @@ allowed-tools: Bash, Read, Grep, Glob, Skill, Agent
 
 ## Instructions
 
-You drive a release from a working tree to a ready-to-merge release PR. You reconcile the tree to its **net state since the last tag**, commit and push it, then babysit CI until the auto-generated release PR is green. You stop there: the human performs the final "Rebase and merge".
+You drive a release from a working tree to a ready-to-merge release PR. You reconcile the tree to its **net state since the last tag**, validate it locally, commit and push it, then babysit CI until the auto-generated release PR is green. You stop there: the human performs the final "Rebase and merge".
 
 The release is push-driven and the mechanical steps are automated: the `prepare-release` job in `changelog.yaml` runs `repomatic release-prep` on push to `main` to build the freeze and unfreeze commits and open the release PR. **Do not run `release-prep` yourself** — running it locally previews a freeze that must not be committed (it marks the changelog "released", and on the canonical repo rewrites every workflow action ref). Your job is to make `main` clean enough that the auto-generated release PR is correct, then keep `main` green.
 
@@ -41,17 +41,25 @@ Like `/babysit-ci`, this skill commits and pushes on your behalf, so its commits
 
 ### 1. Reconciliation sweep
 
-A release materializes the **net state since the last tag**, not the path taken to reach it. After a long cycle (features reworked, dependencies pinned then unpinned, APIs renamed), the changelog, code, and docs all drift toward describing the journey. Reconcile all three against the actual diff from the last tag to `HEAD`, in order:
+A release materializes the **net state since the last tag**, not the path taken to reach it. After a long cycle (features reworked, dependencies pinned then unpinned, APIs renamed), the changelog, code, and docs all drift toward describing the journey. Reconcile all three against the actual diff from the last tag to `HEAD`.
+
+The three passes touch disjoint files, so **run them concurrently** (spawn the code and docs agents in a single message, and consolidate the changelog alongside them), then join before validating:
 
 1. **Changelog** — invoke `/repomatic-changelog consolidate` through the `Skill` tool. It collapses superseded values and drops changes reverted within the cycle. **Degrade gracefully:** if `/repomatic-changelog` is excluded in this repo, spawn an `Agent` that applies the same end-state principle, or consolidate inline. A missing skill is a fallback path, not a blocker.
-2. **Code** — spawn an `Agent` for a simplification pass (`CLAUDE.md` § Common maintenance pitfalls, "Simplify before adding"). Remove scaffolding left by reverted or superseded work: abandoned workarounds, dead branches, WIP comments, draft notes that never shipped.
+2. **Code** — spawn an `Agent` to review *every* file changed since the last tag for reuse, quality, simplification, and deduplication, and fix what it finds (`CLAUDE.md` § Common maintenance pitfalls, "Simplify before adding"). Work in two layers. First, strip scaffolding left by reverted or superseded work: abandoned workarounds, dead branches, WIP comments, draft notes that never shipped. Then harmonize what remains: collapse duplicated logic, lift repeated literals to their canonical source (`CLAUDE.md` § Single source of truth for defaults), and align new code with the patterns already in the module. Keep every edit behavior-preserving: the local gate (step 2) is the safety net, and a failing test vetoes an over-eager change.
 3. **Docs** — spawn an `Agent` to verify docs against current behavior, not the journey (`CLAUDE.md` § Common maintenance pitfalls, "Documentation drift"). Version references, CLI output, and removed or renamed features go stale every cycle.
 
 A change introduced and then reverted before release is a no-op for users: no changelog entry, no scaffolding in the code, no mention in the docs. This skill holds no `Edit`/`Write` of its own — the changelog skill and the agents do the editing.
 
-### 2. Validate
+### 2. Validate locally (pre-push gate)
 
-Run `<cmd> lint-changelog` and report the result. A `⚠ X.Y.Z: not found on PyPI` warning for the still-unreleased version is expected and not a blocker.
+The sweep just rewrote code, so prove it green **before** paying for a CI round-trip. This is the same fast local channel `/babysit-ci` polls, run *ahead* of the first push so the slow CI cycle starts mostly-green:
+
+- Launch the project's test, type, and lint checks in parallel in the background (`uv run pytest --no-header -q`, `uv run mypy`, `uv run ruff check`), plus `<cmd> lint-changelog`.
+- Act on the **fastest** failing check: mypy and ruff return in seconds, pytest in a minute or two. Fix the cause in the working tree and re-run only what failed.
+- Iterate until every local check is green. Every regression caught here saves a slow CI round-trip and the babysit cycle that would otherwise chase it.
+
+A `⚠ X.Y.Z: not found on PyPI` warning from `lint-changelog` for the still-unreleased version is expected and not a blocker.
 
 ### 3. Version advisory (never bumps, never blocks)
 
@@ -72,6 +80,8 @@ Show `git diff` of `changelog.md` plus a one-line summary of the code and docs c
 Commit the reconciled tree with a clear message describing the net reconciliation (and the `Co-Authored-By` trailer above), then push to `main`. The push regenerates the release PR (freeze + unfreeze commits) through the `prepare-release` job.
 
 ### 6. Babysit CI to green
+
+Step 2 already cleared every locally-reproducible failure, so the first CI run should be close to green. Babysit handles only what CI surfaces that local checks cannot: platform-specific failures and the slow Nuitka `compile-binaries` job.
 
 Spawn a **foreground `Agent` on the `sonnet` model** to run `/babysit-ci` to completion: the CI loop is mechanical (fetch logs, match patterns, fix, commit, push) and does not need Opus. It monitors `tests.yaml`, `lint.yaml`, and the Nuitka `compile-binaries` job, fixing failures until every stable job passes. **Degrade gracefully:** if `/babysit-ci` is excluded here, have the subagent run the equivalent fetch-logs/fix/commit loop inline.
 
