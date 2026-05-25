@@ -463,6 +463,12 @@ COMPONENTS: tuple[Component, ...] = (
                 phase="Release",
             ),
             FileEntry(
+                "skill-repomatic-cut-release.md",
+                _skill_target("repomatic-cut-release"),
+                "repomatic-cut-release",
+                phase="Release",
+            ),
+            FileEntry(
                 "skill-repomatic-deps.md",
                 _skill_target("repomatic-deps"),
                 "repomatic-deps",
@@ -473,12 +479,6 @@ COMPONENTS: tuple[Component, ...] = (
                 _skill_target("repomatic-init"),
                 "repomatic-init",
                 phase="Setup",
-            ),
-            FileEntry(
-                "skill-repomatic-cut-release.md",
-                _skill_target("repomatic-cut-release"),
-                "repomatic-cut-release",
-                phase="Release",
             ),
             FileEntry(
                 "skill-repomatic-topics.md",
