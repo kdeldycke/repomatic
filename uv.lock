@@ -1783,7 +1783,7 @@ requires-dist = [
 docs = [
     { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'" },
     { name = "furo", marker = "python_full_version >= '3.14'", specifier = ">=2025.9.25" },
-    { name = "myst-parser", marker = "python_full_version >= '3.14'", specifier = ">=5" },
+    { name = "myst-parser", marker = "python_full_version >= '3.14'", specifier = ">=5.1" },
     { name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=8" },
     { name = "sphinx-autodoc-typehints", marker = "python_full_version >= '3.14'", specifier = ">=2.4" },
     { name = "sphinx-copybutton", marker = "python_full_version >= '3.14'", specifier = ">=0.5.2" },

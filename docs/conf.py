@@ -45,6 +45,10 @@ extensions = [
 
 # https://myst-parser.readthedocs.io/en/latest/syntax/optional.html
 myst_enable_extensions = [
+    # Render GitHub-style alerts (`> [!NOTE]`, `> [!IMPORTANT]`, ...) as
+    # admonitions. Native to myst-parser since 5.1.0; click-extra's own
+    # converter defers to it from that version on (see click_extra.sphinx).
+    "alert",
     "attrs_block",
     "attrs_inline",
     "colon_fence",

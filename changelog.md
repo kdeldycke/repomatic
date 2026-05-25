@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Enable myst-parser's native `alert` extension in `docs/conf.py` so GitHub-style alerts (`> [!NOTE]`, `> [!IMPORTANT]`, ...) render as admonitions on the documentation site instead of plain blockquotes showing a literal `[!NOTE]` marker.
 - Replace the `repomatic-release` skill with `repomatic-cut-release`, a single-purpose skill that reconciles the changelog, code, and docs to the net release state, recommends the version bump, and hands off to commit, CI, and merge. It no longer runs the `release-prep` CLI itself (CI's `prepare-release` job does), and drops the former `check` and `post-release` modes.
 - Remove the `repomatic-sync`, `repomatic-lint`, and `repomatic-test` skills. Each only wrapped a CLI command that CI already runs on every push, duplicating the mechanical layer.
 - Extend the `babysit-ci` skill to also monitor and triage the Nuitka `compile-binaries` job in `release.yaml`, catching binary-build breakage before a release reaches the immutable-release wall.

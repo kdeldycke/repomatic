@@ -154,8 +154,9 @@ docs = [
   "click-extra[sphinx]",
   # furo 2024.8.6+ supports Sphinx 8; pinned to recent CalVer release.
   "furo>=2025.9.25",
-  # myst-parser 5.0 stabilized MyST extensions and improved Sphinx directive support.
-  "myst-parser>=5",
+  # myst-parser 5.1 ships the native "alert" extension (enabled in docs/conf.py)
+  # that renders GitHub-style alerts as admonitions; earlier 5.x reject "alert".
+  "myst-parser>=5.1",
   # Sphinx 8.0.0 is the first version to drop Python 3.9, like us.
   "sphinx>=8",
   # sphinx-autodoc-typehints 2.4.0 is the first version aligned to our Python >= 3.10 requirement.
