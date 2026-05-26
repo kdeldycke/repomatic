@@ -194,7 +194,12 @@ jobs:
     strategy:
       # Asset-producing matrix: see docs/workflows.md "Matrix fail-fast strategy".
       fail-fast: false
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_matrix }}
+      # Fall back to an empty `{"include":[]}` matrix when nuitka_matrix is null
+      # (binary builds disabled via nuitka.enabled = false). GitHub resolves
+      # strategy.matrix during job setup even when `if:` will skip the job, and a
+      # null matrix combined with the matrix-derived `runs-on` below aborts the
+      # whole run. See the publish-pypi job and docs/workflows.md.
+      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_matrix || fromJSON('{"include":[]}') }}
     runs-on: ${{ matrix.os }}
     # We keep going when a job flagged as not stable fails.
     continue-on-error: ${{ matrix.state == 'unstable' }}
@@ -315,7 +320,12 @@ jobs:
       && !(fromJSON(needs.metadata.outputs.metadata).skip_binary_build || false)
     strategy:
       # Advisory matrix (default fail-fast): see docs/workflows.md "Matrix fail-fast strategy".
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_matrix }}
+      # Fall back to an empty `{"include":[]}` matrix when nuitka_matrix is null
+      # (binary builds disabled via nuitka.enabled = false). GitHub resolves
+      # strategy.matrix during job setup even when `if:` will skip the job, and a
+      # null matrix combined with the matrix-derived `runs-on` below aborts the
+      # whole run. See the publish-pypi job and docs/workflows.md.
+      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_matrix || fromJSON('{"include":[]}') }}
     runs-on: ${{ matrix.os }}
     # We keep going when a job flagged as not stable fails.
     continue-on-error: ${{ matrix.state == 'unstable' }}
