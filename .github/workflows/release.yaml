@@ -386,7 +386,7 @@ jobs:
           --skip-existing
 
   publish-pypi:
-    name: 🐍 Publish to PyPI (${{ matrix.short_sha }})
+    name: 🏭 Repomatic PyPI self-publishing (${{ matrix.short_sha }})
     needs:
       - metadata
       - build-package
