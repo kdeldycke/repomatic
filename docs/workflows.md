@@ -406,7 +406,7 @@ docs = [
 
 (github-workflows-release-yaml-jobs)=
 
-### 🚀 [`.github/workflows/release.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/release.yaml)
+### 🚀 [`.github/workflows/_release-engine.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-engine.yaml)
 
 [Release Engineering is a full-time job, and full of edge-cases](https://web.archive.org/web/20250126113318/https://blog.axo.dev/2023/02/cargo-dist) that nobody wants to deal with. This workflow automates most of it for Python projects.
 
@@ -421,7 +421,6 @@ flowchart TD
     squash -->|clean| build[build-package]
     push --> nuitka[compile-binaries]
     nuitka --> testbin[test-binaries]
-    build --> pypi[publish-pypi]
     push --> relcommit{release commit?}
     relcommit -->|no| dev[sync-dev-release]
     relcommit -->|yes| tag[create-tag]
@@ -433,6 +432,8 @@ flowchart TD
     build -. assets .-> dev
     nuitka -. assets .-> dev
 ```
+
+PyPI publishing is not an engine job. It runs from the `publish-pypi` job in each repo's own `release.yaml` entry (repomatic included), which calls this engine and then publishes after it completes: see the Publish to PyPI section below.
 
 #### 🧯 Detect squash merge (`detect-squash-merge`)
 
@@ -482,13 +483,14 @@ flowchart TD
 #### 🐍 Publish to PyPI (`publish-pypi`)
 
 - Uploads packages to PyPI with attestations using [`uv publish --trusted-publishing automatic`](https://github.com/astral-sh/uv) over OIDC: no long-lived API token is required.
-- The job is generated in each downstream caller workflow (not in the upstream reusable workflow) and invokes the [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action. Composite actions inherit the calling job's OIDC context, so the token's `job_workflow_ref` claim resolves to the downstream's own workflow file: that path is what each downstream registers with PyPI as a Trusted Publisher. This works around [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096), where a job inside the reusable workflow would claim the upstream path and fail the publisher match.
+- The job lives in each repo's own `release.yaml` entry, never in the `_release-engine.yaml` reusable: repomatic and downstreams alike publish from a `release.yaml` (the same filename everywhere). It invokes the [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action. Composite actions inherit the calling job's OIDC context, so the token's `job_workflow_ref` claim resolves to that `release.yaml`: the path each repo registers with PyPI as a Trusted Publisher. This works around [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096), where a job inside the reusable engine would claim the upstream path and fail the publisher match.
 - **Requires**:
-  - A one-time PyPI Trusted Publisher registration for the downstream repository's caller workflow (see [PyPI Trusted Publishers docs](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)).
+  - A one-time PyPI Trusted Publisher registration for the repo's `release.yaml` entry, the same filename in every repo (repomatic included), so no per-repo workflow-name divergence (see [PyPI Trusted Publishers docs](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)).
   - `id-token: write` permission on the caller-side job (auto-emitted by `repomatic init workflows`).
   - The `release_commits_matrix` output from the upstream `release.yaml` (drives the matrix and gates the job to release commits).
   - The `package_built` output from the upstream `release.yaml`, reflecting whether the `build-package` job succeeded.
 - The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
+- After a successful upload, the job adds the PyPI availability admonition to the GitHub release notes (via the engine's `release_notes_with_admonition` output). The engine's `publish-release` job no longer does this, since it completes before the entry's `publish-pypi` runs and cannot yet know the upload outcome.
 
 #### 🐙 Create release draft (`create-release`)
 

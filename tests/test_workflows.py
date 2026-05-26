@@ -58,6 +58,9 @@ WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
     "autolock.yaml",  # Scheduled only, no concurrent execution possible.
     "cancel-runs.yaml",  # Fires on PR close, must always run to completion.
     "debug.yaml",  # Debug-only workflow, not for production use.
+    # Thin-caller entry: delegates concurrency to the _release-engine.yaml it
+    # calls (which uses SHA-based unique groups to protect releases).
+    "release.yaml",
     "unsubscribe.yaml",  # Scheduled only, no concurrent execution possible.
 ))
 
@@ -66,7 +69,8 @@ WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
 # cancel-in-progress is evaluated on the NEW workflow, which would cancel
 # running releases.
 WORKFLOWS_WITH_UNIQUE_GROUPS = frozenset((
-    "release.yaml",  # Uses github.sha in group for release/post-release commits.
+    # Uses github.sha in group for release/post-release commits.
+    "_release-engine.yaml",
 ))
 
 # Workflows that use event-scoped concurrency groups (github.event_name in group)
@@ -652,7 +656,10 @@ def iter_jobs_with_runners():
     for workflow_path in WORKFLOWS_DIR.glob("*.yaml"):
         workflow = load_workflow(workflow_path.name)
         for job_name, job in workflow.get("jobs", {}).items():
-            runs_on = job.get("runs-on", "")
+            # Reusable-workflow calls (`uses:`) carry no `runs-on`; skip them.
+            if "runs-on" not in job:
+                continue
+            runs_on = job["runs-on"]
             # Skip matrix-based runners.
             if isinstance(runs_on, str) and not runs_on.startswith("${{"):
                 yield workflow_path.name, job_name, runs_on
@@ -700,6 +707,9 @@ ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
 # they are repomatic-internal (patching files that only exist in this repo) and
 # must not be exported to downstream repositories.
 WORKFLOWS_WITHOUT_SYMLINKS = frozenset((
+    # repomatic's own release entry; downstreams get a generated release.yaml
+    # (built from the bundled _release-engine.yaml), so the entry isn't bundled.
+    "release.yaml",
     # Patches repomatic/tool_runner.py, which only exists here.
     "update-checksums.yaml",
 ))

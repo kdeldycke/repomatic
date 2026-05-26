@@ -51,6 +51,7 @@ from ..registry import (
     REUSABLE_WORKFLOWS,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
+    WORKFLOW_SOURCES,
 )
 from .actions import AnnotationLevel, emit_annotation
 
@@ -538,7 +539,11 @@ def generate_thin_caller(
     :raises ValueError: If the workflow does not support `workflow_call`.
     """
     spec = _coerce_paths_spec(paths_spec, source_paths)
-    info = extract_trigger_info(filename)
+    # The reusable to read and reference. For most workflows this is `filename`
+    # itself; the release entry (release.yaml) is generated from and points its
+    # `uses:` at the `_release-engine.yaml` engine.
+    source = WORKFLOW_SOURCES.get(filename, filename)
+    info = extract_trigger_info(source)
 
     if not info.has_workflow_call:
         msg = (
@@ -547,12 +552,20 @@ def generate_thin_caller(
         )
         raise ValueError(msg)
 
-    # Mirror canonical triggers verbatim; do not synthesize workflow_dispatch.
-    triggers: dict[str, Any] = {}
-    for trigger_name, trigger_config in info.non_call_triggers.items():
-        if isinstance(trigger_config, dict):
-            trigger_config = _adapt_trigger_paths(trigger_config, filename, spec)
-        triggers[trigger_name] = trigger_config
+    # release.yaml is call-only in the canonical repo: its self-release triggers
+    # live in repomatic's own self-release.yaml (a thin caller, like this one).
+    # So synthesize the standard release triggers here rather than mirroring the
+    # canonical workflow's (now empty) non-workflow_call triggers.
+    triggers: dict[str, Any]
+    if filename == "release.yaml":
+        triggers = {"workflow_dispatch": None, "push": {"branches": ["main"]}}
+    else:
+        # Mirror canonical triggers verbatim; do not synthesize workflow_dispatch.
+        triggers = {}
+        for trigger_name, trigger_config in info.non_call_triggers.items():
+            if isinstance(trigger_config, dict):
+                trigger_config = _adapt_trigger_paths(trigger_config, filename, spec)
+            triggers[trigger_name] = trigger_config
 
     # Build the YAML content programmatically.
     # Concurrency is intentionally omitted: the reusable workflow's own
@@ -571,7 +584,7 @@ def generate_thin_caller(
         "jobs:",
         "",
         f"  {main_job}:",
-        f"    uses: {repo}/.github/workflows/{filename}@{uses_ref}",
+        f"    uses: {repo}/.github/workflows/{source}@{uses_ref}",
     ]
 
     # Pass only the specific secrets the canonical workflow declares, so

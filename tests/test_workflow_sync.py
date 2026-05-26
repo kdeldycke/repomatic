@@ -57,6 +57,7 @@ from repomatic.registry import (
     REUSABLE_WORKFLOWS,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
+    WORKFLOW_SOURCES,
 )
 
 TYPE_CHECKING = False
@@ -97,7 +98,7 @@ def test_union_is_all() -> None:
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
 def test_reusable_has_workflow_call(filename: str) -> None:
     """Verify all reusable workflows have workflow_call trigger."""
-    info = extract_trigger_info(filename)
+    info = extract_trigger_info(WORKFLOW_SOURCES.get(filename, filename))
     assert info.has_workflow_call is True
 
 
@@ -111,9 +112,10 @@ def test_non_reusable_no_workflow_call(filename: str) -> None:
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
 def test_returns_trigger_info(filename: str) -> None:
     """Verify return type is WorkflowTriggerInfo."""
-    info = extract_trigger_info(filename)
+    source = WORKFLOW_SOURCES.get(filename, filename)
+    info = extract_trigger_info(source)
     assert isinstance(info, WorkflowTriggerInfo)
-    assert info.filename == filename
+    assert info.filename == source
     assert isinstance(info.name, str)
     assert len(info.name) > 0
 
@@ -137,7 +139,7 @@ def test_release_has_secrets() -> None:
     Trusted Publishing via the `publish-pypi` composite action invoked from
     the caller workflow. See pypi/warehouse#11096 for context.
     """
-    info = extract_trigger_info("release.yaml")
+    info = extract_trigger_info("_release-engine.yaml")
     assert "PYPI_TOKEN" not in info.call_secrets
     assert "REPOMATIC_PAT" in info.call_secrets
 
@@ -178,7 +180,7 @@ def test_no_workflow_call_inputs(filename: str) -> None:
     All configurable options live in ``[tool.repomatic]`` in ``pyproject.toml``.
     Workflows read config via ``repomatic`` CLI instead of accepting inputs.
     """
-    info = extract_trigger_info(filename)
+    info = extract_trigger_info(WORKFLOW_SOURCES.get(filename, filename))
     assert len(info.call_inputs) == 0, (
         f"{filename} still defines workflow_call inputs: {sorted(info.call_inputs)}"
     )
@@ -210,7 +212,11 @@ def test_generates_valid_yaml(filename: str) -> None:
     assert isinstance(data, dict)
 
 
-@pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
+# release.yaml is excluded: it is call-only upstream, so its caller synthesizes
+# triggers instead of mirroring (see test_release_thin_caller_synthesizes_triggers).
+@pytest.mark.parametrize(
+    "filename", [f for f in REUSABLE_WORKFLOWS if f != "release.yaml"]
+)
 def test_mirrors_canonical_dispatch(filename: str) -> None:
     """Caller's workflow_dispatch presence mirrors canonical, no synthesis."""
     content = generate_thin_caller(filename)
@@ -221,11 +227,28 @@ def test_mirrors_canonical_dispatch(filename: str) -> None:
     assert ("workflow_dispatch" in triggers) is canonical_has_dispatch
 
 
+def test_release_thin_caller_synthesizes_triggers() -> None:
+    """release.yaml is call-only upstream; its caller synthesizes push + dispatch.
+
+    The canonical release.yaml declares no push/workflow_dispatch trigger
+    (repomatic's own self-release.yaml owns those). generate_thin_caller
+    therefore synthesizes the standard release triggers for downstream callers
+    rather than mirroring the canonical workflow's empty non-call triggers.
+    """
+    content = generate_thin_caller("release.yaml")
+    data = yaml.safe_load(content)
+    triggers = data.get(True) or data.get("on") or {}
+    assert "workflow_dispatch" in triggers
+    assert triggers["push"] == {"branches": ["main"]}
+    # Canonical is call-only: there is nothing to mirror.
+    assert extract_trigger_info("_release-engine.yaml").non_call_triggers == {}
+
+
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
 def test_correct_uses_ref(filename: str) -> None:
     """Verify correct uses reference in job."""
     content = generate_thin_caller(filename)
-    expected = f"{DEFAULT_REPO}/.github/workflows/{filename}@main"
+    expected = f"{DEFAULT_REPO}/.github/workflows/{WORKFLOW_SOURCES.get(filename, filename)}@main"
     assert expected in content
 
 
@@ -774,7 +797,7 @@ def test_explicit_secrets_passed(tmp_path: Path) -> None:
         "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
         encoding="UTF-8",
     )
-    result = check_secrets_passed(wf, "release.yaml")
+    result = check_secrets_passed(wf, "_release-engine.yaml")
     assert result.is_issue is False
 
 
@@ -787,7 +810,7 @@ def test_secrets_inherit_still_accepted(tmp_path: Path) -> None:
         "    secrets: inherit\n",
         encoding="UTF-8",
     )
-    result = check_secrets_passed(wf, "release.yaml")
+    result = check_secrets_passed(wf, "_release-engine.yaml")
     assert result.is_issue is False
 
 
@@ -799,7 +822,7 @@ def test_missing_secrets(tmp_path: Path) -> None:
         f"    uses: {DEFAULT_REPO}/.github/workflows/release.yaml@v5.8.0\n",
         encoding="UTF-8",
     )
-    result = check_secrets_passed(wf, "release.yaml")
+    result = check_secrets_passed(wf, "_release-engine.yaml")
     assert result.is_issue is True
     assert "secrets" in result.message
 
@@ -814,7 +837,7 @@ def test_partial_secrets_missing(tmp_path: Path) -> None:
         "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
         encoding="UTF-8",
     )
-    result = check_secrets_passed(wf, "release.yaml")
+    result = check_secrets_passed(wf, "_release-engine.yaml")
     assert result.is_issue is True
     assert "REPOMATIC_PAT" in result.message
 
@@ -1033,7 +1056,7 @@ WORKFLOWS_WITH_CONCURRENCY = (
     "docs.yaml",
     "labels.yaml",
     "lint.yaml",
-    "release.yaml",
+    "_release-engine.yaml",
     "renovate.yaml",
 )
 """Canonical workflows that define a concurrency block."""
@@ -1068,9 +1091,9 @@ def test_concurrency_preserves_expressions() -> None:
 
 def test_concurrency_preserves_comments() -> None:
     """Verify raw concurrency preserves inline comments."""
-    info = extract_trigger_info("release.yaml")
+    info = extract_trigger_info("_release-engine.yaml")
     assert info.raw_concurrency is not None
-    # release.yaml has explanatory comments in its concurrency block.
+    # The release engine has explanatory comments in its concurrency block.
     assert "#" in info.raw_concurrency
 
 

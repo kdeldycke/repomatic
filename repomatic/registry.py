@@ -592,7 +592,10 @@ COMPONENTS: tuple[Component, ...] = (
             FileEntry("labels.yaml", ".github/workflows/labels.yaml"),
             FileEntry("lint.yaml", ".github/workflows/lint.yaml"),
             FileEntry(
-                "release.yaml",
+                # Downstream artifact is release.yaml (the entry), generated from
+                # and pointing its `uses:` at the _release-engine.yaml reusable.
+                # See WORKFLOW_SOURCES and workflow_sync.generate_thin_caller.
+                "_release-engine.yaml",
                 ".github/workflows/release.yaml",
                 scope=RepoScope.PYTHON_ONLY,
             ),
@@ -1000,6 +1003,15 @@ ALL_WORKFLOW_FILES: tuple[str, ...] = tuple(
     sorted(f.file_id for f in _BY_NAME["workflows"].files)
 )
 """All workflow filenames (reusable and non-reusable)."""
+
+WORKFLOW_SOURCES: dict[str, str] = {
+    f.file_id: f.source for f in _BY_NAME["workflows"].files
+}
+"""Maps each workflow's downstream file_id to its bundled source filename.
+
+For most workflows source == file_id. The release entry is the exception: its
+downstream artifact is `release.yaml`, generated from and pointing its `uses:`
+at the `_release-engine.yaml` reusable engine."""
 
 SKILL_PHASES: dict[str, str] = {
     f.file_id: f.phase for f in _BY_NAME["skills"].files if f.phase
