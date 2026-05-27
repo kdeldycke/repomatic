@@ -349,9 +349,9 @@ def test_collect_keeps_distinct_per_source_urls(lock_with_raspberry):
 
 
 def test_parse_uv_audit_json_maps_fields():
-    """A v1 report maps onto VulnerablePackage, preferring display_id."""
+    """A preview report maps onto VulnerablePackage, preferring display_id."""
     report = {
-        "schema": {"version": "v1"},
+        "schema": {"version": "preview"},
         "summary": {
             "audited_packages": 10,
             "vulnerabilities": 1,
@@ -390,7 +390,7 @@ def test_parse_uv_audit_json_maps_fields():
 
 def test_parse_uv_audit_json_no_vulnerabilities():
     """A valid report with zero findings is an empty list, not a fallback."""
-    report = {"schema": {"version": "v1"}, "vulnerabilities": []}
+    report = {"schema": {"version": "preview"}, "vulnerabilities": []}
     assert parse_uv_audit_json(json.dumps(report)) == []
 
 
@@ -463,7 +463,7 @@ def test_uv_version_parses(stdout, expected):
 def test_run_uv_audit_parses_json(lock_with_raspberry):
     """A recent uv yields JSON that is parsed into records."""
     report = {
-        "schema": {"version": "v1"},
+        "schema": {"version": "preview"},
         "vulnerabilities": [
             {
                 "dependency": {"name": "raspberry", "version": "3.1.46"},

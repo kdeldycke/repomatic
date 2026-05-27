@@ -106,7 +106,7 @@ this, `uv audit` emits only human-readable text, so {func}`_run_uv_audit`
 refuses to run rather than silently scanning nothing.
 """
 
-_SUPPORTED_AUDIT_SCHEMA_VERSIONS = frozenset({"v1"})
+_SUPPORTED_AUDIT_SCHEMA_VERSIONS = frozenset({"preview"})
 """`uv audit --output-format json` schema versions the parser understands.
 
 The JSON layout is a uv *preview* feature whose schema may change without
@@ -1189,7 +1189,7 @@ def _run_uv_audit(lock_path: Path) -> list[VulnerablePackage]:
     :return: A list of {class}`VulnerablePackage` entries detected by
         `uv audit`. Empty when no vulnerabilities are found.
     :raises RuntimeError: when `uv` is older than the minimum, or its JSON
-        output is unparseable.
+        output is unparsable.
     """
     version = _uv_version()
     if version < MIN_UV_AUDIT_JSON_VERSION:
