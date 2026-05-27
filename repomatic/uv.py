@@ -98,22 +98,23 @@ RELEASE_NOTES_MAX_LENGTH = 2000
 # uv audit parsing
 # ---------------------------------------------------------------------------
 
-_AUDIT_PACKAGE_HEADER_RE = re.compile(
-    r"^(\S+)\s+(\S+)\s+has\s+\d+\s+known\s+vulnerabilit"
-)
-"""Matches the package header line in `uv audit` output.
+MIN_UV_AUDIT_JSON_VERSION = Version("0.11.15")
+"""Minimum `uv` version exposing `uv audit --output-format json`.
 
-Example: `pygments 2.19.2 has 1 known vulnerability:`
+The structured JSON output landed in uv 0.11.15 as a preview feature. Below
+this, `uv audit` emits only human-readable text, so {func}`_run_uv_audit`
+refuses to run rather than silently scanning nothing.
 """
 
-_AUDIT_ADVISORY_RE = re.compile(r"^-\s+((?:GHSA|CVE|PYSEC)-\S+):\s+(.+)$")
-"""Matches advisory ID and title lines in `uv audit` output."""
+_SUPPORTED_AUDIT_SCHEMA_VERSIONS = frozenset({"v1"})
+"""`uv audit --output-format json` schema versions the parser understands.
 
-_AUDIT_FIXED_RE = re.compile(r"^\s+Fixed in:\s+(.+)$")
-"""Matches `Fixed in:` lines in `uv audit` output."""
-
-_AUDIT_URL_RE = re.compile(r"^\s+Advisory information:\s+(\S+)$")
-"""Matches advisory URL lines in `uv audit` output."""
+The JSON layout is a uv *preview* feature whose schema may change without
+warning, so {func}`parse_uv_audit_json` gates on the report's advertised
+`schema.version` and raises for any version not listed here (rather than risk
+misreading a changed layout as "no vulnerabilities"). Add a version once its
+field layout is verified against the parser.
+"""
 
 
 class AdvisorySource(StrEnum):
@@ -155,6 +156,17 @@ class VulnerablePackage:
     advisory_url: str
     """URL to the advisory details."""
 
+    aliases: set[str] = field(default_factory=set)
+    """Alternate identifiers for the same advisory (CVE, GHSA, PYSEC, OSV).
+
+    Advisory databases cross-reference each other: the PyPA database (via
+    `uv audit`) keys records by OSV/`PYSEC` IDs while listing the matching
+    `GHSA`/`CVE` IDs as aliases, and Dependabot keys by `GHSA` while listing
+    the `CVE`. {func}`collect_vulnerable_packages` unions entries whose
+    identifier sets overlap, so a shared alias deduplicates the same
+    advisory reported under different primary IDs by different sources.
+    """
+
     sources: set[AdvisorySource] = field(default_factory=set)
     """Advisory databases that surfaced this entry.
 
@@ -173,73 +185,65 @@ class VulnerablePackage:
     """
 
 
-def parse_uv_audit_output(output: str) -> list[VulnerablePackage]:
-    """Parse the text output of `uv audit` into structured vulnerability data.
+def parse_uv_audit_json(output: str) -> list[VulnerablePackage]:
+    """Parse `uv audit --output-format json` output into vulnerability records.
 
-    Handles multiple advisories per package and packages without a known fix
-    version. Unrecognized lines are silently skipped.
+    The structured contract avoids the regex fragility of scraping
+    human-readable lines, and exposes the advisory `aliases` (cross-referenced
+    CVE/GHSA/PYSEC IDs) that let {func}`collect_vulnerable_packages`
+    deduplicate the same advisory across sources.
 
-    :param output: Combined stdout/stderr from `uv audit`.
-    :return: A list of {class}`VulnerablePackage` entries.
+    :param output: stdout from `uv audit --output-format json`.
+    :return: A list of {class}`VulnerablePackage` entries (empty when the
+        audit found nothing).
+    :raises RuntimeError: when the output is unusable as JSON (empty,
+        malformed, or carrying an unrecognized `schema.version`). Raising
+        rather than returning an empty list keeps the scanner from silently
+        passing when the preview schema changes under it.
     """
+    output = output.strip()
+    if not output:
+        raise RuntimeError("`uv audit --output-format json` produced no output.")
+    try:
+        report = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"`uv audit` did not return valid JSON: {error}.") from error
+    # A non-object payload (list, scalar) has no recognizable schema, so it
+    # fails the same version guard as a missing or unknown schema version.
+    schema = report.get("schema") if isinstance(report, dict) else None
+    version = schema.get("version") if isinstance(schema, dict) else None
+    if version not in _SUPPORTED_AUDIT_SCHEMA_VERSIONS:
+        raise RuntimeError(
+            f"Unrecognized `uv audit` JSON schema version {version!r}; expected "
+            f"one of {sorted(_SUPPORTED_AUDIT_SCHEMA_VERSIONS)}. The preview "
+            "schema may have changed: update parse_uv_audit_json."
+        )
+
     vulns: list[VulnerablePackage] = []
-    current_name = ""
-    current_version = ""
-    current_advisory_id = ""
-    current_advisory_title = ""
-    current_fixed = ""
-    current_url = ""
-
-    def _flush() -> None:
-        if current_advisory_id:
-            vulns.append(
-                VulnerablePackage(
-                    name=current_name,
-                    current_version=current_version,
-                    advisory_id=current_advisory_id,
-                    advisory_title=current_advisory_title,
-                    fixed_version=current_fixed,
-                    advisory_url=current_url,
-                    sources={AdvisorySource.UV_AUDIT},
-                    source_urls=(
-                        {AdvisorySource.UV_AUDIT: current_url} if current_url else {}
-                    ),
-                )
+    for entry in report.get("vulnerabilities") or []:
+        dependency = entry.get("dependency") or {}
+        # `display_id` is uv's preferred human-facing identifier (matching its
+        # text output); `id` is the OSV record's primary key. Keep every other
+        # known identifier as an alias for cross-source deduplication.
+        primary = entry.get("display_id") or entry.get("id") or ""
+        aliases = {entry.get("id") or "", *(entry.get("aliases") or [])}
+        aliases.discard("")
+        aliases.discard(primary)
+        fix_versions = entry.get("fix_versions") or []
+        url = entry.get("link") or ""
+        vulns.append(
+            VulnerablePackage(
+                name=dependency.get("name", ""),
+                current_version=dependency.get("version", ""),
+                advisory_id=primary,
+                advisory_title=entry.get("summary") or "",
+                fixed_version=", ".join(fix_versions),
+                advisory_url=url,
+                aliases=aliases,
+                sources={AdvisorySource.UV_AUDIT},
+                source_urls={AdvisorySource.UV_AUDIT: url} if url else {},
             )
-
-    for line in output.splitlines():
-        header = _AUDIT_PACKAGE_HEADER_RE.match(line)
-        if header:
-            _flush()
-            current_name = header.group(1)
-            current_version = header.group(2)
-            current_advisory_id = ""
-            current_advisory_title = ""
-            current_fixed = ""
-            current_url = ""
-            continue
-
-        advisory = _AUDIT_ADVISORY_RE.match(line)
-        if advisory:
-            # Flush previous advisory for the same package.
-            _flush()
-            current_advisory_id = advisory.group(1)
-            current_advisory_title = advisory.group(2)
-            current_fixed = ""
-            current_url = ""
-            continue
-
-        fixed = _AUDIT_FIXED_RE.match(line)
-        if fixed:
-            current_fixed = fixed.group(1).strip()
-            continue
-
-        url = _AUDIT_URL_RE.match(line)
-        if url:
-            current_url = url.group(1).strip()
-            continue
-
-    _flush()
+        )
     return vulns
 
 
@@ -1153,24 +1157,62 @@ def _canonical_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _uv_version() -> Version:
+    """Return the version of the `uv` binary on `PATH`.
+
+    :return: The version parsed from `uv --version`.
+    :raises RuntimeError: when `uv --version` output cannot be parsed.
+    """
+    result = subprocess.run(
+        ["uv", "--version"],
+        capture_output=True,
+        text=True,
+        encoding="UTF-8",
+        check=False,
+    )
+    # `uv --version` prints e.g. `uv 0.11.15 (abc1234 2026-05-18)`.
+    match = re.search(r"\d+\.\d+\.\d+", result.stdout)
+    if not match:
+        raise RuntimeError(f"Could not parse uv version from {result.stdout!r}.")
+    return Version(match.group())
+
+
 def _run_uv_audit(lock_path: Path) -> list[VulnerablePackage]:
-    """Run `uv audit --frozen` and parse the output into vulnerability records.
+    """Run `uv audit --output-format json` and parse the result.
+
+    Requires uv >= {data}`MIN_UV_AUDIT_JSON_VERSION` for the structured JSON
+    output (a preview feature); raises when the `uv` on `PATH` is older rather
+    than silently scanning nothing. See {func}`parse_uv_audit_json`.
 
     :param lock_path: Path to the `uv.lock` file (used to derive the project
         directory).
     :return: A list of {class}`VulnerablePackage` entries detected by
-        `uv audit`. Empty when no vulnerabilities are found or the command
-        returns no parseable output.
+        `uv audit`. Empty when no vulnerabilities are found.
+    :raises RuntimeError: when `uv` is older than the minimum, or its JSON
+        output is unparseable.
     """
-    project_dir = lock_path.parent
+    version = _uv_version()
+    if version < MIN_UV_AUDIT_JSON_VERSION:
+        raise RuntimeError(
+            "Vulnerability scanning requires uv >= "
+            f"{MIN_UV_AUDIT_JSON_VERSION} for `uv audit --output-format json`, "
+            f"but found uv {version}."
+        )
     result = subprocess.run(
-        [*uv_cmd("audit"), "--frozen"],
+        [
+            *uv_cmd("audit", frozen=True),
+            "--output-format",
+            "json",
+            "--preview-features",
+            "json-output",
+        ],
         capture_output=True,
         text=True,
+        encoding="UTF-8",
         check=False,
-        cwd=project_dir,
+        cwd=lock_path.parent,
     )
-    return parse_uv_audit_output(result.stdout + "\n" + result.stderr)
+    return parse_uv_audit_json(result.stdout)
 
 
 def collect_vulnerable_packages(
@@ -1180,10 +1222,12 @@ def collect_vulnerable_packages(
 ) -> list[VulnerablePackage]:
     """Collect vulnerability advisories from all configured sources.
 
-    Queries each enabled advisory database, then deduplicates entries that
-    appear in more than one source by `(package, advisory_id)`. Merging
-    preserves the union of `sources` so the rendered table credits both
-    databases when they agree.
+    Queries each enabled advisory database, then deduplicates entries per
+    package by advisory identity: two entries merge when their identifier
+    sets (`advisory_id` plus `aliases`) overlap, so the same advisory
+    reported under a PYSEC/OSV ID by `uv audit` and a GHSA ID by Dependabot
+    collapses into one. Merging preserves the union of `sources` so the
+    rendered table credits both databases when they agree.
 
     Current versions reported by `uv audit` take precedence over the empty
     placeholder produced by the GHSA path, since `uv audit` reads the actual
@@ -1225,29 +1269,38 @@ def collect_vulnerable_packages(
                     v.current_version = locked_canonical[pkg_canonical]
             collected.extend(ghsa)
 
-    # Deduplicate by (canonical package name, advisory_id), unioning sources.
-    merged: dict[tuple[str, str], VulnerablePackage] = {}
+    # Deduplicate within each canonical package name, unioning sources. Two
+    # advisories are the same when their identifier sets overlap: a shared
+    # CVE/GHSA/PYSEC/OSV alias links the same advisory reported under
+    # different primary IDs by different sources (e.g. a PYSEC from `uv audit`
+    # and the equivalent GHSA from Dependabot).
+    groups: dict[str, list[tuple[VulnerablePackage, set[str]]]] = {}
     for v in collected:
-        key = (_canonical_name(v.name), v.advisory_id)
-        existing = merged.get(key)
-        if existing is None:
-            merged[key] = v
-            continue
-        existing.sources |= v.sources
-        for src, url in v.source_urls.items():
-            existing.source_urls.setdefault(src, url)
-        # Prefer non-empty fields from whichever source has them.
-        if not existing.current_version and v.current_version:
-            existing.current_version = v.current_version
-        if not existing.fixed_version and v.fixed_version:
-            existing.fixed_version = v.fixed_version
-        if not existing.advisory_url and v.advisory_url:
-            existing.advisory_url = v.advisory_url
-        if not existing.advisory_title and v.advisory_title:
-            existing.advisory_title = v.advisory_title
+        ids = {v.advisory_id, *v.aliases}
+        ids.discard("")
+        bucket = groups.setdefault(_canonical_name(v.name), [])
+        for existing, existing_ids in bucket:
+            if ids & existing_ids:
+                existing_ids |= ids
+                existing.aliases |= ids - {existing.advisory_id}
+                existing.sources |= v.sources
+                for src, url in v.source_urls.items():
+                    existing.source_urls.setdefault(src, url)
+                # Prefer non-empty fields from whichever source has them.
+                if not existing.current_version and v.current_version:
+                    existing.current_version = v.current_version
+                if not existing.fixed_version and v.fixed_version:
+                    existing.fixed_version = v.fixed_version
+                if not existing.advisory_url and v.advisory_url:
+                    existing.advisory_url = v.advisory_url
+                if not existing.advisory_title and v.advisory_title:
+                    existing.advisory_title = v.advisory_title
+                break
+        else:
+            bucket.append((v, ids))
 
     return sorted(
-        merged.values(),
+        (entry for bucket in groups.values() for entry, _ids in bucket),
         key=lambda v: (v.name.lower(), v.advisory_id),
     )
 

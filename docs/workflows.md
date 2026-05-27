@@ -108,13 +108,14 @@ GitHub Actions has several design limitations that the workflows work around:
 
 #### 🛡️ Fix vulnerable dependencies (`fix-vulnerable-deps`)
 
-- Detects vulnerable packages from two advisory sources, unioned and deduplicated by `(package, advisory_id)`:
+- Detects vulnerable packages from two advisory sources, unioned and deduplicated per package by advisory identity (a shared `advisory_id` or a cross-referenced CVE/GHSA/PYSEC alias):
   - [`uv audit`](https://docs.astral.sh/uv/reference/cli/#uv-audit) against the [Python Packaging Advisory Database](https://github.com/pypa/advisory-database) (OSV-backed). Works locally and in CI without a GitHub token.
   - The repository's [Dependabot alerts](https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts) feed against the [GitHub Advisory Database](https://github.com/advisories). Catches CVEs (including transitive `uv.lock` packages) that the PyPA database has not yet ingested.
 - Uses `uv lock --upgrade-package` with [`--exclude-newer-package`](https://docs.astral.sh/uv/reference/settings/#exclude-newer-package) bypass to resolve fix versions that may be within the [`exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) cooldown period
 - PR body includes a table of vulnerabilities (with the source database that surfaced each one) and updated package versions with release notes
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
+  - `uv` >= `0.11.15`, for the `uv audit --output-format json` output the scan parses (an older `uv` raises rather than silently scanning nothing)
   - For the GitHub Advisory Database source: a token with `Dependabot alerts: Read-only` permission (`REPOMATIC_PAT` or the workflow `GITHUB_TOKEN`) and Dependabot alerts enabled on the repository
 - **Skipped if**:
   - `vulnerable-deps.sync = false` in `[tool.repomatic]`

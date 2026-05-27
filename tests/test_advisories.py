@@ -14,11 +14,12 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the GitHub Advisory Database integration."""
+"""Tests for vulnerability advisory collection (`uv audit` + GitHub Advisory DB)."""
 
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -27,8 +28,11 @@ from repomatic.github.advisories import fetch_dependabot_alerts
 from repomatic.uv import (
     AdvisorySource,
     VulnerablePackage,
+    _run_uv_audit,
+    _uv_version,
     collect_vulnerable_packages,
     format_vulnerability_table,
+    parse_uv_audit_json,
 )
 
 ALERTS_FIXTURE = [
@@ -342,3 +346,163 @@ def test_collect_keeps_distinct_per_source_urls(lock_with_raspberry):
     assert only.source_urls[AdvisorySource.GITHUB_ADVISORIES].startswith(
         "https://github.com/advisories/"
     )
+
+
+def test_parse_uv_audit_json_maps_fields():
+    """A v1 report maps onto VulnerablePackage, preferring display_id."""
+    report = {
+        "schema": {"version": "v1"},
+        "summary": {
+            "audited_packages": 10,
+            "vulnerabilities": 1,
+            "adverse_statuses": 0,
+        },
+        "vulnerabilities": [
+            {
+                "dependency": {"name": "raspberry", "version": "3.1.46"},
+                "id": "PYSEC-2026-1",
+                "display_id": "GHSA-fruit-1111-aaaa",
+                "aliases": ["CVE-2026-0001", "PYSEC-2026-1"],
+                "summary": "Raspberry juice leak under concurrent picking",
+                "link": "https://osv.dev/vulnerability/PYSEC-2026-1",
+                "fix_versions": ["3.1.47", "4.0.1"],
+            },
+        ],
+        "adverse_statuses": [],
+    }
+    vulns = parse_uv_audit_json(json.dumps(report))
+
+    assert vulns is not None
+    assert len(vulns) == 1
+    only = vulns[0]
+    assert only.name == "raspberry"
+    assert only.current_version == "3.1.46"
+    # display_id wins over the OSV primary id for the human-facing identifier.
+    assert only.advisory_id == "GHSA-fruit-1111-aaaa"
+    assert only.advisory_title == "Raspberry juice leak under concurrent picking"
+    # Every fix branch is preserved, not just the first.
+    assert only.fixed_version == "3.1.47, 4.0.1"
+    assert only.advisory_url.endswith("PYSEC-2026-1")
+    # All other identifiers become aliases; the primary is excluded.
+    assert only.aliases == {"CVE-2026-0001", "PYSEC-2026-1"}
+    assert only.sources == {AdvisorySource.UV_AUDIT}
+
+
+def test_parse_uv_audit_json_no_vulnerabilities():
+    """A valid report with zero findings is an empty list, not a fallback."""
+    report = {"schema": {"version": "v1"}, "vulnerabilities": []}
+    assert parse_uv_audit_json(json.dumps(report)) == []
+
+
+@pytest.mark.parametrize(
+    "output",
+    (
+        pytest.param("", id="empty"),
+        pytest.param("   \n  ", id="whitespace"),
+        pytest.param("<<not json>>", id="malformed"),
+        pytest.param("[1, 2, 3]", id="not-an-object"),
+        pytest.param(json.dumps({"schema": {"version": "v2"}}), id="unknown-schema"),
+        pytest.param(json.dumps({"vulnerabilities": []}), id="missing-schema"),
+    ),
+)
+def test_parse_uv_audit_json_raises_on_unusable_output(output):
+    """Unusable JSON raises so the scanner fails loud, never silently empty."""
+    with pytest.raises(RuntimeError):
+        parse_uv_audit_json(output)
+
+
+def test_collect_dedupes_across_sources_via_alias(lock_with_raspberry):
+    """A PYSEC from uv audit and its aliased GHSA from Dependabot merge."""
+    audit = VulnerablePackage(
+        name="raspberry",
+        current_version="3.1.46",
+        advisory_id="PYSEC-2026-1",
+        advisory_title="Raspberry juice leak under concurrent picking",
+        fixed_version="3.1.47",
+        advisory_url="https://osv.dev/vulnerability/PYSEC-2026-1",
+        aliases={"GHSA-fruit-1111-aaaa"},
+        sources={AdvisorySource.UV_AUDIT},
+    )
+    with (
+        patch("repomatic.uv._run_uv_audit", return_value=[audit]),
+        patch(
+            "repomatic.github.advisories.run_gh_command",
+            return_value=json.dumps(ALERTS_FIXTURE[:1]),  # GHSA-fruit-1111-aaaa
+        ),
+    ):
+        merged = collect_vulnerable_packages(
+            lock_with_raspberry, repo="orchard/raspberry"
+        )
+
+    assert len(merged) == 1
+    only = merged[0]
+    assert only.sources == {
+        AdvisorySource.UV_AUDIT,
+        AdvisorySource.GITHUB_ADVISORIES,
+    }
+    # uv is collected first, so its PYSEC stays primary and GHSA is an alias.
+    assert only.advisory_id == "PYSEC-2026-1"
+    assert "GHSA-fruit-1111-aaaa" in only.aliases
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected"),
+    (
+        pytest.param("uv 0.11.15 (abc1234 2026-05-18)\n", "0.11.15", id="with-hash"),
+        pytest.param("uv 0.12.0\n", "0.12.0", id="bare"),
+        pytest.param("uv 1.0.0 (deadbeef 2027-01-01)", "1.0.0", id="major"),
+    ),
+)
+def test_uv_version_parses(stdout, expected):
+    """`uv --version` output is parsed into a comparable Version."""
+    completed = SimpleNamespace(stdout=stdout, stderr="")
+    with patch("repomatic.uv.subprocess.run", return_value=completed):
+        assert str(_uv_version()) == expected
+
+
+def test_run_uv_audit_parses_json(lock_with_raspberry):
+    """A recent uv yields JSON that is parsed into records."""
+    report = {
+        "schema": {"version": "v1"},
+        "vulnerabilities": [
+            {
+                "dependency": {"name": "raspberry", "version": "3.1.46"},
+                "id": "PYSEC-2026-1",
+                "display_id": "PYSEC-2026-1",
+                "summary": "Raspberry juice leak",
+                "link": "https://osv.dev/vulnerability/PYSEC-2026-1",
+                "fix_versions": ["3.1.47"],
+            },
+        ],
+    }
+    version = SimpleNamespace(stdout="uv 0.11.15 (abc1234 2026-05-18)\n", stderr="")
+    audit = SimpleNamespace(stdout=json.dumps(report), stderr="")
+    with patch("repomatic.uv.subprocess.run", side_effect=[version, audit]):
+        vulns = _run_uv_audit(lock_with_raspberry)
+
+    assert [v.advisory_id for v in vulns] == ["PYSEC-2026-1"]
+    assert vulns[0].fixed_version == "3.1.47"
+
+
+def test_run_uv_audit_rejects_old_uv(lock_with_raspberry):
+    """An older uv (no JSON audit output) fails loud rather than scanning nothing."""
+    version = SimpleNamespace(stdout="uv 0.11.14 (abc1234 2026-05-10)\n", stderr="")
+    with (
+        patch("repomatic.uv.subprocess.run", return_value=version) as run,
+        pytest.raises(RuntimeError, match="0.11.15"),
+    ):
+        _run_uv_audit(lock_with_raspberry)
+
+    # Bails after the version check, never invoking `uv audit`.
+    assert run.call_count == 1
+
+
+def test_run_uv_audit_raises_on_unknown_schema(lock_with_raspberry):
+    """A recent uv emitting an unrecognized schema version fails loud."""
+    version = SimpleNamespace(stdout="uv 0.12.0 (abc1234 2026-06-01)\n", stderr="")
+    audit = SimpleNamespace(stdout=json.dumps({"schema": {"version": "v2"}}), stderr="")
+    with (
+        patch("repomatic.uv.subprocess.run", side_effect=[version, audit]),
+        pytest.raises(RuntimeError, match="schema version"),
+    ):
+        _run_uv_audit(lock_with_raspberry)

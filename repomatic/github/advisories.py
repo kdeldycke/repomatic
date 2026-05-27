@@ -104,6 +104,13 @@ def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
             current_version = ""  # filled in by the caller from parse_lock_versions
         ghsa_id = advisory.get("ghsa_id", "")
         summary = advisory.get("summary", "")
+        # Cross-referenced identifiers (CVE, GHSA) let the same advisory
+        # deduplicate against `uv audit`, which keys records by OSV/PYSEC IDs.
+        aliases = {advisory.get("cve_id") or ""}
+        for identifier in advisory.get("identifiers") or []:
+            aliases.add(identifier.get("value") or "")
+        aliases.discard("")
+        aliases.discard(ghsa_id)
         url = advisory.get("html_url") or (
             f"https://github.com/advisories/{ghsa_id}" if ghsa_id else ""
         )
@@ -115,6 +122,7 @@ def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
                 advisory_title=summary,
                 fixed_version=first_patched,
                 advisory_url=url,
+                aliases=aliases,
                 sources={AdvisorySource.GITHUB_ADVISORIES},
                 source_urls=({AdvisorySource.GITHUB_ADVISORIES: url} if url else {}),
             )
