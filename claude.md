@@ -163,6 +163,10 @@ This project supports Python 3.10+. Unavailable syntax: multi-line f-string expr
 
 For single-line commands, use plain inline `run:`. For multi-line, use the folded block scalar (`>`) which joins lines with spaces — no backslash continuations needed. Use literal block scalar (`|`) only when preserved newlines are required (multi-statement scripts, heredocs).
 
+YAML lines may run up to 120 characters (the bundled `yamllint.yaml` sets `line-length: max: 120`): don't carry over Python's 88-character limit or reflexively wrap comment blocks at 80. The same limit governs generated downstream workflows, so comments in a codegen source (like `release.yaml`'s `publish-pypi` job) should fill to 120 too.
+
+Jobs run on `ubuntu-slim` (a lean GitHub-hosted image) by default, everywhere; generated downstream workflows inherit it. Don't reach for `ubuntu-latest` speculatively: keep `ubuntu-slim` and move a single job to a fuller image only when a real failure proves a needed tool is missing (`shfmt`, for one, is absent on slim).
+
 ### Naming conventions for automated operations
 
 CLI commands, workflow job IDs, PR branch names, and PR body template names must all agree on the same verb prefix, keeping the conventions learnable and grepable across all four dimensions.
@@ -312,9 +316,9 @@ When adding a field to a registry type, ask: will callers branch on this value? 
 
 In the source repo, scope exclusions still remove out-of-scope components from `selected`, but stale-file detection is suppressed so bundled data files are never flagged for deletion.
 
-### Metadata-driven workflow conditions
+### Keep logic in Python, not workflow YAML
 
-Rather than duplicating `if:` conditions on every workflow step, augment the `repomatic metadata` subcommand to compute the condition once and reference it from workflow steps. Python code in `repomatic` is simpler to maintain, test, and debug than complex GitHub Actions workflow logic.
+Push anything beyond trivial wiring out of workflow YAML and into the CLI/library. Rather than duplicating `if:` conditions across workflow steps, compute them once in `repomatic metadata` and reference the result. Rather than hand-maintaining workflow content, generate or reshape it in Python: `repomatic.github.workflow_sync._render_publish_pypi_job` derives each downstream `publish-pypi` job from the canonical `release.yaml` instead of a separately maintained YAML fragment. Python is generic, testable, and under our control; GitHub Actions YAML is platform-specific, brittle, and stringly-typed, so shrinking the GHA-specific surface also eases a future migration to (or addition of) another CI platform. A tested generator that fails loudly beats a static YAML artifact that duplicates generatable content and can silently drift.
 
 ### Defensive workflow design
 
