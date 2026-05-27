@@ -815,3 +815,27 @@ def test_agent_symlinks_resolve_correctly() -> None:
         assert target == expected, (
             f"Symlink {symlink.name} points to {target}, expected {expected}"
         )
+
+
+def test_release_engine_matrix_outputs_degrade_to_empty_string() -> None:
+    """`_release-engine.yaml` matrix outputs must emit `''` (not `"null"`) for null.
+
+    GitHub Actions serializes a null value through `toJSON(...)` as the literal
+    string `"null"`, which is *truthy* in expressions. A caller that guards its
+    `strategy.matrix` with `... || '{"include":[]}'` then never reaches the
+    fallback, and `fromJSON("null")` aborts the run with `Unexpected value ''`.
+    Every `*_matrix` workflow_call output must therefore degrade to an empty
+    string for a null source (the `<value> && toJSON(<value>) || ''` pattern),
+    so the caller's fallback fires and the job skips cleanly.
+    """
+    outputs = load_workflow("_release-engine.yaml")["on"]["workflow_call"]["outputs"]
+    matrix_outputs = sorted(name for name in outputs if name.endswith("_matrix"))
+    assert matrix_outputs, "expected at least one `*_matrix` workflow_call output"
+    for name in matrix_outputs:
+        value = " ".join(outputs[name]["value"].split())
+        assert "|| ''" in value, (
+            f"_release-engine.yaml output `{name}` must degrade to an empty string "
+            "for a null source (the `<value> && toJSON(<value>) || ''` pattern), not "
+            'a bare `toJSON(...)` that yields the truthy string "null" and defeats a '
+            f"caller's matrix fallback. Got: {value}"
+        )

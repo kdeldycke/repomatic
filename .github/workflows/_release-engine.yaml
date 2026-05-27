@@ -10,8 +10,18 @@ name: 🚀 Build & release
         required: false
     outputs:
       nuitka_matrix:
-        description: Nuitka build matrix
-        value: ${{ toJSON(fromJSON(jobs.metadata.outputs.metadata).nuitka_matrix) }}
+        description: >
+          Nuitka build matrix. Emits an empty string (not "null") when there is
+          no matrix (binary builds disabled or skipped), so a caller guarding a
+          `strategy.matrix` with `|| '{"include":[]}'` reaches the fallback
+          instead of the truthy string `toJSON(null)` = "null". See the
+          `release_commits_matrix` output below for the full rationale.
+        value: >-
+          ${{
+            fromJSON(jobs.metadata.outputs.metadata).nuitka_matrix
+            && toJSON(fromJSON(jobs.metadata.outputs.metadata).nuitka_matrix)
+            || ''
+          }}
       release_commits_matrix:
         description: >
           Matrix of release commits (used by the downstream caller's
