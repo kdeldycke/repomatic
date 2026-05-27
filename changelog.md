@@ -7,6 +7,7 @@
 
 - Fix `release.yaml`'s `compile-binaries` and `test-binaries` jobs aborting every non-release run with `Unexpected value ''` on projects that disable binary builds (`nuitka.enabled = false`). Their `strategy.matrix` now falls back to an empty `{"include":[]}` matrix when `nuitka_matrix` is null, matching the `publish-pypi` fix from `6.22.0`: GitHub resolves `strategy.matrix` (and the matrix-derived `runs-on: ${{ matrix.os }}`) during job setup even when `if:` will skip the job, so a null matrix failed the whole run. Binary-disabled projects now skip these jobs cleanly.
 - `/repomatic-ship`'s reconciliation sweep now assigns docstring cross-reference correctness to the code pass, which owns Python files. The docs pass is scoped to prose and can surface a broken docstring cross-reference through the Sphinx build but cannot fix it, so a docstring left to that handoff slipped through.
+- Generate the downstream caller's `publish-pypi` job by reshaping the canonical `release.yaml` entry's own job (dropping the dogfooding checkout, pinning the local action ref to the release tag) instead of maintaining a separate bundled `release-publish-pypi-job.yaml` fragment. The generated job now runs on `ubuntu-slim` like the rest of repomatic's jobs, not `ubuntu-latest`. The fragment is removed; `release.yaml` is now bundled under `repomatic/data/` as the single source for the job, keeping any third-party action SHA pin in the job body Renovate-visible.
 
 ## [`6.22.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.21.0...v6.22.0)
 

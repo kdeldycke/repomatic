@@ -522,7 +522,6 @@ expected: dict[str, Any] = {
         "repomatic/data/codecov.yaml",
         "repomatic/data/labeller-content-based.yaml",
         "repomatic/data/labeller-file-based.yaml",
-        "repomatic/data/release-publish-pypi-job.yaml",
         "repomatic/data/yamllint.yaml",
         "repomatic/data/zizmor.yaml",
         "tests/cli-test-plan.yaml",

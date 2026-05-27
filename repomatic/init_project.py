@@ -91,15 +91,17 @@ if TYPE_CHECKING:
         from importlib.abc import Traversable
 
 
-RUNTIME_FRAGMENTS: tuple[str, ...] = ("release-publish-pypi-job.yaml",)
-"""Bundled YAML fragments loaded by `repomatic` at runtime.
+RUNTIME_FRAGMENTS: tuple[str, ...] = ("release.yaml",)
+"""Bundled YAML files loaded by `repomatic` at runtime, not deployed verbatim.
 
 These files live in `repomatic/data/` so they ship in the wheel and are
-discoverable via {func}`get_data_content`, but they are not deployed by
-`repomatic init`: they are templates the package uses to assemble outputs
-on the fly (like the caller-side `publish-pypi` job emitted into downstream
-thin callers). New entries must be added explicitly so the data-file
-registry tests stay authoritative.
+discoverable via {func}`get_data_content`, but `repomatic init` never copies
+them as-is: the package reads them to assemble outputs on the fly. The
+canonical `release.yaml` entry is the source its `publish-pypi` job is reshaped
+from for downstream thin callers (see
+`repomatic.github.workflow_sync._render_publish_pypi_job`); the deployed
+`release.yaml` is generated, not this bundled copy. New entries must be added
+explicitly so the data-file registry tests stay authoritative.
 """
 
 

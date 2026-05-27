@@ -146,26 +146,6 @@ class ReleasePrep:
         }
         return sorted(names)
 
-    @cached_property
-    def _data_yaml_files(self) -> list[Path]:
-        """Return non-symlink YAML files bundled under `repomatic/data/`.
-
-        These files ship inside the wheel and must participate in
-        freeze/unfreeze so published wheels carry pinned action refs and
-        versioned URLs. Symlinks to workflow files are excluded: those
-        targets are already covered by :attr:`workflow_dir` globs, and
-        rewriting through a symlink would either double-process or follow
-        back to the same file.
-
-        :return: Sorted list of non-symlink `*.yaml` paths in the data dir.
-        """
-        # Repo root is two levels up from .github/workflows/.
-        repo_root = self.workflow_dir.parent.parent
-        data_dir = repo_root / "repomatic" / "data"
-        if not data_dir.exists():
-            return []
-        return sorted(path for path in data_dir.glob("*.yaml") if not path.is_symlink())
-
     def freeze_workflow_urls(self) -> int:
         """Replace workflow URLs from default branch to versioned tag.
 
@@ -174,17 +154,9 @@ class ReleasePrep:
 
         Replaces ``/repomatic/{default_branch}/`` with ``/repomatic/v{version}/``
         and every ``/repomatic/.github/actions/{name}@{default_branch}`` with
-        ``/repomatic/.github/actions/{name}@v{version}`` across two sets of
-        YAML files:
-
-        - Every workflow file under :attr:`workflow_dir`.
-        - Every non-symlink YAML file under `repomatic/data/` (see
-          :attr:`_data_yaml_files`). These ship inside the wheel, so freezing
-          them at release time bakes the pinned refs into the published
-          package.
-
-        Composite action names are discovered from
-        :attr:`composite_action_names`.
+        ``/repomatic/.github/actions/{name}@v{version}`` across every workflow
+        file under :attr:`workflow_dir`. Composite action names are discovered
+        from :attr:`composite_action_names`.
 
         :return: Number of files modified.
         """
@@ -205,10 +177,7 @@ class ReleasePrep:
             for name in self.composite_action_names
         ]
 
-        for yaml_file in (
-            *self.workflow_dir.glob("*.yaml"),
-            *self._data_yaml_files,
-        ):
+        for yaml_file in self.workflow_dir.glob("*.yaml"):
             original = yaml_file.read_text(encoding="UTF-8")
             content = original.replace(url_search, url_replace)
             for action_search, action_replace in action_pairs:
@@ -444,11 +413,10 @@ class ReleasePrep:
 
         Replaces ``/repomatic/v{version}/`` with ``/repomatic/{default_branch}/``
         and every ``/repomatic/.github/actions/{name}@v{version}`` with
-        ``/repomatic/.github/actions/{name}@{default_branch}`` across the same
-        set of files as :meth:`freeze_workflow_urls`: workflow files under
-        :attr:`workflow_dir` and non-symlink YAML files under `repomatic/data/`.
-        Composite action names are discovered from
-        :attr:`composite_action_names`.
+        ``/repomatic/.github/actions/{name}@{default_branch}`` across every
+        workflow file under :attr:`workflow_dir` (the same set as
+        :meth:`freeze_workflow_urls`). Composite action names are discovered
+        from :attr:`composite_action_names`.
 
         :return: Number of files modified.
         """
@@ -469,10 +437,7 @@ class ReleasePrep:
             for name in self.composite_action_names
         ]
 
-        for yaml_file in (
-            *self.workflow_dir.glob("*.yaml"),
-            *self._data_yaml_files,
-        ):
+        for yaml_file in self.workflow_dir.glob("*.yaml"):
             original = yaml_file.read_text(encoding="UTF-8")
             content = original.replace(url_search, url_replace)
             for action_search, action_replace in action_pairs:

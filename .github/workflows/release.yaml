@@ -6,6 +6,10 @@
 # register with PyPI's Trusted Publisher. Keeping publish-pypi out of the engine
 # is what makes this work everywhere. See pypi/warehouse#11096 and
 # docs/workflows.md.
+#
+# The publish-pypi job below doubles as the codegen source for downstream callers: repomatic.github.workflow_sync
+# reshapes it (drops the checkout, pins the local action ref to a tag). Edit the job with that downstream
+# derivation in mind.
 name: 🚀 Build & release
 "on":
   workflow_dispatch:
@@ -26,11 +30,18 @@ jobs:
   publish-pypi:
     name: 🐍 Publish to PyPI (${{ matrix.short_sha }})
     needs: release
+    # Gate decoupled from the run's overall result: always() lets this job run even when an unrelated job (like binary
+    # tests) failed the run, and package_built confirms the wheel actually built, so a cleanly-built wheel still
+    # publishes. package_built comes from the release job (the engine call).
     if: >-
       always()
       && needs.release.outputs.package_built == 'true'
       && needs.release.outputs.release_commits_matrix
     strategy:
+      # GitHub evaluates `strategy.matrix` during job setup even when `if:` will skip the job. On a non-release push
+      # `release_commits_matrix` is the empty string, so a bare `fromJSON('')` aborts the whole run with
+      # "Unexpected value ''". Falling back to an empty `{"include":[]}` matrix expands the job to zero runs,
+      # so it skips cleanly instead of failing the workflow.
       matrix: ${{ fromJSON(needs.release.outputs.release_commits_matrix || '{"include":[]}') }}
     runs-on: ubuntu-slim
     permissions:
@@ -46,8 +57,9 @@ jobs:
       - uses: ./.github/actions/publish-pypi
         with:
           artifact-name: ${{ github.event.repository.name }}-${{ matrix.short_sha }}
-      # Backfill the "available on PyPI" admonition onto the release notes after
-      # a successful OIDC upload, matching the downstream caller fragment.
+      # Backfill the "available on PyPI" admonition onto the release notes after a successful OIDC upload. The engine
+      # publishes the GitHub release without it (it cannot yet know the PyPI outcome). continue-on-error keeps a
+      # notes-edit hiccup from failing an upload that already succeeded.
       - name: Add PyPI admonition to release notes
         continue-on-error: true
         env:

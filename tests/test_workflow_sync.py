@@ -27,7 +27,6 @@ import yaml
 from repomatic.config import Config, WorkflowConfig
 from repomatic.github.actions import AnnotationLevel
 from repomatic.github.workflow_sync import (
-    _PUBLISH_PYPI_DEFAULT_ACTION_REF,
     LintResult,
     PathsSpec,
     WorkflowFormat,
@@ -341,94 +340,103 @@ def test_release_thin_caller_publish_pypi_omits_checkout() -> None:
     assert "actions/checkout" not in content
 
 
-def test_release_thin_caller_loads_fragment_from_data() -> None:
-    """The publish-pypi job body must be sourced from a bundled YAML file.
+def test_release_thin_caller_publish_pypi_sourced_from_release_yaml() -> None:
+    """The publish-pypi job body must be sourced from the bundled release.yaml.
 
-    Locking in the file-backed template means any future SHA pins inside
-    the job body live in a `.yaml` file Renovate can scan, not in Python
-    string literals. The fragment carries a real working default action ref
-    that the generator rewrites at render time (same convention as
-    `release_prep.freeze_workflow_urls`): no bespoke templating syntax.
-
-    The ref carried in the fragment must match
-    :data:`_PUBLISH_PYPI_DEFAULT_ACTION_REF`: that constant captures the
-    in-tree state expected at import time, and
-    :mod:`repomatic.release_prep` rewrites both sides in lockstep at freeze
-    time (default branch during development, tag in wheels built from a
-    freeze commit).
+    Deriving it from a `.yaml` file (rather than building it in Python) keeps
+    any future third-party SHA pin in the job body Renovate-visible. The
+    canonical entry carries the job with a local `./` action ref that the
+    generator reshapes for downstream callers.
     """
-    fragment = get_data_content("release-publish-pypi-job.yaml")
-    parsed = yaml.safe_load(fragment)
-    assert "publish-pypi" in parsed
-    job = parsed["publish-pypi"]
+    release_yaml = get_data_content("release.yaml")
+    parsed = yaml.safe_load(release_yaml)
+    job = parsed["jobs"]["publish-pypi"]
     assert job["permissions"]["id-token"] == "write"
-    assert _PUBLISH_PYPI_DEFAULT_ACTION_REF in fragment
+    # The bundled source dogfoods the local action ref; the swap to the pinned
+    # cross-repo form happens at render time, not in the source.
+    assert "./.github/actions/publish-pypi" in release_yaml
 
 
-def _patch_publish_pypi_fragment(monkeypatch, fragment_body: str) -> None:
-    """Override only the publish-pypi fragment, delegating other names to disk.
+def test_release_thin_caller_publish_pypi_keeps_canonical_runner() -> None:
+    """The generated downstream job inherits the canonical runner verbatim.
 
-    `get_data_content` is also called to fetch `release.yaml` itself for
-    trigger extraction; a blanket override would feed the test fragment to
-    that call and break `extract_trigger_info`.
+    The body is carried through from release.yaml unchanged except for the
+    checkout drop and the action-ref pin, so downstream callers run on the same
+    `ubuntu-slim` repomatic uses. A downstream repo that needs a fuller image
+    surfaces that as a failure to revisit then.
+    """
+    content = generate_thin_caller("release.yaml", version="v9.9.9")
+    assert "runs-on: ubuntu-slim" in content
+    assert "ubuntu-latest" not in content
+
+
+def _patch_release_yaml(monkeypatch, body: str) -> None:
+    """Override only the bundled release.yaml, delegating other names to disk.
+
+    `get_data_content` also fetches `_release-engine.yaml` for trigger
+    extraction; a blanket override would feed the test body to that call and
+    break `extract_trigger_info`.
     """
     from repomatic.github import workflow_sync as ws
 
     real_get = ws.get_data_content
 
     def fake_get(name: str) -> str:
-        if name == "release-publish-pypi-job.yaml":
-            return fragment_body
+        if name == "release.yaml":
+            return body
         return real_get(name)
 
     monkeypatch.setattr(ws, "get_data_content", fake_get)
 
 
-def test_release_thin_caller_rewrites_drifted_fragment_ref(monkeypatch) -> None:
-    """Render still rewrites the action ref when the fragment carries a stale value.
+def test_release_thin_caller_rewrites_local_action_ref(monkeypatch) -> None:
+    """Render rewrites the canonical local action ref and drops the checkout.
 
-    The bundled fragment normally tracks :data:`DEFAULT_VERSION` (``@main``
-    during development, ``@vX.Y.Z`` in release wheels). The renderer must
-    rewrite *whatever* ref the fragment happens to carry, not only the
-    in-sync default: a stale leftover from a freeze (or any drift between
-    `__version__` and the fragment content) should still produce the
-    requested target ref, not silently emit the stale value.
+    The bundled release.yaml dogfoods the in-tree action via a local `./` ref
+    (checking itself out first); the downstream caller must instead pin the
+    cross-repo composite action (so its OIDC `job_workflow_ref` resolves to its
+    own release.yaml) and needs no checkout.
     """
-    _patch_publish_pypi_fragment(
+    _patch_release_yaml(
         monkeypatch,
         "---\n"
-        "publish-pypi:\n"
-        "  permissions:\n"
-        "    id-token: write\n"
-        "  steps:\n"
-        f"    - uses: {DEFAULT_REPO}/.github/actions/publish-pypi@v6.18.4\n"
-        "      with:\n"
-        "        artifact-name: x\n",
+        "jobs:\n"
+        "  publish-pypi:\n"
+        "    permissions:\n"
+        "      id-token: write\n"
+        "    runs-on: ubuntu-slim\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@abc123\n"
+        "      - uses: ./.github/actions/publish-pypi\n"
+        "        with:\n"
+        "          artifact-name: x\n",
     )
 
     content = generate_thin_caller("release.yaml", version="v9.9.9")
     assert f"{DEFAULT_REPO}/.github/actions/publish-pypi@v9.9.9" in content
-    assert "@v6.18.4" not in content
+    assert "./.github/actions/publish-pypi" not in content
+    assert "actions/checkout" not in content
 
 
-def test_release_thin_caller_unrecognized_fragment_raises(monkeypatch) -> None:
-    """Render fails loudly when the fragment carries no recognizable action ref.
+def test_release_thin_caller_unrecognized_job_raises(monkeypatch) -> None:
+    """Render fails loudly when release.yaml's publish-pypi job lacks the action.
 
-    A fragment whose structure has changed in a way the renderer was not
-    updated to handle must surface as an error, not as a silent no-op that
-    emits a malformed workflow.
+    A canonical entry reshaped in a way the renderer was not updated to handle
+    (no local action ref in the job) must surface as an error, not a silent
+    no-op that emits a malformed workflow.
     """
-    _patch_publish_pypi_fragment(
+    _patch_release_yaml(
         monkeypatch,
         "---\n"
-        "publish-pypi:\n"
-        "  permissions:\n"
-        "    id-token: write\n"
-        "  steps:\n"
-        "    - run: echo no-action-ref-here\n",
+        "jobs:\n"
+        "  publish-pypi:\n"
+        "    permissions:\n"
+        "      id-token: write\n"
+        "    steps:\n"
+        "      - run: echo no-action-ref-here\n",
     )
 
-    with pytest.raises(RuntimeError, match="release-publish-pypi-job.yaml"):
+    with pytest.raises(RuntimeError, match="publish-pypi"):
         generate_thin_caller("release.yaml", version="v9.9.9")
 
 

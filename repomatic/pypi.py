@@ -59,8 +59,9 @@ PYPI_TRUSTED_PUBLISHER_WORKFLOW = "release.yaml"
 """Workflow filename each downstream registers as the Trusted Publisher.
 
 The caller-side ``publish-pypi`` job is appended to ``release.yaml`` in every
-downstream repo (see ``repomatic/data/release-publish-pypi-job.yaml``), and the
-composite action it invokes inherits the calling job's OIDC context. The OIDC
+downstream repo (reshaped from the canonical entry by
+``repomatic.github.workflow_sync._render_publish_pypi_job``), and the composite
+action it invokes inherits the calling job's OIDC context. The OIDC
 ``job_workflow_ref`` claim therefore names this file: that is what the PyPI
 Trusted Publisher entry must match.
 """

@@ -613,40 +613,55 @@ def generate_thin_caller(
     return "\n".join(lines)
 
 
-_PUBLISH_PYPI_FRAGMENT_FILE = "release-publish-pypi-job.yaml"
-"""Bundled YAML fragment containing the caller-side `publish-pypi` job.
+def _extract_raw_job(content: str, job_name: str) -> str | None:
+    """Extract a single job mapping from a workflow as raw text.
 
-Registered in :data:`repomatic.init_project.RUNTIME_FRAGMENTS` so that the
-data-file registry recognizes it as bundled-but-not-deployed (the same
-treatment as tool-runner default configs).
-"""
+    Finds the ``  {job_name}:`` line at the two-space job indent and returns it
+    with all of the job's indented body, stopping at the next sibling job key
+    (or end of file). Preserves comments and formatting, consistent with the
+    rest of this module.
 
-_PUBLISH_PYPI_DEFAULT_ACTION_REF: Final[str] = (
-    f"{DEFAULT_REPO}/.github/actions/publish-pypi@{DEFAULT_VERSION}"
-)
-"""Default action ref the bundled fragment is expected to carry.
+    :param content: Full workflow file content.
+    :param job_name: Job key to extract (e.g., ``"publish-pypi"``).
+    :return: Raw text of the job, or ``None`` if the job is absent.
+    """
+    key = f"  {job_name}:"
+    lines = content.split("\n")
+    start = next(
+        (i for i, ln in enumerate(lines) if ln == key or ln.startswith(key + " ")),
+        None,
+    )
+    if start is None:
+        return None
 
-Tied to :data:`DEFAULT_VERSION` so it tracks the in-tree state expected at
-import time: ``@main`` during development, ``@vX.Y.Z`` in wheels built from
-a freeze commit. Used by the static
-:func:`test_release_thin_caller_loads_fragment_from_data` conformance check.
+    result = [lines[start]]
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        # A sibling job key sits at exactly the two-space job indent; anything
+        # more indented is this job's body. A dedent to column 0 (the next
+        # top-level key) also ends the jobs block.
+        sibling = (
+            line.startswith("  ")
+            and not line.startswith("   ")
+            and bool(stripped)
+            and not stripped.startswith("#")
+        )
+        if sibling or (line and not line[0].isspace()):
+            break
+        result.append(line)
 
-The generator below does not use this constant for substitution: it matches
-any ref attached to the canonical action path via regex, so a fragment that
-has drifted from this expected default (e.g., a stale-but-syntactically-valid
-copy left over by a previous freeze) is still rewritten correctly instead
-of silently emitting the wrong ref.
-"""
+    while result and not result[-1].strip():
+        result.pop()
+    return "\n".join(result)
 
-_PUBLISH_PYPI_ACTION_REF_PATTERN: Final[re.Pattern[str]] = re.compile(
-    rf"{re.escape(DEFAULT_REPO)}/\.github/actions/publish-pypi@\S+"
-)
-"""Regex matching the canonical `publish-pypi` action ref in the fragment.
 
-Matches the literal `kdeldycke/repomatic/.github/actions/publish-pypi@`
-followed by any non-whitespace ref token (branch, tag, or SHA). The
-substitution rewrites this token, regardless of which version (or branch,
-or SHA) the fragment happens to carry.
+_LOCAL_PUBLISH_PYPI_ACTION: Final[str] = "./.github/actions/publish-pypi"
+"""Relative composite-action ref the canonical `release.yaml` dogfoods.
+
+The canonical entry runs the in-tree action via this local ref (checking
+itself out first). :func:`_render_publish_pypi_job` rewrites it to the pinned
+cross-repo form (`{repo}/.github/actions/publish-pypi@{ref}`) for downstream
+callers, whose OIDC `job_workflow_ref` must resolve to their own release.yaml.
 """
 
 
@@ -657,30 +672,35 @@ def _render_publish_pypi_job(
 ) -> list[str]:
     """Render the caller-side `publish-pypi` job for downstream `release.yaml`.
 
-    The job runs when the push carries a release commit (non-empty
-    `release_commits_matrix`) and the package built (`package_built` is
-    `"true"`). It is guarded by `always()`, so a healthy wheel still
-    publishes even when an unrelated upstream job (like binary tests) fails
-    the overall run. The composite action it invokes inherits the calling
-    job's OIDC context, so PyPI's Trusted Publisher matches the downstream's
-    own workflow file path.
+    The job body is sourced from the canonical `release.yaml` entry (bundled
+    under `repomatic/data/`), then reshaped for downstream use:
 
-    The job body lives in the bundled file
-    `repomatic/data/release-publish-pypi-job.yaml` and ships with the upstream
-    `@main` ref baked in. This function rewrites that ref into the
-    {repo, version, sha} the caller requests by regex-matching the canonical
-    action path: a fragment whose baked-in ref has drifted from the expected
-    default (e.g., a stale freeze leftover) is still rewritten correctly
-    rather than silently emitting the wrong ref.
+    - **Drop the leading `actions/checkout` step.** The canonical entry checks
+      itself out to run the action from a local `./` ref (dogfooding); a
+      downstream caller fetches the cross-repo composite action automatically
+      and needs no checkout. Dropping it also keeps the generated workflow free
+      of third-party action SHA pins, which would be invisible to Renovate
+      (whose scan sees `.yaml`, not this `.py`).
+    - **Rewrite the local action ref** :data:`_LOCAL_PUBLISH_PYPI_ACTION` to the
+      pinned cross-repo form so the caller's OIDC `job_workflow_ref` resolves to
+      its own `release.yaml` (see pypi/warehouse#11096).
+
+    The runner is carried through unchanged: downstream callers run on the same
+    `ubuntu-slim` repomatic uses. If a downstream repo turns out to need a
+    fuller image, that surfaces as a failure to revisit then.
+
+    Sourcing the body from a `.yaml` file (rather than building it in Python)
+    keeps any future third-party SHA pin in the job Renovate-visible.
 
     :param repo: Upstream repository owning the composite action.
     :param version: Version reference for the action ref.
     :param commit_sha: Optional 40-character SHA for pin-style refs (renders
         as `@sha # version` like Renovate).
     :return: YAML lines (without trailing blank).
-    :raises RuntimeError: If the bundled fragment does not contain a
-        recognizable `publish-pypi` action ref, meaning the file shape has
-        changed in a way the renderer was not updated to handle.
+    :raises RuntimeError: If the canonical `release.yaml` no longer exposes a
+        `publish-pypi` job shaped the way this renderer expects (missing job,
+        `steps:` key, or the local action ref), meaning the entry changed in a
+        way the renderer was not updated to handle.
     """
     if commit_sha:
         action_ref = f"{commit_sha} # {version}"
@@ -688,36 +708,36 @@ def _render_publish_pypi_job(
         action_ref = version
     target_ref = f"{repo}/.github/actions/publish-pypi@{action_ref}"
 
-    fragment = get_data_content(_PUBLISH_PYPI_FRAGMENT_FILE)
-    # Drop the document marker, the file's leading comment block, and any
-    # trailing blank lines: only the `publish-pypi:` job mapping is appended
-    # under the workflow's `jobs:` key.
-    body_lines: list[str] = []
-    seen_job_key = False
-    for line in fragment.splitlines():
-        if not seen_job_key:
-            if line.startswith("publish-pypi:"):
-                seen_job_key = True
-            else:
-                continue
-        body_lines.append(line)
-    while body_lines and body_lines[-1] == "":
-        body_lines.pop()
-
-    indented = ["  " + line if line else "" for line in body_lines]
-    rendered = "\n".join(indented)
-    rendered, substitutions = _PUBLISH_PYPI_ACTION_REF_PATTERN.subn(
-        target_ref, rendered
-    )
-    if substitutions == 0:
+    job = _extract_raw_job(get_data_content("release.yaml"), "publish-pypi")
+    if job is None:
         msg = (
-            f"Bundled fragment {_PUBLISH_PYPI_FRAGMENT_FILE!r} does not"
-            f" contain a {DEFAULT_REPO}/.github/actions/publish-pypi@<ref>"
-            f" entry. The file shape has changed in a way the renderer was"
-            f" not updated to handle."
+            "Canonical release.yaml exposes no 'publish-pypi' job; the entry"
+            " changed in a way _render_publish_pypi_job was not updated to handle."
         )
         raise RuntimeError(msg)
-    return ["", *rendered.split("\n")]
+
+    lines = job.split("\n")
+    steps_idx = next(
+        (i for i, line in enumerate(lines) if line.strip() == "steps:"), None
+    )
+    anchor_idx = next(
+        (i for i, line in enumerate(lines) if _LOCAL_PUBLISH_PYPI_ACTION in line),
+        None,
+    )
+    if steps_idx is None or anchor_idx is None or anchor_idx <= steps_idx:
+        msg = (
+            "Canonical release.yaml 'publish-pypi' job lacks a 'steps:' key or"
+            f" the {_LOCAL_PUBLISH_PYPI_ACTION!r} step; the entry changed in a"
+            " way _render_publish_pypi_job was not updated to handle."
+        )
+        raise RuntimeError(msg)
+
+    # Keep the job header through `steps:`, drop the checkout step(s) preceding
+    # the action, then keep the action step onward, rewriting the local ref to
+    # the pinned cross-repo form. The runner is carried through unchanged.
+    rebuilt = "\n".join(lines[: steps_idx + 1] + lines[anchor_idx:])
+    rebuilt = rebuilt.replace(_LOCAL_PUBLISH_PYPI_ACTION, target_ref)
+    return ["", *rebuilt.split("\n")]
 
 
 def identify_canonical_workflow(
