@@ -60,7 +60,7 @@ invoke(repomatic, args=['run', '--list'])
 | [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.16.2` | PyPI        | `[tool.pyproject-fmt]` in `pyproject.toml`                   |
 | [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.5` | PyPI        | `ruff.toml`, `.ruff.toml`, `[tool.ruff]` in `pyproject.toml` |
 | [shfmt](https://github.com/mvdan/sh)                                  | `3.13.1` | Binary      | `.editorconfig`                                              |
-| [typos](https://github.com/crate-ci/typos)                            | `1.46.1` | Binary      | `[tool.typos]` in `pyproject.toml`                           |
+| [typos](https://github.com/crate-ci/typos)                            | `1.46.2` | Binary      | `[tool.typos]` in `pyproject.toml`                           |
 | [yamllint](https://github.com/adrienverge/yamllint)                   | `1.38.0` | PyPI        | `.yamllint.yaml`, `.yamllint.yml`, `.yamllint`               |
 | [zizmor](https://github.com/zizmorcore/zizmor)                        | `1.23.0` | PyPI        | `zizmor.yaml`                                                |
 
@@ -658,7 +658,7 @@ shfmt formats shell scripts in place. It has no `[tool.shfmt]` section: indentat
 
 ### [typos](https://github.com/crate-ci/typos)
 
-**Installed version:** `1.46.1`
+**Installed version:** `1.46.2`
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
