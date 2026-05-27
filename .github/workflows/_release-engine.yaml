@@ -188,7 +188,7 @@ jobs:
         env:
           COMMIT: ${{ matrix.commit }}
         run: >
-          uvx --no-progress 'click-extra==7.15.0'
+          uvx --no-progress 'click-extra==7.16.1'
           prebake field git_tag_sha "${COMMIT}"
       - name: Build package
         run: uv --no-progress build
@@ -241,7 +241,7 @@ jobs:
         run: uv --no-progress venv --python 3.14
       - name: Pre-bake build metadata
         if: contains(matrix.current_version, '.dev')
-        run: uvx --no-progress 'click-extra==7.15.0' prebake all
+        run: uvx --no-progress 'click-extra==7.16.1' prebake all
       - name: Build binary
         id: build-binary
         continue-on-error: true
