@@ -883,10 +883,11 @@ Recognized values:
   repository's Dependabot alerts (CI-only, requires a token with
   `Dependabot alerts: Read-only`).
 
-Sources are unioned and deduplicated per package by advisory identity:
-entries sharing an `advisory_id` or a cross-referenced CVE/GHSA/PYSEC
-alias are merged. Repositories that distrust GHSA — or have no
-Dependabot alerts enabled — can opt out with `sources = ["uv-audit"]`.
+Sources are unioned and deduplicated per package by advisory
+identity: entries sharing an `advisory_id` or a cross-referenced
+CVE/GHSA/PYSEC alias are merged. Repositories that distrust GHSA —
+or have no Dependabot alerts enabled — can opt out with
+`sources = ["uv-audit"]`.
 
 **Example:**
 
