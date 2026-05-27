@@ -975,7 +975,11 @@ def check_triggers_match(
     expected = set(info.non_call_triggers.keys())
 
     missing = expected - caller_triggers
-    extra = caller_triggers - expected - {"workflow_call"}
+    # When the canonical defines no non-call triggers, the caller must define
+    # its own (e.g. release.yaml callers synthesize push + workflow_dispatch
+    # because _release-engine.yaml is call-only in the canonical repo).
+    # Only check for extras when the canonical actually declares triggers.
+    extra = (caller_triggers - expected - {"workflow_call"}) if expected else set()
     problems: list[str] = []
     if missing:
         problems.append(f"missing: {', '.join(sorted(missing))}")

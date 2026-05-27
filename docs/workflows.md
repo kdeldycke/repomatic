@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v6.9.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v6.22.0
 ```
 
 > [!IMPORTANT]
@@ -32,7 +32,7 @@ GitHub Actions has several design limitations that the workflows work around:
 | [Workflow inputs only accept strings](https://github.com/actions/runner/issues/1483)                                                                                             | ✅ Addressed       | String parsing in [`repomatic`](cli.md)                                                                                                                                                                                                 |
 | [Matrix outputs not cumulative](https://github.com/actions/runner/issues/1835)                                                                                                   | ✅ Addressed       | [`metadata`](#what-is-this-metadata-job) pre-computes matrices                                                                                                                                                                          |
 | [Static matrix can't express conditional dimensions](https://github.com/orgs/community/discussions/9044) or [array excludes](https://github.com/orgs/community/discussions/7835) | ✅ Addressed       | [Dynamic test matrices](#dynamic-test-matrices) via [`[tool.repomatic.test-matrix]`](configuration.md)                                                                                                                                  |
-| [`cancel-in-progress` evaluated on new run, not old](https://github.com/orgs/community/discussions/69704)                                                                        | ✅ Addressed       | [SHA-based concurrency groups](security.md#concurrency-and-cancellation) in [`release.yaml`](#github-workflows-release-yaml-jobs)                                                                                                       |
+| [`cancel-in-progress` evaluated on new run, not old](https://github.com/orgs/community/discussions/69704)                                                                        | ✅ Addressed       | [SHA-based concurrency groups](security.md#concurrency-and-cancellation) in [`_release-engine.yaml`](#github-workflows-release-engine-yaml-jobs)                                                                                        |
 | [Cross-event concurrency cancellation](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs)      | ✅ Addressed       | [`event_name` in `changelog.yaml` concurrency group](security.md#concurrency-and-cancellation)                                                                                                                                          |
 | [PR close doesn't cancel runs](https://github.com/orgs/community/discussions/25432)                                                                                              | ✅ Addressed       | [`cancel-runs.yaml`](#github-workflows-cancel-runs-yaml-jobs)                                                                                                                                                                           |
 | [`pull_request.branches-ignore` filters base branch, not head](https://github.com/actions/runner/issues/1591)                                                                    | ✅ Addressed       | `github.head_ref` check in `metadata` job's `if:`, propagated via `needs:`. See [`tests.yaml`](#github-workflows-tests-yaml-jobs), [`lint.yaml`](#github-workflows-lint-yaml-jobs), [`labels.yaml`](#github-workflows-labels-yaml-jobs) |
@@ -406,6 +406,27 @@ docs = [
 
 (github-workflows-release-yaml-jobs)=
 
+### 🚀 [`.github/workflows/release.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/release.yaml)
+
+This is the **entry** workflow: it owns the `push` and `workflow_dispatch` triggers, calls the reusable `_release-engine.yaml` engine, and runs the `publish-pypi` job after the engine completes. Every downstream repo (repomatic included) has its own `release.yaml` that follows this same shape.
+
+The `publish-pypi` job lives here rather than inside the engine so each repo's OIDC `job_workflow_ref` claim resolves to its own `release.yaml` — the exact filename each repo registers with PyPI as a Trusted Publisher. A job inside `_release-engine.yaml` would mint a token pointing at the upstream path, breaking the publisher match on every downstream. See [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096).
+
+#### 🐍 Publish to PyPI (`publish-pypi`)
+
+- Uploads packages to PyPI with attestations using [`uv publish --trusted-publishing automatic`](https://github.com/astral-sh/uv) over OIDC: no long-lived API token is required.
+- The job lives in each repo's own `release.yaml` entry, never in the `_release-engine.yaml` reusable: repomatic and downstreams alike publish from a `release.yaml` (the same filename everywhere). It invokes the [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action. Composite actions inherit the calling job's OIDC context, so the token's `job_workflow_ref` claim resolves to that `release.yaml`: the path each repo registers with PyPI as a Trusted Publisher. This works around [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096), where a job inside the reusable engine would claim the upstream path and fail the publisher match.
+- **Requires**:
+  - A one-time PyPI Trusted Publisher registration for the repo's `release.yaml` entry, the same filename in every repo (repomatic included), so no per-repo workflow-name divergence (see [PyPI Trusted Publishers docs](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)).
+  - `id-token: write` permission on the caller-side job (auto-emitted by `repomatic init workflows`).
+  - The `release_commits_matrix` output from the upstream `release.yaml` (drives the matrix and gates the job to release commits).
+  - The `package_built` output from the upstream `release.yaml`, reflecting whether the `build-package` job succeeded.
+- The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
+- After a successful upload, the job adds the PyPI availability admonition to the GitHub release notes (via the engine's `release_notes_with_admonition` output). The engine's `publish-release` job no longer does this, since it completes before the entry's `publish-pypi` runs and cannot yet know the upload outcome.
+- Runs on `ubuntu-slim`.
+
+(github-workflows-release-engine-yaml-jobs)=
+
 ### 🚀 [`.github/workflows/_release-engine.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-engine.yaml)
 
 [Release Engineering is a full-time job, and full of edge-cases](https://web.archive.org/web/20250126113318/https://blog.axo.dev/2023/02/cargo-dist) that nobody wants to deal with. This workflow automates most of it for Python projects.
@@ -432,8 +453,6 @@ flowchart TD
     build -. assets .-> dev
     nuitka -. assets .-> dev
 ```
-
-PyPI publishing is not an engine job. It runs from the `publish-pypi` job in each repo's own `release.yaml` entry (repomatic included), which calls this engine and then publishes after it completes: see the Publish to PyPI section below.
 
 #### 🧯 Detect squash merge (`detect-squash-merge`)
 
@@ -479,18 +498,6 @@ PyPI publishing is not an engine job. It runs from the `publish-pypi` job in eac
 - **Requires**:
   - Push to `main` branch
   - Release commits matrix from [`repomatic metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata.py)
-
-#### 🐍 Publish to PyPI (`publish-pypi`)
-
-- Uploads packages to PyPI with attestations using [`uv publish --trusted-publishing automatic`](https://github.com/astral-sh/uv) over OIDC: no long-lived API token is required.
-- The job lives in each repo's own `release.yaml` entry, never in the `_release-engine.yaml` reusable: repomatic and downstreams alike publish from a `release.yaml` (the same filename everywhere). It invokes the [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action. Composite actions inherit the calling job's OIDC context, so the token's `job_workflow_ref` claim resolves to that `release.yaml`: the path each repo registers with PyPI as a Trusted Publisher. This works around [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096), where a job inside the reusable engine would claim the upstream path and fail the publisher match.
-- **Requires**:
-  - A one-time PyPI Trusted Publisher registration for the repo's `release.yaml` entry, the same filename in every repo (repomatic included), so no per-repo workflow-name divergence (see [PyPI Trusted Publishers docs](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)).
-  - `id-token: write` permission on the caller-side job (auto-emitted by `repomatic init workflows`).
-  - The `release_commits_matrix` output from the upstream `release.yaml` (drives the matrix and gates the job to release commits).
-  - The `package_built` output from the upstream `release.yaml`, reflecting whether the `build-package` job succeeded.
-- The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
-- After a successful upload, the job adds the PyPI availability admonition to the GitHub release notes (via the engine's `release_notes_with_admonition` output). The engine's `publish-release` job no longer does this, since it completes before the entry's `publish-pypi` runs and cannot yet know the upload outcome.
 
 #### 🐙 Create release draft (`create-release`)
 
@@ -784,7 +791,7 @@ stateDiagram-v2
 
 #### Squash merge safeguard
 
-The [`detect-squash-merge`](#github-workflows-release-yaml-jobs) job catches squash-merged release PRs by checking if the head commit message starts with `` Release `v `` (the PR title pattern) rather than `[changelog] Release v` (the canonical freeze commit pattern). When detected, it opens a GitHub issue assigned to the person who merged, then fails the workflow. Existing safeguards in `create-tag` prevent tagging, publishing, and releasing from a squashed commit.
+The [`detect-squash-merge`](#github-workflows-release-engine-yaml-jobs) job catches squash-merged release PRs by checking if the head commit message starts with `` Release `v `` (the PR title pattern) rather than `[changelog] Release v` (the canonical freeze commit pattern). When detected, it opens a GitHub issue assigned to the person who merged, then fails the workflow. Existing safeguards in `create-tag` prevent tagging, publishing, and releasing from a squashed commit.
 
 The net effect of squashing freeze + unfreeze leaves `main` in a valid state for the next development cycle: the maintainer releases the next version when ready.
 
@@ -800,12 +807,12 @@ The release workflow creates a draft, uploads all assets, then publishes. Once p
 
 Immutability only blocks **asset uploads and modifications** on published releases (`HTTP 422: Cannot upload assets to an immutable release`). Published releases can still be **deleted** (along with their tags via `--cleanup-tag`).
 
-**Dev releases use drafts.** The [`sync-dev-release`](#github-workflows-release-yaml-jobs) job creates dev pre-releases as drafts (`--draft --prerelease`) rather than published pre-releases. Drafts allow the workflow to upload binaries and packages after creation. The release stays as a draft permanently: it is never published. On the next push, `cleanup_dev_releases()` deletes all existing `.dev0` releases (drafts are always deletable) before creating a fresh one. See `repomatic/github/dev_release.py` for implementation.
+**Dev releases use drafts.** The [`sync-dev-release`](#github-workflows-release-engine-yaml-jobs) job creates dev pre-releases as drafts (`--draft --prerelease`) rather than published pre-releases. Drafts allow the workflow to upload binaries and packages after creation. The release stays as a draft permanently: it is never published. On the next push, `cleanup_dev_releases()` deletes all existing `.dev0` releases (drafts are always deletable) before creating a fresh one. See `repomatic/github/dev_release.py` for implementation.
 
 #### Concurrency strategies
 
 Workflows use two concurrency strategies depending on whether they perform critical release operations. Read the `concurrency:` block in each workflow file for the exact YAML.
 
-**`release.yaml`: SHA-based unique groups.** Tagging, PyPI publishing, and GitHub release creation must run to completion. Using conditional `cancel-in-progress: false` doesn't work: it's evaluated on the *new* workflow, not the old one. If a regular commit is pushed while a release workflow is running, the new workflow would cancel the release because they share the same concurrency group. The solution: give each release run its own unique group using the commit SHA. Both `[changelog] Release` and `[changelog] Post-release` patterns must be matched because when a release is pushed, the event contains **two commits bundled together** and `github.event.head_commit` refers to the most recent one (the post-release bump).
+**`_release-engine.yaml`: SHA-based unique groups.** Tagging, PyPI publishing, and GitHub release creation must run to completion. Using conditional `cancel-in-progress: false` doesn't work: it's evaluated on the *new* workflow, not the old one. If a regular commit is pushed while a release workflow is running, the new workflow would cancel the release because they share the same concurrency group. The solution: give each release run its own unique group using the commit SHA. Both `[changelog] Release` and `[changelog] Post-release` patterns must be matched because when a release is pushed, the event contains **two commits bundled together** and `github.event.head_commit` refers to the most recent one (the post-release bump).
 
 **`changelog.yaml`: event-scoped groups.** `changelog.yaml` includes `github.event_name` in its concurrency group to prevent cross-event cancellation. Without `event_name`, the `workflow_run` event (which fires when "Build & release" completes) would cancel the `push` event's `prepare-release` job, then skip `prepare-release` itself (due to `if: github.event_name != 'workflow_run'`), so `prepare-release` would never run.

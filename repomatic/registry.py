@@ -1011,7 +1011,8 @@ WORKFLOW_SOURCES: dict[str, str] = {
 
 For most workflows source == file_id. The release entry is the exception: its
 downstream artifact is `release.yaml`, generated from and pointing its `uses:`
-at the `_release-engine.yaml` reusable engine."""
+at the `_release-engine.yaml` reusable engine.
+"""
 
 SKILL_PHASES: dict[str, str] = {
     f.file_id: f.phase for f in _BY_NAME["skills"].files if f.phase

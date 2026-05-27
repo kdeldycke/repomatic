@@ -794,6 +794,24 @@ def test_extra_trigger(tmp_path: Path) -> None:
     assert "extra: workflow_dispatch" in result.message
 
 
+def test_caller_with_synthetic_triggers_for_call_only_canonical(
+    tmp_path: Path,
+) -> None:
+    """Caller with synthesized triggers is clean when canonical has no non-call triggers.
+
+    The downstream release.yaml synthesizes push + workflow_dispatch because
+    _release-engine.yaml is call-only. check_triggers_match must not flag
+    those synthesized triggers as "extra" when the canonical defines none.
+    """
+    content = generate_thin_caller("release.yaml", version="v9.9.9")
+    wf = tmp_path / "release.yaml"
+    wf.write_text(content, encoding="UTF-8")
+    canonical = identify_canonical_workflow(wf)
+    assert canonical == "_release-engine.yaml"
+    result = check_triggers_match(wf, canonical)
+    assert result.is_issue is False
+
+
 def test_explicit_secrets_passed(tmp_path: Path) -> None:
     """Pass when all required secrets are passed explicitly."""
     wf = tmp_path / "release.yaml"
@@ -914,6 +932,19 @@ def test_thin_caller_exempt_from_workflow_dispatch_check(tmp_path: Path) -> None
     """
     content = generate_thin_caller("cancel-runs.yaml", version="v5.8.0")
     (tmp_path / "cancel-runs.yaml").write_text(content, encoding="UTF-8")
+    exit_code = run_workflow_lint(tmp_path, fatal=True)
+    assert exit_code == 0
+
+
+def test_release_thin_caller_lints_clean(tmp_path: Path) -> None:
+    """The generated downstream release.yaml lints clean end-to-end.
+
+    Regression test: the synthesized push + workflow_dispatch triggers must not
+    be flagged as "extra" by check_triggers_match when the canonical
+    _release-engine.yaml defines no non-call triggers.
+    """
+    content = generate_thin_caller("release.yaml", version="v5.8.0")
+    (tmp_path / "release.yaml").write_text(content, encoding="UTF-8")
     exit_code = run_workflow_lint(tmp_path, fatal=True)
     assert exit_code == 0
 
