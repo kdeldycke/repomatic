@@ -16,7 +16,17 @@ name: 🚀 Build & release
         description: >
           Matrix of release commits (used by the downstream caller's
           publish-pypi job to drive its own matrix and gate execution).
-        value: ${{ toJSON(fromJSON(jobs.metadata.outputs.metadata).release_commits_matrix) }}
+          Emits an empty string (not "null") when there are no release commits,
+          so the caller's `|| '{"include":[]}'` fallback triggers correctly.
+          `toJSON(null)` would produce the string "null" which is truthy in GHA
+          expressions, defeating the `||` guard and causing `fromJSON("null")`
+          to fail the strategy evaluation with "Unexpected value ''".
+        value: >-
+          ${{
+            fromJSON(jobs.metadata.outputs.metadata).release_commits_matrix
+            && toJSON(fromJSON(jobs.metadata.outputs.metadata).release_commits_matrix)
+            || ''
+          }}
       package_built:
         description: >
           Whether the build-package job fully succeeded ("true"/"false").
