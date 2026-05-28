@@ -39,7 +39,7 @@ jobs:
         id: checks
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uvx --no-progress --from . repomatic check-renovate --format=github --output "$GITHUB_OUTPUT"
+        run: uvx --no-progress 'repomatic==6.23.0' check-renovate --format=github --output "$GITHUB_OUTPUT"
 
       # No need to export renovate.json5 here — the renovate job below
       # materializes the bundled default at runtime when absent.
@@ -80,14 +80,14 @@ jobs:
       - name: Export renovate.json5 if missing
         run: >
           test -f renovate.json5
-          || uvx --no-progress --from . repomatic init renovate
+          || uvx --no-progress 'repomatic==6.23.0' init renovate
 
       # Validate remaining prerequisites (Dependabot absent, security
       # updates disabled, commit statuses permission).
       - name: Validate Renovate prerequisites
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uvx --no-progress --from . repomatic check-renovate
+        run: uvx --no-progress 'repomatic==6.23.0' check-renovate
 
       - uses: renovatebot/github-action@693b9ef15eec82123529a37c782242f091365961 # v46.1.14
         with:

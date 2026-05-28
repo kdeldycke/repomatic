@@ -66,7 +66,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress --from . repomatic metadata
+          uvx --no-progress 'repomatic==6.23.0' metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_bot is_python_project python_files
           yaml_changed zsh_changed zsh_files
@@ -85,7 +85,7 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
           HAS_VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
-        run: uvx --no-progress --from . repomatic lint-repo
+        run: uvx --no-progress 'repomatic==6.23.0' lint-repo
 
   lint-types:
     name: 🛡️ Lint types
@@ -107,7 +107,7 @@ jobs:
       - name: Run Mypy
         env:
           PYTHON_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).python_files }}
-        run: echo "${PYTHON_FILES}" | xargs uvx --no-progress --from . repomatic run mypy --
+        run: echo "${PYTHON_FILES}" | xargs uvx --no-progress 'repomatic==6.23.0' run mypy --
 
   lint-yaml:
     name: 📄 Lint YAML
@@ -123,7 +123,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
       - name: Run yamllint
-        run: uvx --no-progress --from . repomatic run yamllint -- .
+        run: uvx --no-progress 'repomatic==6.23.0' run yamllint -- .
 
   lint-zsh:
     name: 🐚 Lint Zsh
@@ -173,7 +173,7 @@ jobs:
             https://raw.githubusercontent.com/rhysd/actionlint/refs/tags/v1.7.12/.github/actionlint-matcher.json
           echo "::add-matcher::.github/actionlint-matcher.json"
       - name: Run actionlint
-        run: uvx --no-progress --from . repomatic run actionlint
+        run: uvx --no-progress 'repomatic==6.23.0' run actionlint
 
   lint-workflow-security:
     name: 🔒 Lint workflow security
@@ -188,7 +188,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
       - name: Run zizmor
-        run: uvx --no-progress --from . repomatic run zizmor -- .
+        run: uvx --no-progress 'repomatic==6.23.0' run zizmor -- .
 
   lint-awesome:
     name: 🌟 Lint awesome
@@ -227,4 +227,4 @@ jobs:
           restore-keys: |
             repomatic-bin-${{ runner.os }}-${{ runner.arch }}-gitleaks-
       - name: Run gitleaks
-        run: uvx --no-progress --from . repomatic run gitleaks -- detect --source .
+        run: uvx --no-progress 'repomatic==6.23.0' run gitleaks -- detect --source .
