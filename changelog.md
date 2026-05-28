@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.24.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.24.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.24.0` (2026-05-28)](https://github.com/kdeldycke/repomatic/compare/v6.23.0...v6.24.0)
 
 - Split the package build into its own reusable `_release-build.yaml` lane (squash-merge guard, project metadata, and the signed `build-package` job), so the entry `release.yaml`'s `publish-pypi` job depends only on the freshly-built wheel and ships to PyPI right after the build instead of after the whole engine (binary compilation, VirusTotal scan) completes. `_release-engine.yaml` keeps the binary and release-finalization jobs and is gated on the build lane (`needs: build`) so its `create-release` and `sync-dev-release` jobs reuse the same run-scoped wheel (one build, one attestation, shared to both PyPI and the GitHub release). Downstream `release.yaml` is regenerated with three jobs (`build`, `publish-pypi`, `release`) by copying the canonical entry and rewriting each `uses:` to the pinned cross-repo ref; `publish-pypi`'s `package_built`, `release_commits_matrix`, and `release_notes_with_admonition` now come from the build lane.
