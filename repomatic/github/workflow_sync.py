@@ -113,6 +113,22 @@ it falls back to `main` since the tag does not exist yet.
 """
 
 
+def _pin_ref(version: str, commit_sha: str | None) -> str:
+    """Build the `@`-suffix of a pinned `uses:` reference.
+
+    Returns `{sha} # {version}` (Renovate's SHA-pin format) when *commit_sha*
+    is provided, otherwise the bare *version*. Shared by every `uses:` renderer
+    (thin callers, the `publish-pypi` action, the release lanes) so the pin
+    format lives in one place.
+
+    :param version: Version reference (e.g., `v5.11.0` or `main`).
+    :param commit_sha: Full 40-character commit SHA, or `None` for an unpinned
+        ref.
+    :return: The ref suffix to place after `@`.
+    """
+    return f"{commit_sha} # {version}" if commit_sha else version
+
+
 def _extract_raw_section(content: str, section_name: str) -> str | None:
     """Extract a top-level YAML section as raw text.
 
@@ -571,10 +587,7 @@ def generate_thin_caller(
     # Concurrency is intentionally omitted: the reusable workflow's own
     # concurrency block applies when called via `workflow_call`, so
     # duplicating it in the thin caller would be redundant.
-    if commit_sha:
-        uses_ref = f"{commit_sha} # {version}"
-    else:
-        uses_ref = version
+    uses_ref = _pin_ref(version, commit_sha)
     main_job = filename.removesuffix(".yaml")
     lines = [
         "---",
@@ -691,10 +704,7 @@ def _render_publish_pypi_job(
         `steps:` key, or the local action ref), meaning the entry changed in a
         way the renderer was not updated to handle.
     """
-    if commit_sha:
-        action_ref = f"{commit_sha} # {version}"
-    else:
-        action_ref = version
+    action_ref = _pin_ref(version, commit_sha)
     target_ref = f"{repo}/.github/actions/publish-pypi@{action_ref}"
 
     job = _extract_raw_job(get_data_content("release.yaml"), "publish-pypi")
@@ -798,7 +808,7 @@ def _generate_release_caller(
     """
     content = get_data_content("release.yaml")
     info = extract_trigger_info("release.yaml")
-    uses_ref = f"{commit_sha} # {version}" if commit_sha else version
+    uses_ref = _pin_ref(version, commit_sha)
 
     triggers: dict[str, Any] = {
         "workflow_dispatch": None,
@@ -815,6 +825,13 @@ def _generate_release_caller(
         )
         raise RuntimeError(msg)
 
+    # Each lane is a `uses:`-only job: strip its repomatic-specific comments,
+    # then pin the local `uses: ./` ref to the cross-repo form.
+    def lane_lines(job_text: str) -> list[str]:
+        return _rewrite_workflow_uses(
+            _strip_comment_lines(job_text), repo, uses_ref
+        ).split("\n")
+
     lines = [
         "---",
         f"name: {info.name}",
@@ -822,19 +839,13 @@ def _generate_release_caller(
         "",
         "jobs:",
         "",
-        *_rewrite_workflow_uses(
-            _strip_comment_lines(build_job), repo, uses_ref
-        ).split("\n"),
+        *lane_lines(build_job),
     ]
     lines.extend(
         _render_publish_pypi_job(repo=repo, version=version, commit_sha=commit_sha)
     )
     lines.append("")
-    lines.extend(
-        _rewrite_workflow_uses(
-            _strip_comment_lines(release_job), repo, uses_ref
-        ).split("\n")
-    )
+    lines.extend(lane_lines(release_job))
     lines.append("")
 
     return "\n".join(lines)
