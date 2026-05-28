@@ -722,13 +722,16 @@ ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
 _UNBUNDLED_ENGINE_LANES = frozenset(RELEASE_ENGINE_WORKFLOWS) - set(
     WORKFLOW_SOURCES.values()
 )
-WORKFLOWS_WITHOUT_SYMLINKS = frozenset((
-    # repomatic's own release entry; downstreams get a generated release.yaml
-    # (assembled from the bundled release.yaml), so the entry isn't bundled.
-    "release.yaml",
-    # Patches repomatic/tool_runner.py, which only exists here.
-    "update-checksums.yaml",
-)) | _UNBUNDLED_ENGINE_LANES
+WORKFLOWS_WITHOUT_SYMLINKS = (
+    frozenset((
+        # repomatic's own release entry; downstreams get a generated release.yaml
+        # (assembled from the bundled release.yaml), so the entry isn't bundled.
+        "release.yaml",
+        # Patches repomatic/tool_runner.py, which only exists here.
+        "update-checksums.yaml",
+    ))
+    | _UNBUNDLED_ENGINE_LANES
+)
 
 
 def test_all_workflows_have_symlinks_in_data() -> None:
