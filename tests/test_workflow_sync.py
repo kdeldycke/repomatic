@@ -53,6 +53,7 @@ from repomatic.registry import (
     ALL_WORKFLOW_FILES,
     DEFAULT_REPO,
     NON_REUSABLE_WORKFLOWS,
+    RELEASE_ENGINE_WORKFLOWS,
     REUSABLE_WORKFLOWS,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
@@ -320,8 +321,10 @@ def test_release_thin_caller_emits_build_and_engine_lanes() -> None:
     can download the run-scoped wheel.
     """
     content = generate_thin_caller("release.yaml", version="v9.9.9")
-    assert f"{DEFAULT_REPO}/.github/workflows/_release-build.yaml@v9.9.9" in content
-    assert f"{DEFAULT_REPO}/.github/workflows/_release-engine.yaml@v9.9.9" in content
+    for lane in RELEASE_ENGINE_WORKFLOWS:
+        assert f"{DEFAULT_REPO}/.github/workflows/{lane}@v9.9.9" in content, (
+            f"generated release.yaml must reference the {lane} engine lane"
+        )
     # The engine lane waits for the build lane (run-scoped wheel handoff).
     data = yaml.safe_load(content)
     assert data["jobs"]["release"]["needs"] == "build"

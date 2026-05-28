@@ -48,6 +48,7 @@ from repomatic.registry import (
     ALL_COMPONENTS,
     ALL_WORKFLOW_FILES,
     COMPONENTS,
+    RELEASE_ENGINE_WORKFLOWS,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
     SKILL_PHASES,
@@ -2811,20 +2812,12 @@ def test_removed_reusable_workflows_are_tombstoned() -> None:
         ):
             old_reusable.add(m.group(1))
 
-    # "Currently shipped" reusable workflows: every workflow file still on disk
-    # with a `workflow_call:` trigger. Detected from disk rather than from
-    # REUSABLE_WORKFLOWS because the release engine ships reusable lanes
-    # (_release-build.yaml, _release-engine.yaml) that the generated release.yaml
-    # references by name rather than as registry file_ids (whose file_id is
-    # `release.yaml`), so they would otherwise look "removed".
-    workflows_dir = repo_root / ".github" / "workflows"
-    current_reusable = {
-        wf.name
-        for wf in workflows_dir.glob("*.yaml")
-        if re.search(
-            r"^\s*workflow_call:", wf.read_text(encoding="UTF-8"), re.MULTILINE
-        )
-    }
+    # "Currently shipped" reusable workflows: the registry's downstream file_ids
+    # plus the release engine lanes. The lanes (RELEASE_ENGINE_WORKFLOWS) are
+    # referenced by the generated release.yaml via `uses:` rather than carried as
+    # registry file_ids (whose file_id is `release.yaml`), so without them they
+    # would look "removed" the moment a release tag includes them.
+    current_reusable = set(REUSABLE_WORKFLOWS) | set(RELEASE_ENGINE_WORKFLOWS)
 
     tombstoned = {
         a.target.rsplit("/", 1)[-1]

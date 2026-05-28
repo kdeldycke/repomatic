@@ -30,6 +30,11 @@ from repomatic.binary import (
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
 )
+from repomatic.registry import (
+    ALL_WORKFLOW_FILES,
+    RELEASE_ENGINE_WORKFLOWS,
+    WORKFLOW_SOURCES,
+)
 
 # Self-referential URL base for this repository.
 SELF_REF_URL_BASE = "https://raw.githubusercontent.com/kdeldycke/repomatic"
@@ -708,20 +713,22 @@ DATA_DIR = REPO_ROOT / "repomatic" / "data"
 # Path to the composite actions directory.
 ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
 
-# Workflows that are intentionally excluded from the bundled data symlinks because
-# they are repomatic-internal (patching files that only exist in this repo) and
-# must not be exported to downstream repositories.
+# Workflows excluded from the bundled-data-symlink requirement. Two kinds:
+# repomatic-internal workflows (patching files only in this repo) and release
+# engine lanes (RELEASE_ENGINE_WORKFLOWS) that no code reads via get_data_content,
+# so they need no bundled data/ copy. The engine lane that *is* read at runtime
+# (_release-engine.yaml, recorded as the release entry's source) stays bundled, so
+# it is subtracted out here rather than listed by hand.
+_UNBUNDLED_ENGINE_LANES = frozenset(RELEASE_ENGINE_WORKFLOWS) - set(
+    WORKFLOW_SOURCES.values()
+)
 WORKFLOWS_WITHOUT_SYMLINKS = frozenset((
-    # Release fast lane: the generated release.yaml references it via a pinned
-    # cross-repo `uses:` (resolved from this repo at a tag, not the wheel), and
-    # nothing reads it via get_data_content, so it needs no bundled data/ copy.
-    "_release-build.yaml",
     # repomatic's own release entry; downstreams get a generated release.yaml
-    # (built from the bundled _release-engine.yaml), so the entry isn't bundled.
+    # (assembled from the bundled release.yaml), so the entry isn't bundled.
     "release.yaml",
     # Patches repomatic/tool_runner.py, which only exists here.
     "update-checksums.yaml",
-))
+)) | _UNBUNDLED_ENGINE_LANES
 
 
 def test_all_workflows_have_symlinks_in_data() -> None:
@@ -879,3 +886,33 @@ def test_release_lanes_split_jobs() -> None:
         assert "build-package" not in needs, (
             f"engine job `{name}` still needs the relocated build-package job"
         )
+
+
+@pytest.mark.parametrize("lane", RELEASE_ENGINE_WORKFLOWS)
+def test_release_engine_lane_is_reusable(lane: str) -> None:
+    """Each RELEASE_ENGINE_WORKFLOWS lane is a reusable workflow shipped here.
+
+    The generated `release.yaml` calls these lanes by cross-repo `uses:`, so each
+    must exist in `.github/workflows/` and declare a `workflow_call` trigger.
+    """
+    workflow = load_workflow(lane)  # raises if the lane file is missing
+    triggers = workflow.get("on", {})
+    assert "workflow_call" in triggers, (
+        f"{lane} must declare a workflow_call trigger to be a reusable lane"
+    )
+
+
+def test_release_engine_lanes_not_materialized_downstream() -> None:
+    """The engine lanes are referenced cross-repo, never deployed as files.
+
+    They must not be downstream `FileEntry` file_ids (the release entry's
+    file_id is `release.yaml`), and the entry's recorded source must be one of
+    the lanes so {data}`WORKFLOW_SOURCES` and the concept stay consistent.
+    """
+    materialized = set(RELEASE_ENGINE_WORKFLOWS) & set(ALL_WORKFLOW_FILES)
+    assert not materialized, (
+        f"engine lanes must not be downstream file_ids: {sorted(materialized)}"
+    )
+    assert WORKFLOW_SOURCES["release.yaml"] in RELEASE_ENGINE_WORKFLOWS, (
+        "the release entry's source must be one of RELEASE_ENGINE_WORKFLOWS"
+    )
