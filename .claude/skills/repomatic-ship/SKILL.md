@@ -53,14 +53,26 @@ Order matters: the changelog **describes** the net change, so it is accurate onl
 
 A change introduced and then reverted before release is a no-op for users: no changelog entry, no scaffolding in the code, no mention in the docs. This skill holds no `Edit`/`Write` of its own — the changelog skill and the agents do the editing.
 
+### If the sweep made no edits
+
+A clean cycle, where every change since the last tag is already at its net end-state, is a normal outcome and not a sign you missed something. When step 1 produces **no working-tree edits**, the commit-and-push spine of this skill collapses, and three steps change shape:
+
+- **Step 2** becomes redundant: CI has already run on this exact commit, since it is the `HEAD` of `main`. Verify that run's conclusion (`gh run list --branch main`) rather than paying for a fresh local gate. The time-dependent external smoke checks (`<cmd> run typos`, `<cmd> fix-vulnerable-deps`) are still worth a quick run, since a re-published binary or a newly-disclosed CVE drifts independently of code.
+- **Step 5** is a no-op: there is nothing to commit, so never force an empty commit.
+- **Step 6** reduces to *verifying* the existing run rather than babysitting a fresh push. When `gh pr list --head prepare-release` already shows a PR whose freeze commit sits on the current `HEAD`, the release is already prepared: confirm every stable job on `HEAD` is green, then go to step 7, spawning `/babysit-ci` only if a real failure surfaces. When no current PR exists, because the last push missed `changelog.yaml`'s `paths:` filter, trigger one with `gh workflow run changelog.yaml --ref main`, still with no commit.
+
+Steps 3, 4, and 7 are unchanged: the version advisory and the (empty) changelog diff still inform the maintainer, and the PR confirmation is identical.
+
 ### 2. Validate locally (pre-push gate)
 
-The sweep just rewrote code, so prove it green **before** paying for a CI round-trip. This is the same fast local channel `/babysit-ci` polls, run *ahead* of the first push so the slow CI cycle starts mostly-green:
+When the sweep rewrote code, prove it green **before** paying for a CI round-trip (if it made no edits, the local gate is redundant: see "If the sweep made no edits" above). This is the same fast local channel `/babysit-ci` polls, run *ahead* of the first push so the slow CI cycle starts mostly-green:
 
 - Launch the project's test, type, and lint checks in parallel in the background (`uv run pytest --no-header -q`, `<cmd> run mypy -- repomatic tests`, `uv run ruff check`), plus `<cmd> lint-changelog`.
 - Smoke-run the external-tool commands the `autofix` workflow executes — at minimum `<cmd> run typos` (downloads and checksum-verifies the pinned binary) and the vulnerable-deps scan (`<cmd> fix-vulnerable-deps`, which parses live `uv audit` output). The pytest suite mocks these, so a re-published binary (checksum drift) or a changed tool-output schema surfaces only here or in CI's `autofix` run; catching it locally saves a slow round-trip.
 - Act on the **fastest** failing check: mypy and ruff return in seconds, pytest in a minute or two. Fix the cause in the working tree and re-run only what failed.
 - Iterate until every local check is green. Every regression caught here saves a slow CI round-trip and the babysit cycle that would otherwise chase it.
+
+**Integration-heavy suites are the exception to the pytest bullet.** A suite that drives real external tooling (package managers, network) instead of mocks can run far longer than a local background timeout, and may need tools not installed locally, so it is not a fast gate. Keep the quick checks (mypy, ruff, `lint-changelog`) as the local gate, but treat the **CI test matrix on the exact commit** as the authoritative test signal: do not block on a slow or incomplete local pytest. Push, or in a clean cycle verify the existing run, and read the matrix on `HEAD`.
 
 A `⚠ X.Y.Z: not found on PyPI` warning from `lint-changelog` for the still-unreleased version is expected and not a blocker.
 
