@@ -538,10 +538,18 @@ def generate_thin_caller(
     :return: Complete YAML content for the thin caller workflow.
     :raises ValueError: If the workflow does not support `workflow_call`.
     """
+    # release.yaml is a multi-job caller (build lane + publish-pypi + engine
+    # lane), not a single thin delegation. Generate it by copying the canonical
+    # caller and rewriting its local `uses:` refs. See _generate_release_caller.
+    if filename == "release.yaml":
+        return _generate_release_caller(
+            repo=repo, version=version, commit_sha=commit_sha
+        )
+
     spec = _coerce_paths_spec(paths_spec, source_paths)
-    # The reusable to read and reference. For most workflows this is `filename`
-    # itself; the release entry (release.yaml) is generated from and points its
-    # `uses:` at the `_release-engine.yaml` engine.
+    # The reusable to read and reference: `filename` itself for every thin
+    # caller. (WORKFLOW_SOURCES still maps release.yaml to the engine for
+    # reference, but release.yaml is generated above, not here.)
     source = WORKFLOW_SOURCES.get(filename, filename)
     info = extract_trigger_info(source)
 
@@ -552,20 +560,12 @@ def generate_thin_caller(
         )
         raise ValueError(msg)
 
-    # release.yaml is call-only in the canonical repo: its self-release triggers
-    # live in repomatic's own self-release.yaml (a thin caller, like this one).
-    # So synthesize the standard release triggers here rather than mirroring the
-    # canonical workflow's (now empty) non-workflow_call triggers.
-    triggers: dict[str, Any]
-    if filename == "release.yaml":
-        triggers = {"workflow_dispatch": None, "push": {"branches": ["main"]}}
-    else:
-        # Mirror canonical triggers verbatim; do not synthesize workflow_dispatch.
-        triggers = {}
-        for trigger_name, trigger_config in info.non_call_triggers.items():
-            if isinstance(trigger_config, dict):
-                trigger_config = _adapt_trigger_paths(trigger_config, filename, spec)
-            triggers[trigger_name] = trigger_config
+    # Mirror canonical triggers verbatim; do not synthesize workflow_dispatch.
+    triggers: dict[str, Any] = {}
+    for trigger_name, trigger_config in info.non_call_triggers.items():
+        if isinstance(trigger_config, dict):
+            trigger_config = _adapt_trigger_paths(trigger_config, filename, spec)
+        triggers[trigger_name] = trigger_config
 
     # Build the YAML content programmatically.
     # Concurrency is intentionally omitted: the reusable workflow's own
@@ -594,17 +594,6 @@ def generate_thin_caller(
         lines.extend(
             f"      {secret_name}: ${{{{ secrets.{secret_name} }}}}"
             for secret_name in info.call_secrets
-        )
-
-    # Append the publish-pypi caller-side job for release.yaml. The composite
-    # action runs in the caller's OIDC context so its `job_workflow_ref` claim
-    # resolves to the downstream's own release.yaml: that path is what each
-    # downstream registers with PyPI's Trusted Publisher. See
-    # pypi/warehouse#11096 for why a job inside the reusable workflow can't
-    # serve this role.
-    if filename == "release.yaml":
-        lines.extend(
-            _render_publish_pypi_job(repo=repo, version=version, commit_sha=commit_sha)
         )
 
     # Trailing newline.
@@ -740,6 +729,117 @@ def _render_publish_pypi_job(
     return ["", *rebuilt.split("\n")]
 
 
+def _rewrite_workflow_uses(job_text: str, repo: str, uses_ref: str) -> str:
+    """Rewrite a job's local reusable-workflow `uses:` to the pinned cross-repo form.
+
+    `uses: ./.github/workflows/X.yaml` becomes
+    `uses: {repo}/.github/workflows/X.yaml@{uses_ref}`. All other lines pass
+    through unchanged. A function replacement avoids `re` interpreting a `#` or
+    digit in *uses_ref* as backreference syntax.
+
+    :param job_text: Raw text of a single job mapping.
+    :param repo: Upstream repository owning the reusable workflow.
+    :param uses_ref: Ref suffix (`version`, or `sha # version` for pins).
+    :return: Job text with its local workflow `uses:` rewritten.
+    """
+    return re.sub(
+        r"(uses:\s*)\./\.github/workflows/(\S+)",
+        lambda m: f"{m.group(1)}{repo}/.github/workflows/{m.group(2)}@{uses_ref}",
+        job_text,
+    )
+
+
+def _strip_comment_lines(text: str) -> str:
+    """Drop whole-line comments from raw job text.
+
+    Used for the `uses:`-only `build` and `release` jobs of the release caller,
+    whose upstream comments describe repomatic's own dogfooding (local refs) and
+    would mislead once rewritten to pinned cross-repo refs downstream. These jobs
+    carry no `run:` blocks, so no inline-comment content is at risk.
+    """
+    return "\n".join(
+        line for line in text.split("\n") if not line.lstrip().startswith("#")
+    )
+
+
+def _generate_release_caller(
+    repo: str,
+    version: str,
+    commit_sha: str | None,
+) -> str:
+    """Generate the downstream `release.yaml` caller from the canonical entry.
+
+    The canonical `release.yaml` (bundled, repomatic's own self-release entry) is
+    a multi-job caller: a `build` lane call, the OIDC `publish-pypi` job, and a
+    `release` engine call. Downstream repos get the same shape with:
+
+    - **Standard release triggers synthesized** (`push` to `main` +
+      `workflow_dispatch`), so a dogfooding-only trigger added upstream never
+      leaks downstream.
+    - **Local `uses: ./` refs rewritten** to the pinned cross-repo form
+      (`{repo}/.github/workflows/{name}@{ref}`) for the `build` and `release`
+      lanes, with their repomatic-specific comments stripped.
+    - **The `publish-pypi` job reshaped** by :func:`_render_publish_pypi_job`
+      (checkout dropped, action ref pinned). Keeping it in `release.yaml` is what
+      makes the OIDC `job_workflow_ref` resolve to each repo's own `release.yaml`
+      (see pypi/warehouse#11096).
+
+    Copying the rest keeps the `build`/`publish-pypi`/`release` wiring
+    (`needs: build`, secrets) in one canonical source instead of synthesizing it.
+
+    :param repo: Upstream repository owning the reusable workflows and action.
+    :param version: Version reference for the pinned refs.
+    :param commit_sha: Optional 40-character SHA for pin-style refs (renders as
+        `@sha # version` like Renovate).
+    :return: Complete YAML content for the downstream `release.yaml` caller.
+    :raises RuntimeError: If the canonical `release.yaml` no longer exposes the
+        expected `build` and `release` jobs, meaning the entry changed in a way
+        this renderer was not updated to handle.
+    """
+    content = get_data_content("release.yaml")
+    info = extract_trigger_info("release.yaml")
+    uses_ref = f"{commit_sha} # {version}" if commit_sha else version
+
+    triggers: dict[str, Any] = {
+        "workflow_dispatch": None,
+        "push": {"branches": ["main"]},
+    }
+
+    build_job = _extract_raw_job(content, "build")
+    release_job = _extract_raw_job(content, "release")
+    if build_job is None or release_job is None:
+        msg = (
+            "Canonical release.yaml is missing its 'build' or 'release' job; the"
+            " entry changed in a way _generate_release_caller was not updated to"
+            " handle."
+        )
+        raise RuntimeError(msg)
+
+    lines = [
+        "---",
+        f"name: {info.name}",
+        _render_triggers(triggers),
+        "",
+        "jobs:",
+        "",
+        *_rewrite_workflow_uses(
+            _strip_comment_lines(build_job), repo, uses_ref
+        ).split("\n"),
+    ]
+    lines.extend(
+        _render_publish_pypi_job(repo=repo, version=version, commit_sha=commit_sha)
+    )
+    lines.append("")
+    lines.extend(
+        _rewrite_workflow_uses(
+            _strip_comment_lines(release_job), repo, uses_ref
+        ).split("\n")
+    )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def identify_canonical_workflow(
     workflow_path: Path,
     repo: str = DEFAULT_REPO,
@@ -767,15 +867,20 @@ def identify_canonical_workflow(
 
     pattern = re.compile(rf"^{re.escape(repo)}/\.github/workflows/([^@]+)@.+$")
 
+    # A multi-lane caller (release.yaml: build + engine) references several
+    # upstream workflows. Return the LAST match: for release.yaml that is the
+    # engine lane, which declares the secrets, so check_secrets_passed validates
+    # the meaningful lane. Single-lane thin callers have exactly one match, so
+    # last == first and behavior is unchanged.
+    canonical: str | None = None
     for job_config in jobs.values():
         if not isinstance(job_config, dict):
             continue
-        uses = job_config.get("uses", "")
-        match = pattern.match(uses)
+        match = pattern.match(job_config.get("uses", ""))
         if match:
-            return match.group(1)
+            canonical = match.group(1)
 
-    return None
+    return canonical
 
 
 def extract_extra_jobs(

@@ -1,0 +1,166 @@
+---
+name: 📦 Build package
+# Fast lane of the release pipeline: squash-merge guard, project metadata, and
+# the Python package build. Kept separate from _release-engine.yaml so the
+# caller's publish-pypi job can depend on the freshly-built wheel alone and ship
+# to PyPI without waiting for binary compilation. See release.yaml and
+# docs/workflows.md.
+"on":
+  workflow_call:
+    outputs:
+      package_built:
+        description: >
+          Whether the build-package job fully succeeded ("true"/"false").
+          The caller's publish-pypi job gates on this alongside always(), so a
+          healthy wheel still reaches PyPI when an unrelated job (like binary
+          tests in the engine) fails the overall run. The fromJSON(toJSON())
+          wrapper works around actions/runner#3087, where a bare
+          jobs.<id>.result resolves to an empty string in workflow_call outputs.
+        value: ${{ fromJSON(toJSON(jobs.build-package)).result == 'success' }}
+      release_commits_matrix:
+        description: >
+          Matrix of release commits (used by the caller's publish-pypi job to
+          drive its own matrix and gate execution). Emits an empty string (not
+          "null") when there are no release commits, so the caller's
+          `|| '{"include":[]}'` fallback triggers correctly. `toJSON(null)`
+          would produce the string "null" which is truthy in GHA expressions,
+          defeating the `||` guard and causing `fromJSON("null")` to fail the
+          strategy evaluation with "Unexpected value ''".
+        value: >-
+          ${{
+            fromJSON(jobs.metadata.outputs.metadata).release_commits_matrix
+            && toJSON(fromJSON(jobs.metadata.outputs.metadata).release_commits_matrix)
+            || ''
+          }}
+      release_notes_with_admonition:
+        description: >
+          Release notes with the PyPI availability admonition. The caller's
+          publish-pypi job consumes this to update the GitHub release notes
+          after a successful OIDC upload.
+        value: ${{ fromJSON(jobs.metadata.outputs.metadata).release_notes_with_admonition }}
+
+permissions: {}
+
+# No concurrency block: this lane is a release sub-component invoked by
+# release.yaml, its jobs are cheap and idempotent, and release commits are
+# protected from cancellation by _release-engine.yaml's SHA-based unique group.
+
+jobs:
+
+  detect-squash-merge:
+    name: 🧯 No squash on release
+    # Detect squash merges on release PRs and open an issue instead of releasing.
+    # See RELEASE_COMMIT_PATTERN in repomatic/metadata.py for the detection mechanism.
+    if: >-
+      github.event_name == 'push'
+      && startsWith(github.event.head_commit.message, 'Release `v')
+    runs-on: ubuntu-slim
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+      - name: Extract PR reference
+        id: extract
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          pr_ref=$(echo "${COMMIT_MSG}" | grep -oE '#[0-9]+' | tail -1)
+          echo "pr_ref=${pr_ref}" >> "$GITHUB_OUTPUT"
+      - name: Generate issue body
+        id: issue-metadata
+        env:
+          PR_REF: ${{ steps.extract.outputs.pr_ref }}
+        run: >
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
+          --template detect-squash-merge
+          --pr-ref "${PR_REF}"
+          --output "$GITHUB_OUTPUT"
+      - name: Open issue to notify maintainer
+        id: issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: ${{ steps.issue-metadata.outputs.title }}
+          BODY: ${{ steps.issue-metadata.outputs.body }}
+        run: |
+          issue_url=$(gh issue create \
+            --title "${TITLE}" \
+            --assignee "${GITHUB_ACTOR}" \
+            --body "${BODY}")
+          echo "issue_url=${issue_url}" >> "$GITHUB_OUTPUT"
+      - name: Fail workflow
+        env:
+          ISSUE_URL: ${{ steps.issue.outputs.issue_url }}
+        run: |
+          echo "::error::Squash merge detected. Release was skipped. See ${ISSUE_URL}"
+          exit 1
+
+  metadata:
+    name: 🧬 Project metadata
+    runs-on: ubuntu-slim
+    outputs:
+      metadata: ${{ steps.metadata.outputs.metadata }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Checkout pull request HEAD commit to ignore actions/checkout's merge commit. Fallback to push SHA.
+          # See: https://github.com/actions/checkout/issues/504
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # We're going to browse all new commits.
+          fetch-depth: 0
+      - name: List all branches
+        run: git branch --all
+      - name: List all commits
+        run: git log --decorate=full --oneline
+      - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+      - name: Run repomatic metadata
+        id: metadata
+        run: >
+          uvx --no-progress --from . repomatic metadata
+          --format github-json --output "$GITHUB_OUTPUT"
+          new_commits_matrix release_commits_matrix build_targets nuitka_matrix
+          is_python_project package_name current_version released_version
+          release_notes release_notes_with_admonition skip_binary_build
+
+  build-package:
+    name: 📦 Build package (${{ matrix.short_sha }})
+    needs:
+      - metadata
+    if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+    strategy:
+      matrix: >-
+        ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+        || fromJSON(needs.metadata.outputs.metadata).new_commits_matrix }}
+    runs-on: ubuntu-slim
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ matrix.commit }}
+      - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+      - name: Pre-bake tag SHA
+        if: "!contains(matrix.current_version, '.dev')"
+        env:
+          COMMIT: ${{ matrix.commit }}
+        run: >
+          uvx --no-progress 'click-extra==7.16.1'
+          prebake field git_tag_sha "${COMMIT}"
+      - name: Build package
+        run: uv --no-progress build
+      # Signs each dist file with the job's OIDC token via Sigstore and writes
+      # `<dist>.publish.attestation` sidecars (PEP 740 format) directly into
+      # ./dist/ so the artifact uploaded below carries its own attestations.
+      # Skipped on fork PRs where the OIDC token is unavailable.
+      - name: Sign distributions with PEP 740 attestations
+        if: >-
+          github.event_name != 'pull_request'
+          || !github.event.pull_request.head.repo.fork
+        shell: bash
+        run: uvx --no-progress pypi-attestations sign ./dist/*.whl ./dist/*.tar.gz
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ github.event.repository.name }}-${{ matrix.short_sha }}
+          path: ./dist/*

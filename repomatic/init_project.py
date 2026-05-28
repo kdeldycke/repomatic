@@ -95,11 +95,10 @@ RUNTIME_FRAGMENTS: tuple[str, ...] = ("release.yaml",)
 """Bundled YAML files loaded by `repomatic` at runtime, not deployed verbatim.
 
 These files live in `repomatic/data/` so they ship in the wheel and are
-discoverable via {func}`get_data_content`, but `repomatic init` never copies
-them as-is: the package reads them to assemble outputs on the fly. The
-canonical `release.yaml` entry is the source its `publish-pypi` job is reshaped
-from for downstream thin callers (see
-`repomatic.github.workflow_sync._render_publish_pypi_job`); the deployed
+discoverable via {func}`get_data_content`, but `repomatic init` never copies them
+as-is. `release.yaml` is the canonical caller `repomatic.github.workflow_sync`
+reads to assemble each downstream `release.yaml`, copying its jobs and rewriting
+the local `uses:` refs (see `_generate_release_caller`); the deployed
 `release.yaml` is generated, not this bundled copy. New entries must be added
 explicitly so the data-file registry tests stay authoritative.
 """

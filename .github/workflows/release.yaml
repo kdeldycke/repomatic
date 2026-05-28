@@ -1,15 +1,24 @@
 ---
 # Repomatic's own release entry, identical in shape to what every downstream
-# repo gets: it triggers on push, calls the reusable _release-engine.yaml, then
-# publishes to PyPI from a job in THIS file so the OIDC `job_workflow_ref` claim
-# resolves to release.yaml: the workflow filename repomatic and every downstream
-# register with PyPI's Trusted Publisher. Keeping publish-pypi out of the engine
-# is what makes this work everywhere. See pypi/warehouse#11096 and
-# docs/workflows.md.
+# repo gets. It splits the release into two reusable lanes plus a PyPI publish:
+#   build:        _release-build.yaml  (squash guard, metadata, package build)
+#   publish-pypi: this file            (OIDC Trusted Publishing, needs: build)
+#   release:      _release-engine.yaml (binaries, tag, draft, publish, scan)
 #
-# The publish-pypi job below doubles as the codegen source for downstream callers: repomatic.github.workflow_sync
-# reshapes it (drops the checkout, pins the local action ref to a tag). Edit the job with that downstream
-# derivation in mind.
+# publish-pypi depends only on the build lane, so the wheel ships to PyPI right
+# after it is built instead of waiting for binary compilation. The engine lane
+# also depends on build so its create-release/sync-dev-release jobs can download
+# the run-scoped wheel the build lane produced.
+#
+# publish-pypi lives in THIS file (not the engine) so the OIDC `job_workflow_ref`
+# claim resolves to release.yaml: the workflow filename repomatic and every
+# downstream register with PyPI's Trusted Publisher. See pypi/warehouse#11096
+# and docs/workflows.md.
+#
+# This whole file is the codegen source for downstream callers:
+# repomatic.github.workflow_sync copies these jobs and rewrites the local
+# `uses: ./` references to pinned cross-repo refs (and drops the publish-pypi
+# checkout). Edit the jobs with that downstream derivation in mind.
 name: 🚀 Build & release
 "on":
   workflow_dispatch:
@@ -19,30 +28,27 @@ name: 🚀 Build & release
 
 jobs:
 
-  release:
-    # Local reusable call: repomatic builds and releases with its own current
-    # engine rather than a published ref.
-    uses: ./.github/workflows/_release-engine.yaml
-    secrets:
-      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
-      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+  build:
+    # Local reusable call: repomatic builds with its own current fast lane
+    # rather than a published ref.
+    uses: ./.github/workflows/_release-build.yaml
 
   publish-pypi:
     name: 🐍 Publish to PyPI (${{ matrix.short_sha }})
-    needs: release
+    needs: build
     # Gate decoupled from the run's overall result: always() lets this job run even when an unrelated job (like binary
-    # tests) failed the run, and package_built confirms the wheel actually built, so a cleanly-built wheel still
-    # publishes. package_built comes from the release job (the engine call).
+    # tests in the engine lane) failed the run, and package_built confirms the wheel actually built, so a cleanly-built
+    # wheel still publishes. Both signals come from the build lane (_release-build.yaml).
     if: >-
       always()
-      && needs.release.outputs.package_built == 'true'
-      && needs.release.outputs.release_commits_matrix
+      && needs.build.outputs.package_built == 'true'
+      && needs.build.outputs.release_commits_matrix
     strategy:
       # GitHub evaluates `strategy.matrix` during job setup even when `if:` will skip the job. On a non-release push
-      # the engine emits an empty string for `release_commits_matrix` (not "null": see the engine's output
-      # description for why). A bare `fromJSON('')` aborts the whole run with "Unexpected value ''", so we fall back
-      # to an empty `{"include":[]}` matrix, which expands the job to zero runs and skips it cleanly.
-      matrix: ${{ fromJSON(needs.release.outputs.release_commits_matrix || '{"include":[]}') }}
+      # the build lane emits an empty string for `release_commits_matrix` (not "null": see its output description for
+      # why). A bare `fromJSON('')` aborts the whole run with "Unexpected value ''", so we fall back to an empty
+      # `{"include":[]}` matrix, which expands the job to zero runs and skips it cleanly.
+      matrix: ${{ fromJSON(needs.build.outputs.release_commits_matrix || '{"include":[]}') }}
     runs-on: ubuntu-slim
     permissions:
       id-token: write
@@ -58,15 +64,25 @@ jobs:
         with:
           artifact-name: ${{ github.event.repository.name }}-${{ matrix.short_sha }}
       # Backfill the "available on PyPI" admonition onto the release notes after a successful OIDC upload. The engine
-      # publishes the GitHub release without it (it cannot yet know the PyPI outcome). continue-on-error keeps a
+      # lane publishes the GitHub release without it (it cannot yet know the PyPI outcome). continue-on-error keeps a
       # notes-edit hiccup from failing an upload that already succeeded.
       - name: Add PyPI admonition to release notes
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
-          RELEASE_NOTES: ${{ needs.release.outputs.release_notes_with_admonition }}
+          RELEASE_NOTES: ${{ needs.build.outputs.release_notes_with_admonition }}
         run: >
           gh release edit "v${CURRENT_VERSION}"
           --notes-file -
           --repo "${{ github.repository }}" <<< "${RELEASE_NOTES}"
+
+  release:
+    # Local reusable call: repomatic releases with its own current engine rather
+    # than a published ref. Gated on the build lane so create-release and
+    # sync-dev-release can download the run-scoped wheel the build lane uploaded.
+    uses: ./.github/workflows/_release-engine.yaml
+    needs: build
+    secrets:
+      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
+      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}

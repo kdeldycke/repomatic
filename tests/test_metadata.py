@@ -502,6 +502,7 @@ expected: dict[str, Any] = {
         ".github/actions/publish-pypi/action.yaml",
         ".github/codecov.yaml",
         ".github/funding.yml",
+        ".github/workflows/_release-build.yaml",
         ".github/workflows/_release-engine.yaml",
         ".github/workflows/autofix.yaml",
         ".github/workflows/autolock.yaml",
@@ -541,6 +542,7 @@ expected: dict[str, Any] = {
         "pyproject.toml",
     ],
     "workflow_files": [
+        ".github/workflows/_release-build.yaml",
         ".github/workflows/_release-engine.yaml",
         ".github/workflows/autofix.yaml",
         ".github/workflows/autolock.yaml",

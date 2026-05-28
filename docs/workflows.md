@@ -409,9 +409,9 @@ docs = [
 
 ### 🚀 [`.github/workflows/release.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/release.yaml)
 
-This is the **entry** workflow: it owns the `push` and `workflow_dispatch` triggers, calls the reusable `_release-engine.yaml` engine, and runs the `publish-pypi` job after the engine completes. Every downstream repo (repomatic included) has its own `release.yaml` that follows this same shape.
+This is the **entry** workflow. It owns the `push` and `workflow_dispatch` triggers and wires three jobs: a `build` call to the `_release-build.yaml` fast lane, the `publish-pypi` job, and a `release` call to the `_release-engine.yaml` engine. Both `publish-pypi` and the engine lane depend on `build`. Because `publish-pypi` needs only the build lane, the wheel reaches PyPI as soon as it is built instead of after the whole engine (binary compilation, scanning) completes. The engine also waits on `build` so its `create-release` and `sync-dev-release` jobs can download the run-scoped wheel. Every downstream repo (repomatic included) has its own `release.yaml` that follows this same shape.
 
-The `publish-pypi` job lives here rather than inside the engine so each repo's OIDC `job_workflow_ref` claim resolves to its own `release.yaml`: the exact filename each repo registers with PyPI as a Trusted Publisher. A job inside `_release-engine.yaml` would mint a token pointing at the upstream path, breaking the publisher match on every downstream. See [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096).
+The `publish-pypi` job lives here rather than inside a reusable lane so each repo's OIDC `job_workflow_ref` claim resolves to its own `release.yaml`: the exact filename each repo registers with PyPI as a Trusted Publisher. A job inside `_release-build.yaml` or `_release-engine.yaml` would mint a token pointing at the upstream path, breaking the publisher match on every downstream. See [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096).
 
 #### 🐍 Publish to PyPI (`publish-pypi`)
 
@@ -420,32 +420,55 @@ The `publish-pypi` job lives here rather than inside the engine so each repo's O
 - **Requires**:
   - A one-time PyPI Trusted Publisher registration for the repo's `release.yaml` entry, the same filename in every repo (repomatic included), so no per-repo workflow-name divergence (see [PyPI Trusted Publishers docs](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)).
   - `id-token: write` permission on the caller-side job (auto-emitted by `repomatic init workflows`).
-  - The `release_commits_matrix` output from the upstream `release.yaml` (drives the matrix and gates the job to release commits).
-  - The `package_built` output from the upstream `release.yaml`, reflecting whether the `build-package` job succeeded.
-- The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
-- After a successful upload, the job adds the PyPI availability admonition to the GitHub release notes (via the engine's `release_notes_with_admonition` output). The engine's `publish-release` job no longer does this, since it completes before the entry's `publish-pypi` runs and cannot yet know the upload outcome.
+  - The `release_commits_matrix` output from the `build` lane (`_release-build.yaml`), which drives the matrix and gates the job to release commits.
+  - The `package_built` output from the `build` lane, reflecting whether the `build-package` job succeeded.
+- The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests in the engine lane) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
+- After a successful upload, the job adds the PyPI availability admonition to the GitHub release notes (via the build lane's `release_notes_with_admonition` output). The engine's `publish-release` job no longer does this, since it completes before the entry's `publish-pypi` runs and cannot yet know the upload outcome.
 - Runs on `ubuntu-slim`.
+
+(github-workflows-release-build-yaml-jobs)=
+
+### 📦 [`.github/workflows/_release-build.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-build.yaml)
+
+The release **fast lane**: it runs the squash-merge guard, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built`, `release_commits_matrix`, and `release_notes_with_admonition` outputs that `publish-pypi` consumes.
+
+#### 🧯 Detect squash merge (`detect-squash-merge`)
+
+- Detects squash-merged release PRs, opens a GitHub issue to notify the maintainer, and fails the workflow
+- Running it in the build lane fails fast: `release.yaml` gates the engine on `needs: build`, so a detected squash merge skips the engine (binaries, tag, release) entirely
+- The release is effectively skipped: `create-tag` only matches commits with the `[changelog] Release v` prefix, so no tag, PyPI publish, or GitHub release is created from a squash merge
+- The net effect of squashing freeze + unfreeze leaves `main` in a valid state for the next development cycle; the maintainer just releases the next version when ready
+- **Runs on**:
+  - Push to `main` only
+
+#### 📦 Build package (`build-package`)
+
+- Builds Python wheel and sdist packages using [`uv build`](https://github.com/astral-sh/uv), then signs each distribution with a PEP 740 attestation
+- The signed artifact is shared run-scoped with both `publish-pypi` (PyPI upload) and the engine's `create-release` (GitHub release), so a single build feeds both
+- **Requires**:
+  - Python package with a `pyproject.toml` file
 
 (github-workflows-release-engine-yaml-jobs)=
 
 ### 🚀 [`.github/workflows/_release-engine.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-engine.yaml)
 
-[Release Engineering is a full-time job, and full of edge-cases](https://web.archive.org/web/20250126113318/https://blog.axo.dev/2023/02/cargo-dist) that nobody wants to deal with. This workflow automates most of it for Python projects.
+[Release Engineering is a full-time job, and full of edge-cases](https://web.archive.org/web/20250126113318/https://blog.axo.dev/2023/02/cargo-dist) that nobody wants to deal with. This workflow automates most of it for Python projects. The entry `release.yaml` gates it on `needs: build`, so it starts once the fast lane's wheel is ready (binary compilation therefore begins roughly one package build after the push).
 
 **Cross-platform binaries** — Targets 6 platform/architecture combinations (Linux/macOS/Windows × `x86_64`/`arm64`). Unstable targets use `continue-on-error` so builds don't fail on experimental platforms. Job names are prefixed with ✅ (stable, must pass) or ⁉️ (unstable, allowed to fail) for quick visual triage in the GitHub Actions UI.
 
-At a glance, the jobs split into a package lane, a binary lane, and the tag-and-release sequence, with a separate dev-release path for non-release pushes (dotted edges are uploaded assets):
+At a glance, the build lane feeds both the PyPI publish and this engine; the engine runs a binary lane and the tag-and-release sequence, with a separate dev-release path for non-release pushes (dotted edges are uploaded assets):
 
 ```mermaid
 flowchart TD
     push([Push to main]) --> squash{detect-squash-merge}
     squash -->|squashed release PR| fail[Open issue, fail run]
     squash -->|clean| build[build-package]
-    push --> nuitka[compile-binaries]
-    nuitka --> testbin[test-binaries]
-    push --> relcommit{release commit?}
+    build --> pypi[publish-pypi]
+    build --> nuitka[compile-binaries]
+    build --> relcommit{release commit?}
     relcommit -->|no| dev[sync-dev-release]
     relcommit -->|yes| tag[create-tag]
+    nuitka --> testbin[test-binaries]
     tag --> draft[create-release draft]
     build -. wheel + sdist .-> draft
     nuitka -. binaries .-> draft
@@ -454,20 +477,6 @@ flowchart TD
     build -. assets .-> dev
     nuitka -. assets .-> dev
 ```
-
-#### 🧯 Detect squash merge (`detect-squash-merge`)
-
-- Detects squash-merged release PRs, opens a GitHub issue to notify the maintainer, and fails the workflow
-- The release is effectively skipped: `create-tag` only matches commits with the `[changelog] Release v` prefix, so no tag, PyPI publish, or GitHub release is created from a squash merge
-- The net effect of squashing freeze + unfreeze leaves `main` in a valid state for the next development cycle; the maintainer just releases the next version when ready
-- **Runs on**:
-  - Push to `main` only
-
-#### 📦 Build package (`build-package`)
-
-- Builds Python wheel and sdist packages using [`uv build`](https://github.com/astral-sh/uv)
-- **Requires**:
-  - Python package with a `pyproject.toml` file
 
 #### ✅ Compile binaries (`compile-binaries`)
 
@@ -534,7 +543,7 @@ flowchart TD
 - Automatically cleaned up when a real release is created
 - **Runs on**: Non-release pushes to `main` only
 - **Requires**:
-  - `build-package` and `compile-binaries` jobs (uses `always()` for resilience)
+  - The wheel from the build lane (`build-package`, downloaded run-scoped) and the `compile-binaries` job (uses `always()` for resilience)
 - **Skipped if**:
   - `dev-release.sync = false` in `[tool.repomatic]`
 

@@ -227,19 +227,18 @@ def test_mirrors_canonical_dispatch(filename: str) -> None:
 
 
 def test_release_thin_caller_synthesizes_triggers() -> None:
-    """release.yaml is call-only upstream; its caller synthesizes push + dispatch.
+    """The release.yaml caller synthesizes the standard push + dispatch triggers.
 
-    The canonical release.yaml declares no push/workflow_dispatch trigger
-    (repomatic's own self-release.yaml owns those). generate_thin_caller
-    therefore synthesizes the standard release triggers for downstream callers
-    rather than mirroring the canonical workflow's empty non-call triggers.
+    `_generate_release_caller` synthesizes the standard release triggers rather
+    than mirroring the canonical release.yaml's own (so a dogfooding-only trigger
+    added upstream never leaks into downstream callers).
     """
     content = generate_thin_caller("release.yaml")
     data = yaml.safe_load(content)
     triggers = data.get(True) or data.get("on") or {}
     assert "workflow_dispatch" in triggers
     assert triggers["push"] == {"branches": ["main"]}
-    # Canonical is call-only: there is nothing to mirror.
+    # The engine lane is call-only.
     assert extract_trigger_info("_release-engine.yaml").non_call_triggers == {}
 
 
@@ -292,22 +291,40 @@ def test_release_passes_secrets_explicitly() -> None:
 
 
 def test_release_thin_caller_emits_publish_pypi_job() -> None:
-    """Verify the release.yaml thin caller appends the caller-side publish-pypi job."""
+    """Verify the release.yaml caller emits the publish-pypi job gated on the build lane."""
     content = generate_thin_caller("release.yaml", version="v9.9.9")
     assert "  publish-pypi:" in content
-    assert "needs: release" in content
+    # publish-pypi depends only on the build lane so the wheel ships to PyPI right
+    # after it is built, not after the whole engine (binaries, scan) completes.
+    assert "needs: build" in content
     # The gate is decoupled from the overall run result: always() + package_built
     # let a healthy wheel publish even when an unrelated job (like binary tests)
-    # fails the run.
+    # fails the run. Both signals come from the build lane.
     assert "always()" in content
-    assert "needs.release.outputs.package_built == 'true'" in content
-    assert "needs.release.outputs.release_commits_matrix" in content
+    assert "needs.build.outputs.package_built == 'true'" in content
+    assert "needs.build.outputs.release_commits_matrix" in content
     assert "id-token: write" in content
     assert f"{DEFAULT_REPO}/.github/actions/publish-pypi@v9.9.9" in content
     assert (
         "artifact-name: ${{ github.event.repository.name }}-${{ matrix.short_sha }}"
         in content
     )
+
+
+def test_release_thin_caller_emits_build_and_engine_lanes() -> None:
+    """Verify the release.yaml caller calls both reusable lanes with pinned refs.
+
+    The build lane (`_release-build.yaml`) feeds publish-pypi; the engine lane
+    (`_release-engine.yaml`) runs binaries and finalization. Both are pinned to
+    the requested version and the engine lane is gated on the build lane so it
+    can download the run-scoped wheel.
+    """
+    content = generate_thin_caller("release.yaml", version="v9.9.9")
+    assert f"{DEFAULT_REPO}/.github/workflows/_release-build.yaml@v9.9.9" in content
+    assert f"{DEFAULT_REPO}/.github/workflows/_release-engine.yaml@v9.9.9" in content
+    # The engine lane waits for the build lane (run-scoped wheel handoff).
+    data = yaml.safe_load(content)
+    assert data["jobs"]["release"]["needs"] == "build"
 
 
 def test_release_thin_caller_publish_pypi_uses_sha_pin() -> None:
@@ -401,6 +418,8 @@ def test_release_thin_caller_rewrites_local_action_ref(monkeypatch) -> None:
         monkeypatch,
         "---\n"
         "jobs:\n"
+        "  build:\n"
+        "    uses: ./.github/workflows/_release-build.yaml\n"
         "  publish-pypi:\n"
         "    permissions:\n"
         "      id-token: write\n"
@@ -409,13 +428,18 @@ def test_release_thin_caller_rewrites_local_action_ref(monkeypatch) -> None:
         "      - uses: actions/checkout@abc123\n"
         "      - uses: ./.github/actions/publish-pypi\n"
         "        with:\n"
-        "          artifact-name: x\n",
+        "          artifact-name: x\n"
+        "  release:\n"
+        "    uses: ./.github/workflows/_release-engine.yaml\n",
     )
 
     content = generate_thin_caller("release.yaml", version="v9.9.9")
     assert f"{DEFAULT_REPO}/.github/actions/publish-pypi@v9.9.9" in content
     assert "./.github/actions/publish-pypi" not in content
     assert "actions/checkout" not in content
+    # Both reusable lanes are pinned to the requested version.
+    assert f"{DEFAULT_REPO}/.github/workflows/_release-build.yaml@v9.9.9" in content
+    assert f"{DEFAULT_REPO}/.github/workflows/_release-engine.yaml@v9.9.9" in content
 
 
 def test_release_thin_caller_unrecognized_job_raises(monkeypatch) -> None:
@@ -429,11 +453,15 @@ def test_release_thin_caller_unrecognized_job_raises(monkeypatch) -> None:
         monkeypatch,
         "---\n"
         "jobs:\n"
+        "  build:\n"
+        "    uses: ./.github/workflows/_release-build.yaml\n"
         "  publish-pypi:\n"
         "    permissions:\n"
         "      id-token: write\n"
         "    steps:\n"
-        "      - run: echo no-action-ref-here\n",
+        "      - run: echo no-action-ref-here\n"
+        "  release:\n"
+        "    uses: ./.github/workflows/_release-engine.yaml\n",
     )
 
     with pytest.raises(RuntimeError, match="publish-pypi"):

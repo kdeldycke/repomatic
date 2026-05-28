@@ -58,6 +58,11 @@ WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
     "autolock.yaml",  # Scheduled only, no concurrent execution possible.
     "cancel-runs.yaml",  # Fires on PR close, must always run to completion.
     "debug.yaml",  # Debug-only workflow, not for production use.
+    # Release fast lane: a cheap, idempotent sub-component invoked by release.yaml.
+    # A shared concurrency group would contend with the engine lane in the same
+    # run; release commits are protected from cancellation by the engine's
+    # SHA-based unique group instead.
+    "_release-build.yaml",
     # Thin-caller entry: delegates concurrency to the _release-engine.yaml it
     # calls (which uses SHA-based unique groups to protect releases).
     "release.yaml",
@@ -707,6 +712,10 @@ ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
 # they are repomatic-internal (patching files that only exist in this repo) and
 # must not be exported to downstream repositories.
 WORKFLOWS_WITHOUT_SYMLINKS = frozenset((
+    # Release fast lane: the generated release.yaml references it via a pinned
+    # cross-repo `uses:` (resolved from this repo at a tag, not the wheel), and
+    # nothing reads it via get_data_content, so it needs no bundled data/ copy.
+    "_release-build.yaml",
     # repomatic's own release entry; downstreams get a generated release.yaml
     # (built from the bundled _release-engine.yaml), so the entry isn't bundled.
     "release.yaml",
@@ -817,8 +826,8 @@ def test_agent_symlinks_resolve_correctly() -> None:
         )
 
 
-def test_release_engine_matrix_outputs_degrade_to_empty_string() -> None:
-    """`_release-engine.yaml` matrix outputs must emit `''` (not `"null"`) for null.
+def test_release_build_matrix_outputs_degrade_to_empty_string() -> None:
+    """`_release-build.yaml` matrix outputs must emit `''` (not `"null"`) for null.
 
     GitHub Actions serializes a null value through `toJSON(...)` as the literal
     string `"null"`, which is *truthy* in expressions. A caller that guards its
@@ -828,14 +837,45 @@ def test_release_engine_matrix_outputs_degrade_to_empty_string() -> None:
     string for a null source (the `<value> && toJSON(<value>) || ''` pattern),
     so the caller's fallback fires and the job skips cleanly.
     """
-    outputs = load_workflow("_release-engine.yaml")["on"]["workflow_call"]["outputs"]
+    outputs = load_workflow("_release-build.yaml")["on"]["workflow_call"]["outputs"]
     matrix_outputs = sorted(name for name in outputs if name.endswith("_matrix"))
     assert matrix_outputs, "expected at least one `*_matrix` workflow_call output"
     for name in matrix_outputs:
         value = " ".join(outputs[name]["value"].split())
         assert "|| ''" in value, (
-            f"_release-engine.yaml output `{name}` must degrade to an empty string "
+            f"_release-build.yaml output `{name}` must degrade to an empty string "
             "for a null source (the `<value> && toJSON(<value>) || ''` pattern), not "
             'a bare `toJSON(...)` that yields the truthy string "null" and defeats a '
             f"caller's matrix fallback. Got: {value}"
+        )
+
+
+def test_release_lanes_split_jobs() -> None:
+    """The build lane owns the package build; the engine lane owns the rest.
+
+    Splitting `build-package` (and the squash guard) into `_release-build.yaml`
+    is what lets release.yaml's publish-pypi depend on the wheel alone. The
+    engine keeps the binary, tag, and release-finalization jobs and must no
+    longer define `build-package`.
+    """
+    build_jobs = load_workflow("_release-build.yaml")["jobs"]
+    engine_jobs = load_workflow("_release-engine.yaml")["jobs"]
+
+    assert "build-package" in build_jobs
+    assert "detect-squash-merge" in build_jobs
+    assert "metadata" in build_jobs
+
+    assert "build-package" not in engine_jobs
+    assert "detect-squash-merge" not in engine_jobs
+    # The engine recomputes metadata for its own jobs.
+    assert "metadata" in engine_jobs
+    assert "compile-binaries" in engine_jobs
+    assert "create-release" in engine_jobs
+
+    # No engine job may still depend on the relocated build-package job.
+    for name, job in engine_jobs.items():
+        needs = job.get("needs", [])
+        needs = [needs] if isinstance(needs, str) else needs
+        assert "build-package" not in needs, (
+            f"engine job `{name}` still needs the relocated build-package job"
         )

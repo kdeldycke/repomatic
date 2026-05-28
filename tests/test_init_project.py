@@ -2811,12 +2811,27 @@ def test_removed_reusable_workflows_are_tombstoned() -> None:
         ):
             old_reusable.add(m.group(1))
 
+    # "Currently shipped" reusable workflows: every workflow file still on disk
+    # with a `workflow_call:` trigger. Detected from disk rather than from
+    # REUSABLE_WORKFLOWS because the release engine ships reusable lanes
+    # (_release-build.yaml, _release-engine.yaml) that the generated release.yaml
+    # references by name rather than as registry file_ids (whose file_id is
+    # `release.yaml`), so they would otherwise look "removed".
+    workflows_dir = repo_root / ".github" / "workflows"
+    current_reusable = {
+        wf.name
+        for wf in workflows_dir.glob("*.yaml")
+        if re.search(
+            r"^\s*workflow_call:", wf.read_text(encoding="UTF-8"), re.MULTILINE
+        )
+    }
+
     tombstoned = {
         a.target.rsplit("/", 1)[-1]
         for a in REMOVED_ASSETS
         if a.component == "workflows"
     }
-    for name in sorted(old_reusable - set(REUSABLE_WORKFLOWS)):
+    for name in sorted(old_reusable - current_reusable):
         assert name in tombstoned, (
             f"reusable workflow {name!r} present in {prev} but removed without a "
             f"RemovedAsset tombstone; add one to REMOVED_ASSETS"

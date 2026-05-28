@@ -542,9 +542,9 @@ def test_build_pr_body_empty_prefix(monkeypatch):
 REFERENCE_WORKFLOWS = (
     ".github/workflows/autofix.yaml",
     ".github/workflows/changelog.yaml",
-    # The detect-squash-merge --template reference lives in the engine, not the
-    # release.yaml entry (which only calls the engine and publishes).
-    ".github/workflows/_release-engine.yaml",
+    # The detect-squash-merge --template reference lives in the build lane, not
+    # the release.yaml entry (which only calls the lanes and publishes).
+    ".github/workflows/_release-build.yaml",
     ".github/workflows/renovate.yaml",
 )
 """Workflow files that reference PR body templates via ``--template``."""
