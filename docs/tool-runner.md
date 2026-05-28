@@ -15,7 +15,7 @@ The tools repomatic bridges have standing upstream requests to read `[tool.X]` f
 [actionlint#623](https://github.com/rhysd/actionlint/issues/623),
 [biome#9239](https://github.com/biomejs/biome/discussions/9239),
 [gitleaks#2066](https://github.com/gitleaks/gitleaks/issues/2066),
-[Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136),
+[Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909),
 [zizmor#322](https://github.com/orgs/zizmorcore/discussions/322#discussioncomment-15919620).
 The same request for shfmt ([sh#1268](https://github.com/mvdan/sh/issues/1268)) was declined.
 ```
@@ -129,7 +129,7 @@ All tools that support `[tool.X]` sections in `pyproject.toml`, whether natively
 | [lychee](https://lychee.cli.rs)                                                     | Link checking rules                 | [`[tool.lychee]`](https://lychee.cli.rs/guides/config/)                                              | Native                                                                                                                |
 | [mdformat](https://mdformat.readthedocs.io/en/stable/users/configuration_file.html) | Markdown formatting options         | [`[tool.mdformat]`](https://mdformat.readthedocs.io/en/stable/users/configuration_file.html)         | Native (via [`mdformat-pyproject`](https://github.com/csala/mdformat-pyproject))                                      |
 | [mypy](https://mypy.readthedocs.io/en/stable/config_file.html)                      | Static type checking                | [`[tool.mypy]`](https://mypy.readthedocs.io/en/stable/config_file.html#using-a-pyproject-toml-file)  | Native                                                                                                                |
-| [nuitka](https://github.com/Nuitka/Nuitka)                                          | Standalone binary compilation       | [`[tool.nuitka]`](https://nuitka.net/doc/user-manual.html)                                           | [repomatic bridge](#nuitka) → CLI flags ([native support: Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136)) |
+| [nuitka](https://github.com/Nuitka/Nuitka)                                          | Standalone binary compilation       | [`[tool.nuitka]`](https://nuitka.net/doc/user-manual.html)                                           | [repomatic bridge](#nuitka) → CLI flags ([native support: Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)) |
 | [pyproject-fmt](https://pyproject-fmt.readthedocs.io/en/latest/)                    | `pyproject.toml` formatting         | [`[tool.pyproject-fmt]`](https://pyproject-fmt.readthedocs.io/en/latest/)                            | Native                                                                                                                |
 | [pytest](https://docs.pytest.org/en/stable/reference/customize.html)                | Test runner options                 | [`[tool.pytest]`](https://docs.pytest.org/en/stable/reference/customize.html#pyproject-toml)         | Native                                                                                                                |
 | [ruff](https://docs.astral.sh/ruff/configuration/)                                  | Linting and formatting rules        | [`[tool.ruff]`](https://docs.astral.sh/ruff/configuration/#configuring-ruff)                         | Native                                                                                                                |
@@ -566,7 +566,7 @@ onefile = true
 output-dir = "build"
 ```
 
-repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka does not read `[tool.nuitka]` natively yet ([Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136)); repomatic's bridge fills the gap until it does.
+repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka does not read `[tool.nuitka]` natively yet ([Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)); repomatic's bridge fills the gap until it does.
 
 <!-- nuitka-manual-end -->
 
