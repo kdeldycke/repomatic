@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.23.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.23.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.23.0` (2026-05-28)](https://github.com/kdeldycke/repomatic/compare/v6.22.0...v6.23.0)
 
 - Split `release.yaml` into a thin entry workflow (`release.yaml`, owns `push`/`workflow_dispatch` triggers and the `publish-pypi` job) and a new reusable engine (`_release-engine.yaml`, `workflow_call`-only). Keeping `publish-pypi` in the entry is required so each repo's OIDC `job_workflow_ref` claim resolves to its own `release.yaml` for PyPI's Trusted Publisher (see [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). Downstream repos receive a regenerated `release.yaml` from `sync-repomatic`: its `uses:` line now points at `_release-engine.yaml@vX.Y.Z`, and its `publish-pypi` job is derived from the canonical entry's own job (dogfooding checkout dropped, action ref pinned to release tag, runner changed from `ubuntu-latest` to `ubuntu-slim`). The separate `release-publish-pypi-job.yaml` data fragment is removed; `release.yaml` is the single source for the job, keeping third-party action SHA pins Renovate-visible.
