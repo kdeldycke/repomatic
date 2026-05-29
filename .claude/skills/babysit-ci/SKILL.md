@@ -101,6 +101,8 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    **Gate 3 (tests.yaml, ~5-8 min):** Once the first stable job fails, or all fast platforms (Linux, Windows) pass, proceed.
 
+   **Poll in-process; never detach a monitor.** Wait by blocking on `gh run watch <RUN_ID>` or by looping the `gh run view` polls above within your own turn. Do **not** spawn a detached background monitor — a standalone process, or a `Monitor`-tool stream that emits a completion notification and then returns control. When this skill is resumed by a parent (such as `/repomatic-ship`), that pattern re-enters on every monitor tick and spawns *another* monitor instead of driving the run to a terminal state, looping without progress. Hold the turn until the run actually completes.
+
 4. **On any CI failure**, cancel remaining `tests.yaml` runs to free runners:
 
    ```shell-session
