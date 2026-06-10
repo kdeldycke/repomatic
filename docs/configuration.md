@@ -63,62 +63,64 @@ workflow.ignore-paths = ["uv.lock"]
 
 <!-- config-reference-start -->
 
-| Option                                                        | Description                                                                      | Default                             |
-| :------------------------------------------------------------ | :------------------------------------------------------------------------------- | :---------------------------------- |
-| [`agents.location`](#agents-location)                         | Directory prefix for Claude Code agent files, relative to the repository root.   | `"./.claude/agents/"`               |
-| [`awesome-template.sync`](#awesome-template-sync)             | Whether awesome-template sync is enabled for this project.                       | `true`                              |
-| [`bumpversion.sync`](#bumpversion-sync)                       | Whether bumpversion config sync is enabled for this project.                     | `true`                              |
-| [`cache.dir`](#cache-dir)                                     | Override the binary cache directory path.                                        | `""`                                |
-| [`cache.github-release-ttl`](#cache-github-release-ttl)       | Freshness TTL for cached single-release bodies (seconds).                        | `604800`                            |
-| [`cache.github-releases-ttl`](#cache-github-releases-ttl)     | Freshness TTL for cached all-releases responses (seconds).                       | `86400`                             |
-| [`cache.max-age`](#cache-max-age)                             | Auto-purge cached entries older than this many days.                             | `30`                                |
-| [`cache.pypi-ttl`](#cache-pypi-ttl)                           | Freshness TTL for cached PyPI metadata (seconds).                                | `86400`                             |
-| [`changelog.location`](#changelog-location)                   | File path of the changelog, relative to the root of the repository.              | `"./changelog.md"`                  |
-| [`dependency-graph.all-extras`](#dependency-graph-all-extras) | Whether to include all optional extras in the graph.                             | `true`                              |
-| [`dependency-graph.all-groups`](#dependency-graph-all-groups) | Whether to include all dependency groups in the graph.                           | `true`                              |
-| [`dependency-graph.level`](#dependency-graph-level)           | Maximum depth of the dependency graph.                                           | *(none)*                            |
-| [`dependency-graph.no-extras`](#dependency-graph-no-extras)   | Optional extras to exclude from the graph.                                       | `[]`                                |
-| [`dependency-graph.no-groups`](#dependency-graph-no-groups)   | Dependency groups to exclude from the graph.                                     | `[]`                                |
-| [`dependency-graph.output`](#dependency-graph-output)         | Path where the dependency graph Mermaid diagram should be written.               | `"./docs/assets/dependencies.mmd"`  |
-| [`dev-release.sync`](#dev-release-sync)                       | Whether dev pre-release sync is enabled for this project.                        | `true`                              |
-| [`docs.apidoc-exclude`](#docs-apidoc-exclude)                 | Glob patterns for modules to exclude from `sphinx-apidoc`.                       | `[]`                                |
-| [`docs.apidoc-extra-args`](#docs-apidoc-extra-args)           | Extra arguments appended to the `sphinx-apidoc` invocation.                      | `[]`                                |
-| [`docs.update-script`](#docs-update-script)                   | Path to a Python script run after `sphinx-apidoc` to generate dynamic content.   | `"./docs/docs_update.py"`           |
-| [`exclude`](#exclude)                                         | Additional components and files to exclude from repomatic operations.            | `[]`                                |
-| [`gitignore.extra-categories`](#gitignore-extra-categories)   | Additional gitignore template categories to fetch from gitignore.io.             | `[]`                                |
-| [`gitignore.extra-content`](#gitignore-extra-content)         | Additional content to append at the end of the generated `.gitignore` file.      | *(see example)*                     |
-| [`gitignore.location`](#gitignore-location)                   | File path of the `.gitignore` to update, relative to the root of the repository. | `"./.gitignore"`                    |
-| [`gitignore.sync`](#gitignore-sync)                           | Whether `.gitignore` sync is enabled for this project.                           | `true`                              |
-| [`include`](#include)                                         | Components and files to force-include, overriding default exclusions.            | `[]`                                |
-| [`labels.extra-content-rules`](#labels-extra-content-rules)   | Additional YAML rules appended to the content-based labeller configuration.      | `""`                                |
-| [`labels.extra-file-rules`](#labels-extra-file-rules)         | Additional YAML rules appended to the file-based labeller configuration.         | `""`                                |
-| [`labels.extra-files`](#labels-extra-files)                   | URLs of additional label definition files (JSON, JSON5, TOML, or YAML).          | `[]`                                |
-| [`labels.sync`](#labels-sync)                                 | Whether label sync is enabled for this project.                                  | `true`                              |
-| [`mailmap.sync`](#mailmap-sync)                               | Whether `.mailmap` sync is enabled for this project.                             | `true`                              |
-| [`notification.unsubscribe`](#notification-unsubscribe)       | Whether the unsubscribe-threads workflow is enabled.                             | `false`                             |
-| [`nuitka.enabled`](#nuitka-enabled)                           | Whether Nuitka binary compilation is enabled for this project.                   | `true`                              |
-| [`nuitka.entry-points`](#nuitka-entry-points)                 | Which `[project.scripts]` entry points produce Nuitka binaries.                  | `[]`                                |
-| [`nuitka.unstable-targets`](#nuitka-unstable-targets)         | Nuitka build targets allowed to fail without blocking the release.               | `[]`                                |
-| [`pypi-package-history`](#pypi-package-history)               | Former PyPI package names for projects that were renamed.                        | `[]`                                |
-| [`setup-guide`](#setup-guide)                                 | Whether the setup guide issue is enabled for this project.                       | `true`                              |
-| [`skills.location`](#skills-location)                         | Directory prefix for Claude Code skill files, relative to the repository root.   | `"./.claude/skills/"`               |
-| [`test-matrix.exclude`](#test-matrix-exclude)                 | Extra exclude rules applied to both full and PR test matrices.                   | `[]`                                |
-| [`test-matrix.include`](#test-matrix-include)                 | Extra include directives applied to both full and PR test matrices.              | `[]`                                |
-| [`test-matrix.remove`](#test-matrix-remove)                   | Per-axis value removals applied to both full and PR test matrices.               | {}                                  |
-| [`test-matrix.replace`](#test-matrix-replace)                 | Per-axis value replacements applied to both full and PR test matrices.           | {}                                  |
-| [`test-matrix.unstable`](#test-matrix-unstable)               | Full-matrix-only combinations to flag continue-on-error in CI.                   | `[]`                                |
-| [`test-matrix.variations`](#test-matrix-variations)           | Extra matrix dimension values added to the full test matrix only.                | {}                                  |
-| [`test-plan.file`](#test-plan-file)                           | Path to the YAML test plan file for binary testing.                              | `"./tests/cli-test-plan.yaml"`      |
-| [`test-plan.inline`](#test-plan-inline)                       | Inline YAML test plan for binaries.                                              | *(none)*                            |
-| [`test-plan.timeout`](#test-plan-timeout)                     | Timeout in seconds for each binary test.                                         | *(none)*                            |
-| [`uv-lock.sync`](#uv-lock-sync)                               | Whether `uv.lock` sync is enabled for this project.                              | `true`                              |
-| [`vulnerable-deps.sources`](#vulnerable-deps-sources)         | Advisory databases to consult for known vulnerabilities.                         | `['uv-audit', 'github-advisories']` |
-| [`vulnerable-deps.sync`](#vulnerable-deps-sync)               | Whether the `fix-vulnerable-deps` job is enabled for this project.               | `true`                              |
-| [`workflow.extra-paths`](#workflow-extra-paths)               | Literal entries to append to every workflow's `paths:` filter.                   | `[]`                                |
-| [`workflow.ignore-paths`](#workflow-ignore-paths)             | Literal entries to strip from every workflow's `paths:` filter.                  | `[]`                                |
-| [`workflow.paths`](#workflow-paths)                           | Per-workflow override of the `paths:` filter, keyed by filename.                 | {}                                  |
-| [`workflow.source-paths`](#workflow-source-paths)             | Source code directory names for workflow trigger `paths:` filters.               | *(none)*                            |
-| [`workflow.sync`](#workflow-sync)                             | Whether workflow sync is enabled for this project.                               | `true`                              |
+| Option                                                        | Description                                                                                                               | Default                             |
+| :------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------ | :---------------------------------- |
+| [`agents.location`](#agents-location)                         | Directory prefix for Claude Code agent files, relative to the repository root.                                            | `"./.claude/agents/"`               |
+| [`awesome-template.sync`](#awesome-template-sync)             | Whether awesome-template sync is enabled for this project.                                                                | `true`                              |
+| [`bumpversion.sync`](#bumpversion-sync)                       | Whether bumpversion config sync is enabled for this project.                                                              | `true`                              |
+| [`cache.dir`](#cache-dir)                                     | Override the binary cache directory path.                                                                                 | `""`                                |
+| [`cache.github-release-ttl`](#cache-github-release-ttl)       | Freshness TTL for cached single-release bodies (seconds).                                                                 | `604800`                            |
+| [`cache.github-releases-ttl`](#cache-github-releases-ttl)     | Freshness TTL for cached all-releases responses (seconds).                                                                | `86400`                             |
+| [`cache.max-age`](#cache-max-age)                             | Auto-purge cached entries older than this many days.                                                                      | `30`                                |
+| [`cache.pypi-ttl`](#cache-pypi-ttl)                           | Freshness TTL for cached PyPI metadata (seconds).                                                                         | `86400`                             |
+| [`changelog.location`](#changelog-location)                   | File path of the changelog, relative to the root of the repository.                                                       | `"./changelog.md"`                  |
+| [`dependency-graph.all-extras`](#dependency-graph-all-extras) | Whether to include all optional extras in the graph.                                                                      | `true`                              |
+| [`dependency-graph.all-groups`](#dependency-graph-all-groups) | Whether to include all dependency groups in the graph.                                                                    | `true`                              |
+| [`dependency-graph.level`](#dependency-graph-level)           | Maximum depth of the dependency graph.                                                                                    | *(none)*                            |
+| [`dependency-graph.no-extras`](#dependency-graph-no-extras)   | Optional extras to exclude from the graph.                                                                                | `[]`                                |
+| [`dependency-graph.no-groups`](#dependency-graph-no-groups)   | Dependency groups to exclude from the graph.                                                                              | `[]`                                |
+| [`dependency-graph.output`](#dependency-graph-output)         | Path where the dependency graph Mermaid diagram should be written.                                                        | `"./docs/assets/dependencies.mmd"`  |
+| [`dev-release.sync`](#dev-release-sync)                       | Whether dev pre-release sync is enabled for this project.                                                                 | `true`                              |
+| [`docs.apidoc-exclude`](#docs-apidoc-exclude)                 | Glob patterns for modules to exclude from `sphinx-apidoc`.                                                                | `[]`                                |
+| [`docs.apidoc-extra-args`](#docs-apidoc-extra-args)           | Extra arguments appended to the `sphinx-apidoc` invocation.                                                               | `[]`                                |
+| [`docs.update-script`](#docs-update-script)                   | Path to a Python script run after `sphinx-apidoc` to generate dynamic content.                                            | `"./docs/docs_update.py"`           |
+| [`exclude`](#exclude)                                         | Additional components and files to exclude from repomatic operations.                                                     | `[]`                                |
+| [`gitignore.extra-categories`](#gitignore-extra-categories)   | Additional gitignore template categories to fetch from gitignore.io.                                                      | `[]`                                |
+| [`gitignore.extra-content`](#gitignore-extra-content)         | Additional content to append at the end of the generated `.gitignore` file.                                               | *(see example)*                     |
+| [`gitignore.location`](#gitignore-location)                   | File path of the `.gitignore` to update, relative to the root of the repository.                                          | `"./.gitignore"`                    |
+| [`gitignore.sync`](#gitignore-sync)                           | Whether `.gitignore` sync is enabled for this project.                                                                    | `true`                              |
+| [`include`](#include)                                         | Components and files to force-include, overriding default exclusions.                                                     | `[]`                                |
+| [`labels.extra-content-rules`](#labels-extra-content-rules)   | Additional YAML rules appended to the content-based labeller configuration.                                               | `""`                                |
+| [`labels.extra-file-rules`](#labels-extra-file-rules)         | Additional YAML rules appended to the file-based labeller configuration.                                                  | `""`                                |
+| [`labels.extra-files`](#labels-extra-files)                   | URLs of additional label definition files (JSON, JSON5, TOML, or YAML).                                                   | `[]`                                |
+| [`labels.sync`](#labels-sync)                                 | Whether label sync is enabled for this project.                                                                           | `true`                              |
+| [`mailmap.sync`](#mailmap-sync)                               | Whether `.mailmap` sync is enabled for this project.                                                                      | `true`                              |
+| [`manpages.asset-name`](#manpages-asset-name)                 | Filename stem (without the `.tar.gz` extension) for the man-page tarball uploaded to the GitHub release.                  | `""`                                |
+| [`manpages.script`](#manpages-script)                         | Click command target whose tree gets rendered as roff `.1` files and attached as a tarball asset on every GitHub release. | `""`                                |
+| [`notification.unsubscribe`](#notification-unsubscribe)       | Whether the unsubscribe-threads workflow is enabled.                                                                      | `false`                             |
+| [`nuitka.enabled`](#nuitka-enabled)                           | Whether Nuitka binary compilation is enabled for this project.                                                            | `true`                              |
+| [`nuitka.entry-points`](#nuitka-entry-points)                 | Which `[project.scripts]` entry points produce Nuitka binaries.                                                           | `[]`                                |
+| [`nuitka.unstable-targets`](#nuitka-unstable-targets)         | Nuitka build targets allowed to fail without blocking the release.                                                        | `[]`                                |
+| [`pypi-package-history`](#pypi-package-history)               | Former PyPI package names for projects that were renamed.                                                                 | `[]`                                |
+| [`setup-guide`](#setup-guide)                                 | Whether the setup guide issue is enabled for this project.                                                                | `true`                              |
+| [`skills.location`](#skills-location)                         | Directory prefix for Claude Code skill files, relative to the repository root.                                            | `"./.claude/skills/"`               |
+| [`test-matrix.exclude`](#test-matrix-exclude)                 | Extra exclude rules applied to both full and PR test matrices.                                                            | `[]`                                |
+| [`test-matrix.include`](#test-matrix-include)                 | Extra include directives applied to both full and PR test matrices.                                                       | `[]`                                |
+| [`test-matrix.remove`](#test-matrix-remove)                   | Per-axis value removals applied to both full and PR test matrices.                                                        | {}                                  |
+| [`test-matrix.replace`](#test-matrix-replace)                 | Per-axis value replacements applied to both full and PR test matrices.                                                    | {}                                  |
+| [`test-matrix.unstable`](#test-matrix-unstable)               | Full-matrix-only combinations to flag continue-on-error in CI.                                                            | `[]`                                |
+| [`test-matrix.variations`](#test-matrix-variations)           | Extra matrix dimension values added to the full test matrix only.                                                         | {}                                  |
+| [`test-plan.file`](#test-plan-file)                           | Path to the YAML test plan file for binary testing.                                                                       | `"./tests/cli-test-plan.yaml"`      |
+| [`test-plan.inline`](#test-plan-inline)                       | Inline YAML test plan for binaries.                                                                                       | *(none)*                            |
+| [`test-plan.timeout`](#test-plan-timeout)                     | Timeout in seconds for each binary test.                                                                                  | *(none)*                            |
+| [`uv-lock.sync`](#uv-lock-sync)                               | Whether `uv.lock` sync is enabled for this project.                                                                       | `true`                              |
+| [`vulnerable-deps.sources`](#vulnerable-deps-sources)         | Advisory databases to consult for known vulnerabilities.                                                                  | `['uv-audit', 'github-advisories']` |
+| [`vulnerable-deps.sync`](#vulnerable-deps-sync)               | Whether the `fix-vulnerable-deps` job is enabled for this project.                                                        | `true`                              |
+| [`workflow.extra-paths`](#workflow-extra-paths)               | Literal entries to append to every workflow's `paths:` filter.                                                            | `[]`                                |
+| [`workflow.ignore-paths`](#workflow-ignore-paths)             | Literal entries to strip from every workflow's `paths:` filter.                                                           | `[]`                                |
+| [`workflow.paths`](#workflow-paths)                           | Per-workflow override of the `paths:` filter, keyed by filename.                                                          | {}                                  |
+| [`workflow.source-paths`](#workflow-source-paths)             | Source code directory names for workflow trigger `paths:` filters.                                                        | *(none)*                            |
+| [`workflow.sync`](#workflow-sync)                             | Whether workflow sync is enabled for this project.                                                                        | `true`                              |
 
 ### `agents.location`
 
@@ -601,6 +603,40 @@ to overwrite it can set this to `false`.
 ```toml
 [tool.repomatic]
 mailmap.sync = true
+```
+
+### `manpages.asset-name`
+
+Filename stem (without the `.tar.gz` extension) for the man-page tarball uploaded to the GitHub release.
+
+**Type:** `str` | **Default:** `""`
+
+Defaults to `<package-name>-manpages` when left empty and `manpages.script`
+is set. Has no effect when `manpages.script` is empty.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+manpages.asset-name = ""
+```
+
+### `manpages.script`
+
+Click command target whose tree gets rendered as roff `.1` files and attached as a tarball asset on every GitHub release.
+
+**Type:** `str` | **Default:** `""`
+
+Same shape the `click-extra man` CLI accepts: a `module:function` path
+(preferred for projects whose console-script entry point dispatches through
+a wrapper), an entry-point name, a `.py` file path, or a plain importable
+module name. Leave empty to disable release-attached man pages.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+manpages.script = ""
 ```
 
 ### `notification.unsubscribe`
