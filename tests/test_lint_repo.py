@@ -560,9 +560,7 @@ def test_pat_check_non_403_surfaces_raw_error():
         patch("repomatic.github.token.run_gh_command") as mock_gh,
         patch("repomatic.github.token.status_annotation", return_value=""),
     ):
-        mock_gh.side_effect = RuntimeError(
-            "HTTP 401: Requires authentication"
-        )
+        mock_gh.side_effect = RuntimeError("HTTP 401: Requires authentication")
         passed, msg = check_pat_contents_permission("owner/repo")
         assert passed is False
         assert "GitHub API call failed" in msg
