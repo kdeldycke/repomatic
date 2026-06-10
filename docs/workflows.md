@@ -556,7 +556,8 @@ Optional sibling of `_release-build.yaml` and `_release-engine.yaml`. Renders a 
 ```yaml
 man-pages:
   needs: [build, release]
-  if: needs.release.result == 'success' && needs.build.outputs.release_commits_matrix
+  if: needs.release.result == 'success' && 
+    needs.build.outputs.release_commits_matrix
   uses: kdeldycke/repomatic/.github/workflows/_release-manpages.yaml@vX.Y.Z
   with:
     script: my_pkg.cli:my_cli
