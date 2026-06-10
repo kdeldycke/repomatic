@@ -50,8 +50,8 @@ from importlib.resources import as_file, files
 from pathlib import Path, PurePosixPath
 from urllib.request import urlretrieve
 
-import tomlkit
-from tomlkit.items import InlineTable
+import tomlrt
+from tomlrt import Table
 
 from . import __version__
 from .config import Config, load_repomatic_config
@@ -231,21 +231,20 @@ def export_content(filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _template_to_table(template_text: str) -> tomlkit.items.Table:
-    """Parse native-format template text into a tomlkit Table.
+def _template_to_table(template_text: str) -> Table:
+    """Parse native-format template text into a tomlrt section table.
 
-    Uses `Container.append` to preserve standalone comments and whitespace
-    from the template during the copy.
+    `Table.section` copies the parsed mapping's values into a fresh, detached
+    table. Trivia attached to nested table values carries over, but top-level
+    standalone comments and inline trivia are stored on the source document, so
+    they are not preserved. The returned table carries no `[tool.X]` header; it
+    gets one only when assigned into a document.
 
     :param template_text: Template content in native format (no `[tool.X]`
         prefix), with file-level header comments already stripped.
-    :return: A tomlkit Table suitable for assignment into a document.
+    :return: A tomlrt section table suitable for assignment into a document.
     """
-    parsed = tomlkit.parse(template_text)
-    table = tomlkit.table()
-    for key, item in parsed.body:
-        table._value.append(key, item)
-    return table
+    return Table.section(tomlrt.loads(template_text))
 
 
 # Sentinel marking a key absent from the template, so a legitimate template
@@ -270,14 +269,14 @@ def _graft_local_additions(
     target: Any,
     template: Mapping[str, Any],
     existing: Mapping[str, Any],
-    existing_tk: Any,
     identity_keys: tuple[str, ...] = (),
 ) -> None:
     """Graft local-only content from an existing section onto a template table.
 
-    Walks the *existing* section against the *template* (both plain-dict views)
-    and copies into *target* (the tomlkit table built from the template) every
-    piece of local configuration the canonical template does not already carry:
+    Walks the *existing* tomlrt section against the *template* (a plain-dict
+    view) and copies into *target* (the tomlrt table built from the template)
+    every piece of local configuration the canonical template does not already
+    carry:
 
     - **Keys the template does not define** are grafted verbatim, so a
       project-specific table like `[tool.typos.files]` survives untouched.
@@ -294,16 +293,14 @@ def _graft_local_additions(
     - **Scalars present in both** are left as the template defines them: the
       canonical value wins, which is the point of an ongoing sync.
 
-    Grafted items are taken from *existing_tk* (the tomlkit view of the local
-    section), not the plain-dict view, so comments and inline formatting on
-    local additions carry over where tomlkit attaches them.
+    Grafted nodes are copied from *existing*, so comments and inline
+    formatting on local additions carry over.
 
-    :param target: tomlkit table built from the bundled template, mutated in
+    :param target: tomlrt table built from the bundled template, mutated in
         place.
     :param template: Plain-dict view of the bundled template section.
-    :param existing: Plain-dict view of the local section being synced.
-    :param existing_tk: tomlkit view of the local section, source of grafted
-        items.
+    :param existing: tomlrt view of the local section being synced, walked for
+        structure and used as the source of grafted nodes.
     :param identity_keys: Keys identifying an array-of-tables entry's slot. When
         set, a local entry sharing a slot with a template entry is dropped in
         favour of the template rather than appended as a duplicate.
@@ -312,23 +309,15 @@ def _graft_local_additions(
         template_value = template.get(key, _MISSING)
         if template_value is _MISSING:
             # Key the canonical template does not define: keep it verbatim.
-            target[key] = existing_tk[key]
+            target[key] = existing_value
         elif isinstance(template_value, dict) and isinstance(existing_value, dict):
-            if isinstance(target[key], InlineTable):
-                # tomlkit corrupts an inline table when keys are inserted into
-                # it incrementally (it omits the comma separator), so rebuild
-                # it from scratch. Inline tables carry no comments, so nothing
-                # is lost. See https://github.com/python-poetry/tomlkit/issues/48.
-                target[key] = _merged_inline_table(template_value, existing_value)
-            else:
-                # Standard table: recurse so local-only sub-keys survive.
-                _graft_local_additions(
-                    target[key],
-                    template_value,
-                    existing_value,
-                    existing_tk[key],
-                    identity_keys,
-                )
+            # Standard or inline table: recurse so local-only sub-keys survive.
+            _graft_local_additions(
+                target[key],
+                template_value,
+                existing_value,
+                identity_keys,
+            )
         elif isinstance(template_value, list) and isinstance(existing_value, list):
             # Slots already claimed by the canonical template: a local entry
             # mapping to one of these is a (possibly stale) copy of a template
@@ -343,7 +332,7 @@ def _graft_local_additions(
                 else set()
             )
             # Array in both: append local-only items, preserving their order.
-            for index, item in enumerate(existing_value):
+            for item in existing_value:
                 if (
                     isinstance(item, dict)
                     and _entry_identity(item, identity_keys) in template_slots
@@ -351,70 +340,8 @@ def _graft_local_additions(
                     # Same slot as a canonical entry: superseded by the template.
                     continue
                 if item not in template_value:
-                    target[key].append(existing_tk[key][index])
+                    target[key].append(item)
         # Scalar in both: the canonical template value wins, nothing to graft.
-
-
-_BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
-"""TOML bare-key pattern: keys outside it must be quoted in inline tables."""
-
-
-def _inline_key_text(key: str) -> str:
-    """Render an inline-table key, quoting it only when it is not a bare key."""
-    if _BARE_KEY.match(key):
-        return key
-    return tomlkit.string(key).as_string()
-
-
-def _inline_table_text(
-    template: Mapping[str, Any],
-    existing: Mapping[str, Any],
-) -> str:
-    """Render a merged inline table as `{ key = value, ... }` text.
-
-    Template keys come first in template order with the canonical value; keys
-    the template omits follow in their original order. Nested inline tables
-    recurse. The output uses pyproject-fmt spacing (`{ ... }`, `, ` separators)
-    so the merged section is stable under the `format-pyproject` autofix job,
-    which re-spaces a compact `{...}`.
-    """
-    parts: list[str] = []
-    for key, template_value in template.items():
-        existing_value = existing.get(key, _MISSING)
-        if isinstance(template_value, dict) and isinstance(existing_value, dict):
-            value_text = _inline_table_text(template_value, existing_value)
-        else:
-            # Canonical template value wins on keys present in both.
-            value_text = tomlkit.item(template_value).as_string()
-        parts.append(f"{_inline_key_text(key)} = {value_text}")
-    for key, existing_value in existing.items():
-        if key not in template:
-            value_text = tomlkit.item(existing_value).as_string()
-            parts.append(f"{_inline_key_text(key)} = {value_text}")
-    if not parts:
-        return "{}"
-    return "{ " + ", ".join(parts) + " }"
-
-
-def _merged_inline_table(
-    template: Mapping[str, Any],
-    existing: Mapping[str, Any],
-) -> InlineTable:
-    """Build a merged inline table that renders with pyproject-fmt spacing.
-
-    Rebuilt from rendered text rather than mutated in place because tomlkit
-    drops the comma separator when inserting into a parsed inline table
-    ([tomlkit#48](https://github.com/python-poetry/tomlkit/issues/48)), and
-    `tomlkit.inline_table()` emits a compact `{...}` that `format-pyproject`
-    would re-space. Parsing a spaced snippet sidesteps both.
-
-    :param template: Plain-dict view of the template inline table.
-    :param existing: Plain-dict view of the local inline table.
-    :return: A tomlkit inline table with the merged content.
-    """
-    table = tomlkit.parse(f"_ = {_inline_table_text(template, existing)}")["_"]
-    assert isinstance(table, InlineTable)
-    return table
 
 
 def _update_tool_config(
@@ -430,20 +357,12 @@ def _update_tool_config(
     tables. The template wins on shared scalars; `comp.preserved_keys`
     overrides that for named top-level keys (e.g. `current_version`).
 
-    ```{note}
-    Comments attached to local array-of-tables entries are preserved
-    when they appear between entries (tomlkit stores them as trailing
-    trivia on the preceding entry). A comment immediately before the
-    *first* local entry may be lost: tomlkit stores it in the parent
-    table body, not in the AoT.
-    ```
-
     :param content: The current pyproject.toml content.
     :param comp: The component whose config is being synced.
     :param pyproject_path: Path to pyproject.toml (for resolving managed files).
     :return: Modified pyproject.toml content, or `None` if already up to date.
     """
-    doc = tomlkit.parse(content)
+    doc = tomlrt.loads(content)
     tool_name = comp.tool_section.removeprefix("tool.")
 
     tool_table = doc.get("tool")
@@ -452,9 +371,8 @@ def _update_tool_config(
 
     existing_section = tool_table[tool_name]
 
-    # Plain-dict views for value comparison (tomlkit items do not compare
-    # equal to plain dicts).
-    existing_plain = tomllib.loads(content).get("tool", {}).get(tool_name, {})
+    # Plain-dict view of the canonical template, walked alongside the existing
+    # section to decide what local-only content to graft back on.
     native_source = export_content(comp.source_file)
     template_plain = tomllib.loads(native_source)
 
@@ -471,10 +389,11 @@ def _update_tool_config(
     # template omits, extra items in shared arrays, and extra keys in shared
     # nested tables all survive, while the template wins on shared scalars and
     # on array-of-tables entries that share a `graft_identity_keys` slot.
+    # Graft before assigning: the assignment deep-clones `new_section`, so
+    # grafted entries must be in place first to carry over with their comments.
     _graft_local_additions(
         new_section,
         template_plain,
-        existing_plain,
         existing_section,
         comp.graft_identity_keys,
     )
@@ -488,33 +407,8 @@ def _update_tool_config(
     # Replace the section in the document.
     tool_table[tool_name] = new_section
 
-    modified = tomlkit.dumps(doc)
+    modified = tomlrt.dumps(doc)
 
-    # tomlkit may omit the newline before section headers when replacing
-    # or appending entries. Normalize so every `[` or `[[` starts on
-    # its own line with a preceding blank line. This is a workaround for
-    # several long-standing tomlkit bugs around whitespace after
-    # programmatic edits:
-    # - https://github.com/python-poetry/tomlkit/issues/48
-    # - https://github.com/python-poetry/tomlkit/issues/352
-    # - https://github.com/python-poetry/tomlkit/issues/400
-    # No normalization API exists in tomlkit; revisit if one is added.
-    # Regex on the serialized string is preferred over manipulating
-    # tomlkit's per-item `_trivia.indent` because the internal
-    # representation of dotted tables (`[tool.X]`) is non-trivial to
-    # walk, and the trivia heuristics in `_replace_at`/`_insert_at`
-    # are themselves the source of the inconsistencies.
-    #
-    # 1. Fix `[[` not starting on its own line (AoT appending).
-    modified = re.sub(r"(?<!\n)(\[\[)", r"\n\n\1", modified)
-    # 2. Ensure a blank line before single-bracket `[table]` headers.
-    #    `(?!\[)` avoids matching the inner `[` of `[[`.
-    modified = re.sub(r"([^\n])\n(\[(?!\[))", r"\1\n\n\2", modified)
-    # 3. Collapse excessive blank lines (3+) down to exactly one.
-    modified = re.sub(r"\n{3,}\[", r"\n\n[", modified)
-    # 4. Remove blank lines that step 2 inserted between a comment and
-    #    the `[table]` header it describes.
-    modified = re.sub(r"(^#[^\n]*)\n\n(\[)", r"\1\n\2", modified, flags=re.MULTILINE)
     if modified.strip() == content.strip():
         logging.info(f"[{comp.tool_section}] already up to date.")
         return None
@@ -530,7 +424,7 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
     and if not, inserts the bundled template at the appropriate location.
 
     The template is stored in native format (without `[tool.X]` prefix) and
-    is parsed by tomlkit and added under the `[tool]` table.
+    is parsed by tomlrt and added under the `[tool]` table.
 
     :param config_type: The configuration type (e.g., `"ruff"`,
         `"bumpversion"`).
@@ -556,7 +450,7 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
         return None
 
     content = pyproject_path.read_text(encoding="UTF-8")
-    doc = tomlkit.parse(content)
+    doc = tomlrt.loads(content)
     tool_name = comp.tool_section.removeprefix("tool.")
 
     # Check if the config section already exists.
@@ -576,13 +470,9 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
     native_stripped = "\n".join(native_lines[first_key:])
     new_section = _template_to_table(native_stripped)
 
-    # Ensure [tool] table exists.
-    if "tool" not in doc:
-        doc.add("tool", tomlkit.table())
+    doc.install(("tool", tool_name), new_section)
 
-    doc["tool"][tool_name] = new_section
-
-    return tomlkit.dumps(doc)
+    return tomlrt.dumps(doc)
 
 
 # ---------------------------------------------------------------------------

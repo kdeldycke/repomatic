@@ -39,7 +39,6 @@ from repomatic.renovate import (
 )
 from repomatic.uv import (
     RELEASE_NOTES_MAX_LENGTH,
-    _find_preceding_comments,
     _format_upload_date,
     _packages_outside_cooldown,
     _parse_github_owner_repo,
@@ -1004,37 +1003,6 @@ def test_prune_stale_no_entries(tmp_path):
     lock = tmp_path / "uv.lock"
     lock.write_text("version = 1\n")
     assert prune_stale_exclude_newer_packages(pyproject, lock) is False
-
-
-def test_find_preceding_comments():
-    """Find comment lines immediately above a TOML key."""
-    text = (
-        'exclude-newer = "1 week"\n'
-        "# Packages that bypass the cooldown.\n"
-        'exclude-newer-package = { "requests" = "0 day" }\n'
-    )
-    assert _find_preceding_comments(text, "exclude-newer-package") == (
-        "# Packages that bypass the cooldown.\n"
-    )
-
-
-def test_find_preceding_comments_none():
-    """Return empty string when no comment precedes the key."""
-    text = (
-        'exclude-newer = "1 week"\nexclude-newer-package = { "requests" = "0 day" }\n'
-    )
-    assert _find_preceding_comments(text, "exclude-newer-package") == ""
-
-
-def test_find_preceding_comments_multiple():
-    """Find multiple consecutive comment lines above a key."""
-    text = (
-        "# First line.\n"
-        "# Second line.\n"
-        'exclude-newer-package = { "requests" = "0 day" }\n'
-    )
-    result = _find_preceding_comments(text, "exclude-newer-package")
-    assert result == "# First line.\n# Second line.\n"
 
 
 # ---------------------------------------------------------------------------

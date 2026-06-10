@@ -51,7 +51,7 @@ from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen
 
 import click
-import tomlkit
+import tomlrt
 import yaml
 from extra_platforms import (
     AARCH64,
@@ -168,7 +168,7 @@ class NativeFormat(Enum):
                 data, default_flow_style=False, sort_keys=False
             )
         if self is NativeFormat.TOML:
-            return header + tomlkit.dumps(data)
+            return header + tomlrt.Document(data).render()
         if self is NativeFormat.EDITORCONFIG:
             return self._serialize_editorconfig(data, header)
         return json.dumps(data, indent=2) + "\n"

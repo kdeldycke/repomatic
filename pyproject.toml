@@ -106,9 +106,9 @@ dependencies = [
   "pyyaml>=6.0.3",
   # tomli 2.0 aligned API with stdlib tomllib; only installed on Python 3.10.
   "tomli>=2; python_version<'3.11'",
-  # tomlkit 0.13 stabilized InlineTable manipulation; used for comment-preserving
-  # TOML write operations (tool_runner config translation).
-  "tomlkit>=0.13",
+  # tomlrt is a format-preserving TOML reader/writer; used for comment-preserving
+  # TOML write operations (tool config translation, pyproject.toml merging).
+  "tomlrt>=1.7",
   # vt-py is the official VirusTotal Python client (uses aiohttp internally).
   # Used by the scan-virustotal CLI command to upload release binaries.
   "vt-py>=0.18",

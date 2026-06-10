@@ -32,12 +32,12 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import cast
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-import tomlkit
+import tomlrt
 from packaging.version import InvalidVersion, Version
+from tomlrt import Table
 
 from .cache import get_cached_response, store_response
 from .config import load_repomatic_config as _load_repomatic_config
@@ -322,18 +322,13 @@ user-configured value is a relative span. The real cutoff is in
 `options.exclude-newer-span` as an ISO 8601 duration."""
 
 
-def _build_inline_table(entries: dict[str, str]) -> tomlkit.items.InlineTable:
-    """Build a tomlkit inline table with pyproject-fmt-compatible formatting.
-
-    `tomlkit`'s `InlineTable.append()` and `__delitem__` leave malformed
-    whitespace (doubled spaces after commas, missing inner-brace spaces).
-    Building the table by parsing a pre-formatted string avoids this.
+def _build_inline_table(entries: dict[str, str]) -> Table:
+    """Build a tomlrt inline table with pyproject-fmt-compatible formatting.
 
     :param entries: Mapping of key-value pairs for the inline table.
-    :return: A `tomlkit` `InlineTable` with canonical formatting.
+    :return: A `tomlrt` inline `Table` with canonical formatting.
     """
-    parts = ", ".join(f'{k} = "{entries[k]}"' for k in sorted(entries))
-    return cast(tomlkit.items.InlineTable, tomlkit.value("{ " + parts + " }"))
+    return Table.inline({k: entries[k] for k in sorted(entries)})
 
 
 def _parse_relative_duration(value: str) -> timedelta | None:
@@ -458,7 +453,7 @@ def _packages_outside_cooldown(
     :return: The subset that actually requires a `"0 day"` override.
     """
     content = pyproject_path.read_text(encoding="UTF-8")
-    doc = tomlkit.parse(content)
+    doc = tomlrt.loads(content)
     exclude_newer_str = doc.get("tool", {}).get("uv", {}).get("exclude-newer", "")
     if not exclude_newer_str:
         return packages
@@ -514,7 +509,7 @@ def add_exclude_newer_packages(
         needed.
     """
     content = pyproject_path.read_text(encoding="UTF-8")
-    doc = tomlkit.parse(content)
+    doc = tomlrt.loads(content)
 
     uv = doc.get("tool", {}).get("uv")
     if uv is None:
@@ -552,30 +547,17 @@ def add_exclude_newer_packages(
         # ordering rule for `[tool.uv]`. Appending at the end would
         # produce a file that pyproject-fmt rewrites on its next run,
         # leaking the security fix into a follow-up format-pyproject PR.
-        uv.value._insert_after("exclude-newer", "exclude-newer-package", new_table)
+        uv["exclude-newer-package"] = new_table
+        order = [key for key in uv if key != "exclude-newer-package"]
+        order.insert(order.index("exclude-newer") + 1, "exclude-newer-package")
+        uv.sort(key=order.index)
 
-    pyproject_path.write_text(tomlkit.dumps(doc), encoding="UTF-8")
+    pyproject_path.write_text(tomlrt.dumps(doc), encoding="UTF-8")
     logging.info(
         f"Added {', '.join(sorted(to_add))} to exclude-newer-package"
         f" in {pyproject_path}."
     )
     return True
-
-
-def _find_preceding_comments(text: str, key: str) -> str:
-    """Find standalone comment lines immediately above a TOML key.
-
-    :param text: Full TOML file content.
-    :param key: The TOML key name to search for.
-    :return: The comment block including trailing newline, or an empty string
-        if no comments precede the key.
-    """
-    pattern = re.compile(
-        rf"((?:^[ \t]*#[^\n]*\n)+)(?=[ \t]*{re.escape(key)}\s*=)",
-        re.MULTILINE,
-    )
-    match = pattern.search(text)
-    return match.group(1) if match else ""
 
 
 def prune_stale_exclude_newer_packages(
@@ -601,7 +583,7 @@ def prune_stale_exclude_newer_packages(
     :return: `True` if the file was modified, `False` otherwise.
     """
     content = pyproject_path.read_text(encoding="UTF-8")
-    doc = tomlkit.parse(content)
+    doc = tomlrt.loads(content)
     uv = doc.get("tool", {}).get("uv", {})
 
     exclude_newer_str = uv.get("exclude-newer", "")
@@ -641,20 +623,12 @@ def prune_stale_exclude_newer_packages(
     # Rebuild the inline table without stale entries to produce
     # pyproject-fmt-compatible formatting.
     remaining = {k: v for k, v in pkg_table.items() if k not in stale}
-    removed_entirely = len(remaining) == 0
-    if not removed_entirely:
+    if remaining:
         uv["exclude-newer-package"] = _build_inline_table(remaining)
-
-    if removed_entirely:
-        # Find the comment(s) above the key before tomlkit loses their
-        # association. tomlkit preserves standalone comments when their
-        # associated key is deleted.
-        comment_above = _find_preceding_comments(content, "exclude-newer-package")
+    else:
         del uv["exclude-newer-package"]
 
-    result = tomlkit.dumps(doc)
-    if removed_entirely and comment_above:
-        result = result.replace(comment_above, "")
+    result = tomlrt.dumps(doc)
     pyproject_path.write_text(result, encoding="UTF-8")
     logging.info(
         f"Pruned {', '.join(sorted(stale))} from"
