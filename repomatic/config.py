@@ -534,6 +534,30 @@ class Config:
     to overwrite it can set this to `false`.
     """
 
+    manpages_script: str = field(
+        default="",
+        metadata={"click_extra.config_path": "manpages.script"},
+    )
+    """Click command target whose tree gets rendered as roff `.1` files and
+    attached as a tarball asset on every GitHub release.
+
+    Same shape the `click-extra man` CLI accepts: a `module:function` path
+    (preferred for projects whose console-script entry point dispatches through
+    a wrapper), an entry-point name, a `.py` file path, or a plain importable
+    module name. Leave empty to disable release-attached man pages.
+    """
+
+    manpages_asset_name: str = field(
+        default="",
+        metadata={"click_extra.config_path": "manpages.asset-name"},
+    )
+    """Filename stem (without the `.tar.gz` extension) for the man-page tarball
+    uploaded to the GitHub release.
+
+    Defaults to `<package-name>-manpages` when left empty and `manpages.script`
+    is set. Has no effect when `manpages.script` is empty.
+    """
+
     notification_unsubscribe: bool = field(
         default=False,
         metadata={"click_extra.config_path": "notification.unsubscribe"},

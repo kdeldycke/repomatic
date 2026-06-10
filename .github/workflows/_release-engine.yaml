@@ -66,6 +66,7 @@ jobs:
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
           is_python_project package_name current_version released_version
           release_notes release_notes_with_admonition skip_binary_build
+          manpages_script manpages_asset_name
       - name: Check VirusTotal API key
         id: check-vt-key
         env:
@@ -385,6 +386,74 @@ jobs:
           gh release edit "v${CURRENT_VERSION}"
           --draft=false
           --repo "${REPO}"
+
+  # Render the Click CLI command tree declared by `[tool.repomatic.manpages]` as roff `.1` files and attach them as a
+  # tarball asset on the GitHub release. Opt-in: silently skipped when `manpages.script` is empty in the consumer's
+  # pyproject.toml. Uses `click_extra.man_page.write_manpages()` against the consumer's already-synced venv, so only
+  # click-extra >= 7.18 is required (the newer `click-extra man --output-dir` CLI flag, in 7.19+, is not used).
+  manpages:
+    name: 📖 Man pages (${{ matrix.short_sha }})
+    needs:
+      - metadata
+      - publish-release
+    if: >-
+      always()
+      && needs.publish-release.result == 'success'
+      && fromJSON(needs.metadata.outputs.metadata).manpages_script != ''
+    strategy:
+      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ matrix.commit }}
+      - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: false
+      - name: Install project
+        run: uv --no-progress sync --frozen
+      # Inline Python rather than the `click-extra man --output-dir` CLI: both `write_manpages` and
+      # `resolve_target_command` shipped in click-extra 7.18.0, while the `--output-dir` CLI flag is newer (7.19+).
+      # Working off the consumer venv keeps repomatic itself out of the resolution graph.
+      - name: Generate man pages
+        env:
+          SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).manpages_script }}
+        run: |
+          mkdir -p man
+          uv --no-progress run --frozen -- python -c "
+          import os
+          from click_extra.man_page import write_manpages
+          from click_extra.wrap import resolve_target_command
+          script = os.environ['SCRIPT']
+          cmd, _ = resolve_target_command(script)
+          prog_name = cmd.name or script
+          written = write_manpages(cmd, 'man', prog_name=prog_name)
+          for path in written:
+              print(path)
+          "
+      - name: Bundle as tarball
+        env:
+          ASSET_NAME: >-
+            ${{
+              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
+              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
+            }}
+        run: tar --create --gzip --file "${ASSET_NAME}.tar.gz" man/
+      - name: Attach to GitHub release
+        env:
+          CURRENT_VERSION: ${{ matrix.current_version }}
+          ASSET_NAME: >-
+            ${{
+              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
+              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
+            }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          gh release upload "v${CURRENT_VERSION}" "${ASSET_NAME}.tar.gz"
+          --repo "${{ github.repository }}"
+          --clobber
 
   scan-virustotal:
     name: 🛡️ VirusTotal scan (${{ matrix.short_sha }})
