@@ -19,6 +19,12 @@ name: 🆙 Changelog & versions
       - .github/workflows/*.yaml
       # Trigger on lockfile changes so bump-version recreates its PRs before they conflict.
       - uv.lock
+      # Trigger on source, test, and docs changes too. A reconciliation commit that
+      # touches only these files (e.g., a release-time code cleanup) would otherwise
+      # leave the prepare-release PR stale on the pre-cleanup commit, forcing a
+      # manual `gh workflow run changelog.yaml --ref main` re-trigger.
+      - "**/*.py"
+      - "docs/**"
   # Trigger after release workflow completes to ensure tags exist before bump-version.
   # This avoids race conditions where changelog workflow checks for tags before they're pushed.
   workflow_run:

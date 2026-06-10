@@ -295,3 +295,96 @@ def test_failure_message_omits_status_when_no_incident():
         with pytest.raises(RuntimeError) as excinfo:
             run_gh_command(["issue", "list"])
         assert str(excinfo.value) == "some error\n"
+
+
+# -- Transient same-token retry on 401 ----------------------------------------
+
+
+def test_401_transient_clears_on_same_token_retry():
+    """A 401 that clears on the same token resolves without falling back."""
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
+        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch.dict(
+            "os.environ",
+            {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
+            clear=True,
+        ),
+    ):
+        mock_run.side_effect = [
+            _make_result(returncode=1, stderr="Requires authentication"),
+            _make_result(stdout="retry ok\n"),
+        ]
+        assert run_gh_command(["issue", "list"]) == "retry ok\n"
+        assert mock_run.call_count == 2
+        # Second attempt used the same token, after one sleep.
+        first_env = mock_run.call_args_list[0].kwargs["env"]
+        second_env = mock_run.call_args_list[1].kwargs["env"]
+        assert first_env["GH_TOKEN"] == second_env["GH_TOKEN"] == "pat-value"
+        mock_sleep.assert_called_once_with(1)
+
+
+def test_401_transient_retry_exhausts_then_falls_back():
+    """When every same-token retry returns 401, the cross-token fallback fires."""
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
+        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch.dict(
+            "os.environ",
+            {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value", "GITHUB_TOKEN": "gha"},
+            clear=True,
+        ),
+    ):
+        mock_run.side_effect = [
+            _make_result(returncode=1, stderr="Requires authentication"),
+            _make_result(returncode=1, stderr="Requires authentication"),
+            _make_result(returncode=1, stderr="Requires authentication"),
+            _make_result(stdout="fallback ok\n"),
+        ]
+        assert run_gh_command(["issue", "list"]) == "fallback ok\n"
+        # 1 initial + 2 same-token retries + 1 cross-token fallback.
+        assert mock_run.call_count == 4
+        assert [c.args[0] for c in mock_sleep.call_args_list] == [1, 3]
+
+
+def test_401_transient_retry_disabled_when_schedule_empty():
+    """An empty backoff schedule disables the retry loop entirely."""
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", ()),
+        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch.dict(
+            "os.environ",
+            {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
+            clear=True,
+        ),
+    ):
+        mock_run.return_value = _make_result(
+            returncode=1,
+            stderr="Requires authentication",
+        )
+        with pytest.raises(RuntimeError, match="Requires authentication"):
+            run_gh_command(["issue", "list"])
+        assert mock_run.call_count == 1
+        mock_sleep.assert_not_called()
+
+
+def test_non_401_skips_transient_retry():
+    """Non-401 failures bypass the transient-retry loop and raise immediately."""
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
+        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch.dict(
+            "os.environ",
+            {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
+            clear=True,
+        ),
+    ):
+        mock_run.return_value = _make_result(returncode=1, stderr="Resource not found")
+        with pytest.raises(RuntimeError, match="Resource not found"):
+            run_gh_command(["issue", "list"])
+        assert mock_run.call_count == 1
+        mock_sleep.assert_not_called()
