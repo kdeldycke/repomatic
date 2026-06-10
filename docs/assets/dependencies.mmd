@@ -9,12 +9,12 @@ flowchart LR
         wcmatch{{"`wcmatch`"}}
         py_walk{{"`py-walk`"}}
         pyproject_metadata{{"`pyproject-metadata`"}}
+        tomlrt{{"`tomlrt`"}}
         packaging{{"`packaging`"}}
         tomli{{"`tomli`"}}
         pyyaml{{"`pyyaml`"}}
         boltons{{"`boltons`"}}
         extra_platforms{{"`extra-platforms`"}}
-        tomlkit{{"`tomlkit`"}}
         backports_strenum{{"`backports-strenum`"}}
     end
 
@@ -65,6 +65,7 @@ flowchart LR
     pytz(["`pytz`"])
     sly(["`sly`"])
     smmap(["`smmap`"])
+    tomlkit(["`tomlkit`"])
     types_pytz(["`types-pytz`"])
     urllib3(["`urllib3`"])
 
@@ -128,7 +129,7 @@ flowchart LR
     repomatic ==>|" >=12.0.2 "| extra_platforms
     repomatic ==>|" >=0.3.1 "| py_walk
     repomatic ==>|" >=0.9 "| pyproject_metadata
-    repomatic ==>|" >=0.13 "| tomlkit
+    repomatic ==>|" >=1.7 "| tomlrt
     repomatic ==>|" >=1 "| backports_strenum
     sphinx --> pygments
     sphinx --> requests
@@ -174,7 +175,7 @@ flowchart LR
     bump_my_version --> rich
     bump_my_version ==> wcmatch
     bump_my_version --> questionary
-    bump_my_version ==> tomlkit
+    bump_my_version --> tomlkit
     myst_parser ==> sphinx
     myst_parser --> jinja2
     myst_parser --> markdown_it_py
@@ -211,6 +212,7 @@ flowchart LR
     sphinx_copybutton ==> sphinx
     sphinx_design ==> sphinx
     sphinxext_opengraph ==> sphinx
+    tomlrt --> typing_extensions
     aiohttp --> typing_extensions
     aiohttp --> yarl
     aiohttp --> aiosignal
@@ -369,6 +371,7 @@ flowchart LR
     click tabulate "https://pypi.org/project/tabulate/" _blank
     click tomli "https://pypi.org/project/tomli/" _blank
     click tomlkit "https://pypi.org/project/tomlkit/" _blank
+    click tomlrt "https://pypi.org/project/tomlrt/" _blank
     click types_boltons "https://pypi.org/project/types-boltons/" _blank
     click types_pytz "https://pypi.org/project/types-pytz/" _blank
     click types_pyyaml "https://pypi.org/project/types-pyyaml/" _blank
@@ -406,7 +409,7 @@ flowchart LR
     style sphinxcontrib_mermaid stroke-width:3px
     style sphinxext_opengraph stroke-width:3px
     style tomli stroke-width:3px
-    style tomlkit stroke-width:3px
+    style tomlrt stroke-width:3px
     style types_boltons stroke-width:3px
     style types_pyyaml stroke-width:3px
     style vt_py stroke-width:3px

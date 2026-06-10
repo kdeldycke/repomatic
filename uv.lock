@@ -1751,7 +1751,7 @@ dependencies = [
     { name = "pyproject-metadata" },
     { name = "pyyaml" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
-    { name = "tomlkit" },
+    { name = "tomlrt" },
     { name = "vt-py" },
     { name = "wcmatch" },
 ]
@@ -1795,7 +1795,7 @@ requires-dist = [
     { name = "pyproject-metadata", specifier = ">=0.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2" },
-    { name = "tomlkit", specifier = ">=0.13" },
+    { name = "tomlrt", specifier = ">=1.7" },
     { name = "vt-py", specifier = ">=0.18" },
     { name = "wcmatch", specifier = ">=10" },
 ]
@@ -2145,6 +2145,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/51/db/03eaf4331631ef6b27d6e3c9b68c54dc6f0d63d87201fed600cc409307fd/tomlkit-0.15.0.tar.gz", hash = "sha256:7d1a9ecba3086638211b13814ea79c90dd54dd11993564376f3aa92271f5c7a3", size = 161875, upload-time = "2026-05-10T07:38:22.245Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6a/43/8bd850ee71a191bf072e31302c73a66be413fecdd98fdcd111ecbcce13ca/tomlkit-0.15.0-py3-none-any.whl", hash = "sha256:4dbc8f0fc024412b57ced8757ac7461305126a648ff8c2c807fcb8e133a78738", size = 41328, upload-time = "2026-05-10T07:38:23.517Z" },
+]
+
+[[package]]
+name = "tomlrt"
+version = "1.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "python_full_version < '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/52/14/5730a598e86a27a4253fdb771f0cc7b732caf356ebe9892b3d32de6eab5b/tomlrt-1.7.2.tar.gz", hash = "sha256:bebcc983bbbc4985ab5633f96dda39c112356368bd9e0e9ddded32b7b518d78e", size = 289547, upload-time = "2026-06-01T21:41:38.781Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/28/bb5c125a7aa8982c84c471f6527b71316425e4278fc22bb9a82c1125f0b0/tomlrt-1.7.2-py3-none-any.whl", hash = "sha256:04d3000b8a9ef40a0c7672bcc7ca3354e21cc9864beb023b231e808021e47a8c", size = 128991, upload-time = "2026-06-01T21:41:37.148Z" },
 ]
 
 [[package]]
