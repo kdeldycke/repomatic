@@ -49,7 +49,7 @@ invoke(repomatic, args=['run', '--list'])
 | :-------------------------------------------------------------------- | :------- | :---------- | :----------------------------------------------------------- |
 | [actionlint](https://github.com/rhysd/actionlint)                     | `1.7.12` | Binary      | `.github/actionlint.yaml`                                    |
 | [autopep8](https://github.com/hhatto/autopep8)                        | `2.3.2`  | PyPI        | CLI flags only                                               |
-| [Biome](https://github.com/biomejs/biome)                             | `2.4.15` | Binary      | `biome.json`, `biome.jsonc`                                  |
+| [Biome](https://github.com/biomejs/biome)                             | `2.4.16` | Binary      | `biome.json`, `biome.jsonc`                                  |
 | [bump-my-version](https://github.com/callowayproject/bump-my-version) | `1.2.7`  | PyPI        | `[tool.bump-my-version]` in `pyproject.toml`                 |
 | [Gitleaks](https://github.com/gitleaks/gitleaks)                      | `8.30.1` | Binary      | `.gitleaks.toml`, `.github/gitleaks.toml`                    |
 | [labelmaker](https://github.com/jwodder/labelmaker)                   | `0.6.4`  | Binary      | CLI flags only                                               |
@@ -60,7 +60,7 @@ invoke(repomatic, args=['run', '--list'])
 | [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.16.2` | PyPI        | `[tool.pyproject-fmt]` in `pyproject.toml`                   |
 | [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.5` | PyPI        | `ruff.toml`, `.ruff.toml`, `[tool.ruff]` in `pyproject.toml` |
 | [shfmt](https://github.com/mvdan/sh)                                  | `3.13.1` | Binary      | `.editorconfig`                                              |
-| [typos](https://github.com/crate-ci/typos)                            | `1.46.2` | Binary      | `[tool.typos]` in `pyproject.toml`                           |
+| [typos](https://github.com/crate-ci/typos)                            | `1.47.0` | Binary      | `[tool.typos]` in `pyproject.toml`                           |
 | [yamllint](https://github.com/adrienverge/yamllint)                   | `1.38.0` | PyPI        | `.yamllint.yaml`, `.yamllint.yml`, `.yamllint`               |
 | [zizmor](https://github.com/zizmorcore/zizmor)                        | `1.23.0` | PyPI        | `zizmor.yaml`                                                |
 
@@ -317,7 +317,7 @@ autopep8 takes its configuration from CLI flags only. repomatic passes `--recurs
 
 ### [Biome](https://github.com/biomejs/biome)
 
-**Installed version:** `2.4.15`
+**Installed version:** `2.4.16`
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
@@ -658,7 +658,7 @@ shfmt formats shell scripts in place. It has no `[tool.shfmt]` section: indentat
 
 ### [typos](https://github.com/crate-ci/typos)
 
-**Installed version:** `1.46.2`
+**Installed version:** `1.47.0`
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
