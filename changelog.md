@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Validate `[project.scripts]` entries when assembling the Nuitka build matrix. A script name that PyPI and [uv-build](https://github.com/astral-sh/uv/pull/19495) would refuse (path-shaped like `../escape` or `nested/script`, empty, dot-only, or containing characters outside `[A-Za-z0-9._-]`) is now rejected up front instead of flowing into the binary file path template and the release workflow's artifact, `chmod`, and attestation commands. A malformed value (no colon, multiple colons, empty side) raises a descriptive error instead of crashing later with a tuple-unpacking `ValueError`.
+
 ## [`6.24.0` (2026-05-28)](https://github.com/kdeldycke/repomatic/compare/v6.23.0...v6.24.0)
 
 > [!NOTE]

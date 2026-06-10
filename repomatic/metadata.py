@@ -291,6 +291,7 @@ import ast
 import json
 import logging
 import os
+import re
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import fields
@@ -484,6 +485,16 @@ def all_metadata_keys() -> frozenset[str]:
 
 
 GITIGNORE_PATH = Path(".gitignore")
+
+_SCRIPT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._-]+")
+"""Allowed characters in a `[project.scripts]` entry name.
+
+Matches the rule PyPI enforces on uploaded wheels and the validation
+[uv-build performs](https://github.com/astral-sh/uv/pull/19495) before
+writing wheel metadata. Names are also required to be non-empty and to
+contain at least one non-dot character; both extra checks live next to
+the regex in {meth}`Metadata.script_entries`.
+"""
 
 HEREDOC_FIELDS: Final[frozenset[str]] = frozenset((
     "release_notes",
@@ -1759,11 +1770,42 @@ class Metadata:
             ...,
         )
         ```
+
+        Each entry is validated against PEP 621 and PyPI conventions:
+
+        - The script *name* (the dict key) must be non-empty, contain at least
+          one non-dot character, and match {data}`_SCRIPT_NAME_RE`. This mirrors
+          the rule PyPI enforces on uploaded wheels and the check
+          [uv-build performs](https://github.com/astral-sh/uv/pull/19495);
+          rejecting names like `../escape`, `nested/script` or `.` here keeps
+          them from flowing into the binary file path template
+          `{{cli_id}}-{{current_version}}-{{target}}.{{extension}}` and from
+          there into shell-quoted artifact names, `chmod`, and attestation
+          commands in the release workflow.
+        - The script *value* must split on `:` into exactly two non-empty
+          parts (`module:object`). Malformed values raise a descriptive
+          `ValueError` instead of crashing with an unpacking error.
         """
         entries = []
         if self.pyproject:
             for cli_id, script in self.pyproject.scripts.items():
-                module_id, callable_id = script.split(":")
+                if (
+                    not cli_id
+                    or all(c == "." for c in cli_id)
+                    or not _SCRIPT_NAME_RE.fullmatch(cli_id)
+                ):
+                    raise ValueError(
+                        f"Invalid [project.scripts] name {cli_id!r}: must"
+                        " contain at least one non-dot character and match"
+                        " [A-Za-z0-9._-]+."
+                    )
+                parts = script.split(":")
+                if len(parts) != 2 or not all(parts):
+                    raise ValueError(
+                        f"Invalid [project.scripts] value {script!r} for"
+                        f" {cli_id!r}: expected the form 'module:object'."
+                    )
+                module_id, callable_id = parts
                 entries.append((cli_id, module_id, callable_id))
         # Double check we do not have duplicate entries.
         all_cli_ids = [cli_id for cli_id, _, _ in entries]

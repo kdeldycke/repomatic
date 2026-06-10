@@ -1863,6 +1863,87 @@ nuitka.entry-points = ["nonexistent"]
     assert metadata.nuitka_entry_points == ["short"]
 
 
+def test_script_entries_basic(tmp_path, monkeypatch):
+    """Well-formed `[project.scripts]` entries parse into (name, module, callable)."""
+    pyproject_content = """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[project.scripts]
+mdedup = "mail_deduplicate.cli:mdedup"
+mpm = "meta_package_manager.__main__:main"
+"""
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(pyproject_content)
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+
+    metadata = Metadata()
+    assert metadata.script_entries == [
+        ("mdedup", "mail_deduplicate.cli", "mdedup"),
+        ("mpm", "meta_package_manager.__main__", "main"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../escape",
+        "nested/script",
+        ".",
+        "..",
+        "with space",
+        "exclaim!",
+    ],
+)
+def test_script_entries_rejects_unsafe_name(tmp_path, monkeypatch, name):
+    """Script names that PyPI / uv-build would refuse are rejected up front."""
+    pyproject_content = f"""\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[project.scripts]
+"{name}" = "my_pkg.cli:main"
+"""
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(pyproject_content)
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+
+    metadata = Metadata()
+    with pytest.raises(ValueError, match=r"\[project\.scripts\] name"):
+        _ = metadata.script_entries
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "no_colon",
+        "a:b:c",
+        ":missing_module",
+        "missing_callable:",
+        "",
+    ],
+)
+def test_script_entries_rejects_malformed_value(tmp_path, monkeypatch, value):
+    """Values not of the form `module:object` raise a descriptive error."""
+    pyproject_content = f"""\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[project.scripts]
+cli = "{value}"
+"""
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(pyproject_content)
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+
+    metadata = Metadata()
+    with pytest.raises(ValueError, match=r"\[project\.scripts\] value"):
+        _ = metadata.script_entries
+
+
 def test_load_repomatic_config_defaults(tmp_path, monkeypatch):
     """Test that load_repomatic_config returns a Config instance with defaults."""
     monkeypatch.chdir(tmp_path)
