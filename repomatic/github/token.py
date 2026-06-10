@@ -77,6 +77,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from .gh import run_gh_command
+from .status import status_annotation
 
 # Canonical list of fine-grained PAT permissions required by REPOMATIC_PAT.
 # Each tuple: (permission_name, access_level, reason).
@@ -109,6 +110,33 @@ REQUIRED_PAT_PERMISSIONS = (
 )
 
 
+def _classify_pat_error(stderr: str, missing_permission_msg: str) -> str:
+    """Build a permission-check failure message from a `gh` stderr.
+
+    Returns the canonical "missing permission" message only when stderr
+    actually says ``HTTP 403`` (the unambiguous signature of a token
+    lacking the relevant scope). For any other failure mode (401 from
+    an auth incident, 5xx from GitHub, network errors) the actual stderr
+    is surfaced so operators see the real cause instead of being misled
+    toward PAT scopes that are already correct. A
+    `githubstatus.com <https://www.githubstatus.com>`_ annotation is
+    appended when an incident is active.
+
+    :param stderr: The raw error string from {func}`run_gh_command`.
+    :param missing_permission_msg: Message to return when the failure is
+        unambiguously a 403 (permission missing).
+    :return: A diagnostic string suitable for the `(passed, msg)` tuple.
+    """
+    if "HTTP 403" in stderr:
+        msg = missing_permission_msg
+    else:
+        msg = f"GitHub API call failed: {stderr.strip()}"
+    annotation = status_annotation()
+    if annotation:
+        msg = f"{msg} {annotation}"
+    return msg
+
+
 def check_pat_contents_permission(repo: str) -> tuple[bool, str]:
     """Check that the token has contents permission.
 
@@ -123,12 +151,12 @@ def check_pat_contents_permission(repo: str) -> tuple[bool, str]:
             f"repos/{repo}/contents/.github",
             "--silent",
         ])
-    except RuntimeError:
-        msg = (
-            "Cannot access repository contents. "
-            "Ensure the token has 'Contents: Read and Write' permission."
+    except RuntimeError as exc:
+        return False, _classify_pat_error(
+            str(exc),
+            "Token lacks 'Contents: Read and Write' permission. "
+            "Update the PAT to include this permission.",
         )
-        return False, msg
     return True, "Contents: token has access"
 
 
@@ -146,12 +174,12 @@ def check_pat_issues_permission(repo: str) -> tuple[bool, str]:
             f"repos/{repo}/issues?per_page=1&state=all",
             "--silent",
         ])
-    except RuntimeError:
-        msg = (
-            "Cannot access repository issues. "
-            "Ensure the token has 'Issues: Read and Write' permission."
+    except RuntimeError as exc:
+        return False, _classify_pat_error(
+            str(exc),
+            "Token lacks 'Issues: Read and Write' permission. "
+            "Update the PAT to include this permission.",
         )
-        return False, msg
     return True, "Issues: token has access"
 
 
@@ -169,12 +197,12 @@ def check_pat_pull_requests_permission(repo: str) -> tuple[bool, str]:
             f"repos/{repo}/pulls?per_page=1&state=all",
             "--silent",
         ])
-    except RuntimeError:
-        msg = (
-            "Cannot access repository pull requests. "
-            "Ensure the token has 'Pull requests: Read and Write' permission."
+    except RuntimeError as exc:
+        return False, _classify_pat_error(
+            str(exc),
+            "Token lacks 'Pull requests: Read and Write' permission. "
+            "Update the PAT to include this permission.",
         )
-        return False, msg
     return True, "Pull requests: token has access"
 
 
@@ -205,25 +233,21 @@ def check_pat_vulnerability_alerts_permission(repo: str) -> tuple[bool, str]:
         ])
     except RuntimeError as exc:
         stderr = str(exc)
-        if "HTTP 403" in stderr:
-            msg = (
-                "Token lacks 'Dependabot alerts: Read-only' permission. "
-                "Update the PAT to include this permission."
-            )
-        elif "HTTP 404" in stderr:
+        if "HTTP 404" in stderr:
             msg = (
                 "Vulnerability alerts are not enabled on the repository. "
                 f"Enable them: gh api repos/{repo}/vulnerability-alerts"
                 " --method PUT"
             )
-        else:
-            msg = (
-                "Cannot access vulnerability alerts. "
-                "Either the token lacks 'Dependabot alerts: Read-only' "
-                "permission or vulnerability alerts are not enabled on "
-                "the repository."
-            )
-        return False, msg
+            annotation = status_annotation()
+            if annotation:
+                msg = f"{msg} {annotation}"
+            return False, msg
+        return False, _classify_pat_error(
+            stderr,
+            "Token lacks 'Dependabot alerts: Read-only' permission. "
+            "Update the PAT to include this permission.",
+        )
     return True, "Dependabot alerts: token has access, alerts enabled"
 
 
@@ -243,12 +267,12 @@ def check_pat_workflows_permission(repo: str) -> tuple[bool, str]:
             f"repos/{repo}/actions/workflows?per_page=1",
             "--silent",
         ])
-    except RuntimeError:
-        msg = (
-            "Cannot access repository workflows. "
-            "Ensure the token has 'Workflows: Read and Write' permission."
+    except RuntimeError as exc:
+        return False, _classify_pat_error(
+            str(exc),
+            "Token lacks 'Workflows: Read and Write' permission. "
+            "Update the PAT to include this permission.",
         )
-        return False, msg
     return True, "Workflows: token has access"
 
 
@@ -267,12 +291,12 @@ def check_commit_statuses_permission(repo: str, sha: str) -> tuple[bool, str]:
             f"repos/{repo}/commits/{sha}/statuses",
             "--silent",
         ])
-    except RuntimeError:
-        msg = (
-            "Cannot verify commit statuses permission. "
-            "Ensure the token has 'Commit statuses: Read and Write' permission."
+    except RuntimeError as exc:
+        return False, _classify_pat_error(
+            str(exc),
+            "Token lacks 'Commit statuses: Read and Write' permission. "
+            "Update the PAT to include this permission.",
         )
-        return False, msg
     return True, "Commit statuses: token has access"
 
 

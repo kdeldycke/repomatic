@@ -547,6 +547,33 @@ flowchart TD
 - **Skipped if**:
   - `dev-release.sync = false` in `[tool.repomatic]`
 
+(github-workflows-release-manpages-yaml-jobs)=
+
+### 📖 [`.github/workflows/_release-manpages.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-manpages.yaml)
+
+Optional sibling of `_release-build.yaml` and `_release-engine.yaml`. Renders a Click CLI command tree as roff `.1` files and uploads them as a tarball asset on the GitHub Release. Opt-in: consumers wire it as a separate job in their `release.yaml`, mirroring how `publish-pypi` is wired:
+
+```yaml
+man-pages:
+  needs: [build, release]
+  if: needs.release.result == 'success' && needs.build.outputs.release_commits_matrix
+  uses: kdeldycke/repomatic/.github/workflows/_release-manpages.yaml@vX.Y.Z
+  with:
+    script: my_pkg.cli:my_cli
+    asset-name: my-cli-manpages
+    release-commits-matrix: ${{ needs.build.outputs.release_commits_matrix }}
+```
+
+#### 📖 Upload man pages (`upload-manpages`)
+
+- Renders one roff `.1` file per (sub)command in the Click tree rooted at `inputs.script`, using `click_extra.man_page.write_manpages()` against the consumer's already-synced venv (no extra resolver install needed)
+- Bundles the pages as `<asset-name>.tar.gz` and uploads via `gh release upload --clobber`
+- **Requires**:
+  - The consumer's `click-extra` floor is `>= 7.18`: `write_manpages()` and `resolve_target_command()` were added in 7.18.0. The CLI front-end (`click-extra man --output-dir`) is newer (7.19+) but unused here — projects can adopt this workflow as soon as their lockfile has 7.18
+  - `inputs.script` resolves through the same scanner as `click-extra man SCRIPT`: a `module:function` path (preferred for projects whose console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file, or a plain importable module name
+  - The wheel-publishing tag must already exist when this job runs — gate on the engine's `release.result == 'success'`
+- **Runs on**: `ubuntu-slim`
+
 (github-workflows-renovate-yaml-jobs)=
 
 ### 🆕 [`.github/workflows/renovate.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/renovate.yaml)

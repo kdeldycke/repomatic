@@ -26,6 +26,20 @@ import pytest
 from repomatic.github.gh import run_gh_command
 
 
+@pytest.fixture(autouse=True)
+def _no_status_probe():
+    """Neutralize the githubstatus.com probe by default.
+
+    Tests that exercise the incident annotation override this fixture by
+    patching ``repomatic.github.gh.status_annotation`` themselves.
+    """
+    with patch(
+        "repomatic.github.gh.status_annotation",
+        return_value="",
+    ):
+        yield
+
+
 def _make_result(
     returncode: int = 0,
     stdout: str = "",
@@ -160,7 +174,7 @@ def test_401_no_fallback(env, clear):
 
 
 def test_401_retries_with_github_token():
-    """401 Bad Credentials triggers retry with GITHUB_TOKEN."""
+    """401 Bad credentials triggers retry with GITHUB_TOKEN."""
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch.dict(
@@ -170,6 +184,36 @@ def test_401_retries_with_github_token():
     ):
         mock_run.side_effect = [
             _make_result(returncode=1, stderr="Bad credentials"),
+            _make_result(stdout="fallback ok\n"),
+        ]
+        result = run_gh_command(["issue", "list"])
+        assert result == "fallback ok\n"
+        assert mock_run.call_count == 2
+        retry_env = mock_run.call_args_list[1].kwargs["env"]
+        assert retry_env["GH_TOKEN"] == "gha-token"
+
+
+def test_401_requires_authentication_retries_with_github_token():
+    """401 Requires authentication also triggers the GITHUB_TOKEN fallback.
+
+    Surfaces during GitHub auth incidents and from fine-grained PAT scope
+    mismatches that GitHub treats as anonymous for the targeted resource.
+    """
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch.dict(
+            "os.environ",
+            {"GH_TOKEN": "scoped-pat", "GITHUB_TOKEN": "gha-token"},
+        ),
+    ):
+        mock_run.side_effect = [
+            _make_result(
+                returncode=1,
+                stderr=(
+                    "non-200 OK status code: 401 Unauthorized "
+                    'body: "{ \\"message\\": \\"Requires authentication\\" }"'
+                ),
+            ),
             _make_result(stdout="fallback ok\n"),
         ]
         result = run_gh_command(["issue", "list"])
@@ -208,6 +252,7 @@ def test_401_fallback_also_fails():
     """When fallback also fails, original 401 error is raised."""
     with (
         patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh.status_annotation", return_value=""),
         patch.dict(
             "os.environ",
             {"GH_TOKEN": "expired-pat", "GITHUB_TOKEN": "gha-token"},
@@ -220,3 +265,33 @@ def test_401_fallback_also_fails():
         with pytest.raises(RuntimeError, match="Bad credentials"):
             run_gh_command(["issue", "list"])
         assert mock_run.call_count == 2
+
+
+def test_failure_message_includes_github_status_annotation():
+    """A live githubstatus.com incident is appended to the raised RuntimeError."""
+    annotation = (
+        "GitHub Status reports an active incident (critical): "
+        "Major Service Outage. See https://www.githubstatus.com for details."
+    )
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh.status_annotation", return_value=annotation),
+    ):
+        mock_run.return_value = _make_result(returncode=1, stderr="some error")
+        with pytest.raises(RuntimeError) as excinfo:
+            run_gh_command(["issue", "list"])
+        assert "some error" in str(excinfo.value)
+        assert "active incident" in str(excinfo.value)
+        assert "githubstatus.com" in str(excinfo.value)
+
+
+def test_failure_message_omits_status_when_no_incident():
+    """The healthy status annotation (empty string) leaves the error untouched."""
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh.status_annotation", return_value=""),
+    ):
+        mock_run.return_value = _make_result(returncode=1, stderr="some error\n")
+        with pytest.raises(RuntimeError) as excinfo:
+            run_gh_command(["issue", "list"])
+        assert str(excinfo.value) == "some error\n"

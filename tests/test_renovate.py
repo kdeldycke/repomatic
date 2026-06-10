@@ -133,9 +133,12 @@ def test_has_permission():
 
 
 def test_no_permission():
-    """Fail when token lacks permission."""
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("gh command failed")
+    """Fail when token lacks permission (HTTP 403)."""
+    with (
+        patch("repomatic.github.token.run_gh_command") as mock_gh,
+        patch("repomatic.github.token.status_annotation", return_value=""),
+    ):
+        mock_gh.side_effect = RuntimeError("HTTP 403: Forbidden")
         passed, msg = check_commit_statuses_permission("owner/repo", "abc123")
         assert passed is False
         assert "permission" in msg.lower()

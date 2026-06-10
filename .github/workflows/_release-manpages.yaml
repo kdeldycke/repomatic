@@ -1,0 +1,105 @@
+---
+name: 📖 Man pages
+# Reusable workflow that renders a Click CLI command tree as roff `.1` files and uploads them as a tarball asset on
+# the GitHub Release. Sibling of `_release-build.yaml` and `_release-engine.yaml`: the caller (e.g.
+# meta-package-manager's `release.yaml`) wires it as a separate job after `build` + `release`, mirroring how
+# `publish-pypi` is wired.
+#
+# Uses click-extra's Python API directly (`click_extra.man_page.write_manpages` + `click_extra.wrap.resolve_target_command`,
+# both shipped since click-extra 7.18.0) rather than the `click-extra man --output-dir` CLI flag, so consumers do not
+# have to wait for click-extra 7.19+ to release before adopting this workflow. The CLI flag remains useful for ad-hoc
+# invocations and distributor (Debian, Guix, Nix) build phases.
+#
+# Consumer projects opt in by adding a single job to their `release.yaml`:
+#
+#     man-pages:
+#       needs: [build, release]
+#       if: needs.release.result == 'success' && needs.build.outputs.release_commits_matrix
+#       uses: kdeldycke/repomatic/.github/workflows/_release-manpages.yaml@vX.Y.Z
+#       with:
+#         script: my_pkg.cli:my_cli
+#         asset-name: my-cli-manpages
+#         release-commits-matrix: ${{ needs.build.outputs.release_commits_matrix }}
+"on":
+  workflow_call:
+    inputs:
+      script:
+        description: >
+          Click command target to render. Same shape the `click-extra man` CLI accepts: a `module:function` path
+          (preferred for projects whose console-script entry point dispatches through a wrapper), a console-script
+          entry-point name, a `.py` file path, or a plain importable module name.
+        required: true
+        type: string
+      asset-name:
+        description: >
+          Filename stem (without extension) for the tarball uploaded to the GitHub Release. The full asset will be
+          `<asset-name>.tar.gz` containing one `.1` file per (sub)command.
+        required: true
+        type: string
+      release-commits-matrix:
+        description: >
+          JSON release-commits matrix produced by `_release-build.yaml`. Pass through `needs.build.outputs.release_commits_matrix`
+          from the caller. Non-release pushes get an empty matrix and the job's `strategy.matrix` fallback below
+          expands to zero runs.
+        required: true
+        type: string
+
+permissions: {}
+
+# No concurrency block: callers run this as a release sub-component, the body is idempotent (`gh release upload --clobber`),
+# and release commits are already protected from cancellation by `_release-engine.yaml`'s SHA-based unique group.
+
+jobs:
+
+  upload-manpages:
+    name: 📖 Man pages (${{ matrix.short_sha }})
+    # Empty-matrix fallback mirrors `publish-pypi`'s pattern so non-release pushes skip the job cleanly instead of
+    # failing on `fromJSON('')`.
+    strategy:
+      matrix: ${{ fromJSON(inputs.release-commits-matrix || '{"include":[]}') }}
+    runs-on: ubuntu-slim
+    permissions:
+      # Allow uploading the tarball asset to the GitHub release.
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ matrix.commit }}
+      - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: false
+      - name: Install project
+        run: uv --no-progress sync --frozen
+      # Inline Python instead of `click-extra man --output-dir` so this works with any click-extra >= 7.18 (which is when
+      # `write_manpages` and `resolve_target_command` landed). The `--output-dir` CLI flag is newer (7.19+).
+      - name: Generate man pages
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          mkdir -p man
+          uv --no-progress run --frozen -- python -c "
+          import os
+          from click_extra.man_page import write_manpages
+          from click_extra.wrap import resolve_target_command
+          script = os.environ['SCRIPT']
+          cmd, _ = resolve_target_command(script)
+          # Filenames derive from prog_name; fall back to the resolved command's
+          # own name so module:function targets produce sensible filenames.
+          prog_name = cmd.name or script
+          written = write_manpages(cmd, 'man', prog_name=prog_name)
+          for path in written:
+              print(path)
+          "
+      - name: Bundle as tarball
+        env:
+          ASSET_NAME: ${{ inputs.asset-name }}
+        run: tar --create --gzip --file "${ASSET_NAME}.tar.gz" man/
+      - name: Attach to GitHub release
+        env:
+          CURRENT_VERSION: ${{ matrix.current_version }}
+          ASSET_NAME: ${{ inputs.asset-name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload "v${CURRENT_VERSION}" "${ASSET_NAME}.tar.gz"
+          --repo "${{ github.repository }}"
+          --clobber
