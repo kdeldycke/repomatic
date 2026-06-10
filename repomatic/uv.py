@@ -292,8 +292,18 @@ def format_vulnerability_table(vulns: list[VulnerablePackage]) -> str:
 # pyproject.toml exclude-newer-package management
 # ---------------------------------------------------------------------------
 
-_RELATIVE_DURATION_RE = re.compile(r"^(\d+)\s+(days?|weeks?)$")
-"""Matches uv's relative duration syntax: `N day(s)` or `N week(s)`."""
+_RELATIVE_DURATION_RE = re.compile(
+    r"^(\d+)\s+(seconds?|minutes?|hours?|days?|weeks?)$"
+)
+"""Matches uv's "friendly" relative duration syntax.
+
+Accepts `N second(s)`, `N minute(s)`, `N hour(s)`, `N day(s)`, and
+`N week(s)`. Calendar units (months, years) are not allowed: uv resolves
+durations to a fixed number of seconds (a day is 24 hours, DST ignored),
+so calendar arithmetic would be ambiguous. See
+[astral-sh/uv#19475](https://github.com/astral-sh/uv/pull/19475) for the
+canonical surface uv documents on this field.
+"""
 
 _LOCK_DURATION_RE = re.compile(
     r"^P"
@@ -329,9 +339,10 @@ def _build_inline_table(entries: dict[str, str]) -> tomlkit.items.InlineTable:
 
 
 def _parse_relative_duration(value: str) -> timedelta | None:
-    """Parse a uv relative duration string into a timedelta.
+    """Parse a uv "friendly" relative duration string into a timedelta.
 
-    Handles `"N day"`, `"N days"`, `"N week"`, and `"N weeks"`.
+    Handles `N second(s)`, `N minute(s)`, `N hour(s)`, `N day(s)`, and
+    `N week(s)`. Calendar units (months, years) are not allowed.
 
     :param value: The duration string from `exclude-newer` in
         `pyproject.toml`.
@@ -343,6 +354,12 @@ def _parse_relative_duration(value: str) -> timedelta | None:
         return None
     count = int(match.group(1))
     unit = match.group(2)
+    if unit.startswith("second"):
+        return timedelta(seconds=count)
+    if unit.startswith("minute"):
+        return timedelta(minutes=count)
+    if unit.startswith("hour"):
+        return timedelta(hours=count)
     if unit.startswith("week"):
         return timedelta(weeks=count)
     return timedelta(days=count)
@@ -397,6 +414,35 @@ def _parse_iso_datetime(iso_str: str) -> datetime | None:
         return None
 
 
+def _resolve_exclude_newer_cutoff(value: str) -> datetime | None:
+    """Resolve a `[tool.uv].exclude-newer` value to an absolute cutoff datetime.
+
+    [uv accepts three forms](https://github.com/astral-sh/uv/pull/19475)
+    in this field:
+
+    - A "friendly" duration (`24 hours`, `30 minutes`, `1 day`, `1 week`):
+      subtracted from the current UTC time.
+    - An ISO 8601 duration (`PT24H`, `P7D`, `P30D`, `P1W`, combinations
+      like `P1DT2H`): subtracted from the current UTC time.
+    - An RFC 3339 / ISO 8601 timestamp (`2026-03-18T16:39:02Z`): returned
+      verbatim as the cutoff.
+
+    Forms are tried in the order above so a duration is never mistaken
+    for a timestamp.
+
+    :param value: The string read from `[tool.uv].exclude-newer` in
+        `pyproject.toml`.
+    :return: An absolute cutoff datetime, or `None` if *value* is empty
+        or matches none of the recognized forms.
+    """
+    if not value:
+        return None
+    duration = _parse_relative_duration(value) or _parse_lock_duration(value)
+    if duration is not None:
+        return datetime.now(timezone.utc) - duration
+    return _parse_iso_datetime(value)
+
+
 def _packages_outside_cooldown(
     pyproject_path: Path,
     lock_path: Path,
@@ -419,12 +465,7 @@ def _packages_outside_cooldown(
     if not exclude_newer_str:
         return packages
 
-    cutoff: datetime | None = None
-    duration = _parse_relative_duration(exclude_newer_str)
-    if duration is not None:
-        cutoff = datetime.now(timezone.utc) - duration
-    else:
-        cutoff = _parse_iso_datetime(exclude_newer_str)
+    cutoff = _resolve_exclude_newer_cutoff(exclude_newer_str)
     if cutoff is None:
         # Cannot determine window: be safe and exempt everything.
         return packages
@@ -570,13 +611,7 @@ def prune_stale_exclude_newer_packages(
     if not pkg_table or not exclude_newer_str:
         return False
 
-    # Compute the effective cutoff datetime.
-    cutoff: datetime | None = None
-    duration = _parse_relative_duration(exclude_newer_str)
-    if duration is not None:
-        cutoff = datetime.now(timezone.utc) - duration
-    else:
-        cutoff = _parse_iso_datetime(exclude_newer_str)
+    cutoff = _resolve_exclude_newer_cutoff(exclude_newer_str)
     if cutoff is None:
         logging.warning(
             f"Cannot parse exclude-newer value {exclude_newer_str!r}; skipping prune."

@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - Validate `[project.scripts]` entries when assembling the Nuitka build matrix. A script name that PyPI and [uv-build](https://github.com/astral-sh/uv/pull/19495) would refuse (path-shaped like `../escape` or `nested/script`, empty, dot-only, or containing characters outside `[A-Za-z0-9._-]`) is now rejected up front instead of flowing into the binary file path template and the release workflow's artifact, `chmod`, and attestation commands. A malformed value (no colon, multiple colons, empty side) raises a descriptive error instead of crashing later with a tuple-unpacking `ValueError`.
+- Recognize all forms uv [accepts in `[tool.uv].exclude-newer`](https://github.com/astral-sh/uv/pull/19475) when computing the cooldown cutoff in `repomatic sync-uv-lock`: friendly durations with hours, minutes, or seconds (like `24 hours`, `30 minutes`), and ISO 8601 durations (`PT24H`, `P7D`, `P1DT2H`). Previously only `N day(s)` and `N week(s)` were parsed, so a project using any other form silently fell through to "cannot determine window, exempt everything," and stale `exclude-newer-package` entries were never pruned.
 
 ## [`6.24.0` (2026-05-28)](https://github.com/kdeldycke/repomatic/compare/v6.23.0...v6.24.0)
 

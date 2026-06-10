@@ -45,6 +45,7 @@ from repomatic.uv import (
     _parse_github_owner_repo,
     _parse_iso_datetime,
     _parse_relative_duration,
+    _resolve_exclude_newer_cutoff,
     _versions_in_range,
     add_exclude_newer_packages,
     build_comparison_urls,
@@ -781,20 +782,24 @@ def test_packages_outside_cooldown_no_exclude_newer(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("value", "expected_days"),
+    ("value", "expected"),
     [
-        ("0 day", 0),
-        ("1 day", 1),
-        ("3 days", 3),
-        ("1 week", 7),
-        ("2 weeks", 14),
+        ("0 day", timedelta(days=0)),
+        ("1 day", timedelta(days=1)),
+        ("3 days", timedelta(days=3)),
+        ("1 week", timedelta(weeks=1)),
+        ("2 weeks", timedelta(weeks=2)),
+        ("1 hour", timedelta(hours=1)),
+        ("24 hours", timedelta(hours=24)),
+        ("1 minute", timedelta(minutes=1)),
+        ("30 minutes", timedelta(minutes=30)),
+        ("1 second", timedelta(seconds=1)),
+        ("60 seconds", timedelta(seconds=60)),
     ],
 )
-def test_parse_relative_duration(value, expected_days):
-    """Parse uv relative duration strings."""
-    from datetime import timedelta
-
-    assert _parse_relative_duration(value) == timedelta(days=expected_days)
+def test_parse_relative_duration(value, expected):
+    """Parse uv friendly relative duration strings."""
+    assert _parse_relative_duration(value) == expected
 
 
 @pytest.mark.parametrize(
@@ -802,11 +807,13 @@ def test_parse_relative_duration(value, expected_days):
     [
         "2026-03-18T16:39:02Z",
         "not-a-duration",
+        "1 month",
+        "1 year",
         "",
     ],
 )
 def test_parse_relative_duration_returns_none(value):
-    """Return None for non-duration strings."""
+    """Return None for non-duration strings and disallowed units."""
     assert _parse_relative_duration(value) is None
 
 
@@ -823,6 +830,52 @@ def test_parse_iso_datetime_invalid():
     """Return None for invalid strings."""
     assert _parse_iso_datetime("not-a-date") is None
     assert _parse_iso_datetime("") is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1 week", timedelta(weeks=1)),
+        ("24 hours", timedelta(hours=24)),
+        ("30 minutes", timedelta(minutes=30)),
+        ("PT24H", timedelta(hours=24)),
+        ("P7D", timedelta(days=7)),
+        ("P1W", timedelta(weeks=1)),
+        ("P1DT2H", timedelta(days=1, hours=2)),
+    ],
+)
+def test_resolve_exclude_newer_cutoff_durations(value, expected):
+    """A duration in any accepted form resolves to `now - duration`."""
+    before = datetime.now(timezone.utc) - expected
+    cutoff = _resolve_exclude_newer_cutoff(value)
+    after = datetime.now(timezone.utc) - expected
+    assert cutoff is not None
+    # `now - duration` is sandwiched between the two timestamps captured
+    # around the call.
+    assert before <= cutoff <= after
+
+
+def test_resolve_exclude_newer_cutoff_timestamp():
+    """An RFC 3339 timestamp is returned verbatim as the cutoff."""
+    cutoff = _resolve_exclude_newer_cutoff("2026-03-18T16:39:02Z")
+    assert cutoff is not None
+    assert cutoff.year == 2026
+    assert cutoff.month == 3
+    assert cutoff.day == 18
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "not-a-value",
+        "1 month",
+        "P1M",
+    ],
+)
+def test_resolve_exclude_newer_cutoff_invalid(value):
+    """Empty, unrecognized, or calendar-unit values return `None`."""
+    assert _resolve_exclude_newer_cutoff(value) is None
 
 
 def test_prune_stale_removes_old_entry(tmp_path):
