@@ -292,9 +292,7 @@ def format_vulnerability_table(vulns: list[VulnerablePackage]) -> str:
 # pyproject.toml exclude-newer-package management
 # ---------------------------------------------------------------------------
 
-_RELATIVE_DURATION_RE = re.compile(
-    r"^(\d+)\s+(seconds?|minutes?|hours?|days?|weeks?)$"
-)
+_RELATIVE_DURATION_RE = re.compile(r"^(\d+)\s+(seconds?|minutes?|hours?|days?|weeks?)$")
 """Matches uv's "friendly" relative duration syntax.
 
 Accepts `N second(s)`, `N minute(s)`, `N hour(s)`, `N day(s)`, and
