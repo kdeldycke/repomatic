@@ -3562,3 +3562,127 @@ def test_init_awesome_template_not_auto_included_with_explicit_components(
     )
     created_set = set(result.created)
     assert created_set == {".claude/skills/repomatic-topics/SKILL.md"}
+
+
+# --- tomlrt contract tests ---
+#
+# These tests guard the assumptions `_update_tool_config` makes about its
+# underlying TOML library. The tomlrt rewrite dropped a regex-based whitespace
+# normalization stack and several inline-table workarounds that the previous
+# tomlkit-based implementation needed; the guards below assert the library now
+# meets those invariants natively, so a future regression cannot silently
+# corrupt a downstream pyproject.toml.
+
+_TOOL_CONFIG_COMPONENTS = [
+    c for c in COMPONENTS if isinstance(c, ToolConfigComponent)
+]
+
+
+@pytest.mark.parametrize(
+    "comp",
+    _TOOL_CONFIG_COMPONENTS,
+    ids=lambda c: c.name,
+)
+def test_update_tool_config_produces_parseable_output(
+    comp: ToolConfigComponent, tmp_path: Path
+) -> None:
+    """Syncing any tool-config component produces non-empty, well-formed TOML.
+
+    Guards against the silent-empty-dump regression class: a misuse of
+    ``Table.section()`` + cross-doc assign can return an empty string from
+    ``tomlrt.dumps`` with no exception. tomlrt 1.7.3, 1.7.4, and the
+    main-branch SHA pinned in `pyproject.toml` each shipped fixes for a
+    different shape of this. If a future template restructure or upstream
+    regression reintroduces the pattern, this test fails noisily instead of
+    silently corrupting the seed pyproject.toml.
+    """
+    tool_name = comp.tool_section.removeprefix("tool.")
+    seed = (
+        '[project]\nname = "fixture"\n\n'
+        f"[{comp.tool_section}]\n"
+        'local_only_key = "preserved"\n'
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(seed, encoding="UTF-8")
+
+    result = _update_tool_config(seed, comp, pyproject)
+
+    assert result is not None, "expected the sync to modify the seed"
+    assert result.strip(), "tomlrt produced an empty document"
+    parsed = tomllib.loads(result)
+    assert "tool" in parsed
+    assert tool_name in parsed["tool"]
+    assert parsed["tool"][tool_name].get("local_only_key") == "preserved"
+
+
+@pytest.mark.parametrize(
+    "comp",
+    _TOOL_CONFIG_COMPONENTS,
+    ids=lambda c: c.name,
+)
+def test_update_tool_config_section_header_whitespace(
+    comp: ToolConfigComponent, tmp_path: Path
+) -> None:
+    r"""Section headers in the synced output are well-spaced.
+
+    The previous tomlkit-based implementation enforced this via a four-step
+    regex normalization on the dumped string. The tomlrt rewrite removed
+    that stack and trusts the library's own layout: lock the invariant so a
+    regression cannot reintroduce ``]\n[`` collisions or triple-blank gaps
+    that would round-trip oddly through ``format-pyproject``.
+    """
+    seed = (
+        '[project]\nname = "fixture"\n\n'
+        f"[{comp.tool_section}]\n"
+        'local_only_key = "preserved"\n'
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(seed, encoding="UTF-8")
+
+    result = _update_tool_config(seed, comp, pyproject)
+    assert result is not None
+
+    no_blank = re.search(r"[^\n]\n\[(?!\[)", result)
+    assert no_blank is None, (
+        f"section header without preceding blank line at offset "
+        f"{no_blank.start() if no_blank else -1} in {comp.name} output"
+    )
+    assert "\n\n\n" not in result, (
+        f"triple blank line in {comp.name} output"
+    )
+
+
+def test_tomlrt_aot_only_section_overwrite_invariant() -> None:
+    """Surface the AoT-only-template silent-empty-dump regression to upstream.
+
+    Mirrors the ``_graft_local_additions`` + cross-doc assign path from
+    ``_update_tool_config``: parse a pyproject with a ``[project]``
+    preamble followed by an AoT-only target section, build a fresh
+    detached section with ``Table.section()`` from an AoT-only template,
+    append the existing AoT entries onto the new section, then assign the
+    new section back into the document. Upstream tomlrt (verified on the
+    main-branch SHA pinned in ``pyproject.toml``) silently drops the
+    entire document body in this configuration: ``tomlrt.dumps(doc)``
+    returns an empty string with no exception raised.
+
+    The shipped fix at tomlrt@2f6a9186 handled the
+    ``overwrite-then-reuse-displaced`` direction; this is the
+    ``populate-then-overwrite`` direction, still broken. No bundled
+    ``ToolConfigComponent`` currently has an AoT-only template, so
+    production is unaffected — but this test is left to fail loudly on
+    PR CI so the regression is visible to tomlrt's author.
+    """
+    import tomlrt
+    from tomlrt import Table
+
+    src = (
+        '[project]\nname = "demo"\n\n[[tool.example.items]]\nkey = "existing"\n'
+    )
+    doc = tomlrt.loads(src)
+    new_section = Table.section(tomlrt.loads('[[items]]\nkey = "template"\n'))
+    for entry in doc["tool"]["example"]["items"]:
+        new_section["items"].append(entry)
+    doc["tool"]["example"] = new_section
+
+    result = tomlrt.dumps(doc)
+    assert result.strip(), "tomlrt produced an empty dump"
