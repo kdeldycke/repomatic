@@ -699,6 +699,49 @@ def test_add_exclude_newer_packages_no_uv_section(tmp_path):
     assert add_exclude_newer_packages(pyproject, {"requests"}) is False
 
 
+def test_add_exclude_newer_packages_preserves_unrelated_siblings(tmp_path):
+    """Sort-after-insert leaves unrelated sibling keys and their comments in place.
+
+    The PR rewrote the post-insert reordering from tomlkit's
+    ``_insert_after(...)`` to a tomlrt ``sort(key=order.index)`` call. A
+    real ``[tool.uv]`` carries multiple sibling scalars before and after
+    ``exclude-newer``, with comment blocks interspersed. Any
+    sibling-reordering or comment-detaching regression surfaces here.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.uv]\n"
+        "# Header comment.\n"
+        "managed = true\n"
+        'default-groups = ["dev"]\n'
+        "# Cutoff window.\n"
+        'exclude-newer = "1 week"\n'
+        "# Build backend.\n"
+        'build-backend.module-root = ""\n'
+        "package = true\n"
+    )
+    assert add_exclude_newer_packages(pyproject, {"urllib3"}) is True
+    content = pyproject.read_text()
+    parsed = tomllib.loads(content)
+    uv = parsed["tool"]["uv"]
+    assert uv["managed"] is True
+    assert uv["default-groups"] == ["dev"]
+    assert uv["exclude-newer"] == "1 week"
+    assert uv["exclude-newer-package"] == {"urllib3": "0 day"}
+    assert uv["build-backend"]["module-root"] == ""
+    assert uv["package"] is True
+    # Every header comment survived alongside its associated key.
+    assert "# Header comment.\nmanaged = true" in content
+    assert '# Cutoff window.\nexclude-newer = "1 week"' in content
+    assert "# Build backend.\nbuild-backend.module-root" in content
+    # New entry sits right after exclude-newer, before the next sibling.
+    assert (
+        'exclude-newer = "1 week"\n'
+        'exclude-newer-package = { urllib3 = "0 day" }\n'
+        "# Build backend."
+    ) in content
+
+
 def test_packages_outside_cooldown_filters_reachable(tmp_path):
     """Packages whose upload time is before the cutoff are not exempted."""
     pyproject = tmp_path / "pyproject.toml"
@@ -935,6 +978,43 @@ def test_prune_stale_removes_all_entries(tmp_path):
     content = pyproject.read_text()
     assert "exclude-newer-package" not in content
     assert "bypass the cooldown" not in content
+
+
+def test_prune_stale_removes_multi_line_comment_block(tmp_path):
+    """Remove a multi-line comment block above a fully-pruned key.
+
+    Covers the case the (now-deleted) ``_find_preceding_comments`` helper
+    used to scrub manually after tomlkit left orphan comments on key
+    delete. tomlrt removes the comment block natively; lock that in so a
+    future tomlrt regression cannot silently leave a comment block
+    pointing at a key that no longer exists.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.uv]\n"
+        'exclude-newer = "2026-03-25T00:00:00Z"\n'
+        "# First comment line about the bypass list.\n"
+        "# Second comment line continuing the explanation.\n"
+        "# Third line completing the block.\n"
+        'exclude-newer-package = { "pygments" = "0 day" }\n'
+    )
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "version = 1\n\n"
+        '[[package]]\nname = "pygments"\nversion = "2.19.0"\n'
+        "[package.sdist]\n"
+        'url = "https://example.com/pygments.tar.gz"\n'
+        'hash = "sha256:abc"\n'
+        'upload-time = "2026-03-01T00:00:00Z"\n'
+    )
+    assert prune_stale_exclude_newer_packages(pyproject, lock) is True
+    content = pyproject.read_text()
+    assert "exclude-newer-package" not in content
+    assert "First comment line" not in content
+    assert "Second comment line" not in content
+    assert "Third line completing" not in content
+    # No orphan blank line before the next key.
+    assert "\n\n\n" not in content
 
 
 def test_prune_stale_keeps_no_upload_time(tmp_path):
