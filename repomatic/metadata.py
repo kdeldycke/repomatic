@@ -377,7 +377,6 @@ if TYPE_CHECKING:
     from typing import Any, Final, Literal
 
 
-
 class Dialect(StrEnum):
     """Output dialect for metadata serialization."""
 
