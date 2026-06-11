@@ -40,6 +40,21 @@ def _no_status_probe():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _no_transient_retry():
+    """Disable the same-token transient-401 retry loop by default.
+
+    The retry loop sleeps before each attempt, which would slow every test
+    that exercises a 401 path.  Tests that target the retry behavior
+    override this fixture to set the schedule themselves.
+    """
+    with (
+        patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", ()),
+        patch("repomatic.github.gh.time.sleep"),
+    ):
+        yield
+
+
 def _make_result(
     returncode: int = 0,
     stdout: str = "",
