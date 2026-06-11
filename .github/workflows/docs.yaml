@@ -60,12 +60,16 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
-      - name: Install Graphviz
-        # So we can use the sphinx.ext.graphviz plugin.
+      - name: Install Graphviz and mandoc
+        # Graphviz: backs the sphinx.ext.graphviz directive.
         # See: https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html
+        # mandoc: renders the roff `.1` files written by the
+        # click_extra.sphinx.manpages hook into the browser-viewable
+        # `.html` siblings the docs site links to. Skipped silently when
+        # the hook is not opted in.
         run: |
           sudo apt update
-          sudo apt install --yes graphviz
+          sudo apt install --yes graphviz mandoc
       - name: Build documentation
         # Install --all-extras so documentation can covers all features of the project, including the optional ones.
         run: uv --no-progress run --frozen --all-extras --group docs -- sphinx-build -b html ./docs ./docs/html
