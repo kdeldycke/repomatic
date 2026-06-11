@@ -110,6 +110,18 @@ REQUIRED_PAT_PERMISSIONS = (
 )
 
 
+def _with_status_annotation(msg: str) -> str:
+    """Append a {func}`~repomatic.github.status.status_annotation` when active.
+
+    Returns *msg* unchanged when GitHub reports healthy or the probe
+    fails, so callers can wrap any diagnostic without branching.
+    """
+    annotation = status_annotation()
+    if annotation:
+        return f"{msg} {annotation}"
+    return msg
+
+
 def _classify_pat_error(stderr: str, missing_permission_msg: str) -> str:
     """Build a permission-check failure message from a `gh` stderr.
 
@@ -131,10 +143,7 @@ def _classify_pat_error(stderr: str, missing_permission_msg: str) -> str:
         msg = missing_permission_msg
     else:
         msg = f"GitHub API call failed: {stderr.strip()}"
-    annotation = status_annotation()
-    if annotation:
-        msg = f"{msg} {annotation}"
-    return msg
+    return _with_status_annotation(msg)
 
 
 def check_pat_contents_permission(repo: str) -> tuple[bool, str]:
@@ -234,15 +243,11 @@ def check_pat_vulnerability_alerts_permission(repo: str) -> tuple[bool, str]:
     except RuntimeError as exc:
         stderr = str(exc)
         if "HTTP 404" in stderr:
-            msg = (
+            return False, _with_status_annotation(
                 "Vulnerability alerts are not enabled on the repository. "
                 f"Enable them: gh api repos/{repo}/vulnerability-alerts"
                 " --method PUT"
             )
-            annotation = status_annotation()
-            if annotation:
-                msg = f"{msg} {annotation}"
-            return False, msg
         return False, _classify_pat_error(
             stderr,
             "Token lacks 'Dependabot alerts: Read-only' permission. "

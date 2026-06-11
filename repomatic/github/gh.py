@@ -68,6 +68,16 @@ GitHub auth-flap window without disguising a genuine credential
 problem behind seconds of idle wait."""
 
 
+def _matched_auth_marker(stderr: str) -> str | None:
+    """Return the first `_AUTH_FALLBACK_MARKERS` entry present in *stderr*.
+
+    Returns `None` when none match. Centralizes the marker scan so the
+    transient-retry loop and the cross-token fallback agree on what
+    counts as a 401 worth recovering from.
+    """
+    return next((m for m in _AUTH_FALLBACK_MARKERS if m in stderr), None)
+
+
 def run_gh_command(args: list[str]) -> str:
     """Run a `gh` CLI command and return stdout.
 
@@ -76,7 +86,7 @@ def run_gh_command(args: list[str]) -> str:
     injected as `GH_TOKEN`.  On a 401 from the primary token (``Bad
     credentials`` or ``Requires authentication``) the command is first
     retried with the **same** token after a short bounded back-off (see
-    :data:`_TRANSIENT_AUTH_BACKOFF_SECONDS`), absorbing transient GitHub
+    `_TRANSIENT_AUTH_BACKOFF_SECONDS`), absorbing transient GitHub
     auth flaps that resolve on their own.  If 401s persist, the command is
     then retried with `GITHUB_TOKEN` if available and different, letting
     CI jobs degrade gracefully to the standard Actions token instead of
@@ -113,11 +123,12 @@ def run_gh_command(args: list[str]) -> str:
     for delay in _TRANSIENT_AUTH_BACKOFF_SECONDS:
         if not process.returncode:
             break
-        if not any(m in process.stderr for m in _AUTH_FALLBACK_MARKERS):
+        marker = _matched_auth_marker(process.stderr)
+        if marker is None:
             break
         logging.warning(
             "gh command returned 401 (%s), retrying in %ds with the same token.",
-            next(m for m in _AUTH_FALLBACK_MARKERS if m in process.stderr),
+            marker,
             delay,
         )
         time.sleep(delay)
@@ -131,11 +142,11 @@ def run_gh_command(args: list[str]) -> str:
         # are recoverable when a second credential is on hand.
         fallback = os.environ.get("GITHUB_TOKEN")
         primary = pat or os.environ.get("GH_TOKEN")
-        is_auth_failure = any(m in stderr for m in _AUTH_FALLBACK_MARKERS)
-        if is_auth_failure and fallback and fallback != primary:
+        auth_marker = _matched_auth_marker(stderr)
+        if auth_marker and fallback and fallback != primary:
             logging.warning(
                 "Primary token returned 401 (%s), retrying with GITHUB_TOKEN.",
-                next(m for m in _AUTH_FALLBACK_MARKERS if m in stderr),
+                auth_marker,
             )
             retry = run(
                 cmd,

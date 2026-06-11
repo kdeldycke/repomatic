@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v6.23.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v6.24.0
 ```
 
 > [!IMPORTANT]

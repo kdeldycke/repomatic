@@ -35,7 +35,7 @@ invoke(repomatic, args=['--help'])
 
 ````{tab-item} Specific version
 ```shell-session
-$ uvx -- repomatic==6.23.0 --help
+$ uvx -- repomatic==6.24.0 --help
 ```
 ````
 
@@ -120,8 +120,8 @@ To ease deployment, standalone executables of `repomatic`'s latest version are a
 
 | Platform    | `arm64`                                                                                                                                              | `x86_64`                                                                                                                                         |
 | :---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Linux**   | [Download `repomatic-6.23.0-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.23.0/repomatic-6.23.0-linux-arm64.bin)     | [Download `repomatic-6.23.0-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.23.0/repomatic-6.23.0-linux-x64.bin)     |
-| **macOS**   | [Download `repomatic-6.23.0-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.23.0/repomatic-6.23.0-macos-arm64.bin)     | [Download `repomatic-6.23.0-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.23.0/repomatic-6.23.0-macos-x64.bin)     |
-| **Windows** | [Download `repomatic-6.23.0-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v6.23.0/repomatic-6.23.0-windows-arm64.exe) | [Download `repomatic-6.23.0-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v6.23.0/repomatic-6.23.0-windows-x64.exe) |
+| **Linux**   | [Download `repomatic-6.24.0-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.24.0/repomatic-6.24.0-linux-arm64.bin)     | [Download `repomatic-6.24.0-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.24.0/repomatic-6.24.0-linux-x64.bin)     |
+| **macOS**   | [Download `repomatic-6.24.0-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.24.0/repomatic-6.24.0-macos-arm64.bin)     | [Download `repomatic-6.24.0-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.24.0/repomatic-6.24.0-macos-x64.bin)     |
+| **Windows** | [Download `repomatic-6.24.0-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v6.24.0/repomatic-6.24.0-windows-arm64.exe) | [Download `repomatic-6.24.0-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v6.24.0/repomatic-6.24.0-windows-x64.exe) |
 
 That way you have a chance to try it out without installing Python or `uv`. Or embed it in your CI/CD pipelines running on minimal images. Or run it on old platforms without worrying about dependency hell.
