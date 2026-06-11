@@ -81,6 +81,15 @@
    :undoc-members:
 ```
 
+## `repomatic.github.status` module
+
+```{eval-rst}
+.. automodule:: repomatic.github.status
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.github.token` module
 
 ```{eval-rst}

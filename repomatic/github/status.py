@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Probe `githubstatus.com <https://www.githubstatus.com>`_ on API failures.
+"""Probe [githubstatus.com](https://www.githubstatus.com) on API failures.
 
 When a `gh` or REST call fails with an opaque error, callers can ask this
 module whether GitHub is reporting a live incident. The status page is the
@@ -40,9 +40,9 @@ from urllib.request import Request, urlopen
 GITHUB_STATUS_SUMMARY_URL = "https://www.githubstatus.com/api/v2/status.json"
 """Status summary endpoint exposed by Statuspage.
 
-Returns a JSON document with a top-level ``status`` object containing an
-``indicator`` (``none``, ``minor``, ``major``, ``critical``,
-``maintenance``) and a human-readable ``description``.
+Returns a JSON document with a top-level `status` object containing an
+`indicator` (`none`, `minor`, `major`, `critical`,
+`maintenance`) and a human-readable `description`.
 """
 
 _PROBE_TIMEOUT_SECONDS = 3.0
@@ -60,12 +60,12 @@ _HEALTHY_INDICATOR = "none"
 
 @dataclass(frozen=True)
 class GitHubStatus:
-    """Snapshot of the `githubstatus.com <https://www.githubstatus.com>`_ summary.
+    """Snapshot of the [githubstatus.com](https://www.githubstatus.com) summary.
 
-    :param indicator: One of ``none``, ``minor``, ``major``, ``critical``,
-        ``maintenance``.
-    :param description: Human-readable summary (like ``All Systems Operational``
-        or ``Partial System Outage``).
+    :param indicator: One of `none`, `minor`, `major`, `critical`,
+        `maintenance`.
+    :param description: Human-readable summary (like `All Systems Operational`
+        or `Partial System Outage`).
     """
 
     indicator: str
@@ -93,7 +93,7 @@ class GitHubStatus:
 
 @cache
 def get_github_status() -> GitHubStatus | None:
-    """Fetch the current `githubstatus.com <https://www.githubstatus.com>`_ summary.
+    """Fetch the current [githubstatus.com](https://www.githubstatus.com) summary.
 
     Memoized for the lifetime of the process: only the first call hits the
     network. Returns `None` when the probe cannot complete cleanly

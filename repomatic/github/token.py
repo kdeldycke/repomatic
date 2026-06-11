@@ -126,12 +126,12 @@ def _classify_pat_error(stderr: str, missing_permission_msg: str) -> str:
     """Build a permission-check failure message from a `gh` stderr.
 
     Returns the canonical "missing permission" message only when stderr
-    actually says ``HTTP 403`` (the unambiguous signature of a token
+    actually says `HTTP 403` (the unambiguous signature of a token
     lacking the relevant scope). For any other failure mode (401 from
     an auth incident, 5xx from GitHub, network errors) the actual stderr
     is surfaced so operators see the real cause instead of being misled
     toward PAT scopes that are already correct. A
-    `githubstatus.com <https://www.githubstatus.com>`_ annotation is
+    [githubstatus.com](https://www.githubstatus.com) annotation is
     appended when an incident is active.
 
     :param stderr: The raw error string from {func}`run_gh_command`.

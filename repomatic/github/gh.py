@@ -20,19 +20,19 @@
 
 Workflow steps must set `GH_TOKEN` explicitly: `GITHUB_TOKEN` is a
 secret expression in GitHub Actions, not an automatic environment variable.
-The standard pattern is ``GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}``
-for steps that prefer a PAT, or ``GH_TOKEN: ${{ github.token }}`` otherwise.
+The standard pattern is `GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}`
+for steps that prefer a PAT, or `GH_TOKEN: ${{ github.token }}` otherwise.
 
 As defense-in-depth, {func}`run_gh_command` promotes `REPOMATIC_PAT` to
 `GH_TOKEN` when set, and promotes `GITHUB_TOKEN` to `GH_TOKEN` when
-`GH_TOKEN` is absent.  On a 401 from the primary token (either ``Bad
-credentials`` from an expired or revoked PAT, or ``Requires
-authentication`` from a GitHub-side auth incident or a fine-grained PAT
+`GH_TOKEN` is absent.  On a 401 from the primary token (either `Bad
+credentials` from an expired or revoked PAT, or `Requires
+authentication` from a GitHub-side auth incident or a fine-grained PAT
 scope quirk) it first retries with the **same** token after a short
 back-off (catching transient flaps that clear on their own), then with
 `GITHUB_TOKEN` if available and different.  When every retry path is
 exhausted, the raised `RuntimeError` is annotated with the current
-`githubstatus.com <https://www.githubstatus.com>`_ summary so operators
+[githubstatus.com](https://www.githubstatus.com) summary so operators
 are not sent chasing PAT scopes during an upstream incident.
 ```
 """
@@ -48,8 +48,8 @@ from .status import status_annotation
 
 _AUTH_FALLBACK_MARKERS = ("Bad credentials", "Requires authentication")
 """Stderr substrings that mean: the primary token's auth context was
-rejected. Both surface as a 401 from the GitHub API. ``Bad credentials``
-covers expired or revoked tokens; ``Requires authentication`` covers
+rejected. Both surface as a 401 from the GitHub API. `Bad credentials`
+covers expired or revoked tokens; `Requires authentication` covers
 GitHub-side auth incidents and fine-grained PAT scope mismatches that
 GitHub treats as "no auth present" for that resource. In both cases the
 ambient `GITHUB_TOKEN` is a meaningful fallback because it is a
@@ -57,10 +57,10 @@ different credential issued by Actions itself."""
 
 _TRANSIENT_AUTH_BACKOFF_SECONDS = (1, 3)
 """Sleep durations between bounded same-token retries on a 401. Empty tuple
-disables the retry loop. ``Requires authentication`` 401s sometimes come
+disables the retry loop. `Requires authentication` 401s sometimes come
 back on the first call and clear on the next within the same workflow
-run, no token rotation involved: the click-extra ``v7.19.0`` release saw
-``manage_issue_lifecycle`` fail with 401 once, then succeed on a manual
+run, no token rotation involved: the click-extra `v7.19.0` release saw
+`manage_issue_lifecycle` fail with 401 once, then succeed on a manual
 workflow re-run with the *same* `REPOMATIC_PAT`. A single-token retry
 absorbs that transient before the cross-token fallback or the final
 raise. Stays small on purpose: two retries (1s + 3s) cover the common
@@ -83,8 +83,8 @@ def run_gh_command(args: list[str]) -> str:
 
     Token priority: `REPOMATIC_PAT` > `GH_TOKEN` > `GITHUB_TOKEN`.
     The `gh` CLI does not recognize `REPOMATIC_PAT`, so when set it is
-    injected as `GH_TOKEN`.  On a 401 from the primary token (``Bad
-    credentials`` or ``Requires authentication``) the command is first
+    injected as `GH_TOKEN`.  On a 401 from the primary token (`Bad
+    credentials` or `Requires authentication`) the command is first
     retried with the **same** token after a short bounded back-off (see
     `_TRANSIENT_AUTH_BACKOFF_SECONDS`), absorbing transient GitHub
     auth flaps that resolve on their own.  If 401s persist, the command is
@@ -92,7 +92,7 @@ def run_gh_command(args: list[str]) -> str:
     CI jobs degrade gracefully to the standard Actions token instead of
     failing outright on a stale PAT.  When every retry path is exhausted,
     the raised `RuntimeError` carries a
-    `githubstatus.com <https://www.githubstatus.com>`_ annotation when an
+    [githubstatus.com](https://www.githubstatus.com) annotation when an
     incident is active.
 
     :param args: Command arguments to pass to `gh`.
@@ -140,10 +140,9 @@ def run_gh_command(args: list[str]) -> str:
         # available and different.  Both "Bad credentials" (expired PAT)
         # and "Requires authentication" (GitHub auth incident, scope quirk)
         # are recoverable when a second credential is on hand.
-        fallback = os.environ.get("GITHUB_TOKEN")
-        primary = pat or os.environ.get("GH_TOKEN")
+        primary = pat or gh_token
         auth_marker = _matched_auth_marker(stderr)
-        if auth_marker and fallback and fallback != primary:
+        if auth_marker and github_token and github_token != primary:
             logging.warning(
                 "Primary token returned 401 (%s), retrying with GITHUB_TOKEN.",
                 auth_marker,
@@ -153,7 +152,7 @@ def run_gh_command(args: list[str]) -> str:
                 capture_output=True,
                 encoding="UTF-8",
                 check=False,
-                env={**os.environ, "GH_TOKEN": fallback},
+                env={**os.environ, "GH_TOKEN": github_token},
             )
             if not retry.returncode:
                 return retry.stdout

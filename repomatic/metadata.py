@@ -376,7 +376,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from typing import Any, Final, Literal
 
-    from typing_extensions import Self
 
 
 class Dialect(StrEnum):
