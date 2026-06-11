@@ -1733,7 +1733,7 @@ wheels = [
 
 [[package]]
 name = "repomatic"
-version = "6.24.1.dev0"
+version = "6.25.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "backports-strenum", marker = "python_full_version < '3.11'" },
