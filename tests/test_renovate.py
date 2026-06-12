@@ -19,11 +19,11 @@
 from __future__ import annotations
 
 import json
-import sys
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
+import tomlrt
 
 from repomatic.github.pr_body import sanitize_markdown_mentions
 from repomatic.github.token import check_commit_statuses_permission
@@ -60,11 +60,6 @@ from repomatic.uv import (
     prune_stale_exclude_newer_packages,
     sync_uv_lock,
 )
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
 
 
 def test_no_config_file(tmp_path, monkeypatch):
@@ -612,7 +607,7 @@ def test_add_exclude_newer_packages_appends(tmp_path):
     )
     assert add_exclude_newer_packages(pyproject, {"pygments"}) is True
     content = pyproject.read_text()
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     pkg = parsed["tool"]["uv"]["exclude-newer-package"]
     assert pkg["pygments"] == "0 day"
     assert pkg["click-extra"] == "0 day"
@@ -643,7 +638,7 @@ def test_add_exclude_newer_packages_creates_line(tmp_path):
     content = pyproject.read_text()
     # Verify pyproject-fmt-compatible formatting.
     assert 'exclude-newer-package = { requests = "0 day" }' in content
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     assert parsed["tool"]["uv"]["exclude-newer-package"]["requests"] == "0 day"
 
 
@@ -680,7 +675,7 @@ def test_add_exclude_newer_packages_multiple(tmp_path):
     )
     assert add_exclude_newer_packages(pyproject, {"requests", "pygments"}) is True
     content = pyproject.read_text()
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     pkg = parsed["tool"]["uv"]["exclude-newer-package"]
     assert pkg["pygments"] == "0 day"
     assert pkg["requests"] == "0 day"
@@ -722,7 +717,7 @@ def test_add_exclude_newer_packages_preserves_unrelated_siblings(tmp_path):
     )
     assert add_exclude_newer_packages(pyproject, {"urllib3"}) is True
     content = pyproject.read_text()
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     uv = parsed["tool"]["uv"]
     assert uv["managed"] is True
     assert uv["default-groups"] == ["dev"]
@@ -948,7 +943,7 @@ def test_prune_stale_removes_old_entry(tmp_path):
     )
     assert prune_stale_exclude_newer_packages(pyproject, lock) is True
     content = pyproject.read_text()
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     pkg = parsed["tool"]["uv"]["exclude-newer-package"]
     assert "pygments" not in pkg
     assert pkg["repomatic"] == "0 day"

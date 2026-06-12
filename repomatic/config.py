@@ -26,16 +26,12 @@ from __future__ import annotations
 import ast
 import inspect
 import logging
-import sys
 import textwrap
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from textwrap import dedent
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
+import tomlrt
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -926,7 +922,7 @@ def load_repomatic_config(
     if pyproject_data is None:
         pyproject_path = Path() / "pyproject.toml"
         if pyproject_path.exists() and pyproject_path.is_file():
-            pyproject_data = tomllib.loads(pyproject_path.read_text(encoding="UTF-8"))
+            pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
         else:
             pyproject_data = {}
 

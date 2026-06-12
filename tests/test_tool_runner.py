@@ -22,7 +22,6 @@ import hashlib
 import io
 import json
 import re
-import sys
 import tarfile
 import zipfile
 from itertools import combinations
@@ -30,13 +29,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import tomlrt
 import yaml
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
-
 from extra_platforms import (
     AARCH64,
     LINUX,
@@ -170,7 +164,7 @@ def test_tool_spec_integrity(name, spec):
             if spec.native_format == NativeFormat.YAML:
                 yaml.safe_load(content)
             elif spec.native_format == NativeFormat.TOML:
-                tomllib.loads(content)
+                tomlrt.loads(content)
             elif spec.native_format == NativeFormat.JSON:
                 json.loads(content)
         assert spec.config_flag or spec.native_config_files, (

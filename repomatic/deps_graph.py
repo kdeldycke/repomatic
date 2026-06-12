@@ -34,16 +34,12 @@ import json
 import logging
 import re
 import subprocess
-import sys
 from functools import lru_cache
 from pathlib import Path
 
-from repomatic.uv import load_lock_data, parse_lock_specifiers, uv_cmd
+import tomlrt
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
+from repomatic.uv import load_lock_data, parse_lock_specifiers, uv_cmd
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -192,7 +188,7 @@ def get_available_groups(pyproject_path: Path | None = None) -> tuple[str, ...]:
         return ()
 
     with pyproject_path.open("rb") as f:
-        pyproject = tomllib.load(f)
+        pyproject = tomlrt.load(f)
 
     groups = pyproject.get("dependency-groups", {})
     return tuple(sorted(groups.keys()))
@@ -211,7 +207,7 @@ def get_available_extras(pyproject_path: Path | None = None) -> tuple[str, ...]:
         return ()
 
     with pyproject_path.open("rb") as f:
-        pyproject = tomllib.load(f)
+        pyproject = tomlrt.load(f)
 
     project = pyproject.get("project", {})
     extras = project.get("optional-dependencies", {})

@@ -20,11 +20,11 @@ from __future__ import annotations
 import hashlib
 import re
 import subprocess
-import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import pytest
+import tomlrt
 from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__
@@ -64,12 +64,6 @@ from repomatic.registry import (
     valid_file_ids,
 )
 from repomatic.tool_runner import TOOL_REGISTRY
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
-
 
 # Convenience set for tests that check opt-in workflow membership.
 _OPT_IN_IDS = frozenset(f.file_id for f in _BY_NAME["workflows"].files if f.config_key)
@@ -197,7 +191,7 @@ def test_returns_valid_toml(config_type: str) -> None:
     comp = _BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
     content = export_content(comp.source_file)
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     assert isinstance(parsed, dict)
 
 
@@ -210,7 +204,7 @@ def test_native_format_no_tool_prefix(config_type: str) -> None:
     comp = _BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
     content = export_content(comp.source_file)
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     # Native format should NOT have a "tool" key at the root.
     assert "tool" not in parsed
 
@@ -274,10 +268,10 @@ def test_template_matches_own_pyproject(config_type: str) -> None:
     """
     comp = _BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
-    template = tomllib.loads(export_content(comp.source_file))
+    template = tomlrt.loads(export_content(comp.source_file))
 
     project_root = Path(__file__).resolve().parent.parent
-    tool_sections = tomllib.loads(
+    tool_sections = tomlrt.loads(
         (project_root / "pyproject.toml").read_text(encoding="UTF-8")
     ).get("tool", {})
     if config_type not in tool_sections:
@@ -347,14 +341,14 @@ def test_bundled_renovate_matches_processed_root() -> None:
 def test_has_preview_enabled() -> None:
     """Verify that preview mode is enabled."""
     content = export_content("ruff.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     assert parsed.get("preview") is True
 
 
 def test_has_fix_settings() -> None:
     """Verify that fix settings are configured."""
     content = export_content("ruff.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
 
     assert parsed.get("fix") is True
     assert parsed.get("unsafe-fixes") is True
@@ -364,7 +358,7 @@ def test_has_fix_settings() -> None:
 def test_has_lint_section() -> None:
     """Verify that the lint section exists with expected settings."""
     content = export_content("ruff.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
 
     assert "lint" in parsed
     lint = parsed["lint"]
@@ -377,7 +371,7 @@ def test_has_lint_section() -> None:
 def test_has_expected_ignore_rules(expected_ignore: str) -> None:
     """Verify that expected rules are in the ignore list."""
     content = export_content("ruff.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     ignore = parsed["lint"]["ignore"]
     assert expected_ignore in ignore
 
@@ -385,7 +379,7 @@ def test_has_expected_ignore_rules(expected_ignore: str) -> None:
 def test_has_format_section() -> None:
     """Verify that the format section exists with docstring formatting enabled."""
     content = export_content("ruff.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
 
     assert "format" in parsed
     assert parsed["format"].get("docstring-code-format") is True
@@ -408,7 +402,7 @@ def test_has_format_section() -> None:
 def test_has_expected_settings(setting: str) -> None:
     """Verify that expected settings are present."""
     content = export_content("mypy.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     assert setting in parsed
     assert parsed[setting] is True
 
@@ -419,7 +413,7 @@ def test_has_expected_settings(setting: str) -> None:
 def test_has_addopts() -> None:
     """Verify that addopts list is present."""
     content = export_content("pytest.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
 
     assert "addopts" in parsed
     assert isinstance(parsed["addopts"], list)
@@ -439,7 +433,7 @@ def test_has_addopts() -> None:
 def test_has_expected_addopts(expected_opt: str) -> None:
     """Verify that expected options are in addopts."""
     content = export_content("pytest.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     addopts = parsed["addopts"]
     assert expected_opt in addopts
 
@@ -447,7 +441,7 @@ def test_has_expected_addopts(expected_opt: str) -> None:
 def test_has_xfail_strict() -> None:
     """Verify that xfail_strict is enabled."""
     content = export_content("pytest.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
     assert parsed.get("xfail_strict") is True
 
 
@@ -457,7 +451,7 @@ def test_has_xfail_strict() -> None:
 def test_has_required_settings() -> None:
     """Verify that the configuration has required bumpversion settings."""
     content = export_content("bumpversion.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
 
     assert "current_version" in parsed
     assert "allow_dirty" in parsed
@@ -467,7 +461,7 @@ def test_has_required_settings() -> None:
 def test_has_files_section() -> None:
     """Verify that the configuration has file patterns defined."""
     content = export_content("bumpversion.toml")
-    parsed = tomllib.loads(content)
+    parsed = tomlrt.loads(content)
 
     assert "files" in parsed
     assert isinstance(parsed["files"], list)
@@ -536,7 +530,7 @@ def test_init_config_lychee_preserves_other_sections() -> None:
         result = init_config("lychee", Path(f.name))
     Path(f.name).unlink()
     assert result is not None
-    parsed = tomllib.loads(result)
+    parsed = tomlrt.loads(result)
     # Lychee was added.
     assert "lychee" in parsed["tool"]
     assert "exclude" in parsed["tool"]["lychee"]
@@ -553,7 +547,7 @@ def test_full_ruff_init() -> None:
         result = init_config("ruff", Path(f.name))
     Path(f.name).unlink()
     assert result is not None
-    parsed = tomllib.loads(result)
+    parsed = tomlrt.loads(result)
 
     assert "tool" in parsed
     assert "ruff" in parsed["tool"]
@@ -1112,7 +1106,7 @@ def _canonical_typos_identifiers() -> dict[str, str]:
     misspelled keys to corrected values without writing those misspelled keys as
     literals here, which the `fix-typos` job would otherwise "correct".
     """
-    parsed = tomllib.loads(get_data_content("typos.toml"))
+    parsed = tomlrt.loads(get_data_content("typos.toml"))
     identifiers = parsed["default"]["extend-identifiers"]
     return {str(k): str(v) for k, v in identifiers.items()}
 
@@ -1243,7 +1237,7 @@ def test_bumpversion_update_valid_toml(tmp_path: Path) -> None:
     result = init_config("bumpversion", pyproject)
 
     assert result is not None
-    parsed = tomllib.loads(result)
+    parsed = tomlrt.loads(result)
     bv = parsed["tool"]["bumpversion"]
     assert "parse" in bv
     assert "serialize" in bv
@@ -1278,7 +1272,7 @@ def test_preserves_local_array_entries(tmp_path: Path) -> None:
     result = _update_tool_config(content, bv, pyproject)
 
     assert result is not None
-    parsed = tomllib.loads(result)
+    parsed = tomlrt.loads(result)
     files_entries = parsed["tool"]["bumpversion"]["files"]
     # Local entry targeting readme.md must survive.
     readme_entries = [e for e in files_entries if e.get("filename") == "./readme.md"]
@@ -1326,7 +1320,7 @@ def test_ongoing_sync_no_duplicate_template_entries(tmp_path: Path) -> None:
     result = init_config("bumpversion", pyproject)
 
     assert result is not None
-    parsed = tomllib.loads(result)
+    parsed = tomlrt.loads(result)
     files_entries = parsed["tool"]["bumpversion"]["files"]
     # The template's three pyproject.toml entries ([project] version, download
     # URL, nuitka file-/product-version). The fixture's unanchored [project]
@@ -1364,7 +1358,7 @@ def test_evolved_canonical_entry_superseded_not_duplicated(tmp_path: Path) -> No
     result = init_config("bumpversion", pyproject)
 
     assert result is not None
-    files = tomllib.loads(result)["tool"]["bumpversion"]["files"]
+    files = tomlrt.loads(result)["tool"]["bumpversion"]["files"]
     version_entries = [
         e for e in files if e.get("replace") == 'version = "{new_version}"'
     ]
@@ -1400,7 +1394,7 @@ def test_local_entries_preserved_via_update(tmp_path: Path) -> None:
     result = _update_tool_config(content, bv, pyproject)
 
     assert result is not None
-    parsed = tomllib.loads(result)
+    parsed = tomlrt.loads(result)
     files = parsed["tool"]["bumpversion"]["files"]
     custom = [e for e in files if e.get("filename") == "./custom.txt"]
     assert len(custom) == 1
@@ -1473,7 +1467,7 @@ def test_syncs_typos_identifiers_into_existing_section(tmp_path: Path) -> None:
     result = init_config("typos", pyproject)
 
     assert result is not None
-    identifiers = tomllib.loads(result)["tool"]["typos"]["default"][
+    identifiers = tomlrt.loads(result)["tool"]["typos"]["default"][
         "extend-identifiers"
     ]
     # Compared against the bundled template so the misspelled canonical keys
@@ -1489,7 +1483,7 @@ def test_typos_preserves_local_inline_table_keys(tmp_path: Path) -> None:
     result = init_config("typos", pyproject)
 
     assert result is not None
-    default = tomllib.loads(result)["tool"]["typos"]["default"]
+    default = tomlrt.loads(result)["tool"]["typos"]["default"]
     # Local additions kept.
     assert default["extend-identifiers"]["getForecastForCity"] == "getForecastForCity"
     assert default["extend-words"]["monsoon"] == "monsoon"
@@ -1506,7 +1500,7 @@ def test_typos_preserves_local_only_table(tmp_path: Path) -> None:
     result = init_config("typos", pyproject)
 
     assert result is not None
-    files = tomllib.loads(result)["tool"]["typos"]["files"]
+    files = tomlrt.loads(result)["tool"]["typos"]["files"]
     assert files["extend-exclude"] == ["assets/Monokai Soda.terminal"]
 
 
@@ -1525,7 +1519,7 @@ def test_typos_canonical_value_wins_on_conflict(tmp_path: Path) -> None:
     result = init_config("typos", pyproject)
 
     assert result is not None
-    identifiers = tomllib.loads(result)["tool"]["typos"]["default"][
+    identifiers = tomlrt.loads(result)["tool"]["typos"]["default"][
         "extend-identifiers"
     ]
     assert identifiers[key] == canonical
@@ -3609,7 +3603,7 @@ def test_update_tool_config_produces_parseable_output(
 
     assert result is not None, "expected the sync to modify the seed"
     assert result.strip(), "tomlrt produced an empty document"
-    parsed = tomllib.loads(result)
+    parsed = tomlrt.loads(result)
     assert "tool" in parsed
     assert tool_name in parsed["tool"]
     assert parsed["tool"][tool_name].get("local_only_key") == "preserved"

@@ -71,11 +71,6 @@ from extra_platforms import (
 from .cache import get_cached_binary, store_binary
 from .uv import uv_cmd, uvx_cmd
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
-
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -1152,7 +1147,7 @@ def load_pyproject_tool_section(tool_name: str) -> dict[str, Any]:
     if not pyproject_path.exists():
         logging.debug("No pyproject.toml found in CWD.")
         return {}
-    pyproject_data = tomllib.loads(pyproject_path.read_text(encoding="UTF-8"))
+    pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8")).to_dict()
     tool_section: dict[str, Any] = pyproject_data.get("tool", {}).get(tool_name, {})
     if tool_section:
         logging.debug("[tool.%s] found in pyproject.toml: %r", tool_name, tool_section)

@@ -299,6 +299,7 @@ from functools import cached_property
 from operator import itemgetter
 from pathlib import Path
 
+import tomlrt
 from bumpversion.config import get_configuration
 from bumpversion.config.files import find_config_file
 from bumpversion.show import resolve_name
@@ -357,10 +358,7 @@ from .test_matrix import (
 
 if sys.version_info >= (3, 11):
     from enum import StrEnum
-
-    import tomllib
 else:
-    import tomli as tomllib  # type: ignore[import-not-found]
     from backports.strenum import StrEnum
 
 from .config import (
@@ -1642,7 +1640,7 @@ class Metadata:
         Returns an empty dict if the file does not exist.
         """
         if self.pyproject_path.exists() and self.pyproject_path.is_file():
-            data: dict[str, Any] = tomllib.loads(
+            data: dict[str, Any] = tomlrt.loads(
                 self.pyproject_path.read_text(encoding="UTF-8")
             )
             return data

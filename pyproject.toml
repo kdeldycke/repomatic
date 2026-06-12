@@ -104,12 +104,11 @@ dependencies = [
   # PyYAML < 6.0.2 uses Cython extensions that fail to compile on Python 3.14, and
   # old releases lack requires-python metadata to prevent selection on 3.14.
   "pyyaml>=6.0.3",
-  # tomli 2.0 aligned API with stdlib tomllib; only installed on Python 3.10.
-  "tomli>=2; python_version<'3.11'",
-  # tomlrt is a format-preserving TOML reader/writer; used for comment-preserving
-  # TOML write operations (tool config translation, pyproject.toml merging).
-  # `>=1.7.5` floor: 1.7.4 carried a silent-empty-dump regression on cross-doc
-  # AoT overwrite (the exact path `_update_tool_config` takes), fixed in 1.7.5.
+  # tomlrt is a format-preserving TOML reader/writer used for both reads
+  # (pyproject.toml, uv.lock) and comment-preserving writes (tool config
+  # translation, pyproject.toml merging). `>=1.7.5` floor: 1.7.4 carried a
+  # silent-empty-dump regression on cross-doc AoT overwrite (the exact path
+  # `_update_tool_config` takes), fixed in 1.7.5.
   "tomlrt>=1.7.5",
   # vt-py is the official VirusTotal Python client (uses aiohttp internally).
   # Used by the scan-virustotal CLI command to upload release binaries.

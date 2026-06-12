@@ -48,18 +48,14 @@ from __future__ import annotations
 
 import logging
 import re
-import sys
 from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
 
+import tomlrt
+
 from .changelog import Changelog
 from .config import Config
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
 
 
 class ReleasePrep:
@@ -87,7 +83,7 @@ class ReleasePrep:
         """Extract current version from bump-my-version config in pyproject.toml."""
         config_file = Path("./pyproject.toml").resolve()
         logging.info(f"Reading version from {config_file}")
-        config = tomllib.loads(config_file.read_text(encoding="UTF-8"))
+        config = tomlrt.loads(config_file.read_text(encoding="UTF-8"))
         version: str = config["tool"]["bumpversion"]["current_version"]
         logging.info(f"Current version: {version}")
         return version

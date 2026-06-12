@@ -49,11 +49,6 @@ from .pypi import (
 )
 
 if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
-
-if sys.version_info >= (3, 11):
     from enum import StrEnum
 else:
     from backports.strenum import StrEnum
@@ -651,7 +646,7 @@ def parse_lock_versions(lock_path: Path) -> dict[str, str]:
     if not lock_path.exists():
         return {}
     with lock_path.open("rb") as f:
-        data = tomllib.load(f)
+        data = tomlrt.load(f)
     return {
         pkg["name"]: pkg["version"]
         for pkg in data.get("package", [])
@@ -671,7 +666,7 @@ def parse_lock_upload_times(lock_path: Path) -> dict[str, str]:
     if not lock_path.exists():
         return {}
     with lock_path.open("rb") as f:
-        data = tomllib.load(f)
+        data = tomlrt.load(f)
     result = {}
     for pkg in data.get("package", []):
         name = pkg.get("name", "")
@@ -698,7 +693,7 @@ def parse_lock_exclude_newer(lock_path: Path) -> str:
     if not lock_path.exists():
         return ""
     with lock_path.open("rb") as f:
-        data = tomllib.load(f)
+        data = tomlrt.load(f)
     options = data.get("options", {})
     timestamp: str = options.get("exclude-newer", "")
     if timestamp and timestamp != LOCK_TIMESTAMP_SENTINEL:
@@ -723,7 +718,7 @@ def load_lock_data(lock_path: Path | None = None) -> dict[str, Any]:
     if not lock_path.exists():
         return {}
     with lock_path.open("rb") as f:
-        return tomllib.load(f)  # type: ignore[no-any-return]
+        return tomlrt.load(f)
 
 
 @dataclass

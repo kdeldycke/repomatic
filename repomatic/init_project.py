@@ -75,11 +75,6 @@ from .registry import (
 )
 from .tool_runner import TOOL_REGISTRY, find_unmodified_configs
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
-
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -374,7 +369,7 @@ def _update_tool_config(
     # Plain-dict view of the canonical template, walked alongside the existing
     # section to decide what local-only content to graft back on.
     native_source = export_content(comp.source_file)
-    template_plain = tomllib.loads(native_source)
+    template_plain = tomlrt.loads(native_source).to_dict()
 
     # Build the replacement table from the template, stripping file-level
     # comments that only apply to the standalone format.

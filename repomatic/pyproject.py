@@ -24,16 +24,11 @@ from `pyproject.toml`. These functions have no dependency on the
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 
+import tomlrt
 from packaging.utils import canonicalize_name
 from pyproject_metadata import ConfigurationError, StandardMetadata
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -61,7 +56,7 @@ def derive_source_paths(
         pyproject_path = Path() / "pyproject.toml"
         if not (pyproject_path.exists() and pyproject_path.is_file()):
             return []
-        pyproject_data = tomllib.loads(pyproject_path.read_text(encoding="UTF-8"))
+        pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
 
     name = pyproject_data.get("project", {}).get("name")
     if not name:
@@ -100,7 +95,7 @@ def get_project_name(
         pyproject_path = Path() / "pyproject.toml"
         if not (pyproject_path.exists() and pyproject_path.is_file()):
             return None
-        pyproject_data = tomllib.loads(pyproject_path.read_text(encoding="UTF-8"))
+        pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
     name: str | None = pyproject_data.get("project", {}).get("name")
     if name:
         logging.debug(f"Project name from pyproject.toml: {name}")
@@ -121,8 +116,8 @@ def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
     if not (pyproject_path.exists() and pyproject_path.is_file()):
         return {}
     try:
-        data: dict[str, Any] = tomllib.loads(pyproject_path.read_text(encoding="UTF-8"))
-    except tomllib.TOMLDecodeError:
+        data: dict[str, Any] = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+    except tomlrt.TOMLParseError:
         return {}
     return data
 
