@@ -101,6 +101,8 @@ Show `git diff` of `changelog.md` plus a one-line summary of the code and docs c
 
 Commit the reconciled tree with a clear message describing the net reconciliation (and the `Co-Authored-By` trailer above), then push to `main`. The push regenerates the release PR (freeze + unfreeze commits) through the `prepare-release` job.
 
+**Signed commits need the sandbox disabled, and a hardware-backed signature is not a retry loop.** If the project signs commits with SSH (`gpg.format = ssh`), two distinct things can block the push: the harness sandbox blocks the signing key or socket under `~/.ssh/*` and the commit fails with `Operation not permitted` (fix: disable the sandbox for the `git commit` and `git push` calls only, not the rest of the run); and a hardware-backed key (Secretive, YubiKey, TPM) prompts the maintainer for Touch ID or a button press on each signature, which the harness cannot see — a refused or missed prompt surfaces as `agent refused operation?` and looks identical to a real failure. Stop after one or two retries on a `refused operation?` failure and ask the maintainer to approve, rather than burning through prompts they may not be looking at. The same applies to the babysit subagent in step 6: see its skill for the explicit hand-off contract.
+
 ### 6. Babysit CI to green
 
 Step 2 already cleared every locally-reproducible failure, so the first CI run should be close to green. Babysit handles only what CI surfaces that local checks cannot: platform-specific failures and the slow Nuitka `compile-binaries` job.
