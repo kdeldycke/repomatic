@@ -196,6 +196,9 @@ exclude-newer-package = { click-extra = "0 day", repomatic = "0 day" }
 # import bump-my-version's config-loading helpers (get_configuration,
 # find_config_file, resolve_name), none of which touch click 8.4-sensitive
 # Sentinel handling, so the override is safe in practice.
+# NOTE: [tool.uv] override-dependencies is NOT read by `uvx --from .`
+# (tool invocations are isolated from project settings). Workflows propagate
+# this override via UV_OVERRIDE=uv-overrides.txt. See uv-overrides.txt.
 override-dependencies = [ "click>=8.4.1" ]
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""

@@ -41,6 +41,14 @@ name: 📦 Build package
 
 permissions: {}
 
+env:
+  # bump-my-version caps click at <8.4; click-extra>=7.18 requires >=8.4.1.
+  # [tool.uv] override-dependencies is not read by uvx --from ., so propagate
+  # the override via UV_OVERRIDE. The override is safe: we only import
+  # bump-my-version's config-loading helpers, none of which touch Click 8.4-
+  # sensitive code. See uv-overrides.txt for the full rationale.
+  UV_OVERRIDE: uv-overrides.txt
+
 # No concurrency block: this lane is a release sub-component invoked by
 # release.yaml, its jobs are cheap and idempotent, and release commits are
 # protected from cancellation by _release-engine.yaml's SHA-based unique group.

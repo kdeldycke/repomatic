@@ -1,0 +1,10 @@
+# Dependency overrides applied to uvx --from . invocations via UV_OVERRIDE.
+#
+# bump-my-version>=1.2.6 caps click at <8.4, but click-extra>=7.18.0 requires
+# click>=8.4.1. The cap guards against a Sentinel API change in Click 8.4 that
+# only affects bump-my-version's own CLI code -- our use of its config-loading
+# helpers (get_configuration, find_config_file, resolve_name) does not touch
+# any Click-sensitive code paths, so the override is safe at runtime.
+#
+# Track: https://github.com/callowayproject/bump-my-version/issues/382
+click>=8.4.1
