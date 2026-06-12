@@ -3638,6 +3638,39 @@ def test_update_tool_config_section_header_whitespace(
     assert "\n\n\n" not in result, f"triple blank line in {comp.name} output"
 
 
+@pytest.mark.parametrize(
+    "comp",
+    _TOOL_CONFIG_COMPONENTS,
+    ids=lambda c: c.name,
+)
+def test_update_tool_config_preserves_trailing_newline(
+    comp: ToolConfigComponent, tmp_path: Path
+) -> None:
+    """Synced ``pyproject.toml`` ends with a newline, matching POSIX convention.
+
+    When the bundled template's prefix-strip dropped the source's terminal
+    newline, the parsed last KV slot lost its EOL trivia. Once tomlrt
+    relocates ``[[tool.X.files]]`` AoT entries to the end of the document
+    (https://github.com/dimbleby/tomlrt/issues/172), the rendered file dumped
+    without a final newline, producing a ``\\ No newline at end of file``
+    marker in every regenerated PR diff.
+    """
+    seed = (
+        '[project]\nname = "fixture"\n\n'
+        f"[{comp.tool_section}]\n"
+        'local_only_key = "preserved"\n'
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(seed, encoding="UTF-8")
+
+    result = _update_tool_config(seed, comp, pyproject)
+    assert result is not None
+    assert result.endswith("\n"), (
+        f"{comp.name}: synced output missing terminal newline; "
+        f"last 60 chars: {result[-60:]!r}"
+    )
+
+
 def test_tomlrt_aot_only_section_overwrite_invariant() -> None:
     """Surface the AoT-only-template silent-empty-dump regression to upstream.
 

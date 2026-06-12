@@ -242,6 +242,32 @@ def _template_to_table(template_text: str) -> Table:
     return Table.section(tomlrt.loads(template_text))
 
 
+def _strip_header_comments(native_source: str) -> str:
+    """Drop the leading comment block from a native-format template.
+
+    Templates ship with file-level header comments that explain the standalone
+    format (`bumpversion.toml` etc.); those comments do not belong in the
+    `[tool.X]` section grafted into `pyproject.toml`. Skip lines until the
+    first non-blank, non-comment line, then preserve the rest verbatim
+    including the source's trailing newline.
+
+    ```{note}
+    The trailing newline matters: when the parsed section is reassigned into
+    `doc["tool"][name]` and tomlrt relocates `[[tool.X.files]]` AoT children
+    to the end of the document (see https://github.com/dimbleby/tomlrt/issues/172),
+    the final KV slot's EOL trivia becomes the document's terminal newline.
+    A `"\\n".join(splitlines(...))` form dropped that newline.
+    ```
+    """
+    lines = native_source.splitlines(keepends=True)
+    first_key = next(
+        i
+        for i, line in enumerate(lines)
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    return "".join(lines[first_key:])
+
+
 # Sentinel marking a key absent from the template, so a legitimate template
 # value of `None` is not mistaken for "missing" during the merge walk.
 _MISSING = object()
@@ -373,11 +399,7 @@ def _update_tool_config(
 
     # Build the replacement table from the template, stripping file-level
     # comments that only apply to the standalone format.
-    native_lines = native_source.splitlines()
-    first_key = next(
-        i for i, line in enumerate(native_lines) if line and not line.startswith("#")
-    )
-    native_stripped = "\n".join(native_lines[first_key:])
+    native_stripped = _strip_header_comments(native_source)
     new_section = _template_to_table(native_stripped)
 
     # Graft local-only configuration on top of the canonical template: keys the
@@ -458,11 +480,7 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
 
     # Load the template and strip file-level comments.
     native_source = export_content(comp.source_file)
-    native_lines = native_source.splitlines()
-    first_key = next(
-        i for i, line in enumerate(native_lines) if line and not line.startswith("#")
-    )
-    native_stripped = "\n".join(native_lines[first_key:])
+    native_stripped = _strip_header_comments(native_source)
     new_section = _template_to_table(native_stripped)
 
     doc.install(("tool", tool_name), new_section)
