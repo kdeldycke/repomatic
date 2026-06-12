@@ -212,14 +212,16 @@ jobs:
           uv run --with "$PACKAGE" -m "$module" --version
           uv run --with "$PACKAGE" python -m "$module" --version
       - name: Run dev CLI
+        # uv run --with does not read [tool.uv] override-dependencies or UV_OVERRIDE,
+        # so it cannot resolve the click>=8.4.1 override needed while bump-my-version
+        # caps click at <8.4. Use uvx --from (which honours UV_OVERRIDE) for all dev
+        # invocations until upstream relaxes the cap. See uv-overrides.txt.
         run: |
           for script in $CLI_SCRIPTS; do
             uvx --from "$GIT_URL" -- "$script" --version
-            uv run --with "$GIT_URL" -- "$script" --version
           done
           module=$(echo "$PACKAGE" | tr '-' '_')
-          uv run --with "$GIT_URL" -m "$module" --version
-          uv run --with "$GIT_URL" python -m "$module" --version
+          uvx --from "$GIT_URL" -- python -m "$module" --version
       - name: Run stable CLI via uv tool
         run: |
           uv --no-progress tool install "$PACKAGE"
