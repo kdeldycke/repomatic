@@ -8,8 +8,9 @@
   timeout: 80.0
   exit_code: 0
   stdout_contains: ", version"
+  # click-extra>=7.19 renders the CLI name with separate bold+color escapes: \x1b[97m\x1b[1m.
   # yamllint disable-line rule:line-length
-  stdout_regex_fullmatch: "\x1b\\[97mrepomatic\x1b\\[0m, version \x1b\\[32m[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z]+[0-9]+(\\+[a-f0-9]+)?)?\x1b\\[0m\n"
+  stdout_regex_fullmatch: "\x1b\\[97m\x1b\\[1mrepomatic\x1b\\[0m, version \x1b\\[32m[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z]+[0-9]+(\\+[a-f0-9]+)?)?\x1b\\[0m\n"
 
 
 # Test combination of version and verbosity.
@@ -20,12 +21,13 @@
     - --version
   exit_code: 0
   stdout_contains: ", version"
-  stdout_regex_matches: "\x1b\\[97mrepomatic\x1b\\[0m, version "
+  # click-extra>=7.19 renders the CLI name with separate bold+color escapes: \x1b[97m\x1b[1m.
+  stdout_regex_matches: "\x1b\\[97m\x1b\\[1mrepomatic\x1b\\[0m, version "
   stderr_contains:
     - "Set <RootLogger root (DEBUG)> to DEBUG."
-    - "\x1b[34mdebug\x1b[0m: {prog_name}      : \x1b[97mrepomatic\x1b[0m\n"
+    - "\x1b[34mdebug\x1b[0m: {prog_name}      : \x1b[97m\x1b[1mrepomatic\x1b[0m\n"
   stderr_regex_matches:
-    - "\x1b\\[34mdebug\x1b\\[0m: {prog_name}      : \x1b\\[97mrepomatic\x1b\\[0m\n"
+    - "\x1b\\[34mdebug\x1b\\[0m: {prog_name}      : \x1b\\[97m\x1b\\[1mrepomatic\x1b\\[0m\n"
 
 
 # Test help output.

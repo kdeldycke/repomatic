@@ -196,6 +196,8 @@ jobs:
       # so propagate the override via UV_OVERRIDE. See uv-overrides.txt.
       UV_OVERRIDE: uv-overrides.txt
     steps:
+      # Checkout only to get uv-overrides.txt; actual installs come from PyPI/GitHub.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
       - name: Install Python
         run: uv --no-progress venv --python 3.14
