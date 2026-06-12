@@ -3567,9 +3567,7 @@ def test_init_awesome_template_not_auto_included_with_explicit_components(
 # meets those invariants natively, so a future regression cannot silently
 # corrupt a downstream pyproject.toml.
 
-_TOOL_CONFIG_COMPONENTS = [
-    c for c in COMPONENTS if isinstance(c, ToolConfigComponent)
-]
+_TOOL_CONFIG_COMPONENTS = [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)]
 
 
 @pytest.mark.parametrize(
@@ -3641,9 +3639,7 @@ def test_update_tool_config_section_header_whitespace(
         f"section header without preceding blank line at offset "
         f"{no_blank.start() if no_blank else -1} in {comp.name} output"
     )
-    assert "\n\n\n" not in result, (
-        f"triple blank line in {comp.name} output"
-    )
+    assert "\n\n\n" not in result, f"triple blank line in {comp.name} output"
 
 
 def test_tomlrt_aot_only_section_overwrite_invariant() -> None:
@@ -3669,9 +3665,7 @@ def test_tomlrt_aot_only_section_overwrite_invariant() -> None:
     import tomlrt
     from tomlrt import Table
 
-    src = (
-        '[project]\nname = "demo"\n\n[[tool.example.items]]\nkey = "existing"\n'
-    )
+    src = '[project]\nname = "demo"\n\n[[tool.example.items]]\nkey = "existing"\n'
     doc = tomlrt.loads(src)
     new_section = Table.section(tomlrt.loads('[[items]]\nkey = "template"\n'))
     for entry in doc["tool"]["example"]["items"]:
