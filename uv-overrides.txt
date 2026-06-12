@@ -6,5 +6,5 @@
 # helpers (get_configuration, find_config_file, resolve_name) does not touch
 # any Click-sensitive code paths, so the override is safe at runtime.
 #
-# Track: https://github.com/callowayproject/bump-my-version/issues/382
+# Track: https://github.com/callowayproject/bump-my-version/issues/410
 click>=8.4.1
