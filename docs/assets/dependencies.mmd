@@ -116,7 +116,7 @@ flowchart LR
         types_pyyaml{{"`types-pyyaml >=6.0.12.9`"}}
     end
 
-    repomatic ==>|" >=7.10.1 "| click_extra
+    repomatic ==>|" >=7.19 "| click_extra
     repomatic ==>|" >=1.2.6 "| bump_my_version
     repomatic ==>|" >=2 "| pydriller
     repomatic ==>|" >=17 "| packaging
@@ -211,6 +211,7 @@ flowchart LR
     sphinx_copybutton ==> sphinx
     sphinx_design ==> sphinx
     sphinxext_opengraph ==> sphinx
+    aiohttp --> typing_extensions
     aiohttp --> yarl
     aiohttp --> aiosignal
     aiohttp --> multidict

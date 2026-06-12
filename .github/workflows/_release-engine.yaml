@@ -389,8 +389,8 @@ jobs:
 
   # Render the Click CLI command tree declared by `[tool.repomatic.manpages]` as roff `.1` files and attach them as a
   # tarball asset on the GitHub release. Opt-in: silently skipped when `manpages.script` is empty in the consumer's
-  # pyproject.toml. Uses `click_extra.man_page.write_manpages()` against the consumer's already-synced venv, so only
-  # click-extra >= 7.18 is required (the newer `click-extra man --output-dir` CLI flag, in 7.19+, is not used).
+  # pyproject.toml. Shells out to the `click-extra man --output-dir` CLI shipped in click-extra 7.19.0, against the
+  # consumer's already-synced venv, so repomatic stays out of the resolution graph.
   manpages:
     name: 📖 Man pages (${{ matrix.short_sha }})
     needs:
@@ -414,25 +414,12 @@ jobs:
           enable-cache: false
       - name: Install project
         run: uv --no-progress sync --frozen
-      # Inline Python rather than the `click-extra man --output-dir` CLI: both `write_manpages` and
-      # `resolve_target_command` shipped in click-extra 7.18.0, while the `--output-dir` CLI flag is newer (7.19+).
-      # Working off the consumer venv keeps repomatic itself out of the resolution graph.
       - name: Generate man pages
         env:
           SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).manpages_script }}
-        run: |
-          mkdir -p man
-          uv --no-progress run --frozen -- python -c "
-          import os
-          from click_extra.man_page import write_manpages
-          from click_extra.wrap import resolve_target_command
-          script = os.environ['SCRIPT']
-          cmd, _ = resolve_target_command(script)
-          prog_name = cmd.name or script
-          written = write_manpages(cmd, 'man', prog_name=prog_name)
-          for path in written:
-              print(path)
-          "
+        run: >
+          uv --no-progress run --frozen --
+          click-extra man --output-dir man "${SCRIPT}"
       - name: Bundle as tarball
         env:
           ASSET_NAME: >-

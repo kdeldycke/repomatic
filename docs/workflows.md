@@ -526,11 +526,11 @@ flowchart TD
 
 #### 📖 Man pages (`manpages`)
 
-- Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]`, using `click_extra.man_page.write_manpages()` against the consumer's already-synced venv
+- Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
 - Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release via `gh release upload --clobber`
 - **Requires**:
   - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra man SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
-  - The consumer's `click-extra` floor is `>= 7.18`: `write_manpages()` and `resolve_target_command()` shipped in 7.18.0. The newer `click-extra man --output-dir` CLI flag (7.19+) is not used here, so projects can opt in as soon as their lockfile has 7.18
+  - The consumer's `click-extra` floor is `>= 7.19`: the `--output-dir DIR` option to `click-extra man` shipped in 7.19.0 and writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing
   - Successful `publish-release` job (the tag must already exist when uploading assets)
 - The tarball stem defaults to `<package-name>-manpages`; override with `manpages.asset-name` in `[tool.repomatic]` to publish under a different name
 - **Skipped if**:
