@@ -118,7 +118,11 @@ jobs:
           # Two command patterns are allowed:
           # 1. Workflow checksum updates: downloads a pinned uv binary from
           #    GitHub Releases, verifies its SHA-256, extracts uvx, then runs
-          #    repomatic update-checksums on the upgraded workflow file.
+          #    repomatic update-checksums on the upgraded workflow file. An
+          #    optional UV_OVERRIDE=uv-overrides.txt env prefix propagates the
+          #    bump-my-version/click-extra click override into the uvx
+          #    resolution (see uv-overrides.txt); [tool.uv]
+          #    override-dependencies is not read by `uvx --from .`.
           # 2. uv hash auto-update: when Renovate bumps the uv version in any
           #    renovate.json5 (root or bundled template), downloads the new
           #    tarball and uses sed to replace the old SHA-256 hash inline
@@ -130,7 +134,7 @@ jobs:
             --output /tmp/uv\\.tar\\.gz
             && echo [a-f0-9]{64}  /tmp/uv\\.tar\\.gz \\| sha256sum --check
             && tar xzf /tmp/uv\\.tar\\.gz --strip-components=1 -C /tmp
-            && /tmp/uvx --no-progress (--from \\. |)repomatic(==\\d[\\d.]*)? update-checksums",
+            && (UV_OVERRIDE=uv-overrides\\.txt |)/tmp/uvx --no-progress (--from \\. |)repomatic(==\\d[\\d.]*)? update-checksums",
             "^bash -c 'curl -fsSL
             https://github\\.com/astral-sh/uv/releases/download/[0-9.]+/uv-x86_64-unknown-linux-gnu\\.tar\\.gz
             --output /tmp/uv\\.tar\\.gz
