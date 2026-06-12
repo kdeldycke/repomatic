@@ -3672,24 +3672,25 @@ def test_update_tool_config_preserves_trailing_newline(
 
 
 def test_tomlrt_aot_only_section_overwrite_invariant() -> None:
-    """Surface the AoT-only-template silent-empty-dump regression to upstream.
+    """A populate-then-overwrite of an AoT-only section preserves the document.
 
     Mirrors the ``_graft_local_additions`` + cross-doc assign path from
     ``_update_tool_config``: parse a pyproject with a ``[project]``
     preamble followed by an AoT-only target section, build a fresh
     detached section with ``Table.section()`` from an AoT-only template,
-    append the existing AoT entries onto the new section, then assign the
-    new section back into the document. Upstream tomlrt (verified on the
-    main-branch SHA pinned in ``pyproject.toml``) silently drops the
-    entire document body in this configuration: ``tomlrt.dumps(doc)``
-    returns an empty string with no exception raised.
+    populate it with the existing AoT entries, then assign the new
+    section back into the document.
 
-    The shipped fix at tomlrt@2f6a9186 handled the
-    ``overwrite-then-reuse-displaced`` direction; this is the
-    ``populate-then-overwrite`` direction, still broken. No bundled
-    ``ToolConfigComponent`` currently has an AoT-only template, so
-    production is unaffected — but this test is left to fail loudly on
-    PR CI so the regression is visible to tomlrt's author.
+    Earlier tomlrt releases silently dropped the entire document body in
+    this configuration: ``tomlrt.dumps(doc)`` returned an empty string
+    with no exception. The 1.7.5 changelog entry "Overwriting a key with
+    a body-less section (one whose only child is an array-of-tables) no
+    longer wipes the whole document on dump" fixed it; this test pins
+    the contract so a future tomlrt bump that regresses it fails CI
+    instead of silently corrupting downstream ``pyproject.toml`` files.
+    No bundled ``ToolConfigComponent`` ships an AoT-only template today,
+    so a regression would not otherwise surface through the ``sync-*``
+    autofix jobs until a user defined one.
     """
     import tomlrt
     from tomlrt import Table
