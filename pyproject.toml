@@ -184,16 +184,6 @@ typing = [
 [tool.uv]
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
-# Cooldown period: 7-day buffer before using newly released packages.
-# Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to
-# uv.lock for relative spans, so re-resolving never produces churn.
-exclude-newer = "1 week"
-# repomatic is pinned to git main. click-extra 7.19.0 is bypassed so the release
-# engine's manpages job picks up the new `--output-dir` CLI flag without waiting
-# out the cooldown window; drop the override on the next routine bump. tomlrt
-# 1.7.5 ships the silent-empty-dump fix the project depends on; bypass the
-# cooldown until the release ages past `exclude-newer`.
-exclude-newer-package = { click-extra = "0 day", repomatic = "0 day", tomlrt = "0 day" }
 # bump-my-version 1.3.0 caps click at <8.4, which conflicts with click-extra
 # 7.19.0's click>=8.4.1 floor. Override the cap until upstream relaxes it
 # (callowayproject/bump-my-version#382 was the last bump, to <8.4). We only
@@ -204,6 +194,16 @@ exclude-newer-package = { click-extra = "0 day", repomatic = "0 day", tomlrt = "
 # (tool invocations are isolated from project settings). Workflows propagate
 # this override via UV_OVERRIDE=uv-overrides.txt. See uv-overrides.txt.
 override-dependencies = [ "click>=8.4.1" ]
+# Cooldown period: 7-day buffer before using newly released packages.
+# Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to
+# uv.lock for relative spans, so re-resolving never produces churn.
+exclude-newer = "1 week"
+# repomatic is pinned to git main. click-extra 7.19.0 is bypassed so the release
+# engine's manpages job picks up the new `--output-dir` CLI flag without waiting
+# out the cooldown window; drop the override on the next routine bump. tomlrt
+# 1.7.5 ships the silent-empty-dump fix the project depends on; bypass the
+# cooldown until the release ages past `exclude-newer`.
+exclude-newer-package = { click-extra = "0 day", repomatic = "0 day", tomlrt = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
