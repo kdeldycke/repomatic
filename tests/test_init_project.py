@@ -1467,9 +1467,7 @@ def test_syncs_typos_identifiers_into_existing_section(tmp_path: Path) -> None:
     result = init_config("typos", pyproject)
 
     assert result is not None
-    identifiers = tomlrt.loads(result)["tool"]["typos"]["default"][
-        "extend-identifiers"
-    ]
+    identifiers = tomlrt.loads(result)["tool"]["typos"]["default"]["extend-identifiers"]
     # Compared against the bundled template so the misspelled canonical keys
     # never appear as literals here, where `fix-typos` would "correct" them.
     assert _canonical_typos_identifiers().items() <= identifiers.items()
@@ -1519,9 +1517,7 @@ def test_typos_canonical_value_wins_on_conflict(tmp_path: Path) -> None:
     result = init_config("typos", pyproject)
 
     assert result is not None
-    identifiers = tomlrt.loads(result)["tool"]["typos"]["default"][
-        "extend-identifiers"
-    ]
+    identifiers = tomlrt.loads(result)["tool"]["typos"]["default"]["extend-identifiers"]
     assert identifiers[key] == canonical
 
 
