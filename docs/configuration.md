@@ -65,6 +65,7 @@ workflow.ignore-paths = ["uv.lock"]
 
 | Option                                                        | Description                                                                                                               | Default                             |
 | :------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------ | :---------------------------------- |
+| [`abandoned-versions`](#abandoned-versions)                   | Versions documented in the changelog but never published.                                                                 | `[]`                                |
 | [`agents.location`](#agents-location)                         | Directory prefix for Claude Code agent files, relative to the repository root.                                            | `"./.claude/agents/"`               |
 | [`awesome-template.sync`](#awesome-template-sync)             | Whether awesome-template sync is enabled for this project.                                                                | `true`                              |
 | [`bumpversion.sync`](#bumpversion-sync)                       | Whether bumpversion config sync is enabled for this project.                                                              | `true`                              |
@@ -121,6 +122,26 @@ workflow.ignore-paths = ["uv.lock"]
 | [`workflow.paths`](#workflow-paths)                           | Per-workflow override of the `paths:` filter, keyed by filename.                                                          | {}                                  |
 | [`workflow.source-paths`](#workflow-source-paths)             | Source code directory names for workflow trigger `paths:` filters.                                                        | *(none)*                            |
 | [`workflow.sync`](#workflow-sync)                             | Whether workflow sync is enabled for this project.                                                                        | `true`                              |
+
+### `abandoned-versions`
+
+Versions documented in the changelog but never published.
+
+**Type:** `list[str]` | **Default:** `[]`
+
+A version reached only its `[changelog] Release vX.Y.Z` freeze and was then
+skipped per `CLAUDE.md` § Skip and move forward (botched build, broken
+artifact, bad metadata) without rewriting history. List those versions here
+so `lint-changelog` reports them as skipped (an info log line) instead of
+flagging them every run as `⚠ X.Y.Z: not found on PyPI`. Applies to both
+PyPI lookups and the git-tag fallback.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+abandoned-versions = []
+```
 
 ### `agents.location`
 
