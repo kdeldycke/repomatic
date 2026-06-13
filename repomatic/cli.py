@@ -3300,6 +3300,10 @@ def lint_changelog(
     Reads pypi-package-history from [tool.repomatic] to fetch
     releases published under former package names (for renamed projects).
 
+    Reads abandoned-versions from [tool.repomatic] to skip
+    "not found on PyPI" warnings for releases that were frozen but
+    never published (skip-and-move-forward releases).
+
     \b
     Output symbols:
         ✓  Dates match
@@ -3344,6 +3348,7 @@ def lint_changelog(
         package=package,
         fix=fix,
         pypi_package_history=config.pypi_package_history,
+        abandoned_versions=config.abandoned_versions,
     )
     ctx.exit(exit_code)
 

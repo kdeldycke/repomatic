@@ -608,6 +608,17 @@ class Config:
     release metadata from all names and generate correct PyPI URLs.
     """
 
+    abandoned_versions: list[str] = field(default_factory=list)
+    """Versions documented in the changelog but never published.
+
+    A version reached only its `[changelog] Release vX.Y.Z` freeze and was then
+    skipped per `CLAUDE.md` § Skip and move forward (botched build, broken
+    artifact, bad metadata) without rewriting history. List those versions here
+    so `lint-changelog` reports them as skipped (an info log line) instead of
+    flagging them every run as `⚠ X.Y.Z: not found on PyPI`. Applies to both
+    PyPI lookups and the git-tag fallback.
+    """
+
     setup_guide: bool = True
     """Whether the setup guide issue is enabled for this project.
 
@@ -680,6 +691,7 @@ class Config:
 
 
 SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
+    "abandoned_versions",
     "agents_location",
     "awesome_template_sync",
     "bumpversion_sync",

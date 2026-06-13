@@ -736,6 +736,7 @@ def lint_changelog_dates(
     *,
     fix: bool = False,
     pypi_package_history: Sequence[str] = (),
+    abandoned_versions: Sequence[str] = (),
 ) -> int:
     """Verify that changelog release dates match canonical release dates.
 
@@ -780,6 +781,12 @@ def lint_changelog_dates(
         projects. Releases from each former name are merged into the
         lookup table so versions published under old names are recognized.
         The current package name wins on version collisions.
+    :param abandoned_versions: Versions documented in the changelog but
+        never published. Each listed version is reported as skipped (info
+        log) instead of triggering the `not found on PyPI` warning, for
+        both the PyPI lookup and the git-tag fallback. Use for releases
+        that were frozen but skipped per the "skip and move forward"
+        practice (botched build, broken artifact).
     :return: `0` if all dates match or references were corrected in-place,
         `1` if any date mismatch or orphan is found without a fix being
         applied, `2` if the sanity gate refused a destructive rewrite
@@ -908,11 +915,15 @@ def lint_changelog_dates(
             releases = changelog.extract_all_releases()
 
     date_corrections: dict[str, str] = {}
+    abandoned = frozenset(abandoned_versions)
 
     for version, changelog_date in releases:
         if use_pypi:
             release = pypi_data.get(version)
             if release is None:
+                if version in abandoned:
+                    logging.info(f"  {version}: abandoned (skipped per config)")
+                    continue
                 parsed = Version(version)
                 if first_pypi_version and parsed < first_pypi_version:
                     logging.info(
@@ -931,6 +942,9 @@ def lint_changelog_dates(
             tag_date = get_tag_date(f"v{version}")
             source = "tag"
             if tag_date is None:
+                if version in abandoned:
+                    logging.info(f"  {version}: abandoned (skipped per config)")
+                    continue
                 logging.warning(f"⚠ {version}: not found on {source}")
                 emit_annotation(
                     AnnotationLevel.WARNING,

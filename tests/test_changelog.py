@@ -654,6 +654,33 @@ def test_lint_changelog_dates_skips_pre_pypi(tmp_path, monkeypatch, caplog):
     assert "predates PyPI" in caplog.text
 
 
+def test_lint_changelog_dates_skips_abandoned(tmp_path, monkeypatch, caplog):
+    """Test that explicitly-abandoned versions are skipped without warning."""
+    path = tmp_path / "changelog.md"
+    path.write_text(MULTI_RELEASE_CHANGELOG, encoding="UTF-8")
+
+    # 1.0.0 is on PyPI, 1.1.0 is documented but was abandoned.
+    monkeypatch.setattr(
+        "repomatic.changelog.get_pypi_release_dates",
+        _pypi_mock({"1.0.0": ("2025-12-01", False)}),
+    )
+    monkeypatch.setattr(
+        "repomatic.changelog.get_project_name",
+        lambda: "my-package",
+    )
+    monkeypatch.setattr(
+        "repomatic.changelog.get_github_releases",
+        _github_mock([]),
+    )
+    _patch_tags(monkeypatch)
+
+    with caplog.at_level(logging.INFO):
+        assert lint_changelog_dates(path, abandoned_versions=["1.1.0"]) == 0
+
+    assert "1.1.0: abandoned" in caplog.text
+    assert "1.1.0: not found on PyPI" not in caplog.text
+
+
 def test_lint_fix_corrects_date(tmp_path, monkeypatch):
     """Test that --fix corrects mismatched dates in the changelog."""
     path = tmp_path / "changelog.md"

@@ -429,5 +429,14 @@ exclude_path = [
 ]
 
 [tool.repomatic]
+abandoned-versions = [
+  "4.1.0",
+  "4.6.1",
+  "4.7.0",
+  "4.8.0",
+  "5.0.0",
+  "6.0.0",
+  "6.18.0",
+]
 exclude = [ "workflows" ]
 pypi-package-history = [ "gha-utils", "repokit" ]
