@@ -49,7 +49,7 @@ jobs:
       - name: Sync labels
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx --no-progress --from . repomatic sync-labels
+        run: uvx --no-progress 'repomatic==6.25.1' sync-labels
 
   metadata:
     name: 🧬 Project metadata
@@ -72,7 +72,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress --from . repomatic metadata
+          uvx --no-progress 'repomatic==6.25.1' metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_bot
 
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Dump default rules
-        run: uvx --no-progress --from . repomatic init labels
+        run: uvx --no-progress 'repomatic==6.25.1' init labels
       - name: Apply rules
         uses: actions/labeler@f27b608878404679385c85cfa523b85ccb86e213 # v6.1.0
         with:
@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Dump default rules
-        run: uvx --no-progress --from . repomatic init labels
+        run: uvx --no-progress 'repomatic==6.25.1' init labels
       - name: Apply rules
         uses: github/issue-labeler@c1b0f9f52a63158c4adc09425e858e87b32e9685 # v3.4
         with:
@@ -138,4 +138,4 @@ jobs:
       - name: Add sponsor label
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx --no-progress --from . repomatic sponsor-label
+        run: uvx --no-progress 'repomatic==6.25.1' sponsor-label
