@@ -3648,12 +3648,12 @@ def test_update_tool_config_preserves_trailing_newline(
 ) -> None:
     """Synced ``pyproject.toml`` ends with a newline, matching POSIX convention.
 
-    When the bundled template's prefix-strip dropped the source's terminal
-    newline, the parsed last KV slot lost its EOL trivia. Once tomlrt
-    relocates ``[[tool.X.files]]`` AoT entries to the end of the document
-    (https://github.com/dimbleby/tomlrt/issues/172), the rendered file dumped
-    without a final newline, producing a ``\\ No newline at end of file``
-    marker in every regenerated PR diff.
+    When the bundled template's prefix-strip drops the source's terminal
+    newline, the parsed last KV slot loses its EOL trivia, and any path that
+    lands that slot at end-of-document produces a missing terminal newline
+    (``\\ No newline at end of file`` in every regenerated PR diff). Pinned
+    so a future refactor that swaps ``splitlines(keepends=True)`` for
+    ``"\\n".join(splitlines(...))`` in ``_strip_header_comments`` fails CI.
     """
     seed = (
         '[project]\nname = "fixture"\n\n'

@@ -252,11 +252,11 @@ def _strip_header_comments(native_source: str) -> str:
     including the source's trailing newline.
 
     ```{note}
-    The trailing newline matters: when the parsed section is reassigned into
-    `doc["tool"][name]` and tomlrt relocates `[[tool.X.files]]` AoT children
-    to the end of the document (see https://github.com/dimbleby/tomlrt/issues/172),
-    the final KV slot's EOL trivia becomes the document's terminal newline.
-    A `"\\n".join(splitlines(...))` form dropped that newline.
+    Use `splitlines(keepends=True)`, not `"\\n".join(splitlines(...))`: the
+    template's trailing newline carries over to the final KV slot's EOL
+    trivia, and a synced section that happens to land at end-of-document
+    needs that newline to survive so the rendered file ends with `\\n`. The
+    invariant is pinned by `test_update_tool_config_preserves_trailing_newline`.
     ```
     """
     lines = native_source.splitlines(keepends=True)

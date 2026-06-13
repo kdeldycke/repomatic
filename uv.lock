@@ -1794,7 +1794,7 @@ requires-dist = [
     { name = "pydriller", specifier = ">=2" },
     { name = "pyproject-metadata", specifier = ">=0.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "tomlrt", specifier = ">=1.7.5" },
+    { name = "tomlrt", specifier = ">=1.7.6" },
     { name = "vt-py", specifier = ">=0.18" },
     { name = "wcmatch", specifier = ">=10" },
 ]
@@ -2148,14 +2148,14 @@ wheels = [
 
 [[package]]
 name = "tomlrt"
-version = "1.7.5"
+version = "1.7.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions", marker = "python_full_version < '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/68/c6/bea3c5e98e2563294029b87842399444a9a3334f763464b9328c4a0c605a/tomlrt-1.7.5.tar.gz", hash = "sha256:b0c520c1c3b159cea4090ac252307ac07e2bb977c4596bcc04033f84bdf6b0b3", size = 310606, upload-time = "2026-06-11T08:13:11.34Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c8/13/b603ddac3def09152080112f9cdcd86f9acfcaac26a4a0cb03d0c4dcb4bd/tomlrt-1.7.6.tar.gz", hash = "sha256:0f8416d8932bf637de6b2bb4bf62413a7f644821adc8fc2ce78bbcd5fc90141f", size = 306158, upload-time = "2026-06-12T23:28:17.758Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/40/314af671bfd5153c7fff39d52383f10df99ecf02b787ea673f55806708b0/tomlrt-1.7.5-py3-none-any.whl", hash = "sha256:c7dd8867435af464be3ecd22cb4ff832a00ce77d568f146c871548e92cc3e3ea", size = 135090, upload-time = "2026-06-11T08:13:10.034Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/49/c261477aacba722703c59cbe3bf8b6560c90f4857f9df4e41735cf0cb7be/tomlrt-1.7.6-py3-none-any.whl", hash = "sha256:e4c07a4edc27540067260baf89a8bd4fdb54619dfb232227c9e107b33bb90b2c", size = 125684, upload-time = "2026-06-12T23:28:16.48Z" },
 ]
 
 [[package]]

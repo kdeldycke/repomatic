@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import tomllib
+import tomllib  # type: ignore[import-not-found]
 
 project_path = Path(__file__).parent.parent.resolve()
 
