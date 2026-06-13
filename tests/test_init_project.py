@@ -3576,13 +3576,13 @@ def test_update_tool_config_produces_parseable_output(
 ) -> None:
     """Syncing any tool-config component produces non-empty, well-formed TOML.
 
-    Guards against the silent-empty-dump regression class: a misuse of
-    ``Table.section()`` + cross-doc assign can return an empty string from
-    ``tomlrt.dumps`` with no exception. tomlrt 1.7.3, 1.7.4, and the
-    main-branch SHA pinned in `pyproject.toml` each shipped fixes for a
-    different shape of this. If a future template restructure or upstream
-    regression reintroduces the pattern, this test fails noisily instead of
-    silently corrupting the seed pyproject.toml.
+    Guards against the silent-empty-dump regression class: tomlrt 1.7.3, 1.7.4,
+    and the main-branch SHA briefly pinned in `pyproject.toml` each shipped
+    fixes for a shape where ``tomlrt.dumps`` returned an empty string with no
+    exception. The production path now uses direct ``doc[k] = parsed_document``
+    assignment instead of ``Table.section() + assign``, but a future refactor
+    or upstream regression that revives an empty-dump shape fails this test
+    noisily instead of silently corrupting the seed pyproject.toml.
     """
     tool_name = comp.tool_section.removeprefix("tool.")
     seed = (

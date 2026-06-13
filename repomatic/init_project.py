@@ -51,7 +51,6 @@ from pathlib import Path, PurePosixPath
 from urllib.request import urlretrieve
 
 import tomlrt
-from tomlrt import Table
 
 from . import __version__
 from .config import Config, load_repomatic_config
@@ -226,22 +225,6 @@ def export_content(filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _template_to_table(template_text: str) -> Table:
-    """Parse native-format template text into a tomlrt section table.
-
-    `Table.section` copies the parsed mapping's values into a fresh, detached
-    table. Trivia attached to nested table values carries over, but top-level
-    standalone comments and inline trivia are stored on the source document, so
-    they are not preserved. The returned table carries no `[tool.X]` header; it
-    gets one only when assigned into a document.
-
-    :param template_text: Template content in native format (no `[tool.X]`
-        prefix), with file-level header comments already stripped.
-    :return: A tomlrt section table suitable for assignment into a document.
-    """
-    return Table.section(tomlrt.loads(template_text))
-
-
 def _strip_header_comments(native_source: str) -> str:
     """Drop the leading comment block from a native-format template.
 
@@ -397,10 +380,14 @@ def _update_tool_config(
     native_source = export_content(comp.source_file)
     template_plain = tomlrt.loads(native_source).to_dict()
 
-    # Build the replacement table from the template, stripping file-level
-    # comments that only apply to the standalone format.
+    # Build the replacement section from the template, stripping file-level
+    # comments that only apply to the standalone format. The template is kept
+    # as a parsed `Document`, not lifted via `Table.section()`: a direct
+    # `tool_table[name] = parsed_document` assignment routes through tomlrt's
+    # trivia-preserving clone path (dimbleby/tomlrt#171, fixed in 1.7.6), so
+    # standalone comments above scalar keys carry over with the values.
     native_stripped = _strip_header_comments(native_source)
-    new_section = _template_to_table(native_stripped)
+    new_section = tomlrt.loads(native_stripped)
 
     # Graft local-only configuration on top of the canonical template: keys the
     # template omits, extra items in shared arrays, and extra keys in shared
@@ -478,10 +465,13 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
         logging.info(f"[{comp.tool_section}] already exists in {pyproject_path.name}")
         return None
 
-    # Load the template and strip file-level comments.
+    # Load the template and strip file-level comments. The template is kept
+    # as a parsed `Document`: `doc.install` clones the document body under the
+    # synthesised header via tomlrt's trivia-preserving path, so standalone
+    # comments and inline-array bracket pad carry over (dimbleby/tomlrt#171).
     native_source = export_content(comp.source_file)
     native_stripped = _strip_header_comments(native_source)
-    new_section = _template_to_table(native_stripped)
+    new_section = tomlrt.loads(native_stripped)
 
     doc.install(("tool", tool_name), new_section)
 
