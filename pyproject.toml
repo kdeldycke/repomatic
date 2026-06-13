@@ -322,7 +322,6 @@ report.precision = 2
 current_version = "6.25.0.dev0"
 allow_dirty = true
 ignore_missing_files = true
-# Parse versions with an optional .devN suffix (PEP 440).
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)(\\.dev(?P<dev>\\d+))?"
 serialize = [
   "{major}.{minor}.{patch}.dev{dev}",
