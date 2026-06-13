@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.25.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.25.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.25.0` (2026-06-13)](https://github.com/kdeldycke/repomatic/compare/v6.24.0...v6.25.0)
 
 - Add man page generation to the release and docs pipelines. A `manpages` job in `_release-engine.yaml`, activated by `[tool.repomatic.manpages]` config keys (`script`, `asset-name`) in `pyproject.toml`, shells out to `click-extra man --output-dir man "${SCRIPT}"` and uploads the rendered roff `.1` files as a `<asset-name>.tar.gz` (defaulting to `<package-name>-manpages.tar.gz`) on the GitHub release; requires `click-extra>=7.19`. The `deploy-docs` job installs `mandoc` alongside Graphviz so projects using `click_extra.sphinx.manpages` get browser-viewable `.html` siblings in the docs build. Both are silently skipped when `manpages.script` is unset.
