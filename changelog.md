@@ -9,6 +9,9 @@
 
 ## [`6.25.0` (2026-06-13)](https://github.com/kdeldycke/repomatic/compare/v6.24.0...v6.25.0)
 
+> [!NOTE]
+> `6.25.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.25.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.25.0).
+
 - Add man page generation to the release and docs pipelines. A `manpages` job in `_release-engine.yaml`, activated by `[tool.repomatic.manpages]` config keys (`script`, `asset-name`) in `pyproject.toml`, shells out to `click-extra man --output-dir man "${SCRIPT}"` and uploads the rendered roff `.1` files as a `<asset-name>.tar.gz` (defaulting to `<package-name>-manpages.tar.gz`) on the GitHub release; requires `click-extra>=7.19`. The `deploy-docs` job installs `mandoc` alongside Graphviz so projects using `click_extra.sphinx.manpages` get browser-viewable `.html` siblings in the docs build. Both are silently skipped when `manpages.script` is unset.
 - Validate `[project.scripts]` entries when assembling the Nuitka build matrix. A script name that PyPI and [uv-build](https://github.com/astral-sh/uv/pull/19495) would refuse (path-shaped like `../escape` or `nested/script`, empty, dot-only, or containing characters outside `[A-Za-z0-9._-]`) is rejected up front instead of flowing into the binary file path template and release workflow artifact commands. A malformed value (no colon, multiple colons, empty side) raises a descriptive error instead of crashing later with a tuple-unpacking `ValueError`.
 - Replace the `tomlkit` dependency with [`tomlrt`](https://dimbleby.github.io/tomlrt/) for all comment-preserving TOML writes. Extend `tomlrt` to all TOML reads too (`pyproject.toml`, `uv.lock`, `[tool.X]` extraction), dropping the `tomli` backport and the conditional `tomllib`/`tomli` import shim previously scattered across eight modules.
