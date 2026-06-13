@@ -1769,10 +1769,9 @@ class Metadata:
 
         Each entry is validated against PEP 621 and PyPI conventions:
 
-        - The script *name* (the dict key) must match `_SCRIPT_NAME_RE`
-          (the `+` quantifier rejects empty strings) and contain at least one
-          non-dot character. This mirrors the rule PyPI enforces on uploaded
-          wheels and the check
+        - The script *name* (the dict key) must be non-empty, contain at
+          least one non-dot character, and match `[A-Za-z0-9._-]+`. This
+          mirrors the rule PyPI enforces on uploaded wheels and the check
           [uv-build performs](https://github.com/astral-sh/uv/pull/19495);
           rejecting names like `../escape`, `nested/script` or `.` here keeps
           them from flowing into the binary file path template
