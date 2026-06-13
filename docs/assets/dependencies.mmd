@@ -11,7 +11,6 @@ flowchart LR
         pyproject_metadata{{"`pyproject-metadata`"}}
         tomlrt{{"`tomlrt`"}}
         packaging{{"`packaging`"}}
-        tomli{{"`tomli`"}}
         pyyaml{{"`pyyaml`"}}
         boltons{{"`boltons`"}}
         extra_platforms{{"`extra-platforms`"}}
@@ -40,6 +39,7 @@ flowchart LR
     httpcore(["`httpcore`"])
     lizard(["`lizard`"])
     multidict(["`multidict`"])
+    tomli(["`tomli`"])
     typing_inspection(["`typing-inspection`"])
     frozenlist(["`frozenlist`"])
     gitdb(["`gitdb`"])
@@ -121,7 +121,6 @@ flowchart LR
     repomatic ==>|" >=1.2.6 "| bump_my_version
     repomatic ==>|" >=2 "| pydriller
     repomatic ==>|" >=17 "| packaging
-    repomatic ==>|" >=2 "| tomli
     repomatic ==>|" >=10 "| wcmatch
     repomatic ==>|" >=6.0.3 "| pyyaml
     repomatic ==>|" >=0.18 "| vt_py
@@ -129,7 +128,7 @@ flowchart LR
     repomatic ==>|" >=12.0.2 "| extra_platforms
     repomatic ==>|" >=0.3.1 "| py_walk
     repomatic ==>|" >=0.9 "| pyproject_metadata
-    repomatic ==>|" >=1.7 "| tomlrt
+    repomatic ==>|" >=1.7.6 "| tomlrt
     repomatic ==>|" >=1 "| backports_strenum
     sphinx --> pygments
     sphinx --> requests
@@ -152,10 +151,10 @@ flowchart LR
     click_extra --> pygments
     click_extra --> requests
     click_extra --> click_0
-    click_extra ==> tomli
     click_extra ==> wcmatch
     click_extra --> cloup
     click_extra --> docutils
+    click_extra --> tomli
     click_extra ==> boltons
     click_extra ==> extra_platforms
     click_extra --> tabulate
@@ -163,8 +162,8 @@ flowchart LR
     pytest --> pygments
     pytest --> colorama
     pytest ==> packaging
-    pytest ==> tomli
     pytest --> exceptiongroup
+    pytest --> tomli
     pytest --> pluggy
     pytest --> iniconfig
     bump_my_version --> pydantic
@@ -201,7 +200,7 @@ flowchart LR
     sphinxcontrib_mermaid --> jinja2
     sphinxcontrib_mermaid ==> pyyaml
     wcmatch --> bracex
-    coverage ==> tomli
+    coverage --> tomli
     vt_py --> aiohttp
     vt_py --> aiofiles
     py_walk --> sly
@@ -408,7 +407,6 @@ flowchart LR
     style sphinx_design stroke-width:3px
     style sphinxcontrib_mermaid stroke-width:3px
     style sphinxext_opengraph stroke-width:3px
-    style tomli stroke-width:3px
     style tomlrt stroke-width:3px
     style types_boltons stroke-width:3px
     style types_pyyaml stroke-width:3px
