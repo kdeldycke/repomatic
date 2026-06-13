@@ -125,3 +125,11 @@ To ease deployment, standalone executables of `repomatic`'s latest version are a
 | **Windows** | [Download `repomatic-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-windows-arm64.exe) | [Download `repomatic-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-windows-x64.exe) |
 
 That way you have a chance to try it out without installing Python or `uv`. Or embed it in your CI/CD pipelines running on minimal images. Or run it on old platforms without worrying about dependency hell.
+
+## Default dependencies
+
+This is a graph of the default, main dependencies of the Python package:
+
+```mermaid assets/dependencies.mmd
+:align: center
+```
