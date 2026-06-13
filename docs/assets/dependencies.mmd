@@ -3,7 +3,6 @@ flowchart LR
 
     subgraph primary-deps [Primary dependencies]
         click_extra{{"`click-extra`"}}
-        bump_my_version{{"`bump-my-version`"}}
         vt_py{{"`vt-py`"}}
         pydriller{{"`pydriller`"}}
         wcmatch{{"`wcmatch`"}}
@@ -17,57 +16,39 @@ flowchart LR
         backports_strenum{{"`backports-strenum`"}}
     end
 
-    typing_extensions(["`typing-extensions`"])
     aiohttp(["`aiohttp`"])
+    typing_extensions(["`typing-extensions`"])
     pygments(["`pygments`"])
-    pydantic(["`pydantic`"])
     requests(["`requests`"])
-    click_0(["`click`"])
-    httpx(["`httpx`"])
-    rich_click(["`rich-click`"])
-    anyio(["`anyio`"])
-    colorama(["`colorama`"])
-    idna(["`idna`"])
-    markdown_it_py(["`markdown-it-py`"])
-    pydantic_settings(["`pydantic-settings`"])
-    rich(["`rich`"])
     yarl(["`yarl`"])
     aiosignal(["`aiosignal`"])
-    certifi(["`certifi`"])
+    click_0(["`click`"])
     cloup(["`cloup`"])
-    exceptiongroup(["`exceptiongroup`"])
-    httpcore(["`httpcore`"])
+    colorama(["`colorama`"])
     lizard(["`lizard`"])
     multidict(["`multidict`"])
     tomli(["`tomli`"])
-    typing_inspection(["`typing-inspection`"])
     frozenlist(["`frozenlist`"])
     gitdb(["`gitdb`"])
     gitpython(["`gitpython`"])
-    prompt_toolkit(["`prompt-toolkit`"])
+    idna(["`idna`"])
     propcache(["`propcache`"])
-    pydantic_core(["`pydantic-core`"])
-    questionary(["`questionary`"])
     tabulate(["`tabulate`"])
-    wcwidth(["`wcwidth`"])
     aiofiles(["`aiofiles`"])
     aiohappyeyeballs(["`aiohappyeyeballs`"])
-    annotated_types(["`annotated-types`"])
     async_timeout(["`async-timeout`"])
     attrs(["`attrs`"])
     bracex(["`bracex`"])
+    certifi(["`certifi`"])
     charset_normalizer(["`charset-normalizer`"])
     deepmerge(["`deepmerge`"])
-    h11(["`h11`"])
-    mdurl(["`mdurl`"])
     pathspec(["`pathspec`"])
-    python_dotenv(["`python-dotenv`"])
     pytz(["`pytz`"])
     sly(["`sly`"])
     smmap(["`smmap`"])
-    tomlkit(["`tomlkit`"])
     types_pytz(["`types-pytz`"])
     urllib3(["`urllib3`"])
+    wcwidth(["`wcwidth`"])
 
     subgraph grp_docs [--group docs]
         sphinx{{"`sphinx >=8`"}}
@@ -77,6 +58,7 @@ flowchart LR
         sphinxcontrib_mermaid{{"`sphinxcontrib-mermaid >=1.2.3`"}}
         beautifulsoup4(["`beautifulsoup4`"])
         docutils(["`docutils`"])
+        markdown_it_py(["`markdown-it-py`"])
         accessible_pygments(["`accessible-pygments`"])
         mdit_py_plugins(["`mdit-py-plugins`"])
         sphinx_autodoc_typehints{{"`sphinx-autodoc-typehints >=2.4`"}}
@@ -88,6 +70,7 @@ flowchart LR
         babel(["`babel`"])
         imagesize(["`imagesize`"])
         markupsafe(["`markupsafe`"])
+        mdurl(["`mdurl`"])
         roman_numerals(["`roman-numerals`"])
         snowballstemmer(["`snowballstemmer`"])
         soupsieve(["`soupsieve`"])
@@ -104,6 +87,7 @@ flowchart LR
         pytest_cov{{"`pytest-cov >=4`"}}
         pytest_xdist{{"`pytest-xdist >=3.7`"}}
         coverage{{"`coverage >=7.11`"}}
+        exceptiongroup(["`exceptiongroup`"])
         pluggy(["`pluggy`"])
         pytest_github_actions_annotate_failures{{"`pytest-github-actions-annotate-failures >=0.2`"}}
         pytest_randomly{{"`pytest-randomly >=3`"}}
@@ -118,12 +102,11 @@ flowchart LR
     end
 
     repomatic ==>|" >=7.19 "| click_extra
-    repomatic ==>|" >=1.2.6 "| bump_my_version
     repomatic ==>|" >=2 "| pydriller
     repomatic ==>|" >=17 "| packaging
-    repomatic ==>|" >=10 "| wcmatch
     repomatic ==>|" >=6.0.3 "| pyyaml
     repomatic ==>|" >=0.18 "| vt_py
+    repomatic ==>|" >=10 "| wcmatch
     repomatic ==>|" >=25 "| boltons
     repomatic ==>|" >=12.0.2 "| extra_platforms
     repomatic ==>|" >=0.3.1 "| py_walk
@@ -132,9 +115,9 @@ flowchart LR
     repomatic ==>|" >=1 "| backports_strenum
     sphinx --> pygments
     sphinx --> requests
-    sphinx --> colorama
     sphinx --> jinja2
     sphinx ==> packaging
+    sphinx --> colorama
     sphinx --> docutils
     sphinx --> alabaster
     sphinx --> babel
@@ -151,34 +134,25 @@ flowchart LR
     click_extra --> pygments
     click_extra --> requests
     click_extra --> click_0
-    click_extra ==> wcmatch
     click_extra --> cloup
     click_extra --> docutils
     click_extra --> tomli
+    click_extra ==> wcmatch
     click_extra ==> boltons
     click_extra ==> extra_platforms
     click_extra --> tabulate
     click_extra --> deepmerge
     pytest --> pygments
-    pytest --> colorama
     pytest ==> packaging
-    pytest --> exceptiongroup
+    pytest --> colorama
     pytest --> tomli
+    pytest --> exceptiongroup
     pytest --> pluggy
     pytest --> iniconfig
-    bump_my_version --> pydantic
-    bump_my_version --> click_0
-    bump_my_version --> httpx
-    bump_my_version --> rich_click
-    bump_my_version --> pydantic_settings
-    bump_my_version --> rich
-    bump_my_version ==> wcmatch
-    bump_my_version --> questionary
-    bump_my_version --> tomlkit
     myst_parser ==> sphinx
     myst_parser --> jinja2
-    myst_parser --> markdown_it_py
     myst_parser --> docutils
+    myst_parser --> markdown_it_py
     myst_parser ==> pyyaml
     myst_parser --> mdit_py_plugins
     furo ==> sphinx
@@ -199,10 +173,10 @@ flowchart LR
     sphinxcontrib_mermaid ==> sphinx
     sphinxcontrib_mermaid --> jinja2
     sphinxcontrib_mermaid ==> pyyaml
-    wcmatch --> bracex
     coverage --> tomli
     vt_py --> aiohttp
     vt_py --> aiofiles
+    wcmatch --> bracex
     py_walk --> sly
     pyproject_metadata ==> packaging
     pytest_github_actions_annotate_failures ==> pytest
@@ -221,58 +195,32 @@ flowchart LR
     aiohttp --> aiohappyeyeballs
     aiohttp --> async_timeout
     aiohttp --> attrs
-    pydantic --> typing_extensions
-    pydantic --> typing_inspection
-    pydantic --> pydantic_core
-    pydantic --> annotated_types
     requests --> idna
     requests --> certifi
     requests --> charset_normalizer
     requests --> urllib3
-    click_0 --> colorama
-    httpx --> anyio
-    httpx --> idna
-    httpx --> certifi
-    httpx --> httpcore
-    rich_click --> typing_extensions
-    rich_click --> click_0
-    rich_click --> colorama
-    rich_click --> rich
     jinja2 --> markupsafe
-    markdown_it_py --> mdurl
-    pydantic_settings --> pydantic
-    pydantic_settings --> typing_inspection
-    pydantic_settings --> python_dotenv
-    rich --> pygments
-    rich --> markdown_it_py
     beautifulsoup4 --> typing_extensions
     beautifulsoup4 --> soupsieve
+    click_0 --> colorama
     cloup --> typing_extensions
     cloup --> click_0
-    exceptiongroup --> typing_extensions
     lizard --> pygments
     lizard --> pathspec
+    markdown_it_py --> mdurl
     accessible_pygments --> pygments
+    exceptiongroup --> typing_extensions
     gitpython --> gitdb
     mdit_py_plugins --> markdown_it_py
-    questionary --> prompt_toolkit
     sphinx_basic_ng ==> sphinx
     tabulate --> wcwidth
-    anyio --> typing_extensions
-    anyio --> idna
-    anyio --> exceptiongroup
-    yarl --> idna
     yarl --> multidict
+    yarl --> idna
     yarl --> propcache
     aiosignal --> typing_extensions
     aiosignal --> frozenlist
-    httpcore --> certifi
-    httpcore --> h11
     multidict --> typing_extensions
-    typing_inspection --> typing_extensions
     gitdb --> smmap
-    prompt_toolkit --> wcwidth
-    pydantic_core --> typing_extensions
     repomatic -.-> grp_docs
     repomatic -.-> grp_test
     repomatic -.-> grp_typing
@@ -283,8 +231,6 @@ flowchart LR
     click aiohttp "https://pypi.org/project/aiohttp/" _blank
     click aiosignal "https://pypi.org/project/aiosignal/" _blank
     click alabaster "https://pypi.org/project/alabaster/" _blank
-    click annotated_types "https://pypi.org/project/annotated-types/" _blank
-    click anyio "https://pypi.org/project/anyio/" _blank
     click async_timeout "https://pypi.org/project/async-timeout/" _blank
     click attrs "https://pypi.org/project/attrs/" _blank
     click babel "https://pypi.org/project/babel/" _blank
@@ -292,7 +238,6 @@ flowchart LR
     click beautifulsoup4 "https://pypi.org/project/beautifulsoup4/" _blank
     click boltons "https://pypi.org/project/boltons/" _blank
     click bracex "https://pypi.org/project/bracex/" _blank
-    click bump_my_version "https://pypi.org/project/bump-my-version/" _blank
     click certifi "https://pypi.org/project/certifi/" _blank
     click charset_normalizer "https://pypi.org/project/charset-normalizer/" _blank
     click click_0 "https://pypi.org/project/click/" _blank
@@ -309,9 +254,6 @@ flowchart LR
     click furo "https://pypi.org/project/furo/" _blank
     click gitdb "https://pypi.org/project/gitdb/" _blank
     click gitpython "https://pypi.org/project/gitpython/" _blank
-    click h11 "https://pypi.org/project/h11/" _blank
-    click httpcore "https://pypi.org/project/httpcore/" _blank
-    click httpx "https://pypi.org/project/httpx/" _blank
     click idna "https://pypi.org/project/idna/" _blank
     click imagesize "https://pypi.org/project/imagesize/" _blank
     click iniconfig "https://pypi.org/project/iniconfig/" _blank
@@ -326,13 +268,9 @@ flowchart LR
     click packaging "https://pypi.org/project/packaging/" _blank
     click pathspec "https://pypi.org/project/pathspec/" _blank
     click pluggy "https://pypi.org/project/pluggy/" _blank
-    click prompt_toolkit "https://pypi.org/project/prompt-toolkit/" _blank
     click propcache "https://pypi.org/project/propcache/" _blank
     click psutil "https://pypi.org/project/psutil/" _blank
     click py_walk "https://pypi.org/project/py-walk/" _blank
-    click pydantic "https://pypi.org/project/pydantic/" _blank
-    click pydantic_core "https://pypi.org/project/pydantic-core/" _blank
-    click pydantic_settings "https://pypi.org/project/pydantic-settings/" _blank
     click pydriller "https://pypi.org/project/pydriller/" _blank
     click pygments "https://pypi.org/project/pygments/" _blank
     click pyproject_metadata "https://pypi.org/project/pyproject-metadata/" _blank
@@ -341,14 +279,10 @@ flowchart LR
     click pytest_github_actions_annotate_failures "https://pypi.org/project/pytest-github-actions-annotate-failures/" _blank
     click pytest_randomly "https://pypi.org/project/pytest-randomly/" _blank
     click pytest_xdist "https://pypi.org/project/pytest-xdist/" _blank
-    click python_dotenv "https://pypi.org/project/python-dotenv/" _blank
     click pytz "https://pypi.org/project/pytz/" _blank
     click pyyaml "https://pypi.org/project/pyyaml/" _blank
-    click questionary "https://pypi.org/project/questionary/" _blank
     click repomatic "https://pypi.org/project/repomatic/" _blank
     click requests "https://pypi.org/project/requests/" _blank
-    click rich "https://pypi.org/project/rich/" _blank
-    click rich_click "https://pypi.org/project/rich-click/" _blank
     click roman_numerals "https://pypi.org/project/roman-numerals/" _blank
     click sly "https://pypi.org/project/sly/" _blank
     click smmap "https://pypi.org/project/smmap/" _blank
@@ -369,13 +303,11 @@ flowchart LR
     click sphinxext_opengraph "https://pypi.org/project/sphinxext-opengraph/" _blank
     click tabulate "https://pypi.org/project/tabulate/" _blank
     click tomli "https://pypi.org/project/tomli/" _blank
-    click tomlkit "https://pypi.org/project/tomlkit/" _blank
     click tomlrt "https://pypi.org/project/tomlrt/" _blank
     click types_boltons "https://pypi.org/project/types-boltons/" _blank
     click types_pytz "https://pypi.org/project/types-pytz/" _blank
     click types_pyyaml "https://pypi.org/project/types-pyyaml/" _blank
     click typing_extensions "https://pypi.org/project/typing-extensions/" _blank
-    click typing_inspection "https://pypi.org/project/typing-inspection/" _blank
     click urllib3 "https://pypi.org/project/urllib3/" _blank
     click vt_py "https://pypi.org/project/vt-py/" _blank
     click wcmatch "https://pypi.org/project/wcmatch/" _blank
@@ -385,7 +317,6 @@ flowchart LR
     style repomatic stroke-width:3px
     style backports_strenum stroke-width:3px
     style boltons stroke-width:3px
-    style bump_my_version stroke-width:3px
     style click_extra stroke-width:3px
     style coverage stroke-width:3px
     style extra_platforms stroke-width:3px
