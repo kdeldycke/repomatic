@@ -52,7 +52,7 @@ jobs:
         # so the check is done here at step level via the env var.
         if: env.GH_TOKEN != ''
         run: >
-          uvx --no-progress 'repomatic==6.25.1'
+          uvx --no-progress --from . repomatic
           unsubscribe-threads
           --months "$MONTHS"
           --batch-size "$BATCH_SIZE"
