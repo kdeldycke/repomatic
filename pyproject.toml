@@ -79,9 +79,6 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # bumpversion.config.files.find_config_file() and bumpversion.show.resolve_name()
-  # stabilized in 1.x; 1.2.6 fixes Click compatibility affecting our CLI integration.
-  "bump-my-version>=1.2.6",
   # Click Extra 7.19.0 ships the `click-extra man --output-dir DIR SCRIPT` CLI
   # the release engine's manpages job shells out to.
   "click-extra>=7.19",
@@ -185,16 +182,6 @@ typing = [
 [tool.uv]
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
-# bump-my-version 1.3.0 caps click at <8.4, which conflicts with click-extra
-# 7.19.0's click>=8.4.1 floor. Override the cap until upstream relaxes it
-# (callowayproject/bump-my-version#382 was the last bump, to <8.4). We only
-# import bump-my-version's config-loading helpers (get_configuration,
-# find_config_file, resolve_name), none of which touch click 8.4-sensitive
-# Sentinel handling, so the override is safe in practice.
-# NOTE: [tool.uv] override-dependencies is NOT read by `uvx --from .`
-# (tool invocations are isolated from project settings). Workflows propagate
-# this override via UV_OVERRIDE=uv-overrides.txt. See uv-overrides.txt.
-override-dependencies = [ "click>=8.4.1" ]
 # Cooldown period: 7-day buffer before using newly released packages.
 # Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to
 # uv.lock for relative spans, so re-resolving never produces churn.

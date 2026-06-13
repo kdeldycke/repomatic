@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix `uvx repomatic@X.Y.Z` failing for end users with `No solution found when resolving tool dependencies` against `bump-my-version`'s `click<8.4` cap and `click-extra>=7.19`'s `click>=8.4.1` floor. Drop `bump-my-version` from `[project].dependencies`: replace `Metadata.get_current_version` with a native `tomlrt` read of `current_version` from `.bumpversion.toml` or `pyproject.toml`'s `[tool.bumpversion]`. Removes the matching `[tool.uv] override-dependencies = ["click>=8.4.1"]`, the `uv-overrides.txt` file, and every `UV_OVERRIDE=uv-overrides.txt` workflow env block (with the `--from .` checkout dance previously needed in `tests.yaml`'s `package-install` job and the `RENOVATE_ALLOWED_COMMANDS` regex alternation in `renovate.yaml`). `ReleasePrep.current_version` now delegates to `Metadata.get_current_version`, picking up `.bumpversion.toml` support and a single source of truth for the search order.
+
 ## [`6.25.0` (2026-06-13)](https://github.com/kdeldycke/repomatic/compare/v6.24.0...v6.25.0)
 
 - Add man page generation to the release and docs pipelines. A `manpages` job in `_release-engine.yaml`, activated by `[tool.repomatic.manpages]` config keys (`script`, `asset-name`) in `pyproject.toml`, shells out to `click-extra man --output-dir man "${SCRIPT}"` and uploads the rendered roff `.1` files as a `<asset-name>.tar.gz` (defaulting to `<package-name>-manpages.tar.gz`) on the GitHub release; requires `click-extra>=7.19`. The `deploy-docs` job installs `mandoc` alongside Graphviz so projects using `click_extra.sphinx.manpages` get browser-viewable `.html` siblings in the docs build. Both are silently skipped when `manpages.script` is unset.

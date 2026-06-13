@@ -52,10 +52,9 @@ from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
 
-import tomlrt
-
 from .changelog import Changelog
 from .config import Config
+from .metadata import Metadata
 
 
 class ReleasePrep:
@@ -80,11 +79,17 @@ class ReleasePrep:
 
     @cached_property
     def current_version(self) -> str:
-        """Extract current version from bump-my-version config in pyproject.toml."""
-        config_file = Path("./pyproject.toml").resolve()
-        logging.info(f"Reading version from {config_file}")
-        config = tomlrt.loads(config_file.read_text(encoding="UTF-8"))
-        version: str = config["tool"]["bumpversion"]["current_version"]
+        """Extract current version from the bump-my-version config.
+
+        Delegates discovery to {meth}`.Metadata.get_current_version`, which
+        searches `.bumpversion.toml` then `pyproject.toml`.
+        """
+        version = Metadata.get_current_version()
+        if version is None:
+            raise RuntimeError(
+                "No bump-my-version config found "
+                "(searched .bumpversion.toml and pyproject.toml).",
+            )
         logging.info(f"Current version: {version}")
         return version
 

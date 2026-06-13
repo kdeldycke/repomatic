@@ -19,14 +19,6 @@ name: 🆕 Renovate
 
 permissions: {}
 
-env:
-  # bump-my-version caps click at <8.4; click-extra>=7.18 requires >=8.4.1.
-  # [tool.uv] override-dependencies is not read by uvx --from ., so propagate
-  # the override via UV_OVERRIDE. The override is safe: we only import
-  # bump-my-version's config-loading helpers, none of which touch Click 8.4-
-  # sensitive code. See uv-overrides.txt for the full rationale.
-  UV_OVERRIDE: uv-overrides.txt
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ !startsWith(github.event.head_commit.message, '[changelog] Release') }}
@@ -118,11 +110,7 @@ jobs:
           # Two command patterns are allowed:
           # 1. Workflow checksum updates: downloads a pinned uv binary from
           #    GitHub Releases, verifies its SHA-256, extracts uvx, then runs
-          #    repomatic update-checksums on the upgraded workflow file. An
-          #    optional UV_OVERRIDE=uv-overrides.txt env prefix propagates the
-          #    bump-my-version/click-extra click override into the uvx
-          #    resolution (see uv-overrides.txt); [tool.uv]
-          #    override-dependencies is not read by `uvx --from .`.
+          #    repomatic update-checksums on the upgraded workflow file.
           # 2. uv hash auto-update: when Renovate bumps the uv version in any
           #    renovate.json5 (root or bundled template), downloads the new
           #    tarball and uses sed to replace the old SHA-256 hash inline
@@ -134,7 +122,7 @@ jobs:
             --output /tmp/uv\\.tar\\.gz
             && echo [a-f0-9]{64}  /tmp/uv\\.tar\\.gz \\| sha256sum --check
             && tar xzf /tmp/uv\\.tar\\.gz --strip-components=1 -C /tmp
-            && (UV_OVERRIDE=uv-overrides\\.txt |)/tmp/uvx --no-progress
+            && /tmp/uvx --no-progress
             (--from \\. |)repomatic(==\\d[\\d.]*)? update-checksums",
             "^bash -c 'curl -fsSL
             https://github\\.com/astral-sh/uv/releases/download/[0-9.]+/uv-x86_64-unknown-linux-gnu\\.tar\\.gz

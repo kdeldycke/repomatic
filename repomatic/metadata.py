@@ -300,9 +300,6 @@ from operator import itemgetter
 from pathlib import Path
 
 import tomlrt
-from bumpversion.config import get_configuration
-from bumpversion.config.files import find_config_file
-from bumpversion.show import resolve_name
 from extra_platforms import is_github_ci
 from git.exc import GitCommandError
 from gitdb.exc import BadName
@@ -311,7 +308,6 @@ from py_walk import get_parser_from_file
 from py_walk.models import Parser
 from pydriller import Commit, Git, Repository
 from pyproject_metadata import ConfigurationError, StandardMetadata
-from typing_extensions import Self
 from wcmatch.glob import (
     BRACE,
     DOTGLOB,
@@ -373,6 +369,8 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from typing import Any, Final, Literal
+
+    from typing_extensions import Self
 
 
 class Dialect(StrEnum):
@@ -1842,13 +1840,33 @@ class Metadata:
             ```{code-block} shell-session
             $ bump-my-version show current_version
             ```
+
+        Reads ``current_version`` from the first TOML file found in the
+        current working directory: ``.bumpversion.toml`` (top-level table) or
+        ``pyproject.toml`` (``[tool.bumpversion]``).
         """
-        conf_file = find_config_file()
-        if not conf_file:
-            return None
-        config = get_configuration(conf_file)
-        config_dict = config.model_dump()
-        return str(resolve_name(config_dict, "current_version"))
+        cwd = Path.cwd()
+        for filename, section_path in (
+            (".bumpversion.toml", ()),
+            ("pyproject.toml", ("tool", "bumpversion")),
+        ):
+            path = cwd / filename
+            if not path.exists():
+                continue
+            try:
+                data = tomlrt.loads(path.read_text(encoding="UTF-8")).to_dict()
+            except tomlrt.TOMLParseError:
+                continue
+            section = data
+            for key in section_path:
+                section = section.get(key, {})
+                if not isinstance(section, dict):
+                    section = {}
+                    break
+            version = section.get("current_version")
+            if version is not None:
+                return str(version)
+        return None
 
     @cached_property
     def current_version(self) -> str | None:

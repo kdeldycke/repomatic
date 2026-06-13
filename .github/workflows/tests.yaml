@@ -61,13 +61,6 @@ jobs:
       && !startsWith(github.event.head_commit.message || '', 'Bump major version to ')
       && !startsWith(github.event.head_commit.message || '', 'Bump minor version to ')
     runs-on: ubuntu-slim
-    env:
-      # bump-my-version caps click at <8.4; click-extra>=7.18 requires >=8.4.1.
-      # [tool.uv] override-dependencies is not read by uvx --from ., so propagate
-      # the override via UV_OVERRIDE. Scoped to this job only: the tests job runs
-      # uvx 'codecov-cli==11.2.8' which requires click<8.3.0 and would break if
-      # click>=8.4.1 is forced on it. See uv-overrides.txt for the full rationale.
-      UV_OVERRIDE: uv-overrides.txt
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -191,13 +184,7 @@ jobs:
       CLI_SCRIPTS: ${{ fromJSON(needs.metadata.outputs.metadata).cli_scripts }}
       GIT_URL: git+https://github.com/${{ github.repository }}
       PACKAGE: ${{ fromJSON(needs.metadata.outputs.metadata).package_name }}
-      # bump-my-version caps click at <8.4; click-extra>=7.18 requires >=8.4.1.
-      # [tool.uv] override-dependencies is not read by uvx --from remote URLs,
-      # so propagate the override via UV_OVERRIDE. See uv-overrides.txt.
-      UV_OVERRIDE: uv-overrides.txt
     steps:
-      # Checkout only to get uv-overrides.txt; actual installs come from PyPI/GitHub.
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install Python
         run: uv --no-progress venv --python 3.14
@@ -212,10 +199,6 @@ jobs:
           uv run --with "$PACKAGE" -m "$module" --version
           uv run --with "$PACKAGE" python -m "$module" --version
       - name: Run dev CLI
-        # uv run --with does not read [tool.uv] override-dependencies or UV_OVERRIDE,
-        # so it cannot resolve the click>=8.4.1 override needed while bump-my-version
-        # caps click at <8.4. Use uvx --from (which honours UV_OVERRIDE) for all dev
-        # invocations until upstream relaxes the cap. See uv-overrides.txt.
         run: |
           for script in $CLI_SCRIPTS; do
             uvx --from "$GIT_URL" -- "$script" --version
