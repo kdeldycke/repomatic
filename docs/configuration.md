@@ -91,6 +91,7 @@ workflow.ignore-paths = ["uv.lock"]
 | [`gitignore.location`](#gitignore-location)                   | File path of the `.gitignore` to update, relative to the root of the repository.                                          | `"./.gitignore"`                    |
 | [`gitignore.sync`](#gitignore-sync)                           | Whether `.gitignore` sync is enabled for this project.                                                                    | `true`                              |
 | [`include`](#include)                                         | Components and files to force-include, overriding default exclusions.                                                     | `[]`                                |
+| [`labels.extra`](#labels-extra)                               | Inline label definitions applied at sync time under the `default` profile.                                                | `[]`                                |
 | [`labels.extra-content-rules`](#labels-extra-content-rules)   | Additional YAML rules appended to the content-based labeller configuration.                                               | `""`                                |
 | [`labels.extra-file-rules`](#labels-extra-file-rules)         | Additional YAML rules appended to the file-based labeller configuration.                                                  | `""`                                |
 | [`labels.extra-files`](#labels-extra-files)                   | URLs of additional label definition files (JSON, JSON5, TOML, or YAML).                                                   | `[]`                                |
@@ -549,6 +550,29 @@ component. Same syntax as `exclude`.
 include = []
 ```
 
+### `labels.extra`
+
+Inline label definitions applied at sync time under the `default` profile.
+
+**Type:** `list[dict[str, str]]` | **Default:** `[]`
+
+Each entry is a mapping with `name`, `color`, and `description` keys,
+matching `labelmaker`'s label specification. Entries are serialized into a
+temporary TOML file as `[[profiles.default.labels]]` blocks and applied by
+`labelmaker apply`. This avoids committing a lonely `extra-labels/*.toml`
+file when the downstream project only needs the basic three fields.
+
+For label sets that need `labelmaker`'s advanced features (`rename-from`,
+multi-profile, multi-color), commit a hand-written file under
+`extra-labels/` or download one via `extra-files` instead.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+labels.extra = []
+```
+
 ### `labels.extra-content-rules`
 
 Additional YAML rules appended to the content-based labeller configuration.
@@ -585,7 +609,9 @@ URLs of additional label definition files (JSON, JSON5, TOML, or YAML).
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Each URL is downloaded and applied separately by `labelmaker`.
+Each URL is downloaded into `extra-labels/` and applied separately by
+`labelmaker`. For inline definitions that need no external file, use
+`extra` instead.
 
 **Example:**
 

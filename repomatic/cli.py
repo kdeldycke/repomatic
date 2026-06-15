@@ -29,6 +29,7 @@ from collections import Counter
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+import tomlrt
 from boltons.iterutils import unique
 from click_extra import (
     UNPROCESSED,
@@ -2972,7 +2973,49 @@ def sync_labels(ctx: Context, repository: str | None) -> None:
                 if label_file.is_file():
                     _run_labelmaker(lm, "apply", str(label_file), repository)
 
+        # Apply inline label definitions from `[tool.repomatic.labels.extra]`.
+        inline_toml = _serialize_inline_labels(config.labels.extra)
+        if inline_toml:
+            with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
+                inline_file = Path(tmpdir) / "inline.toml"
+                inline_file.write_text(inline_toml, encoding="UTF-8")
+                _run_labelmaker(lm, "apply", str(inline_file), repository)
+
     echo("Labels synced.")
+
+
+def _serialize_inline_labels(entries: list[dict[str, str]]) -> str:
+    """Serialize `[tool.repomatic.labels.extra]` entries to a labelmaker TOML config.
+
+    Each entry becomes a `[[profiles.default.labels]]` block under the `default`
+    profile. Leading `#` on hex colors is stripped so the output matches
+    labelmaker's convention. Entries missing a `name` are skipped with a warning:
+    labelmaker rejects nameless labels and would abort the whole sync.
+
+    Returns an empty string when there are no valid entries, so the caller can
+    skip writing a temp file and invoking labelmaker entirely.
+    """
+    labels: list[dict[str, str]] = []
+    for entry in entries:
+        name = entry.get("name", "").strip()
+        if not name:
+            logging.warning(
+                "Skipping inline label without a `name`: %r.",
+                entry,
+            )
+            continue
+        label: dict[str, str] = {"name": name}
+        if color := entry.get("color"):
+            label["color"] = color.lstrip("#")
+        if description := entry.get("description"):
+            label["description"] = description
+        labels.append(label)
+
+    if not labels:
+        return ""
+
+    doc = tomlrt.Document({"profiles": {"default": {"labels": labels}}})
+    return tomlrt.dumps(doc)
 
 
 def _run_labelmaker(labelmaker_path: Path, *args: str) -> None:

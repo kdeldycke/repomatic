@@ -493,6 +493,7 @@ expected: dict[str, Any] = {
         "tests/test_release_sync.py",
         "tests/test_renovate.py",
         "tests/test_status.py",
+        "tests/test_sync_labels.py",
         "tests/test_tool_runner.py",
         "tests/test_virustotal.py",
         "tests/test_workflow_sync.py",
@@ -1375,6 +1376,7 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
     assert metadata.config.dependency_graph.no_groups == []
     assert metadata.config.dependency_graph.no_extras == []
     assert metadata.config.dependency_graph.level is None
+    assert metadata.config.labels.extra == []
     assert metadata.config.labels.extra_files == []
     assert metadata.config.labels.extra_file_rules == ""
     assert metadata.config.labels.extra_content_rules == ""
@@ -1443,6 +1445,16 @@ workflow.sync = false
 exclude = ["skills", "workflows/debug.yaml", "workflows/autolock.yaml"]
 include = ["labels"]
 
+[[tool.repomatic.labels.extra]]
+name = "📦 manager: apk"
+color = "bfdadc"
+description = "apk"
+
+[[tool.repomatic.labels.extra]]
+name = "📦 manager: brew"
+color = "#bfdadc"
+description = "homebrew"
+
 [tool.repomatic.test-matrix]
 exclude = [
     {os = "windows-11-arm"},
@@ -1480,6 +1492,18 @@ click-version = ["released", "stable", "main"]
     assert metadata.config.dependency_graph.no_extras == ["xml"]
     assert metadata.config.dependency_graph.level == 2
     assert metadata.unstable_targets == {"linux-arm64", "windows-x64"}
+    assert metadata.config.labels.extra == [
+        {
+            "name": "📦 manager: apk",
+            "color": "bfdadc",
+            "description": "apk",
+        },
+        {
+            "name": "📦 manager: brew",
+            "color": "#bfdadc",
+            "description": "homebrew",
+        },
+    ]
     assert metadata.config.labels.extra_files == [
         "https://example.com/labels.toml",
     ]

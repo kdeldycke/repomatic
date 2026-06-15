@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Add `[tool.repomatic.labels.extra]` config for inline label definitions. Each `[[tool.repomatic.labels.extra]]` block (with `name`, `color`, `description` keys) is serialized at sync time into a temporary `[[profiles.default.labels]]` TOML file and applied by `labelmaker`. Lets downstream projects keep their custom labels in `pyproject.toml` instead of committing a lonely `extra-labels/*.toml` file. The `extra-labels/` directory and `labels.extra-files` URL fallback remain for label sets that need `labelmaker`'s advanced features (`rename-from`, multi-profile, multi-color).
+
 ## [`6.25.1` (2026-06-13)](https://github.com/kdeldycke/repomatic/compare/v6.25.0...v6.25.1)
 
 - Fix `uvx repomatic@X.Y.Z` failing for end users with `No solution found when resolving tool dependencies` against `bump-my-version`'s `click<8.4` cap and `click-extra>=7.19`'s `click>=8.4.1` floor. Drop `bump-my-version` from `[project].dependencies`: replace `Metadata.get_current_version` with a native `tomlrt` read of `current_version` from `.bumpversion.toml` or `pyproject.toml`'s `[tool.bumpversion]`. Removes the matching `[tool.uv] override-dependencies = ["click>=8.4.1"]`, the `uv-overrides.txt` file, and every `UV_OVERRIDE=uv-overrides.txt` workflow env block (with the `--from .` checkout dance previously needed in `tests.yaml`'s `package-install` job and the `RENOVATE_ALLOWED_COMMANDS` regex alternation in `renovate.yaml`). `ReleasePrep.current_version` now delegates to `Metadata.get_current_version`, picking up `.bumpversion.toml` support and a single source of truth for the search order.

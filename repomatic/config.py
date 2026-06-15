@@ -196,6 +196,20 @@ class GitignoreConfig:
 class LabelsConfig:
     """Nested schema for `[tool.repomatic.labels]`."""
 
+    extra: list[dict[str, str]] = field(default_factory=list)
+    """Inline label definitions applied at sync time under the `default` profile.
+
+    Each entry is a mapping with `name`, `color`, and `description` keys,
+    matching `labelmaker`'s label specification. Entries are serialized into a
+    temporary TOML file as `[[profiles.default.labels]]` blocks and applied by
+    `labelmaker apply`. This avoids committing a lonely `extra-labels/*.toml`
+    file when the downstream project only needs the basic three fields.
+
+    For label sets that need `labelmaker`'s advanced features (`rename-from`,
+    multi-profile, multi-color), commit a hand-written file under
+    `extra-labels/` or download one via `extra-files` instead.
+    """
+
     extra_content_rules: str = ""
     """Additional YAML rules appended to the content-based labeller configuration.
 
@@ -211,7 +225,9 @@ class LabelsConfig:
     extra_files: list[str] = field(default_factory=list)
     """URLs of additional label definition files (JSON, JSON5, TOML, or YAML).
 
-    Each URL is downloaded and applied separately by `labelmaker`.
+    Each URL is downloaded into `extra-labels/` and applied separately by
+    `labelmaker`. For inline definitions that need no external file, use
+    `extra` instead.
     """
 
     sync: bool = True
