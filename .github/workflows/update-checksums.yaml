@@ -42,7 +42,7 @@ jobs:
           # workflow, but update-checksums finds no stale hashes and
           # git diff --quiet exits cleanly: no infinite loop.
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Update stale registry checksums
         # Must use `uv run` (not `uvx --from .`). uvx builds an isolated
         # wheel where __file__ points to a temp site-packages path, so
