@@ -28,7 +28,6 @@ from repomatic.init_project import (
     _serialize_file_rules,
 )
 
-
 # -- File rules ---------------------------------------------------------------
 
 
@@ -124,7 +123,9 @@ def test_serialize_file_rules_skips_unlabeled(caplog):
     ])
     parsed = yaml.safe_load(output)
     assert parsed == {"x": [{"changed-files": [{"any-glob-to-any-file": ["b"]}]}]}
-    assert any("Skipping file rule without `label`" in r.message for r in caplog.records)
+    assert any(
+        "Skipping file rule without `label`" in r.message for r in caplog.records
+    )
 
 
 def test_serialize_file_rules_skips_matcherless(caplog):
@@ -355,6 +356,5 @@ def test_augment_none_config():
     """A None config (caller opts out) preserves the bundled content."""
     bundled = "bundled: yes\n"
     assert (
-        _augment_labeller_content("labeller-file-based.yaml", bundled, None)
-        == bundled
+        _augment_labeller_content("labeller-file-based.yaml", bundled, None) == bundled
     )

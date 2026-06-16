@@ -25,9 +25,8 @@ from tempfile import NamedTemporaryFile
 
 import pytest
 import tomlrt
-from packaging.version import InvalidVersion, Version
-
 import yaml
+from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__
 from repomatic.config import Config, LabelsConfig
@@ -880,9 +879,7 @@ def test_init_labels_appends_structured_rules(tmp_path: Path):
         },
     ]
 
-    content_yaml = (
-        tmp_path / ".github" / "labeller-content-based.yaml"
-    ).read_text()
+    content_yaml = (tmp_path / ".github" / "labeller-content-based.yaml").read_text()
     content_parsed = yaml.safe_load(content_yaml)
     assert content_parsed["🔌 bar-plugin"] == ["xbar", "swiftbar"]
 
