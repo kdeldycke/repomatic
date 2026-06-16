@@ -1130,7 +1130,9 @@ def _render_file_rule_group(group: dict[str, Any], label: str) -> dict[str, Any]
     for key in group:
         if key not in FILE_RULE_MATCHER_KEYS:
             logging.warning(
-                "Unknown file rule key %r in label %r (ignored).", key, label,
+                "Unknown file rule key %r in label %r (ignored).",
+                key,
+                label,
             )
     changed_files: list[dict[str, list[str]]] = []
     for key in FILE_RULE_CHANGED_FILES_MATCHERS:
@@ -1154,7 +1156,9 @@ def _render_file_rule_group(group: dict[str, Any], label: str) -> dict[str, Any]
                 sub_groups.append(sub_rendered)
             else:
                 logging.warning(
-                    "Skipping empty %r sub-group for label %r.", wrapper, label,
+                    "Skipping empty %r sub-group for label %r.",
+                    wrapper,
+                    label,
                 )
         if sub_groups:
             rendered[wrapper] = sub_groups
