@@ -41,8 +41,6 @@ junit.xml
 exclude = ["skills", "workflows/debug.yaml", "zizmor"]
 
 labels.extra-files = ["https://example.com/my-labels.toml"]
-labels.extra-file-rules = "docs:\n  - docs/**"
-labels.extra-content-rules = "security:\n  - '(CVE|vulnerability)'"
 
 nuitka.enabled = false
 nuitka.entry-points = ["mpm"]
@@ -56,6 +54,14 @@ workflow.sync = false
 workflow.source-paths = ["extra_platforms"]
 workflow.extra-paths = ["install.sh", "dotfiles/**"]
 workflow.ignore-paths = ["uv.lock"]
+
+[[tool.repomatic.labels.file-rules]]
+label = "📚 docs"
+any-glob-to-any-file = ["docs/**"]
+
+[[tool.repomatic.labels.content-rules]]
+label = "🛡️ security"
+patterns = ["(CVE|vulnerability)"]
 
 [tool.repomatic.workflow.paths]
 "tests.yaml" = ["install.sh", "packages.toml", ".github/workflows/tests.yaml"]
@@ -91,10 +97,10 @@ workflow.ignore-paths = ["uv.lock"]
 | [`gitignore.location`](#gitignore-location)                   | File path of the `.gitignore` to update, relative to the root of the repository.                                          | `"./.gitignore"`                    |
 | [`gitignore.sync`](#gitignore-sync)                           | Whether `.gitignore` sync is enabled for this project.                                                                    | `true`                              |
 | [`include`](#include)                                         | Components and files to force-include, overriding default exclusions.                                                     | `[]`                                |
+| [`labels.content-rules`](#labels-content-rules)               | Structured per-label rules for the content-based labeller.                                                                | `[]`                                |
 | [`labels.extra`](#labels-extra)                               | Inline label definitions applied at sync time under the `default` profile.                                                | `[]`                                |
-| [`labels.extra-content-rules`](#labels-extra-content-rules)   | Additional YAML rules appended to the content-based labeller configuration.                                               | `""`                                |
-| [`labels.extra-file-rules`](#labels-extra-file-rules)         | Additional YAML rules appended to the file-based labeller configuration.                                                  | `""`                                |
 | [`labels.extra-files`](#labels-extra-files)                   | URLs of additional label definition files (JSON, JSON5, TOML, or YAML).                                                   | `[]`                                |
+| [`labels.file-rules`](#labels-file-rules)                     | Structured per-label rules for the file-based labeller.                                                                   | `[]`                                |
 | [`labels.sync`](#labels-sync)                                 | Whether label sync is enabled for this project.                                                                           | `true`                              |
 | [`mailmap.sync`](#mailmap-sync)                               | Whether `.mailmap` sync is enabled for this project.                                                                      | `true`                              |
 | [`manpages.asset-name`](#manpages-asset-name)                 | Filename stem (without the `.tar.gz` extension) for the man-page tarball uploaded to the GitHub release.                  | `""`                                |
@@ -550,6 +556,29 @@ component. Same syntax as `exclude`.
 include = []
 ```
 
+### `labels.content-rules`
+
+Structured per-label rules for the content-based labeller.
+
+**Type:** `list[dict[str, str | list[str]]]` | **Default:** `[]`
+
+Each `[[tool.repomatic.labels.content-rules]]` entry has:
+
+- `label` (required): label name to apply when any pattern matches.
+- `patterns` (required): list of regex patterns evaluated against the issue
+  or PR title and body by `github/issue-labeller`.
+
+Repeating the same `label` across entries merges their patterns. Serialized
+to YAML at export time and appended to the bundled
+`labeller-content-based.yaml`.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+labels.content-rules = []
+```
+
 ### `labels.extra`
 
 Inline label definitions applied at sync time under the `default` profile.
@@ -573,36 +602,6 @@ multi-profile, multi-color), commit a hand-written file under
 labels.extra = []
 ```
 
-### `labels.extra-content-rules`
-
-Additional YAML rules appended to the content-based labeller configuration.
-
-**Type:** `str` | **Default:** `""`
-
-Appended to the bundled `labeller-content-based.yaml` during export.
-
-**Example:**
-
-```toml
-[tool.repomatic]
-labels.extra-content-rules = ""
-```
-
-### `labels.extra-file-rules`
-
-Additional YAML rules appended to the file-based labeller configuration.
-
-**Type:** `str` | **Default:** `""`
-
-Appended to the bundled `labeller-file-based.yaml` during export.
-
-**Example:**
-
-```toml
-[tool.repomatic]
-labels.extra-file-rules = ""
-```
-
 ### `labels.extra-files`
 
 URLs of additional label definition files (JSON, JSON5, TOML, or YAML).
@@ -618,6 +617,40 @@ Each URL is downloaded into `extra-labels/` and applied separately by
 ```toml
 [tool.repomatic]
 labels.extra-files = []
+```
+
+### `labels.file-rules`
+
+Structured per-label rules for the file-based labeller.
+
+**Type:** `list[dict[str, str | list[str]]]` | **Default:** `[]`
+
+Each `[[tool.repomatic.labels.file-rules]]` entry defines one match group
+for one label. Required key:
+
+- `label`: label name to apply when this group's conditions match.
+
+Optional matcher keys (all conditions in the same entry are AND'd):
+
+- `any-glob-to-any-file`: any pattern matches any changed file.
+- `any-glob-to-all-files`: any pattern matches every changed file.
+- `all-globs-to-any-file`: every pattern matches any changed file.
+- `all-globs-to-all-files`: every pattern matches every changed file.
+- `head-branch`: regex patterns matched against the PR head branch.
+- `base-branch`: regex patterns matched against the PR base branch.
+- `any`: list of nested sub-groups, OR'd together.
+- `all`: list of nested sub-groups, AND'd together.
+
+Repeating the same `label` across entries OR's the resulting groups, the
+same as listing multiple top-level groups under one label in
+`actions/labeler`. Together with `any` / `all` wrappers this covers the
+full `actions/labeler` v5+ schema.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+labels.file-rules = []
 ```
 
 ### `labels.sync`

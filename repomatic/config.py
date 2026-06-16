@@ -196,6 +196,20 @@ class GitignoreConfig:
 class LabelsConfig:
     """Nested schema for `[tool.repomatic.labels]`."""
 
+    content_rules: list[dict[str, str | list[str]]] = field(default_factory=list)
+    """Structured per-label rules for the content-based labeller.
+
+    Each `[[tool.repomatic.labels.content-rules]]` entry has:
+
+    - `label` (required): label name to apply when any pattern matches.
+    - `patterns` (required): list of regex patterns evaluated against the issue
+      or PR title and body by `github/issue-labeller`.
+
+    Repeating the same `label` across entries merges their patterns. Serialized
+    to YAML at export time and appended to the bundled
+    `labeller-content-based.yaml`.
+    """
+
     extra: list[dict[str, str]] = field(default_factory=list)
     """Inline label definitions applied at sync time under the `default` profile.
 
@@ -210,24 +224,37 @@ class LabelsConfig:
     `extra-labels/` or download one via `extra-files` instead.
     """
 
-    extra_content_rules: str = ""
-    """Additional YAML rules appended to the content-based labeller configuration.
-
-    Appended to the bundled `labeller-content-based.yaml` during export.
-    """
-
-    extra_file_rules: str = ""
-    """Additional YAML rules appended to the file-based labeller configuration.
-
-    Appended to the bundled `labeller-file-based.yaml` during export.
-    """
-
     extra_files: list[str] = field(default_factory=list)
     """URLs of additional label definition files (JSON, JSON5, TOML, or YAML).
 
     Each URL is downloaded into `extra-labels/` and applied separately by
     `labelmaker`. For inline definitions that need no external file, use
     `extra` instead.
+    """
+
+    file_rules: list[dict[str, str | list[str]]] = field(default_factory=list)
+    """Structured per-label rules for the file-based labeller.
+
+    Each `[[tool.repomatic.labels.file-rules]]` entry defines one match group
+    for one label. Required key:
+
+    - `label`: label name to apply when this group's conditions match.
+
+    Optional matcher keys (all conditions in the same entry are AND'd):
+
+    - `any-glob-to-any-file`: any pattern matches any changed file.
+    - `any-glob-to-all-files`: any pattern matches every changed file.
+    - `all-globs-to-any-file`: every pattern matches any changed file.
+    - `all-globs-to-all-files`: every pattern matches every changed file.
+    - `head-branch`: regex patterns matched against the PR head branch.
+    - `base-branch`: regex patterns matched against the PR base branch.
+    - `any`: list of nested sub-groups, OR'd together.
+    - `all`: list of nested sub-groups, AND'd together.
+
+    Repeating the same `label` across entries OR's the resulting groups, the
+    same as listing multiple top-level groups under one label in
+    `actions/labeler`. Together with `any` / `all` wrappers this covers the
+    full `actions/labeler` v5+ schema.
     """
 
     sync: bool = True

@@ -27,8 +27,10 @@ import pytest
 import tomlrt
 from packaging.version import InvalidVersion, Version
 
+import yaml
+
 from repomatic import __version__
-from repomatic.config import Config
+from repomatic.config import Config, LabelsConfig
 from repomatic.init_project import (
     EXPORTABLE_FILES,
     RUNTIME_FRAGMENTS,
@@ -839,6 +841,50 @@ def test_init_only_labels(tmp_path: Path):
     for filename in REUSABLE_WORKFLOWS:
         assert f".github/workflows/{filename}" not in created_set
     assert "changelog.md" not in created_set
+
+
+def test_init_labels_appends_structured_rules(tmp_path: Path):
+    """Custom rules in `[tool.repomatic.labels]` land in the exported YAML.
+
+    Wires the end-to-end path: structured TOML in `LabelsConfig` →
+    `repomatic init labels` → `.github/labeller-*.yaml`. Without this test
+    the wire-up could regress to dead-code, where the fields exist on the
+    dataclass but nothing reads them at export time.
+    """
+    config = Config(
+        labels=LabelsConfig(
+            file_rules=[
+                {
+                    "label": "📦 manager: apk",
+                    "any-glob-to-any-file": ["managers/apk*", "tests/*apk*"],
+                },
+            ],
+            content_rules=[
+                {"label": "🔌 bar-plugin", "patterns": ["xbar", "swiftbar"]},
+            ],
+        ),
+    )
+
+    run_init(output_dir=tmp_path, components=("labels",), config=config)
+
+    file_yaml = (tmp_path / ".github" / "labeller-file-based.yaml").read_text()
+    file_parsed = yaml.safe_load(file_yaml)
+    # Bundled labels must still be present.
+    assert "🆙 changelog" in file_parsed
+    # Structured rule landed.
+    assert file_parsed["📦 manager: apk"] == [
+        {
+            "changed-files": [
+                {"any-glob-to-any-file": ["managers/apk*", "tests/*apk*"]},
+            ],
+        },
+    ]
+
+    content_yaml = (
+        tmp_path / ".github" / "labeller-content-based.yaml"
+    ).read_text()
+    content_parsed = yaml.safe_load(content_yaml)
+    assert content_parsed["🔌 bar-plugin"] == ["xbar", "swiftbar"]
 
 
 def test_init_only_skills(tmp_path: Path):

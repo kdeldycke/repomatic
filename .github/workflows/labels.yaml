@@ -93,6 +93,9 @@ jobs:
       - name: Dump default rules
         run: uvx --no-progress --from . repomatic init labels
       - name: Apply rules
+        # repomatic.init_project._serialize_file_rules emits v5+ schema
+        # (`any:`/`all:` wrappers, `changed-files` matcher dicts, `head-branch`,
+        # `base-branch`). Do not downgrade below v5.0.0.
         uses: actions/labeler@f27b608878404679385c85cfa523b85ccb86e213 # v6.1.0
         with:
           configuration-path: ".github/labeller-file-based.yaml"
