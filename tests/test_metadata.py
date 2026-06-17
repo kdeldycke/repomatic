@@ -1141,6 +1141,8 @@ def test_metadata_github_format():
             new_value = ""
         elif isinstance(value, bool):
             new_value = str(value).lower()
+        elif isinstance(value, int):
+            new_value = str(value)
         elif isinstance(value, OptionalList):
             # Convert OptionalList to OptionalString for GitHub format.
             new_value = OptionalString(value.item_pattern)
