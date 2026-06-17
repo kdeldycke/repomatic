@@ -1482,7 +1482,7 @@ os = ["custom-runner"]
 click-version = ["released", "stable", "main"]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="UTF-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()

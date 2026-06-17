@@ -24,13 +24,16 @@ from unittest.mock import patch
 from urllib.error import URLError
 
 import pytest
-from typing_extensions import Self
 
 from repomatic.github.releases import (
     GitHubRelease,
     GitHubReleasesUnavailable,
     get_github_releases,
 )
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 
 class _FakeResponse:

@@ -866,7 +866,9 @@ def test_init_labels_appends_structured_rules(tmp_path: Path):
 
     run_init(output_dir=tmp_path, components=("labels",), config=config)
 
-    file_yaml = (tmp_path / ".github" / "labeller-file-based.yaml").read_text()
+    file_yaml = (tmp_path / ".github" / "labeller-file-based.yaml").read_text(
+        encoding="UTF-8"
+    )
     file_parsed = yaml.safe_load(file_yaml)
     # Bundled labels must still be present.
     assert "🆙 changelog" in file_parsed
@@ -879,7 +881,9 @@ def test_init_labels_appends_structured_rules(tmp_path: Path):
         },
     ]
 
-    content_yaml = (tmp_path / ".github" / "labeller-content-based.yaml").read_text()
+    content_yaml = (tmp_path / ".github" / "labeller-content-based.yaml").read_text(
+        encoding="UTF-8"
+    )
     content_parsed = yaml.safe_load(content_yaml)
     assert content_parsed["🔌 bar-plugin"] == ["xbar", "swiftbar"]
 

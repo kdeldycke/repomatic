@@ -26,7 +26,6 @@ from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
 import pytest
-from typing_extensions import Self
 
 from repomatic.pypi import (
     PYPI_TRUSTED_PUBLISHER_SETTINGS_URL,
@@ -35,6 +34,10 @@ from repomatic.pypi import (
     get_trusted_publishers,
     pypi_trusted_publisher_settings_url,
 )
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 
 class _FakeResponse:
