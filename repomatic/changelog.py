@@ -730,6 +730,84 @@ def build_unavailable_admonition(
     )
 
 
+def split_changelog_bullets(changes: str) -> list[str]:
+    """Split a version section's change body into top-level bullet entries.
+
+    Each returned item is one entry: its `-` marker line plus any wrapped
+    continuation lines and indented sub-bullets, joined with newlines.
+    Blank lines and prose outside a bullet are dropped.
+
+    :param changes: The hand-written body of a version section, as captured
+        in {attr}`VersionElements.changes`.
+    :return: One string per top-level bullet, in document order.
+    """
+    bullets: list[str] = []
+    current: list[str] = []
+    for line in changes.splitlines():
+        if re.match(r"^- ", line):
+            if current:
+                bullets.append("\n".join(current))
+            current = [line]
+        elif current and (not line.strip() or line[:1] in {" ", "\t"}):
+            # Wrapped continuation, indented sub-bullet, or interior blank line.
+            current.append(line)
+        elif current:
+            # A non-indented, non-bullet line closes the current entry.
+            bullets.append("\n".join(current))
+            current = []
+    if current:
+        bullets.append("\n".join(current))
+    return bullets
+
+
+def count_bullet_words(bullet: str) -> int:
+    """Count the words in a changelog bullet, ignoring list markers.
+
+    Leading `-`/`*` markers (on the entry and any nested sub-bullets) are
+    stripped so they do not inflate the count; everything else, including
+    inline code and link text, counts as written.
+    """
+    return len(re.sub(r"(?m)^\s*[-*]\s+", "", bullet).split())
+
+
+def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
+    """Warn about over-long bullets in the unreleased section, non-fatally.
+
+    A changelog entry is a release note, not a commit message: one short
+    sentence stating what changed (see `CLAUDE.md` § Changelog entry length).
+    Each unreleased bullet longer than `threshold` words emits a
+    {data}`logging.WARNING` and a GitHub Actions warning annotation, without
+    affecting the lint exit code.
+
+    Only the unreleased section is inspected. Released sections are immutable,
+    so re-flagging historical entries on every run would be noise.
+
+    :param changelog: The parsed changelog to inspect.
+    :param threshold: Word ceiling per bullet. `0` (or less) disables the check.
+    """
+    if threshold <= 0:
+        return
+    released = {version for version, _date in changelog.extract_all_releases()}
+    unreleased = changelog.extract_all_version_headings() - released
+    for version in sorted(unreleased, key=Version, reverse=True):
+        elements = changelog.decompose_version(version)
+        for index, bullet in enumerate(split_changelog_bullets(elements.changes), 1):
+            words = count_bullet_words(bullet)
+            if words > threshold:
+                logging.warning(
+                    f"⚠ {version}: changelog entry {index} runs {words} words "
+                    f"(over {threshold}). Tighten it to a one-sentence release "
+                    f"note; move mechanism and rationale to the commit or PR."
+                )
+                emit_annotation(
+                    AnnotationLevel.WARNING,
+                    f"Changelog entry {index} for {version} runs {words} words, "
+                    f"over the {threshold}-word guideline. A changelog entry is "
+                    f"a release note, not a commit message: keep it to one short "
+                    f"sentence (see CLAUDE.md, Changelog entry length).",
+                )
+
+
 def lint_changelog_dates(
     changelog_path: Path,
     package: str | None = None,
@@ -737,6 +815,7 @@ def lint_changelog_dates(
     fix: bool = False,
     pypi_package_history: Sequence[str] = (),
     abandoned_versions: Sequence[str] = (),
+    bullet_word_threshold: int = 0,
 ) -> int:
     """Verify that changelog release dates match canonical release dates.
 
@@ -787,6 +866,10 @@ def lint_changelog_dates(
         both the PyPI lookup and the git-tag fallback. Use for releases
         that were frozen but skipped per the "skip and move forward"
         practice (botched build, broken artifact).
+    :param bullet_word_threshold: Word count above which an unreleased-section
+        bullet triggers a non-fatal length warning (see
+        {func}`warn_on_long_bullets`). `0` disables the check. Never affects
+        the exit code.
     :return: `0` if all dates match or references were corrected in-place,
         `1` if any date mismatch or orphan is found without a fix being
         applied, `2` if the sanity gate refused a destructive rewrite
@@ -796,6 +879,7 @@ def lint_changelog_dates(
     """
     content = changelog_path.read_text(encoding="UTF-8")
     changelog = Changelog(content)
+    warn_on_long_bullets(changelog, bullet_word_threshold)
     releases = changelog.extract_all_releases()
 
     if not releases:

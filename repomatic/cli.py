@@ -3347,6 +3347,10 @@ def lint_changelog(
     "not found on PyPI" warnings for releases that were frozen but
     never published (skip-and-move-forward releases).
 
+    Reads changelog.bullet-word-threshold from [tool.repomatic] to warn,
+    non-fatally, about unreleased changelog bullets longer than that many
+    words. A changelog entry is a release note, not a commit message.
+
     \b
     Output symbols:
         ✓  Dates match
@@ -3392,6 +3396,7 @@ def lint_changelog(
         fix=fix,
         pypi_package_history=config.pypi_package_history,
         abandoned_versions=config.abandoned_versions,
+        bullet_word_threshold=config.changelog_bullet_word_threshold,
     )
     ctx.exit(exit_code)
 

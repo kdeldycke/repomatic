@@ -25,7 +25,10 @@ from repomatic.changelog import (
     Changelog,
     VersionElements,
     build_unavailable_admonition,
+    count_bullet_words,
     lint_changelog_dates,
+    split_changelog_bullets,
+    warn_on_long_bullets,
 )
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
@@ -679,6 +682,128 @@ def test_lint_changelog_dates_skips_abandoned(tmp_path, monkeypatch, caplog):
 
     assert "1.1.0: abandoned" in caplog.text
     assert "1.1.0: not found on PyPI" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected_count"),
+    (
+        ("", 0),
+        ("- Only one entry.", 1),
+        ("- One.\n- Two.\n- Three.", 3),
+        ("- Wrapped entry that\n  continues on the next line.", 1),
+        ("- Parent entry.\n  - Child A.\n  - Child B.", 1),
+        ("Intro prose, not a bullet.\n\n- The only real bullet.", 1),
+    ),
+)
+def test_split_changelog_bullets_count(changes, expected_count):
+    """Each top-level `-` starts one entry; wraps and sub-bullets fold in."""
+    assert len(split_changelog_bullets(changes)) == expected_count
+
+
+def test_split_changelog_bullets_folds_continuation_and_sub_bullets():
+    """A wrapped line and indented sub-bullets stay with their parent entry."""
+    changes = "- Parent entry\n  continues here.\n  - A sub-point.\n- Second entry."
+    bullets = split_changelog_bullets(changes)
+    assert bullets == [
+        "- Parent entry\n  continues here.\n  - A sub-point.",
+        "- Second entry.",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("bullet", "expected_words"),
+    (
+        ("- Add a feature.", 3),
+        ("- First line of the entry\n  continued onto a second line.", 10),
+        ("- Parent entry.\n  - Nested sub-bullet item.", 5),
+        ("plain text without any marker", 5),
+    ),
+)
+def test_count_bullet_words(bullet, expected_words):
+    """List markers are stripped before counting; everything else counts."""
+    assert count_bullet_words(bullet) == expected_words
+
+
+# A 20-word entry, comfortably over the 5-word ceiling used in the tests below.
+_LONG_BULLET = (
+    "- This changelog entry is deliberately written far too long to fit "
+    "within the strict word ceiling that the check enforces."
+)
+_SHORT_BULLET = "- Add the seasonal fruit basket."
+
+
+def _unreleased_changelog(bullet: str) -> str:
+    return dedent(
+        """\
+        # Changelog
+
+        ## [`1.2.3` (unreleased)](https://github.com/user/repo/compare/v1.2.2...main)
+
+        > [!WARNING]
+        > This version is **not released yet** and is under active development.
+
+        {bullet}
+        """
+    ).format(bullet=bullet)
+
+
+def test_warn_on_long_bullets_flags_unreleased(caplog):
+    """An over-long unreleased bullet emits a non-fatal warning."""
+    changelog = Changelog(_unreleased_changelog(_LONG_BULLET))
+    with caplog.at_level(logging.WARNING):
+        warn_on_long_bullets(changelog, threshold=5)
+    assert "1.2.3: changelog entry 1 runs" in caplog.text
+
+
+def test_warn_on_long_bullets_short_entry_is_silent(caplog):
+    """A short unreleased bullet stays under the ceiling and warns nothing."""
+    changelog = Changelog(_unreleased_changelog(_SHORT_BULLET))
+    with caplog.at_level(logging.WARNING):
+        warn_on_long_bullets(changelog, threshold=5)
+    assert caplog.records == []
+
+
+def test_warn_on_long_bullets_ignores_released_sections(caplog):
+    """Immutable released sections are never flagged, only the unreleased one."""
+    changelog = Changelog(
+        dedent(
+            """\
+            # Changelog
+
+            ## [`1.2.3` (unreleased)](https://github.com/user/repo/compare/v1.2.2...main)
+
+            - Add the seasonal fruit basket.
+
+            ## [`1.2.2` (2024-01-15)](https://github.com/user/repo/compare/v1.2.1...v1.2.2)
+
+            - This released entry is deliberately written far too long to fit within the strict word ceiling that the check would otherwise enforce.
+            """
+        )
+    )
+    with caplog.at_level(logging.WARNING):
+        warn_on_long_bullets(changelog, threshold=5)
+    assert caplog.records == []
+
+
+def test_warn_on_long_bullets_threshold_zero_disables(caplog):
+    """A threshold of 0 disables the check, even for a very long bullet."""
+    changelog = Changelog(_unreleased_changelog(_LONG_BULLET))
+    with caplog.at_level(logging.WARNING):
+        warn_on_long_bullets(changelog, threshold=0)
+    assert caplog.records == []
+
+
+def test_lint_changelog_dates_warns_long_unreleased_bullet(tmp_path, caplog):
+    """lint-changelog surfaces the bullet-length warning without failing.
+
+    An unreleased-only changelog has no released versions, so the date check
+    returns 0 early; the length warning still fires beforehand.
+    """
+    path = tmp_path / "changelog.md"
+    path.write_text(_unreleased_changelog(_LONG_BULLET), encoding="UTF-8")
+    with caplog.at_level(logging.WARNING):
+        assert lint_changelog_dates(path, bullet_word_threshold=5) == 0
+    assert "1.2.3: changelog entry 1 runs" in caplog.text
 
 
 def test_lint_fix_corrects_date(tmp_path, monkeypatch):

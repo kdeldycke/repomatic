@@ -24,8 +24,32 @@ This repository is the **canonical reference** for conventions. Repos using the 
 
 Always update documentation when making changes:
 
-- **`changelog.md`**: Bullet describing **what** changed (features, fixes, behavior changes), not **why**. Keep entries concise and actionable. Rationale belongs in `docs/` or code comments, not the changelog.
+- **`changelog.md`**: One bullet per user-facing change, describing **what** changed (features, fixes, behavior changes), not **how** it was built or **why**. See [§ Changelog entry length](#changelog-entry-length); rationale belongs in `docs/`, code comments, the commit message, or the PR body, never the changelog.
 - **`docs/`**: When this repo has a `docs/` tree, update the relevant page when adding or modifying workflow jobs, CLI commands, or configuration options.
+
+#### Changelog entry length
+
+A changelog entry is a **release note**, not a commit message or PR description. Its reader is scanning to decide two things: does this change affect me, and must I do anything? Write the shortest bullet that answers both, then stop.
+
+- **One sentence by default**, roughly 10-25 words. Add a second short sentence only to flag a breaking change or state a migration step. A bullet past ~40 words is a smell: it is either smuggling in implementation detail (cut it) or covering two changes (split it into two bullets).
+- **Keep the user-facing surface:** the public name (CLI command, option, config key, exported function or class), what the change does for the user, plus the required migration when the change breaks something. Lead with the change, not the mechanism.
+- **Cut what the user cannot see or act on**, and move it where it belongs:
+  - *Mechanism* (the internal module, file, function, or workflow job that implements it; the call sequence; the data structures): commit message, PR body, or code comment.
+  - *Rationale* (why this approach, which edge case it covers, what trade-off was made): code or docstring comment, or `docs/`.
+  - *Archaeology* (dependency floors chased mid-cycle, the bug's root cause, CI evaluation-order trivia, upstream-issue status): commit message or PR body. See also the "Do not mention" list below.
+- **Name, don't narrate.** "Add `--cooldown` to skip packages newer than a given age" beats three sentences naming the environment variable each backend uses to enforce it.
+
+The mechanical layer backs this up: `lint-changelog` warns (without failing) on any unreleased bullet over `[tool.repomatic] changelog.bullet-word-threshold` words. Released sections are immutable, so it leaves them alone.
+
+Domain-neutral example. The verbose form crams a PR description into one bullet:
+
+> *Add a `--forecast` option to the `weather` command that fetches the 7-day outlook from the bundled `weather._provider` module, parses the provider JSON, and falls back to the cached `~/.weather/last.json` when the network is unreachable; a non-200 response raises `ForecastError` so the CLI exits cleanly instead of printing a partial table. Requires `requests >= 2.0`.*
+
+The release note is one line:
+
+> *Add `weather --forecast` for a 7-day outlook, cached for offline use.*
+
+The provider module, the JSON parsing, the error class, and the `requests` floor belong in the commit and PR, not the changelog.
 
 **Do not mention in the changelog:**
 

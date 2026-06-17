@@ -498,6 +498,20 @@ class Config:
     )
     """Binary cache configuration."""
 
+    changelog_bullet_word_threshold: int = field(
+        default=40,
+        metadata={"click_extra.config_path": "changelog.bullet-word-threshold"},
+    )
+    """Word count above which `lint-changelog` warns about a changelog bullet.
+
+    A changelog entry is a release note, not a commit message: ideally one
+    short sentence stating what changed (see `CLAUDE.md` § Changelog entry
+    length). `lint-changelog` emits a non-fatal warning for every bullet in
+    the *unreleased* section longer than this many words, nudging verbose,
+    implementation-heavy entries back toward a user-facing summary. Released
+    sections are immutable and never flagged. Set to `0` to disable the check.
+    """
+
     changelog_location: str = field(
         default="./changelog.md",
         metadata={"click_extra.config_path": "changelog.location"},
