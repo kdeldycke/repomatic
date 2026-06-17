@@ -31,6 +31,7 @@ Always update documentation when making changes:
 
 - **Mechanical test updates following a behavior change.** Adjusting fixtures, snapshots, parametrize cases, or assertions to match a bumped dependency or renamed symbol is implicit. Only mention *structural* test work: a new harness, new fixture mechanism, switching `unittest.TestCase` to functions, parametrizing a whole module.
 - **Short-shelf-life workarounds.** `tool.uv.exclude-newer-package` cooldown bypasses, dev pins for transient upstream bugs, `xfail` markers, commented-out lines: reverted within days, only add noise. Drop unless load-bearing beyond a release cycle.
+- **Upstream issue commentary.** Cross-references to upstream tickets with prose about their state (`pallets/click#2771` open / closed / not planned, "the upstream conversation is in…", "mirrors the upstream fix in…", "Click does not ship an equivalent"). The status rots in days, the prose duplicates what `git blame` and the linked thread already show. A bare upstream link is acceptable when the entry is a direct backport (`fix … from upstream PR x/y#NNN`); anything longer belongs in a code comment, docstring, or PR body. Strip the prose during `consolidate`.
 
 ### Documentation sync (upstream maintainers)
 
