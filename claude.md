@@ -27,6 +27,8 @@ Always update documentation when making changes:
 - **`changelog.md`**: One bullet per user-facing change, describing **what** changed (features, fixes, behavior changes), not **how** it was built or **why**. See [§ Changelog entry length](#changelog-entry-length); rationale belongs in `docs/`, code comments, the commit message, or the PR body, never the changelog.
 - **`docs/`**: When this repo has a `docs/` tree, update the relevant page when adding or modifying workflow jobs, CLI commands, or configuration options.
 
+**Order within a release section:** lead with `**Breaking:**` entries, then new features, then other changes, then bug fixes, then docs and tests. A reader scans for breaking changes first, so they belong at the top of the block.
+
 #### Changelog entry length
 
 A changelog entry is a **release note**, not a commit message or PR description. Its reader is scanning to decide two things: does this change affect me, and must I do anything? Write the shortest bullet that answers both, then stop.
@@ -236,6 +238,8 @@ Do not inline named constants during refactors. If a constant has a name and a d
 ### Single source of truth for defaults
 
 Every configurable default must live in exactly one place: the canonical config dataclass field default (in `kdeldycke/repomatic`, the `Config` dataclass in `repomatic/config.py`). All code derives it from the source (class-level default for static contexts, instance value at runtime) rather than repeating the literal: registry entries, CLI option fallbacks, function parameter defaults, module-level paths. When adding a default, grep for the literal value; if it appears elsewhere, point those occurrences at the canonical source. A duplicated literal is a sync failure waiting to happen.
+
+Beyond code, a config field also surfaces in serialized command output (a non-string default needs format-safe encoding there) and in test fixtures that enumerate the config surface, so a change reaches past the dataclass: run the full test suite after adding or removing a field, not just the tests for the module you touched.
 
 ## Release checklist (upstream maintainers)
 
