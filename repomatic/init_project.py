@@ -1110,11 +1110,29 @@ FILE_RULE_MATCHER_KEYS: frozenset[str] = frozenset((
 ))
 """Keys valid inside a match group (top-level entry minus `label`, or nested)."""
 
-FILE_RULE_KNOWN_KEYS: frozenset[str] = FILE_RULE_MATCHER_KEYS | {"label"}
-"""All keys recognized on a single `[[labels.file-rules]]` TOML entry."""
-
 CONTENT_RULE_KNOWN_KEYS: frozenset[str] = frozenset(("label", "patterns"))
 """All keys recognized on a single `[[labels.content-rules]]` TOML entry."""
+
+
+def _dump_labeller_yaml(grouped: dict[str, Any]) -> str:
+    """Serialize a label-keyed dict to the labeller YAML dialect.
+
+    Both `actions/labeler` (file rules) and `github/issue-labeler` (content
+    rules) consume top-level `label: ...` mappings; the only shared dump
+    settings are `default_flow_style=False`, `sort_keys=False`, and
+    `allow_unicode=True` (labels contain emojis). `width=10000` keeps long
+    glob lists on one line for readable diffs. Returns an empty string when
+    `grouped` is empty so the caller can skip the labeller append entirely.
+    """
+    if not grouped:
+        return ""
+    return yaml.safe_dump(
+        grouped,
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+        width=10000,
+    )
 
 
 def _render_file_rule_group(group: dict[str, Any], label: str) -> dict[str, Any]:
@@ -1190,15 +1208,7 @@ def _serialize_file_rules(rules: list[dict[str, Any]]) -> str:
             )
             continue
         grouped.setdefault(label, []).append(group)
-    if not grouped:
-        return ""
-    return yaml.safe_dump(
-        grouped,
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-        width=10000,
-    )
+    return _dump_labeller_yaml(grouped)
 
 
 def _serialize_content_rules(rules: list[dict[str, Any]]) -> str:
@@ -1231,15 +1241,7 @@ def _serialize_content_rules(rules: list[dict[str, Any]]) -> str:
             )
             continue
         grouped.setdefault(label, []).extend(patterns)
-    if not grouped:
-        return ""
-    return yaml.safe_dump(
-        grouped,
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-        width=10000,
-    )
+    return _dump_labeller_yaml(grouped)
 
 
 def _augment_labeller_content(

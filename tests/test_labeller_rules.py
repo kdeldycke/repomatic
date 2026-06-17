@@ -238,7 +238,7 @@ def test_serialize_file_rules_skips_empty_sub_group(caplog):
         {
             "label": "x",
             "any": [
-                {},  # empty — dropped
+                {},  # empty: dropped.
                 {"any-glob-to-any-file": ["a"]},
             ],
         },
@@ -314,7 +314,7 @@ def test_augment_passes_through_unknown_source():
 
 
 def test_augment_returns_bundled_when_no_rules():
-    """No structured rules → bundled content untouched."""
+    """No structured rules: bundled content untouched."""
     config = _make_config()
     bundled = "bundled: yes\n"
     assert (
