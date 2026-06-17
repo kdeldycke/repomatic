@@ -516,25 +516,26 @@ flowchart TD
 - **Requires**:
   - Successful `create-tag` job
 
-#### 🎉 Publish release (`publish-release`)
-
-- Publishes the draft GitHub release after all assets have been uploaded
-- Supports [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases): once published, tags and assets are locked
-- Uses `always()` so it runs even when `compile-binaries` is skipped (non-binary projects) or partially fails (unstable platforms)
-- **Requires**:
-  - Successful `create-release` job (draft must exist)
-
 #### 📖 Man pages (`manpages`)
 
 - Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
-- Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release via `gh release upload --clobber`
+- Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release **draft** via `gh release upload --clobber`, before `publish-release` publishes and locks the release
 - **Requires**:
   - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra man SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
   - The consumer's `click-extra` floor is `>= 7.19`: the `--output-dir DIR` option to `click-extra man` shipped in 7.19.0 and writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing
-  - Successful `publish-release` job (the tag must already exist when uploading assets)
+  - Successful `create-release` job (the draft must exist; the asset must be attached before `publish-release` locks the release: see [§ Immutable releases](#immutable-releases))
 - The tarball stem defaults to `<package-name>-manpages`; override with `manpages.asset-name` in `[tool.repomatic]` to publish under a different name
 - **Skipped if**:
   - `manpages.script` is empty (the default), which keeps the job silent for every project that has not opted in
+
+#### 🎉 Publish release (`publish-release`)
+
+- Publishes the draft GitHub release after all assets (Python package, binaries, man pages) have been uploaded
+- Supports [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases): once published, tags and assets are locked, so flipping `--draft=false` is the terminal step of the release engine and every asset-uploading job must run upstream of it
+- Uses `always()` so it runs even when `compile-binaries` or `manpages` is skipped (non-binary projects, no man pages) or partially fails (unstable platforms)
+- **Requires**:
+  - Successful `create-release` job (draft must exist)
+  - Waits for `compile-binaries` and `manpages` so every asset is attached before the release locks
 
 #### 🛡️ VirusTotal scan (`scan-virustotal`)
 

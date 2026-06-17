@@ -353,13 +353,73 @@ jobs:
               "${files[@]}" <<< "${RELEASE_NOTES}"
           fi
 
+  # Render the Click CLI command tree declared by `[tool.repomatic.manpages]` as roff `.1` files and attach them as a
+  # tarball asset to the GitHub release draft. The upload must land before `publish-release` flips the draft to a
+  # published release: GitHub immutable releases lock a published release's assets, so a post-publish upload fails
+  # with HTTP 422. Opt-in: silently skipped when `manpages.script` is empty in the consumer's pyproject.toml. Shells
+  # out to the `click-extra man --output-dir` CLI shipped in click-extra 7.19.0, against the consumer's already-synced
+  # venv, so repomatic stays out of the resolution graph.
+  manpages:
+    name: 📖 Man pages (${{ matrix.short_sha }})
+    needs:
+      - metadata
+      - create-release
+    if: >-
+      always()
+      && needs.create-release.result == 'success'
+      && fromJSON(needs.metadata.outputs.metadata).manpages_script != ''
+    strategy:
+      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ matrix.commit }}
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: Install project
+        run: uv --no-progress sync --frozen
+      - name: Generate man pages
+        env:
+          SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).manpages_script }}
+        run: >
+          uv --no-progress run --frozen --
+          click-extra man --output-dir man "${SCRIPT}"
+      - name: Bundle as tarball
+        env:
+          ASSET_NAME: >-
+            ${{
+              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
+              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
+            }}
+        run: tar --create --gzip --file "${ASSET_NAME}.tar.gz" man/
+      - name: Attach to release draft
+        env:
+          CURRENT_VERSION: ${{ matrix.current_version }}
+          ASSET_NAME: >-
+            ${{
+              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
+              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
+            }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          gh release upload "v${CURRENT_VERSION}" "${ASSET_NAME}.tar.gz"
+          --repo "${{ github.repository }}"
+          --clobber
+
   publish-release:
     name: 🎉 Publish GitHub release (${{ matrix.short_sha }})
     needs:
       - metadata
       - create-release
       - compile-binaries
-    # Wait for all upstream jobs regardless of result, but only publish if the draft was created.
+      - manpages
+    # Terminal step: flips the draft to a published (immutable) release, so it must wait for every asset-upload job
+    # (binaries below, man pages in `manpages`). Gates only on create-release so the release still publishes when
+    # binaries or man pages are skipped or fail; always() lets it run despite an upstream job's non-success.
     if: >-
       always()
       && needs.create-release.result == 'success'
@@ -403,61 +463,6 @@ jobs:
           gh release edit "v${CURRENT_VERSION}"
           --draft=false
           --repo "${REPO}"
-
-  # Render the Click CLI command tree declared by `[tool.repomatic.manpages]` as roff `.1` files and attach them as a
-  # tarball asset on the GitHub release. Opt-in: silently skipped when `manpages.script` is empty in the consumer's
-  # pyproject.toml. Shells out to the `click-extra man --output-dir` CLI shipped in click-extra 7.19.0, against the
-  # consumer's already-synced venv, so repomatic stays out of the resolution graph.
-  manpages:
-    name: 📖 Man pages (${{ matrix.short_sha }})
-    needs:
-      - metadata
-      - publish-release
-    if: >-
-      always()
-      && needs.publish-release.result == 'success'
-      && fromJSON(needs.metadata.outputs.metadata).manpages_script != ''
-    strategy:
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
-    runs-on: ubuntu-slim
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          ref: ${{ matrix.commit }}
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          enable-cache: false
-      - name: Install project
-        run: uv --no-progress sync --frozen
-      - name: Generate man pages
-        env:
-          SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).manpages_script }}
-        run: >
-          uv --no-progress run --frozen --
-          click-extra man --output-dir man "${SCRIPT}"
-      - name: Bundle as tarball
-        env:
-          ASSET_NAME: >-
-            ${{
-              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
-              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
-            }}
-        run: tar --create --gzip --file "${ASSET_NAME}.tar.gz" man/
-      - name: Attach to GitHub release
-        env:
-          CURRENT_VERSION: ${{ matrix.current_version }}
-          ASSET_NAME: >-
-            ${{
-              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
-              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
-            }}
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          gh release upload "v${CURRENT_VERSION}" "${ASSET_NAME}.tar.gz"
-          --repo "${{ github.repository }}"
-          --clobber
 
   scan-virustotal:
     name: 🛡️ VirusTotal scan (${{ matrix.short_sha }})

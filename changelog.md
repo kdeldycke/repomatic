@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix the `manpages` release job: attach the man-page tarball to the release draft before publishing, so it no longer fails under GitHub immutable releases.
+
 ## [`6.26.0` (2026-06-17)](https://github.com/kdeldycke/repomatic/compare/v6.25.1...v6.26.0)
 
 - Add `[tool.repomatic] nuitka.extras` config to sync listed `[project.optional-dependencies]` extras into the venv before the Nuitka build, so optional features land in the binary.
