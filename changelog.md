@@ -11,6 +11,9 @@
 
 ## [`6.26.0` (2026-06-17)](https://github.com/kdeldycke/repomatic/compare/v6.25.1...v6.26.0)
 
+> [!NOTE]
+> `6.26.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.26.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.26.0).
+
 - Add `[tool.repomatic] nuitka.extras` config to sync listed `[project.optional-dependencies]` extras into the venv before the Nuitka build, so optional features land in the binary.
 - Add `[tool.repomatic.labels]` `extra`, `file-rules`, and `content-rules` config for inline label definitions and labeller rules, replacing the silently-ignored `extra-file-rules` and `extra-content-rules` fields.
 - Stop version-bump PRs from upgrading dependencies: the bump and release jobs now run plain `uv lock`, leaving dependency refreshes to the `sync-uv-lock` job.
