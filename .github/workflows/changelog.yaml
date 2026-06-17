@@ -148,12 +148,17 @@ jobs:
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
         run: uvx --no-progress --from . repomatic run bump-my-version -- bump --verbose ${{ matrix.part }}
       - name: Sync uv.lock
-        # Use `uv lock --upgrade` (not `uv sync`) so the resolution matches the
-        # autofix `sync-uv-lock` job. Plain `uv sync` is conservative and
-        # preserves stale transitive markers, which then oscillate against the
-        # autofix on the next run.
+        # Plain `uv lock` (not `--upgrade`, not `uv sync`) is deliberate: a version
+        # bump must refresh only the project's own version entry, never drag
+        # dependencies forward. `uv lock --upgrade` re-resolves everything, so with
+        # a `"0 day"` exclude-newer-package bypass it fast-forwards that dependency
+        # across a release still inside its cooldown, on an unreviewed bump PR.
+        # `uv sync` leaves the lock in a state the autofix `sync-uv-lock` job
+        # rewrites into a redundant follow-up PR. Plain `uv lock` updates the lock
+        # conservatively, avoiding both; genuine dependency upgrades stay the
+        # `sync-uv-lock` job's responsibility, in their own reviewable PR.
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
-        run: uv --no-progress lock --upgrade
+        run: uv --no-progress lock
       - id: pr-metadata
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
         run: >
@@ -230,9 +235,10 @@ jobs:
       - name: Version bump
         run: uvx --no-progress --from . repomatic run bump-my-version -- bump --verbose patch
       - name: Sync uv.lock
-        # See bump-version job above for why this uses `uv lock --upgrade`
-        # rather than `uv sync`.
-        run: uv --no-progress lock --upgrade
+        # Plain `uv lock`, not `--upgrade`: see the bump-version job above. A
+        # release-time version bump refreshes only the project's version entry,
+        # never dependencies.
+        run: uv --no-progress lock
       - name: Create unfreeze commit
         env:
           CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
