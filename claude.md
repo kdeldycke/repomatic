@@ -118,6 +118,10 @@ The version string is always bare (e.g., `1.2.3`). The `v` prefix is a **tag nam
 3. **Always backtick-escape versions in prose.** Both `v1.2.3` (tag) and `1.2.3` (package) are identifiers, not natural language. Wrap them in single backticks: `` `v1.2.3` ``, `` `1.2.3` ``.
 4. **Development versions** follow PEP 440: `1.2.3.dev0` with optional `+{short_sha}` local identifier.
 
+### GitHub cross-references in commit messages and PRs
+
+Never write `#N` (a literal `#` followed by a number) in commit messages, PR titles, or PR bodies unless N is the actual number of a GitHub issue or pull request in the target repository. GitHub auto-links every `#N` token to issue/PR N, so positional references like `test #1` or `tests #14 and #15` render as misleading cross-references to unrelated tickets. Use plain numbers (`test 1`, `tests 14 and 15`), backtick-quote the identifier when it names a slot in a test plan or list (`` test `1` ``, `` item `14` ``), or rephrase (`the first test`, `the fourteenth case`).
+
 ### Comments and docstrings
 
 - All comments in Python files must end with a period.
