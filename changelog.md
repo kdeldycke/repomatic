@@ -5,9 +5,9 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- Add `[tool.repomatic] nuitka.extras` config. A list of `[project.optional-dependencies]` extras (like `["sbom"]`) that the binary build syncs into the venv before invoking Nuitka, so optional features land in the binary instead of being silently dropped from a default-install build. A new `Sync optional-dependencies for Nuitka build` step in `_release-engine.yaml`'s `compile-binaries` job runs `uv sync --frozen --extra <name>` for each listed extra. Pair with `[tool.nuitka] include-package = [...]` for packages whose imports are guarded behind `try/except` (Nuitka skips those by default even when installed).
-- Add `[tool.repomatic.labels.extra]`, `[tool.repomatic.labels.file-rules]`, and `[tool.repomatic.labels.content-rules]` config, and remove the silently-ignored `labels.extra-file-rules` and `labels.extra-content-rules` fields. `labels.extra` accepts `[[tool.repomatic.labels.extra]]` inline label blocks (`name`, `color`, `description`) serialized at sync time into a temporary `labelmaker` TOML, eliminating the need for a standalone `extra-labels/*.toml` file for simple label sets. `labels.file-rules` accepts `[[tool.repomatic.labels.file-rules]]` entries with `label` plus any `actions/labeler` v5+ matcher (`any-glob-to-any-file`, `any-glob-to-all-files`, `all-globs-to-any-file`, `all-globs-to-all-files`, `head-branch`, `base-branch`, `any`/`all` wrappers, nested recursively); repeating a label across entries OR's the groups. `labels.content-rules` accepts `[[tool.repomatic.labels.content-rules]]` entries (`label`, `patterns`) for `github/issue-labeler`. Both rule tables are serialized to YAML and appended to the bundled labeller YAML files at `repomatic init labels`. The `extra-labels/` directory and `labels.extra-files` remain for label sets needing `labelmaker`'s advanced features (`rename-from`, multi-profile, multi-color).
-- Stop version-bump PRs from upgrading dependencies: the `bump-version` and release jobs now run plain `uv lock` instead of `uv lock --upgrade`, so dependency refreshes stay confined to the dedicated `sync-uv-lock` job and no longer ride silently on a version bump.
+- Add `[tool.repomatic] nuitka.extras` config to sync listed `[project.optional-dependencies]` extras into the venv before the Nuitka build, so optional features land in the binary.
+- Add `[tool.repomatic.labels]` `extra`, `file-rules`, and `content-rules` config for inline label definitions and labeller rules, replacing the silently-ignored `extra-file-rules` and `extra-content-rules` fields.
+- Stop version-bump PRs from upgrading dependencies: the bump and release jobs now run plain `uv lock`, leaving dependency refreshes to the `sync-uv-lock` job.
 - Add a `[tool.repomatic] changelog.bullet-word-threshold` config: `lint-changelog` warns (non-fatally) about unreleased changelog bullets longer than the threshold (40 words by default).
 
 ## [`6.25.1` (2026-06-13)](https://github.com/kdeldycke/repomatic/compare/v6.25.0...v6.25.1)
@@ -15,81 +15,83 @@
 > [!NOTE]
 > `6.25.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.25.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.25.1).
 
-- Fix `uvx repomatic@X.Y.Z` failing for end users with `No solution found when resolving tool dependencies` against `bump-my-version`'s `click<8.4` cap and `click-extra>=7.19`'s `click>=8.4.1` floor. Drop `bump-my-version` from `[project].dependencies`: replace `Metadata.get_current_version` with a native `tomlrt` read of `current_version` from `.bumpversion.toml` or `pyproject.toml`'s `[tool.bumpversion]`. Removes the matching `[tool.uv] override-dependencies = ["click>=8.4.1"]`, the `uv-overrides.txt` file, and every `UV_OVERRIDE=uv-overrides.txt` workflow env block (with the `--from .` checkout dance previously needed in `tests.yaml`'s `package-install` job and the `RENOVATE_ALLOWED_COMMANDS` regex alternation in `renovate.yaml`). `ReleasePrep.current_version` now delegates to `Metadata.get_current_version`, picking up `.bumpversion.toml` support and a single source of truth for the search order.
-- Render the Mermaid dependency graph (`docs/assets/dependencies.mmd`) in `docs/install.md` under a new `Default dependencies` section, matching `click-extra` and `meta-package-manager`.
+- Fix `uvx repomatic@X.Y.Z` failing for end users with `No solution found` by dropping the `bump-my-version` dependency and reading the current version natively from `.bumpversion.toml` or `[tool.bumpversion]`.
+- Remove the `uv-overrides.txt` file and all `UV_OVERRIDE` workflow env blocks.
+- Render the Mermaid dependency graph in `docs/install.md` under a new `Default dependencies` section.
 
 ## [`6.25.0` (2026-06-13)](https://github.com/kdeldycke/repomatic/compare/v6.24.0...v6.25.0)
 
 > [!NOTE]
 > `6.25.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.25.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.25.0).
 
-- Add man page generation to the release and docs pipelines. A `manpages` job in `_release-engine.yaml`, activated by `[tool.repomatic.manpages]` config keys (`script`, `asset-name`) in `pyproject.toml`, shells out to `click-extra man --output-dir man "${SCRIPT}"` and uploads the rendered roff `.1` files as a `<asset-name>.tar.gz` (defaulting to `<package-name>-manpages.tar.gz`) on the GitHub release; requires `click-extra>=7.19`. The `deploy-docs` job installs `mandoc` alongside Graphviz so projects using `click_extra.sphinx.manpages` get browser-viewable `.html` siblings in the docs build. Both are silently skipped when `manpages.script` is unset.
-- Validate `[project.scripts]` entries when assembling the Nuitka build matrix. A script name that PyPI and [uv-build](https://github.com/astral-sh/uv/pull/19495) would refuse (path-shaped like `../escape` or `nested/script`, empty, dot-only, or containing characters outside `[A-Za-z0-9._-]`) is rejected up front instead of flowing into the binary file path template and release workflow artifact commands. A malformed value (no colon, multiple colons, empty side) raises a descriptive error instead of crashing later with a tuple-unpacking `ValueError`.
-- Replace the `tomlkit` dependency with [`tomlrt`](https://dimbleby.github.io/tomlrt/) for all comment-preserving TOML writes. Extend `tomlrt` to all TOML reads too (`pyproject.toml`, `uv.lock`, `[tool.X]` extraction), dropping the `tomli` backport and the conditional `tomllib`/`tomli` import shim previously scattered across eight modules.
-- Improve GitHub failure detection across `repomatic.github`: annotate `gh` and PAT permission check failures with the current [githubstatus.com](https://www.githubstatus.com) summary (memoized per process, 3-second timeout, no-op when the status page is unreachable); broaden the `GITHUB_TOKEN` fallback in `run_gh_command` to fire on `Requires authentication` in addition to `Bad credentials`; fix PAT permission check failure messages to surface raw stderr for non-403 failures instead of misreporting them as missing scopes.
-- Recognize all forms uv [accepts in `[tool.uv].exclude-newer`](https://github.com/astral-sh/uv/pull/19475) when computing the cooldown cutoff in `repomatic sync-uv-lock`: friendly durations with hours, minutes, or seconds (like `24 hours`, `30 minutes`), and ISO 8601 durations (`PT24H`, `P7D`, `P1DT2H`).
-- Fix `UV_OVERRIDE=uv-overrides.txt` not reaching Renovate's child processes: prefix the `uvx --from . repomatic update-checksums` invocations in `renovate.json5` (and `repomatic/data/renovate.json5`) with the override, and update the `RENOVATE_ALLOWED_COMMANDS` regex in `renovate.yaml` to allow both the prefixed and bare forms.
-- Add `[tool.repomatic] abandoned-versions` config to `lint-changelog`. Listed versions are reported as skipped (info log) instead of triggering the `⚠ X.Y.Z: not found on PyPI` warning every run, for releases that were frozen but never published per `CLAUDE.md` § Skip and move forward. Applies to both the PyPI lookup and the git-tag fallback.
-- Tighten `/repomatic-ship`'s pre-push gate: add `ruff format --check` alongside `ruff check`, and smoke-run `uvx --no-progress --from . repomatic --version` to surface dependency-resolution failures before CI. Document in the skill that the docs reconciliation pass must run `<cmd> run mypy -- docs/` after editing any `.py` file in `docs/` (the project's mypy gate uses the minimum supported Python version, not the docs group's higher floor), and that the spawned `babysit-ci` subagent must re-poll CI after each fix push rather than returning on first push success.
+- Add man page generation to the release and docs pipelines via a `manpages` job, activated by `[tool.repomatic.manpages]` config keys (`script`, `asset-name`); requires `click-extra>=7.19`.
+- Validate `[project.scripts]` entries when building the Nuitka matrix, rejecting path-shaped, empty, or malformed script names up front with a clear error.
+- Replace the `tomlkit` and `tomli` dependencies with [`tomlrt`](https://dimbleby.github.io/tomlrt/) for all TOML reads and comment-preserving writes.
+- Annotate `gh` and PAT permission check failures with the current [githubstatus.com](https://www.githubstatus.com) summary, and surface raw stderr on non-403 failures instead of misreporting missing scopes.
+- Recognize friendly durations (`24 hours`, `30 minutes`) and ISO 8601 durations (`PT24H`, `P7D`) in `[tool.uv].exclude-newer` when computing the `repomatic sync-uv-lock` cooldown.
+- Fix `UV_OVERRIDE` not reaching Renovate's child processes during `update-checksums`.
+- Add `[tool.repomatic] abandoned-versions` to `lint-changelog`, reporting listed versions as skipped instead of warning that they are missing from PyPI.
+- Tighten `/repomatic-ship`'s pre-push gate with `ruff format --check` and a `repomatic --version` dependency-resolution smoke run.
 
 ## [`6.24.0` (2026-05-28)](https://github.com/kdeldycke/repomatic/compare/v6.23.0...v6.24.0)
 
 > [!NOTE]
 > `6.24.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.24.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.24.0).
 
-- Split the package build into its own reusable `_release-build.yaml` lane (squash-merge guard, project metadata, and the signed `build-package` job), so the entry `release.yaml`'s `publish-pypi` job depends only on the freshly-built wheel and ships to PyPI right after the build instead of after the whole engine (binary compilation, VirusTotal scan) completes. `_release-engine.yaml` keeps the binary and release-finalization jobs and is gated on the build lane (`needs: build`) so its `create-release` and `sync-dev-release` jobs reuse the same run-scoped wheel (one build, one attestation, shared to both PyPI and the GitHub release). Downstream `release.yaml` is regenerated with three jobs (`build`, `publish-pypi`, `release`) by copying the canonical entry and rewriting each `uses:` to the pinned cross-repo ref; `publish-pypi`'s `package_built`, `release_commits_matrix`, and `release_notes_with_admonition` now come from the build lane.
+- Publish to PyPI right after the wheel builds instead of waiting for the full release engine, by splitting the build into a `_release-build.yaml` lane that `release.yaml`'s `publish-pypi` job depends on.
 
 ## [`6.23.0` (2026-05-28)](https://github.com/kdeldycke/repomatic/compare/v6.22.0...v6.23.0)
 
 > [!NOTE]
 > `6.23.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.23.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.23.0).
 
-- Split `release.yaml` into a thin entry workflow (`release.yaml`, owns `push`/`workflow_dispatch` triggers and the `publish-pypi` job) and a new reusable engine (`_release-engine.yaml`, `workflow_call`-only). Keeping `publish-pypi` in the entry is required so each repo's OIDC `job_workflow_ref` claim resolves to its own `release.yaml` for PyPI's Trusted Publisher (see [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). Downstream repos receive a regenerated `release.yaml` from `sync-repomatic`: its `uses:` line now points at `_release-engine.yaml@vX.Y.Z`, and its `publish-pypi` job is derived from the canonical entry's own job (dogfooding checkout dropped, action ref pinned to release tag, runner changed from `ubuntu-latest` to `ubuntu-slim`). The separate `release-publish-pypi-job.yaml` data fragment is removed; `release.yaml` is the single source for the job, keeping third-party action SHA pins Renovate-visible.
-- The vulnerability scan now requires `uv` >= `0.11.15` and parses `uv audit --output-format json` directly, replacing the regex-scraping of `uv audit`'s human-readable text. An older `uv`, or an unrecognized `uv audit` JSON `schema.version`, raises a clear error instead of silently reporting no vulnerabilities. Advisory `aliases` from the structured output drive cross-source deduplication, so an advisory reported by `uv audit` under a PYSEC/OSV ID merges with the same advisory reported by Dependabot under its GHSA ID.
-- Refine `/repomatic-ship`'s reconciliation sweep: it now re-consolidates the changelog after the babysit phase to drop entries for bugs fixed in code introduced earlier the same release cycle, assigns docstring cross-reference correctness to the code pass (the docs pass surfaces such warnings through the Sphinx build but cannot fix them), and has the code pass verify types with the CI-equivalent `repomatic run mypy` to avoid Python-version-divergence false positives.
-- `/repomatic-ship` now smoke-runs the `autofix` tool-runner commands (`repomatic run typos`, the `uv audit`-backed vulnerable-deps scan) in its pre-push gate, catching a binary-checksum drift or a tool-output schema change before CI rather than in the `autofix` run. After the babysit phase it re-dispatches `changelog.yaml` so a code-only fix push, which does not match that workflow's `paths:` filter, still regenerates the release PR on the final green `main`.
-- `/babysit-ci` now also monitors `autofix.yaml`, so a crashed mechanical-fix job (a tool-runner binary checksum mismatch, or a parser choking on changed external-tool output) is diagnosed and fixed instead of left red on `main`.
-- Fix `release.yaml`'s `compile-binaries` and `test-binaries` jobs aborting every non-release run with `Unexpected value ''` on projects that disable binary builds (`nuitka.enabled = false`). Their `strategy.matrix` now falls back to an empty `{"include":[]}` matrix when `nuitka_matrix` is null, matching the `publish-pypi` fix from `6.22.0`: GitHub resolves `strategy.matrix` (and the matrix-derived `runs-on: ${{ matrix.os }}`) during job setup even when `if:` will skip the job, so a null matrix failed the whole run. Binary-disabled projects now skip these jobs cleanly.
+- Split `release.yaml` into a thin entry workflow and a new reusable `_release-engine.yaml` engine; the entry keeps `publish-pypi` so PyPI Trusted Publisher OIDC resolves to each repo's own `release.yaml`.
+- Remove the `release-publish-pypi-job.yaml` data fragment; `release.yaml` is now the single source for the `publish-pypi` job.
+- Require `uv` >= `0.11.15` for the vulnerability scan and parse `uv audit --output-format json` directly, raising a clear error on unsupported `uv` versions and deduplicating advisories across sources by alias.
+- Refine `/repomatic-ship` to re-consolidate the changelog after the babysit phase and re-dispatch `changelog.yaml` after a code-only fix push so the release PR stays current.
+- Extend `/babysit-ci` to also monitor `autofix.yaml`, diagnosing and fixing crashed mechanical-fix jobs instead of leaving them red on `main`.
+- Fix `release.yaml`'s `compile-binaries` and `test-binaries` jobs aborting every non-release run with `Unexpected value ''` on projects with `nuitka.enabled = false`.
 
 ## [`6.22.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.21.0...v6.22.0)
 
 > [!NOTE]
 > `6.22.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.22.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.22.0).
 
-- `repomatic init` now prunes downstream orphans of skills, agents, and workflows that repomatic has renamed or removed, so an upstream change (a skill rename like `repomatic-release` becoming `repomatic-ship`, or the `label-sponsors` and `labeller-*` workflows being merged into `labels.yaml`) propagates automatically instead of leaving a stale file behind. A skill or agent copy is deleted when its content matches any version repomatic shipped; a workflow thin-caller is deleted when its `uses:` line still points at the dropped upstream workflow. A locally modified copy (edited content, or a thin-caller carrying extra jobs) is reported for manual review, never deleted. The seed list covers every asset dropped across the project's `gha-utils`, `repokit`, and `repomatic` naming eras, so a repo first set up under an earlier name sheds its legacy files on the next run. The `sync-repomatic` autofix job applies this on every push. Pass `--keep-removed` to report orphans without deleting them, or `--delete-removed-modified` to also delete locally modified ones.
-- `/repomatic-ship` now closes with a reflect-and-contribute-back step: once the release PR is ready, it reviews the session for skill, workflow, or convention friction hit during the release and proposes concrete fixes to the upstream `repomatic` source (proposing only, never committing upstream unprompted).
-- Fix the downstream caller's `publish-pypi` job aborting every non-release `release.yaml` run with `Unexpected value ''` when evaluating its `strategy`. Its matrix now falls back to an empty `{"include":[]}` matrix when `release_commits_matrix` is empty, since GitHub evaluates `strategy.matrix` even for jobs that `if:` will skip; non-release pushes now skip the job cleanly instead of failing the run.
-- Fix `/repomatic-ship` and `/babysit-ci` dropping the `Co-Authored-By: Claude` trailer on their autonomous commits when a downstream `CLAUDE.md` had not synced the attribution-exception section the skills cross-referenced. Both skills now require the trailer self-containedly, overriding any no-AI-attribution rule (project or global), and `/repomatic-ship` instructs its spawned `babysit-ci` agent to keep it.
-- `/babysit-ci` now treats a workflow run whose `conclusion` is `failure` while no individual job failed as a real workflow-level error (such as a `strategy.matrix` evaluating `fromJSON('')`) to investigate via the run's annotations, instead of a benign artifact to skip.
-- Fix the documentation site's live CLI-help and example blocks rendering empty since `click-extra` 7.15.0 made execution directives opt-in (`click_extra_enable_exec_directives` defaults to `False`). `docs/conf.py` now opts in.
-- Seed the hand-maintained extra-docs region of every tool section in the [tool-runner docs](https://kdeldycke.github.io/repomatic/tool-runner.html#available-tools) with a runnable `repomatic run` example and, for configurable tools, a minimal `[tool.X]` snippet.
+- `repomatic init` now prunes downstream orphans of renamed or removed skills, agents, and workflows; locally modified copies are reported for manual review, never deleted. Pass `--keep-removed` to report without deleting, or `--delete-removed-modified` to also delete modified ones.
+- `/repomatic-ship` now closes with a reflect step that reviews the session for friction and proposes fixes to the upstream `repomatic` source.
+- Fix the downstream caller's `publish-pypi` job aborting every non-release `release.yaml` run with `Unexpected value ''` when its `strategy.matrix` is empty.
+- Fix `/repomatic-ship` and `/babysit-ci` dropping the `Co-Authored-By: Claude` trailer on their autonomous commits; both skills now require it self-containedly.
+- `/babysit-ci` now treats a workflow run that fails with no individual job failure as a real workflow-level error to investigate.
+- Fix the documentation site's live CLI-help and example blocks rendering empty since `click-extra` 7.15.0 made execution directives opt-in.
+- Seed each tool section in the [tool-runner docs](https://kdeldycke.github.io/repomatic/tool-runner.html#available-tools) with a runnable `repomatic run` example and a minimal `[tool.X]` snippet.
 
 ## [`6.21.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.20.0...v6.21.0)
 
 > [!NOTE]
 > `6.21.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.21.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.21.0).
 
-- Replace the `repomatic-release` skill with `repomatic-ship`, a release orchestrator: it reconciles the changelog, code, and docs to the net release state, then commits, pushes, and babysits CI (delegating to `babysit-ci`) until the release PR is ready to rebase-and-merge. Review-gated in normal use, fully autonomous under `--dangerously-skip-permissions`. It does not run the `release-prep` CLI itself (CI's `prepare-release` job does); the version read is advisory and never merges a bump PR.
-- Add a `modernize` mode to the `repomatic-deps` skill: it reads the changelogs of dependencies upgraded since the last release and autonomously refactors code to adopt their new features (dropping workarounds, replacing hand-rolled logic, migrating off deprecations), gating each change on the local test suite.
-- Extend the `babysit-ci` skill to also monitor and triage the Nuitka `compile-binaries` job in `release.yaml`, catching binary-build breakage before a release reaches the immutable-release wall.
-- Decouple the downstream caller's `publish-pypi` job from the reusable workflow's overall result. The job now runs under `always()` and gates on a new `package_built` workflow output (`"true"` when the `build-package` job succeeded) instead of the run's success, so a wheel that built cleanly still publishes to PyPI even when an unrelated job (like a binary test) fails the run.
-- Remove the `repomatic-sync`, `repomatic-lint`, and `repomatic-test` skills. Each only wrapped a CLI command that CI already runs on every push, duplicating the mechanical layer.
-- Fix the `bump-version` job in `changelog.yaml` leaving an orphan minor/major version-bump PR open after a competing bump merged into `main`. The job's checkout now sets `fetch-tags: true` so the `close-stale-bump-pr` step's `is_version_bump_allowed` re-check can resolve the latest release tag. Previously the tag-less checkout made the re-check fall back to "allow", so it never closed the stale PR even though the `metadata` job (which does fetch tags) had correctly flagged it for cleanup.
-- Switch `pytest-xdist` distribution mode from `--dist=loadfile` to `--dist=loadgroup` so `@pytest.mark.xdist_group("git")` markers are honored. With `loadfile`, xdist ignores group markers and assigns each file to its own worker, allowing `test_metadata.py` and `test_git_ops.py` workers to race for `.git/config.lock` simultaneously on Windows. With `loadgroup`, all tests sharing `xdist_group("git")` run on a single worker and the lock contention disappears.
-- Enable myst-parser's native `alert` extension in `docs/conf.py` so GitHub-style alerts (`> [!NOTE]`, `> [!IMPORTANT]`, ...) render as admonitions on the documentation site instead of plain blockquotes showing a literal `[!NOTE]` marker.
-- Give each tool section in the [tool-runner docs](https://kdeldycke.github.io/repomatic/tool-runner.html) a hand-maintained extra-docs region that `repomatic update-docs` preserves across regenerations, and seed Nuitka's with a `repomatic run nuitka` example plus a minimal `[tool.nuitka]` snippet. Add Nuitka to the page's `[tool.X]`-support table; its native `pyproject.toml` support is tracked upstream at [Nuitka#2136](https://github.com/Nuitka/Nuitka/issues/2136).
+- Replace the `repomatic-release` skill with `repomatic-ship`, a release orchestrator that reconciles changelog, code, and docs, then commits, pushes, and babysits CI until the release PR is ready. Review-gated by default, fully autonomous under `--dangerously-skip-permissions`.
+- Add a `modernize` mode to the `repomatic-deps` skill that reads upgraded dependencies' changelogs and refactors code to adopt their new features, gating each change on the test suite.
+- Extend the `babysit-ci` skill to also monitor and triage the Nuitka `compile-binaries` job in `release.yaml`.
+- Decouple the downstream caller's `publish-pypi` job from the run's overall result: it now runs under `always()` and gates on a new `package_built` output, so a cleanly built wheel publishes even when an unrelated job fails.
+- Remove the `repomatic-sync`, `repomatic-lint`, and `repomatic-test` skills, which only wrapped CLI commands CI already runs on every push.
+- Fix the `bump-version` job in `changelog.yaml` leaving an orphan version-bump PR open after a competing bump merged into `main`.
+- Switch `pytest-xdist` to `--dist=loadgroup` so `@pytest.mark.xdist_group("git")` markers are honored, fixing `.git/config.lock` contention on Windows.
+- Enable myst-parser's `alert` extension so GitHub-style alerts (`> [!NOTE]`, `> [!IMPORTANT]`) render as admonitions on the documentation site.
+- Give each tool section in the [tool-runner docs](https://kdeldycke.github.io/repomatic/tool-runner.html) a hand-maintained extra-docs region preserved across regenerations, seeded for Nuitka, and add Nuitka to the page's `[tool.X]`-support table.
 
 ## [`6.20.0` (2026-05-24)](https://github.com/kdeldycke/repomatic/compare/v6.19.0...v6.20.0)
 
 > [!NOTE]
 > `6.20.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.20.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.20.0).
 
-- **Breaking:** remove `[tool.repomatic] nuitka.extra-args`. Configure Nuitka flags through `[tool.nuitka]` in `pyproject.toml` instead: `--include-data-files=SRC=DEST` becomes `include-data-files = ["SRC=DEST"]`.
-- Integrate Nuitka with the tool runner: `repomatic run nuitka` installs the pinned Nuitka, reads `[tool.nuitka]` from `pyproject.toml`, and passes the section as CLI flags (a `true` value becomes a bare `--flag`, a string or number becomes `--key=value`, a list repeats the flag per item). Nuitka now appears in `repomatic run --list` and the tool-runner docs. Add binary metadata to repomatic's `[tool.nuitka]`: `product-name`, `file-description`, `copyright`, native per-OS icons (`icon.png`, `icon.icns`, `icon.ico`), `include-package-data = ["click_extra"]`, and numeric `file-version`/`product-version` kept in sync via a dedicated `[tool.bumpversion]` rule. Build Nuitka binaries on Python 3.14.
-- Switch `[tool.typos]` sync mode from `BOOTSTRAP` to `ONGOING`: canonical proper-noun identifiers (`GitHub`, `macOS`, `PyPI`, and the rest) are now merged into any pre-existing `[tool.typos]` section instead of skipping it. Local-only keys, extra `extend-identifiers`, `extend-words`, `extend-exclude`, and `[[files]]` entries survive the merge.
-- Add two `[[tool.bumpversion.files]]` rules to the bundled template so downstream Python repos receive them: the `[project]` version search is anchored to `(?m)^version = ` to avoid rewriting `[tool.nuitka]`'s `file-version`/`product-version` keys, and a dedicated rule syncs those numeric keys with `ignore_missing_version = true` (a no-op in repos without `[tool.nuitka]`). Repos carrying the old unanchored `[project]` entry converge on the anchored form without duplication.
-- Add `test-matrix.unstable` config: a list of matrix-key dicts (like `{click-version = "main"}`) that marks every matching full-matrix combination `continue-on-error` in CI. Applied to the full matrix only, not the PR matrix.
-- Add a `lint-repo` check that warns when a `[tool.repomatic.test-matrix] exclude` entry references a runner or Python version absent from the live matrix axes. Such entries are silently ignored; the most common cause is an upstream runner rename (like `macos-15-intel` becoming `macos-26-intel`).
+- **Breaking:** remove `[tool.repomatic] nuitka.extra-args`. Configure Nuitka flags through `[tool.nuitka]` in `pyproject.toml` instead (`--include-data-files=SRC=DEST` becomes `include-data-files = ["SRC=DEST"]`).
+- `repomatic run nuitka` now installs the pinned Nuitka, reads `[tool.nuitka]` from `pyproject.toml`, and passes the section as CLI flags; Nuitka appears in `repomatic run --list`.
+- Build Nuitka binaries on Python 3.14.
+- Switch `[tool.typos]` sync to `ONGOING`: canonical proper-noun identifiers merge into a pre-existing `[tool.typos]` section instead of skipping it, preserving local keys and entries.
+- Add `[[tool.bumpversion.files]]` rules to the bundled template so downstream Python repos sync `[tool.nuitka]`'s numeric version keys without rewriting them on `[project]` bumps.
+- Add `test-matrix.unstable` config: matrix-key dicts (like `{click-version = "main"}`) that mark matching full-matrix combinations `continue-on-error` in CI.
+- Add a `lint-repo` check warning when a `[tool.repomatic.test-matrix] exclude` entry references a runner or Python version absent from the live matrix axes.
 - Add `workflow_dispatch` triggers to `release.yaml` and `update-checksums.yaml` for manual re-runs.
 
 ## [`6.19.0` (2026-05-21)](https://github.com/kdeldycke/repomatic/compare/v6.18.4...v6.19.0)
@@ -97,49 +99,46 @@
 > [!NOTE]
 > `6.19.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.19.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.19.0).
 
-- Fix a flaky `.git/config.lock` conflict on `ubuntu-24.04-arm / py3.14t`: `test_skip_binary_build_property_is_bool` in `test_binary.py` accesses `Metadata.skip_binary_build` which, in a CI push event, triggers `Metadata.git` → `pydriller.Git(".")` on a separate xdist worker. The cross-worker lock race caused an `OSError` when the git-group worker ran `test_is_version_bump_allowed_current_repo` simultaneously. Adding `@pytest.mark.xdist_group("git")` to that test serializes it onto the same worker as the other git-touching tests.
-- Reconcile orphan version-bump PRs created by races between the `changelog.yaml` schedule and a competing push. The `bump-version` matrix job now always checks out the repo and runs `setup-uv`, and adds a new `Close stale ${{ matrix.part }} bump PR` step that runs when `${part}_bump_allowed` is `false`. The step invokes the new `repomatic close-stale-bump-pr --part minor|major` CLI command, which re-evaluates `is_version_bump_allowed` and closes any open PR on the matching `${part}-version-increment` branch (deleting the branch). Previously the gated steps silently skipped, leaving an orphan PR whose only diff against `main` was `uv.lock` churn from `uv lock --upgrade`. The new step is idempotent: a no-op when no open PR exists on the branch.
-- Expand sponsor benefits in the awesome template's `contributing.md`: sponsors now get a dedicated entry in the matching section (visible to readers and LLMs scanning the list body, not only the header banner) and a waiver on the licensing-marker requirement. Add a cross-reference note in the licensing-markers section and explicit heading anchors to support the links in both the English and Chinese variants.
-- Skip CI for automated version-bump operations in `tests.yaml`, `lint.yaml`, `labels.yaml`, and `release.yaml::compile-binaries` via a unified `metadata` gate. On the PR side, a `github.head_ref` check against `VERSION_BUMP_BRANCHES` (`major-version-increment`, `minor-version-increment`, `prepare-release`) short-circuits all dependent jobs and collapses eight per-job guards in `lint.yaml` to one. On the push side, a `startsWith` check against `VERSION_BUMP_COMMIT_PREFIXES` (`Bump major version to `, `Bump minor version to `, `[changelog] Post-release bump `) does the same, while preserving the post-merge safety run for Nuitka and tests by excluding the post-release bump prefix from those gates. The trigger-level `branches-ignore` listings are kept as intent documentation: `branches-ignore` matches the PR's *base* branch, not its head ([actions/runner#1591](https://github.com/actions/runner/issues/1591)). `VERSION_BUMP_BRANCHES` in `repomatic.binary` is the single source of truth, enforced by `tests/test_workflows.py`.
-- Reduce unnecessary CI scheduling via two complementary mechanisms. Static `paths-ignore`/`paths:` trigger filters cut upfront cost: `lint.yaml`'s `push: main` trigger now ignores image extensions, and `docs.yaml`'s `push: main` trigger is restricted to `docs/**`, `**/*.py`, `pyproject.toml`, `uv.lock`, `readme.md`, `changelog.md`, `citation.cff`, and the workflow file. Dynamic per-job gates in `lint.yaml` driven by new `yaml_changed`, `zsh_changed`, and `workflows_changed` boolean outputs from the `metadata` job (computed against the event's commit range, falling back to "repo contains any such file" for `workflow_dispatch`) skip `lint-yaml`, `lint-zsh`, `lint-github-actions`, and `lint-workflow-security` when no relevant files changed; `lint-types` and `lint-secrets` retain the broader gate.
-- Switch the `Sync uv.lock` steps in `changelog.yaml` (`bump-version` and `prepare-release` jobs) from `uv sync` to `uv lock --upgrade`, aligning with the `sync-uv-lock` autofix job. Absorbs pending transitive refreshes into the bump commit instead of producing a trailing lockfile-only PR on the next push.
-- Make `lint-changelog --fix` refuse to rewrite admonitions when an upstream lookup looks unhealthy. `get_github_releases` now raises a typed `GitHubReleasesUnavailable` instead of silently returning a partial dict on network, timeout, or JSON-parse errors during pagination (the prior `break`-on-error path produced a corrupted view that the rewriter happily applied). The `lint_changelog_dates` call site catches the exception and, before touching the file, gates the rewrite: a raised GitHub exception combined with any existing GitHub coverage exits with code `2`; an empty PyPI fetch combined with three or more existing PyPI links does the same. The PyPI side needs a coverage threshold because `_fetch_json` collapses every failure mode into a single `None` return, and even if the HTTP status were preserved a `404` from `/pypi/<name>/json` is not authoritative ([pypi/warehouse#1388](https://github.com/pypi/warehouse/issues/1388), [pypi/warehouse#9536](https://github.com/pypi/warehouse/issues/9536)). Replays the `kdeldycke/click-extra#1702` failure, where a transient API hiccup silently stripped every GitHub link from the changelog.
-- Make `release.yaml` thin-caller generation robust against drift in the bundled `release-publish-pypi-job.yaml` fragment: match the action ref via regex instead of a literal string, and raise `RuntimeError` when no recognizable ref is found rather than silently emitting a stale ref.
-- Bump Biome from `2.4.14` to `2.4.15` in the tool registry.
+- Add `repomatic close-stale-bump-pr --part minor|major` to close orphan version-bump PRs left by races between the `changelog.yaml` schedule and a competing push.
+- Expand sponsor benefits in the awesome template's `contributing.md`: sponsors get a dedicated entry in the matching section and a waiver on the licensing-marker requirement.
+- Switch the `Sync uv.lock` steps in `changelog.yaml` from `uv sync` to `uv lock --upgrade`, folding pending transitive refreshes into the bump commit.
+- Make `lint-changelog --fix` refuse to rewrite admonitions when an upstream GitHub or PyPI lookup looks unhealthy, instead of applying a corrupted view.
+- Skip CI for automated version-bump operations across `tests.yaml`, `lint.yaml`, `labels.yaml`, and `release.yaml` via a unified `metadata` gate.
+- Reduce CI scheduling with `paths-ignore`/`paths:` filters and per-job gates that skip lint jobs when no relevant files changed.
+- Bump Biome from `2.4.14` to `2.4.15`.
 
 ## [`6.18.4` (2026-05-14)](https://github.com/kdeldycke/repomatic/compare/v6.18.3...v6.18.4)
 
 > [!NOTE]
 > `6.18.4` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.4/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.4).
 
-- Replace the `RepoScope.NON_AWESOME` variant with `PYTHON_ONLY`, gating affected components on the presence of a PEP 621 `[project].name` in `pyproject.toml` (detected via the new `repomatic.pyproject.is_python_project` helper). Repos that carry `pyproject.toml` only for `[tool.*]` configuration (like dotfiles) are now classified as non-Python and skip Python-flavored components by default. `RepoScope.matches()` now takes both `is_awesome` and `is_python` traits. Existing entries are reclassified: `codecov`, `publish-pypi-action`, `changelog.yaml`, `debug.yaml`, `release.yaml`, and the generated `changelog.md` move to `PYTHON_ONLY`; `renovate` moves to `ALL` (Renovate is language-agnostic). Explicit CLI naming and `[tool.repomatic] include` continue to bypass scope, so a dotfiles repo can still opt into `publish-pypi-action` if needed.
-- Extend `release_prep.freeze_workflow_urls` and `unfreeze_workflow_urls` to walk non-symlink YAML files under `repomatic/data/` in addition to `.github/workflows/`. The bundled `release-publish-pypi-job.yaml` fragment now participates in the `@main` ↔ `@vX.Y.Z` rewrite, so wheels built from a freeze commit ship with the pinned action ref baked in. Symlinks in the data dir are skipped to avoid double-processing. `repomatic.github.workflow_sync._PUBLISH_PYPI_DEFAULT_ACTION_REF` is now derived from `DEFAULT_VERSION` so the search string always matches the ref in the (possibly frozen) bundled fragment.
-- Bump Biome from `2.4.13` to `2.4.14` and Lychee from `0.24.1` to `0.24.2` in the tool registry.
-- Fix `add_exclude_newer_packages` appending `exclude-newer-package` at the end of `[tool.uv]` instead of inserting it right after `exclude-newer`. The wrong position caused `pyproject-fmt` to reorder the key on the next `format-pyproject` run, producing a spurious format PR alongside every `fix-vulnerable-deps` PR.
-- Fix flaky `test_metadata.py` and `test_git_ops.py` failures on macOS with Python 3.14 caused by a stale `.git/config.lock` surviving test teardown. `pydriller.Git(".")` holds a `Conf._data["git"]` back-reference creating a reference cycle; Python 3.14's incremental GC defers collection of such cycles, leaving the lock file on disk when `rmfile()` races. A new `_cleanup_git_config_lock` autouse fixture in `conftest.py` removes any stale lock before each test.
+- Replace `RepoScope.NON_AWESOME` with `PYTHON_ONLY`, gating Python-flavored components on a PEP 621 `[project].name` so dotfiles repos carrying `pyproject.toml` only for `[tool.*]` config skip them by default.
+- The bundled `release-publish-pypi-job.yaml` fragment now participates in the `@main` to `@vX.Y.Z` rewrite, so wheels built from a freeze commit ship with the pinned action ref.
+- Bump Biome from `2.4.13` to `2.4.14` and Lychee from `0.24.1` to `0.24.2`.
+- Fix `fix-vulnerable-deps` placing `exclude-newer-package` at the end of `[tool.uv]`, which triggered a spurious `format-pyproject` PR on the next run.
 
 ## [`6.18.3` (2026-05-11)](https://github.com/kdeldycke/repomatic/compare/v6.18.2...v6.18.3)
 
 > [!NOTE]
 > `6.18.3` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.3/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.3).
 
-- Fix `autofix.yaml` `setup-guide` job being skipped on `workflow_dispatch` re-runs. The `if:` condition now allows both `push` and `workflow_dispatch` events instead of `push` only, so manual re-runs from the Actions UI re-evaluate the setup guide and update the issue accordingly.
-- Fix `release.yaml` `publish-pypi` job running against downstream callers and failing PyPI trusted publishing with a `job_workflow_ref` mismatch. The gate now uses `github.repository == 'kdeldycke/repomatic'` (which reflects the caller's repo under `workflow_call`) instead of `github.event_name == 'push'` (which stays `push` in both self-release and downstream contexts), so the upstream-only job is properly skipped when invoked from a downstream caller. Downstream repos publish through their own thin-caller `publish-pypi` job, which inherits the correct OIDC context.
-- Switch the `compile-binaries` job from `--onefile` to `--mode=onefile`, the documented spelling since Nuitka 4.0 (`--onefile` is now hidden but still accepted).
+- Fix `autofix.yaml`'s `setup-guide` job being skipped on `workflow_dispatch` re-runs.
+- Fix `release.yaml`'s `publish-pypi` job running against downstream callers and failing PyPI trusted publishing with a `job_workflow_ref` mismatch.
+- Switch the `compile-binaries` job from `--onefile` to `--mode=onefile`, the documented spelling since Nuitka 4.0.
 
 ## [`6.18.2` (2026-05-08)](https://github.com/kdeldycke/repomatic/compare/v6.18.1...v6.18.2)
 
 > [!NOTE]
 > `6.18.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.2/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.2).
 
-- Fix `release.yaml` uploading distributions to PyPI without PEP 740 attestations. The build job now signs each dist file with `pypi-attestations sign` (using the job's OIDC token via Sigstore), writing `<dist>.publish.attestation` sidecars directly into `./dist/` so the dist artifact carries its own attestations. The `publish-pypi` composite action shrinks to setup-uv → download artifact → `uv publish dist/*`. Replaces the previous `actions/attest` + GitHub-attestation-API flow for Python distributions: the Nuitka binary attestation flow is unchanged, and PyPI's PEP 740 provenance is now populated so the `setup-guide` `check_pypi_trusted_publisher` probe can confirm the trusted publisher is wired up. Removes the `attestation-signer-repo` input from the composite action and the separate `attestation-<artifact-name>` artifact: dist files and their `.publish.attestation` sidecars travel together in a single artifact and end up alongside each other on the GitHub release page.
+- Fix `release.yaml` uploading distributions to PyPI without PEP 740 attestations; the build job now signs each dist file and ships the `.publish.attestation` sidecars alongside it.
 
 ## [`6.18.1` (2026-05-08)](https://github.com/kdeldycke/repomatic/compare/v6.18.0...v6.18.1)
 
 > [!NOTE]
 > `6.18.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.1).
 
-- Fix `publish-pypi` composite action attempting to verify build attestations on every file in the workflow workspace (including `changelog.md`, `pyproject.toml`, etc.) instead of just the downloaded distribution artifacts. The `actions/download-artifact` step now downloads to `dist/` so the verification loop and `uv publish` only target the actual artifact files.
+- Fix the `publish-pypi` composite action verifying build attestations on every workspace file instead of just the downloaded distribution artifacts.
 
 ## [`6.18.0` (2026-05-07)](https://github.com/kdeldycke/repomatic/compare/v6.17.0...v6.18.0)
 
@@ -149,166 +148,155 @@
 > [!WARNING]
 > `6.18.0` is **not available** on 🐍 PyPI.
 
-- **Breaking**: drop `PYPI_TOKEN` from the `release.yaml` `workflow_call.secrets:` interface. Downstream repos must regenerate their thin-caller workflow with `repomatic init workflows` and register a [PyPI Trusted Publisher](https://docs.pypi.org/trusted-publishers/adding-a-publisher/) for their own `release.yaml`. This re-enables OIDC-based PyPI publishing previously reverted in [#528](https://github.com/kdeldycke/repomatic/issues/528), this time via a composite action that sidesteps the reusable-workflow `job_workflow_ref` mismatch ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)).
-- Add `check_pypi_trusted_publisher` to `lint-repo` and a new `setup-guide-pypi-trusted-publisher` step. The probe reads PEP 740 provenance from the public PyPI integrity API for the latest released file, asserts that a publisher bundle names the downstream's own repo and `release.yaml` workflow, and surfaces a pre-filled link to the project's PyPI publishing settings when the entry is missing or mismatched. The `setup-guide` issue stays open until the first OIDC-attested upload is observed.
-- Add the [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action wrapping `uv publish --trusted-publishing automatic` with build-attestation verification. Each downstream thin-caller now contains a generated `publish-pypi` job that invokes this action with `permissions: id-token: write`, inheriting the caller's OIDC context.
-- Add `release_commits_matrix` and `package_name` outputs to the reusable `release.yaml` so caller-side jobs can drive their own matrix and condition execution on a release commit being present.
-- Generalize composite-action ref freeze/unfreeze in `release_prep.py` to enumerate every `.github/actions/*/action.y*ml` directory rather than hardcoding a single name. New composite actions now participate in `@main` ↔ `@vX.Y.Z` rewrites without requiring code changes.
-- Fix `sync-repomatic` autofix proposing to delete `.github/actions/publish-pypi/action.yaml` whenever it matched the bundled default. The `publish-pypi-action` `BundledComponent` now sets `keep_unmodified=True`: GitHub Actions resolves `uses: ./.github/actions/publish-pypi` and `uses: kdeldycke/repomatic/.github/actions/publish-pypi@vX.Y.Z` directly from the repo path, so the file must remain on disk regardless of content equality. Add a conformance test that asserts every `BundledComponent` shipping a target under `.github/actions/` carries the flag.
-- The `setup-guide-pypi-trusted-publisher` issue step and the `check_pypi_trusted_publisher` mismatch warning now point at a pre-filled PyPI settings URL (`?provider=github&owner=…&repository=…&workflow_filename=release.yaml`). PyPI's [`manage_project_oidc_publishers_prefill`](https://github.com/pypi/warehouse/blob/main/warehouse/manage/views/oidc_publishers.py) view reads these parameters to select the GitHub tab and populate the publisher form. New `pypi_trusted_publisher_settings_url` helper centralizes URL construction; `PYPI_TRUSTED_PUBLISHER_WORKFLOW` moves from `lint_repo.py` to `pypi.py` next to the URL constants.
+- **Breaking:** drop `PYPI_TOKEN` from the `release.yaml` `workflow_call.secrets:` interface. Regenerate the thin-caller workflow with `repomatic init workflows` and register a [PyPI Trusted Publisher](https://docs.pypi.org/trusted-publishers/adding-a-publisher/) for your own `release.yaml`.
+- Add the [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action that publishes via OIDC Trusted Publishing with build-attestation verification; each downstream thin-caller now runs a generated `publish-pypi` job.
+- Add a `check_pypi_trusted_publisher` probe to `lint-repo` and a `setup-guide-pypi-trusted-publisher` step that points to a pre-filled PyPI publisher settings URL and stays open until the first OIDC-attested upload.
+- Add `release_commits_matrix` and `package_name` outputs to the reusable `release.yaml` so callers can drive their own matrix and gate jobs on a release commit.
+- New composite actions under `.github/actions/` now participate in `@main` ↔ `@vX.Y.Z` ref freeze/unfreeze without code changes.
+- Fix `sync-repomatic` proposing to delete `.github/actions/publish-pypi/action.yaml` when it matched the bundled default; the file must stay on disk for GitHub Actions to resolve the `uses:` path.
 
 ## [`6.17.0` (2026-05-04)](https://github.com/kdeldycke/repomatic/compare/v6.16.0...v6.17.0)
 
 > [!NOTE]
 > `6.17.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.17.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.17.0).
 
-- Fix parallel `OSError: Lock for file .git/config did already exist` test failures. `tests/test_git_ops.py` and `tests/test_metadata.py` share `pytestmark = pytest.mark.xdist_group("git")` so pydriller's `Git(".")` initialization (which acquires `.git/config.lock` on every call) is serialized to a single pytest-xdist worker. Add `mypy_path = "docs"` to `[tool.mypy]` so mypy resolves `import docs_update` in `tests/test_readme.py` against `docs/docs_update.py`.
-- Fix backslash-escaped brackets rendering literally in `docs/configuration.md` per-option `**Type:**` lines (like `list\[dict[str, str]\]`). The escape, needed only for raw GFM table cells in the `repomatic show-config` CLI output (where `mdformat` would otherwise interpret `[…]` as a markdown link), was leaking into inline-code spans where backslashes are literal in CommonMark. `_format_type` now returns clean Python type strings; the new `escape_type_for_gfm_table` helper is applied only at the CLI rendering layer.
-- Add `--template-file <path>` and `--template-arg KEY=VALUE` flags to `repomatic pr-body` so downstream repos can render project-specific PR templates without forking repomatic. `--template` and `--template-file` are mutually exclusive. `load_template`, `render_template`, `render_title`, `render_commit_message`, and `template_args` now accept a {class}`~pathlib.Path` to read a template from disk in addition to a packaged-resource name. `render_title` returns an empty string instead of raising `KeyError` when the frontmatter defines no `title`.
-- Fix doubled heading anchors on `docs/configuration.html` and `docs/workflows.html` (like `#dev-release-sync-dev-release-sync`). Per-option headings in `configuration.md` no longer carry a redundant `{#slug}` attribute since the natural Sphinx slug already matches. Headings in `workflows.md` use the canonical `(anchor)=` MyST block-attribute syntax instead of the trailing `{#anchor}` form, which was being kept as literal text in the heading and concatenated into the auto-slug.
-- Collapse the most recent row of the Python compatibility matrix in `docs/install.md` to a major-version wildcard (like `4.25.x` → `6.x`) so the table stays unchanged across new minor releases that share the same Python compatibility window. Closed historical rows keep their precise minor-version bounds.
+- Add `--template-file <path>` and `--template-arg KEY=VALUE` flags to `repomatic pr-body` so downstream repos can render project-specific PR templates without forking. `--template` and `--template-file` are mutually exclusive.
+- Fix backslash-escaped brackets rendering literally in `docs/configuration.md` `**Type:**` lines (like `list\[dict[str, str]\]`).
+- Fix doubled heading anchors on `docs/configuration.html` and `docs/workflows.html` (like `#dev-release-sync-dev-release-sync`).
+- Collapse the most recent Python compatibility matrix row in `docs/install.md` to a major-version wildcard (like `6.x`) so the table stays stable across minor releases.
 
 ## [`6.16.0` (2026-04-29)](https://github.com/kdeldycke/repomatic/compare/v6.15.0...v6.16.0)
 
 > [!NOTE]
 > `6.16.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.16.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.16.0).
 
-- Add `sphinx-docs` agent to the `agents` component (deployed by `repomatic init agents` alongside `grunt-qa` and `qa-engineer`, or via `[tool.repomatic] include = ["agents"]`). The agent carries a canonical Sphinx extension set with notes on `sphinx_click` vs `click_extra.sphinx`, a standard octicon registry, governance rules for `suppress_warnings`/`nitpick_ignore`/`linkcheck_ignore` entries, the `<!-- {feature}-{kind}-start -->` auto-region marker convention, and a Sphinx cross-reference render test recipe. Drops `sphinx_issues` from the set: its `:issue:`/`:pr:`/`:user:`/`:commit:` roles render only inside Sphinx, appearing as raw role text in GitHub's repo browser, IDE previews, and PyPI descriptions; a Python migration script (covering MyST roles, reST roles, and cross-repo prefixed forms) and a matching `sphinx-docs-sync` audit category are included. `docs/myst-docstrings.md` documents the load-order failure mode (backtick-doubled `:py:obj:` roles) when `repomatic.myst_docstrings` loads after `sphinx_autodoc_typehints`.
-- Add three `[tool.repomatic.workflow]` configuration knobs for customizing `paths:` filters in generated thin callers and synced headers: `extra-paths` appends repo-specific entries (like `install.sh`, `dotfiles/**`) to every workflow's filter, `ignore-paths` strips canonical entries that don't exist downstream (like `tests/**`, `uv.lock`) by exact match, and `paths` keyed by workflow filename replaces a workflow's filter wholesale (skipping the other knobs and `--source-paths` for that filename).
-- Add a Python compatibility matrix to `docs/install.md`, auto-generated from the `Programming Language :: Python` classifiers declared at every `vX.Y.Z` release tag. Newest release ranges sit on top so the supported-versions streak progresses toward the upper-left corner over time. Each row shows the version range and the date of the first release tag in it.
-- Replace captured plain-text help blocks in `docs/cli.md` with `{click:run}` directives so Sphinx renders each command's `--help` output live with ANSI colors via `click_extra.sphinx`. The shared `repomatic` symbol is seeded once via a leading `{click:source}` `:hide-source:` block, which persists it to the per-document runner namespace (a bare `import` inside a `{click:run}` block lands in `local_vars` and is discarded after the block).
-- Replace the `Type` column in the `docs/configuration.md` summary table with a one-line `Description` derived from each option's docstring. Per-option sections now lead with the one-liner, then `**Type:** | **Default:**`, the full docstring, and an `**Example:**` TOML block pinned to the field's default. The `repomatic show-config` CLI table keeps its existing four columns.
-- Bump pinned `uv` from `0.11.6` to `0.11.8` in `renovate.json5` and the bundled template. Drop the lock-file noise-detection layer (`is_lock_diff_only_timestamp_noise`, `revert_lock_if_noise`, `_TIMESTAMP_LINE_RE`, `SyncResult.reverted`) now that [astral-sh/uv#19022](https://github.com/astral-sh/uv/pull/19022) and [astral-sh/uv#19101](https://github.com/astral-sh/uv/pull/19101) make `uv lock` write the `0001-01-01T00:00:00Z` sentinel for relative `exclude-newer` spans, eliminating the per-run timestamp churn.
-- Bump `mdformat-pelican` to `1.0.0`, the first release that ships the link-renderer fix from [`gaige/mdformat-pelican` PR #11](https://github.com/gaige/mdformat-pelican/pull/11). Without the fix, plugin loading order on Linux let `mdformat-pelican`'s fallback link renderer win under `mdformat-gfm` 1.0.0, leaving non-ASCII anchor links percent-encoded on every `format-markdown` run.
-- Fix generated thin caller workflow fidelity: triggers now mirror the canonical workflow verbatim instead of always injecting `workflow_dispatch`; path filters preserve universal entries (`pyproject.toml`, `renovate.json5`, workflow self-references) instead of being stripped wholesale. `repomatic workflow lint` now flags thin callers with extra triggers absent from the canonical workflow, in addition to the existing check for missing ones.
-- Fix `sync-uv-lock` and `fix-vulnerable-deps` PR bodies showing `1-01-01` as the `exclude-newer` cutoff when `pyproject.toml` configures a relative span like `"1 week"`. Recent uv versions write the `0001-01-01T00:00:00Z` sentinel to `options.exclude-newer` in `uv.lock` and store the real value in the new `options.exclude-newer-span` field as an ISO 8601 duration. `parse_lock_exclude_newer` now detects the sentinel and computes the effective cutoff as `now - span`.
-- Fix broken documentation links in PR body templates. All 18 templates under `repomatic/templates/` now point at `kdeldycke.github.io/repomatic/configuration.html` and the matching `workflows.html` anchors. Each `### Configuration` block is reshaped from an opaque TOML dump into a sorted bulleted list where every option name links to its own anchor on the configuration page.
-- Fix `update-docs` ↔ `format-markdown` ping-pong on `docs/cli.md` and `docs/configuration.md`. In `cli_reference()`, a blank line between the seed `{click:source}` directive's `:hide-source:` option and its source line was rewritten by `mdformat-myst` as a YAML block and stripped back by `_fix_myst_directive_options`, causing alternating insertion and removal. In `config_reference()` and `config_full_descriptions()`, `.replace()` post-processing mangled triple-backtick fences in MyST docstrings.
-- Fix `release.yaml` discarding healthy binaries when one matrix cell crashed. The `compile-binaries` matrix now sets `fail-fast: false` and `publish-release` uploads whatever did build by gating on `compile-binaries.result != 'skipped'` instead of `== 'success'`.
-- Fix `python_compat_table` test always failing in CI: add `fetch-tags: true` to the `tests.yaml` checkout step so git tags are available when the generator walks release history. Fix `UnicodeDecodeError` on Windows runners where `git show tag:pyproject.toml` output was decoded with `cp1252` instead of `utf-8`, leaving `show.stdout` as `None` and crashing `classifier_re.findall()`.
-- Fix mypy error in `Metadata.dump()`: suppress `[misc]` false-positive on the `lambda name=f.name: ...` closure used to bind the loop variable and avoid late-binding pitfalls.
-- Fix `Metadata.dump()` eagerly computing every metadata key when `keys` filtered to a small subset. Values are now pulled lazily from a key-keyed factory map, so requesting `("is_python_project", "current_version")` no longer walks git history via `nuitka_matrix` → `current_commit`, removing a `pydriller` `.git/config.lock` race against parallel `pytest-xdist` workers.
-- Bump `extra-platforms` floor from `>=8` to `>=12.0.2`. `12.0.0` reimplements `is_macos()` with `sys.platform == "darwin"` instead of `platform.platform()`, which on Windows shelled out to `cmd /c ver` and triggered a CPython 3.10.x bug in `_syscmd_ver` that raised `TypeError` from `_ver_output.match()` on the cache-dir resolution path used by `tool_runner` tests.
+- Add the `sphinx-docs` agent to the `agents` component, deployed by `repomatic init agents` or via `[tool.repomatic] include = ["agents"]`.
+- Add three `[tool.repomatic.workflow]` knobs for customizing `paths:` filters in generated thin callers: `extra-paths` appends repo-specific entries, `ignore-paths` strips canonical entries absent downstream, and `paths` replaces a filter wholesale per workflow.
+- Add a Python compatibility matrix to `docs/install.md`, auto-generated from the `Programming Language :: Python` classifiers declared at every release tag.
+- Render each command's `--help` live in `docs/cli.md` via `{click:run}` directives instead of captured plain-text help blocks.
+- Replace the `Type` column in the `docs/configuration.md` summary table with a one-line description derived from each option's docstring, and lead each per-option section with that one-liner.
+- Detect vulnerable dependencies from the GitHub Advisory Database alongside the PyPA database: `fix-vulnerable-deps` now unions `uv audit` with Dependabot alerts and credits each entry's source. Configurable via `[tool.repomatic] vulnerable-deps.sources`.
+- Fix generated thin-caller fidelity: triggers mirror the canonical workflow verbatim instead of always injecting `workflow_dispatch`, universal path entries are preserved, and `repomatic workflow lint` now flags extra triggers absent upstream.
+- Fix `sync-uv-lock` and `fix-vulnerable-deps` PR bodies showing `1-01-01` as the `exclude-newer` cutoff when `pyproject.toml` configures a relative span like `"1 week"`.
+- Fix broken documentation links in all 18 PR body templates, now pointing at the published `configuration.html` and `workflows.html` anchors with each option name linked to its own anchor.
+- Fix `release.yaml` discarding healthy binaries when one matrix cell crashed: the `compile-binaries` matrix sets `fail-fast: false` and `publish-release` uploads whatever built.
+- Fix `update-docs` ↔ `format-markdown` ping-pong on `docs/cli.md` and `docs/configuration.md`.
+- Bump pinned `uv` to `0.11.8` and `mdformat-pelican` to `1.0.0`, fixing non-ASCII anchor links being percent-encoded on every `format-markdown` run.
 
 ## [`6.15.0` (2026-04-27)](https://github.com/kdeldycke/repomatic/compare/v6.14.0...v6.15.0)
 
 > [!NOTE]
 > `6.15.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.15.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.15.0).
 
-- Set `validate = false` in the bundled `mdformat.toml` so `mdformat-recover-urls` decodes percent-encoded non-ASCII characters in link destinations back to their original form. Without this, anchor links with Chinese, accented, or other non-ASCII characters got rewritten to `%XX` sequences on every `format-markdown` run.
-- Add 💸/🆓 licensing markers to the awesome-list contributing guide, issue template, and PR template (English and Chinese mirrors). Tool, dataset, and project entries are now flagged with 💸 (commercial vendor selling a paid version on top of the OSS core) or 🆓 (fully open-source: foundation-governed, community-driven, corporate-OSS without a paid product, or support-only commercial model). Articles, papers, blog posts, news items, and curation lists remain unmarked. The two markers are mutually exclusive and the awesome-list entry format keeps `awesome-lint`-compatible `-` syntax.
-- Detect vulnerable dependencies from the GitHub Advisory Database in addition to the PyPA Advisory Database. The `fix-vulnerable-deps` job now unions `uv audit` and the repository's Dependabot alerts feed, deduplicates by `(package, advisory_id)`, credits each entry's source(s) in the PR body, and shows the `exclude-newer` cooldown cutoff above the updated packages table so reviewers can confirm which upgrades required a cooldown bypass. Configurable via `[tool.repomatic] vulnerable-deps.sources`.
-- Add `agents` component to `repomatic init` for deploying Claude Code agent definitions (`.claude/agents/grunt-qa.md`, `.claude/agents/qa-engineer.md`) to downstream repositories. Excluded by default, opt in with `repomatic init agents` or `[tool.repomatic] include = ["agents"]`. The destination is configurable via `[tool.repomatic] agents.location` (default `./.claude/agents/`), mirroring the existing `skills.location` option for repositories where `.claude/` is not at the root (like dotfiles repos). Agents are auto-invoked by Claude based on their `description:` frontmatter, so deploying them gives downstream repos the same QA enforcement loop the upstream repo uses.
-- Add `docs/benchmark.md` comparing repomatic against ten alternatives: cookiecutter, semantic-release, copier, cruft, allstar, tf-github, settings, safe-settings, and all-repos. Covers feature parity across template sync, repo governance, release automation, and changelog lifecycle, and surfaces four gaps where alternatives have capabilities repomatic does not yet cover (branch protection management, template conflict resolution, org-wide settings inheritance, and commit-based version computation).
-- Expand `myst_docstrings` Sphinx extension: add plain triple-backtick code fence conversion (```` ```python ```` → `.. code-block:: python`), add footnote conversion (`[^label]` references and `[^label]: text` definitions → reST footnote syntax), fix hook priority to guarantee MyST-to-reST conversion runs before `sphinx_autodoc_typehints` (priority 400 vs default 500, with `conf.py` ordering enforced at load time via `ExtensionError`), and align the extension version with the `repomatic` package version.
-- Switch MyST admonitions to backtick fences (```` ```{note} ````) instead of colon fences (`:::{note}`) project-wide so that `mdformat` preserves them instead of escaping the colons. The Sphinx extension still recognizes both, and the `convert-to-myst` migration command now emits backtick fences.
-- Drop explicit `({slug})=` anchors emitted by the configuration docs generator. The natural heading anchor produced by docutils for `### option.name` already matches the desired `option-name` slug.
-- Upgrade lychee to `0.24.1`. The `0.24.x` series adds native `[tool.lychee]` support in `pyproject.toml`, so repomatic skips the TOML translation bridge and lets lychee read its config directly. macOS arm64 and Windows x86_64 asset names changed upstream (now `aarch64-apple-darwin.tar.gz` and `x86_64-pc-windows-msvc.zip`), the Windows download is now a `zip` archive instead of a raw `.exe`, and tarballs now wrap the binary in a per-target directory that the extractor strips.
-- Remove unused `sphinx-issues` dependency. No `:issue:`, `:pr:`, `:user:`, or `:commit:` roles were referenced anywhere in the documentation.
-- Split `claude.md` into a downstream-portable core and a separate `docs/upstream-development.md` page that holds rules applicable only when developing the `kdeldycke/repomatic` package itself (Documentation sync table referencing `repomatic/github/token.py`, `repomatic/lint_repo.py`, etc., the Tool runner flags-vs-config rules for `TOOL_REGISTRY`, and the upstream release checklist). Sections that remain in `claude.md` but apply only to upstream maintainers are now wrapped in a `{note}` admonition. Generic principles (versioning, naming, testing, idempotency) stay in `claude.md` for use in any repo. `docs/contributing.md` continues to render the full set on the docs site by including both files.
-- Fix `update-docs` ↔ `format-markdown` ping-pong on `docs/tool-runner.md`. The `tool_summary()` generator was missing a trailing newline, so the regenerated section had no blank line between the GFM table and the closing `<!-- tool-summary-end -->` HTML comment. `mdformat-gfm` reinserted that blank line on every run, generating an endless stream of "Update docs" PRs.
-- Fix `repomatic init` reporting unchanged files as updated. Workflows, skills, the awesome-template tree, and non-reusable workflow headers now compare on-disk content to what would be written and skip the file (without touching its mtime) when the two match. Re-running `repomatic init` against an unchanged tree is now a true no-op.
-- Fix mypy failures under `--python-version 3.10` for StrEnum-typed enums by adding `backports-strenum` to the typing dependency group. Without the stubs, StrEnum subclasses leaked `str` instead of the concrete enum type, producing 21 type errors across four source files and two test files. Remove the `# type: ignore` workarounds that masked the bad inference.
+- Decode percent-encoded non-ASCII characters in Markdown link destinations back to their original form, so non-ASCII anchors no longer get rewritten to `%XX` on every `format-markdown` run.
+- Add 💸/🆓 licensing markers to the awesome-list contributing guide, issue template, and PR template (English and Chinese mirrors): 💸 for a paid version atop an OSS core, 🆓 for fully open-source.
+- Add the `agents` component to `repomatic init` for deploying Claude Code agents (`grunt-qa`, `qa-engineer`) downstream. Excluded by default; opt in via `[tool.repomatic] include = ["agents"]`. Destination set by `[tool.repomatic] agents.location`.
+- Add `docs/benchmark.md` comparing repomatic against ten alternatives across template sync, repo governance, release automation, and changelog lifecycle.
+- Switch MyST admonitions to backtick fences (```` ```{note} ````) instead of colon fences project-wide so `mdformat` preserves them; the `convert-to-myst` command now emits backtick fences.
+- Expand the `myst_docstrings` Sphinx extension: convert plain triple-backtick code fences and footnotes to reST, and run MyST-to-reST conversion before `sphinx_autodoc_typehints`.
+- Upgrade lychee to `0.24.1`, which reads its `[tool.lychee]` config directly from `pyproject.toml` so repomatic drops the TOML translation bridge.
+- Fix `repomatic init` reporting unchanged files as updated; re-running against an unchanged tree is now a true no-op.
+- Fix `update-docs` ↔ `format-markdown` ping-pong on `docs/tool-runner.md`.
 
 ## [`6.14.0` (2026-04-20)](https://github.com/kdeldycke/repomatic/compare/v6.13.0...v6.14.0)
 
 > [!NOTE]
 > `6.14.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.14.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.14.0).
 
-- Add Sphinx documentation site with Furo theme and MyST-Parser. Splits the monolithic `readme.md` (1139 lines) into focused pages: installation, configuration reference (auto-generated from `Config` dataclass docstrings), CLI parameters (auto-generated via `click_extra.sphinx`), reusable workflow reference, security practices, Claude Code skills, and a tool runner tutorial covering the 4-level config precedence chain, available tools, `[tool.X]` bridge, binary caching, and version overrides. Deployed to GitHub Pages via the existing `docs.yaml` workflow.
-- Add `repomatic.myst_docstrings` Sphinx extension and `repomatic.myst_converter` utility module. The extension hooks into `autodoc-process-docstring` to convert MyST markdown in Python docstrings to reST at Sphinx build time, so `sphinx.ext.autodoc` works without modification. Supports colon-fenced and backtick-fenced directives (`:::{note}` and ```` ```{note} ````), cross-references with hyphenated names (like `{eval-rst}`, `{code-block}`), markdown links, and inline code. The converter is a standalone migration utility that rewrites Python source files from reST to MyST in place. Both are idempotent.
-- Add `--sort-by` option to `show-config`, `metadata --list-keys`, `run --list`, and `cache show` commands via click-extra `7.11.0`'s `SortByOption`. Each command defaults to a natural sort column and accepts any column name.
-- Add incremental mode to the `brand-assets` skill. When base SVGs already exist, skip the design exploration menu and proceed directly: scan existing assets, identify gaps against the four expected variants, create missing SVGs and PNGs, and wire new assets into `docs/conf.py`.
-- Add `check_stale_gh_pages_branch` lint check and setup guide instructions for deleting leftover `gh-pages` branches after switching to GitHub Actions deployment.
-- Fix `Matrix.prune()` keeping exclude directives that reference keys absent from the matrix axes. GitHub Actions rejects these with "Matrix exclude key does not match any key within the matrix". Affects downstream projects whose `[tool.repomatic.test-matrix]` config defines `variations` and `exclude` entries referencing those axes: the PR matrix (which omits variations) retained the stale excludes.
-- Fix setup guide Pages step: treat `None` (unconfigured) as incomplete for Sphinx projects so the issue reopens with the Pages setup step, and add both `POST` (first-time enable) and `PUT` (update existing) commands to the template. Previously, `check_pages_deployment_source` returning `None` was treated as passing, and the template assumed Pages was already enabled.
-- Fix `sponsor-label` workflow job missing `actions/checkout` step in `labels.yaml`, causing the job to fail.
+- Add a Sphinx documentation site (Furo theme, MyST-Parser) splitting the monolithic `readme.md` into focused pages: installation, configuration, CLI parameters, reusable workflows, security, skills, and a tool runner tutorial. Deployed via `docs.yaml`.
+- Add the `repomatic.myst_docstrings` Sphinx extension and `repomatic.myst_converter` utility, converting MyST markdown in docstrings to reST at build time so `sphinx.ext.autodoc` works unmodified. `convert-to-myst` rewrites source files in place.
+- Add a `--sort-by` option to the `show-config`, `metadata --list-keys`, `run --list`, and `cache show` commands; each defaults to a natural sort column and accepts any column name.
+- Add an incremental mode to the `brand-assets` skill: when base SVGs already exist, skip the design menu and fill gaps directly.
+- Add a `check_stale_gh_pages_branch` lint check and setup-guide instructions for deleting leftover `gh-pages` branches after switching to GitHub Actions deployment.
+- Fix `Matrix.prune()` keeping exclude directives that reference keys absent from the matrix axes, which GitHub Actions rejects.
+- Fix the setup-guide Pages step for Sphinx projects: reopen the issue when Pages is unconfigured, and offer both first-time-enable and update commands.
+- Fix the `sponsor-label` job in `labels.yaml` missing an `actions/checkout` step, which caused it to fail.
 
 ## [`6.13.0` (2026-04-15)](https://github.com/kdeldycke/repomatic/compare/v6.12.0...v6.13.0)
 
 > [!NOTE]
 > `6.13.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.13.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.13.0).
 
-- Add `nuitka.entry-points` config option to select which `[project.scripts]` entries produce Nuitka binaries. When unset, deduplicates by callable target: keeps the first entry point for each unique `module:callable` pair, so alias entry points (like both `mpm` and `meta-package-manager` pointing to the same function) don't produce duplicate binaries.
-- Add two-phase VirusTotal scanning: phase 1 uploads binaries and writes an initial table with scan links (binary names link to their GitHub release download URLs), phase 2 (`--poll`) polls for analysis completion and replaces the table with a Detections column showing `flagged / total` engine counts. The workflow uses two sequential steps so users see scan links immediately while detection stats populate asynchronously.
-- Add `av-false-positive` skill to scan release binaries on VirusTotal and generate per-vendor false-positive submission files for flagged artifacts. Derives project metadata (name, license, maintainer, URLs) from `pyproject.toml` and git config instead of hardcoding.
-- Add `update-checksums.yaml` workflow that triggers on Renovate pushes to `renovate/**` branches modifying `repomatic/tool_runner.py`. Downloads each binary tool at its new version, computes the SHA-256, and commits corrected checksums to the PR branch. Works around [renovatebot/renovate#42263](https://github.com/renovatebot/renovate/discussions/42263) where `postUpgradeTasks` silently drops changes to the same file the regex manager updated.
-- Include release notes for all intermediate versions in `sync-uv-lock` PR bodies. When a package jumps from `11.0.3` to `11.0.5`, both `11.0.4` and `11.0.5` release notes are shown.
-- Config `include` entries now bypass `RepoScope` filtering, matching the behavior of explicit CLI component naming. `include = ["skills"]` in a non-awesome repository produces all skills including awesome-only ones; qualified entries like `include = ["skills/awesome-triage"]` implicitly select the parent component. Scope-bypassed components fall through to config-key and file-level checks instead of being unconditionally skipped.
-- Add baseline criteria for GitHub repositories in awesome list contributing guidelines: minimum 50 stars, not archived, and updated within 3 years. Includes exceptions for static resources and high-adoption archived repos.
-- Add `--min-savings-bytes` option to `format-images` (default 1024 bytes). Skips optimized files where the absolute byte savings are negligible, preventing noisy diffs for tiny images where even a high percentage represents minimal actual reduction.
-- Add cross-platform binary support for all tools in the registry. actionlint, biome, gitleaks, labelmaker, lychee, shfmt, and typos now ship binaries for macOS (arm64, x64), Linux (arm64, x64), and Windows (x64) where upstream releases are available. Add ZIP archive extraction and per-platform archive format overrides to `BinarySpec`. Replace hand-rolled OS/arch detection in `_get_platform_key()` with extra-platforms' `current_platform()` and `current_architecture()`, and replace string platform keys with `PlatformKey` tuples (`(Platform | Group, Architecture)`) for richer detection heuristics.
-- Add a progress bar during binary tool downloads when the server provides a `Content-Length` header. Displays on interactive terminals only; silent in CI.
-- Add two-layer integrity model for cached binaries. The archive checksum from the registry is verified at download time. After extraction, a `.sha256` sidecar file is written next to the binary and checked on every subsequent cache hit, defending against local cache tampering between runs.
-- Enable `[tool.actionlint]` bridge support. actionlint config from `pyproject.toml` is now translated to YAML and written to `.github/actionlint.yaml` at invocation time (CWD-discovery, cleaned up after the run).
-- Cache downloaded tool binaries across CI runs with `actions/cache`. Each workflow job that invokes a binary tool (actionlint, biome, gitleaks, labelmaker, lychee, shfmt, typos) restores from a per-tool cache key scoped to OS, architecture, and tool registry hash.
-- Replace `peaceiris/actions-gh-pages` with GitHub's native `actions/upload-pages-artifact` + `actions/deploy-pages` for Sphinx documentation deployment. Add a `lint-repo` check and setup guide step that verify the repository's Pages source is set to "GitHub Actions" instead of branch-based deployment.
-- Add `benchmark-update` skill to create and maintain competitive benchmark pages (`docs/benchmark.md`) comparing projects against alternatives. Supports `audit`, `init`, `add`, and `refresh-badges` modes.
-- Add `upstream-audit` skill to create and maintain upstream contribution tracking pages (`docs/upstream.md`). Discovers merged PRs, reported issues, workarounds, and declined features across dependencies. Supports `audit`, `init`, `refresh`, and `sync-git` modes.
-- Restructure `Config` to use nested dataclasses (`CacheConfig`, `DependencyGraphConfig`, `DocsConfig`, `GitignoreConfig`, `LabelsConfig`, `TestPlanConfig`, `WorkflowConfig`) with `click_extra.config_path` metadata. Config fields are now accessed as `config.cache.dir` instead of `config.cache_dir`. The `[tool.repomatic]` TOML key structure is unchanged. Eliminates the `_NESTED_PREFIXES` mapping in favor of click-extra's schema-aware dataclass instantiation.
-- Upgrade macOS Intel runner from `macos-15-intel` to `macos-26-intel` across binary builds, test matrix, and Nuitka compilation.
-- Run `lint-repo` workflow job on all repositories, not just Python projects. Generic checks (funding file, stale draft releases, tag protection rules, fork PR approval policy, workflow permissions, PAT checks) were being skipped on non-Python repos like awesome lists.
-- Centralize GitHub token resolution in `run_gh_command`: priority is `REPOMATIC_PAT` > `GH_TOKEN` > `GITHUB_TOKEN`, with automatic fallback to `GITHUB_TOKEN` on 401 Bad Credentials (expired or revoked PAT). The `--has-pat` flag on `setup-guide` and `lint-repo` auto-detects from the `REPOMATIC_PAT` environment variable when not specified, replacing the `HAS_REPOMATIC_PAT` env var. Normalize all workflow token references to `GH_TOKEN` with `github.token` as the default, and fix missing `GH_TOKEN` in `sync-dev-release`, `sponsor-label`, `setup-guide`, `lint-repo`, `check-renovate`, and `scan-virustotal` workflow steps.
-- Fix `exclude-newer-package` handling in `pyproject.toml`: remove orphaned comments when the section is fully pruned, and fix inline table rendering to produce `pyproject-fmt`-compatible formatting (`tomlkit`'s `InlineTable.append()` left malformed whitespace: doubled spaces after commas, missing inner-brace spaces).
-- Add pre-flight `shutil.which` check in `run_exiftool` for a clear error when exiftool is not installed, instead of a bare `FileNotFoundError`. Verify exiftool is on PATH after `choco install` in the Windows binary build step, catching silent Chocolatey CDN failures.
-- Create parent directories for `--output` file paths in `repomatic run`, fixing lychee `Cannot write status output to file` errors when the output directory doesn't exist.
-- Sanitize `@mentions`, `#issue` references, and `github.com` URLs in Lychee and Sphinx linkcheck output before embedding in the broken links GitHub issue body. Reuses the same zero-width space sanitization already applied to upstream release notes in `sync-uv-lock` PR bodies.
+- **Breaking:** `Config` now uses nested dataclasses, so fields are accessed as `config.cache.dir` instead of `config.cache_dir`; the `[tool.repomatic]` TOML key structure is unchanged.
+- Add `nuitka.entry-points` config option to select which `[project.scripts]` entries produce Nuitka binaries; aliases pointing to the same callable are deduplicated by default.
+- Add two-phase VirusTotal scanning: an initial table with scan links, then a `--poll` pass that fills in a Detections column of `flagged / total` engine counts.
+- Add `av-false-positive` skill to scan release binaries on VirusTotal and generate per-vendor false-positive submission files for flagged artifacts.
+- Add `update-checksums.yaml` workflow that recomputes SHA-256 checksums for binary tools bumped by Renovate and commits the fix to the PR branch.
+- Include release notes for every intermediate version in `sync-uv-lock` PR bodies, not just the target version.
+- Config `include` entries now bypass `RepoScope` filtering, matching explicit CLI component naming; qualified entries like `skills/awesome-triage` implicitly select their parent component.
+- Add baseline criteria for GitHub repositories in awesome list contributing guidelines: minimum 50 stars, not archived, and updated within 3 years.
+- Add `--min-savings-bytes` option to `format-images` (default 1024) to skip images whose absolute byte savings are negligible.
+- Add cross-platform binary support (macOS arm64/x64, Linux arm64/x64, Windows x64) for actionlint, biome, gitleaks, labelmaker, lychee, shfmt, and typos, plus ZIP archive extraction.
+- Show a progress bar during binary tool downloads when the server reports `Content-Length`; interactive terminals only, silent in CI.
+- Verify cached binaries with a two-layer integrity model: the registry checksum at download time and a `.sha256` sidecar on every cache hit.
+- Enable `[tool.actionlint]` config support, translating it to `.github/actionlint.yaml` at invocation time.
+- Cache downloaded tool binaries across CI runs with `actions/cache`, keyed per tool, OS, and architecture.
+- Replace `peaceiris/actions-gh-pages` with GitHub's native `actions/upload-pages-artifact` and `actions/deploy-pages` for documentation deployment, plus a `lint-repo` check that the Pages source is set to GitHub Actions.
+- Add `benchmark-update` skill to create and maintain competitive benchmark pages (`docs/benchmark.md`) with `audit`, `init`, `add`, and `refresh-badges` modes.
+- Add `upstream-audit` skill to create and maintain upstream contribution tracking pages (`docs/upstream.md`) with `audit`, `init`, `refresh`, and `sync-git` modes.
+- Upgrade the macOS Intel runner from `macos-15-intel` to `macos-26-intel` across binary builds, the test matrix, and Nuitka compilation.
+- Run the `lint-repo` workflow job on all repositories, not just Python projects, so generic checks apply to awesome lists too.
+- Centralize GitHub token resolution with priority `REPOMATIC_PAT` > `GH_TOKEN` > `GITHUB_TOKEN` and automatic fallback to `GITHUB_TOKEN` on an expired PAT; `--has-pat` on `setup-guide` and `lint-repo` now auto-detects from `REPOMATIC_PAT`.
+- Fix `exclude-newer-package` pruning in `pyproject.toml` to remove orphaned comments and emit `pyproject-fmt`-compatible inline tables.
+- Give a clear error when exiftool is not installed instead of a bare `FileNotFoundError`, and verify it is on PATH after the Windows install step.
+- Create parent directories for `--output` file paths in `repomatic run`, fixing lychee write errors when the output directory is missing.
+- Sanitize `@mentions`, `#issue` references, and `github.com` URLs in Lychee and Sphinx linkcheck output before embedding them in the broken-links issue.
 
 ## [`6.12.0` (2026-04-13)](https://github.com/kdeldycke/repomatic/compare/v6.11.3...v6.12.0)
 
 > [!NOTE]
 > `6.12.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.12.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.12.0).
 
-- Add `repomatic cache` subcommands (`show`, `clean`, `path`) and a global binary cache for downloaded tool executables under `~/Library/Caches/repomatic` on macOS and `~/.cache/repomatic` on Linux. Cached binaries are re-verified against their registry SHA-256 checksum on every use; stale entries are auto-purged after 30 days (configurable via `REPOMATIC_CACHE_MAX_AGE`). Add `--no-cache` to `repomatic run` to bypass the cache.
-- Add HTTP response cache for PyPI metadata (24h TTL) and GitHub release bodies (24h for all-releases, 7d for single-release) to avoid redundant API calls across `changelog`, `sync-uv-lock`, and `sync-github-releases` invocations. Add `--namespace` to `repomatic cache clean` for targeted cleanup.
-- Route generated tool configs through the cache directory (`~/.cache/repomatic/config/{tool}/{filename}`) instead of `/tmp` or the repository root. Tools with a `--config` flag now receive an explicit `--config <cache_path>` argument, making repomatic's involvement visible in logs and eliminating cleanup issues from interrupted runs. `.editorconfig` serialization for CWD-discovery tools like `shfmt` now translates `[tool.X]` sections from `pyproject.toml` and writes the result to the cache. Tools without a `--config` flag (mdformat, shfmt) remain CWD-discovery exceptions.
+- **Breaking:** rename the `shell_files` metadata key to `shfmt_files`, and exclude Zsh files and `.sh` files with a Zsh shebang from `shfmt` processing.
+- Add `repomatic cache` subcommands (`show`, `clean`, `path`) and a global binary cache for downloaded tools; cached binaries are re-verified against their checksum and auto-purged after 30 days (configurable via `REPOMATIC_CACHE_MAX_AGE`). Add `--no-cache` to `repomatic run` to bypass it.
+- Add an HTTP response cache for PyPI metadata and GitHub release bodies to avoid redundant API calls, plus `--namespace` on `repomatic cache clean` for targeted cleanup.
+- Route generated tool configs through the cache directory and pass them explicitly via `--config`, instead of writing to `/tmp` or the repository root.
 - Add `--version`, `--checksum`, and `--skip-checksum` options to `repomatic run` to override the pinned tool version and SHA-256 verification at invocation time.
-- Add structured logging to `repomatic run`. `--verbosity INFO` reports the config precedence level, full command line, and exit code. `--verbosity DEBUG` adds the parsed `[tool.X]` content and translated config file details.
-- Add `skills.location` config option to override the Claude Code skills directory. Defaults to `./.claude/skills/`; useful for repos where `.claude/` is not at the root.
-- Add `changelog.location` config option to override the changelog file path. Defaults to `./changelog.md`. All CLI commands (`changelog`, `release-prep`, `sync-github-releases`, `sync-dev-release`), metadata extraction, and `init` now read from this single source.
-- Add `.claude/package-skills.sh` to package each Claude Code skill as a ZIP for manual upload to Claude Desktop via Settings > Customize > Skills. Refs #2540.
-- Sanitize `@mentions`, `#issue` references, and `github.com` URLs in upstream release notes embedded in `sync-uv-lock` PR bodies. Inserts Unicode zero-width spaces to prevent GitHub from auto-linking mentions and issue references. Rewrites `github.com` URLs to `redirect.github.com` to prevent backlink cross-references. Code fences and inline code spans are preserved. Closes #2542.
-- Use `REPOMATIC_PAT` token in all `peter-evans/create-pull-request` steps across `autofix.yaml`, `changelog.yaml`, and `renovate.yaml`. PRs created with the default `GITHUB_TOKEN` do not trigger other workflows.
-- Rename `shell_files` metadata key to `shfmt_files`. Exclude Zsh files (`.zsh`, `.zshrc`, etc.) and `.sh` files with a Zsh shebang from `shfmt` processing. `shfmt`'s Zsh support is experimental (v3.13.0+) and fails on common Zsh constructs (see [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203)).
-- Make the `uv sync` step in the `lint-types` job conditional on `is_python_project`, so repositories with Python files but no lockfile can still be type-checked.
-- Fix `format-json` autofix job failing with `flag --config-path is not valid in this context` when a `[tool.biome]` section exists. Biome's bpaf-based CLI scopes `--config-path` inside the subcommand; the flag is now spliced after the subcommand name via a new `config_after_subcommand` field in `ToolSpec`.
-- Improve `file-bug-report` skill to check organization-level community health files from the org's `.github` repo before scanning per-repo files. GitHub allows orgs to define default CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, and issue templates that repos inherit unless they provide their own copy.
+- Add structured logging to `repomatic run`: `--verbosity INFO` reports config precedence, the full command, and exit code; `DEBUG` adds parsed config details.
+- Add `skills.location` config option to override the Claude Code skills directory (default `./.claude/skills/`).
+- Add `changelog.location` config option to override the changelog file path (default `./changelog.md`), honored by all CLI commands.
+- Add `.claude/package-skills.sh` to package each Claude Code skill as a ZIP for manual upload to Claude Desktop.
+- Sanitize `@mentions`, `#issue` references, and `github.com` URLs in upstream release notes embedded in `sync-uv-lock` PR bodies to prevent auto-linking and backlink cross-references.
+- Use the `REPOMATIC_PAT` token in all `peter-evans/create-pull-request` steps so created PRs trigger other workflows.
+- Make the `uv sync` step in `lint-types` conditional on `is_python_project`, so repos with Python files but no lockfile can still be type-checked.
+- Fix `format-json` failing with a `--config-path` error when a `[tool.biome]` section exists.
+- Improve the `file-bug-report` skill to check organization-level community health files before per-repo files.
 
 ## [`6.11.3` (2026-04-09)](https://github.com/kdeldycke/repomatic/compare/v6.11.2...v6.11.3)
 
 > [!NOTE]
 > `6.11.3` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.3/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.11.3).
 
-- Add `lint-repo` check warning when the GitHub Actions fork PR workflow approval policy is weaker than `first_time_contributors`. Queries `/repos/{repo}/actions/permissions/fork-pr-contributor-approval` and flags the default `first_time_contributors_new_to_github` setting, which only catches brand-new GitHub accounts. The setup guide includes a new step with a pre-filled `gh api` one-liner to fix the policy in place.
-- Add `readme.md` § Supply chain security section mapping Astral's [Open Source Security at Astral](https://astral.sh/blog/open-source-security-at-astral) practices to concrete repomatic implementations, with a known-gap admonition for multi-person release approval.
-- Fix `rst_to_myst` conversion leaving RST backslash escapes (`\_`) in headings and not wrapping dotted Python module names in backticks. `sphinx-apidoc` uses `\_` to prevent RST reference interpretation; these are meaningless in markdown and cause `mdformat` to strip them on every reformat pass.
-- Fix `format-pyproject` autofix job failing with exit code 123. `xargs` translates `pyproject-fmt`'s exit code 1 (file reformatted) to 123, and the default `bash -e` shell aborted before the exit code guard could run.
-- Disable uv cache in the `publish-pypi` release job, which has no checkout step. Without a workspace, `setup-uv` cannot find lockfiles to hash and emits spurious cache-miss warnings on every run.
+- Add a `lint-repo` check warning when the GitHub Actions fork PR approval policy is weaker than `first_time_contributors`, with a setup guide step to fix it.
+- Add a `readme.md` supply chain security section mapping Astral's security practices to concrete repomatic implementations.
+- Fix `rst_to_myst` conversion leaving RST backslash escapes in headings and not wrapping dotted module names in backticks.
+- Fix the `format-pyproject` autofix job failing with exit code 123.
+- Disable the uv cache in the `publish-pypi` release job, which has no checkout and emitted spurious cache-miss warnings.
 
 ## [`6.11.2` (2026-04-08)](https://github.com/kdeldycke/repomatic/compare/v6.11.1...v6.11.2)
 
 > [!NOTE]
 > `6.11.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.2/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.11.2).
 
-- Add `shfmt` shell formatter to the tool runner (`repomatic run shfmt`). Downloads the binary for the current platform and invokes it with managed version pinning and `.editorconfig` discovery.
-- Add `format-shell` autofix job to auto-format shell scripts with `shfmt`.
-- Replace `crazy-max/ghaction-virustotal` GitHub Action with a native `repomatic scan-virustotal` CLI command using `vt-py`. Fixes the release body update that was silently skipped because the action required a `release` event but the workflow triggers on `push`.
-- Deduplicate release attestations: Python packages are now attested once in `build-package` instead of three times across `build-package`, `publish-pypi`, and `create-release`. The attestation bundle is forwarded as an artifact to `create-release` for upload to the GitHub release. Also fixes `create-release` accidentally attesting `.gitignore` via the `release_artifact/*` glob.
+- Add the `shfmt` shell formatter to the tool runner (`repomatic run shfmt`).
+- Add a `format-shell` autofix job to auto-format shell scripts with `shfmt`.
+- Replace the `crazy-max/ghaction-virustotal` action with a native `repomatic scan-virustotal` command, fixing the silently skipped release-body update.
+- Deduplicate release attestations: Python packages are now attested once in `build-package` instead of three times, and `.gitignore` is no longer accidentally attested.
 
 ## [`6.11.1` (2026-04-08)](https://github.com/kdeldycke/repomatic/compare/v6.11.0...v6.11.1)
 
 > [!NOTE]
 > `6.11.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.11.1).
 
-- Parallelize release workflow: `compile-binaries` now starts right after `metadata` instead of waiting for `create-release`, and `publish-pypi` runs concurrently with `create-tag` and `create-release`. Binary and attestation uploads to the GitHub release are deferred to `publish-release`. The PyPI admonition in release notes is applied by `publish-release` after confirming PyPI publication succeeded.
-- Fall back to PyPI `project_urls` changelog link when no GitHub Release exists for a package. Release notes sections now render a `[Changelog](url)` link instead of silently omitting the package.
-- Fix release workflow uploading attestation bundle before the GitHub release draft exists. The upload step now runs after release creation.
-- Skip `exclude-newer-package` exemptions for packages whose fixed version already falls within the `exclude-newer` cooldown window. Previously, `fix-vulnerable-deps` persisted `"0 day"` overrides for all upgraded packages unconditionally.
-- Fix `--delete-excluded` not detecting scope-excluded `BundledComponent` files that still exist on disk. Component-level scope exclusion (e.g., `codecov` in awesome repos) skipped recording file entries, so stale files were invisible to the deletion pass.
-- Fix awesome-template sync overwriting `pyproject.toml` instead of merging. `_copy_template_tree` replaced the entire file with the bundled template, stripping user-managed `[tool.*]` sections (e.g., `[tool.gitleaks]`). The lychee config is now a `ToolConfigComponent` with `AWESOME_ONLY` scope, so it goes through the standard `_init_tool_configs` merge path. `pyproject.toml` is removed from the awesome-template bundle.
-- Fix `repomatic init <component>` silently ignoring explicitly-requested components in repos where their scope doesn't match. Scope exclusions now only apply during bare `repomatic init`, matching the existing guard on user-config exclusions. This fixes `repomatic init renovate` failing in awesome repos where the renovate workflow materializes `renovate.json5` at runtime.
-- Fix `--delete-excluded` removing opt-in workflow files in the source repo. Config-key exclusions (e.g., `notification.unsubscribe`) now skip the source repo, matching the existing scope-exclusion guard. Previously, the `sync-repomatic` job would delete `.github/workflows/unsubscribe.yaml` from upstream, breaking the symlink in `repomatic/data/` and all downstream `workflow_call` references.
-- Fix `format-pyproject` autofix step running with no input files and masking tool errors. The `pyproject_files` metadata key was missing, so pyproject-fmt ran against an empty file list and `|| true` swallowed all non-zero exit codes. The key is now requested and the step tolerates only exit code 1 (file reformatted).
+- Parallelize the release workflow: `compile-binaries` starts right after `metadata`, and `publish-pypi` runs concurrently with `create-tag` and `create-release`, with binary and attestation uploads deferred to `publish-release`.
+- Fall back to the PyPI `project_urls` changelog link when a package has no GitHub Release, so release notes render a `[Changelog]` link instead of omitting the package.
+- Fix the release workflow uploading the attestation bundle before the GitHub release draft existed.
+- Skip `exclude-newer-package` exemptions for packages whose fixed version already falls within the `exclude-newer` cooldown window.
+- Fix `--delete-excluded` not detecting scope-excluded component files that still exist on disk.
+- Fix awesome-template sync overwriting `pyproject.toml` instead of merging, which stripped user-managed `[tool.*]` sections.
+- Fix `repomatic init <component>` silently ignoring an explicitly requested component when its scope did not match the repo.
+- Fix `--delete-excluded` removing opt-in workflow files in the source repo by skipping config-key exclusions there.
+- Fix the `format-pyproject` autofix step running with no input files and masking tool errors.
 
 ## [`6.11.0` (2026-04-07)](https://github.com/kdeldycke/repomatic/compare/v6.10.0...v6.11.0)
 
@@ -318,58 +306,58 @@
 > [!WARNING]
 > `6.11.0` is **not available** on 🐙 GitHub.
 
-- Preserve extra downstream jobs when syncing thin-caller workflows. Previously, `repomatic init` and `workflow sync` in `thin-caller` mode would overwrite the entire file, destroying any project-specific jobs appended after the managed caller job (e.g., a Chocolatey publishing step in `release.yaml`). The managed job is now regenerated in place while extra jobs, comments, and blank lines are preserved.
-- Add VirusTotal scanning job to the release workflow. Uploads compiled binaries to VirusTotal after each release, seeding AV databases to reduce false positive detections on downstream distributors (Chocolatey, Scoop, etc.). Requires the optional `VIRUSTOTAL_API_KEY` repository secret.
-- Add attestation self-verification steps after each `actions/attest` invocation in the release workflow. Each attestation is immediately verified with `gh attestation verify --signer-repo kdeldycke/repomatic` to catch signing issues in CI before users encounter them.
+- Preserve extra downstream jobs when syncing thin-caller workflows; the managed job is regenerated in place while project-specific jobs, comments, and blank lines are kept.
+- Add a VirusTotal scanning job to the release workflow that uploads compiled binaries to seed AV databases. Requires the optional `VIRUSTOTAL_API_KEY` repository secret.
+- Verify each attestation in CI right after `actions/attest` with `gh attestation verify`.
 - Upload Sigstore attestation bundles (`.jsonl`) as GitHub release assets for compiled binaries and Python packages, enabling offline verification.
-- Add `VIRUSTOTAL_API_KEY` warning to `lint-repo`. Emits a non-fatal warning when the secret is missing and Nuitka binary compilation is active.
-- Add VirusTotal API key setup step to the setup guide issue. The step only appears when Nuitka compilation is active (i.e., `nuitka-enabled` is `true` and the project has script entries). When shown, a missing key keeps the setup guide issue open.
-- Remove bumpversion dev-versioning migration code. All downstream repos have been migrated to PEP 440 dev versioning; the one-time `.dev0` suffix injection and managed-file update logic is no longer needed.
+- Add a `lint-repo` warning when `VIRUSTOTAL_API_KEY` is missing and Nuitka binary compilation is active.
+- Add a VirusTotal API key setup step to the setup guide issue, shown only when Nuitka compilation is active.
+- Remove the one-time bumpversion dev-versioning migration code now that all downstream repos use PEP 440 dev versioning.
 
 ## [`6.10.0` (2026-04-03)](https://github.com/kdeldycke/repomatic/compare/v6.9.0...v6.10.0)
 
 > [!NOTE]
 > `6.10.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.10.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.10.0).
 
+- **Breaking:** Remove the `-o` short option from `pr-body` and `format-images`; use `--output`.
 - Add `brand-assets` skill to create and export project logo/banner SVG assets to light/dark PNG variants.
-- Add `babysit-ci` skill to monitor CI test workflows, diagnose failures, fix code, and loop until all stable jobs pass.
-- Add `file-bug-report` skill to write upstream bug reports. Exhaustively reads contribution guidelines, issue templates, security policies, and community norms before producing a markdown file.
-- Add `test-matrix.replace` and `test-matrix.remove` configuration to modify axis values in both full and PR test matrices. `replace` swaps values (e.g., `replace.os = { "ubuntu-slim" = "ubuntu-24.04" }`), `remove` drops values before `solve()` runs. Stale exclude directives referencing removed values are pruned with a warning.
-- Add `SyncMode` enum and `preserved_keys` field to `ToolConfigComponent`. Tool configs can now declare `sync_mode=ONGOING` to opt into repeated syncing that preserves local additions. Preserve local `[[tool.bumpversion.files]]` entries during `sync-bumpversion` as the first consumer.
-- Add `--output-format [markdown|github-actions]` to `sync-uv-lock`, `fix-vulnerable-deps`, `pr-body`, and `format-images`. Replaces implicit `$GITHUB_OUTPUT` environment variable detection with an explicit flag. Remove `-o` short option from `pr-body` and `format-images` (prefer long-form `--output`).
+- Add `babysit-ci` skill to monitor CI test workflows, diagnose failures, fix code, and loop until stable jobs pass.
+- Add `file-bug-report` skill to write upstream bug reports from contribution guidelines, issue templates, and community norms.
+- Add `test-matrix.replace` and `test-matrix.remove` config to swap or drop axis values in the test matrices.
+- Add `sync_mode=ONGOING` for tool configs to repeatedly sync while preserving local additions, starting with `sync-bumpversion` keeping local `[[tool.bumpversion.files]]` entries.
+- Add `--output-format [markdown|github-actions]` to `sync-uv-lock`, `fix-vulnerable-deps`, `pr-body`, and `format-images`, replacing implicit `$GITHUB_OUTPUT` detection.
 - Add `.claude/scheduled_tasks.lock` to the default `.gitignore` extra content.
-- Append workflow metadata block to issue lifecycle comments (`Condition recurred.`, `Superseded by #N.`, close comments). Each comment now includes a collapsible table with trigger, actor, commit, job, workflow, and run link.
-- Make `setup-guide` issue body conditional: each step is a collapsible section with a status indicator (completed steps are collapsed with a checkmark, incomplete steps are expanded with a warning). Add branch ruleset and Dependabot settings checks to the closing criteria. The issue now closes only when PAT, permissions, vulnerability alerts, and branch protection are all verified.
-- Rework `sync-uv-lock` CLI output: default to a terminal table via click-extra's `--table-format`, add `--release-notes/--no-release-notes` and `--table/--no-table` flags, move markdown formatting to `--output` for CI use only. Prune stale `exclude-newer-package` entries from `pyproject.toml` before relocking.
-- Change `renovate` component to opt-in (`init_default=EXCLUDE`). Exclude `renovate` and `codecov` components from awesome-list repositories.
-- Echo `metadata` output to stderr when `--output` targets a file, so computed matrices are visible in CI logs.
+- Add a collapsible workflow metadata table (trigger, actor, commit, job, workflow, run link) to issue lifecycle comments.
+- Make the `setup-guide` issue body a set of collapsible per-step sections with status indicators, and close it only once PAT, permissions, vulnerability alerts, and branch protection are all verified.
+- Add `--release-notes/--no-release-notes` and `--table/--no-table` flags to `sync-uv-lock`, defaulting to a terminal table and reserving markdown for `--output`.
+- Prune stale `exclude-newer-package` entries from `pyproject.toml` before relocking in `sync-uv-lock`.
+- Make the `renovate` component opt-in, and exclude `renovate` and `codecov` from awesome-list repositories.
 - Remove Python `3.15t` (free-threaded) from the default test matrix.
-- Warn instead of crashing on unknown `[tool.repomatic]` configuration keys. Old repomatic versions encountering config from a newer release now log a warning and continue.
-- Add `repomatic update-docs` CLI command consolidating `sphinx-apidoc`, RST-to-MyST conversion, and `docs/docs_update.py` execution into a single orchestrated step. Projects using MyST-Parser get RST stubs automatically converted to markdown with `{eval-rst}` blocks.
+- Warn instead of crashing on unknown `[tool.repomatic]` configuration keys.
+- Echo `metadata` output to stderr when `--output` targets a file, so computed matrices stay visible in CI logs.
+- Add the `repomatic update-docs` command to run `sphinx-apidoc`, RST-to-MyST conversion, and `docs/docs_update.py` in one step.
 - Add `docs.apidoc-extra-args`, `docs.apidoc-exclude`, and `docs.update-script` configuration options.
-- Add `uses_myst` metadata property detecting MyST-Parser in Sphinx configuration.
-- Move `sync-uv-lock` job from `renovate.yaml` to `autofix.yaml`. The renovate workflow's path filter prevented the job from running on most pushes to `main`, leaving stale PRs with merge conflicts.
-- Fix CLI crash when `test-matrix.variations` or `test-matrix.replace` contain nested keys. Click-extra's generic config flattening was converting them to invalid field names. The CLI now routes config loading through `load_repomatic_config` which preserves the `test-matrix` sub-section structure.
+- Move the `sync-uv-lock` job from `renovate.yaml` to `autofix.yaml` so it runs on every push to `main`.
+- Fix a CLI crash when `test-matrix.variations` or `test-matrix.replace` contain nested keys.
 
 ## [`6.9.0` (2026-03-31)](https://github.com/kdeldycke/repomatic/compare/v6.8.0...v6.9.0)
 
 > [!NOTE]
 > `6.9.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.9.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.9.0).
 
-- Add per-project test matrix configuration via `[tool.repomatic.test-matrix]` in `pyproject.toml`. Supports `exclude`, `include`, and `variations` fields that map directly to the `Matrix` class API.
-- Replace `audit-deps` lint job with `fix-vulnerable-deps` autofix job. Creates PRs that upgrade affected packages using `uv lock --upgrade-package` with `--exclude-newer-package` bypass for security fixes.
-- Add `codecov` bundled component. Syncs `.github/codecov.yaml` to suppress PR comments unless coverage drops or the diff introduces uncovered lines.
-- Extend tool runner config resolution to support CWD-discovery tools (no `--config` flag). Bundled defaults are written to disk and cleaned up after invocation. Move mdformat `number` default to a bundled `mdformat.toml` so downstream repos can override via `[tool.mdformat]` or `.mdformat.toml`.
-- Replace dict-based config loading with click-extra's typed config resolution. `[tool.repomatic]` is auto-discovered from `pyproject.toml` and exposed as a typed `Config` dataclass via `get_tool_config()`. Rename `config` subcommand to `show-config` to resolve a naming conflict with click-extra's `--config` option.
-- Expand PAT validation in `lint-repo` and `check-renovate`. `lint-repo` gains repository scope check, tag ruleset detection, and workflows permission probe. `check-renovate` validates all PAT permissions (contents, issues, pull requests, vulnerability alerts, workflows) as warnings.
-- Auto-exclude `changelog.md` for awesome-list repositories and remove redundant `[tool.repomatic]` exclude entries from the awesome template. Refactor the component registry to support `scope`, `target`, and `config_key` fields, replacing hardcoded dispatch with a type-driven loop. `init` CLI help text is now auto-generated from the registry.
-- Remove `prebake-version` and `prebake-tag-sha` CLI commands. Use `click-extra prebake all`, `click-extra prebake version`, or `click-extra prebake field` instead. Rename `__tag_sha__` to `__git_tag_sha__` to align with click-extra's `git_*` naming convention.
+- **Breaking:** Rename the `config` subcommand to `show-config` (it now resolves typed `[tool.repomatic]` config via click-extra).
+- **Breaking:** Remove the `prebake-version` and `prebake-tag-sha` commands; use `click-extra prebake` instead.
+- Add per-project test matrix configuration via `[tool.repomatic.test-matrix]`, supporting `exclude`, `include`, and `variations`.
+- Replace the `audit-deps` lint job with a `fix-vulnerable-deps` autofix job that opens PRs upgrading vulnerable packages.
+- Add a `codecov` bundled component that syncs `.github/codecov.yaml` to suppress noisy PR comments.
+- Support tool-runner config for tools that discover config from the working directory rather than a `--config` flag.
+- Move the mdformat `number` default to a bundled `mdformat.toml` so downstream repos can override it.
+- Expand PAT validation in `lint-repo` and `check-renovate` with repository scope, tag ruleset, and permission checks.
+- Auto-exclude `changelog.md` for awesome-list repositories.
 - Migrate from `actions/attest-build-provenance` to `actions/attest`.
-- Rename `pr-metadata.md` template to `.md.noformat` extension to prevent mdformat from mangling the `$rerun_row` table-row placeholder.
-- Skip Codecov uploads on `sync-repomatic` PRs.
-- Unify PAT permission validation into `check_all_pat_permissions()` in `token.py`. `lint-repo`, `setup-guide`, and `check-renovate` all use the same code path. `setup-guide` now runs granular permission checks when the PAT is present and keeps the issue open with a diagnostic table when permissions are incomplete.
-- Fix `setup-guide` job: add missing `HAS_REPOMATIC_PAT` env var and remove upstream repo carve-out so PAT detection works everywhere.
-- Fix infinite cycle between `migrate-to-renovate` and `sync-repomatic` jobs.
+- Run granular PAT permission checks in `setup-guide`, keeping the issue open with a diagnostic table when permissions are incomplete.
+- Fix the `setup-guide` job so PAT detection works everywhere.
+- Fix an infinite cycle between the `migrate-to-renovate` and `sync-repomatic` jobs.
 - Include git stderr in `git-tag` CLI error messages.
 
 ## [`6.8.0` (2026-03-27)](https://github.com/kdeldycke/repomatic/compare/v6.7.0...v6.8.0)
@@ -377,235 +365,192 @@
 > [!NOTE]
 > `6.8.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.8.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.8.0).
 
-- Move test matrix definition from inline YAML to `repomatic metadata` using the `Matrix` class. The `tests` job now depends on the `metadata` job and consumes pre-computed `test_matrix` / `test_matrix_pr` outputs. Fixes the `matrix` context being unavailable in job-level `if:`.
-- Reduce CI jobs on pull requests by skipping release builds, experimental Python versions, redundant architecture variants, and install/architecture verification tests. Full matrix still runs on push to main.
-- Make `exclude` config additive to default exclusions (`labels`, `skills`). User `exclude` entries now add to the defaults instead of replacing them. Add `include` config to force-include components that are excluded by default.
-- Add `--delete-unmodified` flag to `repomatic init` to automatically remove config files identical to bundled defaults instead of only reporting them. Renamed from `--delete-redundant`.
-- Remove deprecated `WORKFLOW_UPDATE_GITHUB_PAT` secret and all backward-compatibility fallbacks. Downstream repos must use `REPOMATIC_PAT`.
-- Auto-exclude `awesome-triage` skill for non-awesome repositories. The skill is only relevant to `awesome-*` repos and was previously installed in all downstream projects.
-- Add `--delete-excluded` flag to `repomatic init` to remove excluded files that still exist on disk. Detects component-level exclusions, file-level exclusions, auto-excluded files (e.g., `awesome-triage` on non-awesome repos), and disabled opt-in workflows.
-- Replace `sync-workflows` and `clean-unmodified-configs` autofix jobs with a single `sync-repomatic` job. Runs `repomatic init --delete-unmodified --delete-excluded` to sync all managed files and clean up stale ones in one PR. Renamed from `clean-redundant-configs` and `--delete-redundant`.
-- Remove `PAT setup hint` steps and `HAS_REPOMATIC_PAT` env var from `autofix.yaml` and `changelog.yaml` workflows. The `setup-guide` job already creates an issue when the PAT is missing.
-- Add PAT capability checks and repo configuration validation to `lint-repo`. Checks Renovate config exists, Dependabot security updates disabled, and vulnerability alerts enabled. When `REPOMATIC_PAT` is configured, validates contents, issues, pull requests, Dependabot alerts, and commit statuses permissions. Add `REQUIRED_PAT_PERMISSIONS` constant in `token.py` as the single source of truth for expected permissions.
-- Add stale draft release detection to `lint-repo`. Warns about draft releases whose tag does not end with `.dev0`, which are leftovers from abandoned or failed release attempts.
-- Relax abandoned dependency threshold from 1 year to 2 years in Renovate config.
-- Fix thin-caller generation rendering `workflow_dispatch` input definitions as Python dict literals instead of block-style YAML.
-- Add `/sphinx-docs-sync` skill for cross-project Sphinx documentation comparison and synchronization.
-- Add `/translation-sync` skill to detect stale translations in `readme.*.md` and `contributing.*.md` files. Compares structure and content against the English source, flags drift, and drafts updated translations. Auto-excluded for non-awesome repos.
-- Streamline Dependabot guidance in setup guide issue. Clarify that Renovate handles security PRs and that `renovate.yaml` auto-removes `dependabot.yml`. Link Actions tab directly to the `autofix.yaml` workflow.
-- Allow `repomatic init` to accept qualified `component/file` selectors (e.g., `repomatic init skills/repomatic-topics`). Uses the same syntax as the `exclude` config option. Rename `parse_exclude` to `parse_component_entries` and `_valid_file_ids` to `valid_file_ids` to support the shared parsing path.
-- Only auto-include `awesome-template` component for `awesome-*` repos when no explicit components are given. Previously, `repomatic init skills/repomatic-topics` on an awesome repo would also sync all awesome-template files.
-- Stop persisting `[tool.ruff]` defaults into downstream `pyproject.toml`. Bundled ruff config is now injected at runtime via `--config` when no `[tool.ruff]`, `ruff.toml`, or `.ruff.toml` exists. Remove the `repomatic init ruff` step from the `format-python` workflow job.
-- Add package version diff table to `sync-uv-lock` PRs. Lists updated, added, and removed packages with their old and new versions. Package names link to PyPI. Shows release date and `exclude-newer` cutoff for visual verification. Includes collapsible release notes fetched from GitHub Releases.
-- Document file naming conventions in `claude.md`: prefer `.yaml` over `.yml` and lowercase filenames everywhere, with a table of GitHub exceptions that require `.yml` or uppercase.
+- **Breaking:** Rename `repomatic init --delete-redundant` to `--delete-unmodified`, which now also removes config files identical to bundled defaults.
+- **Breaking:** Remove the deprecated `WORKFLOW_UPDATE_GITHUB_PAT` secret and its fallbacks; downstream repos must use `REPOMATIC_PAT`.
+- **Breaking:** Stop persisting `[tool.ruff]` defaults into downstream `pyproject.toml`; bundled ruff config is now injected at runtime when none exists.
+- **Breaking:** Remove the `sync-renovate` command, autofix job, `renovate.sync` config toggle, and PR body template; `sync-repomatic` and runtime materialization replace them.
+- **Breaking:** Merge `/repomatic-deps-review` into `/repomatic-deps`, which now supports `graph` and `review` modes.
+- Move the test matrix definition into `repomatic metadata` so it is available in job-level `if:` conditions.
+- Reduce CI jobs on pull requests by skipping release builds, experimental Python versions, and redundant verification tests; the full matrix still runs on push to `main`.
+- Make `exclude` config additive to the default exclusions (`labels`, `skills`), and add an `include` config to force-include default-excluded components.
+- Auto-exclude the `awesome-triage` skill for non-awesome repositories.
+- Add `--delete-excluded` to `repomatic init` to remove excluded files that still exist on disk.
+- Replace the `sync-workflows` and `clean-unmodified-configs` autofix jobs with a single `sync-repomatic` job that syncs and prunes managed files in one PR.
+- Add PAT capability and repo configuration checks to `lint-repo` (Renovate config, Dependabot security updates off, vulnerability alerts on, PAT permissions).
+- Add stale draft release detection to `lint-repo`, warning about draft releases whose tag does not end with `.dev0`.
+- Relax the abandoned-dependency threshold from 1 year to 2 years in the Renovate config.
+- Fix thin-caller generation rendering `workflow_dispatch` inputs as Python dicts instead of YAML.
+- Add the `/sphinx-docs-sync` skill for cross-project Sphinx documentation comparison and synchronization.
+- Add the `/translation-sync` skill to detect and draft fixes for stale `readme.*.md` and `contributing.*.md` translations; auto-excluded for non-awesome repos.
+- Streamline Dependabot guidance in the setup-guide issue.
+- Allow `repomatic init` to accept qualified `component/file` selectors (like `repomatic init skills/repomatic-topics`).
+- Only auto-include the `awesome-template` component for `awesome-*` repos when no explicit components are given.
+- Add a package version diff table to `sync-uv-lock` PRs, listing updated, added, and removed packages with PyPI links and collapsible release notes.
+- Document file naming conventions in `claude.md`: prefer `.yaml` over `.yml` and lowercase filenames, with a table of GitHub exceptions.
 - Fix awesome-template URL rewriting to also process `.yml` files in `.github/`.
-- Auto-exclude `changelog.yaml`, `debug.yaml`, and `release.yaml` workflows for `awesome-*` repositories. These package-oriented workflows are irrelevant to curated lists.
-- Materialize bundled `renovate.json5` at runtime in the Renovate workflow when the file is absent. Downstream repos can safely delete their `renovate.json5` via `clean-redundant-configs` without breaking Renovate runs.
-- Remove `sync-renovate` CLI command, autofix job, `renovate.sync` config toggle, and PR body template. The `sync-repomatic` job (via `repomatic init --delete-redundant`) already handles Renovate config sync, and the Renovate workflow now materializes the bundled default at runtime when the file is absent.
-- Remove `sync-bundled-config` job from `renovate.yaml`. The bundled `repomatic/data/renovate.json5` is now regenerated by `repomatic init` when it detects it's running in the source repository, folded into the `sync-repomatic` autofix job.
-- Remove upstream exclusion from `sync-repomatic` job. The upstream repo's `[tool.repomatic] exclude = ["workflows"]` prevents thin-caller generation, while `repomatic init` handles the bundled renovate config regeneration.
-- Pin GitHub Actions to SHA digests via Renovate's `helpers:pinGitHubActionDigestsToSemver` preset. Prevents supply chain attacks from mutable tags while keeping automated version updates.
-- Add top-level `permissions: {}` to all workflow files. Denies all `GITHUB_TOKEN` permissions by default, requiring each job to declare its own minimal permissions explicitly.
-- Merge `/repomatic-deps-review` into `/repomatic-deps`. The unified skill now supports two modes: `graph` (dependency tree visualization, previously the only mode) and `review` (declaration audit against version policy). Also checks for stale `exclude-newer-package` cooldown exceptions in `[tool.uv]`.
-- Consolidate 12+ scattered init constants into a declarative component registry (`repomatic/registry.py`). Each component declares its kind, init default, file entries, and behavioral flags in one place. All derived constants (`ALL_COMPONENTS`, `COMPONENT_FILES`, `REUSABLE_WORKFLOWS`, `SKILL_PHASES`, etc.) are computed from the registry.
-- Fix `sync-repomatic` deleting the upstream repo's own skills. The source repo guard only covered auto-exclusions, not default exclusions (`labels`, `skills`).
-- Rename "redundant" terminology to "unmodified" across the CLI, output, and codebase. `--delete-redundant` becomes `--delete-unmodified`, `clean-redundant-configs` becomes `clean-unmodified-configs`.
-- Generalize `opt_in_key` into `config_key`/`config_default` on both `FileEntry` and `Component`. Replace the procedural `awesome-template.sync` check with a registry declaration.
+- Auto-exclude the `changelog.yaml`, `debug.yaml`, and `release.yaml` workflows for `awesome-*` repositories.
+- Materialize the bundled `renovate.json5` at runtime when absent, so downstream repos can safely delete their own copy.
+- Pin GitHub Actions to SHA digests via Renovate's `helpers:pinGitHubActionDigestsToSemver` preset.
+- Add top-level `permissions: {}` to all workflow files, requiring each job to declare its own minimal permissions.
+- Fix `sync-repomatic` deleting the upstream repo's own skills.
+- Generalize the `opt_in_key` config option into `config_key`/`config_default`.
 
 ## [`6.7.0` (2026-03-24)](https://github.com/kdeldycke/repomatic/compare/v6.6.0...v6.7.0)
 
 > [!NOTE]
 > `6.7.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.7.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.7.0).
 
-- Bundle awesome-template boilerplate files in `repomatic` instead of cloning from `kdeldycke/awesome-template` at runtime.
-- Add `pyproject_files` metadata key listing all `pyproject.toml` files. The `format-pyproject` job now formats all of them instead of only the root file.
-- Remove `sync-skills`, `workflow create`, and `workflow sync` CLI commands. All three are superseded by `repomatic init` which handles skills, thin-caller generation, and header-only sync in a single invocation.
-- Add branch protection checklist to the setup guide issue. Links to a pre-filled ruleset creation form targeting the default branch with force-push and deletion protection.
-- Add `unsubscribe.yaml` reusable workflow for scheduled cleanup of closed notification threads. Opt-in via `notification.unsubscribe = true` in `[tool.repomatic]`. Requires a classic PAT with `notifications` scope stored as `REPOMATIC_NOTIFICATIONS_PAT`. Introduce `OPT_IN_WORKFLOWS` mechanism for workflows that are excluded from thin-caller generation unless explicitly enabled.
-- Surface actual `gh` CLI error messages in `unsubscribe-threads` warnings. Previously, `RuntimeError` details from failed API calls were discarded, making Phase 1 REST failures impossible to diagnose from CI logs.
-- Enable `delete-branch: true` on all `peter-evans/create-pull-request` invocations. Stale automation PRs are now auto-closed when a subsequent workflow run finds no changes to commit.
-- Add `gitleaks` to the tool runner registry with binary download support and `[tool.gitleaks]` configuration bridge. Migrate `lint-secrets` workflow job from `gitleaks/gitleaks-action` to `repomatic run gitleaks`.
-- Move lychee config from `lychee.toml` to `[tool.lychee]` in `pyproject.toml`. The tool runner's TOML bridge translates it to a native config file at runtime. Downstream repos with a standalone `lychee.toml` can do the same.
-- Fix `format-images` job failing because `oxipng` is not packaged in Ubuntu. Install from the GitHub release `.deb` instead, allowing the job to run on `ubuntu-slim`.
+- **Breaking:** Remove the `sync-skills`, `workflow create`, and `workflow sync` commands; `repomatic init` handles all three.
+- Bundle awesome-template boilerplate files in `repomatic` instead of cloning `kdeldycke/awesome-template` at runtime.
+- Format every `pyproject.toml` in the repo in the `format-pyproject` job, not just the root file.
+- Add a branch protection checklist to the setup-guide issue, linking to a pre-filled ruleset creation form.
+- Add an opt-in `unsubscribe.yaml` reusable workflow for scheduled cleanup of closed notification threads, enabled via `notification.unsubscribe = true` and requiring `REPOMATIC_NOTIFICATIONS_PAT`.
+- Surface actual `gh` CLI error messages in `unsubscribe-threads` warnings.
+- Enable `delete-branch: true` on all `peter-evans/create-pull-request` invocations so stale automation PRs auto-close.
+- Add `gitleaks` to the tool runner with binary download and `[tool.gitleaks]` config bridge, and migrate `lint-secrets` to `repomatic run gitleaks`.
+- Move lychee config from `lychee.toml` to `[tool.lychee]` in `pyproject.toml`.
+- Fix the `format-images` job by installing `oxipng` from its GitHub release `.deb` so it runs on `ubuntu-slim`.
 
 ## [`6.6.0` (2026-03-23)](https://github.com/kdeldycke/repomatic/compare/v6.5.0...v6.6.0)
 
 > [!NOTE]
 > `6.6.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.6.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.6.0).
 
-- Remove `yamllint` and `zizmor` init components. The tool runner already falls back to bundled default configs at runtime, so copying them into downstream repos was redundant. Default `exclude` reduced to `["labels", "skills"]`. Downstream repos with `yamllint` or `zizmor` in their `[tool.repomatic] exclude` list must remove those entries.
-- Add `repomatic clean-redundant-configs` command and autofix workflow job. Detects native config files (`.yamllint.yaml`, `zizmor.yaml`, etc.) that are identical to bundled defaults and removes them. `repomatic init` now warns about redundant configs found on disk.
-- Rename `WORKFLOW_UPDATE_GITHUB_PAT` secret to `REPOMATIC_PAT`. Workflows accept both names for backward compatibility. Downstream repos with the old name get a migration issue prompting them to rename; the issue closes automatically once `REPOMATIC_PAT` is detected. Add `setup-guide` config toggle to `[tool.repomatic]` to suppress the setup guide issue entirely. Pre-fill the fine-grained PAT creation form via URL parameters and provide `gh` CLI commands for adding the secret, configuring Dependabot, and triggering a verify run. Skip the immutable releases setup step for repositories without a `changelog.md`.
-- Close orphaned setup guide issues that still reference the old `WORKFLOW_UPDATE_GITHUB_PAT` title. The title change to `REPOMATIC_PAT` made old issues invisible to the exact-title matching in `manage_issue_lifecycle`.
-- Add `lint-repo` check that warns when the repository owner has GitHub Sponsors enabled but `.github/FUNDING.yml` is missing. Skips forks and owners without a Sponsors listing.
-- Drop `--aggressive` from autopep8 flags. It naively wraps lines inside f-string expressions, producing Python 3.12+-only syntax (PEP 701) that breaks on Python 3.10/3.11.
-- Surface actual `gh` CLI error messages in `unsubscribe-threads` warnings. Previously, `RuntimeError` details from failed API calls were discarded, making Phase 1 REST failures impossible to diagnose from CI logs.
+- **Breaking:** downstream repos with `yamllint` or `zizmor` in their `[tool.repomatic] exclude` list must remove those entries.
+- Remove `yamllint` and `zizmor` init components; the tool runner falls back to bundled default configs at runtime. Default `exclude` is now `["labels", "skills"]`.
+- Add `repomatic clean-redundant-configs` command and autofix job that removes native config files identical to bundled defaults; `repomatic init` warns about redundant configs on disk.
+- Rename the `WORKFLOW_UPDATE_GITHUB_PAT` secret to `REPOMATIC_PAT`; workflows accept both names. Old-name repos get a migration issue that auto-closes once `REPOMATIC_PAT` is detected.
+- Add a `setup-guide` toggle to `[tool.repomatic]` to suppress the setup guide issue.
+- Pre-fill the fine-grained PAT creation form via URL and provide `gh` CLI commands for adding the secret, configuring Dependabot, and triggering a verify run.
+- Add a `lint-repo` check that warns when the owner has GitHub Sponsors enabled but `.github/FUNDING.yml` is missing.
 
 ## [`6.5.0` (2026-03-23)](https://github.com/kdeldycke/repomatic/compare/v6.4.1...v6.5.0)
 
 > [!NOTE]
 > `6.5.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.5.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.5.0).
 
-- Replace `init.exclude` and `workflow.sync-exclude` config keys with a unified `exclude` key. Bare names exclude entire components (e.g., `"skills"`); qualified `component/identifier` entries exclude specific files (e.g., `"workflows/debug.yaml"`, `"skills/repomatic-audit"`, `"labels/labeller-content-based.yaml"`). Old keys are no longer recognized and will produce a hard error.
-- Remove legacy `[tool.gha-utils]` and `[tool.repokit]` config section migration. Projects still using old section names must manually rename to `[tool.repomatic]`.
-- Remove automatic cleanup of legacy `.github/zizmor.{yml,yaml}` files and `.claude/skills/gha-*/` directories during init.
-- Add `repomatic run <tool>` command for unified tool invocation with managed config resolution. Resolves config through a 4-level precedence chain: native config file, `[tool.X]` in `pyproject.toml`, bundled default, bare invocation. Use `--list` to see all managed tools and their active config source.
-- Add `yamllint` init component with bundled default config (`data/yamllint.yaml`). Excluded from init by default like `zizmor`.
-- Add 13 tools to the `repomatic run` registry: actionlint, autopep8, biome, bump-my-version, labelmaker, lychee, mdformat, mypy, pyproject-fmt, ruff, typos, yamllint, zizmor. Includes `computed_params` support for tools that derive CLI args from project metadata (e.g., mypy's `--python-version` from `requires-python`).
-- Add binary download infrastructure for tools distributed as platform binaries (actionlint, biome, labelmaker, lychee, typos). Downloads are SHA-256 verified with streaming checksums. `sync-labels` downloads labelmaker on-demand via `binary_tool_context()`.
-- Migrate all workflow tool invocations to `repomatic run`, removing `uv tool install`, `curl`/`sha256sum`/`tar` install steps, and inline version pins from workflow YAML.
-- Add `repomatic update-checksums --registry` to update SHA-256 hashes in the tool runner registry.
-- Update Renovate custom managers to target the tool runner registry for binary tool versions.
-- Add TOML and JSON serialization for `[tool.X]` config translation. Downstream repos can now configure lychee via `[tool.lychee]` and biome via `[tool.biome]` in `pyproject.toml` without creating separate config files.
+- **Breaking:** the old `init.exclude` and `workflow.sync-exclude` keys are no longer recognized and raise a hard error.
+- **Breaking:** remove legacy `[tool.gha-utils]` and `[tool.repokit]` config migration; rename old sections to `[tool.repomatic]` manually.
+- Replace `init.exclude` and `workflow.sync-exclude` with a unified `exclude` key: bare names exclude whole components, `component/identifier` entries exclude specific files.
+- Add `repomatic run <tool>` for unified tool invocation with managed config resolution (native file, `[tool.X]`, bundled default, bare); use `--list` to see managed tools and their active config source.
+- Register actionlint, autopep8, biome, bump-my-version, labelmaker, lychee, mdformat, mypy, pyproject-fmt, ruff, typos, yamllint, and zizmor with `repomatic run`, and migrate all workflow tool invocations to it.
+- Add a `yamllint` init component, excluded from init by default like `zizmor`.
+- Add `repomatic update-checksums --registry` to refresh SHA-256 hashes for binary tools.
+- Add `[tool.lychee]` and `[tool.biome]` config translation, so downstream repos can configure lychee and biome from `pyproject.toml` without separate config files.
 
 ## [`6.4.1` (2026-03-11)](https://github.com/kdeldycke/repomatic/compare/v6.4.0...v6.4.1)
 
 > [!NOTE]
 > `6.4.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.4.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.4.1).
 
-- Add `github-json` output dialect for `repomatic metadata`. Bundles all metadata keys into a single `metadata` JSON output, eliminating manual per-key `outputs:` declarations in GitHub Actions workflows. Downstream jobs access values via `fromJSON(needs.metadata.outputs.metadata).key_name`.
-- Migrate all workflow `metadata` jobs to `--format github-json` with explicit key filtering, reducing each job's `outputs:` section to a single static line.
-- Rename `project-metadata` job and step IDs to `metadata` in all workflows, shortening downstream expressions.
-- Add key filtering to `repomatic metadata`. Pass key names as arguments to output only specific metadata values.
-- Add `--list-keys` flag to `repomatic metadata` to display all available keys with descriptions.
-- Rename `linters` init component to `zizmor`. Default `init.exclude` updated to `["labels", "skills", "zizmor"]`.
-- Remove `sync-zizmor` autofix job, CLI command, and `zizmor.sync` config toggle. `zizmor.yaml` is now user-owned: `repomatic init zizmor` creates a default if missing, the lint workflow generates an ephemeral default at CI time, and downstream repos have full control of their config without overwrite.
-- Rename `bump-versions` job to `bump-version` in `changelog.yaml`, matching the PR body template name.
-- Upgrade zizmor from `1.22.0` to `1.23.0`. Re-enable the `template-injection` audit now that the multiline expression crash is fixed upstream ([zizmor#1669](https://github.com/zizmorcore/zizmor/issues/1669)).
-- Fix `github-json` metadata dialect serializing list values as JSON arrays. GitHub Actions stringifies arrays as the literal word "Array" when interpolated in `${{ }}` expressions, breaking jobs that pass file lists, `cli_scripts`, or `build_targets` to shell commands or environment variables. All list/tuple metadata values are now pre-formatted via `format_github_value()`: file lists become space-separated quoted strings, plain string lists become space-separated unquoted strings, and dict lists become JSON strings (enabling the double `fromJSON()` pattern for matrix inclusion).
-- Fix YAML line-length violation in `docs.yaml` workflow template.
-- Fix `repomatic workflow sync --format header-only` failing when a target workflow file does not exist in the downstream repo. Missing files in the default set are now silently filtered out, and explicitly named missing files produce a warning instead of an error.
-- Remove unused `pytest-cases` test dependency.
-- Add `pytest-xdist` test dependency and enable parallel test execution by default via `--numprocesses=auto` in `addopts`.
+- Add a `github-json` output dialect to `repomatic metadata` that bundles all keys into a single `metadata` output, accessed via `fromJSON(needs.metadata.outputs.metadata).key_name`.
+- Add key filtering to `repomatic metadata`: pass key names as arguments to output only those values.
+- Add a `--list-keys` flag to `repomatic metadata` to list all available keys with descriptions.
+- Rename the `project-metadata` job and step IDs to `metadata` across all workflows.
+- Rename the `linters` init component to `zizmor`; default `init.exclude` is now `["labels", "skills", "zizmor"]`.
+- Remove the `sync-zizmor` job, CLI command, and `zizmor.sync` toggle; `zizmor.yaml` is now user-owned and created by `repomatic init zizmor` if missing.
+- Rename the `bump-versions` job to `bump-version` in `changelog.yaml`.
+- Upgrade zizmor to `1.23.0` and re-enable the `template-injection` audit.
+- Fix `repomatic metadata` list values breaking GitHub Actions `${{ }}` interpolation: lists are now pre-formatted (file lists as quoted strings, plain lists space-separated, dict lists as JSON).
+- Fix `repomatic workflow sync --format header-only` erroring when a target workflow file is absent downstream; missing default files are skipped and named missing files warn instead.
+- Enable parallel test execution by default via `--numprocesses=auto`.
 
 ## [`6.4.0` (2026-03-10)](https://github.com/kdeldycke/repomatic/compare/v6.3.2...v6.4.0)
 
 > [!NOTE]
 > `6.4.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.4.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.4.0).
 
-- Rename `optimize-images` to `format-images`. Image lossless optimization is a format operation (semantics-preserving rewrite using external tools), aligning it with the `format-*` naming convention.
-- Add `format-images` PR body template and use `--template format-images` in the workflow, aligning with the standard format job pattern.
-- Allow `--prefix` and `--template` to be combined in `repomatic pr-body`. When both are given, the prefix is prepended before the rendered template content.
-- Add `uv-lock-sync` toggle to `[tool.repomatic]`. Projects can now disable `sync-uv-lock` by setting `uv-lock-sync = false`.
-- Add `dev-release-sync` toggle to `[tool.repomatic]`. Projects can now disable `sync-dev-release` by setting `dev-release-sync = false`.
-- Rename `sync-linter-configs` to `sync-zizmor` and `linter-sync` toggle to `zizmor-sync`. Sync jobs are named after the specific tool they sync, not a generic category.
-- Add `awesome-template-sync`, `bumpversion-sync`, `gitignore-sync`, `labels-sync`, `zizmor-sync`, and `mailmap-sync` toggles to `[tool.repomatic]`. All sync operations can now be individually disabled.
-- Add `repomatic sync-labels` CLI command wrapping `labelmaker` invocation with toggle check, profile detection, and extra label file handling.
-- Replace `AndreasAugustin/actions-template-sync` with native `repomatic sync-awesome-template` CLI command. Removes a third-party action dependency and aligns the job with the standard sync pattern.
-- Centralize all CI context reads (repository slug, server URL, SHA, run ID, actor, etc.) into `Metadata` cached properties. Modules no longer read `GITHUB_*` environment variables directly.
-- Remove `--include-package-data=extra_platforms` from Nuitka extra args. `extra-platforms` 11.0.0 has no non-Python data files — all `*_data` modules are regular imports traced by Nuitka automatically.
-- Make `Metadata` a singleton: every `Metadata()` call returns the same instance within a process, eliminating redundant instantiation across the codebase.
-- Remove `get_repo_slug()` from `gh.py` in favor of `Metadata.repo_slug`.
-- Skip `init ruff` config injection in `format-python` job for non-Python projects. Doc-only repos use Ruff for code-block formatting without needing a `[tool.ruff]` section.
-- Add `repomatic init typos` to sync shared typos spell checker configuration into `pyproject.toml`. Includes proper noun corrections and `<!-- typos:off -->` / `<!-- typos:on -->` block markers for section-level suppression.
-- Use TOML sub-keys for all grouped options in `[tool.repomatic]`. Fields sharing a feature area are now nested under a common prefix (e.g., `nuitka.enabled`, `gitignore.location`, `test-plan.file`, `labels.extra-files`, `workflow.sync-exclude`). Only `pypi-package-history` remains flat.
-- Add `workflow-source-paths` option to `[tool.repomatic]`. Thin-caller and header-only workflows now include `paths:` filters adapted for the downstream project's source directory, reducing unnecessary CI runs. Auto-derived from `[project.name]` when not explicitly configured.
-- Add `repomatic config` command that renders the `[tool.repomatic]` configuration reference table from `Config` dataclass docstrings.
-- Add `### Configuration` sections to PR body templates listing relevant `[tool.repomatic]` options.
+- Rename `optimize-images` to `format-images`, aligning it with the `format-*` naming convention, and add a matching PR body template.
+- Allow `--prefix` and `--template` to be combined in `repomatic pr-body`; the prefix is prepended before the rendered template.
+- Add `awesome-template-sync`, `bumpversion-sync`, `dev-release-sync`, `gitignore-sync`, `labels-sync`, `mailmap-sync`, `uv-lock-sync`, and `zizmor-sync` toggles to `[tool.repomatic]`, so each sync operation can be individually disabled.
+- Rename `sync-linter-configs` to `sync-zizmor` (and `linter-sync` to `zizmor-sync`), naming the sync job after the tool it syncs.
+- Add a `repomatic sync-labels` command wrapping `labelmaker` with toggle check, profile detection, and extra label file handling.
+- Replace `AndreasAugustin/actions-template-sync` with a native `repomatic sync-awesome-template` command.
+- Add `repomatic init typos` to sync the shared typos spell-checker config into `pyproject.toml`, with proper-noun corrections and `<!-- typos:off -->` / `<!-- typos:on -->` block markers.
+- Skip Ruff config injection in `format-python` for non-Python projects, and skip `sync-bumpversion` for non-Python projects.
+- Use TOML sub-keys for grouped `[tool.repomatic]` options (like `nuitka.enabled`, `gitignore.location`, `test-plan.file`); only `pypi-package-history` stays flat.
+- Add a `workflow-source-paths` option to `[tool.repomatic]`: thin-caller and header-only workflows gain `paths:` filters for the project's source directory, auto-derived from `[project.name]`.
+- Add a `repomatic config` command that renders the `[tool.repomatic]` reference table.
+- Add `### Configuration` sections to PR body templates listing the relevant `[tool.repomatic]` options.
 
 ## [`6.3.2` (2026-03-08)](https://github.com/kdeldycke/repomatic/compare/v6.3.1...v6.3.2)
 
 > [!NOTE]
 > `6.3.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.2/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.3.2).
 
-- Add `--all-extras` to the `uv sync` step in `tests.yaml` to catch incompatibilities between optional dependency groups. No-op for projects with no extras.
-- Add `test-package-install` job to `tests.yaml`: verifies all `[project.scripts]` entry points install and run correctly via `uvx`, `uv run --with`, module invocation, `uv tool install`, and `pipx run`, from both PyPI and GitHub. Runs once on a single stable OS/Python instead of repeating across the full matrix. Add `cli_scripts` output to `repomatic metadata`.
-- Sync `customManagers` to downstream `renovate.json5` so Renovate can update inline version pins in workflow files (Python packages in `uvx`/`uv pip` commands, binary tool versions in download URLs, npm packages). Only the self-referencing uv entry (which targets `renovate.json5` itself) is excluded to prevent an endless sync loop.
-- Fix `generate_thin_caller()` stripping `paths` and `paths-ignore` filters from generated thin callers. Canonical workflow paths reference the repomatic source tree and would incorrectly restrict CI triggers in downstream repos.
-- Auto-remove legacy `.github/zizmor.yml` and `.github/zizmor.yaml` during `repomatic init` and `sync-linter-configs`, completing the migration to root-level `zizmor.yaml`.
-- Fix `optimize-images` job failing on `ubuntu-slim` because `oxipng` is not available there.
-- Add `date-released` update entry for `citation.cff` to the bundled `bumpversion.toml` template so downstream repos keep their release date in sync during version bumps.
-- Reduce PR noise with more specific uv version package update regex.
-- Skip `sync-bumpversion` job for non-Python projects by gating on `is_python_project` metadata.
+- Add `--all-extras` to the `uv sync` step in `tests.yaml` to catch incompatibilities between optional dependency groups.
+- Add a `test-package-install` job to `tests.yaml` that verifies every `[project.scripts]` entry point installs and runs via `uvx`, `uv run --with`, module invocation, `uv tool install`, and `pipx run`, from PyPI and GitHub. Add a `cli_scripts` metadata output.
+- Sync `customManagers` to downstream `renovate.json5` so Renovate can update inline version pins in workflow files.
+- Fix thin-caller generation stripping `paths` and `paths-ignore` filters, which incorrectly restricted CI triggers downstream.
+- Fix the `optimize-images` job failing on `ubuntu-slim` where `oxipng` is unavailable.
+- Add a `citation.cff` `date-released` update to the bundled `bumpversion.toml` template so downstream repos keep their release date in sync on version bumps.
 
 ## [`6.3.1` (2026-03-07)](https://github.com/kdeldycke/repomatic/compare/v6.3.0...v6.3.1)
 
 > [!NOTE]
 > `6.3.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.3.1).
 
-- Register `repomatic-audit` skill in `COMPONENT_FILES`, data symlinks, and `_SKILL_PHASES` so it syncs to downstream repos.
-- Remove stale `repomatic-metadata` entry from `_SKILL_PHASES`.
-- Add `test_skills_consistency` test to catch mismatches between `.claude/skills/` directories and their registrations in code.
+- Sync the `repomatic-audit` skill to downstream repos.
 
 ## [`6.3.0` (2026-03-06)](https://github.com/kdeldycke/repomatic/compare/v6.2.1...v6.3.0)
 
 > [!NOTE]
 > `6.3.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.3.0).
 
-- Make `repomatic init` always overwrite managed files (workflows, configs, skills) by default. Remove the `--overwrite` flag. `changelog.md` is never overwritten once it exists.
-- Remove `extend-include` for Markdown files now that ruff 0.15.5 discovers `*.md` by default in preview mode.
-- Use short SHA in release workflow job names instead of the full 40-character commit hash.
-- Make `repomatic init` output contextual: distinguish created vs updated vs skipped files, warn about excluded files still on disk, and simplify next steps to point to the `setup-guide` workflow.
-- Auto-remove legacy `.claude/skills/gha-*/` skill directories during `repomatic init`, completing the `gha-utils` → `repomatic` rename migration.
-- Make `sync-bumpversion`, `sync-linter-configs`, and `sync-skills` CLI commands report both created and updated files.
-- Fix all new ruff `0.15.5` preview violations.
-- Add `LOG015` to ruff ignore list: root logger calls (`logging.info()`, etc.) are intentional since the CLI configures the root logger via Click.
-- Refactor `sync-bumpversion` to replace the entire `[tool.bumpversion]` section from the bundled template instead of applying incremental migrations. Remove legacy backtick migration code.
-- Add parametrized sync tests to catch drift between all bundled data files and repomatic's own config: template TOML settings vs `pyproject.toml` (ruff, mypy, pytest, bumpversion), zizmor vs root config, and a loadability check for all registered data files (no dangling symlinks).
+- `repomatic init` now always overwrites managed files (workflows, configs, skills) by default; remove the `--overwrite` flag. `changelog.md` is never overwritten once it exists.
+- `repomatic init` output now distinguishes created, updated, and skipped files, and warns about excluded files still on disk.
+- Auto-remove legacy `.claude/skills/gha-*/` skill directories during `repomatic init`, completing the `gha-utils` to `repomatic` rename.
+- `sync-bumpversion`, `sync-linter-configs`, and `sync-skills` now report both created and updated files.
+- `sync-bumpversion` now replaces the whole `[tool.bumpversion]` section from the bundled template instead of applying incremental migrations.
+- Use the short SHA in release workflow job names instead of the full commit hash.
 
 ## [`6.2.1` (2026-03-06)](https://github.com/kdeldycke/repomatic/compare/v6.2.0...v6.2.1)
 
 > [!NOTE]
 > `6.2.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.2.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.2.1).
 
-- Fix `actions/checkout` wiping downloaded Python package artifacts (`.whl`, `.tar.gz`) before `gh release create` could attach them. Move checkout before artifact download so the release draft includes the Python distribution files.
-- Fix `fix-changelog` marking releases as "not available on GitHub" when the GitHub release is still a draft. Move the job from `autofix.yaml` to `changelog.yaml` which has a `workflow_run` trigger that fires after "Build & release" completes, when the release is published and visible to the public API.
+- Fix `actions/checkout` wiping downloaded Python package artifacts before `gh release create` could attach them, so release drafts now include the distribution files.
+- Fix `fix-changelog` marking releases as not available on GitHub while the release was still a draft.
 
 ## [`6.2.0` (2026-03-05)](https://github.com/kdeldycke/repomatic/compare/v6.1.0...v6.2.0)
 
 > [!NOTE]
 > `6.2.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.2.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.2.0).
 
-- Extract hand-written GFM alert blocks (editorial admonitions) from changelog entries.
-- Fix Nuitka-compiled binaries silently producing no output when the entry point is a `__main__.py` inside a package. Auto-detect this pattern and pass the package directory with `--python-flag=-m` instead of the file path.
-- Consolidate documentation.
-- Trim verbose workflow YAML comments that are now documented in Python code, replacing them with brief pointers to the relevant module.
-- Add knowledge placement guide to `CLAUDE.md` with audience-based routing table and YAML→Python distillation pattern.
-- Add misplaced knowledge detection to QA agent checklists.
+- Add the `repomatic optimize-images` CLI command (lossless `oxipng` for PNG, `jpegoptim` for JPEG), replacing `calibreapp/image-actions`.
+- Add the `sync-dev-release` CLI command and workflow job to maintain a rolling dev pre-release on GitHub with the latest binaries and Python package.
+- Add the `repomatic-topics` skill for optimizing GitHub repository topics for discoverability.
+- Add a `lint-repo` check that warns when GitHub topics are not a subset of `pyproject.toml` keywords.
+- Add the `init-exclude` config option to skip components during `repomatic init`, defaulting to `["labels", "linters", "skills"]`; `workflow-sync-exclude` now also applies to `repomatic init`.
 - Add `rename-from` rules to migrate all 9 default GitHub labels.
-- Add `init-exclude` config option to skip components during `repomatic init`. Extend `workflow-sync-exclude` to also apply to `repomatic init` workflows. Default `init-exclude` to `["labels", "linters", "skills"]` since these files are regenerated by workflows at execution time.
-- Pre-compute availability admonition in `release_notes_with_admonition` metadata output so GitHub releases include PyPI and GitHub links at creation time, without waiting for the `fix-changelog` + `sync-github-releases` round-trip.
-- Support GitHub immutable releases by restructuring the release workflow to draft-then-publish.
-- Add `repomatic-topics` skill for optimizing GitHub repository topics for discoverability.
-- Add `lint-repo` check that warns when GitHub topics are not a subset of `pyproject.toml` keywords.
-- Replace `calibreapp/image-actions` with `repomatic optimize-images` CLI command using lossless `oxipng` (PNG) and `jpegoptim` (JPEG). Exclude WebP and AVIF for lack of stability.
-- Use GFM admonitions (`> [!WARNING]`) instead of emoji-prefixed blockquotes in the setup guide template.
-- Add `sync-dev-release` CLI command and workflow job to maintain a rolling dev pre-release on GitHub with latest binaries and Python package.
-- Create dev pre-releases as drafts to stay compatible with GitHub immutable releases. Clean up all stale `.dev0` releases on each sync, not just the current version's.
-- Preserve dev release assets (compiled binaries) across documentation-only pushes by editing the existing release instead of deleting and recreating it.
-- Automatically migrate `[tool.gha-utils]` and `[tool.repokit]` config sections to `[tool.repomatic]` during `repomatic init`. All commands fall back to legacy section names when `[tool.repomatic]` is absent.
-- Add version to compiled binary filenames (`repomatic-6.2.0-linux-arm64.bin` instead of `repomatic-linux-arm64.bin`), matching Python package naming conventions.
-- Freeze readme binary download URLs during releases, replacing `/releases/latest/download/` with versioned `/releases/download/vX.Y.Z/` paths.
-- Replace `softprops/action-gh-release` with `gh release create` in the release workflow. All release operations now use the `gh` CLI.
-- Move dev release asset upload from shell script into `sync-dev-release` CLI command with `--upload-assets` option, replacing the workflow's inline script.
-- Fix `update-checksums` skipping multi-line `echo ... \` + `| sha256sum --check` patterns where the hash and `sha256sum` keyword are on different lines. This caused Renovate `postUpgradeTasks` to silently leave stale SHA-256 hashes after version bumps.
-- Force native ARM64 Python on Windows ARM64 test runners via `UV_PYTHON` to work around [uv defaulting to x86_64 emulation](https://github.com/astral-sh/uv/issues/12906). Fixes `test-results-parser` (from `codecov-cli`) failing to compile its Rust extension under cross-architecture emulation.
-- Fix `skip_binary_build` test expecting `False` in CI push events where only non-binary-affecting files changed.
-- Fix `fix-changelog` and `freeze_file` producing a trailing blank line when the last changelog section is modified. Both write sites now normalize to exactly one trailing newline.
+- Add the package version to compiled binary filenames (`repomatic-6.2.0-linux-arm64.bin`).
+- Automatically migrate `[tool.gha-utils]` and `[tool.repokit]` config sections to `[tool.repomatic]` during `repomatic init`; commands fall back to legacy section names when `[tool.repomatic]` is absent.
+- Support GitHub immutable releases by drafting releases then publishing them.
+- Replace `softprops/action-gh-release` with `gh release create`; all release operations now use the `gh` CLI.
+- Freeze readme binary download URLs to versioned `/releases/download/vX.Y.Z/` paths during releases.
+- GitHub releases now include PyPI and GitHub availability links at creation time.
+- Fix Nuitka-compiled binaries silently producing no output when the entry point is a `__main__.py` inside a package.
+- Fix `update-checksums` leaving stale SHA-256 hashes when the hash and `sha256sum --check` keyword span multiple lines.
+- Fix Windows ARM64 test runners using x86_64 emulation by forcing native ARM64 Python via `UV_PYTHON`.
+- Fix `fix-changelog` producing a trailing blank line when the last changelog section is modified.
 
 ## [`6.1.0` (2026-02-27)](https://github.com/kdeldycke/repomatic/compare/v6.0.1...v6.1.0)
 
 > [!NOTE]
 > `6.1.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.1.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.1.0).
 
-- Add `unsubscribe-threads` CLI command to unsubscribe from closed, inactive GitHub notification threads.
-- Generate thin caller workflows with explicit secret forwarding instead of `secrets: inherit`, eliminating zizmor's `secrets-inherit` warnings in downstream repositories.
-- Move zizmor config from `.github/zizmor.yml` to `zizmor.yaml` at repo root for visibility and consistency with other root-level config files.
-- Centralize PAT existence check via workflow-level `env` block, replacing duplicated `secrets.*` ternary expressions in PAT hint steps and the `setup-guide` invocation.
-- Restrict binary compilation to the HEAD commit for non-release pushes, avoiding redundant Nuitka builds across all commits in multi-commit push events.
-- Add `prebake-version` CLI command to inject Git commit hash into `__version__` before Nuitka compilation. Standalone binaries now report the exact commit they were built from (e.g., `6.1.0.dev0+abc1234`).
-- Pre-bake dev versions automatically in the `compile-binaries` workflow job before Nuitka runs.
-- Detect orphaned versions in `lint-changelog`: versions that exist as git tags, GitHub releases, or PyPI packages but have no changelog entry. In `--fix` mode, insert placeholder sections with correct comparison URLs.
-- Rename `lint-changelog` workflow job to `fix-changelog` since it always runs with `--fix`. The CLI command remains `lint-changelog`.
-- Group CLI commands into sections (Project setup, Release & versioning, Sync, Linting & checks, GitHub issues & PRs) for better discoverability in help output.
-- Add `list-skills` CLI command to display all available Claude Code skills grouped by lifecycle phase (Setup, Development, Quality, Release).
-- Add next-step handoff suggestions to all Claude Code skills, creating a guided workflow where each skill suggests what to run next.
-- Document skills with a grouped table, recommended workflow sequence, and walkthrough example in `readme.md`.
-- Add `pypi-package-history` config option for renamed projects. `lint-changelog` now fetches releases from former package names and generates correct PyPI URLs for each version.
-- Add `sync-github-releases` CLI command to sync GitHub release notes from `changelog.md`.
-- Make changelog entry and GitHub release body assembly template-driven. `release-notes.md` controls `changelog.md` layout (including the `##` version heading), `github-releases.md` controls GitHub release bodies. Editing one template affects only its destination.
-- Converge `freeze()` and `update()` onto the same decompose→render→replace pattern used by `lint_changelog_dates()`, with the `release-notes.md` template as the single source of truth for section layout.
-- Only produce XML coverage and JUnit XML output when running `pytest` in the CI workflow.
+- Add the `unsubscribe-threads` CLI command to unsubscribe from closed, inactive GitHub notification threads.
+- Add the `prebake-version` CLI command to inject the Git commit hash into `__version__` before Nuitka compilation, so binaries report the exact commit they were built from (e.g., `6.1.0.dev0+abc1234`).
+- Add the `list-skills` CLI command to display all available Claude Code skills grouped by lifecycle phase.
+- Add the `sync-github-releases` CLI command to sync GitHub release notes from `changelog.md`.
+- Add the `pypi-package-history` config option so `lint-changelog` fetches releases from former package names and generates correct PyPI URLs for renamed projects.
+- `lint-changelog` now detects orphaned versions (git tags, GitHub releases, or PyPI packages with no changelog entry) and inserts placeholder sections in `--fix` mode.
+- Rename the `lint-changelog` workflow job to `fix-changelog`; the CLI command remains `lint-changelog`.
+- Make changelog entries and GitHub release bodies template-driven via `release-notes.md` and `github-releases.md`, so editing one template affects only its destination.
+- Group CLI commands into sections (Project setup, Release & versioning, Sync, Linting & checks, GitHub issues & PRs) in help output.
+- Add next-step handoff suggestions to all Claude Code skills, and document skills with a grouped table and walkthrough in `readme.md`.
+- Generate thin caller workflows with explicit secret forwarding instead of `secrets: inherit`.
+- Move zizmor config from `.github/zizmor.yml` to `zizmor.yaml` at repo root.
 
 ## [`6.0.1` (2026-02-24)](https://github.com/kdeldycke/repomatic/compare/v6.0.0...v6.0.1)
 
