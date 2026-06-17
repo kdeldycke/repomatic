@@ -108,6 +108,7 @@ patterns = ["(CVE|vulnerability)"]
 | [`notification.unsubscribe`](#notification-unsubscribe)       | Whether the unsubscribe-threads workflow is enabled.                                                                      | `false`                             |
 | [`nuitka.enabled`](#nuitka-enabled)                           | Whether Nuitka binary compilation is enabled for this project.                                                            | `true`                              |
 | [`nuitka.entry-points`](#nuitka-entry-points)                 | Which `[project.scripts]` entry points produce Nuitka binaries.                                                           | `[]`                                |
+| [`nuitka.extras`](#nuitka-extras)                             | `[project.optional-dependencies]` extras to install before the Nuitka build.                                              | `[]`                                |
 | [`nuitka.unstable-targets`](#nuitka-unstable-targets)         | Nuitka build targets allowed to fail without blocking the release.                                                        | `[]`                                |
 | [`pypi-package-history`](#pypi-package-history)               | Former PyPI package names for projects that were renamed.                                                                 | `[]`                                |
 | [`setup-guide`](#setup-guide)                                 | Whether the setup guide issue is enabled for this project.                                                                | `true`                              |
@@ -770,6 +771,27 @@ when a project declares alias entry points (like both `mpm` and
 ```toml
 [tool.repomatic]
 nuitka.entry-points = []
+```
+
+### `nuitka.extras`
+
+`[project.optional-dependencies]` extras to install before the Nuitka build.
+
+**Type:** `list[str]` | **Default:** `[]`
+
+List of extra names (like `["sbom"]`) to sync into the build venv before
+invoking Nuitka. By default the binary build only sees the project's base
+dependencies, which matches a bare `pip install <package>` and excludes
+optional features. Listing an extra here calls `uv sync --frozen --extra
+<name>` before the Nuitka build so the binary can bundle the optional
+feature's third-party packages (paired with `--include-package` in
+`[tool.nuitka]` for imports guarded behind `try/except`).
+
+**Example:**
+
+```toml
+[tool.repomatic]
+nuitka.extras = []
 ```
 
 ### `nuitka.unstable-targets`

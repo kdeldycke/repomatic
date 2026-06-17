@@ -64,9 +64,9 @@ jobs:
           uvx --no-progress --from . repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
-          is_python_project package_name current_version released_version
-          release_notes release_notes_with_admonition skip_binary_build
-          manpages_script manpages_asset_name
+          nuitka_extras is_python_project package_name current_version
+          released_version release_notes release_notes_with_admonition
+          skip_binary_build manpages_script manpages_asset_name
       - name: Check VirusTotal API key
         id: check-vt-key
         env:
@@ -104,6 +104,23 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Setup venv
         run: uv --no-progress venv --python 3.14
+      - name: Sync optional-dependencies for Nuitka build
+        # Install the [project.optional-dependencies] extras listed in
+        # [tool.repomatic] nuitka.extras into the build venv, so Nuitka can
+        # bundle their packages. See the nuitka_extras docstring in
+        # repomatic/config.py for the full rationale.
+        if: fromJSON(needs.metadata.outputs.metadata).nuitka_extras
+        env:
+          EXTRAS: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_extras }}
+        shell: bash
+        run: |
+          # EXTRAS is a space-separated list emitted by Metadata.format_github_value.
+          flags=""
+          for extra in ${EXTRAS}; do
+            flags="${flags} --extra ${extra}"
+          done
+          # shellcheck disable=SC2086
+          uv --no-progress sync --frozen ${flags}
       - name: Pre-bake build metadata
         if: contains(matrix.current_version, '.dev')
         run: uvx --no-progress 'click-extra==7.18.0' prebake all

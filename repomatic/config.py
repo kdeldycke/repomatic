@@ -632,6 +632,21 @@ class Config:
     `meta-package-manager` pointing to the same function).
     """
 
+    nuitka_extras: list[str] = field(
+        default_factory=list,
+        metadata={"click_extra.config_path": "nuitka.extras"},
+    )
+    """`[project.optional-dependencies]` extras to install before the Nuitka build.
+
+    List of extra names (like `["sbom"]`) to sync into the build venv before
+    invoking Nuitka. By default the binary build only sees the project's base
+    dependencies, which matches a bare `pip install <package>` and excludes
+    optional features. Listing an extra here calls `uv sync --frozen --extra
+    <name>` before the Nuitka build so the binary can bundle the optional
+    feature's third-party packages (paired with `--include-package` in
+    `[tool.nuitka]` for imports guarded behind `try/except`).
+    """
+
     nuitka_unstable_targets: list[str] = field(
         default_factory=list,
         metadata={"click_extra.config_path": "nuitka.unstable-targets"},

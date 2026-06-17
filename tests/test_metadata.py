@@ -767,6 +767,7 @@ expected: dict[str, Any] = {
     "manpages_script": "",
     "manpages_asset_name": "",
     "nuitka_enabled": True,
+    "nuitka_extras": [],
     "package_name": "repomatic",
     "cli_scripts": StringList(["repomatic"]),
     "project_description": "🏭 Automate repository maintenance, releases, and CI/CD workflows",
