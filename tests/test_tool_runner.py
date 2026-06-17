@@ -1388,7 +1388,7 @@ def test_run_tool_pyproject_fmt_default_flags(mock_ci, mock_run, tmp_path, monke
 
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "uvx"
-    assert "pyproject-fmt==2.16.2" in " ".join(cmd)
+    assert "pyproject-fmt==2.25.0" in " ".join(cmd)
     assert "--expand-tables" in cmd
     assert "pyproject.toml" in cmd
 

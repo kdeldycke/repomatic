@@ -940,15 +940,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         native_format=NativeFormat.FLAGS,
         default_flags=("--mode=onefile", "--assume-yes-for-downloads"),
     ),
-    # Known upstream bug, unfixed as of the pinned 2.16.2: under the default
-    # --table-format=short, pyproject-fmt declares an implicit parent table with an
-    # empty inline table (`labels = {}`) and then re-opens it as an array-of-tables
-    # ([[tool.repomatic.labels.file-rules]]), producing invalid TOML. This hits
-    # repomatic's own labels schema. See
-    # https://github.com/tox-dev/toml-fmt/issues/384 (--table-format=long avoids it).
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
-        version="2.16.2",
+        version="2.25.0",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",

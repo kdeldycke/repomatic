@@ -57,7 +57,7 @@ invoke(repomatic, args=['run', '--list'])
 | [mdformat](https://github.com/hukkin/mdformat)                        | `1.0.0`  | PyPI        | `.mdformat.toml`, `[tool.mdformat]` in `pyproject.toml`      |
 | [mypy](https://github.com/python/mypy)                                | `1.19.1` | PyPI (venv) | `[tool.mypy]` in `pyproject.toml`                            |
 | [Nuitka](https://github.com/Nuitka/Nuitka)                            | `4.1`    | PyPI (venv) | `[tool.nuitka]` in `pyproject.toml`                          |
-| [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.16.2` | PyPI        | `[tool.pyproject-fmt]` in `pyproject.toml`                   |
+| [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.25.0` | PyPI        | `[tool.pyproject-fmt]` in `pyproject.toml`                   |
 | [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.5` | PyPI        | `ruff.toml`, `.ruff.toml`, `[tool.ruff]` in `pyproject.toml` |
 | [shfmt](https://github.com/mvdan/sh)                                  | `3.13.1` | Binary      | `.editorconfig`                                              |
 | [typos](https://github.com/crate-ci/typos)                            | `1.47.2` | Binary      | `[tool.typos]` in `pyproject.toml`                           |
@@ -572,7 +572,7 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 
 ### [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)
 
-**Installed version:** `2.16.2`
+**Installed version:** `2.25.0`
 
 **Installation method:** PyPI, installed via `uvx`
 
