@@ -5,52 +5,52 @@
 
 <!-- cli-reference-start -->
 
-| Command                                                                     | Description                                             |
-| :-------------------------------------------------------------------------- | :------------------------------------------------------ |
-| [`repomatic broken-links`](#repomatic-broken-links)                         | Manage broken links issue lifecycle                     |
-| [`repomatic cache`](#repomatic-cache)                                       | Manage the download cache                               |
-| [`repomatic cache clean`](#repomatic-cache-clean)                           | Remove cached entries                                   |
-| [`repomatic cache help`](#repomatic-cache-help)                             | Show help for a command                                 |
-| [`repomatic cache path`](#repomatic-cache-path)                             | Print the cache directory path                          |
-| [`repomatic cache show`](#repomatic-cache-show)                             | List cached entries                                     |
-| [`repomatic changelog`](#repomatic-changelog)                               | Maintain a Markdown-formatted changelog                 |
-| [`repomatic check-renovate`](#repomatic-check-renovate)                     | Check Renovate migration prerequisites                  |
-| [`repomatic clean-unmodified-configs`](#repomatic-clean-unmodified-configs) | Remove config files that match bundled defaults         |
-| [`repomatic close-stale-bump-pr`](#repomatic-close-stale-bump-pr)           | Close a stale version-bump PR                           |
-| [`repomatic convert-to-myst`](#repomatic-convert-to-myst)                   | Convert reST docstrings to MyST in Python files         |
-| [`repomatic fix-vulnerable-deps`](#repomatic-fix-vulnerable-deps)           | Upgrade packages with known vulnerabilities             |
-| [`repomatic format-images`](#repomatic-format-images)                       | Format images with lossless optimization                |
-| [`repomatic git-tag`](#repomatic-git-tag)                                   | Create and push a Git tag                               |
-| [`repomatic help`](#repomatic-help)                                         | Show help for a command                                 |
-| [`repomatic init`](#repomatic-init)                                         | Bootstrap a repository to use reusable workflows        |
-| [`repomatic lint-changelog`](#repomatic-lint-changelog)                     | Check changelog dates against release dates             |
-| [`repomatic lint-repo`](#repomatic-lint-repo)                               | Run repository consistency checks                       |
-| [`repomatic list-skills`](#repomatic-list-skills)                           | List available Claude Code skills                       |
-| [`repomatic metadata`](#repomatic-metadata)                                 | Output project metadata                                 |
-| [`repomatic pr-body`](#repomatic-pr-body)                                   | Generate PR body with workflow metadata                 |
-| [`repomatic release-prep`](#repomatic-release-prep)                         | Prepare files for a release                             |
-| [`repomatic run`](#repomatic-run)                                           | Run an external tool with managed config                |
-| [`repomatic scan-virustotal`](#repomatic-scan-virustotal)                   | Upload release binaries to VirusTotal                   |
-| [`repomatic setup-guide`](#repomatic-setup-guide)                           | Manage setup guide issue lifecycle                      |
-| [`repomatic show-config`](#repomatic-show-config)                           | Print [tool.repomatic] configuration reference          |
-| [`repomatic sponsor-label`](#repomatic-sponsor-label)                       | Label issues/PRs from GitHub sponsors                   |
-| [`repomatic sync-bumpversion`](#repomatic-sync-bumpversion)                 | Sync bumpversion config from bundled template           |
-| [`repomatic sync-dev-release`](#repomatic-sync-dev-release)                 | Sync rolling dev pre-release on GitHub                  |
-| [`repomatic sync-github-releases`](#repomatic-sync-github-releases)         | Sync GitHub release notes from changelog                |
-| [`repomatic sync-gitignore`](#repomatic-sync-gitignore)                     | Sync .gitignore from gitignore.io templates             |
-| [`repomatic sync-labels`](#repomatic-sync-labels)                           | Sync repository labels via labelmaker                   |
-| [`repomatic sync-mailmap`](#repomatic-sync-mailmap)                         | Sync Git's .mailmap file with missing contributors      |
-| [`repomatic sync-uv-lock`](#repomatic-sync-uv-lock)                         | Re-lock dependencies and prune stale cooldown overrides |
-| [`repomatic test-plan`](#repomatic-test-plan)                               | Run a test plan from a file against a binary            |
-| [`repomatic unsubscribe-threads`](#repomatic-unsubscribe-threads)           | Unsubscribe from closed, inactive notification threads  |
-| [`repomatic update-checksums`](#repomatic-update-checksums)                 | Update SHA-256 checksums for binary downloads           |
-| [`repomatic update-deps-graph`](#repomatic-update-deps-graph)               | Generate dependency graph from uv lockfile              |
-| [`repomatic update-docs`](#repomatic-update-docs)                           | Regenerate Sphinx API docs and run update script        |
-| [`repomatic verify-binary`](#repomatic-verify-binary)                       | Verify binary architecture using exiftool               |
-| [`repomatic version-check`](#repomatic-version-check)                       | Check if a version bump is allowed                      |
-| [`repomatic workflow`](#repomatic-workflow)                                 | Lint downstream workflow caller files                   |
-| [`repomatic workflow help`](#repomatic-workflow-help)                       | Show help for a command                                 |
-| [`repomatic workflow lint`](#repomatic-workflow-lint)                       | Lint workflow files for common issues                   |
+| Command                                                                     | Description                                              |
+| :-------------------------------------------------------------------------- | :------------------------------------------------------- |
+| [`repomatic broken-links`](#repomatic-broken-links)                         | Manage broken links issue lifecycle                      |
+| [`repomatic cache`](#repomatic-cache)                                       | Manage the download cache                                |
+| [`repomatic cache clean`](#repomatic-cache-clean)                           | Remove cached entries                                    |
+| [`repomatic cache help`](#repomatic-cache-help)                             | Show help for a command                                  |
+| [`repomatic cache path`](#repomatic-cache-path)                             | Print the cache directory path                           |
+| [`repomatic cache show`](#repomatic-cache-show)                             | List cached entries                                      |
+| [`repomatic changelog`](#repomatic-changelog)                               | Maintain a Markdown-formatted changelog                  |
+| [`repomatic check-renovate`](#repomatic-check-renovate)                     | Check Renovate migration prerequisites                   |
+| [`repomatic clean-unmodified-configs`](#repomatic-clean-unmodified-configs) | Remove config files that match bundled defaults          |
+| [`repomatic close-stale-bump-pr`](#repomatic-close-stale-bump-pr)           | Close a stale version-bump PR                            |
+| [`repomatic convert-to-myst`](#repomatic-convert-to-myst)                   | Convert reST docstrings to MyST in Python files          |
+| [`repomatic fix-vulnerable-deps`](#repomatic-fix-vulnerable-deps)           | Upgrade packages with known vulnerabilities              |
+| [`repomatic format-images`](#repomatic-format-images)                       | Format images with lossless optimization                 |
+| [`repomatic git-tag`](#repomatic-git-tag)                                   | Create and push a Git tag                                |
+| [`repomatic help`](#repomatic-help)                                         | Show help for a command                                  |
+| [`repomatic init`](#repomatic-init)                                         | Bootstrap a repository to use reusable workflows         |
+| [`repomatic lint-changelog`](#repomatic-lint-changelog)                     | Check changelog dates against release dates              |
+| [`repomatic lint-repo`](#repomatic-lint-repo)                               | Run repository consistency checks                        |
+| [`repomatic list-skills`](#repomatic-list-skills)                           | List available Claude Code skills                        |
+| [`repomatic metadata`](#repomatic-metadata)                                 | Output project metadata                                  |
+| [`repomatic pr-body`](#repomatic-pr-body)                                   | Generate PR body with workflow metadata                  |
+| [`repomatic release-prep`](#repomatic-release-prep)                         | Prepare files for a release                              |
+| [`repomatic run`](#repomatic-run)                                           | Run an external tool with managed config                 |
+| [`repomatic scan-virustotal`](#repomatic-scan-virustotal)                   | Upload release binaries to VirusTotal                    |
+| [`repomatic setup-guide`](#repomatic-setup-guide)                           | Manage setup guide issue lifecycle                       |
+| [`repomatic show-config`](#repomatic-show-config)                           | Print [tool.repomatic] configuration reference           |
+| [`repomatic sponsor-label`](#repomatic-sponsor-label)                       | Label issues/PRs from GitHub sponsors                    |
+| [`repomatic sync-bumpversion`](#repomatic-sync-bumpversion)                 | Sync bumpversion config from bundled template            |
+| [`repomatic sync-dev-release`](#repomatic-sync-dev-release)                 | Sync rolling dev pre-release on GitHub                   |
+| [`repomatic sync-github-releases`](#repomatic-sync-github-releases)         | Sync GitHub release notes from changelog                 |
+| [`repomatic sync-gitignore`](#repomatic-sync-gitignore)                     | Sync .gitignore from gitignore.io templates              |
+| [`repomatic sync-labels`](#repomatic-sync-labels)                           | Sync repository labels via labelmaker                    |
+| [`repomatic sync-mailmap`](#repomatic-sync-mailmap)                         | Sync Git's .mailmap file with missing contributors       |
+| [`repomatic sync-uv-lock`](#repomatic-sync-uv-lock)                         | Re-lock dependencies and roll cooldown overrides forward |
+| [`repomatic test-plan`](#repomatic-test-plan)                               | Run a test plan from a file against a binary             |
+| [`repomatic unsubscribe-threads`](#repomatic-unsubscribe-threads)           | Unsubscribe from closed, inactive notification threads   |
+| [`repomatic update-checksums`](#repomatic-update-checksums)                 | Update SHA-256 checksums for binary downloads            |
+| [`repomatic update-deps-graph`](#repomatic-update-deps-graph)               | Generate dependency graph from uv lockfile               |
+| [`repomatic update-docs`](#repomatic-update-docs)                           | Regenerate Sphinx API docs and run update script         |
+| [`repomatic verify-binary`](#repomatic-verify-binary)                       | Verify binary architecture using exiftool                |
+| [`repomatic version-check`](#repomatic-version-check)                       | Check if a version bump is allowed                       |
+| [`repomatic workflow`](#repomatic-workflow)                                 | Lint downstream workflow caller files                    |
+| [`repomatic workflow help`](#repomatic-workflow-help)                       | Show help for a command                                  |
+| [`repomatic workflow lint`](#repomatic-workflow-lint)                       | Lint workflow files for common issues                    |
 
 ```{click:source}
 :hide-source:
