@@ -498,7 +498,7 @@ def _freeze_date(upload_str: str) -> str | None:
 
     :param upload_str: The locked version's `upload-time` from `uv.lock`.
     :return: A `YYYY-MM-DD` freeze date, or `None` when *upload_str* is
-        empty or unparseable (git and path sources have no upload time).
+        empty or unparsable (git and path sources have no upload time).
     """
     upload_dt = _parse_iso_datetime(upload_str)
     if upload_dt is None:
