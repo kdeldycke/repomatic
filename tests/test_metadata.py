@@ -1014,6 +1014,7 @@ expected: dict[str, Any] = {
             {"state": "stable"},
         ],
     },
+    "changelog_bullet_word_threshold": 40,
     # Bump allowed values depend on comparing current version vs latest git tag.
     # These can be True or False depending on the current development cycle state.
     "minor_bump_allowed": AnyBool(),
