@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.26.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.26.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.26.0` (2026-06-17)](https://github.com/kdeldycke/repomatic/compare/v6.25.1...v6.26.0)
 
 - Add `[tool.repomatic] nuitka.extras` config to sync listed `[project.optional-dependencies]` extras into the venv before the Nuitka build, so optional features land in the binary.
