@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - Fix the `manpages` release job: attach the man-page tarball to the release draft before publishing, so it no longer fails under GitHub immutable releases.
+- Fix cooldown bypasses (`[tool.uv] exclude-newer-package`) never expiring: `sync-uv-lock` now freezes each one at its locked version (a fixed date) instead of a latest-tracking `"0 day"` span, and prunes it once that version ages past `exclude-newer`.
 
 ## [`6.26.0` (2026-06-17)](https://github.com/kdeldycke/repomatic/compare/v6.25.1...v6.26.0)
 

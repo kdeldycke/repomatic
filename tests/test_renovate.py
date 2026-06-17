@@ -52,6 +52,7 @@ from repomatic.uv import (
     fetch_release_notes,
     format_diff_table,
     format_release_notes,
+    freeze_exclude_newer_packages,
     get_github_release_body,
     get_pypi_source_url,
     parse_lock_exclude_newer,
@@ -605,7 +606,10 @@ def test_add_exclude_newer_packages_appends(tmp_path):
         'exclude-newer = "1 week"\n'
         'exclude-newer-package = { "click-extra" = "0 day" }\n'
     )
-    assert add_exclude_newer_packages(pyproject, {"pygments"}) is True
+    assert (
+        add_exclude_newer_packages(pyproject, {"pygments"}, tmp_path / "uv.lock")
+        is True
+    )
     content = pyproject.read_text()
     parsed = tomlrt.loads(content)
     pkg = parsed["tool"]["uv"]["exclude-newer-package"]
@@ -627,14 +631,20 @@ def test_add_exclude_newer_packages_skips_existing(tmp_path):
         'exclude-newer = "1 week"\n'
         'exclude-newer-package = { "pygments" = "0 day" }\n'
     )
-    assert add_exclude_newer_packages(pyproject, {"pygments"}) is False
+    assert (
+        add_exclude_newer_packages(pyproject, {"pygments"}, tmp_path / "uv.lock")
+        is False
+    )
 
 
 def test_add_exclude_newer_packages_creates_line(tmp_path):
     """A new exclude-newer-package line is inserted when none exists."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[tool.uv]\nexclude-newer = "1 week"\n')
-    assert add_exclude_newer_packages(pyproject, {"requests"}) is True
+    assert (
+        add_exclude_newer_packages(pyproject, {"requests"}, tmp_path / "uv.lock")
+        is True
+    )
     content = pyproject.read_text()
     # Verify pyproject-fmt-compatible formatting.
     assert 'exclude-newer-package = { requests = "0 day" }' in content
@@ -652,7 +662,9 @@ def test_add_exclude_newer_packages_inserts_after_exclude_newer(tmp_path):
         "# Root-level build comment.\n"
         'build-backend.module-root = ""\n'
     )
-    assert add_exclude_newer_packages(pyproject, {"urllib3"}) is True
+    assert (
+        add_exclude_newer_packages(pyproject, {"urllib3"}, tmp_path / "uv.lock") is True
+    )
     content = pyproject.read_text()
     expected = (
         "[tool.uv]\n"
@@ -673,7 +685,12 @@ def test_add_exclude_newer_packages_multiple(tmp_path):
         'exclude-newer = "1 week"\n'
         'exclude-newer-package = { "click-extra" = "0 day" }\n'
     )
-    assert add_exclude_newer_packages(pyproject, {"requests", "pygments"}) is True
+    assert (
+        add_exclude_newer_packages(
+            pyproject, {"requests", "pygments"}, tmp_path / "uv.lock"
+        )
+        is True
+    )
     content = pyproject.read_text()
     parsed = tomlrt.loads(content)
     pkg = parsed["tool"]["uv"]["exclude-newer-package"]
@@ -691,7 +708,10 @@ def test_add_exclude_newer_packages_no_uv_section(tmp_path):
     """Returns False when no exclude-newer configuration exists."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text("[project]\nname = 'foo'\n")
-    assert add_exclude_newer_packages(pyproject, {"requests"}) is False
+    assert (
+        add_exclude_newer_packages(pyproject, {"requests"}, tmp_path / "uv.lock")
+        is False
+    )
 
 
 def test_add_exclude_newer_packages_preserves_unrelated_siblings(tmp_path):
@@ -715,7 +735,9 @@ def test_add_exclude_newer_packages_preserves_unrelated_siblings(tmp_path):
         'build-backend.module-root = ""\n'
         "package = true\n"
     )
-    assert add_exclude_newer_packages(pyproject, {"urllib3"}) is True
+    assert (
+        add_exclude_newer_packages(pyproject, {"urllib3"}, tmp_path / "uv.lock") is True
+    )
     content = pyproject.read_text()
     parsed = tomlrt.loads(content)
     uv = parsed["tool"]["uv"]
@@ -735,6 +757,112 @@ def test_add_exclude_newer_packages_preserves_unrelated_siblings(tmp_path):
         'exclude-newer-package = { urllib3 = "0 day" }\n'
         "# Build backend."
     ) in content
+
+
+def test_add_exclude_newer_packages_freezes_at_locked_version(tmp_path):
+    """A locked PyPI version is frozen at the day after it shipped."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[tool.uv]\nexclude-newer = "1 week"\n')
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "version = 1\n\n"
+        '[[package]]\nname = "pygments"\nversion = "2.19.0"\n'
+        "[package.sdist]\n"
+        'url = "https://example.com/pygments.tar.gz"\n'
+        'hash = "sha256:abc"\n'
+        'upload-time = "2026-03-01T12:00:00Z"\n'
+    )
+    assert add_exclude_newer_packages(pyproject, {"pygments"}, lock) is True
+    parsed = tomlrt.loads(pyproject.read_text())
+    assert parsed["tool"]["uv"]["exclude-newer-package"]["pygments"] == "2026-03-02"
+
+
+def test_add_exclude_newer_packages_falls_back_to_span(tmp_path):
+    """A source with no upload time (git/path) gets a permanent "0 day" span."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[tool.uv]\nexclude-newer = "1 week"\n')
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "version = 1\n\n"
+        '[[package]]\nname = "appleseed"\nversion = "1.0"\n'
+        'source = { git = "https://example.com/appleseed" }\n'
+    )
+    assert add_exclude_newer_packages(pyproject, {"appleseed"}, lock) is True
+    parsed = tomlrt.loads(pyproject.read_text())
+    assert parsed["tool"]["uv"]["exclude-newer-package"]["appleseed"] == "0 day"
+
+
+def test_freeze_converts_span_to_date(tmp_path):
+    """A "0 day" span is rewritten as the held version's freeze date."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.uv]\n"
+        'exclude-newer = "1 week"\n'
+        'exclude-newer-package = { "pygments" = "0 day" }\n'
+    )
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "version = 1\n\n"
+        '[[package]]\nname = "pygments"\nversion = "2.19.0"\n'
+        "[package.sdist]\n"
+        'url = "https://example.com/pygments.tar.gz"\n'
+        'hash = "sha256:abc"\n'
+        'upload-time = "2026-03-01T12:00:00Z"\n'
+    )
+    assert freeze_exclude_newer_packages(pyproject, lock) is True
+    content = pyproject.read_text()
+    assert (
+        tomlrt.loads(content)["tool"]["uv"]["exclude-newer-package"]["pygments"]
+        == "2026-03-02"
+    )
+    # pyproject-fmt-compatible formatting is preserved.
+    assert 'exclude-newer-package = { pygments = "2026-03-02" }' in content
+
+
+def test_freeze_keeps_existing_date(tmp_path):
+    """An entry already carrying a fixed date is left untouched (idempotent)."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.uv]\n"
+        'exclude-newer = "1 week"\n'
+        'exclude-newer-package = { "pygments" = "2026-03-02" }\n'
+    )
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "version = 1\n\n"
+        '[[package]]\nname = "pygments"\nversion = "2.19.0"\n'
+        "[package.sdist]\n"
+        'url = "https://example.com/pygments.tar.gz"\n'
+        'hash = "sha256:abc"\n'
+        'upload-time = "2026-03-01T12:00:00Z"\n'
+    )
+    assert freeze_exclude_newer_packages(pyproject, lock) is False
+
+
+def test_freeze_keeps_span_without_upload_time(tmp_path):
+    """A git/path source (no upload time) keeps its span: nothing to freeze."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.uv]\n"
+        'exclude-newer = "1 week"\n'
+        'exclude-newer-package = { "appleseed" = "0 day" }\n'
+    )
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "version = 1\n\n"
+        '[[package]]\nname = "appleseed"\nversion = "1.0"\n'
+        'source = { git = "https://example.com/appleseed" }\n'
+    )
+    assert freeze_exclude_newer_packages(pyproject, lock) is False
+
+
+def test_freeze_no_entries(tmp_path):
+    """Return False when there are no exclude-newer-package entries."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[tool.uv]\nexclude-newer = "1 week"\n')
+    lock = tmp_path / "uv.lock"
+    lock.write_text("version = 1\n")
+    assert freeze_exclude_newer_packages(pyproject, lock) is False
 
 
 def test_packages_outside_cooldown_filters_reachable(tmp_path):

@@ -484,22 +484,51 @@ def _packages_outside_cooldown(
     return outside
 
 
+def _freeze_date(upload_str: str) -> str | None:
+    """Freeze date that holds a package at its currently-locked version.
+
+    A cooldown bypass must *hold* the locked version, not track the latest
+    release (which is what a `"0 day"` span does: it disables the cooldown,
+    so `uv lock --upgrade` keeps pulling newer releases and the entry never
+    ages out). Returns the day after the locked version's upload time,
+    date-only (`YYYY-MM-DD`), so uv's `exclude-newer-package` keeps that
+    version and rejects anything published later. The one-day margin
+    absorbs intraday and timezone boundaries so the held version is never
+    itself excluded.
+
+    :param upload_str: The locked version's `upload-time` from `uv.lock`.
+    :return: A `YYYY-MM-DD` freeze date, or `None` when *upload_str* is
+        empty or unparseable (git and path sources have no upload time).
+    """
+    upload_dt = _parse_iso_datetime(upload_str)
+    if upload_dt is None:
+        return None
+    return (upload_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
 def add_exclude_newer_packages(
     pyproject_path: Path,
     packages: set[str],
+    lock_path: Path,
 ) -> bool:
     """Add packages to `[tool.uv].exclude-newer-package` in `pyproject.toml`.
 
-    Persists `"0 day"` exemptions for the given packages so that subsequent
-    `uv lock --upgrade` runs (e.g. from the `sync-uv-lock` job) do not
-    downgrade security-fixed packages back to versions within the
-    `exclude-newer` cooldown window.
+    Persists a {func}`freeze date <_freeze_date>` for each package (the day
+    after its currently-locked version shipped) so that subsequent
+    `uv lock --upgrade` runs (e.g. from the `sync-uv-lock` job) hold the
+    package at that version instead of tracking newer releases, until it
+    ages past the `exclude-newer` cooldown and
+    {func}`prune_stale_exclude_newer_packages` drops the entry. Packages
+    with no upload time in the lock (git or path sources) fall back to a
+    permanent `"0 day"` span.
 
     Skips packages that already have an entry. Returns `True` if the file
     was modified.
 
     :param pyproject_path: Path to the `pyproject.toml` file.
     :param packages: Package names to add.
+    :param lock_path: Path to the `uv.lock` file, read to resolve each
+        package's locked-version upload time.
     :return: `True` if the file was updated, `False` if no changes were
         needed.
     """
@@ -531,9 +560,12 @@ def add_exclude_newer_packages(
 
     # Merge existing entries with new ones and rebuild the inline table to
     # produce pyproject-fmt-compatible formatting.
+    upload_times = parse_lock_upload_times(lock_path)
     all_entries = dict(pkg_table) if pkg_table is not None else {}
     for pkg in to_add:
-        all_entries[pkg] = "0 day"
+        # Freeze at the locked version; fall back to a permanent span when
+        # the package has no PyPI upload time (git or path source).
+        all_entries[pkg] = _freeze_date(upload_times.get(pkg, "")) or "0 day"
     new_table = _build_inline_table(all_entries)
     if pkg_table is not None:
         uv["exclude-newer-package"] = new_table
@@ -552,6 +584,60 @@ def add_exclude_newer_packages(
         f"Added {', '.join(sorted(to_add))} to exclude-newer-package"
         f" in {pyproject_path}."
     )
+    return True
+
+
+def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> bool:
+    """Convert relative-span cooldown bypasses into fixed freeze dates.
+
+    A `"0 day"` (or any relative-span) `exclude-newer-package` entry tells
+    uv to ignore the cooldown and resolve to the *latest* release, so the
+    package keeps moving and {func}`prune_stale_exclude_newer_packages`
+    never sees its locked version age out. Rewriting the span as the locked
+    version's {func}`freeze date <_freeze_date>` instead *holds* the
+    package: newer releases are excluded until the held version ages past
+    the global cooldown, at which point the entry is pruned and the package
+    rejoins normal resolution.
+
+    Entries already carrying a fixed date are left untouched (idempotent).
+    Packages with no upload time in the lock (git or path sources) keep
+    their span: they have no PyPI release to freeze against.
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param lock_path: Path to the `uv.lock` file.
+    :return: `True` if the file was modified, `False` otherwise.
+    """
+    content = pyproject_path.read_text(encoding="UTF-8")
+    doc = tomlrt.loads(content)
+    pkg_table = doc.get("tool", {}).get("uv", {}).get("exclude-newer-package")
+    if not pkg_table:
+        return False
+
+    upload_times = parse_lock_upload_times(lock_path)
+    frozen: dict[str, str] = {}
+    changed = False
+    for pkg, value in pkg_table.items():
+        text = str(value)
+        # Only relative spans track the latest release; fixed dates already hold.
+        is_span = (
+            _parse_relative_duration(text) is not None
+            or _parse_lock_duration(text) is not None
+        )
+        freeze = _freeze_date(upload_times.get(pkg, "")) if is_span else None
+        if freeze is None:
+            # Already a fixed date, or a git/path source with no release to
+            # freeze against: leave the entry as-is.
+            frozen[pkg] = value
+            continue
+        frozen[pkg] = freeze
+        changed = True
+        logging.info(f"Freezing {pkg} cooldown bypass at {freeze}.")
+
+    if not changed:
+        return False
+
+    doc["tool"]["uv"]["exclude-newer-package"] = _build_inline_table(frozen)
+    pyproject_path.write_text(tomlrt.dumps(doc), encoding="UTF-8")
     return True
 
 
@@ -1386,7 +1472,7 @@ def fix_vulnerable_deps(
             upgraded,
         )
         if needs_exemption:
-            add_exclude_newer_packages(pyproject_path, needs_exemption)
+            add_exclude_newer_packages(pyproject_path, needs_exemption, lock_path)
 
     # Step 7: Build the combined output.
     vuln_table = format_vulnerability_table(vulns)
@@ -1431,11 +1517,14 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     :param lock_path: Path to the `uv.lock` file.
     :return: A {class}`SyncResult` with structured version change data.
     """
-    # Step 1: Prune stale exclude-newer-package entries before relocking so
-    # uv resolves those packages through the normal cooldown window.
+    # Step 1: Prune bypasses whose held version has aged past the cooldown
+    # (so uv resolves them normally again), then freeze the survivors at
+    # their locked version so the upgrade below holds them instead of
+    # tracking newer releases.
     pyproject_path = lock_path.parent / "pyproject.toml"
     if pyproject_path.exists():
         prune_stale_exclude_newer_packages(pyproject_path, lock_path)
+        freeze_exclude_newer_packages(pyproject_path, lock_path)
 
     # Step 2: Snapshot versions before upgrading.
     before = parse_lock_versions(lock_path)

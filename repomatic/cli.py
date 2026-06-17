@@ -2727,7 +2727,7 @@ def fix_vulnerable_deps_cmd(
 
 
 @repomatic.command(
-    short_help="Re-lock dependencies and prune stale cooldown overrides",
+    short_help="Re-lock dependencies and roll cooldown overrides forward",
     section=_section_sync,
 )
 @option(
@@ -2766,8 +2766,10 @@ def sync_uv_lock_cmd(
 
     \b
     Wraps uv lock --upgrade and:
-      - prunes stale exclude-newer-package entries from pyproject.toml
-        whose locked version has aged past the exclude-newer cutoff
+      - prunes exclude-newer-package entries from pyproject.toml whose held
+        version has aged past the exclude-newer cutoff, then freezes the
+        survivors at their locked version (a fixed date) so the upgrade
+        holds them instead of tracking newer releases
       - prints a table of updated packages with upload dates
       - optionally fetches release notes from GitHub (markdown)
 

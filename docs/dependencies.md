@@ -66,13 +66,16 @@ These comment patterns typically signal a floor set at adoption or auto-bump tim
 
 ## `exclude-newer-package` cooldown overrides
 
-The `[tool.uv]` section may contain `exclude-newer-package` entries that exempt specific packages from the global [`exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) cooldown window. These exceptions exist for a reason (typically: the package is developed in-repo or needs immediate updates), but they accumulate over time.
+The `[tool.uv]` section may contain `exclude-newer-package` entries that exempt specific packages from the global [`exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) cooldown window. Each entry is one of two kinds:
+
+- **A fixed date** (like `"2026-06-15"`): a freeze that holds the package at the version available on that date, used when a needed release is still inside the cooldown window. `sync-uv-lock` writes these automatically (the day after the held version shipped) and prunes each one once its held version ages past `exclude-newer`, returning the package to the normal cooldown. These are self-expiring and rarely need manual attention.
+- **A `"0 day"` span**: a permanent exemption, for packages with no PyPI release to age against (git or path sources, like a project depending on itself). These never expire on their own.
 
 For each `exclude-newer-package` entry, check:
 
-1. **Is the package still a dependency?** If removed from `[project].dependencies` and all `[dependency-groups]`, the exception is dead weight.
-2. **Is the exception still justified?** A `"0 day"` override for an in-repo package makes sense. A `"0 day"` override for an external package that was temporarily pinned during a migration may no longer be needed.
-3. **Does the comment explain the reason?** Like version floors, cooldown exceptions should have a comment explaining the exemption.
+1. **Is the package still a dependency?** If removed from `[project].dependencies` and all `[dependency-groups]`, the entry is dead weight.
+2. **Is a `"0 day"` span still justified?** A permanent span fits an in-repo (git or path) package. A `"0 day"` span on an external PyPI package is suspect: it tracks the latest release forever and never ages out, so it should be a freeze date instead (which `sync-uv-lock` materializes on its next run).
+3. **Is a freeze date stuck?** A freeze date older than the `exclude-newer` window should already have been pruned. A lingering one usually means the package left the dependency tree or the sync job has not run since it aged.
 
 ## Floor bumps to adopt new APIs
 
