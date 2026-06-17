@@ -11,9 +11,9 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P1W"
 
 [options.exclude-newer-package]
-click-extra = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
+click-extra = "2026-06-14T00:00:00Z"
 repomatic = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
-tomlrt = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
+tomlrt = "2026-06-16T00:00:00Z"
 
 [[package]]
 name = "accessible-pygments"
