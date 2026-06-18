@@ -116,18 +116,14 @@ dependencies = [
   # globbing uses iglob() with FOLLOW for symlink-aware file discovery.
   "wcmatch>=10",
 ]
-
-[project.scripts]
-repomatic = "repomatic.__main__:main"
-
-[project.urls]
-"Changelog" = "https://github.com/kdeldycke/repomatic/blob/main/changelog.md"
-"Documentation" = "https://kdeldycke.github.io/repomatic"
-"Download" = "https://github.com/kdeldycke/repomatic/releases/tag/v6.27.0.dev0"
-"Funding" = "https://github.com/sponsors/kdeldycke"
-"Homepage" = "https://github.com/kdeldycke/repomatic"
-"Issues" = "https://github.com/kdeldycke/repomatic/issues"
-"Repository" = "https://github.com/kdeldycke/repomatic"
+urls.Changelog = "https://github.com/kdeldycke/repomatic/blob/main/changelog.md"
+urls.Documentation = "https://kdeldycke.github.io/repomatic"
+urls.Download = "https://github.com/kdeldycke/repomatic/releases/tag/v6.27.0.dev0"
+urls.Funding = "https://github.com/sponsors/kdeldycke"
+urls.Homepage = "https://github.com/kdeldycke/repomatic"
+urls.Issues = "https://github.com/kdeldycke/repomatic/issues"
+urls.Repository = "https://github.com/kdeldycke/repomatic"
+scripts.repomatic = "repomatic.__main__:main"
 
 # Non-runtime development dependency groups.
 [dependency-groups]
@@ -287,17 +283,36 @@ default.extend-ignore-identifiers-re = [
   "WARNIN",
 ]
 
-[tool.pytest]
-# https://docs.pytest.org/en/latest/customize.html#pyproject-toml
-markers = [
-  "once: Tests that only need to run once, not across the full CI matrix.",
+[tool.mypy]
+mypy_path = "docs"
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unreachable = true
+pretty = true
+warn_unused_configs = true
+overrides = [
+  { module = [
+    "bumpversion.*",
+    "gitdb.*",
+    "py_walk.*",
+    "pydriller.*",
+    "vt",
+  ], ignore_missing_imports = true },
 ]
+
+[tool.pytest]
 addopts = [
   "--durations=10",
   "--cov",
   "--cov-report=term",
   "--numprocesses=auto",
   "--dist=loadgroup",
+]
+# https://docs.pytest.org/en/latest/customize.html#pyproject-toml
+markers = [
+  "once: Tests that only need to run once, not across the full CI matrix.",
 ]
 # Make sure tests that are expected to fail do not resurrect and start working all of a sudden.
 xfail_strict = true
@@ -310,19 +325,19 @@ report.precision = 2
 
 [tool.bumpversion]
 current_version = "6.27.0.dev0"
-allow_dirty = true
-ignore_missing_files = true
 # Parse versions with an optional .devN suffix (PEP 440).
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)(\\.dev(?P<dev>\\d+))?"
 serialize = [
   "{major}.{minor}.{patch}.dev{dev}",
   "{major}.{minor}.{patch}",
 ]
+ignore_missing_files = true
+allow_dirty = true
+parts.dev.optional_value = "release"
 # When dev is "release" (its optional value), the .devN suffix is omitted.
 # Bumping patch/minor/major resets dev to "0", producing X.Y.Z.dev0.
 # Bumping dev goes from "0" to "release", stripping the suffix for release.
 parts.dev.values = [ "0", "release" ]
-parts.dev.optional_value = "release"
 
 [[tool.bumpversion.files]]
 # Update Python package version in any __init__.py file.
@@ -375,25 +390,6 @@ filename = "./citation.cff"
 regex = true
 search = "date-released: \\d{{4}}-\\d{{2}}-\\d{{2}}"
 replace = "date-released: {utcnow:%Y-%m-%d}"
-
-[tool.mypy]
-check_untyped_defs = true
-mypy_path = "docs"
-warn_unused_configs = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_return_any = true
-warn_unreachable = true
-pretty = true
-overrides = [
-  { ignore_missing_imports = true, module = [
-    "bumpversion.*",
-    "gitdb.*",
-    "py_walk.*",
-    "pydriller.*",
-    "vt",
-  ] },
-]
 
 [tool.lychee]
 # https://lychee.cli.rs/guides/config/
