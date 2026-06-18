@@ -135,6 +135,78 @@ def _config_examples() -> dict[str, str]:
     return examples
 
 
+def _is_structural(line: str) -> bool:
+    """Whether a line opens or belongs to a non-prose Markdown block.
+
+    Lines starting a list item, ordered item, blockquote, heading, table row,
+    field list, or fence must not be joined with their neighbors: doing so
+    would collapse list layout or `:param:` alignment into a single line.
+    """
+    stripped = line.lstrip()
+    if not stripped:
+        return False
+    if stripped[0] in "-*+>#|:":
+        return True
+    if stripped[:3] in ("```", "~~~"):
+        return True
+    return bool(re.match(r"\d+[.)]\s", stripped))
+
+
+def _reflow_prose(text: str) -> str:
+    """Join soft-wrapped prose lines so each paragraph is a single long line.
+
+    The config reference is generated from `Config` attribute docstrings, whose
+    bodies are wrapped to Python's source-line limit. Markdown collapses those
+    soft breaks on render, but `mdformat` (running with its default
+    `wrap="keep"`) cannot keep a newline that falls *inside* an inline code
+    span, so `format-markdown` joins such a break while `update-docs` re-splits
+    it on the next run: an `update-docs` ↔ `format-markdown` ping-pong. Emitting
+    long lines here makes the generator a fixed point under `mdformat` and
+    matches the repo's no-hard-wrap-Markdown convention. See `claude.md`
+    § "Generator/formatter ping-pong is recurrent".
+
+    Only plain-prose paragraphs are reflowed. A block carrying any structural
+    line (see `_is_structural`) is emitted verbatim so list layout, `:param:`
+    alignment, fenced examples, and admonitions stay intact.
+    """
+    lines = text.split("\n")
+    blocks: list[str] = []
+    i = 0
+    while i < len(lines):
+        # Blank separators are dropped here and reinstated as a single blank
+        # line between blocks below, matching mdformat's normalization.
+        if not lines[i].strip():
+            i += 1
+            continue
+        fence = lines[i].lstrip()[:3]
+        if fence in ("```", "~~~"):
+            # Consume the whole fenced block verbatim, blank lines included.
+            block = [lines[i]]
+            i += 1
+            while i < len(lines):
+                block.append(lines[i])
+                closed = lines[i].lstrip().startswith(fence)
+                i += 1
+                if closed:
+                    break
+            blocks.append("\n".join(block))
+            continue
+        # Gather a run of consecutive non-blank, non-fence lines.
+        run: list[str] = []
+        while (
+            i < len(lines)
+            and lines[i].strip()
+            and lines[i].lstrip()[:3] not in ("```", "~~~")
+        ):
+            run.append(lines[i])
+            i += 1
+        if any(_is_structural(line) for line in run):
+            blocks.append("\n".join(run))
+        else:
+            blocks.append(" ".join(line.strip() for line in run))
+    return "\n\n".join(blocks)
+
+
 def config_deflist() -> str:
     """Render the config reference as a summary table + per-option sections."""
     rows = config_reference()
@@ -178,7 +250,7 @@ def config_deflist() -> str:
         lines.append(f"**Type:** `{ftype}` | **Default:** {default}")
         lines.append("")
         if rest:
-            lines.append(rest)
+            lines.append(_reflow_prose(rest))
             lines.append("")
         if bare in examples:
             lines.append("**Example:**")

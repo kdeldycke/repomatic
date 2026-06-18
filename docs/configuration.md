@@ -138,12 +138,7 @@ Versions documented in the changelog but never published.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-A version reached only its `[changelog] Release vX.Y.Z` freeze and was then
-skipped per `CLAUDE.md` § Skip and move forward (botched build, broken
-artifact, bad metadata) without rewriting history. List those versions here
-so `lint-changelog` reports them as skipped (an info log line) instead of
-flagging them every run as `⚠ X.Y.Z: not found on PyPI`. Applies to both
-PyPI lookups and the git-tag fallback.
+A version reached only its `[changelog] Release vX.Y.Z` freeze and was then skipped per `CLAUDE.md` § Skip and move forward (botched build, broken artifact, bad metadata) without rewriting history. List those versions here so `lint-changelog` reports them as skipped (an info log line) instead of flagging them every run as `⚠ X.Y.Z: not found on PyPI`. Applies to both PyPI lookups and the git-tag fallback.
 
 **Example:**
 
@@ -158,9 +153,7 @@ Directory prefix for Claude Code agent files, relative to the repository root.
 
 **Type:** `str` | **Default:** `"./.claude/agents/"`
 
-Agent files are written as `{agents_location}/{agent-id}.md`.
-Useful for repositories where `.claude/` is not at the root (like
-dotfiles repos that store configs under a subdirectory).
+Agent files are written as `{agents_location}/{agent-id}.md`. Useful for repositories where `.claude/` is not at the root (like dotfiles repos that store configs under a subdirectory).
 
 **Example:**
 
@@ -175,8 +168,7 @@ Whether awesome-template sync is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Repositories whose name starts with `awesome-` get their boilerplate synced
-from files bundled in `repomatic`. Set to `false` to opt out.
+Repositories whose name starts with `awesome-` get their boilerplate synced from files bundled in `repomatic`. Set to `false` to opt out.
 
 **Example:**
 
@@ -191,8 +183,7 @@ Whether bumpversion config sync is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that manage their own `[tool.bumpversion]` section and do not want
-the autofix job to overwrite it can set this to `false`.
+Projects that manage their own `[tool.bumpversion]` section and do not want the autofix job to overwrite it can set this to `false`.
 
 **Example:**
 
@@ -207,11 +198,7 @@ Override the binary cache directory path.
 
 **Type:** `str` | **Default:** `""`
 
-When empty (the default), the cache uses the platform convention:
-`~/Library/Caches/repomatic` on macOS, `$XDG_CACHE_HOME/repomatic`
-or `~/.cache/repomatic` on Linux, `%LOCALAPPDATA%\repomatic\Cache`
-on Windows. The `REPOMATIC_CACHE_DIR` environment variable takes
-precedence over this setting.
+When empty (the default), the cache uses the platform convention: `~/Library/Caches/repomatic` on macOS, `$XDG_CACHE_HOME/repomatic` or `~/.cache/repomatic` on Linux, `%LOCALAPPDATA%\repomatic\Cache` on Windows. The `REPOMATIC_CACHE_DIR` environment variable takes precedence over this setting.
 
 **Example:**
 
@@ -226,8 +213,7 @@ Freshness TTL for cached single-release bodies (seconds).
 
 **Type:** `int` | **Default:** `604800`
 
-GitHub release bodies are immutable once published, so a long TTL (7 days)
-is safe. Set to `0` to disable caching for single-release lookups.
+GitHub release bodies are immutable once published, so a long TTL (7 days) is safe. Set to `0` to disable caching for single-release lookups.
 
 **Example:**
 
@@ -242,8 +228,7 @@ Freshness TTL for cached all-releases responses (seconds).
 
 **Type:** `int` | **Default:** `86400`
 
-New releases can appear at any time, so a shorter TTL (24 hours) balances
-freshness with API savings.
+New releases can appear at any time, so a shorter TTL (24 hours) balances freshness with API savings.
 
 **Example:**
 
@@ -258,8 +243,7 @@ Auto-purge cached entries older than this many days.
 
 **Type:** `int` | **Default:** `30`
 
-Set to `0` to disable auto-purge. The `REPOMATIC_CACHE_MAX_AGE`
-environment variable takes precedence over this setting.
+Set to `0` to disable auto-purge. The `REPOMATIC_CACHE_MAX_AGE` environment variable takes precedence over this setting.
 
 **Example:**
 
@@ -274,8 +258,7 @@ Freshness TTL for cached PyPI metadata (seconds).
 
 **Type:** `int` | **Default:** `86400`
 
-PyPI metadata changes when new versions are published. A 24-hour TTL
-avoids redundant API calls while keeping data reasonably current.
+PyPI metadata changes when new versions are published. A 24-hour TTL avoids redundant API calls while keeping data reasonably current.
 
 **Example:**
 
@@ -290,12 +273,7 @@ Word count above which `lint-changelog` warns about a changelog bullet.
 
 **Type:** `int` | **Default:** `40`
 
-A changelog entry is a release note, not a commit message: ideally one
-short sentence stating what changed (see `CLAUDE.md` § Changelog entry
-length). `lint-changelog` emits a non-fatal warning for every bullet in
-the *unreleased* section longer than this many words, nudging verbose,
-implementation-heavy entries back toward a user-facing summary. Released
-sections are immutable and never flagged. Set to `0` to disable the check.
+A changelog entry is a release note, not a commit message: ideally one short sentence stating what changed (see `CLAUDE.md` § Changelog entry length). `lint-changelog` emits a non-fatal warning for every bullet in the *unreleased* section longer than this many words, nudging verbose, implementation-heavy entries back toward a user-facing summary. Released sections are immutable and never flagged. Set to `0` to disable the check.
 
 **Example:**
 
@@ -323,8 +301,7 @@ Whether to include all optional extras in the graph.
 
 **Type:** `bool` | **Default:** `true`
 
-When `True`, the `update-deps-graph` command behaves as if
-`--all-extras` was passed.
+When `True`, the `update-deps-graph` command behaves as if `--all-extras` was passed.
 
 **Example:**
 
@@ -339,10 +316,7 @@ Whether to include all dependency groups in the graph.
 
 **Type:** `bool` | **Default:** `true`
 
-When `True`, the `update-deps-graph` command behaves as if
-`--all-groups` was passed. Projects that want to exclude development
-dependency groups (docs, test, typing) from their published graph can
-set this to `false`.
+When `True`, the `update-deps-graph` command behaves as if `--all-groups` was passed. Projects that want to exclude development dependency groups (docs, test, typing) from their published graph can set this to `false`.
 
 **Example:**
 
@@ -357,8 +331,7 @@ Maximum depth of the dependency graph.
 
 **Type:** `int` | **Default:** *(none)*
 
-`None` means unlimited. `1` = primary deps only, `2` = primary +
-their deps, etc. Equivalent to `--level`.
+`None` means unlimited. `1` = primary deps only, `2` = primary + their deps, etc. Equivalent to `--level`.
 
 ### `dependency-graph.no-extras`
 
@@ -366,8 +339,7 @@ Optional extras to exclude from the graph.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Equivalent to passing `--no-extra` for each entry. Takes precedence
-over `dependency-graph.all-extras`.
+Equivalent to passing `--no-extra` for each entry. Takes precedence over `dependency-graph.all-extras`.
 
 **Example:**
 
@@ -382,8 +354,7 @@ Dependency groups to exclude from the graph.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Equivalent to passing `--no-group` for each entry. Takes precedence
-over `dependency-graph.all-groups`.
+Equivalent to passing `--no-group` for each entry. Takes precedence over `dependency-graph.all-groups`.
 
 **Example:**
 
@@ -413,8 +384,7 @@ Whether dev pre-release sync is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that do not want a rolling draft pre-release maintained on
-GitHub can set this to `false`.
+Projects that do not want a rolling draft pre-release maintained on GitHub can set this to `false`.
 
 **Example:**
 
@@ -429,8 +399,7 @@ Glob patterns for modules to exclude from `sphinx-apidoc`.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Passed as positional exclude arguments after the source directory
-(e.g., `["setup.py", "tests"]`).
+Passed as positional exclude arguments after the source directory (e.g., `["setup.py", "tests"]`).
 
 **Example:**
 
@@ -445,8 +414,7 @@ Extra arguments appended to the `sphinx-apidoc` invocation.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-The base flags `--no-toc --module-first` are always applied.
-Use this for project-specific options (e.g., `["--implicit-namespaces"]`).
+The base flags `--no-toc --module-first` are always applied. Use this for project-specific options (e.g., `["--implicit-namespaces"]`).
 
 **Example:**
 
@@ -461,8 +429,7 @@ Path to a Python script run after `sphinx-apidoc` to generate dynamic content.
 
 **Type:** `str` | **Default:** `"./docs/docs_update.py"`
 
-Resolved relative to the repository root. Must reside under the `docs/`
-directory for security. Set to an empty string to disable.
+Resolved relative to the repository root. Must reside under the `docs/` directory for security. Set to an empty string to disable.
 
 **Example:**
 
@@ -477,14 +444,9 @@ Additional components and files to exclude from repomatic operations.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Additive to the default exclusions (`labels`, `skills`). Bare names
-exclude an entire component (e.g., `"workflows"`). Qualified
-`component/identifier` entries exclude a specific file within a component
-(e.g., `"workflows/debug.yaml"`, `"skills/repomatic-audit"`,
-`"labels/labeller-content-based.yaml"`).
+Additive to the default exclusions (`labels`, `skills`). Bare names exclude an entire component (e.g., `"workflows"`). Qualified `component/identifier` entries exclude a specific file within a component (e.g., `"workflows/debug.yaml"`, `"skills/repomatic-audit"`, `"labels/labeller-content-based.yaml"`).
 
-Affects `repomatic init`, `workflow sync`, and `workflow create`.
-Explicit CLI positional arguments override this list.
+Affects `repomatic init`, `workflow sync`, and `workflow create`. Explicit CLI positional arguments override this list.
 
 **Example:**
 
@@ -499,8 +461,7 @@ Additional gitignore template categories to fetch from gitignore.io.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-List of template names (e.g., `["Python", "Node", "Terraform"]`) to combine
-with the generated `.gitignore` content.
+List of template names (e.g., `["Python", "Node", "Terraform"]`) to combine with the generated `.gitignore` content.
 
 **Example:**
 
@@ -547,8 +508,7 @@ Whether `.gitignore` sync is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that manage their own `.gitignore` and do not want the autofix job
-to overwrite it can set this to `false`.
+Projects that manage their own `.gitignore` and do not want the autofix job to overwrite it can set this to `false`.
 
 **Example:**
 
@@ -563,13 +523,7 @@ Components and files to force-include, overriding default exclusions.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Use this to opt into components that are excluded by default (`labels`,
-`skills`). Each entry is subtracted from the effective exclude set
-(defaults + user `exclude`) and bypasses `RepoScope` filtering, so
-scope-restricted components (like awesome-only skills or Python-only
-`publish-pypi-action`) are included regardless of repository type.
-Qualified entries (`component/file`) implicitly select the parent
-component. Same syntax as `exclude`.
+Use this to opt into components that are excluded by default (`labels`, `skills`). Each entry is subtracted from the effective exclude set (defaults + user `exclude`) and bypasses `RepoScope` filtering, so scope-restricted components (like awesome-only skills or Python-only `publish-pypi-action`) are included regardless of repository type. Qualified entries (`component/file`) implicitly select the parent component. Same syntax as `exclude`.
 
 **Example:**
 
@@ -590,9 +544,7 @@ Each `[[tool.repomatic.labels.content-rules]]` entry has:
 - `patterns` (required): list of regex patterns evaluated against the issue
   or PR title and body by `github/issue-labeller`.
 
-Repeating the same `label` across entries merges their patterns. Serialized
-to YAML at export time and appended to the bundled
-`labeller-content-based.yaml`.
+Repeating the same `label` across entries merges their patterns. Serialized to YAML at export time and appended to the bundled `labeller-content-based.yaml`.
 
 **Example:**
 
@@ -607,15 +559,9 @@ Inline label definitions applied at sync time under the `default` profile.
 
 **Type:** `list[dict[str, str]]` | **Default:** `[]`
 
-Each entry is a mapping with `name`, `color`, and `description` keys,
-matching `labelmaker`'s label specification. Entries are serialized into a
-temporary TOML file as `[[profiles.default.labels]]` blocks and applied by
-`labelmaker apply`. This avoids committing a lonely `extra-labels/*.toml`
-file when the downstream project only needs the basic three fields.
+Each entry is a mapping with `name`, `color`, and `description` keys, matching `labelmaker`'s label specification. Entries are serialized into a temporary TOML file as `[[profiles.default.labels]]` blocks and applied by `labelmaker apply`. This avoids committing a lonely `extra-labels/*.toml` file when the downstream project only needs the basic three fields.
 
-For label sets that need `labelmaker`'s advanced features (`rename-from`,
-multi-profile, multi-color), commit a hand-written file under
-`extra-labels/` or download one via `extra-files` instead.
+For label sets that need `labelmaker`'s advanced features (`rename-from`, multi-profile, multi-color), commit a hand-written file under `extra-labels/` or download one via `extra-files` instead.
 
 **Example:**
 
@@ -630,9 +576,7 @@ URLs of additional label definition files (JSON, JSON5, TOML, or YAML).
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Each URL is downloaded into `extra-labels/` and applied separately by
-`labelmaker`. For inline definitions that need no external file, use
-`extra` instead.
+Each URL is downloaded into `extra-labels/` and applied separately by `labelmaker`. For inline definitions that need no external file, use `extra` instead.
 
 **Example:**
 
@@ -647,8 +591,7 @@ Structured per-label rules for the file-based labeller.
 
 **Type:** `list[dict[str, str | list[str]]]` | **Default:** `[]`
 
-Each `[[tool.repomatic.labels.file-rules]]` entry defines one match group
-for one label. Required key:
+Each `[[tool.repomatic.labels.file-rules]]` entry defines one match group for one label. Required key:
 
 - `label`: label name to apply when this group's conditions match.
 
@@ -663,10 +606,7 @@ Optional matcher keys (all conditions in the same entry are AND'd):
 - `any`: list of nested sub-groups, OR'd together.
 - `all`: list of nested sub-groups, AND'd together.
 
-Repeating the same `label` across entries OR's the resulting groups, the
-same as listing multiple top-level groups under one label in
-`actions/labeler`. Together with `any` / `all` wrappers this covers the
-full `actions/labeler` v5+ schema.
+Repeating the same `label` across entries OR's the resulting groups, the same as listing multiple top-level groups under one label in `actions/labeler`. Together with `any` / `all` wrappers this covers the full `actions/labeler` v5+ schema.
 
 **Example:**
 
@@ -681,8 +621,7 @@ Whether label sync is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that manage their own repository labels and do not want the
-labels workflow to overwrite them can set this to `false`.
+Projects that manage their own repository labels and do not want the labels workflow to overwrite them can set this to `false`.
 
 **Example:**
 
@@ -697,8 +636,7 @@ Whether `.mailmap` sync is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that manage their own `.mailmap` and do not want the autofix job
-to overwrite it can set this to `false`.
+Projects that manage their own `.mailmap` and do not want the autofix job to overwrite it can set this to `false`.
 
 **Example:**
 
@@ -713,8 +651,7 @@ Filename stem (without the `.tar.gz` extension) for the man-page tarball uploade
 
 **Type:** `str` | **Default:** `""`
 
-Defaults to `<package-name>-manpages` when left empty and `manpages.script`
-is set. Has no effect when `manpages.script` is empty.
+Defaults to `<package-name>-manpages` when left empty and `manpages.script` is set. Has no effect when `manpages.script` is empty.
 
 **Example:**
 
@@ -729,10 +666,7 @@ Click command target whose tree gets rendered as roff `.1` files and attached as
 
 **Type:** `str` | **Default:** `""`
 
-Same shape the `click-extra man` CLI accepts: a `module:function` path
-(preferred for projects whose console-script entry point dispatches through
-a wrapper), an entry-point name, a `.py` file path, or a plain importable
-module name. Leave empty to disable release-attached man pages.
+Same shape the `click-extra man` CLI accepts: a `module:function` path (preferred for projects whose console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name. Leave empty to disable release-attached man pages.
 
 **Example:**
 
@@ -747,9 +681,7 @@ Whether the unsubscribe-threads workflow is enabled.
 
 **Type:** `bool` | **Default:** `false`
 
-Notifications are per-user across all repos. Enable on the single repo where
-you want scheduled cleanup of closed notification threads. Requires a classic
-PAT with `notifications` scope stored as `REPOMATIC_NOTIFICATIONS_PAT`.
+Notifications are per-user across all repos. Enable on the single repo where you want scheduled cleanup of closed notification threads. Requires a classic PAT with `notifications` scope stored as `REPOMATIC_NOTIFICATIONS_PAT`.
 
 **Example:**
 
@@ -764,9 +696,7 @@ Whether Nuitka binary compilation is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects with `[project.scripts]` entries that are not intended to produce
-standalone binaries (e.g., libraries with convenience CLI wrappers) can set this
-to `false` to opt out of Nuitka compilation.
+Projects with `[project.scripts]` entries that are not intended to produce standalone binaries (e.g., libraries with convenience CLI wrappers) can set this to `false` to opt out of Nuitka compilation.
 
 **Example:**
 
@@ -781,11 +711,7 @@ Which `[project.scripts]` entry points produce Nuitka binaries.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-List of CLI IDs (e.g., `["mpm"]`) to compile. When empty (the default),
-deduplicates by callable target: keeps the first entry point for each
-unique `module:callable` pair. This avoids building duplicate binaries
-when a project declares alias entry points (like both `mpm` and
-`meta-package-manager` pointing to the same function).
+List of CLI IDs (e.g., `["mpm"]`) to compile. When empty (the default), deduplicates by callable target: keeps the first entry point for each unique `module:callable` pair. This avoids building duplicate binaries when a project declares alias entry points (like both `mpm` and `meta-package-manager` pointing to the same function).
 
 **Example:**
 
@@ -800,12 +726,7 @@ nuitka.entry-points = []
 
 **Type:** `list[str]` | **Default:** `[]`
 
-List of extra names (like `["sbom"]`) to sync into the build venv before
-invoking Nuitka. By default the binary build only sees the project's base
-dependencies, which matches a bare `pip install <package>` and excludes
-optional features. Listing an extra here calls `uv sync --frozen --extra <name>` before the Nuitka build so the binary can bundle the optional
-feature's third-party packages (paired with `--include-package` in
-`[tool.nuitka]` for imports guarded behind `try/except`).
+List of extra names (like `["sbom"]`) to sync into the build venv before invoking Nuitka. By default the binary build only sees the project's base dependencies, which matches a bare `pip install <package>` and excludes optional features. Listing an extra here calls `uv sync --frozen --extra <name>` before the Nuitka build so the binary can bundle the optional feature's third-party packages (paired with `--include-package` in `[tool.nuitka]` for imports guarded behind `try/except`).
 
 **Example:**
 
@@ -820,9 +741,7 @@ Nuitka build targets allowed to fail without blocking the release.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-List of target names (e.g., `["linux-arm64", "windows-x64"]`) that are marked as
-unstable. Jobs for these targets will be allowed to fail without preventing the
-release workflow from succeeding.
+List of target names (e.g., `["linux-arm64", "windows-x64"]`) that are marked as unstable. Jobs for these targets will be allowed to fail without preventing the release workflow from succeeding.
 
 **Example:**
 
@@ -837,9 +756,7 @@ Former PyPI package names for projects that were renamed.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-When a project changes its PyPI name, older versions remain published under
-the previous name. List former names here so `lint-changelog` can fetch
-release metadata from all names and generate correct PyPI URLs.
+When a project changes its PyPI name, older versions remain published under the previous name. List former names here so `lint-changelog` can fetch release metadata from all names and generate correct PyPI URLs.
 
 **Example:**
 
@@ -854,8 +771,7 @@ Whether the setup guide issue is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that do not need `REPOMATIC_PAT` or manage their
-own PAT setup can set this to `false` to suppress the setup guide issue.
+Projects that do not need `REPOMATIC_PAT` or manage their own PAT setup can set this to `false` to suppress the setup guide issue.
 
 **Example:**
 
@@ -870,9 +786,7 @@ Directory prefix for Claude Code skill files, relative to the repository root.
 
 **Type:** `str` | **Default:** `"./.claude/skills/"`
 
-Skill files are written as `{skills_location}/{skill-id}/SKILL.md`.
-Useful for repositories where `.claude/` is not at the root (like
-dotfiles repos that store configs under a subdirectory).
+Skill files are written as `{skills_location}/{skill-id}/SKILL.md`. Useful for repositories where `.claude/` is not at the root (like dotfiles repos that store configs under a subdirectory).
 
 **Example:**
 
@@ -887,9 +801,7 @@ Extra exclude rules applied to both full and PR test matrices.
 
 **Type:** `list[dict[str, str]]` | **Default:** `[]`
 
-Each entry is a dict of GitHub Actions matrix keys (like
-`{"os": "windows-11-arm"}`) that removes matching combinations.
-Additive to the upstream default excludes.
+Each entry is a dict of GitHub Actions matrix keys (like `{"os": "windows-11-arm"}`) that removes matching combinations. Additive to the upstream default excludes.
 
 **Example:**
 
@@ -904,15 +816,9 @@ Extra include directives applied to both full and PR test matrices.
 
 **Type:** `list[dict[str, str]]` | **Default:** `[]`
 
-Each entry is a dict of GitHub Actions matrix keys that adds or augments
-matrix combinations. Additive to the upstream default includes.
+Each entry is a dict of GitHub Actions matrix keys that adds or augments matrix combinations. Additive to the upstream default includes.
 
-Because includes apply to both matrices, a directive whose keys are not PR
-base axes is risky. In the PR matrix only `os` and `python-version` are base
-axes, so a key like `click-version` (injected by another include) has
-nothing to match and GitHub's expansion adds the directive to every PR job,
-overwriting it. To flag a value continue-on-error, prefer `unstable` over an
-`include` carrying `state: unstable`.
+Because includes apply to both matrices, a directive whose keys are not PR base axes is risky. In the PR matrix only `os` and `python-version` are base axes, so a key like `click-version` (injected by another include) has nothing to match and GitHub's expansion adds the directive to every PR job, overwriting it. To flag a value continue-on-error, prefer `unstable` over an `include` carrying `state: unstable`.
 
 **Example:**
 
@@ -927,9 +833,7 @@ Per-axis value removals applied to both full and PR test matrices.
 
 **Type:** `dict[str, list[str]]` | **Default:** {}
 
-Outer key is the variation/axis ID (e.g., `os`, `python-version`).
-Inner list contains values to drop from that axis. Applied after
-replacements but before excludes, includes, and variations.
+Outer key is the variation/axis ID (e.g., `os`, `python-version`). Inner list contains values to drop from that axis. Applied after replacements but before excludes, includes, and variations.
 
 ### `test-matrix.replace`
 
@@ -937,9 +841,7 @@ Per-axis value replacements applied to both full and PR test matrices.
 
 **Type:** `dict[str, dict[str, str]]` | **Default:** {}
 
-Outer key is the variation/axis ID (e.g., `os`, `python-version`).
-Inner dict maps old values to new values. Applied before removals,
-excludes, includes, and variations.
+Outer key is the variation/axis ID (e.g., `os`, `python-version`). Inner dict maps old values to new values. Applied before removals, excludes, includes, and variations.
 
 ### `test-matrix.unstable`
 
@@ -947,17 +849,9 @@ Full-matrix-only combinations to flag continue-on-error in CI.
 
 **Type:** `list[dict[str, str]]` | **Default:** `[]`
 
-Each entry is a dict of GitHub Actions matrix keys (like
-`{"click-version": "main"}`). Every full-matrix combination matching an
-entry gets a `state: unstable` value, which `tests.yaml` reads to set
-`continue-on-error`. Like `variations`, this applies to the full matrix
-only; the PR matrix stays a curated stable set.
+Each entry is a dict of GitHub Actions matrix keys (like `{"click-version": "main"}`). Every full-matrix combination matching an entry gets a `state: unstable` value, which `tests.yaml` reads to set `continue-on-error`. Like `variations`, this applies to the full matrix only; the PR matrix stays a curated stable set.
 
-Prefer this over an `include` entry carrying `state: unstable`. `include`
-applies to both matrices, and in the PR matrix a key like `click-version`
-is not a base axis (another `include` injects it), so GitHub's expansion
-would add the directive to every PR job and overwrite it. `unstable` only
-touches the full matrix, sidestepping that hijack.
+Prefer this over an `include` entry carrying `state: unstable`. `include` applies to both matrices, and in the PR matrix a key like `click-version` is not a base axis (another `include` injects it), so GitHub's expansion would add the directive to every PR job and overwrite it. `unstable` only touches the full matrix, sidestepping that hijack.
 
 **Example:**
 
@@ -972,10 +866,7 @@ Extra matrix dimension values added to the full test matrix only.
 
 **Type:** `dict[str, list[str]]` | **Default:** {}
 
-Each key is a dimension ID (e.g., `os`, `click-version`) and its value
-is a list of additional entries. For existing dimensions, values are merged
-with the upstream defaults. For new dimension IDs, a new axis is created.
-Only affects the full matrix; the PR matrix stays a curated reduced set.
+Each key is a dimension ID (e.g., `os`, `click-version`) and its value is a list of additional entries. For existing dimensions, values are merged with the upstream defaults. For new dimension IDs, a new axis is created. Only affects the full matrix; the PR matrix stays a curated reduced set.
 
 ### `test-plan.file`
 
@@ -983,8 +874,7 @@ Path to the YAML test plan file for binary testing.
 
 **Type:** `str` | **Default:** `"./tests/cli-test-plan.yaml"`
 
-The test plan file defines a list of test cases to run against compiled binaries.
-Each test case specifies command-line arguments and expected output patterns.
+The test plan file defines a list of test cases to run against compiled binaries. Each test case specifies command-line arguments and expected output patterns.
 
 **Example:**
 
@@ -999,8 +889,7 @@ Inline YAML test plan for binaries.
 
 **Type:** `str` | **Default:** *(none)*
 
-Alternative to `test_plan_file`. Allows specifying the test plan directly in
-`pyproject.toml` instead of a separate file.
+Alternative to `test_plan_file`. Allows specifying the test plan directly in `pyproject.toml` instead of a separate file.
 
 ### `test-plan.timeout`
 
@@ -1008,8 +897,7 @@ Timeout in seconds for each binary test.
 
 **Type:** `int` | **Default:** *(none)*
 
-If set, each test command will be terminated after this duration. `None` means no
-timeout (tests can run indefinitely).
+If set, each test command will be terminated after this duration. `None` means no timeout (tests can run indefinitely).
 
 ### `uv-lock.sync`
 
@@ -1017,8 +905,7 @@ Whether `uv.lock` sync is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that manage their own lock file strategy and do not want the
-`sync-uv-lock` job to run `uv lock --upgrade` can set this to `false`.
+Projects that manage their own lock file strategy and do not want the `sync-uv-lock` job to run `uv lock --upgrade` can set this to `false`.
 
 **Example:**
 
@@ -1041,11 +928,7 @@ Recognized values:
   repository's Dependabot alerts (CI-only, requires a token with
   `Dependabot alerts: Read-only`).
 
-Sources are unioned and deduplicated per package by advisory
-identity: entries sharing an `advisory_id` or a cross-referenced
-CVE/GHSA/PYSEC alias are merged. Repositories that distrust GHSA —
-or have no Dependabot alerts enabled — can opt out with
-`sources = ["uv-audit"]`.
+Sources are unioned and deduplicated per package by advisory identity: entries sharing an `advisory_id` or a cross-referenced CVE/GHSA/PYSEC alias are merged. Repositories that distrust GHSA — or have no Dependabot alerts enabled — can opt out with `sources = ["uv-audit"]`.
 
 **Example:**
 
@@ -1060,8 +943,7 @@ Whether the `fix-vulnerable-deps` job is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that manage their own vulnerability remediation flow can set
-this to `false` to skip the autofix job.
+Projects that manage their own vulnerability remediation flow can set this to `false` to skip the autofix job.
 
 **Example:**
 
@@ -1076,12 +958,9 @@ Literal entries to append to every workflow's `paths:` filter.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Applies to thin-caller and header-only sync. Useful for repo-specific
-files that should re-trigger CI but are not detected by the canonical
-`paths:` filter (e.g., `install.sh`, `dotfiles/**`).
+Applies to thin-caller and header-only sync. Useful for repo-specific files that should re-trigger CI but are not detected by the canonical `paths:` filter (e.g., `install.sh`, `dotfiles/**`).
 
-Per-workflow overrides in `paths` ignore this list: when an entry exists
-for a given filename, that entry is treated as the complete list.
+Per-workflow overrides in `paths` ignore this list: when an entry exists for a given filename, that entry is treated as the complete list.
 
 **Example:**
 
@@ -1096,9 +975,7 @@ Literal entries to strip from every workflow's `paths:` filter.
 
 **Type:** `list[str]` | **Default:** `[]`
 
-Useful for canonical entries that don't exist downstream (e.g.,
-`tests/**`, `uv.lock` in repos with no Python tests or lockfile).
-Match is by exact string equality. Applies before `extra_paths`.
+Useful for canonical entries that don't exist downstream (e.g., `tests/**`, `uv.lock` in repos with no Python tests or lockfile). Match is by exact string equality. Applies before `extra_paths`.
 
 Per-workflow overrides in `paths` ignore this list.
 
@@ -1115,14 +992,9 @@ Per-workflow override of the `paths:` filter, keyed by filename.
 
 **Type:** `dict[str, list[str]]` | **Default:** {}
 
-When a workflow filename appears here, its `paths:` blocks (in `push`,
-`pull_request`, etc.) are replaced wholesale with the listed entries.
-`source_paths`, `extra_paths`, and `ignore_paths` do **not** apply when
-a per-workflow override is set: the list is treated as authoritative.
+When a workflow filename appears here, its `paths:` blocks (in `push`, `pull_request`, etc.) are replaced wholesale with the listed entries. `source_paths`, `extra_paths`, and `ignore_paths` do **not** apply when a per-workflow override is set: the list is treated as authoritative.
 
-Override only takes effect on triggers that already have a `paths:`
-filter in the canonical workflow. Workflows without `paths:` upstream
-keep their unrestricted trigger semantics.
+Override only takes effect on triggers that already have a `paths:` filter in the canonical workflow. Workflows without `paths:` upstream keep their unrestricted trigger semantics.
 
 Example:
 
@@ -1137,14 +1009,9 @@ Source code directory names for workflow trigger `paths:` filters.
 
 **Type:** `list[str]` | **Default:** *(none)*
 
-When set, thin-caller and header-only workflows include `paths:` filters
-using these directory names (as `name/**` globs) alongside universal paths
-like `pyproject.toml` and `uv.lock`.
+When set, thin-caller and header-only workflows include `paths:` filters using these directory names (as `name/**` globs) alongside universal paths like `pyproject.toml` and `uv.lock`.
 
-When `None` (default), source paths are auto-derived from
-`[project.name]` in `pyproject.toml` by replacing hyphens with
-underscores — the universal Python convention. For example,
-`name = "extra-platforms"` automatically uses `["extra_platforms"]`.
+When `None` (default), source paths are auto-derived from `[project.name]` in `pyproject.toml` by replacing hyphens with underscores — the universal Python convention. For example, `name = "extra-platforms"` automatically uses `["extra_platforms"]`.
 
 ### `workflow.sync`
 
@@ -1152,8 +1019,7 @@ Whether workflow sync is enabled for this project.
 
 **Type:** `bool` | **Default:** `true`
 
-Projects that manage their own workflow files and do not want the autofix job
-to sync thin callers or headers can set this to `false`.
+Projects that manage their own workflow files and do not want the autofix job to sync thin callers or headers can set this to `false`.
 
 **Example:**
 
