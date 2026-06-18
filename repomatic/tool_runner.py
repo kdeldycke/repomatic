@@ -543,7 +543,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "actionlint": ToolSpec(
         name="actionlint",
         version="1.7.12",
-        native_config_files=(".github/actionlint.yaml",),
+        native_config_files=(".github/actionlint.yaml", ".github/actionlint.yml"),
+        config_flag="--config-file",
         native_format=NativeFormat.YAML,
         default_flags=("-color",),
         source_url="https://github.com/rhysd/actionlint",
@@ -613,6 +614,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         version="2.3.2",
         source_url="https://github.com/hhatto/autopep8",
         cli_docs_url="https://pypi.org/project/autopep8/",
+        reads_pyproject=True,
         default_flags=(
             "--recursive",
             "--in-place",
@@ -629,7 +631,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         source_url="https://github.com/biomejs/biome",
         config_docs_url="https://biomejs.dev/reference/configuration/",
         cli_docs_url="https://biomejs.dev/reference/cli/",
-        native_config_files=("biome.json", "biome.jsonc"),
+        native_config_files=(
+            "biome.json",
+            "biome.jsonc",
+            ".biome.json",
+            ".biome.jsonc",
+        ),
         config_flag="--config-path",
         config_after_subcommand=True,
         native_format=NativeFormat.JSON,
@@ -696,6 +703,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         source_url="https://github.com/callowayproject/bump-my-version",
         config_docs_url="https://callowayproject.github.io/bump-my-version/reference/configuration/",
         cli_docs_url="https://callowayproject.github.io/bump-my-version/reference/cli/",
+        native_config_files=(".bumpversion.toml",),
+        config_flag="--config-file",
+        native_format=NativeFormat.TOML,
     ),
     "gitleaks": ToolSpec(
         name="gitleaks",
@@ -704,7 +714,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         source_url="https://github.com/gitleaks/gitleaks",
         config_docs_url="https://github.com/gitleaks/gitleaks#configuration",
         cli_docs_url="https://github.com/gitleaks/gitleaks#usage",
-        native_config_files=(".gitleaks.toml", ".github/gitleaks.toml"),
+        native_config_files=(".gitleaks.toml",),
         config_flag="--config",
         native_format=NativeFormat.TOML,
         binary=BinarySpec(
@@ -922,6 +932,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         source_url="https://github.com/python/mypy",
         config_docs_url="https://mypy.readthedocs.io/en/stable/config_file.html",
         cli_docs_url="https://mypy.readthedocs.io/en/stable/command_line.html",
+        # mypy also auto-discovers standalone `mypy.ini`/`.mypy.ini`, but those use
+        # INI syntax, which `NativeFormat` cannot represent — so `native_config_files`
+        # is intentionally left empty. `reads_pyproject=True` (for `[tool.mypy]`) plus
+        # `config_flag` cover how repomatic resolves mypy's configuration.
+        config_flag="--config-file",
         reads_pyproject=True,
         needs_venv=True,
         default_flags=("--color-output",),
@@ -947,6 +962,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         native_config_files=("pyproject-fmt.toml",),
+        config_flag="--config",
+        native_format=NativeFormat.TOML,
         reads_pyproject=True,
     ),
     "ruff": ToolSpec(
@@ -956,7 +973,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
-        native_config_files=("ruff.toml", ".ruff.toml"),
+        native_config_files=(".ruff.toml", "ruff.toml"),
         config_flag="--config",
         native_format=NativeFormat.TOML,
         default_config="ruff.toml",
@@ -1025,6 +1042,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         source_url="https://github.com/crate-ci/typos",
         config_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
         cli_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
+        native_config_files=("typos.toml", "_typos.toml", ".typos.toml"),
+        config_flag="--config",
+        native_format=NativeFormat.TOML,
         reads_pyproject=True,
         default_flags=("--write-changes",),
         binary=BinarySpec(
@@ -1085,9 +1105,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         config_docs_url="https://yamllint.readthedocs.io/en/stable/configuration.html",
         cli_docs_url="https://yamllint.readthedocs.io/en/stable/quickstart.html",
         native_config_files=(
+            ".yamllint",
             ".yamllint.yaml",
             ".yamllint.yml",
-            ".yamllint",
         ),
         config_flag="--config-file",
         default_config="yamllint.yaml",
@@ -1100,7 +1120,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         source_url="https://github.com/zizmorcore/zizmor",
         config_docs_url="https://docs.zizmor.sh/configuration/",
         cli_docs_url="https://docs.zizmor.sh/usage/",
-        native_config_files=("zizmor.yaml",),
+        native_config_files=(
+            ".github/zizmor.yml",
+            ".github/zizmor.yaml",
+            "zizmor.yml",
+            "zizmor.yaml",
+        ),
         config_flag="--config",
         default_config="zizmor.yaml",
         default_flags=("--offline",),

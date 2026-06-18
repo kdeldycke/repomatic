@@ -45,24 +45,24 @@ invoke(repomatic, args=['run', '--list'])
 
 <!-- tool-summary-start -->
 
-| Tool                                                                  | Version  | Type        | Config discovery                                                 |
-| :-------------------------------------------------------------------- | :------- | :---------- | :--------------------------------------------------------------- |
-| [actionlint](https://github.com/rhysd/actionlint)                     | `1.7.12` | Binary      | `.github/actionlint.yaml`                                        |
-| [autopep8](https://github.com/hhatto/autopep8)                        | `2.3.2`  | PyPI        | CLI flags only                                                   |
-| [Biome](https://github.com/biomejs/biome)                             | `2.4.16` | Binary      | `biome.json`, `biome.jsonc`                                      |
-| [bump-my-version](https://github.com/callowayproject/bump-my-version) | `1.2.7`  | PyPI        | `[tool.bump-my-version]` in `pyproject.toml`                     |
-| [Gitleaks](https://github.com/gitleaks/gitleaks)                      | `8.30.1` | Binary      | `.gitleaks.toml`, `.github/gitleaks.toml`                        |
-| [labelmaker](https://github.com/jwodder/labelmaker)                   | `0.6.4`  | Binary      | CLI flags only                                                   |
-| [Lychee](https://github.com/lycheeverse/lychee)                       | `0.24.2` | Binary      | `lychee.toml`, `[tool.lychee]` in `pyproject.toml`               |
-| [mdformat](https://github.com/hukkin/mdformat)                        | `1.0.0`  | PyPI        | `.mdformat.toml`, `[tool.mdformat]` in `pyproject.toml`          |
-| [mypy](https://github.com/python/mypy)                                | `1.19.1` | PyPI (venv) | `[tool.mypy]` in `pyproject.toml`                                |
-| [Nuitka](https://github.com/Nuitka/Nuitka)                            | `4.1`    | PyPI (venv) | `[tool.nuitka]` in `pyproject.toml`                              |
-| [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.25.0` | PyPI        | `pyproject-fmt.toml`, `[tool.pyproject-fmt]` in `pyproject.toml` |
-| [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.5` | PyPI        | `ruff.toml`, `.ruff.toml`, `[tool.ruff]` in `pyproject.toml`     |
-| [shfmt](https://github.com/mvdan/sh)                                  | `3.13.1` | Binary      | `.editorconfig`                                                  |
-| [typos](https://github.com/crate-ci/typos)                            | `1.47.2` | Binary      | `[tool.typos]` in `pyproject.toml`                               |
-| [yamllint](https://github.com/adrienverge/yamllint)                   | `1.38.0` | PyPI        | `.yamllint.yaml`, `.yamllint.yml`, `.yamllint`                   |
-| [zizmor](https://github.com/zizmorcore/zizmor)                        | `1.23.0` | PyPI        | `zizmor.yaml`                                                    |
+| Tool                                                                  | Version  | Type        | Config discovery                                                               |
+| :-------------------------------------------------------------------- | :------- | :---------- | :----------------------------------------------------------------------------- |
+| [actionlint](https://github.com/rhysd/actionlint)                     | `1.7.12` | Binary      | `.github/actionlint.yaml`, `.github/actionlint.yml`                            |
+| [autopep8](https://github.com/hhatto/autopep8)                        | `2.3.2`  | PyPI        | `[tool.autopep8]` in `pyproject.toml`                                          |
+| [Biome](https://github.com/biomejs/biome)                             | `2.4.16` | Binary      | `biome.json`, `biome.jsonc`, `.biome.json`, `.biome.jsonc`                     |
+| [bump-my-version](https://github.com/callowayproject/bump-my-version) | `1.2.7`  | PyPI        | `.bumpversion.toml`, `[tool.bump-my-version]` in `pyproject.toml`              |
+| [Gitleaks](https://github.com/gitleaks/gitleaks)                      | `8.30.1` | Binary      | `.gitleaks.toml`                                                               |
+| [labelmaker](https://github.com/jwodder/labelmaker)                   | `0.6.4`  | Binary      | CLI flags only                                                                 |
+| [Lychee](https://github.com/lycheeverse/lychee)                       | `0.24.2` | Binary      | `lychee.toml`, `[tool.lychee]` in `pyproject.toml`                             |
+| [mdformat](https://github.com/hukkin/mdformat)                        | `1.0.0`  | PyPI        | `.mdformat.toml`, `[tool.mdformat]` in `pyproject.toml`                        |
+| [mypy](https://github.com/python/mypy)                                | `1.19.1` | PyPI (venv) | `[tool.mypy]` in `pyproject.toml`                                              |
+| [Nuitka](https://github.com/Nuitka/Nuitka)                            | `4.1`    | PyPI (venv) | `[tool.nuitka]` in `pyproject.toml`                                            |
+| [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.25.0` | PyPI        | `pyproject-fmt.toml`, `[tool.pyproject-fmt]` in `pyproject.toml`               |
+| [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.5` | PyPI        | `.ruff.toml`, `ruff.toml`, `[tool.ruff]` in `pyproject.toml`                   |
+| [shfmt](https://github.com/mvdan/sh)                                  | `3.13.1` | Binary      | `.editorconfig`                                                                |
+| [typos](https://github.com/crate-ci/typos)                            | `1.47.2` | Binary      | `typos.toml`, `_typos.toml`, `.typos.toml`, `[tool.typos]` in `pyproject.toml` |
+| [yamllint](https://github.com/adrienverge/yamllint)                   | `1.38.0` | PyPI        | `.yamllint`, `.yamllint.yaml`, `.yamllint.yml`                                 |
+| [zizmor](https://github.com/zizmorcore/zizmor)                        | `1.23.0` | PyPI        | `.github/zizmor.yml`, `.github/zizmor.yaml`, `zizmor.yml`, `zizmor.yaml`       |
 
 <!-- tool-summary-end -->
 
@@ -122,6 +122,7 @@ All tools that support `[tool.X]` sections in `pyproject.toml`, whether natively
 | Tool                                                                                | Customizes                          | Section                                                                                              | Support                                                                                                               |
 | :---------------------------------------------------------------------------------- | :---------------------------------- | :--------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------- |
 | [actionlint](https://github.com/rhysd/actionlint)                                   | Workflow linting rules              | [`[tool.actionlint]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)            | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → YAML                         |
+| [autopep8](https://github.com/hhatto/autopep8)                                      | Python code formatting              | [`[tool.autopep8]`](https://pypi.org/project/autopep8/)                                              | Native                                                                                                                |
 | [biome](https://biomejs.dev)                                                        | JSON/JS formatting and linting      | [`[tool.biome]`](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml)                 | [repomatic bridge](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml) → JSON                         |
 | [bump-my-version](https://callowayproject.github.io/bump-my-version/)               | Version bump patterns and files     | [`[tool.bumpversion]`](https://callowayproject.github.io/bump-my-version/reference/configuration/)   | Native                                                                                                                |
 | [coverage.py](https://coverage.readthedocs.io/en/latest/config.html)                | Code coverage reporting             | [`[tool.coverage.*]`](https://coverage.readthedocs.io/en/latest/config.html#configuration-reference) | Native                                                                                                                |
@@ -266,7 +267,9 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
-**Config files:** `.github/actionlint.yaml`
+**Config files:** `.github/actionlint.yaml`, `.github/actionlint.yml`
+
+**`[tool.actionlint]` bridge:** repomatic translates to YAML and passes via `--config-file`.
 
 **Default flags:** `-color`
 
@@ -297,7 +300,7 @@ With no arguments actionlint lints every workflow under `.github/workflows`. The
 
 **Installation method:** PyPI, installed via `uvx`
 
-**Config:** CLI flags only
+**Config:** `[tool.autopep8]` in `pyproject.toml` (native)
 
 **Default flags:** `--recursive` `--in-place` `--max-line-length` `88` `--select` `E501`
 
@@ -321,7 +324,7 @@ autopep8 takes its configuration from CLI flags only. repomatic passes `--recurs
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
-**Config files:** `biome.json`, `biome.jsonc`
+**Config files:** `biome.json`, `biome.jsonc`, `.biome.json`, `.biome.jsonc`
 
 **`[tool.biome]` bridge:** repomatic translates to JSON and passes via `--config-path`.
 
@@ -352,7 +355,7 @@ indentStyle = "space"
 
 **Installation method:** PyPI, installed via `uvx`
 
-**Config:** `[tool.bump-my-version]` in `pyproject.toml` (native)
+**Config files:** `.bumpversion.toml` and `[tool.bump-my-version]` in `pyproject.toml` (native)
 
 [Source](https://github.com/callowayproject/bump-my-version) | [Config reference](https://callowayproject.github.io/bump-my-version/reference/configuration/) | [CLI usage](https://callowayproject.github.io/bump-my-version/reference/cli/)
 
@@ -381,7 +384,7 @@ The configuration table is `[tool.bumpversion]`, not `[tool.bump-my-version]`: t
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
-**Config files:** `.gitleaks.toml`, `.github/gitleaks.toml`
+**Config files:** `.gitleaks.toml`
 
 **`[tool.gitleaks]` bridge:** repomatic translates to TOML and passes via `--config`.
 
@@ -605,7 +608,7 @@ pyproject-fmt normalizes and reorders `pyproject.toml` in place. It reads its ow
 
 **Installation method:** PyPI, installed via `uvx`
 
-**Config files:** `ruff.toml`, `.ruff.toml` and `[tool.ruff]` in `pyproject.toml` (native)
+**Config files:** `.ruff.toml`, `ruff.toml` and `[tool.ruff]` in `pyproject.toml` (native)
 
 **Bundled default:** [`ruff.toml`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/ruff.toml)
 
@@ -660,7 +663,7 @@ shfmt formats shell scripts in place. It has no `[tool.shfmt]` section: indentat
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
-**Config:** `[tool.typos]` in `pyproject.toml` (native)
+**Config files:** `typos.toml`, `_typos.toml`, `.typos.toml` and `[tool.typos]` in `pyproject.toml` (native)
 
 **Default flags:** `--write-changes`
 
@@ -691,7 +694,7 @@ typos scans the tree and, with repomatic's default `--write-changes`, fixes what
 
 **Installation method:** PyPI, installed via `uvx`
 
-**Config files:** `.yamllint.yaml`, `.yamllint.yml`, `.yamllint`
+**Config files:** `.yamllint`, `.yamllint.yaml`, `.yamllint.yml`
 
 **`[tool.yamllint]` bridge:** repomatic translates to YAML and passes via `--config-file`.
 
@@ -728,7 +731,7 @@ yamllint has no native `pyproject.toml` support, so repomatic bridges `[tool.yam
 
 **Installation method:** PyPI, installed via `uvx`
 
-**Config files:** `zizmor.yaml`
+**Config files:** `.github/zizmor.yml`, `.github/zizmor.yaml`, `zizmor.yml`, `zizmor.yaml`
 
 **`[tool.zizmor]` bridge:** repomatic translates to YAML and passes via `--config`.
 
