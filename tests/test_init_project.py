@@ -1237,6 +1237,61 @@ def test_skips_already_up_to_date(tmp_path: Path) -> None:
     assert result is None
 
 
+def _bumpversion_section(text: str) -> str:
+    """Extract the textual `[tool.bumpversion]` block, including `[[...files]]`.
+
+    Spans from the `[tool.bumpversion]` header to the next unrelated table header,
+    preserving key order and comments (unlike a parsed-dict view).
+    """
+    lines = text.splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == "[tool.bumpversion]")
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].startswith("[") and not lines[i].lstrip("[").startswith(
+            "tool.bumpversion"
+        ):
+            end = i
+            break
+    return "\n".join(lines[start:end]).rstrip()
+
+
+def test_bumpversion_template_is_pyproject_fmt_fixed_point(tmp_path: Path) -> None:
+    """`sync-bumpversion` output must already be a fixed point of pyproject-fmt.
+
+    `sync-bumpversion` rewrites `[tool.bumpversion]` from the bundled template,
+    while `format-pyproject` reorders the same keys with pyproject-fmt. When the
+    template's key order diverges from pyproject-fmt's, the two autofix jobs
+    ping-pong: one PR imposes the template order, the next reverts it.
+
+    The in-tree `pyproject.toml` has been processed by `format-pyproject`, so its
+    `[tool.bumpversion]` block is the canonical pyproject-fmt output. Asserting the
+    freshly merged template equals it textually (modulo `current_version`, the only
+    preserved key) locks the order. Unlike `test_template_matches_own_pyproject`,
+    which compares parsed dicts, this compares text, so it catches key-order drift.
+    See `claude.md` § "Generator/formatter ping-pong is recurrent".
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "test-project"\nversion = "1.0.0.dev0"\n', encoding="UTF-8"
+    )
+    merged = init_config("bumpversion", pyproject)
+    assert merged is not None
+
+    own = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
+        encoding="UTF-8"
+    )
+    version_re = re.compile(r'current_version = "[^"]*"')
+    generated = version_re.sub("current_version = ", _bumpversion_section(merged))
+    in_tree = version_re.sub("current_version = ", _bumpversion_section(own))
+
+    assert generated == in_tree, (
+        "Bundled bumpversion template diverges from the pyproject-fmt-formatted "
+        "[tool.bumpversion] in pyproject.toml. sync-bumpversion and format-pyproject "
+        "will ping-pong on every push. Reorder repomatic/data/bumpversion.toml to "
+        "match pyproject-fmt's output."
+    )
+
+
 def test_replaces_old_changelog_pattern(tmp_path: Path) -> None:
     """Verify old changelog pattern without backticks is replaced by template."""
     content = (
