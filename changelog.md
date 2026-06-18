@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.27.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.27.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.27.0` (2026-06-18)](https://github.com/kdeldycke/repomatic/compare/v6.26.0...v6.27.0)
 
 - **Breaking:** Replace `fix-vulnerable-deps` with `audit`. `repomatic audit` reports vulnerable dependencies read-only; `repomatic audit --fix` performs the previous upgrade behavior.
