@@ -467,6 +467,33 @@ def test_inline_code_no_cross_contamination_with_xref(myst, expected):
     assert _convert(myst) == expected
 
 
+@pytest.mark.parametrize(
+    ("myst", "expected"),
+    [
+        ("a `Foo` and `_bar` end", "a ``Foo`` and ``_bar`` end"),
+        ("a `Foo` then {func}`_bar` end", "a ``Foo`` then :func:`_bar` end"),
+        ("a `_bar` then `Foo` end", "a ``_bar`` then ``Foo`` end"),
+        ("see `apple`, `_pear`, `cherry`", "see ``apple``, ``_pear``, ``cherry``"),
+    ],
+    ids=[
+        "code-then-underscore-code",
+        "code-then-underscore-xref",
+        "underscore-code-first",
+        "underscore-code-middle",
+    ],
+)
+def test_leading_underscore_span_not_a_hyperlink_ref(myst, expected):
+    """A backtick span starting with `_` must not be read as a hyperlink ref.
+
+    The reST hyperlink-reference pattern ``` `label`_ ``` would otherwise let
+    the protection regex span the gap between two inline-code spans (consuming
+    the first span's closing backtick and the second span's leading underscore),
+    corrupting both. The opening backtick of a hyperlink ref is anchored at a
+    word boundary to prevent this.
+    """
+    assert _convert(myst) == expected
+
+
 # ---- Idempotent pass-through for reST docstrings ---------------------------
 
 

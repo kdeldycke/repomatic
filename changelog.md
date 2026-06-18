@@ -6,13 +6,14 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** Replace `fix-vulnerable-deps` with `audit`. `repomatic audit` reports vulnerable dependencies read-only; `repomatic audit --fix` performs the previous upgrade behavior.
-- Preserve comments when materializing a `[tool.X]` section from `pyproject.toml` to a tool's native TOML config file (like `.gitleaks.toml`), instead of dropping them.
 - Stop forcing `pyproject-fmt` table expansion: `project.urls`, `project.scripts`, and similar sections now use its default compact (dotted-key) form.
-- Fix the `manpages` release job: attach the man-page tarball to the release draft before publishing, so it no longer fails under GitHub immutable releases.
-- Fix cooldown bypasses (`[tool.uv] exclude-newer-package`) never expiring: `sync-uv-lock` now freezes each one at its locked version (a fixed date) instead of a latest-tracking `"0 day"` span, and prunes it once that version ages past `exclude-newer`.
+- Recognize each bundled tool's native config files more accurately (`biome`, `gitleaks`, `ruff`, `typos`, `zizmor`, and others) and their config-file CLI flags.
+- Preserve comments when materializing a `[tool.X]` section from `pyproject.toml` to a tool's native TOML config file (like `.gitleaks.toml`), instead of dropping them.
 - Update `pyproject-fmt` to `2.25.0`, fixing the `format-pyproject` job writing invalid TOML when it reformats `[tool.repomatic.labels]` rule tables.
-- Stop `sync-bumpversion` and `format-pyproject` from opening competing pull requests in an endless loop, by ordering the bundled `[tool.bumpversion]` template to match `pyproject-fmt`.
-- Reindent the bundled `[tool.lychee]` template to two spaces to match `pyproject-fmt`, preventing repeated reformatting PRs when a Python project opts lychee in.
+- Align the bundled `[tool.bumpversion]` and `[tool.lychee]` templates with `pyproject-fmt`'s canonical output, ending the reformatting pull-request loops they triggered.
+- Fix cooldown bypasses (`[tool.uv] exclude-newer-package`) never expiring: `sync-uv-lock` now freezes each one at its locked version (a fixed date) instead of a latest-tracking `"0 day"` span, and prunes it once that version ages past `exclude-newer`.
+- Fix the `repomatic.myst_docstrings` Sphinx extension corrupting two adjacent inline-code spans in a docstring when the second span starts with an underscore.
+- Fix the `manpages` release job: attach the man-page tarball to the release draft before publishing, so it no longer fails under GitHub immutable releases.
 
 ## [`6.26.0` (2026-06-17)](https://github.com/kdeldycke/repomatic/compare/v6.25.1...v6.26.0)
 

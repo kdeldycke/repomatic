@@ -97,7 +97,7 @@ MIN_UV_AUDIT_JSON_VERSION = Version("0.11.15")
 """Minimum `uv` version exposing `uv audit --output-format json`.
 
 The structured JSON output landed in uv 0.11.15 as a preview feature. Below
-this, `uv audit` emits only human-readable text, so {func}`_run_uv_audit`
+this, `uv audit` emits only human-readable text, so `_run_uv_audit`
 refuses to run rather than silently scanning nothing.
 """
 
@@ -513,8 +513,8 @@ def add_exclude_newer_packages(
 ) -> bool:
     """Add packages to `[tool.uv].exclude-newer-package` in `pyproject.toml`.
 
-    Persists a {func}`freeze date <_freeze_date>` for each package (the day
-    after its currently-locked version shipped) so that subsequent
+    Persists for each package the `_freeze_date` of its currently-locked
+    version (the day after that version shipped) so that subsequent
     `uv lock --upgrade` runs (e.g. from the `sync-uv-lock` job) hold the
     package at that version instead of tracking newer releases, until it
     ages past the `exclude-newer` cooldown and
@@ -593,8 +593,8 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> bool
     A `"0 day"` (or any relative-span) `exclude-newer-package` entry tells
     uv to ignore the cooldown and resolve to the *latest* release, so the
     package keeps moving and {func}`prune_stale_exclude_newer_packages`
-    never sees its locked version age out. Rewriting the span as the locked
-    version's {func}`freeze date <_freeze_date>` instead *holds* the
+    never sees its locked version age out. Rewriting the span as the
+    `_freeze_date` of the locked version instead *holds* the
     package: newer releases are excluded until the held version ages past
     the global cooldown, at which point the entry is pruned and the package
     rejoins normal resolution.

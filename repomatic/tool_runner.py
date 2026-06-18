@@ -153,7 +153,7 @@ class NativeFormat(Enum):
         When *data* is a live `[tool.X]` table parsed from `pyproject.toml`
         (a `tomlrt.Table`), the TOML branch keeps the user's comments by
         reparenting the section to the document root; see
-        {func}`_reroot_section`. A plain dict carries no trivia, so it is
+        `_reroot_section`. A plain dict carries no trivia, so it is
         rendered as-is. The other formats (YAML, JSON, editorconfig) cannot
         carry TOML comments across the format boundary, so they serialize the
         values only.

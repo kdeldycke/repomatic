@@ -138,7 +138,11 @@ _INLINE_CODE_RE = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
 # Backtick spans that must NOT be treated as inline code.  Matches:
 #   {role}`target`   — reST cross-references (from step 1)
 #   `text`_          — reST hyperlink references (idempotent pass-through)
-_PROTECTED_RE = re.compile(r":[\w-]+:`[^`]*`|`[^`]+`_{1,2}")
+# The hyperlink alternative anchors its opening backtick at a non-word, non-backtick
+# boundary so it cannot start at the *closing* backtick of a preceding inline-code
+# span. Without the lookbehind, `` `Foo` and `_bar` `` lets `` `[^`]+`_ `` match the
+# inter-span gap (`` ` and ` `` plus the leading `_` of `_bar`), corrupting both spans.
+_PROTECTED_RE = re.compile(r":[\w-]+:`[^`]*`|(?<![\w`])`[^`]+`_{1,2}")
 
 
 def _convert_plain_code_fence(match: re.Match) -> str:
