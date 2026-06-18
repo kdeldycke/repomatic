@@ -150,6 +150,14 @@ class NativeFormat(Enum):
     def serialize(self, data: dict, tool_name: str = "") -> str:
         """Serialize a config dict to this format's string representation.
 
+        When *data* is a live `[tool.X]` table parsed from `pyproject.toml`
+        (a `tomlrt.Table`), the TOML branch keeps the user's comments by
+        reparenting the section to the document root; see
+        {func}`_reroot_section`. A plain dict carries no trivia, so it is
+        rendered as-is. The other formats (YAML, JSON, editorconfig) cannot
+        carry TOML comments across the format boundary, so they serialize the
+        values only.
+
         :param data: Configuration dictionary to serialize.
         :param tool_name: Tool name for the generated-by header comment.
         :raises ValueError: For `FLAGS`, which is not a file format.
@@ -158,12 +166,22 @@ class NativeFormat(Enum):
             msg = "FLAGS is not a file format; use pyproject_table_to_flags()."
             raise ValueError(msg)
         header = self._header(tool_name) if tool_name else ""
+        # Only the TOML serializer can consume a live `tomlrt.Table` and keep its
+        # comments; YAML/JSON/editorconfig need plain Python types (their
+        # encoders key on exact types and choke on tomlrt's table and array).
+        if self is not NativeFormat.TOML and isinstance(data, tomlrt.Table):
+            data = data.to_dict()
         if self is NativeFormat.YAML:
             return header + yaml.safe_dump(
                 data, default_flow_style=False, sort_keys=False
             )
         if self is NativeFormat.TOML:
-            return header + tomlrt.Document(data).render()
+            doc = (
+                _reroot_section(data)
+                if isinstance(data, tomlrt.Table)
+                else tomlrt.Document(data)
+            )
+            return header + doc.render()
         if self is NativeFormat.EDITORCONFIG:
             return self._serialize_editorconfig(data, header)
         return json.dumps(data, indent=2) + "\n"
@@ -183,6 +201,48 @@ class NativeFormat(Enum):
             else:
                 lines.append(f"{ec_key} = {value}")
         return "\n".join(lines) + "\n"
+
+
+def _reroot_section(section: tomlrt.Table) -> tomlrt.Document:
+    """Reparent a `[tool.X]` section to a standalone TOML document.
+
+    A native config file (`.gitleaks.toml`) drops the `[tool.X]` prefix the
+    section carries inside `pyproject.toml`: top-level keys move to the document
+    root and every `[tool.X.sub]` header becomes `[sub]`. Assigning each value
+    into a fresh `Document` routes sub-tables and arrays-of-tables through
+    tomlrt's trivia-preserving clone path (dimbleby/tomlrt#171), so their
+    comments and nested headers survive. Direct scalar and array keys lose their
+    key-level trivia on that assignment (the trivia lives on the parent slot,
+    not the value), so the leading block and end-of-line comment are copied back
+    explicitly.
+
+    ```{note}
+    End-of-line comments are re-emitted with a single space before `#`,
+    normalising any wider padding from the source. A comment on the `[tool.X]`
+    header line itself has no home at the document root and is dropped.
+    ```
+
+    :param section: A live `[tool.X]` table parsed from `pyproject.toml`.
+    :return: A standalone document with the section's body at the root.
+    """
+    # An inline `tool.x = {...}` table holds no standalone comments, and the
+    # comment API is unavailable on it; expand to a plain document, matching the
+    # behaviour before trivia preservation.
+    if section.is_inline:
+        return tomlrt.Document(section.to_dict())
+    doc = tomlrt.Document()
+    for key in section:
+        doc[key] = section[key]
+    # Sub-tables and AoTs carry their own trivia through the assignment above;
+    # only direct scalar and array KV trivia needs restoring.
+    for key, value in section.items():
+        if isinstance(value, (tomlrt.Table, tomlrt.AoT)):
+            continue
+        if leading := section.leading_block.get(key):
+            doc.leading_block[key] = leading
+        if eol := section.comments.get(key):
+            doc.comments[key] = eol
+    return doc
 
 
 PlatformKey = tuple[Platform | Group, Architecture]
@@ -1163,13 +1223,18 @@ def get_data_file_path(filename: str) -> Iterator[Path]:
 def load_pyproject_tool_section(tool_name: str) -> dict[str, Any]:
     """Load `[tool.<tool_name>]` from `pyproject.toml` in the current directory.
 
-    :return: The tool's config dict, or empty dict if not found.
+    Returns the live `tomlrt.Table` (a `dict` subclass) rather than a plain-dict
+    copy, so the section keeps its comment trivia for formats that can preserve
+    it on materialization (see {meth}`NativeFormat.serialize`). Callers that only
+    read values or test truthiness are unaffected.
+
+    :return: The tool's config table, or empty dict if not found.
     """
     pyproject_path = Path("pyproject.toml")
     if not pyproject_path.exists():
         logging.debug("No pyproject.toml found in CWD.")
         return {}
-    pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8")).to_dict()
+    pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
     tool_section: dict[str, Any] = pyproject_data.get("tool", {}).get(tool_name, {})
     if tool_section:
         logging.debug("[tool.%s] found in pyproject.toml: %r", tool_name, tool_section)

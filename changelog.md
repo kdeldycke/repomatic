@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** Replace `fix-vulnerable-deps` with `audit`. `repomatic audit` reports vulnerable dependencies read-only; `repomatic audit --fix` performs the previous upgrade behavior.
+- Preserve comments when materializing a `[tool.X]` section from `pyproject.toml` to a tool's native TOML config file (like `.gitleaks.toml`), instead of dropping them.
 - Stop forcing `pyproject-fmt` table expansion: `project.urls`, `project.scripts`, and similar sections now use its default compact (dotted-key) form.
 - Fix the `manpages` release job: attach the man-page tarball to the release draft before publishing, so it no longer fails under GitHub immutable releases.
 - Fix cooldown bypasses (`[tool.uv] exclude-newer-package`) never expiring: `sync-uv-lock` now freezes each one at its locked version (a fixed date) instead of a latest-tracking `"0 day"` span, and prunes it once that version ages past `exclude-newer`.

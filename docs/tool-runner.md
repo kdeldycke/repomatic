@@ -103,6 +103,10 @@ $ repomatic run ruff -- check .
 
 If no native config file is found but your `pyproject.toml` has a `[tool.<name>]` section, repomatic uses it. For tools that read `pyproject.toml` natively (ruff, mypy, bump-my-version, etc.), this just works. For tools that don't, repomatic translates the section into the tool's native format and passes it via a temporary config file.
 
+```{note}
+When the tool's native format is also TOML (like gitleaks), the translation keeps the comments from your `[tool.X]` section and only drops the `[tool.X]` prefix. Translations to another format (YAML, JSON) carry the values only: a TOML comment has no equivalent to map onto.
+```
+
 ```toml
 # pyproject.toml
 [tool.yamllint.rules.line-length]

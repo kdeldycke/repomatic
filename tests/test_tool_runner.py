@@ -54,6 +54,7 @@ from repomatic.tool_runner import (
     _extract_binary,
     _fix_myst_directive_options,
     _install_binary,
+    _reroot_section,
     _yaml_block_to_field_list,
     binary_tool_context,
     find_unmodified_configs,
@@ -1079,6 +1080,80 @@ def test_resolve_config_toml_nested_tables(tmp_path, monkeypatch):
     assert "enable = true" in content
     assert "max_age = 3600" in content
     assert tmp is None
+
+
+def test_resolve_config_toml_preserves_pyproject_comments(tmp_path, monkeypatch):
+    """A [tool.X] TOML section materialised to a native file keeps its comments.
+
+    Reading the section live (not via a plain-dict copy) lets the generated
+    standalone file carry the user's comments while dropping the `[tool.X]`
+    prefix.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.gitleaks]\n"
+        "# Recognisable title.\n"
+        'title = "scan"  # shown in reports\n'
+        "\n"
+        "# Skip vendored trees.\n"
+        "[tool.gitleaks.allowlist]\n"
+        'paths = ["vendor/"]\n',
+        encoding="UTF-8",
+    )
+
+    spec = ToolSpec(
+        name="gitleaks",
+        version="8.0.0",
+        package="gitleaks",
+        config_flag="--config",
+        native_format=NativeFormat.TOML,
+    )
+    args, tmp = resolve_config(spec)
+
+    content = Path(args[1]).read_text(encoding="UTF-8")
+    # Standalone format: the [tool.gitleaks] prefix is reparented to the root.
+    assert "[tool.gitleaks]" not in content
+    assert "[allowlist]" in content
+    # Comments survive the round-trip.
+    assert "# Recognisable title." in content
+    assert "# shown in reports" in content
+    assert "# Skip vendored trees." in content
+    assert tmp is None
+
+
+def test_reroot_section_strips_prefix_and_keeps_comments():
+    """_reroot_section reparents a [tool.X] section and preserves every comment."""
+    section = tomlrt.loads(
+        "[tool.x]\n"
+        "# leading\n"
+        "a = 1  # eol\n"
+        "[tool.x.sub]\n"
+        "# nested\n"
+        "b = 2\n"
+        "[[tool.x.items]]\n"
+        "# aot\n"
+        "c = 3\n"
+    )["tool"]["x"]
+
+    out = tomlrt.dumps(_reroot_section(section))
+
+    assert "[sub]" in out and "[tool.x.sub]" not in out
+    assert "[[items]]" in out and "[[tool.x.items]]" not in out
+    for comment in ("# leading", "# eol", "# nested", "# aot"):
+        assert comment in out
+
+
+def test_reroot_section_inline_expands_without_raising():
+    """An inline `tool.x = {...}` table expands instead of hitting the comment API."""
+    section = tomlrt.loads("[tool]\nx = { a = 1, sub = { b = 2 } }\n")["tool"]["x"]
+
+    out = tomlrt.dumps(_reroot_section(section))
+
+    assert "a = 1" in out
+    assert "[sub]" in out
+    assert "b = 2" in out
 
 
 def test_resolve_config_json_translation(tmp_path, monkeypatch):
