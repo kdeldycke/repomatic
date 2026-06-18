@@ -946,6 +946,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
+        native_config_files=("pyproject-fmt.toml",),
         reads_pyproject=True,
     ),
     "ruff": ToolSpec(

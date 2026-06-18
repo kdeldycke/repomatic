@@ -45,24 +45,24 @@ invoke(repomatic, args=['run', '--list'])
 
 <!-- tool-summary-start -->
 
-| Tool                                                                  | Version  | Type        | Config discovery                                             |
-| :-------------------------------------------------------------------- | :------- | :---------- | :----------------------------------------------------------- |
-| [actionlint](https://github.com/rhysd/actionlint)                     | `1.7.12` | Binary      | `.github/actionlint.yaml`                                    |
-| [autopep8](https://github.com/hhatto/autopep8)                        | `2.3.2`  | PyPI        | CLI flags only                                               |
-| [Biome](https://github.com/biomejs/biome)                             | `2.4.16` | Binary      | `biome.json`, `biome.jsonc`                                  |
-| [bump-my-version](https://github.com/callowayproject/bump-my-version) | `1.2.7`  | PyPI        | `[tool.bump-my-version]` in `pyproject.toml`                 |
-| [Gitleaks](https://github.com/gitleaks/gitleaks)                      | `8.30.1` | Binary      | `.gitleaks.toml`, `.github/gitleaks.toml`                    |
-| [labelmaker](https://github.com/jwodder/labelmaker)                   | `0.6.4`  | Binary      | CLI flags only                                               |
-| [Lychee](https://github.com/lycheeverse/lychee)                       | `0.24.2` | Binary      | `lychee.toml`, `[tool.lychee]` in `pyproject.toml`           |
-| [mdformat](https://github.com/hukkin/mdformat)                        | `1.0.0`  | PyPI        | `.mdformat.toml`, `[tool.mdformat]` in `pyproject.toml`      |
-| [mypy](https://github.com/python/mypy)                                | `1.19.1` | PyPI (venv) | `[tool.mypy]` in `pyproject.toml`                            |
-| [Nuitka](https://github.com/Nuitka/Nuitka)                            | `4.1`    | PyPI (venv) | `[tool.nuitka]` in `pyproject.toml`                          |
-| [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.25.0` | PyPI        | `[tool.pyproject-fmt]` in `pyproject.toml`                   |
-| [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.5` | PyPI        | `ruff.toml`, `.ruff.toml`, `[tool.ruff]` in `pyproject.toml` |
-| [shfmt](https://github.com/mvdan/sh)                                  | `3.13.1` | Binary      | `.editorconfig`                                              |
-| [typos](https://github.com/crate-ci/typos)                            | `1.47.2` | Binary      | `[tool.typos]` in `pyproject.toml`                           |
-| [yamllint](https://github.com/adrienverge/yamllint)                   | `1.38.0` | PyPI        | `.yamllint.yaml`, `.yamllint.yml`, `.yamllint`               |
-| [zizmor](https://github.com/zizmorcore/zizmor)                        | `1.23.0` | PyPI        | `zizmor.yaml`                                                |
+| Tool                                                                  | Version  | Type        | Config discovery                                                 |
+| :-------------------------------------------------------------------- | :------- | :---------- | :--------------------------------------------------------------- |
+| [actionlint](https://github.com/rhysd/actionlint)                     | `1.7.12` | Binary      | `.github/actionlint.yaml`                                        |
+| [autopep8](https://github.com/hhatto/autopep8)                        | `2.3.2`  | PyPI        | CLI flags only                                                   |
+| [Biome](https://github.com/biomejs/biome)                             | `2.4.16` | Binary      | `biome.json`, `biome.jsonc`                                      |
+| [bump-my-version](https://github.com/callowayproject/bump-my-version) | `1.2.7`  | PyPI        | `[tool.bump-my-version]` in `pyproject.toml`                     |
+| [Gitleaks](https://github.com/gitleaks/gitleaks)                      | `8.30.1` | Binary      | `.gitleaks.toml`, `.github/gitleaks.toml`                        |
+| [labelmaker](https://github.com/jwodder/labelmaker)                   | `0.6.4`  | Binary      | CLI flags only                                                   |
+| [Lychee](https://github.com/lycheeverse/lychee)                       | `0.24.2` | Binary      | `lychee.toml`, `[tool.lychee]` in `pyproject.toml`               |
+| [mdformat](https://github.com/hukkin/mdformat)                        | `1.0.0`  | PyPI        | `.mdformat.toml`, `[tool.mdformat]` in `pyproject.toml`          |
+| [mypy](https://github.com/python/mypy)                                | `1.19.1` | PyPI (venv) | `[tool.mypy]` in `pyproject.toml`                                |
+| [Nuitka](https://github.com/Nuitka/Nuitka)                            | `4.1`    | PyPI (venv) | `[tool.nuitka]` in `pyproject.toml`                              |
+| [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.25.0` | PyPI        | `pyproject-fmt.toml`, `[tool.pyproject-fmt]` in `pyproject.toml` |
+| [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.5` | PyPI        | `ruff.toml`, `.ruff.toml`, `[tool.ruff]` in `pyproject.toml`     |
+| [shfmt](https://github.com/mvdan/sh)                                  | `3.13.1` | Binary      | `.editorconfig`                                                  |
+| [typos](https://github.com/crate-ci/typos)                            | `1.47.2` | Binary      | `[tool.typos]` in `pyproject.toml`                               |
+| [yamllint](https://github.com/adrienverge/yamllint)                   | `1.38.0` | PyPI        | `.yamllint.yaml`, `.yamllint.yml`, `.yamllint`                   |
+| [zizmor](https://github.com/zizmorcore/zizmor)                        | `1.23.0` | PyPI        | `zizmor.yaml`                                                    |
 
 <!-- tool-summary-end -->
 
@@ -576,7 +576,7 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 
 **Installation method:** PyPI, installed via `uvx`
 
-**Config:** `[tool.pyproject-fmt]` in `pyproject.toml` (native)
+**Config files:** `pyproject-fmt.toml` and `[tool.pyproject-fmt]` in `pyproject.toml` (native)
 
 [Source](https://github.com/tox-dev/pyproject-fmt) | [Config reference](https://pyproject-fmt.readthedocs.io/en/latest/) | [CLI usage](https://pyproject-fmt.readthedocs.io/en/latest/)
 
