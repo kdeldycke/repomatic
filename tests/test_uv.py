@@ -60,7 +60,9 @@ def _fail(*args, **kwargs):
 def test_audit_report_lists_vulnerabilities_and_exits_nonzero(
     monkeypatch, default_config, no_github_repo
 ):
-    monkeypatch.setattr(cli, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()])
+    monkeypatch.setattr(
+        cli, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()]
+    )
     result = CliRunner().invoke(
         repomatic,
         ["--no-color", "--table-format", "github", "audit"],
@@ -73,13 +75,19 @@ def test_audit_report_lists_vulnerabilities_and_exits_nonzero(
 
 def test_audit_report_clean_exits_zero(monkeypatch, default_config, no_github_repo):
     monkeypatch.setattr(cli, "collect_vulnerable_packages", lambda *a, **k: [])
-    result = CliRunner().invoke(repomatic, ["--no-color", "audit"], catch_exceptions=False)
+    result = CliRunner().invoke(
+        repomatic, ["--no-color", "audit"], catch_exceptions=False
+    )
     assert result.exit_code == 0
     assert "No known vulnerabilities found." in result.output
 
 
-def test_audit_exit_zero_overrides_findings(monkeypatch, default_config, no_github_repo):
-    monkeypatch.setattr(cli, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()])
+def test_audit_exit_zero_overrides_findings(
+    monkeypatch, default_config, no_github_repo
+):
+    monkeypatch.setattr(
+        cli, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()]
+    )
     result = CliRunner().invoke(
         repomatic, ["--no-color", "audit", "--exit-zero"], catch_exceptions=False
     )
@@ -92,12 +100,18 @@ def test_audit_report_does_not_call_the_fix_engine(
     """Report mode is read-only: it must never reach the upgrade path."""
     monkeypatch.setattr(cli, "collect_vulnerable_packages", lambda *a, **k: [])
     monkeypatch.setattr(cli, "_fix_vulnerable_deps", _fail)
-    result = CliRunner().invoke(repomatic, ["--no-color", "audit"], catch_exceptions=False)
+    result = CliRunner().invoke(
+        repomatic, ["--no-color", "audit"], catch_exceptions=False
+    )
     assert result.exit_code == 0
 
 
-def test_audit_output_writes_markdown(monkeypatch, default_config, no_github_repo, tmp_path):
-    monkeypatch.setattr(cli, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()])
+def test_audit_output_writes_markdown(
+    monkeypatch, default_config, no_github_repo, tmp_path
+):
+    monkeypatch.setattr(
+        cli, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()]
+    )
     out = tmp_path / "report.md"
     result = CliRunner().invoke(
         repomatic, ["--no-color", "audit", "--output", str(out)], catch_exceptions=False
@@ -119,7 +133,9 @@ def test_audit_drops_github_source_without_repo(
         return []
 
     monkeypatch.setattr(cli, "collect_vulnerable_packages", fake_collect)
-    result = CliRunner().invoke(repomatic, ["--no-color", "audit"], catch_exceptions=False)
+    result = CliRunner().invoke(
+        repomatic, ["--no-color", "audit"], catch_exceptions=False
+    )
     assert result.exit_code == 0
     assert captured["repo"] is None
     assert AdvisorySource.GITHUB_ADVISORIES not in captured["sources"]
@@ -136,7 +152,9 @@ def test_audit_keeps_github_source_with_repo(monkeypatch, default_config):
 
     monkeypatch.setattr(cli, "collect_vulnerable_packages", fake_collect)
     result = CliRunner().invoke(
-        repomatic, ["--no-color", "audit", "--repo", "owner/name"], catch_exceptions=False
+        repomatic,
+        ["--no-color", "audit", "--repo", "owner/name"],
+        catch_exceptions=False,
     )
     assert result.exit_code == 0
     assert captured["repo"] == "owner/name"

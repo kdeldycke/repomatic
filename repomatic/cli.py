@@ -2748,8 +2748,7 @@ def audit(
         # vulnerable-deps.sync gates the autofix (mutation), not reporting.
         if not config.vulnerable_deps.sync:
             logging.info(
-                "[tool.repomatic] vulnerable-deps.sync is disabled."
-                " Skipping --fix."
+                "[tool.repomatic] vulnerable-deps.sync is disabled. Skipping --fix."
             )
             ctx.exit(0)
 
