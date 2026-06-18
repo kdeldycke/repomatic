@@ -30,7 +30,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -484,26 +484,80 @@ def _packages_outside_cooldown(
     return outside
 
 
-def _freeze_date(upload_str: str) -> str | None:
-    """Freeze date that holds a package at its currently-locked version.
+def _bare_date(value: str) -> date | None:
+    """Parse an `exclude-newer-package` value that is a bare `YYYY-MM-DD` date.
+
+    Returns the parsed {class}`~datetime.date` only when *value* is exactly a
+    calendar date with no time component: the timezone-ambiguous form uv
+    re-expands per locking-machine timezone. Relative spans (`0 day`), full
+    RFC 3339 timestamps, and unparsable values all return `None`.
+
+    :param value: An `exclude-newer-package` entry value.
+    :return: The {class}`~datetime.date`, or `None` when *value* is not a
+        bare date.
+    """
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def _date_to_utc_cutoff(day: date) -> str:
+    """Render an `exclude-newer-package` cutoff date as an explicit UTC instant.
+
+    ```{warning}
+    uv reads a bare `YYYY-MM-DD` in `exclude-newer-package` as the start of
+    the *following* day in the locking machine's local timezone, then writes
+    that absolute instant into `uv.lock`'s `[options.exclude-newer-package]`
+    block. The same date therefore lands as a different timestamp depending on
+    where `uv lock` ran: `2026-06-13` becomes `2026-06-14T00:00:00Z` on a UTC
+    CI runner but `2026-06-13T20:00:00Z` on a UTC+4 laptop. Every local lock
+    then flips the value one way and every CI lock flips it back: an endless
+    `sync-uv-lock` ping-pong.
+    ```
+
+    Pinning the cutoff to that same next-day-midnight boundary expressed in
+    UTC removes the ambiguity: uv stores a full RFC 3339 timestamp verbatim,
+    identically on every machine.
+
+    :param day: The cutoff date (the bare date uv would otherwise expand).
+    :return: A `YYYY-MM-DDT00:00:00Z` timestamp at the start of the day after
+        *day*, matching uv's exclusive end-of-day expansion pinned to UTC.
+    """
+    cutoff = datetime(day.year, day.month, day.day, tzinfo=timezone.utc) + timedelta(
+        days=1
+    )
+    return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _freeze_cutoff(upload_str: str) -> str | None:
+    """Freeze cutoff that holds a package at its currently-locked version.
 
     A cooldown bypass must *hold* the locked version, not track the latest
     release (which is what a `"0 day"` span does: it disables the cooldown,
     so `uv lock --upgrade` keeps pulling newer releases and the entry never
-    ages out). Returns the day after the locked version's upload time,
-    date-only (`YYYY-MM-DD`), so uv's `exclude-newer-package` keeps that
-    version and rejects anything published later. The one-day margin
-    absorbs intraday and timezone boundaries so the held version is never
-    itself excluded.
+    ages out). Returns an `exclude-newer-package` cutoff just past the locked
+    version's upload time so uv keeps that version and rejects anything
+    published later.
+
+    The cutoff is the day after the upload, rendered as an explicit UTC
+    timestamp via {func}`_date_to_utc_cutoff` rather than a bare `YYYY-MM-DD`
+    date. A bare date is re-expanded in the locking machine's local timezone,
+    making `uv.lock` ping-pong between locks run locally and in CI; the
+    timestamp is stored verbatim. The day-plus margin keeps the held version
+    safely inside the window.
 
     :param upload_str: The locked version's `upload-time` from `uv.lock`.
-    :return: A `YYYY-MM-DD` freeze date, or `None` when *upload_str* is
-        empty or unparsable (git and path sources have no upload time).
+    :return: A `YYYY-MM-DDT00:00:00Z` cutoff timestamp, or `None` when
+        *upload_str* is empty or unparsable (git and path sources have no
+        upload time).
     """
     upload_dt = _parse_iso_datetime(upload_str)
     if upload_dt is None:
         return None
-    return (upload_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    return _date_to_utc_cutoff((upload_dt + timedelta(days=1)).date())
 
 
 def add_exclude_newer_packages(
@@ -513,8 +567,8 @@ def add_exclude_newer_packages(
 ) -> bool:
     """Add packages to `[tool.uv].exclude-newer-package` in `pyproject.toml`.
 
-    Persists for each package the `_freeze_date` of its currently-locked
-    version (the day after that version shipped) so that subsequent
+    Persists for each package the `_freeze_cutoff` of its currently-locked
+    version (just after that version shipped) so that subsequent
     `uv lock --upgrade` runs (e.g. from the `sync-uv-lock` job) hold the
     package at that version instead of tracking newer releases, until it
     ages past the `exclude-newer` cooldown and
@@ -565,7 +619,7 @@ def add_exclude_newer_packages(
     for pkg in to_add:
         # Freeze at the locked version; fall back to a permanent span when
         # the package has no PyPI upload time (git or path source).
-        all_entries[pkg] = _freeze_date(upload_times.get(pkg, "")) or "0 day"
+        all_entries[pkg] = _freeze_cutoff(upload_times.get(pkg, "")) or "0 day"
     new_table = _build_inline_table(all_entries)
     if pkg_table is not None:
         uv["exclude-newer-package"] = new_table
@@ -588,20 +642,23 @@ def add_exclude_newer_packages(
 
 
 def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> bool:
-    """Convert relative-span cooldown bypasses into fixed freeze dates.
+    """Convert relative-span cooldown bypasses into fixed freeze cutoffs.
 
     A `"0 day"` (or any relative-span) `exclude-newer-package` entry tells
     uv to ignore the cooldown and resolve to the *latest* release, so the
     package keeps moving and {func}`prune_stale_exclude_newer_packages`
     never sees its locked version age out. Rewriting the span as the
-    `_freeze_date` of the locked version instead *holds* the
+    `_freeze_cutoff` of the locked version instead *holds* the
     package: newer releases are excluded until the held version ages past
     the global cooldown, at which point the entry is pruned and the package
     rejoins normal resolution.
 
-    Entries already carrying a fixed date are left untouched (idempotent).
-    Packages with no upload time in the lock (git or path sources) keep
-    their span: they have no PyPI release to freeze against.
+    Also migrates any legacy bare `YYYY-MM-DD` fixed entry to the equivalent
+    explicit UTC timestamp (see {func}`_date_to_utc_cutoff`), so uv stops
+    re-expanding it per locking-machine timezone. Entries already carrying a
+    full timestamp are left untouched (idempotent). Packages with no upload
+    time in the lock (git or path sources) keep their span: they have no PyPI
+    release to freeze against.
 
     :param pyproject_path: Path to the `pyproject.toml` file.
     :param lock_path: Path to the `uv.lock` file.
@@ -618,20 +675,33 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> bool
     changed = False
     for pkg, value in pkg_table.items():
         text = str(value)
-        # Only relative spans track the latest release; fixed dates already hold.
+        # Only relative spans track the latest release; fixed cutoffs already hold.
         is_span = (
             _parse_relative_duration(text) is not None
             or _parse_lock_duration(text) is not None
         )
-        freeze = _freeze_date(upload_times.get(pkg, "")) if is_span else None
-        if freeze is None:
-            # Already a fixed date, or a git/path source with no release to
-            # freeze against: leave the entry as-is.
+        if is_span:
+            freeze = _freeze_cutoff(upload_times.get(pkg, ""))
+            if freeze is not None:
+                frozen[pkg] = freeze
+                changed = True
+                logging.info(f"Freezing {pkg} cooldown bypass at {freeze}.")
+                continue
+            # Git/path source with no release to freeze against: keep the span.
             frozen[pkg] = value
             continue
-        frozen[pkg] = freeze
-        changed = True
-        logging.info(f"Freezing {pkg} cooldown bypass at {freeze}.")
+        # Fixed cutoff. Upgrade a legacy bare YYYY-MM-DD date to an explicit
+        # UTC timestamp so uv stops re-expanding it per locking-machine
+        # timezone. Already-pinned timestamps return None here, keeping the
+        # pass idempotent.
+        bare = _bare_date(text)
+        if bare is not None:
+            pinned = _date_to_utc_cutoff(bare)
+            frozen[pkg] = pinned
+            changed = True
+            logging.info(f"Pinning {pkg} cooldown date {text} to {pinned}.")
+            continue
+        frozen[pkg] = value
 
     if not changed:
         return False

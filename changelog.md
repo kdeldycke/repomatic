@@ -11,7 +11,8 @@
 - Preserve comments when materializing a `[tool.X]` section from `pyproject.toml` to a tool's native TOML config file (like `.gitleaks.toml`), instead of dropping them.
 - Update `pyproject-fmt` to `2.25.0`, fixing the `format-pyproject` job writing invalid TOML when it reformats `[tool.repomatic.labels]` rule tables.
 - Align the bundled `[tool.bumpversion]` and `[tool.lychee]` templates with `pyproject-fmt`'s canonical output, ending the reformatting pull-request loops they triggered.
-- Fix cooldown bypasses (`[tool.uv] exclude-newer-package`) never expiring: `sync-uv-lock` now freezes each one at its locked version (a fixed date) instead of a latest-tracking `"0 day"` span, and prunes it once that version ages past `exclude-newer`.
+- Fix cooldown bypasses (`[tool.uv] exclude-newer-package`) never expiring: `sync-uv-lock` now freezes each one at its locked version instead of a latest-tracking `"0 day"` span, and prunes it once that version ages past `exclude-newer`.
+- Fix `uv.lock` ping-ponging on every `sync-uv-lock` run: `exclude-newer-package` freezes are now explicit UTC timestamps, not bare dates that uv re-expands in the locking machine's timezone.
 - Fix the `repomatic.myst_docstrings` Sphinx extension corrupting two adjacent inline-code spans in a docstring when the second span starts with an underscore.
 - Fix the `manpages` release job: attach the man-page tarball to the release draft before publishing, so it no longer fails under GitHub immutable releases.
 

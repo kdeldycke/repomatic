@@ -68,14 +68,14 @@ These comment patterns typically signal a floor set at adoption or auto-bump tim
 
 The `[tool.uv]` section may contain `exclude-newer-package` entries that exempt specific packages from the global [`exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) cooldown window. Each entry is one of two kinds:
 
-- **A fixed date** (like `"2026-06-15"`): a freeze that holds the package at the version available on that date, used when a needed release is still inside the cooldown window. `sync-uv-lock` writes these automatically (the day after the held version shipped) and prunes each one once its held version ages past `exclude-newer`, returning the package to the normal cooldown. These are self-expiring and rarely need manual attention.
+- **A fixed UTC timestamp** (like `"2026-06-16T00:00:00Z"`): a freeze that holds the package at the version available just before that instant, used when a needed release is still inside the cooldown window. `sync-uv-lock` writes these automatically (pinned to the day after the held version shipped) and prunes each one once its held version ages past `exclude-newer`, returning the package to the normal cooldown. The full timestamp is deliberate: uv re-expands a bare `YYYY-MM-DD` date in the locking machine's local timezone, so a bare date serializes to a different `uv.lock` value locally than in CI and churns the file on every run. These are self-expiring and rarely need manual attention.
 - **A `"0 day"` span**: a permanent exemption, for packages with no PyPI release to age against (git or path sources, like a project depending on itself). These never expire on their own.
 
 For each `exclude-newer-package` entry, check:
 
 1. **Is the package still a dependency?** If removed from `[project].dependencies` and all `[dependency-groups]`, the entry is dead weight.
-2. **Is a `"0 day"` span still justified?** A permanent span fits an in-repo (git or path) package. A `"0 day"` span on an external PyPI package is suspect: it tracks the latest release forever and never ages out, so it should be a freeze date instead (which `sync-uv-lock` materializes on its next run).
-3. **Is a freeze date stuck?** A freeze date older than the `exclude-newer` window should already have been pruned. A lingering one usually means the package left the dependency tree or the sync job has not run since it aged.
+2. **Is a `"0 day"` span still justified?** A permanent span fits an in-repo (git or path) package. A `"0 day"` span on an external PyPI package is suspect: it tracks the latest release forever and never ages out, so it should be a freeze timestamp instead (which `sync-uv-lock` materializes on its next run).
+3. **Is a freeze timestamp stuck?** A freeze timestamp older than the `exclude-newer` window should already have been pruned. A lingering one usually means the package left the dependency tree or the sync job has not run since it aged.
 
 ## Floor bumps to adopt new APIs
 

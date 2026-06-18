@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -39,7 +39,10 @@ from repomatic.renovate import (
 )
 from repomatic.uv import (
     RELEASE_NOTES_MAX_LENGTH,
+    _bare_date,
+    _date_to_utc_cutoff,
     _format_upload_date,
+    _freeze_cutoff,
     _packages_outside_cooldown,
     _parse_github_owner_repo,
     _parse_iso_datetime,
@@ -760,7 +763,7 @@ def test_add_exclude_newer_packages_preserves_unrelated_siblings(tmp_path):
 
 
 def test_add_exclude_newer_packages_freezes_at_locked_version(tmp_path):
-    """A locked PyPI version is frozen at the day after it shipped."""
+    """A locked PyPI version is frozen just past the day after it shipped."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[tool.uv]\nexclude-newer = "1 week"\n')
     lock = tmp_path / "uv.lock"
@@ -774,7 +777,10 @@ def test_add_exclude_newer_packages_freezes_at_locked_version(tmp_path):
     )
     assert add_exclude_newer_packages(pyproject, {"pygments"}, lock) is True
     parsed = tomlrt.loads(pyproject.read_text())
-    assert parsed["tool"]["uv"]["exclude-newer-package"]["pygments"] == "2026-03-02"
+    assert (
+        parsed["tool"]["uv"]["exclude-newer-package"]["pygments"]
+        == "2026-03-03T00:00:00Z"
+    )
 
 
 def test_add_exclude_newer_packages_falls_back_to_span(tmp_path):
@@ -792,8 +798,8 @@ def test_add_exclude_newer_packages_falls_back_to_span(tmp_path):
     assert parsed["tool"]["uv"]["exclude-newer-package"]["appleseed"] == "0 day"
 
 
-def test_freeze_converts_span_to_date(tmp_path):
-    """A "0 day" span is rewritten as the held version's freeze date."""
+def test_freeze_converts_span_to_timestamp(tmp_path):
+    """A "0 day" span is rewritten as the held version's freeze cutoff."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         "[tool.uv]\n"
@@ -813,19 +819,49 @@ def test_freeze_converts_span_to_date(tmp_path):
     content = pyproject.read_text()
     assert (
         tomlrt.loads(content)["tool"]["uv"]["exclude-newer-package"]["pygments"]
-        == "2026-03-02"
+        == "2026-03-03T00:00:00Z"
     )
     # pyproject-fmt-compatible formatting is preserved.
-    assert 'exclude-newer-package = { pygments = "2026-03-02" }' in content
+    assert 'exclude-newer-package = { pygments = "2026-03-03T00:00:00Z" }' in content
 
 
-def test_freeze_keeps_existing_date(tmp_path):
-    """An entry already carrying a fixed date is left untouched (idempotent)."""
+def test_freeze_pins_legacy_bare_date(tmp_path):
+    """A legacy bare YYYY-MM-DD date is migrated to an explicit UTC timestamp.
+
+    A bare date is what uv re-expands per locking-machine timezone, so freeze
+    rewrites it to the equivalent next-day-midnight UTC instant uv stores
+    verbatim.
+    """
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         "[tool.uv]\n"
         'exclude-newer = "1 week"\n'
         'exclude-newer-package = { "pygments" = "2026-03-02" }\n'
+    )
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "version = 1\n\n"
+        '[[package]]\nname = "pygments"\nversion = "2.19.0"\n'
+        "[package.sdist]\n"
+        'url = "https://example.com/pygments.tar.gz"\n'
+        'hash = "sha256:abc"\n'
+        'upload-time = "2026-03-01T12:00:00Z"\n'
+    )
+    assert freeze_exclude_newer_packages(pyproject, lock) is True
+    content = pyproject.read_text()
+    assert (
+        tomlrt.loads(content)["tool"]["uv"]["exclude-newer-package"]["pygments"]
+        == "2026-03-03T00:00:00Z"
+    )
+
+
+def test_freeze_keeps_existing_timestamp(tmp_path):
+    """An entry already carrying a full UTC timestamp is untouched (idempotent)."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.uv]\n"
+        'exclude-newer = "1 week"\n'
+        'exclude-newer-package = { "pygments" = "2026-03-03T00:00:00Z" }\n'
     )
     lock = tmp_path / "uv.lock"
     lock.write_text(
@@ -863,6 +899,56 @@ def test_freeze_no_entries(tmp_path):
     lock = tmp_path / "uv.lock"
     lock.write_text("version = 1\n")
     assert freeze_exclude_newer_packages(pyproject, lock) is False
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        ("2026-03-02", date(2026, 3, 2)),
+        ("  2026-03-02  ", date(2026, 3, 2)),
+        ("0 day", None),
+        ("P1W", None),
+        ("2026-03-03T00:00:00Z", None),
+        ("not-a-date", None),
+        ("2026-13-02", None),
+    ),
+)
+def test_bare_date(value, expected):
+    """Only a bare YYYY-MM-DD parses; spans and timestamps return None."""
+    assert _bare_date(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("day", "expected"),
+    (
+        (date(2026, 3, 2), "2026-03-03T00:00:00Z"),
+        (date(2026, 6, 13), "2026-06-14T00:00:00Z"),
+        (date(2026, 12, 31), "2027-01-01T00:00:00Z"),
+    ),
+)
+def test_date_to_utc_cutoff(day, expected):
+    """A cutoff date renders as the next-day-midnight UTC instant uv expands to."""
+    assert _date_to_utc_cutoff(day) == expected
+
+
+@pytest.mark.parametrize(
+    "upload_str",
+    (
+        "2026-03-01T12:00:00Z",
+        "2026-06-12T10:25:25.485Z",
+        "2026-12-31T23:59:59Z",
+    ),
+)
+def test_freeze_cutoff_is_timezone_stable(upload_str):
+    """The freeze cutoff is always a full UTC timestamp, never a bare date.
+
+    A bare YYYY-MM-DD is what uv re-expands per locking-machine timezone, so
+    _freeze_cutoff must never emit one.
+    """
+    cutoff = _freeze_cutoff(upload_str)
+    assert cutoff is not None
+    assert cutoff.endswith("T00:00:00Z")
+    assert _bare_date(cutoff) is None
 
 
 def test_packages_outside_cooldown_filters_reachable(tmp_path):

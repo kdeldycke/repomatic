@@ -190,7 +190,7 @@ exclude-newer = "1 week"
 # pinned to git main (no PyPI release to freeze), so it keeps a permanent
 # "0 day" span. click-extra is held at 7.19.0 (manpages `--output-dir` flag);
 # tomlrt is held at 1.8.2.
-exclude-newer-package = { click-extra = "2026-06-13", repomatic = "0 day", tomlrt = "2026-06-15" }
+exclude-newer-package = { click-extra = "2026-06-14T00:00:00Z", repomatic = "0 day", tomlrt = "2026-06-16T00:00:00Z" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
