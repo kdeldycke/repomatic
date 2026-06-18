@@ -330,7 +330,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --from . repomatic fix-vulnerable-deps
+          uvx --no-progress --from . repomatic audit --fix
           --repo "${{ github.repository }}"
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata

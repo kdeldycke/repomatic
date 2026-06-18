@@ -179,10 +179,12 @@ from .uv import (
     AdvisorySource,
     _format_upload_date,
     build_comparison_urls,
+    collect_vulnerable_packages,
     fetch_release_notes,
     fix_vulnerable_deps as _fix_vulnerable_deps,
     format_diff_table,
     format_release_notes,
+    format_vulnerability_table,
     sync_uv_lock as _sync_uv_lock,
 )
 from .virustotal import (
@@ -2622,9 +2624,22 @@ def verify_binary(target: str, binary_path: Path) -> None:
     echo(f"Binary architecture verified for {target}: {binary_path}")
 
 
+AUDIT_HEADER_DEFS: tuple[tuple[str, str], ...] = (
+    ("Package", "package"),
+    ("Version", "version"),
+    ("Advisory", "advisory"),
+    ("Fixed", "fixed"),
+    ("Sources", "sources"),
+)
+"""Column definitions for the `repomatic audit` table."""
+
+_audit_sort = SortByOption(*AUDIT_HEADER_DEFS, default="package")
+
+
 @repomatic.command(
-    short_help="Upgrade packages with known vulnerabilities",
-    section=_section_sync,
+    short_help="Report (and optionally fix) vulnerable dependencies",
+    section=_section_lint,
+    params=[_audit_sort],
 )
 @option(
     "--lockfile",
@@ -2638,58 +2653,81 @@ def verify_binary(target: str, binary_path: Path) -> None:
     type=str,
     default=lambda: os.environ.get("GITHUB_REPOSITORY", ""),
     help=(
-        "Repository in OWNER/NAME format. Required to query the GitHub"
-        " Advisory Database. Defaults to GITHUB_REPOSITORY when set."
+        "Repository in OWNER/NAME format. Enables the GitHub Advisory"
+        " Database source. Defaults to GITHUB_REPOSITORY when set."
     ),
+)
+@option(
+    "--fix/--no-fix",
+    default=False,
+    help=(
+        "Upgrade fixable packages and persist cooldown exemptions"
+        " (mutates uv.lock and pyproject.toml). Default: report only."
+    ),
+)
+@option(
+    "--exit-zero/--no-exit-zero",
+    default=False,
+    help="In report mode, exit 0 even when vulnerabilities are found.",
 )
 @option(
     "--output",
     type=file_path(writable=True, resolve_path=True, allow_dash=True),
     default=None,
-    help="Write a markdown report (vulnerabilities + updates) to this file.",
+    help="Write a markdown report to this file.",
 )
 @output_format_option
 @pass_context
-def fix_vulnerable_deps_cmd(
+def audit(
     ctx: Context,
     lockfile: Path,
     repo: str,
+    fix: bool,
+    exit_zero: bool,
     output: Path | None,
     output_format: str,
 ) -> None:
-    """Detect and upgrade packages with known security vulnerabilities.
+    """Scan locked dependencies for known security vulnerabilities.
 
     \b
-    Queries every advisory database enabled in
+    Read-only by default: queries every advisory database enabled in
     [tool.repomatic] vulnerable-deps.sources (default: uv-audit and
-    github-advisories), unions and deduplicates the results, then upgrades
-    each fixable package with uv lock --upgrade-package and:
+    github-advisories), unions and deduplicates the results, and prints
+    them. The table respects the global --table-format option (github,
+    json, csv, etc.), so --table-format json yields a machine-readable
+    report. Report mode exits 1 when any vulnerability is found (use
+    --exit-zero to override), so it can gate CI.
+
+    \b
+    With --fix, upgrades each fixable package with uv lock --upgrade-package
+    and:
       - bypasses the exclude-newer cooldown for security fixes
       - persists exclude-newer-package entries in pyproject.toml
       - prints a markdown report of vulnerabilities and version changes
 
     \b
     Examples:
-        # Scan and fix vulnerabilities (uses GITHUB_REPOSITORY when set)
-        repomatic fix-vulnerable-deps
+        # Report known vulnerabilities (read-only)
+        repomatic audit
 
     \b
-        # Force a specific repository for the GHSA query
-        repomatic fix-vulnerable-deps --repo owner/name
+        # Machine-readable output
+        repomatic --table-format json audit
 
     \b
-        # CI: write markdown report as a GitHub Actions step output
-        repomatic fix-vulnerable-deps \\
+        # Upgrade fixable packages (mutates uv.lock and pyproject.toml)
+        repomatic audit --fix
+
+    \b
+        # CI autofix job: write the markdown report as a step output
+        repomatic audit --fix --repo owner/name \\
             --output "$GITHUB_OUTPUT" --output-format github-actions
     """
     config = get_tool_config(ctx)
-    if not config.vulnerable_deps.sync:
-        logging.info(
-            "[tool.repomatic] vulnerable-deps.sync is disabled."
-            " Skipping vulnerability scan."
-        )
-        ctx.exit(0)
 
+    # Parse the configured advisory sources, dropping the GitHub Advisory
+    # Database when neither --repo nor GITHUB_REPOSITORY is available to
+    # query it.
     sources: list[AdvisorySource] = []
     for raw in config.vulnerable_deps.sources:
         try:
@@ -2706,24 +2744,64 @@ def fix_vulnerable_deps_cmd(
         )
         sources = [s for s in sources if s is not AdvisorySource.GITHUB_ADVISORIES]
 
-    has_fixes, diff_table = _fix_vulnerable_deps(
-        lockfile, repo=repo or None, sources=sources or None
-    )
+    if fix:
+        # vulnerable-deps.sync gates the autofix (mutation), not reporting.
+        if not config.vulnerable_deps.sync:
+            logging.info(
+                "[tool.repomatic] vulnerable-deps.sync is disabled."
+                " Skipping --fix."
+            )
+            ctx.exit(0)
 
-    if not has_fixes:
-        echo("No fixable vulnerabilities found.")
+        has_fixes, diff_table = _fix_vulnerable_deps(
+            lockfile, repo=repo or None, sources=sources or None
+        )
+        if not has_fixes:
+            echo("No fixable vulnerabilities found.")
+            ctx.exit(0)
+
+        echo("Upgraded vulnerable packages.")
+        if diff_table:
+            echo(diff_table)
+        if output and diff_table:
+            # Keep the github-actions key as `diff_table`: the autofix
+            # workflow's pr-metadata step reads steps.fix.outputs.diff_table.
+            if output_format == "github-actions":
+                content = format_multiline_output("diff_table", diff_table)
+            else:
+                content = diff_table
+            echo(content, file=prep_path(output))
         ctx.exit(0)
 
-    echo("Upgraded vulnerable packages.")
-    if diff_table:
-        echo(diff_table)
+    # Report mode (default, read-only).
+    vulns = collect_vulnerable_packages(
+        lockfile, repo=repo or None, sources=sources or None
+    )
+    if not vulns:
+        echo("No known vulnerabilities found.")
+        ctx.exit(0)
 
-    if output and diff_table:
+    rows = [
+        (
+            v.name,
+            v.current_version,
+            v.advisory_id,
+            v.fixed_version or "unknown",
+            ", ".join(sorted(s.value for s in v.sources)) or "—",
+        )
+        for v in vulns
+    ]
+    ctx.print_table(AUDIT_HEADER_DEFS, rows)  # type: ignore[attr-defined]
+
+    if output:
+        markdown = format_vulnerability_table(vulns)
         if output_format == "github-actions":
-            content = format_multiline_output("diff_table", diff_table)
+            content = format_multiline_output("vuln_table", markdown)
         else:
-            content = diff_table
+            content = markdown
         echo(content, file=prep_path(output))
+
+    ctx.exit(0 if exit_zero else 1)
 
 
 @repomatic.command(

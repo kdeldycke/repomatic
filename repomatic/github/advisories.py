@@ -29,7 +29,7 @@ Dependabot alerts query the [GitHub Advisory
 Database](https://github.com/advisories) (GHSA). Coverage diverges in
 practice: GHSA frequently lists a CVE before the PyPA database mirrors it,
 and transitive lockfile vulnerabilities sometimes only surface in GHSA. By
-unioning both sources, `fix-vulnerable-deps` catches CVEs that either
+unioning both sources, `audit` catches CVEs that either
 database alone would miss.
 ```
 """

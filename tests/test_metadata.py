@@ -496,6 +496,7 @@ expected: dict[str, Any] = {
         "tests/test_status.py",
         "tests/test_sync_labels.py",
         "tests/test_tool_runner.py",
+        "tests/test_uv.py",
         "tests/test_virustotal.py",
         "tests/test_workflow_sync.py",
         "tests/test_workflows.py",

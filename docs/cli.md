@@ -7,6 +7,7 @@
 
 | Command                                                                     | Description                                              |
 | :-------------------------------------------------------------------------- | :------------------------------------------------------- |
+| [`repomatic audit`](#repomatic-audit)                                       | Report (and optionally fix) vulnerable dependencies      |
 | [`repomatic broken-links`](#repomatic-broken-links)                         | Manage broken links issue lifecycle                      |
 | [`repomatic cache`](#repomatic-cache)                                       | Manage the download cache                                |
 | [`repomatic cache clean`](#repomatic-cache-clean)                           | Remove cached entries                                    |
@@ -18,7 +19,6 @@
 | [`repomatic clean-unmodified-configs`](#repomatic-clean-unmodified-configs) | Remove config files that match bundled defaults          |
 | [`repomatic close-stale-bump-pr`](#repomatic-close-stale-bump-pr)           | Close a stale version-bump PR                            |
 | [`repomatic convert-to-myst`](#repomatic-convert-to-myst)                   | Convert reST docstrings to MyST in Python files          |
-| [`repomatic fix-vulnerable-deps`](#repomatic-fix-vulnerable-deps)           | Upgrade packages with known vulnerabilities              |
 | [`repomatic format-images`](#repomatic-format-images)                       | Format images with lossless optimization                 |
 | [`repomatic git-tag`](#repomatic-git-tag)                                   | Create and push a Git tag                                |
 | [`repomatic help`](#repomatic-help)                                         | Show help for a command                                  |
@@ -61,6 +61,12 @@ from repomatic.cli import repomatic
 
 ```{click:run}
 invoke(repomatic, args=['--help'])
+```
+
+## `repomatic audit`
+
+```{click:run}
+invoke(repomatic, args=['audit', '--help'])
 ```
 
 ## `repomatic broken-links`
@@ -127,12 +133,6 @@ invoke(repomatic, args=['close-stale-bump-pr', '--help'])
 
 ```{click:run}
 invoke(repomatic, args=['convert-to-myst', '--help'])
-```
-
-## `repomatic fix-vulnerable-deps`
-
-```{click:run}
-invoke(repomatic, args=['fix-vulnerable-deps', '--help'])
 ```
 
 ## `repomatic format-images`
