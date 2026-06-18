@@ -947,10 +947,6 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         reads_pyproject=True,
-        default_flags=(
-            "--expand-tables",
-            "project.entry-points,project.optional-dependencies,project.urls,project.scripts",
-        ),
     ),
     "ruff": ToolSpec(
         name="ruff",

@@ -148,7 +148,7 @@ Tools with bundled defaults: mdformat, ruff, yamllint, zizmor.
 
 ### Level 4: bare invocation
 
-If none of the above applies (no config file, no `[tool.X]`, no bundled default), the tool runs with its own built-in defaults. Tools like autopep8 and pyproject-fmt work this way: all behavior is controlled through CLI flags.
+If none of the above applies (no config file, no `[tool.X]`, no bundled default), the tool runs with its own built-in defaults. Tools like autopep8 work this way: all behavior is controlled through CLI flags.
 
 ### Checking the active config source
 
@@ -577,8 +577,6 @@ repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `t
 **Installation method:** PyPI, installed via `uvx`
 
 **Config:** `[tool.pyproject-fmt]` in `pyproject.toml` (native)
-
-**Default flags:** `--expand-tables` `project.entry-points,project.optional-dependencies,project.urls,project.scripts`
 
 [Source](https://github.com/tox-dev/pyproject-fmt) | [Config reference](https://pyproject-fmt.readthedocs.io/en/latest/) | [CLI usage](https://pyproject-fmt.readthedocs.io/en/latest/)
 

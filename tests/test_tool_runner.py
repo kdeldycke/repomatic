@@ -1379,8 +1379,8 @@ def test_run_tool_autopep8_default_flags(mock_ci, mock_run, tmp_path, monkeypatc
 
 @patch("repomatic.tool_runner.subprocess.run")
 @patch("repomatic.tool_runner.is_github_ci", return_value=False)
-def test_run_tool_pyproject_fmt_default_flags(mock_ci, mock_run, tmp_path, monkeypatch):
-    """pyproject-fmt runs with --expand-tables flag via uvx."""
+def test_run_tool_pyproject_fmt(mock_ci, mock_run, tmp_path, monkeypatch):
+    """pyproject-fmt runs bare via uvx, with no forced --expand-tables flag."""
     monkeypatch.chdir(tmp_path)
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -1389,8 +1389,10 @@ def test_run_tool_pyproject_fmt_default_flags(mock_ci, mock_run, tmp_path, monke
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "uvx"
     assert "pyproject-fmt==2.25.0" in " ".join(cmd)
-    assert "--expand-tables" in cmd
     assert "pyproject.toml" in cmd
+    # No forced formatting preference: pyproject-fmt uses its own defaults.
+    assert "--expand-tables" not in cmd
+    assert "--config" not in cmd
 
 
 @patch("repomatic.tool_runner.subprocess.run")

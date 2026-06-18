@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Stop forcing `pyproject-fmt` table expansion: `project.urls`, `project.scripts`, and similar sections now use its default compact (dotted-key) form.
 - Fix the `manpages` release job: attach the man-page tarball to the release draft before publishing, so it no longer fails under GitHub immutable releases.
 - Fix cooldown bypasses (`[tool.uv] exclude-newer-package`) never expiring: `sync-uv-lock` now freezes each one at its locked version (a fixed date) instead of a latest-tracking `"0 day"` span, and prunes it once that version ages past `exclude-newer`.
 - Update `pyproject-fmt` to `2.25.0`, fixing the `format-pyproject` job writing invalid TOML when it reformats `[tool.repomatic.labels]` rule tables.
