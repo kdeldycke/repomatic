@@ -11,6 +11,7 @@
 - Fix cooldown bypasses (`[tool.uv] exclude-newer-package`) never expiring: `sync-uv-lock` now freezes each one at its locked version (a fixed date) instead of a latest-tracking `"0 day"` span, and prunes it once that version ages past `exclude-newer`.
 - Update `pyproject-fmt` to `2.25.0`, fixing the `format-pyproject` job writing invalid TOML when it reformats `[tool.repomatic.labels]` rule tables.
 - Stop `sync-bumpversion` and `format-pyproject` from opening competing pull requests in an endless loop, by ordering the bundled `[tool.bumpversion]` template to match `pyproject-fmt`.
+- Reindent the bundled `[tool.lychee]` template to two spaces to match `pyproject-fmt`, preventing repeated reformatting PRs when a Python project opts lychee in.
 
 ## [`6.26.0` (2026-06-17)](https://github.com/kdeldycke/repomatic/compare/v6.25.1...v6.26.0)
 

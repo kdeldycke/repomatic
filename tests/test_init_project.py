@@ -56,6 +56,7 @@ from repomatic.registry import (
     BundledComponent,
     GeneratedComponent,
     RemovedAsset,
+    SyncMode,
     TemplateComponent,
     ToolConfigComponent,
     WorkflowComponent,
@@ -1237,21 +1238,25 @@ def test_skips_already_up_to_date(tmp_path: Path) -> None:
     assert result is None
 
 
-def _bumpversion_section(text: str) -> str:
-    """Extract the textual `[tool.bumpversion]` block, including `[[...files]]`.
+def _tool_section(text: str, tool_section: str) -> str:
+    """Extract the textual `[tool.X]` block, including any `[[...]]` sub-tables.
 
-    Spans from the `[tool.bumpversion]` header to the next unrelated table header,
-    preserving key order and comments (unlike a parsed-dict view).
+    `tool_section` is the dotted path without brackets (like ``tool.bumpversion``).
+    Spans from the header to the next unrelated table, preserving key order,
+    indentation, and comments (unlike an order-blind parsed-dict view).
     """
+    header = f"[{tool_section}]"
     lines = text.splitlines()
-    start = next(i for i, ln in enumerate(lines) if ln.strip() == "[tool.bumpversion]")
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == header)
     end = len(lines)
     for i in range(start + 1, len(lines)):
-        if lines[i].startswith("[") and not lines[i].lstrip("[").startswith(
-            "tool.bumpversion"
-        ):
-            end = i
-            break
+        if not lines[i].startswith("["):
+            continue
+        body = lines[i].lstrip("[")
+        if body == f"{tool_section}]" or body.startswith(f"{tool_section}."):
+            continue
+        end = i
+        break
     return "\n".join(lines[start:end]).rstrip()
 
 
@@ -1280,15 +1285,85 @@ def test_bumpversion_template_is_pyproject_fmt_fixed_point(tmp_path: Path) -> No
     own = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
         encoding="UTF-8"
     )
-    version_re = re.compile(r'current_version = "[^"]*"')
-    generated = version_re.sub("current_version = ", _bumpversion_section(merged))
-    in_tree = version_re.sub("current_version = ", _bumpversion_section(own))
 
-    assert generated == in_tree, (
+    def normalize(toml_text: str) -> str:
+        section = _tool_section(toml_text, "tool.bumpversion")
+        return re.sub(r'current_version = "[^"]*"', "current_version = ", section)
+
+    assert normalize(merged) == normalize(own), (
         "Bundled bumpversion template diverges from the pyproject-fmt-formatted "
         "[tool.bumpversion] in pyproject.toml. sync-bumpversion and format-pyproject "
         "will ping-pong on every push. Reorder repomatic/data/bumpversion.toml to "
         "match pyproject-fmt's output."
+    )
+
+
+@pytest.mark.once
+@pytest.mark.parametrize(
+    "config_type",
+    sorted(
+        c.name
+        for c in COMPONENTS
+        if isinstance(c, ToolConfigComponent) and c.sync_mode is SyncMode.ONGOING
+    ),
+)
+def test_ongoing_sync_template_survives_pyproject_fmt(
+    config_type: str, tmp_path: Path
+) -> None:
+    """Templates re-synced into pyproject.toml must be pyproject-fmt fixed points.
+
+    A config that `repomatic init` re-merges on every push (``sync_mode=ONGOING``,
+    via the `sync-bumpversion` job or a bare `repomatic init` in `sync-repomatic`)
+    shares `pyproject.toml` with `format-pyproject`. If its bundled template is not
+    already in pyproject-fmt's canonical form, the two autofix jobs ping-pong: one
+    rewrites the section, the next reformats it.
+
+    This merges each template into a throwaway `pyproject.toml`, runs the pinned
+    pyproject-fmt over it, and asserts the `[tool.X]` block is unchanged. It is the
+    category guard for the bumpversion ↔ format-pyproject loop, and also covers
+    scope-specific templates (lychee, opted into a Python project) that have no
+    in-tree section to compare against. See `claude.md` § "Generator/formatter
+    ping-pong is recurrent".
+
+    Marked `once`: it shells out to pyproject-fmt via uvx, so a single runner
+    suffices. Skipped when pyproject-fmt cannot be fetched (offline local dev);
+    CI is the enforcement point.
+    """
+    comp = _BY_NAME[config_type]
+    assert isinstance(comp, ToolConfigComponent)
+
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="UTF-8"
+    )
+    merged = init_config(config_type, pyproject)
+    assert merged is not None
+    pyproject.write_text(merged, encoding="UTF-8")
+
+    before = _tool_section(merged, comp.tool_section)
+    version = TOOL_REGISTRY["pyproject-fmt"].version
+    try:
+        result = subprocess.run(
+            ["uvx", "--no-progress", f"pyproject-fmt=={version}", str(pyproject)],
+            check=False,
+            capture_output=True,
+            encoding="UTF-8",
+            timeout=180,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        pytest.skip(f"pyproject-fmt {version} unavailable: {exc}")
+    # pyproject-fmt returns 0 (no change) or 1 (reformatted); anything else means
+    # it could not run (e.g. uvx failed to fetch it), so skip rather than misread
+    # an unmodified file as a passing fixed point.
+    if result.returncode not in (0, 1):
+        pytest.skip(f"pyproject-fmt {version} could not run: {result.stderr}")
+    after = _tool_section(pyproject.read_text(encoding="UTF-8"), comp.tool_section)
+
+    assert before == after, (
+        f"pyproject-fmt {version} rewrites [{comp.tool_section}] after it is merged "
+        f"from {comp.source_file}. Because this config is re-synced into "
+        f"pyproject.toml on every push, it will ping-pong with format-pyproject. "
+        f"Reformat repomatic/data/{comp.source_file} to match pyproject-fmt's output."
     )
 
 
