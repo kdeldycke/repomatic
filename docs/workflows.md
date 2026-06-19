@@ -697,6 +697,8 @@ GitHub's `strategy.matrix` is a static Cartesian product: you list values per ax
 
 Operations are applied in that order, so downstream projects can express matrix shapes that static YAML cannot: different dimensions for PR vs full CI, axis-level transformations without rewriting the entire matrix, and ordered operations that compose predictably.
 
+For how to *choose* what the matrix tests (covering the shipped config broadly while keeping forward-looking axes cheap, pinning a dependency floor, selecting runners by measured speed) plus a runner-speed inventory and a worked example, see [Test matrix](test-matrix.md).
+
 ### Matrix `fail-fast` strategy
 
 Whether a matrix job overrides the default `fail-fast: true` depends on what the cells produce, not on which workflow they live in. Three categories:

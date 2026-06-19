@@ -272,6 +272,14 @@ When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Rel
 
 - **Pass `encoding="UTF-8"` to `subprocess.run(..., text=True)` when output may contain non-ASCII bytes** (emoji in workflow `name:`, accented author names, translated strings). `text=True` alone decodes with the platform default (`cp1252` on Windows), so such output raises `UnicodeDecodeError` only in Windows CI while passing on macOS and Linux. Test helpers shelling out to `git show`/`git cat-file` are the usual offenders; production `read_text`/`write_text` calls already set it.
 
+### Choosing test-matrix targets
+
+`repomatic metadata` builds the full and PR test matrices from `[tool.repomatic.test-matrix.*]`. For the config reference, a runner-speed inventory, and a worked example, see [`docs/test-matrix.md`](https://kdeldycke.github.io/repomatic/test-matrix.html). The selection conventions:
+
+- **Cover the shipped config broadly, probe forward-looking axes narrowly.** Released dependencies on stable Python get the full cross-platform spread (that is what users install); unreleased dependency branches and prerelease/free-threaded Python run on a single runner as `continue-on-error` early-warning probes (via `test-matrix.unstable`), never across platforms.
+- **Pin the dependency floor, and any release a workaround targets.** When a project supports a version range of a core dependency, add the floor as an explicit matrix value so the bottom of the range is verified, not assumed. Add any mid-range release whose behavior a shim specifically works around, too: that is the one version that catches the shim regressing.
+- **Select runners by measured speed, not architecture.** Read your own CI job timings and keep the faster architecture per OS; do not default to ARM as "newer." Speed is not uniform: ARM Linux is much faster than the lean x86 `ubuntu-slim`, Apple-silicon macOS beats Intel, but x86 Windows beats ARM Windows on recent Python. Drop the slower twin via `test-matrix.remove.os` when both are not needed.
+
 ## Agent conventions
 
 This repository uses two Claude Code agents defined in `.claude/agents/`. Definitions should be lean — if a rule belongs in `CLAUDE.md`, put it here and reference it from the agent file. Do not duplicate.

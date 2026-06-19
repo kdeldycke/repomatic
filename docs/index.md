@@ -14,6 +14,7 @@ configuration
 dependencies
 tool-runner
 workflows
+test-matrix
 security
 skills
 agents

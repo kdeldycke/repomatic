@@ -36,8 +36,18 @@ TEST_RUNNERS_FULL = (
 )
 """GitHub-hosted runners for the full test matrix.
 
-Two variants per platform (one per architecture) to keep the matrix small.
-See [available images](https://github.com/actions/runner-images#available-images).
+Two variants per platform (one per architecture). See
+[available images](https://github.com/actions/runner-images#available-images).
+
+```{note} Architecture speed is not uniform across platforms
+When reducing to one runner per OS, choose by measured speed, not architecture
+(see {doc}`/test-matrix`). Tendencies observed across a full test suite: ARM
+Linux (`ubuntu-24.04-arm`) runs roughly twice as fast as the lean x86
+`ubuntu-slim`; Apple-silicon `macos-26` beats `macos-26-intel`; but x86
+`windows-2025` beats `windows-11-arm` on recent Python. macOS is the slowest
+tier overall and tends to gate the full matrix's wall-clock. These figures
+drift as images are re-provisioned, so re-confirm against your own job timings.
+```
 """
 
 TEST_RUNNERS_PR = (
@@ -47,7 +57,18 @@ TEST_RUNNERS_PR = (
 )
 """Reduced runner set for pull request test matrices.
 
-One runner per platform, skipping redundant architecture variants.
+One runner per platform, skipping redundant architecture variants. The macOS
+and Windows picks are the faster architecture of each (Apple silicon and x86;
+see {data}`TEST_RUNNERS_FULL`).
+
+```{note} The Linux pick trades speed for leanness
+`ubuntu-slim` is the lean default image (also `repomatic`'s default for light
+jobs), but it runs a full test suite roughly half as fast as
+`ubuntu-24.04-arm`. Switching this Linux slot to `ubuntu-24.04-arm` would give
+faster PR feedback, at the cost of exercising PRs on ARM rather than x86 Linux
+(x86 stays covered in the full matrix). Left as the lean default pending a
+deliberate speed-versus-cost call; see {doc}`/test-matrix`.
+```
 """
 
 TEST_PYTHON_FULL = (
