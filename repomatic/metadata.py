@@ -2271,8 +2271,12 @@ class Metadata:
             matrix.add_excludes(*self.config.test_matrix.exclude)
         if self.config.test_matrix.include:
             matrix.add_includes(*self.config.test_matrix.include)
-        # Drop excludes that became no-ops after replace/remove changed the axes.
-        matrix.prune()
+        # Drop excludes that became no-ops after replace/remove changed the
+        # axes. In the full matrix every axis is present, so a leftover no-op is
+        # almost always a typo: fail on it. The PR matrix legitimately lacks the
+        # full-only variation axes, so its variation-targeted excludes are
+        # expected no-ops and are dropped quietly.
+        matrix.prune(strict=full)
 
     @cached_property
     def test_matrix(self) -> Matrix:

@@ -55,11 +55,31 @@ When a project supports a *range* of a core dependency (say `>= 2.3`), CI by def
 
 Add any single mid-range release whose behavior a workaround specifically targets, too. That release is the one version where the shim is load-bearing, so it is the one version that catches the shim regressing: bracketing the range with floor and latest alone would miss it.
 
+When the dependency's patch releases are not reliably behavior-stable — some projects re-cut a patch to fix a mid-stream regression — go further and pin *every* release in the range, not just the floor and the one regression you happen to know about. You cannot predict which patch shifts behavior, so testing each release is the only way to bound the perimeter. The newest is covered by the moving `released` value; pin every earlier one. That list grows by one each time the dependency ships, so back it with a test (see [Guard the matrix with a test](#guard-the-matrix-with-a-test) below) that fails when the matrix falls behind.
+
+### Pin each dependency-version to one Python
+
+A pinned dependency-version is there to test the *dependency*, and a dependency's behavior rarely turns on the Python version: its shims are version-of-the-dependency logic, not version-of-Python logic. Python compatibility is already covered broadly by the shipped-config slice (every Python on the released dependency). So run each pinned version on a *single* Python rather than the full set. The floor Python is the natural pick: min-dependency × min-Python is the realistic oldest-environment corner, and pinning to one Python keeps the dependency × Python product from multiplying.
+
+For the same reason, keep pinned (old) dependency-versions *off* the prerelease Python. "Oldest supported dependency × a Python that is not released yet" is a combination no user runs; reserve the prerelease-Python probe for the released dependency.
+
+Pinning a value to a single cell is verbose in the exclude model: you exclude every other OS, Python, and secondary-axis value, so expect several exclude lines per pinned version. That is the inherent cost of expressing single-cell coverage through axis-level excludes.
+
 ### Select runners by measured speed, not architecture
 
 When you reduce to one runner per OS, pick the *fastest* one for your workload, measured from your own CI. Do not reflexively choose the ARM image because it is "the future": architecture speed is not uniform across operating systems (see the inventory below), and the faster choice differs per platform. When you do not need to test both architectures of an OS, drop the slower twin entirely rather than carrying it.
 
 The phrase *for your workload* is load-bearing. The architecture gap is wide for a parallel, compute-heavy job (a `pytest --numprocesses=auto` suite that scales with cores) and narrow-to-nonexistent for a job dominated by checkout and dependency install. So the right runner differs by job *type*, not just by project: see [§ Architecture speed is workload-dependent](#architecture-speed-is-workload-dependent) for the split `repomatic` measured between its heavy test suite and its light mechanical jobs.
+
+(guard-the-matrix-with-a-test)=
+
+### Guard the matrix with a test
+
+A test matrix is configuration, and configuration rots silently: a new dependency release, a raised floor, or a typo'd runner name does not announce itself. Back the matrix with a unit test that re-derives what *should* be tested from the project's own metadata and compares it to what the matrix *does* test, turning drift into a failing CI check instead of a bug a user reports later.
+
+The highest-value check ties a pinned dependency axis to its declared specifier: assert that the pinned versions equal the releases the specifier allows (reading the release list from the package index), minus the newest, which the `released` value already covers. A freshly published release then fails the test until it is pinned; a pin that drops below a raised floor, or that gets yanked, fails until it is removed. A cheaper, network-free companion asserts the lowest pinned version equals the specifier's floor, catching a floor change that forgot the matrix even when the index is unreachable.
+
+The same spirit covers the matrix's other invariants: its lowest Python should equal the project's `requires-python` floor, and every `exclude` should reference a real axis value — a misspelled runner silently excludes nothing and runs the job anyway, which `repomatic metadata` now rejects as a no-op exclude in the full matrix.
 
 ## GitHub-hosted runner inventory
 
@@ -85,6 +105,8 @@ Relative speed is workload-dependent, so the only authoritative numbers are your
 ```{caution}
 These figures are one project's, and they drift. Runner images are re-provisioned, new images appear and old ones are retired, and an outlier can be a transient stall rather than a property of the image. Some gaps are systematic, though: the ARM-Windows Codecov penalty above shows up in every run. Per-job wall-clock also folds in checkout, setup, and upload, so isolate the test steps before attributing a gap to the image's compute. Treat all of this as a starting hypothesis, not a constant, and re-confirm against your own timings.
 ```
+
+(architecture-speed-is-workload-dependent)=
 
 ### Architecture speed is workload-dependent
 
