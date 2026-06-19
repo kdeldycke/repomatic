@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.28.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.28.1...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.28.1` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.28.0...v6.28.1)
 
 - Fix `test-matrix.full-include` matrices emitting combinations that `exclude` should have removed; they now follow GitHub's documented include/exclude algorithm.
