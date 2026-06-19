@@ -1,9 +1,6 @@
 # Changelog
 
-## [`6.28.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.27.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`6.28.0` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.27.0...v6.28.0)
 
 - `repomatic test-plan` runs its cases in parallel by default (one fewer than the CPU count); pass `--jobs 1` for sequential execution.
 - Add `[tool.repomatic] test-matrix.full-include` config: declare full-matrix-only job rows as explicit combinations (each merged onto the shipped-config defaults), a readable alternative to a long `test-matrix.exclude` list.
