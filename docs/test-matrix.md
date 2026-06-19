@@ -1,4 +1,4 @@
-# {octicon}`pivot-column`Test matrix
+# {octicon}`pivot-column` Test matrix
 
 `repomatic` builds two GitHub Actions test matrices for every project: a **full matrix** (pushes to the default branch and scheduled runs) and a reduced **pull-request matrix** (fast feedback on PRs). Both are pre-computed by the [`metadata` job](workflows.md) from the project's [`[tool.repomatic.test-matrix.*]`](configuration.md) configuration, so a project shapes its matrix without hand-editing workflow YAML.
 
