@@ -794,7 +794,9 @@ def metadata(ctx, format, overwrite, output, list_keys, keys):
     meta = Metadata()
 
     # Output a warning in GitHub runners if metadata are not saved to $GITHUB_OUTPUT.
-    if is_github_ci():
+    # Skip the warning for stdout: writing to stdout is a legitimate use case
+    # (human inspection, --format json piping, Sphinx docs rendering) even in CI.
+    if is_github_ci() and not is_stdout(output):
         env_file = os.getenv("GITHUB_OUTPUT")
         if env_file and Path(env_file) != output:
             logging.warning(
