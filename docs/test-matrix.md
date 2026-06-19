@@ -12,7 +12,7 @@ The base axes are `os` and `python-version`, seeded from `repomatic`'s defaults 
 2. `remove`: drop axis values from an axis.
 3. `variations`: add extra axis values (full matrix only), including brand-new axes.
 4. `exclude`: remove specific combinations.
-5. `include`: add or augment combinations. GitHub processes `include` after `exclude`, so an `include` can add back a combination an `exclude` removed.
+5. `include`: add or augment combinations. GitHub processes `include` after `exclude`. A directive that merges into at least one surviving job augments those jobs only; a directive that matches no surviving job (because it fully re-specifies an excluded combination) is appended as a new standalone job. A partial `include` does not resurrect excluded slices.
 
 A separate `unstable` pass (full matrix only) flags matching combinations `continue-on-error`. Because the order is fixed, the transforms compose predictably. `variations` and `unstable` touch only the full matrix, keeping the PR matrix a small curated set. See [workflows § Dynamic test matrices](workflows.md) for why this exists (GitHub's static `strategy.matrix` cannot express it) and the [configuration reference](configuration.md) for each key.
 
