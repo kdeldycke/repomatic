@@ -69,7 +69,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress 'repomatic==6.28.0' metadata
+          uvx --no-progress --from . repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           build_targets cli_scripts package_name
           test_matrix test_matrix_pr
