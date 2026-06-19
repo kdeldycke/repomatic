@@ -161,13 +161,13 @@ Only one mechanical job is compute-bound enough to matter: `mdformat` (the autof
 | remove leanness | `ubuntu-24.04` (full x86)     | 97s (1.13x) |
 | remove x86      | `ubuntu-24.04-arm` (full ARM) | 77s (1.26x) |
 
-Of the 1.43x end-to-end gain, most is architecture (1.26x) and a little is leanness (1.13x). Every other tool (`ruff`, `mypy`, `gitleaks`, `actionlint`, `zizmor`, `typos`, `yamllint`) finished in 1-4s on all three runners, within noise: those jobs are dominated by checkout and `uv` install (~15-20s), which a faster CPU barely touches, and ARM setup was if anything marginally slower. Every tool ran on ARM Linux with no missing binaries.
+Of the 1.43x end-to-end gain, most is architecture (1.26x) and a little is leanness (1.13x). Every other tool (`ruff`, `mypy`, `gitleaks`, `actionlint`, `zizmor`, `typos`, `yamllint`) finished in 1-4s on all three runners, within noise: those jobs are dominated by checkout and `uv` install (~15-20s), which a faster CPU barely touches, and ARM setup was if anything marginally slower. Those linters all ran on ARM Linux with no missing binaries, but `mdformat` is the exception that matters (see the decision below).
 
 The decisions that follow:
 
 - **Test PR slot uses `ubuntu-24.04-arm`.** The heavy parallel suite genuinely runs ~2-3x faster on ARM, so PR feedback is quicker; x86 Linux stays covered in the full matrix.
 - **Light mechanical jobs keep `ubuntu-slim`.** They are setup-bound, so ARM buys ~nothing while adding an architecture variable across the whole fleet. The real lever for them is caching setup, not the CPU.
-- **The one compute-heavy light job, `Format Markdown`, uses `ubuntu-24.04-arm`.** It already could not use the lean image (it needs `shfmt`), and ARM runs its per-file pass ~1.26x faster, so it takes the full ARM image rather than the full x86 one.
+- **The one compute-heavy light job, `Format Markdown`, uses `ubuntu-24.04` (full x86).** It cannot use the lean image (it needs `shfmt`), and ARM runs its per-file pass ~1.26x faster — but `mdformat-config` pulls `taplo`, which ships no linux-aarch64 wheel and has a broken `0.9.3` sdist, so a fresh ARM install fails to build it. It stays on full x86 until `taplo` ships an aarch64 wheel.
 
 ```{note}
 The mechanical-job split is a single controlled run, where the test-suite ratios are medians of several: treat the 1.13x/1.26x decomposition as one measurement to re-confirm. And always include a full-x86 runner in an architecture A/B: comparing only the lean x86 image against full ARM credits the architecture for the image's leanness too.

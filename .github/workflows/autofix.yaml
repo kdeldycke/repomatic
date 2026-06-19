@@ -147,10 +147,12 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).markdown_files
-    # "ubuntu-slim" lacks shfmt (needed by mdformat-shfmt). Of the full images,
-    # ARM runs the per-file mdformat pass ~1.26x faster than x86 (measured); see
-    # docs/test-matrix.md.
-    runs-on: ubuntu-24.04-arm
+    # "ubuntu-slim" lacks shfmt (needed by mdformat-shfmt), so this job needs a
+    # full image. ARM would run the per-file mdformat pass ~1.26x faster, but
+    # mdformat-config pulls taplo, which ships no linux-aarch64 wheel and has a
+    # broken 0.9.3 sdist; stay on full x86 until taplo publishes an aarch64 wheel.
+    # See docs/test-matrix.md.
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: write
