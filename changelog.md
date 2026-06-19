@@ -13,6 +13,9 @@
 
 ## [`6.27.0` (2026-06-18)](https://github.com/kdeldycke/repomatic/compare/v6.26.0...v6.27.0)
 
+> [!NOTE]
+> `6.27.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.27.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.27.0).
+
 - **Breaking:** Replace `fix-vulnerable-deps` with `audit`. `repomatic audit` reports vulnerable dependencies read-only; `repomatic audit --fix` performs the previous upgrade behavior.
 - Stop forcing `pyproject-fmt` table expansion: `project.urls`, `project.scripts`, and similar sections now use its default compact (dotted-key) form.
 - Recognize each bundled tool's native config files more accurately (`biome`, `gitleaks`, `ruff`, `typos`, `zizmor`, and others) and their config-file CLI flags.
