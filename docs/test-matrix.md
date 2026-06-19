@@ -1,4 +1,4 @@
-# Test matrix
+# {octicon}`pivot-column`Test matrix
 
 `repomatic` builds two GitHub Actions test matrices for every project: a **full matrix** (pushes to the default branch and scheduled runs) and a reduced **pull-request matrix** (fast feedback on PRs). Both are pre-computed by the [`metadata` job](workflows.md) from the project's [`[tool.repomatic.test-matrix.*]`](configuration.md) configuration, so a project shapes its matrix without hand-editing workflow YAML.
 
@@ -44,14 +44,14 @@ The phrase *for your workload* is load-bearing. The architecture gap is wide for
 
 `repomatic`'s full matrix spans both architectures of each OS; the reduced PR set keeps one per OS. The runners (defined in `repomatic/test_matrix.py`):
 
-| Runner             | OS      | Architecture          | In PR set | Notes                                                                    |
-| :----------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------- |
-| `ubuntu-24.04-arm` | Linux   | ARM64                 | yes       | Fastest on the parallel test suite; the PR Linux pick.                   |
-| `ubuntu-slim`      | Linux   | x86-64                | no        | Lean light-job default; full test matrix only; slowest on a heavy suite. |
-| `macos-26`         | macOS   | ARM64 (Apple silicon) | yes       | Faster macOS image, and fast overall.                                    |
-| `macos-26-intel`   | macOS   | x86-64                | no        | Legacy Intel; ~2x slower than `macos-26`.                                |
-| `windows-11-arm`   | Windows | ARM64                 | no        | Compute ties `windows-2025`; ~50s slower per job (Codecov upload).       |
-| `windows-2025`     | Windows | x86-64                | yes       | Faster per job; compute tied with `windows-11-arm`.                      |
+| Runner                                                                                                            | OS      | Architecture          | In PR set | Notes                                                                    |
+| :---------------------------------------------------------------------------------------------------------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------- |
+| [`ubuntu-24.04-arm`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Arm64-Readme.md) | Linux   | ARM64                 | yes       | Fastest on the parallel test suite; the PR Linux pick.                   |
+| [`ubuntu-slim`](https://github.com/actions/runner-images/blob/main/images/ubuntu-slim/ubuntu-slim-Readme.md)      | Linux   | x86-64                | no        | Lean light-job default; full test matrix only; slowest on a heavy suite. |
+| [`macos-26`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)            | macOS   | ARM64 (Apple silicon) | yes       | Faster macOS image, and fast overall.                                    |
+| [`macos-26-intel`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md)            | macOS   | x86-64                | no        | Legacy Intel; ~2x slower than `macos-26`.                                |
+| [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; ~50s slower per job (Codecov upload).       |
+| [`windows-2025`](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)         | Windows | x86-64                | yes       | Faster per job; compute tied with `windows-11-arm`.                      |
 
 ### Speed tendencies
 
