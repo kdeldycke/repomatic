@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -40,13 +41,16 @@ from click_extra import (
     FloatRange,
     IntRange,
     ParamType,
+    ParameterSource,
     Section,
     UsageError,
     argument,
+    context,
     dir_path,
     echo,
     file_path,
     group,
+    jobs_option,
     option,
     option_group,
     pass_context,
@@ -167,7 +171,12 @@ from .sponsor import (
     is_pull_request,
     is_sponsor,
 )
-from .test_plan import DEFAULT_TEST_PLAN, SkippedTest, parse_test_plan
+from .test_plan import (
+    DEFAULT_TEST_PLAN,
+    CLITestCase,
+    SkippedTest,
+    parse_test_plan,
+)
 from .tool_runner import (
     TOOL_REGISTRY,
     binary_tool_context,
@@ -1451,6 +1460,7 @@ def sync_mailmap(ctx, source, create_if_missing, destination_mailmap):
     default=False,
     help="Exit instantly on first failed test.",
 )
+@jobs_option
 @option(
     "-T",
     "--timeout",
@@ -1492,7 +1502,15 @@ def test_plan(
     (--plan-envvar), [tool.repomatic] config, or a built-in default.
     Each test invokes the command with the specified arguments and validates
     the output against expected patterns.
+
+    Cases run in parallel by default (see --jobs): each is an independent
+    process invocation, so they overlap well. Pass --jobs 1 for sequential
+    execution, which lets --exit-on-error stop on the first failure.
     """
+    # click-extra's --jobs option stores its clamped worker count on the
+    # context; it does not drive concurrency itself, so we read and act on it.
+    worker_count = context.get(ctx, context.JOBS, 1)
+
     # Load [tool.repomatic] config for fallback values.
     config = get_tool_config(ctx)
 
@@ -1542,16 +1560,21 @@ def test_plan(
 
     counter = Counter(total=len(test_list), skipped=0, failed=0)
 
+    # Select the cases to run (respecting --select-test), keeping their 1-based
+    # numbers for stable reporting.
+    pending: list[tuple[int, CLITestCase]] = []
     for index, test_case in enumerate(test_list):
         test_number = index + 1
-        test_name = f"#{test_number}"
-        logging.info(f"Run test {test_name}...")
-
         if select_test and test_number not in select_test:
-            logging.warning(f"Test {test_name} skipped by user request.")
+            logging.warning(f"Test #{test_number} skipped by user request.")
             counter["skipped"] += 1
             continue
+        pending.append((test_number, test_case))
 
+    def run_case(item: tuple[int, CLITestCase]) -> tuple[int, str, CLITestCase]:
+        """Run one case, returning its number, outcome, and the case itself."""
+        test_number, test_case = item
+        logging.info(f"Run test #{test_number}...")
         try:
             logging.debug(f"Test case parameters: {test_case}")
             test_case.run_cli_test(
@@ -1560,16 +1583,44 @@ def test_plan(
                 default_timeout=timeout,
             )
         except SkippedTest as ex:
-            counter["skipped"] += 1
-            logging.warning(f"Test {test_name} skipped: {ex}")
+            logging.warning(f"Test #{test_number} skipped: {ex}")
+            return test_number, "skipped", test_case
         except Exception as ex:  # noqa: BLE001
+            logging.error(f"Test #{test_number} failed: {ex}")
+            return test_number, "failed", test_case
+        return test_number, "passed", test_case
+
+    def tally(outcome: tuple[int, str, CLITestCase]) -> bool:
+        """Record an outcome in the counters and echo a failure's trace.
+
+        :return: `True` if the case failed.
+        """
+        _, status, test_case = outcome
+        if status == "skipped":
+            counter["skipped"] += 1
+        elif status == "failed":
             counter["failed"] += 1
-            logging.error(f"Test {test_name} failed: {ex}")
             if show_trace_on_error and test_case.execution_trace:
                 echo(test_case.execution_trace)
-            if exit_on_error:
+        return status == "failed"
+
+    if worker_count == 1 or len(pending) <= 1:
+        # Sequential: --exit-on-error can short-circuit on the first failure.
+        for item in pending:
+            if tally(run_case(item)) and exit_on_error:
                 logging.debug("Don't continue testing, a failed test was found.")
                 ctx.exit(1)
+    else:
+        # Parallel: subprocess.run releases the GIL while the child runs, so
+        # worker threads overlap each case's process spawn and execution. All
+        # selected cases run (--exit-on-error has no effect); executor.map
+        # yields in submission order, keeping traces and counters ordered.
+        logging.info(
+            f"Run {len(pending)} test cases across {worker_count} parallel workers."
+        )
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            for outcome in executor.map(run_case, pending):
+                tally(outcome)
 
     if stats:
         echo(
