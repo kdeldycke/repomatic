@@ -156,29 +156,6 @@ def test_prune(caplog):
     assert "'state'" in caplog.text
 
 
-def test_prune_strict():
-    """Strict prune raises on no-op excludes instead of dropping them."""
-    matrix = Matrix()
-    matrix.add_variation("os", ["ubuntu-24.04", "macos-26"])
-    matrix.add_variation("version", ["3.10", "3.14"])
-
-    # An effective exclude passes strict pruning untouched.
-    matrix.add_excludes({"os": "macos-26", "version": "3.10"})
-    matrix.prune(strict=True)
-    assert len(matrix.exclude) == 1
-
-    # No-op excludes (a typo'd runner, and a key that is not an axis) raise,
-    # naming every offender, and leave the matrix untouched.
-    matrix.add_excludes({"os": "windows-2024"})
-    matrix.add_excludes({"state": "unstable"})
-    with pytest.raises(ValueError) as exc_info:
-        matrix.prune(strict=True)
-    message = str(exc_info.value)
-    assert "windows-2024" in message
-    assert "state" in message
-    assert len(matrix.exclude) == 3
-
-
 def test_remove_variation_value_solve():
     """Removal prevents resurrection by includes."""
     matrix = Matrix()

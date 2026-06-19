@@ -171,7 +171,7 @@ class Matrix:
         """Add one or more `exclude` special directives to the matrix."""
         self.exclude = self._add_and_dedup_dicts(*self.exclude, *new_excludes)
 
-    def prune(self, strict: bool = False) -> None:
+    def prune(self) -> None:
         """Remove no-op exclude directives and log about them.
 
         An exclude is a no-op when it references a key that is not a
@@ -179,15 +179,6 @@ class Matrix:
         not present in that axis. Either way the exclude can never match
         any combination produced by {meth}`product`, and GitHub Actions
         rejects excludes that reference non-existent matrix keys.
-
-        :param strict: when True, raise a {class}`ValueError` listing the
-            no-op excludes instead of dropping them with a warning. A no-op in
-            a fully-populated matrix is almost always a typo (a misspelled
-            runner, or a version absent from the axis), and silently dropping
-            it runs the very job the exclude meant to skip. Reserve ``strict``
-            for the full matrix, where every axis is present: in the reduced PR
-            matrix an exclude that targets a full-matrix-only variation axis
-            (like ``click-version``) is an expected no-op, not an error.
         """
         effective: list[dict[str, str]] = []
         noops: list[tuple[dict[str, str], str]] = []
@@ -204,15 +195,6 @@ class Matrix:
                 noops.append((exclude, noop_key))
             else:
                 effective.append(exclude)
-        if noops and strict:
-            details = "; ".join(
-                f"{exclude} ({exclude[key]!r} is not in the {key!r} axis)"
-                for exclude, key in noops
-            )
-            raise ValueError(
-                f"No-op exclude directive(s) reference values absent from the "
-                f"matrix axes (likely a typo): {details}"
-            )
         for exclude, noop_key in noops:
             logging.warning(
                 "Dropping no-op exclude %s: %r is not in the %r axis.",

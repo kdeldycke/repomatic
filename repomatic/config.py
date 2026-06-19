@@ -284,6 +284,30 @@ class TestMatrixConfig:
     Additive to the upstream default excludes.
     """
 
+    full_include: list[dict[str, str]] = field(
+        default_factory=list,
+        metadata={"click_extra.config_path": "full-include"},
+    )
+    """Full-matrix-only job rows, added as standalone matrix combinations.
+
+    Each entry is a dict of GitHub Actions matrix keys fully describing one job
+    (like `{"os": "ubuntu-24.04-arm", "python-version": "3.10",
+    "click-version": "8.3.1"}`). Unlike `include`, these are appended as
+    independent rows of the full matrix, never merged into the base
+    cross-product, so a cell can't overwrite a shipped-config job that shares
+    its `os` and `python-version`. Keys left out inherit the matrix defaults
+    (the single-key `include` entries, plus `state: stable`), so a cell lists
+    only what differs from the shipped configuration.
+
+    Use this for heterogeneous coverage, like pinning each release of a
+    dependency to its own runner and Python, where carving the same shape from
+    the base cross-product with `exclude` would take many rules. Like
+    `variations` and `unstable`, it touches the full matrix only; the PR matrix
+    stays a curated reduced set. Adding any entry makes the full matrix emit as
+    a flat job list (`{"include": [...]}`), which GitHub runs verbatim with no
+    cross-product expansion.
+    """
+
     include: list[dict[str, str]] = field(default_factory=list)
     """Extra include directives applied to both full and PR test matrices.
 

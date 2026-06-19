@@ -115,6 +115,7 @@ patterns = ["(CVE|vulnerability)"]
 | [`setup-guide`](#setup-guide)                                         | Whether the setup guide issue is enabled for this project.                                                                | `true`                              |
 | [`skills.location`](#skills-location)                                 | Directory prefix for Claude Code skill files, relative to the repository root.                                            | `"./.claude/skills/"`               |
 | [`test-matrix.exclude`](#test-matrix-exclude)                         | Extra exclude rules applied to both full and PR test matrices.                                                            | `[]`                                |
+| [`test-matrix.full-include`](#test-matrix-full-include)               | Full-matrix-only job rows, added as standalone matrix combinations.                                                       | `[]`                                |
 | [`test-matrix.include`](#test-matrix-include)                         | Extra include directives applied to both full and PR test matrices.                                                       | `[]`                                |
 | [`test-matrix.remove`](#test-matrix-remove)                           | Per-axis value removals applied to both full and PR test matrices.                                                        | {}                                  |
 | [`test-matrix.replace`](#test-matrix-replace)                         | Per-axis value replacements applied to both full and PR test matrices.                                                    | {}                                  |
@@ -808,6 +809,23 @@ Each entry is a dict of GitHub Actions matrix keys (like `{"os": "windows-11-arm
 ```toml
 [tool.repomatic]
 test-matrix.exclude = []
+```
+
+### `test-matrix.full-include`
+
+Full-matrix-only job rows, added as standalone matrix combinations.
+
+**Type:** `list[dict[str, str]]` | **Default:** `[]`
+
+Each entry is a dict of GitHub Actions matrix keys fully describing one job (like `{"os": "ubuntu-24.04-arm", "python-version": "3.10", "click-version": "8.3.1"}`). Unlike `include`, these are appended as independent rows of the full matrix, never merged into the base cross-product, so a cell can't overwrite a shipped-config job that shares its `os` and `python-version`. Keys left out inherit the matrix defaults (the single-key `include` entries, plus `state: stable`), so a cell lists only what differs from the shipped configuration.
+
+Use this for heterogeneous coverage, like pinning each release of a dependency to its own runner and Python, where carving the same shape from the base cross-product with `exclude` would take many rules. Like `variations` and `unstable`, it touches the full matrix only; the PR matrix stays a curated reduced set. Adding any entry makes the full matrix emit as a flat job list (`{"include": [...]}`), which GitHub runs verbatim with no cross-product expansion.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+test-matrix.full-include = []
 ```
 
 ### `test-matrix.include`

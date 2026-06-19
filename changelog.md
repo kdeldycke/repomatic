@@ -8,7 +8,7 @@
 - `repomatic test-plan` runs its cases in parallel by default (one fewer than the CPU count); pass `--jobs 1` for sequential execution.
 - Run the pull-request test matrix and the `format-markdown` autofix job on `ubuntu-24.04-arm` for faster Linux CI; the full test matrix still covers x86 Linux.
 - `repomatic metadata` no longer prints a spurious `--overwrite` warning when writing to stdout, unless the flag is set explicitly.
-- `repomatic metadata` now errors on no-op `test-matrix.exclude` entries in the full matrix (like a misspelled runner that silently excludes nothing) instead of dropping them with a warning.
+- Add `[tool.repomatic] test-matrix.full-include` config: declare full-matrix-only job rows as explicit combinations (each merged onto the shipped-config defaults), a readable alternative to expressing the same single-cell coverage as a long `test-matrix.exclude` list.
 - Add a [test-matrix guide](https://kdeldycke.github.io/repomatic/test-matrix.html) to the docs: choosing matrix targets, a GitHub-runner speed inventory, and a worked example.
 
 ## [`6.27.0` (2026-06-18)](https://github.com/kdeldycke/repomatic/compare/v6.26.0...v6.27.0)

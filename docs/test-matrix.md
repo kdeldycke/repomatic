@@ -63,7 +63,43 @@ A pinned dependency-version is there to test the *dependency*, and a dependency'
 
 For the same reason, keep pinned (old) dependency-versions *off* the prerelease Python. "Oldest supported dependency × a Python that is not released yet" is a combination no user runs; reserve the prerelease-Python probe for the released dependency.
 
-Pinning a value to a single cell is verbose in the exclude model: you exclude every other OS, Python, and secondary-axis value, so expect several exclude lines per pinned version. That is the inherent cost of expressing single-cell coverage through axis-level excludes.
+Pinning a value to a single cell is verbose in the exclude model. Say you carry a floor (`4.2`) and one regression-prone release (`5.0`) of `acme`, and want each on a single cell: the floor Python of the fastest runner. You add them as matrix values, which multiplies them across every OS and Python, then exclude every combination but the one you want, including the prerelease Python (per the rule above). With the slow-architecture twins removed (as in the worked example below) four runners and four Pythons remain, so each pinned version costs six excludes:
+
+```toml
+[tool.repomatic]
+# Released acme everywhere, plus the floor and the regression release.
+test-matrix.variations.acme-version = ["4.2", "5.0", "released"]
+# Pin 4.2 and 5.0 each to (ubuntu-24.04-arm, 3.10) by dropping every other cell.
+test-matrix.exclude = [
+  { "os" = "ubuntu-slim", "acme-version" = "4.2" },
+  { "os" = "macos-26", "acme-version" = "4.2" },
+  { "os" = "windows-2025", "acme-version" = "4.2" },
+  { "python-version" = "3.14", "acme-version" = "4.2" },
+  { "python-version" = "3.14t", "acme-version" = "4.2" },
+  { "python-version" = "3.15", "acme-version" = "4.2" },
+  { "os" = "ubuntu-slim", "acme-version" = "5.0" },
+  { "os" = "macos-26", "acme-version" = "5.0" },
+  { "os" = "windows-2025", "acme-version" = "5.0" },
+  { "python-version" = "3.14", "acme-version" = "5.0" },
+  { "python-version" = "3.14t", "acme-version" = "5.0" },
+  { "python-version" = "3.15", "acme-version" = "5.0" },
+]
+```
+
+[`test-matrix.full-include`](configuration.md) states each cell directly instead, dropping the `acme-version` axis altogether: released becomes the default and each pin is one explicit exception that lists only what differs from the shipped configuration (unset axes inherit the defaults: released dependencies, stable state). The variation and its twelve excludes become a one-line `include` and two rows:
+
+```toml
+[tool.repomatic]
+# Released acme everywhere (the broad shipped-config slice)...
+test-matrix.include = [{ "acme-version" = "released" }]
+# ...plus the floor and regression release pinned to one cell each.
+test-matrix.full-include = [
+  { "os" = "ubuntu-24.04-arm", "python-version" = "3.10", "acme-version" = "4.2" },
+  { "os" = "ubuntu-24.04-arm", "python-version" = "3.10", "acme-version" = "5.0" },
+]
+```
+
+Both produce the same jobs: released `acme` across every runner and Python, plus `4.2` and `5.0` on the single floor cell. The `full-include` rows join the full matrix only; the PR matrix ignores them. Reach for `variations` plus `exclude` when a pinned version should instead span every Python, as in the worked example below.
 
 ### Select runners by measured speed, not architecture
 
@@ -79,7 +115,7 @@ A test matrix is configuration, and configuration rots silently: a new dependenc
 
 The highest-value check ties a pinned dependency axis to its declared specifier: assert that the pinned versions equal the releases the specifier allows (reading the release list from the package index), minus the newest, which the `released` value already covers. A freshly published release then fails the test until it is pinned; a pin that drops below a raised floor, or that gets yanked, fails until it is removed. A cheaper, network-free companion asserts the lowest pinned version equals the specifier's floor, catching a floor change that forgot the matrix even when the index is unreachable.
 
-The same spirit covers the matrix's other invariants: its lowest Python should equal the project's `requires-python` floor, and every `exclude` should reference a real axis value — a misspelled runner silently excludes nothing and runs the job anyway, which `repomatic metadata` now rejects as a no-op exclude in the full matrix.
+The same spirit covers the matrix's other invariants: its lowest Python should equal the project's `requires-python` floor, and every `exclude` should reference a real axis value: a misspelled runner silently excludes nothing and runs the job anyway, which `repomatic`'s `lint-repo` check flags as a no-op exclude.
 
 ## GitHub-hosted runner inventory
 

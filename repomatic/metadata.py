@@ -2272,11 +2272,34 @@ class Metadata:
         if self.config.test_matrix.include:
             matrix.add_includes(*self.config.test_matrix.include)
         # Drop excludes that became no-ops after replace/remove changed the
-        # axes. In the full matrix every axis is present, so a leftover no-op is
-        # almost always a typo: fail on it. The PR matrix legitimately lacks the
-        # full-only variation axes, so its variation-targeted excludes are
-        # expected no-ops and are dropped quietly.
-        matrix.prune(strict=full)
+        # axes, so GitHub Actions does not reject the matrix. No-op user
+        # excludes that are likely typos are surfaced separately by the
+        # lint-repo check (see Metadata.stale_test_matrix_excludes).
+        matrix.prune()
+
+    @cached_property
+    def _test_matrix_base(self) -> Matrix:
+        """Full test matrix in axes form, before any `full-include` flattening.
+
+        The cross-product of OS images and Python versions plus per-project
+        variations, with includes and excludes applied. {attr}`test_matrix`
+        flattens this to an explicit job list when `full-include` rows are
+        configured; the stale-exclude lint check reads its axis values from
+        here, so it keeps working whichever form {attr}`test_matrix` emits.
+        """
+        matrix = Matrix()
+        matrix.add_variation("os", TEST_RUNNERS_FULL)
+        matrix.add_variation("python-version", TEST_PYTHON_FULL)
+        # Python 3.10 has no native ARM64 Windows build. Skip this guard when
+        # the project removes windows-11-arm, so it does not linger as a no-op
+        # exclude that prune would warn about.
+        if "windows-11-arm" not in self.config.test_matrix.remove.get("os", ()):
+            matrix.add_excludes({"os": "windows-11-arm", "python-version": "3.10"})
+        matrix.add_includes({"state": "stable"})
+        for version in sorted(UNSTABLE_PYTHON_VERSIONS):
+            matrix.add_includes({"state": "unstable", "python-version": version})
+        self._apply_test_matrix_config(matrix, full=True)
+        return matrix
 
     @cached_property
     def test_matrix(self) -> Matrix:
@@ -2286,17 +2309,33 @@ class Metadata:
         incompatible combinations. Marks development Python versions as
         unstable so CI can use `continue-on-error`. Per-project config
         from `[tool.repomatic.test-matrix]` is applied last.
+
+        When `[tool.repomatic.test-matrix] full-include` rows are configured,
+        the matrix is emitted as a flat job list (`{"include": [...]}`) so each
+        row is a standalone combination GitHub runs verbatim, rather than one
+        that augments a base combo sharing its `os` and `python-version`.
         """
-        matrix = Matrix()
-        matrix.add_variation("os", TEST_RUNNERS_FULL)
-        matrix.add_variation("python-version", TEST_PYTHON_FULL)
-        # Python 3.10 has no native ARM64 Windows build.
-        matrix.add_excludes({"os": "windows-11-arm", "python-version": "3.10"})
-        matrix.add_includes({"state": "stable"})
-        for version in sorted(UNSTABLE_PYTHON_VERSIONS):
-            matrix.add_includes({"state": "unstable", "python-version": version})
-        self._apply_test_matrix_config(matrix, full=True)
-        return matrix
+        base = self._test_matrix_base
+        full_include = self.config.test_matrix.full_include
+        if not full_include:
+            return base
+        # Solve the base cross-product to explicit jobs, then append each
+        # full-include row (filled out with the matrix defaults) as its own
+        # standalone job. Emitting this flat list sidesteps GitHub's include
+        # augment-or-add ambiguity for rows sharing an os/python with the
+        # shipped-config jobs.
+        rows = list(base.solve())
+        defaults = {
+            key: value
+            for directive in base.include
+            if len(directive) == 1
+            for key, value in directive.items()
+        }
+        defaults.setdefault("state", "stable")
+        rows.extend({**defaults, **cell} for cell in full_include)
+        flat = Matrix()
+        flat.add_includes(*rows)
+        return flat
 
     @cached_property
     def test_matrix_pr(self) -> Matrix:
@@ -2327,7 +2366,7 @@ class Metadata:
 
         :return: The offending exclude entries, in config order.
         """
-        axes = self.test_matrix.all_variations()
+        axes = self._test_matrix_base.all_variations()
         return [
             entry
             for entry in self.config.test_matrix.exclude

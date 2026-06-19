@@ -1430,6 +1430,55 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
     assert metadata.config.test_matrix.remove == {}
     assert metadata.config.test_matrix.replace == {}
     assert metadata.config.test_matrix.variations == {}
+    assert metadata.config.test_matrix.full_include == []
+
+
+def test_full_include_flattens_matrix(tmp_path, monkeypatch):
+    """`full-include` rows emit as standalone jobs in a flat matrix.
+
+    A full-include cell sharing its ``os``/``python-version`` with a
+    shipped-config combination must add a new job, not overwrite that
+    combination, and the matrix must serialize as a flat ``{"include": [...]}``
+    list so GitHub runs the rows verbatim.
+    """
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(
+        """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[tool.repomatic]
+test-matrix.include = [{ "click-version" = "released" }]
+test-matrix.full-include = [
+  { "os" = "ubuntu-24.04-arm", "python-version" = "3.10", "click-version" = "8.3.1" },
+]
+"""
+    )
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+    emitted = Metadata().test_matrix.matrix()
+
+    # Flat form: base axes live only inside the include rows, no cross-product.
+    assert "os" not in emitted
+    assert "exclude" not in emitted
+    rows = emitted["include"]
+
+    shipped = {
+        "os": "ubuntu-24.04-arm",
+        "python-version": "3.10",
+        "click-version": "released",
+        "state": "stable",
+    }
+    pinned = {
+        "os": "ubuntu-24.04-arm",
+        "python-version": "3.10",
+        "click-version": "8.3.1",
+        "state": "stable",
+    }
+    # Both coexist: the full-include row added a job instead of overwriting the
+    # shipped-config job at the same os/python.
+    assert shipped in rows
+    assert pinned in rows
 
 
 def test_repomatic_config_custom_values(tmp_path, monkeypatch):
