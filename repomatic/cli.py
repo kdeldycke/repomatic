@@ -40,8 +40,8 @@ from click_extra import (
     EnumChoice,
     FloatRange,
     IntRange,
-    ParamType,
     ParameterSource,
+    ParamType,
     Section,
     UsageError,
     argument,
@@ -238,9 +238,21 @@ def prep_path(filepath: Path) -> IO:
 
     For non-stdout paths, parent directories are created automatically if they don't
     exist. This absorbs the `mkdir -p` step that workflows previously had to do.
+
+    ```{note}
+    When stdout is a captured in-memory stream with no backing file descriptor
+    (Click's test runner, the Sphinx `{click:run}` directive that live-renders CLI
+    output in the docs), `fileno()` raises and we write to the stream directly. Such
+    streams are already Python text objects, so the Windows `cp1252` concern does not
+    apply: that only bites a real terminal, which always has a descriptor.
+    ```
     """
     if is_stdout(filepath):
-        return open(sys.stdout.fileno(), "w", encoding="UTF-8", closefd=False)
+        try:
+            fd = sys.stdout.fileno()
+        except (OSError, ValueError):
+            return sys.stdout
+        return open(fd, "w", encoding="UTF-8", closefd=False)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     return filepath.open("w", encoding="UTF-8")
 
@@ -760,7 +772,12 @@ def metadata(ctx, format, overwrite, output, list_keys, keys):
             )
 
     if is_stdout(output):
-        if overwrite:
+        # The overwrite flag is moot for stdout. Warn only when the user set it
+        # explicitly: firing on the default value warns on every bare stdout run.
+        if (
+            overwrite
+            and ctx.get_parameter_source("overwrite") is not ParameterSource.DEFAULT
+        ):
             logging.warning("Ignore the --overwrite/--force/--replace option.")
         logging.info(f"Print metadata to {sys.stdout.name}")
     else:

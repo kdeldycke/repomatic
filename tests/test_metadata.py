@@ -22,8 +22,10 @@ from dataclasses import MISSING, fields as dc_fields
 from typing import Any
 
 import pytest
+from click_extra.testing import ExtraCliRunner
 from extra_platforms import is_windows
 
+from repomatic.cli import repomatic
 from repomatic.config import (
     Config,
     config_reference,
@@ -1174,6 +1176,24 @@ def test_metadata_github_format():
         github_format_expected[key] = new_value
 
     iter_checks(metadata, github_format_expected, raw_metadata)
+
+
+def test_metadata_command_renders_under_captured_runner():
+    """`repomatic metadata` renders to a captured stdout that has no descriptor.
+
+    The docs `{click:run}` directive live-renders this command through click-extra's
+    in-memory runner, which is Click's default `capture="sys"` mode: its stdout has
+    no `fileno()`. `prep_path` must degrade to that stream rather than reopening its
+    descriptor, and a bare stdout run must stay silent (no spurious overwrite
+    warning) so the rendered block is pure JSON. See `repomatic.cli.prep_path`.
+    """
+    result = ExtraCliRunner().invoke(
+        repomatic, ["metadata", "test_matrix", "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    # A `prep_path` crash (exit 1) or a leaked warning line both break this parse.
+    data = json.loads(result.output)
+    assert "test_matrix" in data
 
 
 def test_null_sha_constant():
