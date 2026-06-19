@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix `test-matrix.full-include` matrices emitting combinations that `exclude` should have removed. `Matrix.solve()` now follows GitHub's documented include/exclude algorithm, so a partial `include` augments the surviving jobs instead of resurrecting excluded ones, and only a fully-specified `include` adds a combination back.
+
 ## [`6.28.0` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.27.0...v6.28.0)
 
 - `repomatic test-plan` runs its cases in parallel by default (one fewer than the CPU count); pass `--jobs 1` for sequential execution.

@@ -265,22 +265,29 @@ class Matrix:
             logging.critical("GitHub job matrix limit of 256 jobs reached")
 
     def solve(self, strict: bool = False) -> Iterator[dict[str, str]]:
-        """Returns all combinations and apply `include` and `exclude` constraints.
+        """Expand the matrix to explicit jobs, applying `exclude` then `include`.
 
-        ```{caution}
-        As per GitHub specifications, all `include` combinations are processed
-        after `exclude`. This allows you to use `include` to add back
-        combinations that were previously excluded.
-        ```
+        Reproduces [GitHub's documented matrix
+        algorithm](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations#using-a-matrix-strategy):
+
+        1. Build the cross-product of the base variations.
+        2. Drop every combination matching an `exclude` directive. A directive
+           matches when all of its keys equal the combination's, so a partial
+           directive removes a whole slice.
+        3. Process `include` directives in order. Each is merged into every
+           product combination it does not conflict with (it conflicts when it
+           would overwrite an original axis value). A directive merging into no
+           combination is appended as a new standalone job.
 
         ```{note}
-        This is repomatic's own model of matrix expansion, for local inspection
-        and job counting. The authoritative expansion is GitHub's: downstream
-        workflows consume the serialized `variations` + `include` + `exclude`
-        dict from {meth}`matrix` and let GitHub expand it. The two can diverge
-        on include/exclude edge cases (notably whether an `include` resurrects
-        an excluded combination), so treat `solve()` as an approximation, not a
-        guarantee of GitHub's output.
+        `include` directives augment combinations from the base cross-product
+        only, never jobs created by an earlier `include`. An excluded
+        combination is resurrected solely when an `include` fully re-specifies
+        it, so it merges into nothing and is appended: a partial `include` that
+        augments surviving jobs does not bring excluded slices back. GitHub
+        remains the authoritative expander, but this follows its documented
+        rules so downstream `full-include` job lists (which {meth}`matrix`
+        serializes verbatim) match what GitHub would run.
         ```
         """
         # GitHub jobs fails with the following message if the exclude directive is
@@ -304,83 +311,43 @@ class Matrix:
         # Reset the number of combinations.
         self._job_counter = 0
 
-        applicable_includes = []
-        leftover_includes: list[dict[str, str]] = []
+        # Keys that come from the base cross-product. An include may not
+        # overwrite these on a combination, but may freely set any other key.
+        original_keys = set(self.all_variations())
 
-        # The matrix is empty, none of the include directive will match, so condider all
-        # directives as un-applicable.
-        if not self.variations:
-            leftover_includes = list(self.include)
-
-        # Search for include directives that matches the original matrix variations
-        # without overwriting their values. Keep the left overs on the side.
-        else:
-            original_variations = self.all_variations()
-            for include in self.include:
-                # Keys shared between the include directive and the original matrix.
-                keys_overlap = set(include).intersection(original_variations)
-                # Collect include directives applicable to the original matrix.
-                if (
-                    # If all overlapping keys in the directive exactly match any value
-                    # of the original matrix, then we are certain the directive can be
-                    # applied without overwriting the original variations.
-                    all(include[k] in original_variations[k] for k in keys_overlap)
-                    # Same if no keys are shared, in which case these extra variations
-                    # will be added to all original ones.
-                    or not keys_overlap
-                ):
-                    applicable_includes.append(include)
-                # Other directives are considered non-applicable and will be returned
-                # as-is at the end of the process.
-                else:
-                    leftover_includes.append(include)
-
-        # Iterates through all the variations of the original matrix, and act on the
-        # matching exclude and include directives.
-        for base_variations in self.product():
-            # Skip the variation if it is fully matching at least one exclude directive.
-            exclusion_candidate = False
+        # Step 1 & 2: base cross-product minus every excluded combination. A
+        # combination is excluded when it fully matches at least one directive
+        # on the keys that directive specifies.
+        jobs: list[dict[str, str]] = []
+        for combination in self.product():
             if any(
                 all(
-                    exclude[k] == base_variations[k]
-                    for k in set(exclude).intersection(base_variations)
+                    exclude[k] == combination[k]
+                    for k in set(exclude).intersection(combination)
                 )
                 for exclude in self.exclude
             ):
-                exclusion_candidate = True
+                continue
+            jobs.append(dict(combination))
 
-            # Expand and/or extend the original variation set with applicable include
-            # directives.
-            updated_variations = base_variations.copy()
-            for include in applicable_includes:
-                # Check if the include directive is completely disjoint to the
-                # variations of the original matrix. If that's the case, then we are
-                # supposed to augment the current variation with this include, at it has
-                # already been identified as applicable. But only do that if the updated
-                # variation has not been already updated with a previously evaluated,
-                # more targeted include directive.
-                if set(include).isdisjoint(base_variations):
-                    if set(include).isdisjoint(updated_variations):
-                        updated_variations.update(include)
-                    continue
+        # Step 3: apply include directives in order. Merge a directive into
+        # every surviving product job whose original axis values it does not
+        # overwrite; if it merges into none, append it as a new standalone job.
+        # Excluded combinations are gone from `jobs`, so a partial directive can
+        # no longer resurrect them, while a directive that fully re-specifies an
+        # excluded combination matches nothing and is appended (GitHub's
+        # documented "add back" behavior).
+        appended: list[dict[str, str]] = []
+        for include in self.include:
+            conflict_keys = original_keys.intersection(include)
+            merged = False
+            for job in jobs:
+                if all(include[k] == job[k] for k in conflict_keys):
+                    job.update(include)
+                    merged = True
+            if not merged:
+                appended.append(dict(include))
 
-                # Expand the base variation set with the fully matching include
-                # directive.
-                if all(
-                    include[k] == base_variations[k]
-                    for k in set(include).intersection(base_variations)
-                ):
-                    # Re-instate the variation set as a valid candidate since we found
-                    # an include directive that is explicitly referring to it,
-                    # resurrecting it from the dead.
-                    exclusion_candidate = False
-                    updated_variations.update(include)
-
-            if not exclusion_candidate:
-                self._count_job()
-                yield updated_variations
-
-        # Return as-is all the includes that were not applied to the original matrix.
-        for variation in leftover_includes:
+        for job in (*jobs, *appended):
             self._count_job()
-            yield variation
+            yield job

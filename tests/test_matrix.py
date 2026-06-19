@@ -157,7 +157,7 @@ def test_prune(caplog):
 
 
 def test_remove_variation_value_solve():
-    """Removal prevents resurrection by includes."""
+    """Exclude prevents resurrection; removal also strips the axis value."""
     matrix = Matrix()
     matrix.add_variation("os", ["ubuntu-slim", "macos-26", "windows-11-arm"])
     matrix.add_variation("version", ["3.14", "3.15"])
@@ -165,17 +165,86 @@ def test_remove_variation_value_solve():
     matrix.add_includes({"state": "unstable", "version": "3.15"})
     matrix.add_excludes({"os": "windows-11-arm"})
 
-    # Without removal, the unstable include resurrects windows-11-arm × 3.15.
+    # The partial unstable include augments the surviving 3.15 jobs; it does not
+    # resurrect the excluded windows-11-arm × 3.15 combination (GitHub's
+    # behavior). windows-11-arm stays a declared axis value, only its
+    # combinations are excluded.
     solved_with_exclude = tuple(matrix.solve())
-    assert {"os": "windows-11-arm", "version": "3.15", "state": "unstable"} in (
+    assert all(j["os"] != "windows-11-arm" for j in solved_with_exclude)
+    assert len(solved_with_exclude) == 4
+    assert {"os": "macos-26", "version": "3.15", "state": "unstable"} in (
         solved_with_exclude
     )
+    assert "windows-11-arm" in matrix.variations["os"]
 
-    # With removal, the value is gone from the axis entirely.
+    # Removal additionally strips the value from the axis entirely.
     matrix.remove_variation_value("os", "windows-11-arm")
     solved_with_remove = tuple(matrix.solve())
     assert all(j["os"] != "windows-11-arm" for j in solved_with_remove)
     assert len(solved_with_remove) == 4
+    assert "windows-11-arm" not in matrix.variations["os"]
+
+
+def test_solve_matches_github_include_example():
+    """solve() reproduces GitHub's documented matrix include expansion.
+
+    The canonical example from [GitHub's
+    docs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations#example-expanding-configurations):
+    later includes augment base combinations only, never combinations a previous
+    include created, and an include that matches no combination is appended.
+    """
+    matrix = Matrix()
+    matrix.add_variation("fruit", ["apple", "pear"])
+    matrix.add_variation("animal", ["cat", "dog"])
+    matrix.add_includes({"color": "green"})
+    matrix.add_includes({"color": "pink", "animal": "cat"})
+    matrix.add_includes({"fruit": "apple", "shape": "circle"})
+    matrix.add_includes({"fruit": "banana"})
+    matrix.add_includes({"fruit": "banana", "animal": "cat"})
+    assert tuple(matrix.solve()) == (
+        {"fruit": "apple", "animal": "cat", "color": "pink", "shape": "circle"},
+        {"fruit": "apple", "animal": "dog", "color": "green", "shape": "circle"},
+        {"fruit": "pear", "animal": "cat", "color": "pink"},
+        {"fruit": "pear", "animal": "dog", "color": "green"},
+        {"fruit": "banana"},
+        {"fruit": "banana", "animal": "cat"},
+    )
+
+
+def test_solve_partial_include_does_not_resurrect_excluded():
+    """A partial include augments survivors without resurrecting excluded combos."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-slim", "macos-26", "windows-2025"])
+    matrix.add_variation("python-version", ["3.10", "3.15"])
+    # Carve the 3.15 probe down to a single runner.
+    matrix.add_excludes(
+        {"os": "macos-26", "python-version": "3.15"},
+        {"os": "windows-2025", "python-version": "3.15"},
+    )
+    # A partial include flags every surviving 3.15 job unstable.
+    matrix.add_includes({"state": "unstable", "python-version": "3.15"})
+
+    solved = tuple(matrix.solve())
+    # Only ubuntu-slim keeps a 3.15 job; the excluded ones stay gone.
+    py315 = [j for j in solved if j["python-version"] == "3.15"]
+    assert py315 == [
+        {"os": "ubuntu-slim", "python-version": "3.15", "state": "unstable"}
+    ]
+    assert len(solved) == 4
+
+
+def test_solve_full_include_resurrects_excluded():
+    """A fully-specified include adds back an excluded combination (GitHub behavior)."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-slim", "macos-26"])
+    matrix.add_variation("python-version", ["3.10", "3.14"])
+    matrix.add_excludes({"os": "macos-26", "python-version": "3.14"})
+    # An include that re-specifies the excluded cell brings it back.
+    matrix.add_includes({"os": "macos-26", "python-version": "3.14", "extra": "yes"})
+
+    solved = tuple(matrix.solve())
+    assert {"os": "macos-26", "python-version": "3.14", "extra": "yes"} in solved
+    assert len(solved) == 4
 
 
 def test_replace_variation_value_solve():
@@ -571,41 +640,26 @@ def test_product():
     )
 
 
-@pytest.mark.parametrize(
-    "includes",
-    (
-        permutations(
-            (
-                # The order of these 3 includes directives can be shuffled as the
-                # final result order is imposed by the base variations of the original
-                # matrix.
-                {"color": "green"},
-                {"color": "pink", "animal": "cat"},
-                {"fruit": "apple", "shape": "circle"},
-            ),
-            3,
-        )
-    ),
-)
-def test_solve_includes(includes):
-    matrix = Matrix()
+def test_solve_includes_are_order_sensitive():
+    """Later includes overwrite non-axis values added by earlier ones.
 
+    GitHub applies includes sequentially, so `{color: green}` (added to every
+    combination) overwrites the `color: pink` an earlier, more specific include
+    set on the cat combinations. Reversing the two would keep pink. See
+    {func}`test_solve_matches_github_include_example` for the documented order.
+    """
+    matrix = Matrix()
     matrix.add_variation("fruit", ["apple", "pear"])
     matrix.add_variation("animal", ["cat", "dog"])
-
     matrix.add_includes(
-        *includes,
-        {"fruit": "banana"},
-        {"fruit": "banana", "animal": "cat"},
+        {"color": "pink", "animal": "cat"},
+        {"color": "green"},
     )
-
     assert tuple(matrix.solve()) == (
-        {"fruit": "apple", "animal": "cat", "color": "pink", "shape": "circle"},
-        {"fruit": "apple", "animal": "dog", "color": "green", "shape": "circle"},
-        {"fruit": "pear", "animal": "cat", "color": "pink"},
+        {"fruit": "apple", "animal": "cat", "color": "green"},
+        {"fruit": "apple", "animal": "dog", "color": "green"},
+        {"fruit": "pear", "animal": "cat", "color": "green"},
         {"fruit": "pear", "animal": "dog", "color": "green"},
-        {"fruit": "banana"},
-        {"fruit": "banana", "animal": "cat"},
     )
 
 
@@ -732,6 +786,13 @@ def test_solve_exclude_partial(excludes):
 
 
 def test_solve_exclude_include_priority():
+    """A partial include re-added after exclude is a single job, not a slice.
+
+    The include `{os: linux-latest}` matches no surviving combination (adding it
+    would overwrite the original `os`), so GitHub appends it verbatim as one new
+    job. It does not fan back out across the excluded `version` axis: that would
+    require the include to specify each `version` itself.
+    """
     matrix = Matrix()
 
     matrix.add_variation("os", ["macos-latest", "windows-latest", "linux-latest"])
@@ -745,8 +806,7 @@ def test_solve_exclude_include_priority():
         {"os": "macos-latest", "version": "16"},
         {"os": "windows-latest", "version": "14"},
         {"os": "windows-latest", "version": "16"},
-        {"os": "linux-latest", "version": "14"},
-        {"os": "linux-latest", "version": "16"},
+        {"os": "linux-latest"},
     )
 
 
