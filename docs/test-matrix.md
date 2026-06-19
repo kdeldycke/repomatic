@@ -16,6 +16,27 @@ The base axes are `os` and `python-version`, seeded from `repomatic`'s defaults 
 
 A separate `unstable` pass (full matrix only) flags matching combinations `continue-on-error`. Because the order is fixed, the transforms compose predictably. `variations` and `unstable` touch only the full matrix, keeping the PR matrix a small curated set. See [workflows § Dynamic test matrices](workflows.md) for why this exists (GitHub's static `strategy.matrix` cannot express it) and the [configuration reference](configuration.md) for each key.
 
+## Inspect the computed matrix
+
+To see the matrix your configuration actually produces, run [`repomatic metadata`](cli.md) and request the `test_matrix` key (or `test_matrix_pr` for the reduced pull-request set):
+
+```{click:source}
+:hide-source:
+from repomatic.cli import repomatic
+```
+
+```{click:run}
+invoke(repomatic, args=['metadata', 'test_matrix', '--format', 'json'])
+```
+
+With no `[tool.repomatic.test-matrix.*]` overrides, this is the built-in default: the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes, here the `3.15` prerelease flagged `unstable` and `windows-11-arm` dropped on `3.10`.
+
+The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
+
+```{click:run}
+invoke(repomatic, args=['metadata', 'test_matrix_pr', '--format', 'json'])
+```
+
 ## Choosing what to test
 
 A matrix is a budget. Every cell costs runner minutes and adds to wall-clock. Spend the budget where a failure is both likely and informative; keep everything speculative cheap.

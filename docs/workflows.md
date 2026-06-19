@@ -664,6 +664,17 @@ This job relies on the [`repomatic metadata` command](https://github.com/kdeldyc
 - **Environment**: OS, architecture
 - **`pyproject.toml`**: project name, version, entry points
 
+To see the full set of keys it exposes to downstream jobs, run `repomatic metadata --list-keys`:
+
+```{click:source}
+:hide-source:
+from repomatic.cli import repomatic
+```
+
+```{click:run}
+invoke(repomatic, args=['metadata', '--list-keys'])
+```
+
 > [!IMPORTANT]
 > This flexibility comes at the cost of:
 >
