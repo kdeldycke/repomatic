@@ -605,6 +605,7 @@ expected: dict[str, Any] = {
         "docs/repomatic.templates.md",
         "docs/security.md",
         "docs/skills.md",
+        "docs/test-matrix.md",
         "docs/tests.md",
         "docs/todolist.md",
         "docs/tool-runner.md",
@@ -700,6 +701,7 @@ expected: dict[str, Any] = {
         "docs/repomatic.templates.md",
         "docs/security.md",
         "docs/skills.md",
+        "docs/test-matrix.md",
         "docs/tests.md",
         "docs/todolist.md",
         "docs/tool-runner.md",
@@ -1003,7 +1005,7 @@ expected: dict[str, Any] = {
     },
     "test_matrix_pr": {
         "os": [
-            "ubuntu-slim",
+            "ubuntu-24.04-arm",
             "macos-26",
             "windows-2025",
         ],
@@ -1659,22 +1661,22 @@ name = "test-project"
 version = "1.0.0"
 
 [tool.repomatic.test-matrix.replace]
-os = { "ubuntu-slim" = "ubuntu-24.04" }
+os = { "ubuntu-24.04-arm" = "ubuntu-24.04" }
 """
     pyproject_file = tmp_path / "pyproject.toml"
     pyproject_file.write_text(pyproject_content)
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
-    # Full matrix: ubuntu-slim replaced with ubuntu-24.04.
+    # Full matrix: ubuntu-24.04-arm replaced with ubuntu-24.04.
     full = metadata.test_matrix.matrix()
     assert "ubuntu-24.04" in full["os"]
-    assert "ubuntu-slim" not in full["os"]
+    assert "ubuntu-24.04-arm" not in full["os"]
 
-    # PR matrix: same replacement applied.
+    # PR matrix: same replacement applied (ubuntu-24.04-arm is in both sets).
     pr = metadata.test_matrix_pr.matrix()
     assert "ubuntu-24.04" in pr["os"]
-    assert "ubuntu-slim" not in pr["os"]
+    assert "ubuntu-24.04-arm" not in pr["os"]
 
 
 def test_test_matrix_config_remove(tmp_path, monkeypatch):

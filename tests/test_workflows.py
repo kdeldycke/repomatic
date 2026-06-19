@@ -656,7 +656,6 @@ def test_action_uses_full_semantic_version(
 # Each entry documents the reason for the exception.
 UBUNTU_2404_EXCEPTIONS = {
     # Format: (workflow_name, job_name): "reason"
-    ("autofix.yaml", "format-markdown"): "shfmt is not available on ubuntu-slim",
     ("renovate.yaml", "renovate"): "renovatebot/github-action requires Docker",
 }
 

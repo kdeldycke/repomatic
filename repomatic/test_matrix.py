@@ -41,33 +41,37 @@ Two variants per platform (one per architecture). See
 
 ```{note} Architecture speed is not uniform across platforms
 When reducing to one runner per OS, choose by measured speed, not architecture
-(see {doc}`/test-matrix`). Tendencies observed across a full test suite: ARM
-Linux (`ubuntu-24.04-arm`) runs roughly twice as fast as the lean x86
-`ubuntu-slim`; Apple-silicon `macos-26` beats `macos-26-intel`; but x86
-`windows-2025` beats `windows-11-arm` on recent Python. macOS is the slowest
-tier overall and tends to gate the full matrix's wall-clock. These figures
-drift as images are re-provisioned, so re-confirm against your own job timings.
+(see {doc}`/test-matrix`). Tendencies from `repomatic`'s own full test suite:
+ARM Linux (`ubuntu-24.04-arm`) runs two to three times as fast as the lean x86
+`ubuntu-slim`, the slowest tier overall, whose `py3.14t` cell gates the matrix;
+Apple-silicon `macos-26` beats `macos-26-intel` by ~2x; Windows is a tie on
+compute, with `windows-2025` only winning per-job because `windows-11-arm`'s
+Codecov upload is systematically slow (~56s vs ~6s). Per-job wall-clock folds in
+setup and upload, so isolate the test steps before blaming the image. These
+figures drift as images are re-provisioned, so re-confirm against your own job
+timings.
 ```
 """
 
 TEST_RUNNERS_PR = (
-    "ubuntu-slim",
+    "ubuntu-24.04-arm",
     "macos-26",
     "windows-2025",
 )
 """Reduced runner set for pull request test matrices.
 
-One runner per platform, skipping redundant architecture variants. The macOS
-and Windows picks are the faster architecture of each (Apple silicon and x86;
-see {data}`TEST_RUNNERS_FULL`).
+One runner per platform, the fastest architecture of each measured on the test
+workload: ARM Linux (`ubuntu-24.04-arm`), Apple-silicon macOS (`macos-26`), and
+x86 Windows (`windows-2025`). x86 Linux stays covered by the full matrix
+({data}`TEST_RUNNERS_FULL`).
 
-```{note} The Linux pick trades speed for leanness
-`ubuntu-slim` is the lean default image (also `repomatic`'s default for light
-jobs), but it runs a full test suite roughly half as fast as
-`ubuntu-24.04-arm`. Switching this Linux slot to `ubuntu-24.04-arm` would give
-faster PR feedback, at the cost of exercising PRs on ARM rather than x86 Linux
-(x86 stays covered in the full matrix). Left as the lean default pending a
-deliberate speed-versus-cost call; see {doc}`/test-matrix`.
+```{note} Why ARM Linux for the PR slot
+The suite runs `pytest --numprocesses=auto`, so it scales with cores and favors
+ARM: `ubuntu-24.04-arm` runs it two to three times faster than the lean
+`ubuntu-slim`, for quicker PR feedback. That ratio is the heavy test suite's,
+not a portable property: setup-bound light jobs (which run prebuilt
+single-threaded binaries) barely move between runners, so they keep the lean
+`ubuntu-slim` default. See {doc}`/test-matrix` for the measurements.
 ```
 """
 

@@ -147,8 +147,10 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).markdown_files
-    # Cannot use "ubuntu-slim" because shfmt is not available there.
-    runs-on: ubuntu-24.04
+    # "ubuntu-slim" lacks shfmt (needed by mdformat-shfmt). Of the full images,
+    # ARM runs the per-file mdformat pass ~1.26x faster than x86 (measured); see
+    # docs/test-matrix.md.
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
       pull-requests: write

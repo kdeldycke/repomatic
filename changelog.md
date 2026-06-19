@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Run the pull-request test matrix and the `format-markdown` autofix job on `ubuntu-24.04-arm` for faster Linux CI; the full test matrix still covers x86 Linux.
 - Add a [test-matrix guide](https://kdeldycke.github.io/repomatic/test-matrix.html) to the docs: choosing matrix targets, a GitHub-runner speed inventory, and a worked example.
 
 ## [`6.27.0` (2026-06-18)](https://github.com/kdeldycke/repomatic/compare/v6.26.0...v6.27.0)

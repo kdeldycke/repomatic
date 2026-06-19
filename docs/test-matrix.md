@@ -38,29 +38,60 @@ Add any single mid-range release whose behavior a workaround specifically target
 
 When you reduce to one runner per OS, pick the *fastest* one for your workload, measured from your own CI. Do not reflexively choose the ARM image because it is "the future": architecture speed is not uniform across operating systems (see the inventory below), and the faster choice differs per platform. When you do not need to test both architectures of an OS, drop the slower twin entirely rather than carrying it.
 
+The phrase *for your workload* is load-bearing. The architecture gap is wide for a parallel, compute-heavy job (a `pytest --numprocesses=auto` suite that scales with cores) and narrow-to-nonexistent for a job dominated by checkout and dependency install. So the right runner differs by job *type*, not just by project: see [§ Architecture speed is workload-dependent](#architecture-speed-is-workload-dependent) for the split `repomatic` measured between its heavy test suite and its light mechanical jobs.
+
 ## GitHub-hosted runner inventory
 
 `repomatic`'s full matrix spans both architectures of each OS; the reduced PR set keeps one per OS. The runners (defined in `repomatic/test_matrix.py`):
 
-| Runner             | OS      | Architecture          | In PR set | Notes                                     |
-| :----------------- | :------ | :-------------------- | :-------- | :---------------------------------------- |
-| `ubuntu-24.04-arm` | Linux   | ARM64                 | no        | Fastest Linux in measurements below.      |
-| `ubuntu-slim`      | Linux   | x86-64                | yes       | Lean image; also the default light-job runner. |
-| `macos-26`         | macOS   | ARM64 (Apple silicon) | yes       | Faster of the two macOS images.           |
-| `macos-26-intel`   | macOS   | x86-64                | no        | Legacy Intel.                             |
-| `windows-11-arm`   | Windows | ARM64                 | no        | Slower than `windows-2025` on recent Python. |
-| `windows-2025`     | Windows | x86-64                | yes       | Faster of the two Windows images.         |
+| Runner             | OS      | Architecture          | In PR set | Notes                                                                    |
+| :----------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------- |
+| `ubuntu-24.04-arm` | Linux   | ARM64                 | yes       | Fastest on the parallel test suite; the PR Linux pick.                   |
+| `ubuntu-slim`      | Linux   | x86-64                | no        | Lean light-job default; full test matrix only; slowest on a heavy suite. |
+| `macos-26`         | macOS   | ARM64 (Apple silicon) | yes       | Faster macOS image, and fast overall.                                    |
+| `macos-26-intel`   | macOS   | x86-64                | no        | Legacy Intel; ~2x slower than `macos-26`.                                |
+| `windows-11-arm`   | Windows | ARM64                 | no        | Compute ties `windows-2025`; ~50s slower per job (Codecov upload).       |
+| `windows-2025`     | Windows | x86-64                | yes       | Faster per job; compute tied with `windows-11-arm`.                      |
 
 ### Speed tendencies
 
-Relative speed is workload-dependent, so the only authoritative numbers are your own. The tendencies below come from running one project's full test suite across all six runners, and they are consistent enough to plan around:
+Relative speed is workload-dependent, so the only authoritative numbers are your own. The tendencies below come from `repomatic`'s own full test suite, taken as the median across the five most recent successful runs on all six runners. Two numbers matter and can disagree: **job wall-clock** (the `startedAt`/`completedAt` delta, what you pay in CI minutes) and **compute** (just the test-execution steps, with checkout, environment setup, and coverage upload stripped out). When they diverge, a non-compute step is the cause.
 
-- **Linux: ARM is much faster.** `ubuntu-24.04-arm` ran the suite roughly twice as fast as `ubuntu-slim` at every Python version. `ubuntu-slim` is a deliberately lean image (`repomatic`'s default for light mechanical jobs, where small size and tool availability matter more than throughput), so it is the slower choice for a heavy test suite.
-- **macOS: Apple silicon beats Intel**, by a smaller margin (high single digits to ~20%). macOS is the slowest tier overall by a wide margin and tends to gate the full matrix's wall-clock, so a single slow macOS cell can dominate total time.
-- **Windows: x86 is faster than ARM on recent Python.** `windows-2025` beat `windows-11-arm` on free-threaded and prerelease builds, with ARM ahead only marginally on the latest stable build. The ARM-is-faster intuition inverts here.
+- **Linux: ARM is much faster.** `ubuntu-24.04-arm` ran the suite two to three times faster than `ubuntu-slim` (median 2.9x on job wall-clock, at every Python version), and the gap holds on compute alone. `ubuntu-slim` is a deliberately lean image (`repomatic`'s default for light mechanical jobs, where small size and tool availability matter more than throughput), and for a heavy suite it is the slowest tier overall: its `py3.14t` cell (~250s) is the single slowest in the matrix and gates total wall-clock.
+- **macOS: Apple silicon beats Intel** by roughly 1.8-2x (about 1.8x on job wall-clock, about 2x on compute), not a single-digit margin. `macos-26` is in fact one of the *fastest* runners overall; `macos-26-intel` is the slow one. macOS as a tier does not gate the matrix: `ubuntu-slim` does.
+- **Windows: compute is a tie; x86 wins on wall-clock for a non-compute reason.** On test-execution time the two images sit within ~6% (ARM is marginally ahead on free-threaded and prerelease). `windows-2025` still finishes each job ~50s sooner, because `windows-11-arm` pays a systematic penalty on the Codecov upload step (~56s versus ~6s: the uploader is slow on ARM64 Windows). Pick `windows-2025` for the wall-clock saving, but do not read it as x86 computing faster.
 
 ```{caution}
-These figures are one project's, from a single run, and they drift. Runner images are re-provisioned, new images appear and old ones are retired, and a slow outlier can be a transient runner stall rather than a property of the image. Treat them as a starting hypothesis, not a constant, and re-confirm against your own timings.
+These figures are one project's, and they drift. Runner images are re-provisioned, new images appear and old ones are retired, and an outlier can be a transient stall rather than a property of the image. Some gaps are systematic, though: the ARM-Windows Codecov penalty above shows up in every run. Per-job wall-clock also folds in checkout, setup, and upload, so isolate the test steps before attributing a gap to the image's compute. Treat all of this as a starting hypothesis, not a constant, and re-confirm against your own timings.
+```
+
+### Architecture speed is workload-dependent
+
+The ratios above are the *test suite's*, and they do not generalize to every job. The suite runs `pytest --numprocesses=auto`, so it parallelizes across cores and leans on Python startup and subprocess spawns: exactly where ARM pulls ahead. `repomatic`'s light mechanical jobs (the linters and formatters that run on every push) behave differently, and a controlled A/B shows why.
+
+Three Linux runners ran the real tool commands on the same commit, which separates two effects the headline "2.9x" had conflated:
+
+- **Leanness**: `ubuntu-slim` (lean x86) versus `ubuntu-24.04` (full x86).
+- **Architecture**: `ubuntu-24.04` (full x86) versus `ubuntu-24.04-arm` (full ARM).
+
+Only one mechanical job is compute-bound enough to matter: `mdformat` (the autofix `Format Markdown` job, which spawns one `mdformat` process per file).
+
+| Step            | Runner                        |  `mdformat` |
+| :-------------- | :---------------------------- | ----------: |
+| baseline        | `ubuntu-slim` (lean x86)      |        110s |
+| remove leanness | `ubuntu-24.04` (full x86)     | 97s (1.13x) |
+| remove x86      | `ubuntu-24.04-arm` (full ARM) | 77s (1.26x) |
+
+Of the 1.43x end-to-end gain, most is architecture (1.26x) and a little is leanness (1.13x). Every other tool (`ruff`, `mypy`, `gitleaks`, `actionlint`, `zizmor`, `typos`, `yamllint`) finished in 1-4s on all three runners, within noise: those jobs are dominated by checkout and `uv` install (~15-20s), which a faster CPU barely touches, and ARM setup was if anything marginally slower. Every tool ran on ARM Linux with no missing binaries.
+
+The decisions that follow:
+
+- **Test PR slot uses `ubuntu-24.04-arm`.** The heavy parallel suite genuinely runs ~2-3x faster on ARM, so PR feedback is quicker; x86 Linux stays covered in the full matrix.
+- **Light mechanical jobs keep `ubuntu-slim`.** They are setup-bound, so ARM buys ~nothing while adding an architecture variable across the whole fleet. The real lever for them is caching setup, not the CPU.
+- **The one compute-heavy light job, `Format Markdown`, uses `ubuntu-24.04-arm`.** It already could not use the lean image (it needs `shfmt`), and ARM runs its per-file pass ~1.26x faster, so it takes the full ARM image rather than the full x86 one.
+
+```{note}
+The mechanical-job split is a single controlled run, where the test-suite ratios are medians of several: treat the 1.13x/1.26x decomposition as one measurement to re-confirm. And always include a full-x86 runner in an architecture A/B: comparing only the lean x86 image against full ARM credits the architecture for the image's leanness too.
 ```
 
 ### Measuring your own
@@ -81,7 +112,7 @@ Suppose a project lowers its floor on a core dependency `acme` from `>= 5` to `>
 ```toml
 [tool.repomatic]
 # Drop the slower-architecture runner of each OS, keeping the faster twin
-# (measured here: Intel macOS and ARM Windows are the slower images).
+# (measured here: Intel macOS and ARM Windows finish each job slower).
 test-matrix.remove.os = ["macos-26-intel", "windows-11-arm"]
 
 # Add the floor (4.2), the regression release (5.0), and the development
@@ -110,10 +141,10 @@ test-matrix.unstable = [{ "acme-version" = "main" }]
 
 The full matrix resolves to three slices:
 
-| Slice                                  | Runs on                                   | `continue-on-error` |
-| :------------------------------------- | :---------------------------------------- | :------------------ |
-| `released` acme (the shipped config)   | all four retained OSes × every Python     | no                  |
-| `4.2` floor and `5.0` regression       | `ubuntu-24.04-arm` × every Python         | no                  |
-| `main` acme (dev-branch early warning) | `ubuntu-24.04-arm` × every Python         | yes                 |
+| Slice                                  | Runs on                               | `continue-on-error` |
+| :------------------------------------- | :------------------------------------ | :------------------ |
+| `released` acme (the shipped config)   | all four retained OSes × every Python | no                  |
+| `4.2` floor and `5.0` regression       | `ubuntu-24.04-arm` × every Python     | no                  |
+| `main` acme (dev-branch early warning) | `ubuntu-24.04-arm` × every Python     | yes                 |
 
 The shipped configuration is exercised everywhere a regression would reach a user; the floor and the one regression-prone release are verified cheaply on the fastest runner; and the development branch gives a heads-up without the power to redden the build. The PR matrix stays the curated reduced set for fast feedback, since `variations` and `unstable` apply to the full matrix only. The same shape extends to a prerelease or free-threaded Python: add it as a `python-version` variation, pin it to one runner with `exclude`, and mark it `unstable`.
