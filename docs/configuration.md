@@ -48,7 +48,7 @@ nuitka.unstable-targets = ["linux-arm64", "windows-arm64"]
 
 test-plan.file = "./tests/cli-test-plan.yaml"
 test-plan.timeout = 120
-test-plan.inline = "- args: --version"
+test-plan.inline = "- cli_parameters: --version"
 
 workflow.sync = false
 workflow.source-paths = ["extra_platforms"]

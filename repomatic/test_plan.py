@@ -64,32 +64,89 @@ def _split_args(cli: str) -> list[str]:
 
 @dataclass(order=True)
 class CLITestCase:
+    """A single CLI test case: how to invoke the command and what to expect.
+
+    Each case runs the command-under-test once with `cli_parameters` appended,
+    then checks the captured result against the expectation directives below. A
+    case with no expectation only asserts the command ran (plus `exit_code`, if
+    set).
+    """
+
     cli_parameters: tuple[str, ...] | str = field(default_factory=tuple)
-    """Parameters, arguments and options to pass to the CLI."""
+    """Arguments and options appended to the command-under-test.
+
+    A plain string is split into arguments (on spaces on Windows, with `shlex`
+    elsewhere); a list or tuple is used as-is.
+    """
 
     skip_platforms: _TNestedReferences = field(default_factory=tuple)
+    """Platforms (or platform-group IDs) on which to skip this case.
+
+    Accepts `extra_platforms` identifiers such as `linux`, `macos`, `windows`,
+    in any case, mixed freely with group IDs.
+    """
+
     only_platforms: _TNestedReferences = field(default_factory=tuple)
+    """Restrict this case to these platforms; skip it everywhere else.
+
+    The mirror image of `skip_platforms`, using the same identifiers.
+    """
+
     timeout: float | str | None = None
+    """Seconds before the command is killed and the case fails as a timeout.
+
+    Falls back to the command's `--timeout` default, then to no limit.
+    """
+
     exit_code: int | str | None = None
+    """Expected process exit code; the case fails on any other code."""
+
     strip_ansi: bool = False
+    """Strip ANSI escape sequences from the captured output before matching."""
+
     output_contains: tuple[str, ...] | str = field(default_factory=tuple)
+    """Reserved: combined stdout/stderr matching is not implemented yet.
+
+    Setting any `output_*` directive raises at runtime; use the `stdout_*` and
+    `stderr_*` variants instead.
+    """
+
     stdout_contains: tuple[str, ...] | str = field(default_factory=tuple)
+    """Substrings that must all be present in stdout."""
+
     stderr_contains: tuple[str, ...] | str = field(default_factory=tuple)
+    """Substrings that must all be present in stderr."""
+
     output_regex_matches: tuple[re.Pattern | str, ...] | str = field(
         default_factory=tuple
     )
+    """Reserved: see `output_contains`."""
+
     stdout_regex_matches: tuple[re.Pattern | str, ...] | str = field(
         default_factory=tuple
     )
+    """Regexes that must each match somewhere in stdout (searched, `re.DOTALL`)."""
+
     stderr_regex_matches: tuple[re.Pattern | str, ...] | str = field(
         default_factory=tuple
     )
+    """Regexes that must each match somewhere in stderr (searched, `re.DOTALL`)."""
+
     output_regex_fullmatch: re.Pattern | str | None = None
+    """Reserved: see `output_contains`."""
+
     stdout_regex_fullmatch: re.Pattern | str | None = None
+    """Regex that must fully match stdout, line by line."""
+
     stderr_regex_fullmatch: re.Pattern | str | None = None
+    """Regex that must fully match stderr, line by line."""
 
     execution_trace: str | None = None
-    """User-friendly rendering of the CLI command execution and its output."""
+    """Rendering of the command execution and its output.
+
+    Populated after the case runs, for inspection on failure; not a directive
+    you set in a test plan.
+    """
 
     def __post_init__(self) -> None:
         """Normalize all fields.
