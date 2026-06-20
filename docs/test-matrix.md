@@ -111,6 +111,8 @@ When you reduce to one runner per OS, pick the *fastest* one for your workload, 
 
 The phrase *for your workload* is load-bearing. The architecture gap is wide for a parallel, compute-heavy job (a `pytest --numprocesses=auto` suite that scales with cores) and narrow-to-nonexistent for a job dominated by checkout and dependency install. So the right runner differs by job *type*, not just by project: see [§ Architecture speed is workload-dependent](#architecture-speed-is-workload-dependent) for the split `repomatic` measured between its heavy test suite and its light mechanical jobs.
 
+For a compute-bound parallel workload, that measurement keeps landing on the same runner: `ubuntu-24.04-arm` is the fastest `repomatic` has measured and sits in the cheapest tier (GitHub bills hosted macOS at roughly 10x Linux minutes, and ARM Linux matches or beats x86 Linux on both speed and price). So when you need a *single* fast runner — the PR Linux slot, a [single-runner flavor smoke test](#smoke-test-released-build-flavors-on-one-runner), or a pinned dependency cell — `ubuntu-24.04-arm` is the default pick. `macos-26` is fast too, but its minute multiplier makes it a poor default; reserve it and the Windows runners for the OS coverage only they provide.
+
 (guard-the-matrix-with-a-test)=
 
 ### Guard the matrix with a test
@@ -125,14 +127,14 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 
 `repomatic`'s full matrix spans both architectures of each OS; the reduced PR set keeps one per OS. The runners (defined in `repomatic/test_matrix.py`):
 
-| Runner                                                                                                            | OS      | Architecture          | In PR set | Notes                                                                    |
-| :---------------------------------------------------------------------------------------------------------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------- |
-| [`ubuntu-24.04-arm`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Arm64-Readme.md) | Linux   | ARM64                 | yes       | Fastest on the parallel test suite; the PR Linux pick.                   |
-| [`ubuntu-slim`](https://github.com/actions/runner-images/blob/main/images/ubuntu-slim/ubuntu-slim-Readme.md)      | Linux   | x86-64                | no        | Lean light-job default; full test matrix only; slowest on a heavy suite. |
-| [`macos-26`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)            | macOS   | ARM64 (Apple silicon) | yes       | Faster macOS image, and fast overall.                                    |
-| [`macos-26-intel`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md)            | macOS   | x86-64                | no        | Legacy Intel; ~2x slower than `macos-26`.                                |
-| [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; ~50s slower per job (Codecov upload).       |
-| [`windows-2025`](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)         | Windows | x86-64                | yes       | Faster per job; compute tied with `windows-11-arm`.                      |
+| Runner                                                                                                            | OS      | Architecture          | In PR set | Notes                                                                                                                                |
+| :---------------------------------------------------------------------------------------------------------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------- |
+| [`ubuntu-24.04-arm`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Arm64-Readme.md) | Linux   | ARM64                 | yes       | Fastest measured on the parallel suite, cheapest tier; default single-runner pick (PR Linux slot, flavor smoke tests, pinned cells). |
+| [`ubuntu-slim`](https://github.com/actions/runner-images/blob/main/images/ubuntu-slim/ubuntu-slim-Readme.md)      | Linux   | x86-64                | no        | Lean light-job default; full test matrix only; slowest on a heavy suite.                                                             |
+| [`macos-26`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)            | macOS   | ARM64 (Apple silicon) | yes       | Faster macOS image, fast overall, but billed at ~10x Linux minutes; use only when macOS coverage is needed.                          |
+| [`macos-26-intel`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md)            | macOS   | x86-64                | no        | Legacy Intel; ~2x slower than `macos-26`.                                                                                            |
+| [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; ~50s slower per job (Codecov upload).                                                                   |
+| [`windows-2025`](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)         | Windows | x86-64                | yes       | Faster per job; compute tied with `windows-11-arm`.                                                                                  |
 
 ### Speed tendencies
 

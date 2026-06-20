@@ -117,9 +117,10 @@ as its base version, just without the GIL. The base version already gets the
 full cross-platform spread ({data}`TEST_PYTHON_FULL`), so the library logic is
 covered everywhere; the flavor only needs one runner to catch a
 free-threading-specific break. These run *stable* (expected to pass), unlike the
-unreleased {data}`UNSTABLE_PYTHON_VERSIONS`. The runner is the fastest Linux
-image: free-threading targets server workloads and ARM Linux leads the test
-suite (see {doc}`/test-matrix`).
+unreleased {data}`UNSTABLE_PYTHON_VERSIONS`. The runner is `ubuntu-24.04-arm`,
+the default single-runner pick: the fastest measured on compute-bound parallel
+work and the cheapest tier, and free-threading targets server workloads where
+Linux/ARM is the norm (see {doc}`/test-matrix`).
 """
 
 
