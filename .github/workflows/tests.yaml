@@ -172,7 +172,13 @@ jobs:
         # [tool.click-extra.test-plan] (default ./tests/cli-test-plan.yaml). `--jobs max`
         # runs cases across every logical core. The outer `uv run` provides the
         # environment, avoiding per-case uv lock contention between parallel workers.
-        run: uv run --frozen --no-progress -- click-extra test-plan --command repomatic --jobs max
+        # The target is this repo's own console script (from repomatic metadata), so
+        # the self-test stays correct when this workflow is synced to downstream repos.
+        # Skipped for repos that ship no console script (nothing to self-test).
+        if: fromJSON(needs.metadata.outputs.metadata).cli_scripts[0]
+        env:
+          CLI_SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).cli_scripts[0] }}
+        run: uv run --frozen --no-progress -- click-extra test-plan --command "${CLI_SCRIPT}" --jobs max
 
   test-package-install:
     name: 📦 Package install
