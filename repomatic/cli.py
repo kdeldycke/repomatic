@@ -26,7 +26,6 @@ import sys
 import tempfile
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -55,6 +54,7 @@ from click_extra import (
     option,
     option_group,
     pass_context,
+    run_jobs,
     style,
 )
 from click_extra.config import get_tool_config
@@ -1649,28 +1649,23 @@ def test_plan(
     spinner = Spinner(progress_label(), enabled=None if show_progress else False)
     outcomes: list[tuple[int, str, CLITestCase]] = []
     bailed = False
+    # run_jobs drives the cases per the resolved --jobs count: sequential and
+    # lazy at one worker (so --exit-on-error stops before the rest start),
+    # thread-pooled otherwise, yielding in submission order so traces and
+    # counters stay ordered. subprocess.run releases the GIL, so the worker
+    # threads overlap each case's process spawn and execution.
+    is_sequential = worker_count == 1 or len(pending) <= 1
     with spinner:
-        if worker_count == 1 or len(pending) <= 1:
-            # Sequential: --exit-on-error can short-circuit on the first failure.
-            for item in pending:
-                outcome = run_case(item)
-                completed += 1
-                spinner.label = progress_label()
-                outcomes.append(outcome)
-                if outcome[1] == "failed" and exit_on_error:
-                    logging.debug("Don't continue testing, a failed test was found.")
-                    bailed = True
-                    break
-        else:
-            # Parallel: subprocess.run releases the GIL while the child runs, so
-            # worker threads overlap each case's process spawn and execution. All
-            # selected cases run (--exit-on-error has no effect); executor.map
-            # yields in submission order, keeping traces and counters ordered.
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                for outcome in executor.map(run_case, pending):
-                    completed += 1
-                    spinner.label = progress_label()
-                    outcomes.append(outcome)
+        for outcome in run_jobs(run_case, pending, jobs=worker_count):
+            completed += 1
+            spinner.label = progress_label()
+            outcomes.append(outcome)
+            # --exit-on-error only short-circuits when sequential; in parallel
+            # every case is already in flight, so the run completes.
+            if is_sequential and outcome[1] == "failed" and exit_on_error:
+                logging.debug("Don't continue testing, a failed test was found.")
+                bailed = True
+                break
 
     # The spinner has stopped and cleared its line: record outcomes and print any
     # failure traces now, clear of the animation.

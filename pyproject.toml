@@ -79,11 +79,11 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # Pinned to git main (see [tool.uv.sources]) for unreleased click-extra 7.21
-  # features wired into repomatic: `--jobs max` and the sequential-collapse
-  # warning in `test-plan`, plus the manpages `man` -> `wrap --man` migration.
-  # The >=7.19 floor is held until 7.21.0 reaches PyPI; then bump to >=7.21 and
-  # drop the [tool.uv.sources] pin. Do not release repomatic before that flip.
+  # Pinned to git main (see [tool.uv.sources]) for unreleased click-extra 8.0
+  # APIs repomatic now uses: `--jobs max` + `run_jobs` and `make_schema_callable`
+  # in the CLI, plus the `man` -> `wrap --man` and `ExtraCliRunner` -> `CliRunner`
+  # renames. The >=7.19 floor is held until 8.0.0 reaches PyPI; then bump to >=8
+  # and drop the [tool.uv.sources] pin. Do not release repomatic before that flip.
   "click-extra>=7.19",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
@@ -181,9 +181,10 @@ typing = [
 [tool.uv]
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
-# Track click-extra's git main for unreleased 7.21 features (`--jobs max`,
-# `wrap --man`; see the click-extra entry under [project.dependencies]).
-# Temporary until 7.21.0 ships on PyPI, then drop this and bump the floor.
+# Track click-extra's git main for unreleased 8.0 APIs repomatic uses
+# (`--jobs max`, `run_jobs`, `make_schema_callable`; see the click-extra entry
+# under [project.dependencies]). Temporary until 8.0.0 ships on PyPI, then drop
+# this and bump the floor.
 sources.click-extra = { git = "https://github.com/kdeldycke/click-extra", branch = "main" }
 # Cooldown period: 7-day buffer before using newly released packages.
 # Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to

@@ -22,7 +22,7 @@ from dataclasses import MISSING, fields as dc_fields
 from typing import Any
 
 import pytest
-from click_extra.testing import ExtraCliRunner
+from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 
 from repomatic.cli import repomatic
@@ -1194,7 +1194,7 @@ def test_metadata_command_renders_under_captured_runner():
     descriptor, and a bare stdout run must stay silent (no spurious overwrite
     warning) so the rendered block is pure JSON. See `repomatic.cli.prep_path`.
     """
-    result = ExtraCliRunner().invoke(
+    result = CliRunner().invoke(
         repomatic, ["metadata", "test_matrix", "--format", "json"]
     )
     assert result.exit_code == 0, result.output

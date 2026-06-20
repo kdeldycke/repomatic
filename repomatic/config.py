@@ -32,6 +32,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import tomlrt
+from click_extra.config import make_schema_callable
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -1025,8 +1026,6 @@ def load_repomatic_config(
     :param pyproject_data: Pre-parsed `pyproject.toml` dict. If `None`,
         reads and parses `pyproject.toml` from the current working directory.
     """
-    from click_extra.config import _make_schema_callable
-
     if pyproject_data is None:
         pyproject_path = Path() / "pyproject.toml"
         if pyproject_path.exists() and pyproject_path.is_file():
@@ -1048,7 +1047,7 @@ def load_repomatic_config(
                 key,
             )
 
-    schema_callable = _make_schema_callable(Config, strict=False)
+    schema_callable = make_schema_callable(Config, strict=False)
     assert schema_callable is not None
     config: Config = schema_callable(user_config)
     return config
