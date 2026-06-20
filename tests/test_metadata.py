@@ -1199,6 +1199,61 @@ def test_metadata_command_renders_under_captured_runner():
     assert "test_matrix" in data
 
 
+def test_show_test_matrix_renders_full_grid():
+    """`repomatic show-test-matrix` renders the full matrix as a labelled grid."""
+    result = CliRunner().invoke(repomatic, ["show-test-matrix"])
+    assert result.exit_code == 0, result.output
+    assert "Python" in result.output
+    assert "ubuntu-24.04-arm" in result.output
+    # The matrix always carries stable jobs, decorated with an emoji by default.
+    assert "✅ stable" in result.output
+
+
+def test_show_test_matrix_pr_is_reduced():
+    """The `pr` argument selects a grid with fewer rows and columns than `full`."""
+    full = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix", "full"]
+    )
+    pr = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix", "pr"]
+    )
+    assert full.exit_code == 0, full.output
+    assert pr.exit_code == 0, pr.output
+    full_rows = json.loads(full.output)
+    pr_rows = json.loads(pr.output)
+    # Fewer Python rows, and fewer columns per row (one key per OS, plus Python).
+    assert len(pr_rows) < len(full_rows)
+    assert len(pr_rows[0]) < len(full_rows[0])
+
+
+def test_show_test_matrix_no_emoji_uses_plain_words():
+    """`--no-emoji` renders bare state words, deriving the expectation from config."""
+    plain = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix", "--no-emoji"]
+    )
+    fancy = CliRunner().invoke(repomatic, ["show-test-matrix"])
+    assert plain.exit_code == 0, plain.output
+    assert fancy.exit_code == 0, fancy.output
+    assert "✅" not in plain.output and "⁉️" not in plain.output
+    states = {
+        value
+        for row in json.loads(plain.output)
+        for key, value in row.items()
+        if key != "Python"
+    }
+    # Each plain state present gains its emoji prefix in the default rendering.
+    if "stable" in states:
+        assert "✅ stable" in fancy.output
+    if "unstable" in states:
+        assert "⁉️ unstable" in fancy.output
+
+
+def test_show_test_matrix_rejects_unknown_name():
+    """An unknown matrix name is rejected by the Choice argument."""
+    result = CliRunner().invoke(repomatic, ["show-test-matrix", "bogus"])
+    assert result.exit_code != 0
+
+
 def test_null_sha_constant():
     """Test that NULL_SHA is a valid 40-character string of zeros.
 

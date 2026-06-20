@@ -351,3 +351,57 @@ class Matrix:
         for job in (*jobs, *appended):
             self._count_job()
             yield job
+
+    def pivot(
+        self,
+        row_axis: str = "python-version",
+        col_axis: str = "os",
+        cell_key: str = "state",
+        missing: str = "—",
+    ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+        """Pivot the solved matrix into a 2D grid keyed by two axes.
+
+        Expands the matrix with {meth}`solve`, then arranges the resulting jobs
+        into a grid: one row per distinct `row_axis` value, one column per
+        distinct `col_axis` value. Each cell holds the job's `cell_key` value at
+        that intersection (its `state`, by default), or `missing` when no job
+        occupies it (an excluded combination).
+
+        :param row_axis: Job key whose values become grid rows.
+        :param col_axis: Job key whose values become grid columns.
+        :param cell_key: Job key whose value fills each cell.
+        :param missing: Placeholder for an empty (row, col) intersection.
+        :return: A `(col_values, rows)` pair. `col_values` is the ordered tuple
+            of column values (distinct `col_axis` values). Each entry in `rows`
+            is `(row_value, cell, …)`, with one cell per `col_values` entry.
+
+        ```{note}
+        Axis values keep first-seen order in the solved job stream. That matches
+        the declared axis order for a base cross-product matrix, and the emitted
+        job order for a flattened `full-include` matrix.
+
+        When several jobs share one (row, col) intersection (a matrix carrying
+        extra axes, such as a `click-version` variation), their distinct
+        `cell_key` values are joined with `, `. A matrix with only the `os` and
+        `python-version` axes has exactly one job per cell.
+        ```
+        """
+        jobs = [job for job in self.solve() if row_axis in job and col_axis in job]
+        col_values = tuple(unique(job[col_axis] for job in jobs))
+        row_values = tuple(unique(job[row_axis] for job in jobs))
+
+        cells: dict[tuple[str, str], list[str]] = {}
+        for job in jobs:
+            cells.setdefault((job[row_axis], job[col_axis]), []).append(
+                job.get(cell_key, "")
+            )
+
+        rows: list[tuple[str, ...]] = []
+        for row in row_values:
+            cells_in_row = []
+            for col in col_values:
+                states = cells.get((row, col))
+                cells_in_row.append(", ".join(unique(states)) if states else missing)
+            rows.append((row, *cells_in_row))
+
+        return col_values, tuple(rows)

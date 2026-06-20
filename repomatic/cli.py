@@ -827,6 +827,57 @@ def show_config(ctx):
     ctx.print_table(CONFIG_REFERENCE_HEADER_DEFS, rows)
 
 
+TEST_MATRIX_STATE_DISPLAY = {
+    "stable": "✅ stable",
+    "unstable": "⁉️ unstable",
+}
+"""Emoji-decorated labels for job states in the `show-test-matrix` grid."""
+
+
+@repomatic.command(
+    name="show-test-matrix",
+    short_help="Render the CI test matrix as a grid",
+    section=_section_setup,
+)
+@option(
+    "--emoji/--no-emoji",
+    default=True,
+    help="Decorate cells with a status emoji. Use --no-emoji for plain words.",
+)
+@argument(
+    "matrix_name",
+    metavar="[full|pr]",
+    type=Choice(["full", "pr"]),
+    default="full",
+    required=False,
+)
+@pass_context
+def show_test_matrix(ctx, emoji, matrix_name):
+    """Render the computed CI test matrix as a Python-version by OS grid.
+
+    Each cell shows whether that combination runs as a stable or unstable
+    (continue-on-error) job, or is absent from the matrix. Pass "full" for the
+    push and schedule matrix (the default), or "pr" for the reduced
+    pull-request matrix. Respects the global --table-format option.
+
+    \b
+    Examples:
+        repomatic show-test-matrix
+        repomatic show-test-matrix pr --no-emoji
+        repomatic --table-format github show-test-matrix full
+    """
+    meta = Metadata()
+    matrix = meta.test_matrix if matrix_name == "full" else meta.test_matrix_pr
+    col_values, rows = matrix.pivot()
+    headers = ("Python", *col_values)
+    if emoji:
+        rows = tuple(
+            (row[0], *(TEST_MATRIX_STATE_DISPLAY.get(cell, cell) for cell in row[1:]))
+            for row in rows
+        )
+    ctx.find_root().print_table(rows, headers)
+
+
 @repomatic.command(
     short_help="Maintain a Markdown-formatted changelog", section=_section_release
 )

@@ -850,3 +850,81 @@ def test_strict_mode_unknown_exclude_key():
 
     with pytest.raises(ValueError):
         tuple(matrix.solve(strict=True))
+
+
+def test_pivot_basic():
+    """pivot() lays solved jobs out as a row-axis by col-axis grid."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-slim", "macos-26"])
+    matrix.add_variation("python-version", ["3.10", "3.14"])
+    matrix.add_includes({"state": "stable"})
+
+    cols, rows = matrix.pivot()
+    assert cols == ("ubuntu-slim", "macos-26")
+    assert rows == (
+        ("3.10", "stable", "stable"),
+        ("3.14", "stable", "stable"),
+    )
+
+
+def test_pivot_excluded_cell_is_missing():
+    """An excluded combination renders the missing placeholder."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-slim", "macos-26"])
+    matrix.add_variation("python-version", ["3.10", "3.14"])
+    matrix.add_includes({"state": "stable"})
+    matrix.add_excludes({"os": "macos-26", "python-version": "3.14"})
+
+    cols, rows = matrix.pivot()
+    assert cols == ("ubuntu-slim", "macos-26")
+    assert rows == (
+        ("3.10", "stable", "stable"),
+        ("3.14", "stable", "—"),
+    )
+
+
+def test_pivot_marks_unstable_row():
+    """A partial state include flags the matching row's cells unstable."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-slim", "macos-26"])
+    matrix.add_variation("python-version", ["3.14", "3.15"])
+    matrix.add_includes({"state": "stable"})
+    matrix.add_includes({"state": "unstable", "python-version": "3.15"})
+
+    _, rows = matrix.pivot()
+    assert rows == (
+        ("3.14", "stable", "stable"),
+        ("3.15", "unstable", "unstable"),
+    )
+
+
+def test_pivot_multi_job_cell_joins_states():
+    """Several jobs at one intersection join their distinct states."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-slim"])
+    matrix.add_variation("python-version", ["3.14"])
+    matrix.add_variation("click-version", ["stable", "main"])
+    matrix.add_includes({"state": "stable"})
+    matrix.add_includes({"state": "unstable", "click-version": "main"})
+
+    cols, rows = matrix.pivot()
+    assert cols == ("ubuntu-slim",)
+    assert rows == (("3.14", "stable, unstable"),)
+
+
+def test_pivot_custom_axes_and_missing_marker():
+    """pivot() accepts arbitrary axes, cell key and missing placeholder."""
+    matrix = Matrix()
+    matrix.add_variation("fruit", ["apple", "pear"])
+    matrix.add_variation("city", ["paris", "tokyo"])
+    matrix.add_includes({"taste": "sweet"})
+    matrix.add_excludes({"fruit": "pear", "city": "tokyo"})
+
+    cols, rows = matrix.pivot(
+        row_axis="fruit", col_axis="city", cell_key="taste", missing="n/a"
+    )
+    assert cols == ("paris", "tokyo")
+    assert rows == (
+        ("apple", "sweet", "sweet"),
+        ("pear", "sweet", "n/a"),
+    )

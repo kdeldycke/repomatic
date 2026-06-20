@@ -33,6 +33,7 @@
 | [`repomatic scan-virustotal`](#repomatic-scan-virustotal)                   | Upload release binaries to VirusTotal                    |
 | [`repomatic setup-guide`](#repomatic-setup-guide)                           | Manage setup guide issue lifecycle                       |
 | [`repomatic show-config`](#repomatic-show-config)                           | Print [tool.repomatic] configuration reference           |
+| [`repomatic show-test-matrix`](#repomatic-show-test-matrix)                 | Render the CI test matrix as a grid                      |
 | [`repomatic sponsor-label`](#repomatic-sponsor-label)                       | Label issues/PRs from GitHub sponsors                    |
 | [`repomatic sync-bumpversion`](#repomatic-sync-bumpversion)                 | Sync bumpversion config from bundled template            |
 | [`repomatic sync-dev-release`](#repomatic-sync-dev-release)                 | Sync rolling dev pre-release on GitHub                   |
@@ -216,6 +217,12 @@ invoke(repomatic, args=['setup-guide', '--help'])
 
 ```{click:run}
 invoke(repomatic, args=['show-config', '--help'])
+```
+
+## `repomatic show-test-matrix`
+
+```{click:run}
+invoke(repomatic, args=['show-test-matrix', '--help'])
 ```
 
 ## `repomatic sponsor-label`

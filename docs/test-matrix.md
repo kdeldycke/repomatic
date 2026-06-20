@@ -18,7 +18,7 @@ A separate `unstable` pass (full matrix only) flags matching combinations `conti
 
 ## Inspect the computed matrix
 
-To see the matrix your configuration actually produces, run [`repomatic metadata`](cli.md) and request the `test_matrix` key (or `test_matrix_pr` for the reduced pull-request set):
+To see the matrix your configuration actually produces, render it as a grid with [`repomatic show-test-matrix`](cli.md): one row per Python version, one column per runner, each cell flagging whether that job runs `stable`, `unstable` (continue-on-error), or is absent (`—`).
 
 ```{click:source}
 :hide-source:
@@ -26,7 +26,7 @@ from repomatic.cli import repomatic
 ```
 
 ```{click:run}
-invoke(repomatic, args=['metadata', 'test_matrix', '--format', 'json'])
+invoke(repomatic, args=['show-test-matrix', 'full'])
 ```
 
 With no `[tool.repomatic.test-matrix.*]` overrides, this is the built-in default: the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.15` prerelease flagged `unstable`, the free-threaded `3.14t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`.
@@ -34,7 +34,13 @@ With no `[tool.repomatic.test-matrix.*]` overrides, this is the built-in default
 The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
 
 ```{click:run}
-invoke(repomatic, args=['metadata', 'test_matrix_pr', '--format', 'json'])
+invoke(repomatic, args=['show-test-matrix', 'pr'])
+```
+
+The grid honors the global `--table-format` option, so the same view renders as GitHub-flavored Markdown, CSV, JSON, and the rest. For the raw GitHub Actions matrix the [`metadata` job](workflows.md) hands to CI: the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them, request the `test_matrix` (or `test_matrix_pr`) key from [`repomatic metadata`](cli.md):
+
+```{click:run}
+invoke(repomatic, args=['metadata', 'test_matrix', '--format', 'json'])
 ```
 
 ## Choosing what to test
