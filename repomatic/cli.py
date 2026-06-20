@@ -1623,6 +1623,16 @@ def test_plan(
                 echo(test_case.execution_trace)
         return status == "failed"
 
+    # Surface the parallelism picture up front so logs make clear whether cases
+    # run concurrently, and how that maps to the host's logical CPU count.
+    # os.cpu_count() reports logical CPUs (hardware threads), which is what
+    # click-extra's --jobs keys on: on a 2-core runner `auto` is 1 (sequential).
+    if stats:
+        echo(
+            f"Running {len(pending)} test cases across {worker_count} workers "
+            f"(os.cpu_count()={os.cpu_count()})."
+        )
+
     if worker_count == 1 or len(pending) <= 1:
         # Sequential: --exit-on-error can short-circuit on the first failure.
         for item in pending:
@@ -1634,9 +1644,6 @@ def test_plan(
         # worker threads overlap each case's process spawn and execution. All
         # selected cases run (--exit-on-error has no effect); executor.map
         # yields in submission order, keeping traces and counters ordered.
-        logging.info(
-            f"Run {len(pending)} test cases across {worker_count} parallel workers."
-        )
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             for outcome in executor.map(run_case, pending):
                 tally(outcome)

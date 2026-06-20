@@ -79,8 +79,11 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # Click Extra 7.19.0 ships the `click-extra man --output-dir DIR SCRIPT` CLI
-  # the release engine's manpages job shells out to.
+  # Pinned to git main (see [tool.uv.sources]) for unreleased click-extra 7.21
+  # features wired into repomatic: `--jobs max` and the sequential-collapse
+  # warning in `test-plan`, plus the manpages `man` -> `wrap --man` migration.
+  # The >=7.19 floor is held until 7.21.0 reaches PyPI; then bump to >=7.21 and
+  # drop the [tool.uv.sources] pin. Do not release repomatic before that flip.
   "click-extra>=7.19",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
@@ -178,6 +181,10 @@ typing = [
 [tool.uv]
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
+# Track click-extra's git main for unreleased 7.21 features (`--jobs max`,
+# `wrap --man`; see the click-extra entry under [project.dependencies]).
+# Temporary until 7.21.0 ships on PyPI, then drop this and bump the floor.
+sources.click-extra = { git = "https://github.com/kdeldycke/click-extra", branch = "main" }
 # Cooldown period: 7-day buffer before using newly released packages.
 # Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to
 # uv.lock for relative spans, so re-resolving never produces churn.
@@ -188,8 +195,8 @@ exclude-newer = "1 week"
 # bypasses at that date and prunes each entry once its held version ages past
 # `exclude-newer`, returning the package to the normal cooldown. repomatic is
 # pinned to git main (no PyPI release to freeze), so it keeps a permanent
-# "0 day" span. click-extra is held at 7.19.0 (manpages `--output-dir` flag);
-# tomlrt is held at 1.8.2.
+# "0 day" span. tomlrt is held at 1.8.2. click-extra now tracks git main via
+# [tool.uv.sources], so the index cooldown does not apply to it.
 exclude-newer-package = { repomatic = "0 day", tomlrt = "2026-06-16T00:00:00Z" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""

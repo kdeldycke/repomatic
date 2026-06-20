@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - Test the free-threaded `3.14t` build as a stable single-runner smoke test rather than across the full cross-platform matrix; only the in-development `3.15` stays `continue-on-error`.
+- `repomatic test-plan` now echoes the case count, worker count, and `os.cpu_count()` before running, surfacing whether cases run in parallel or fall back to sequential on low-core hosts; hidden by `--no-stats`.
 
 ## [`6.28.1` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.28.0...v6.28.1)
 

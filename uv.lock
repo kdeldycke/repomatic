@@ -398,8 +398,8 @@ wheels = [
 
 [[package]]
 name = "click-extra"
-version = "7.19.0"
-source = { registry = "https://pypi.org/simple" }
+version = "7.21.0.dev0"
+source = { git = "https://github.com/kdeldycke/click-extra?branch=main#c4cdbc0b230a2ac9150d95db81da48c2bc9ebfe3" }
 dependencies = [
     { name = "boltons" },
     { name = "click" },
@@ -410,10 +410,7 @@ dependencies = [
     { name = "tabulate", extra = ["widechars"] },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "wcmatch" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/83/ebc4b72d81720be9fb21c21158d6d9bcfd4927155fd203c9a16bba55ea2b/click_extra-7.19.0.tar.gz", hash = "sha256:886eeb46979749214ef776a52886dbbac8b3fd43d2698709581c4180d5ef2f44", size = 212376, upload-time = "2026-06-12T10:25:25.485Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/2e/7f59b0274af9ce0357cee5c9a50f73cf12e078507f7b24c96573c58277e1/click_extra-7.19.0-py3-none-any.whl", hash = "sha256:2829462a4faf6ffa7122634ae26d5af0fc233b8a5dc47b869b09f8f4dbcda273", size = 232233, upload-time = "2026-06-12T10:25:23.671Z" },
+    { name = "wcwidth" },
 ]
 
 [package.optional-dependencies]
@@ -1523,7 +1520,7 @@ typing = [
 requires-dist = [
     { name = "backports-strenum", marker = "python_full_version < '3.11'", specifier = ">=1" },
     { name = "boltons", specifier = ">=25" },
-    { name = "click-extra", specifier = ">=7.19" },
+    { name = "click-extra", git = "https://github.com/kdeldycke/click-extra?branch=main" },
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=17" },
     { name = "py-walk", specifier = ">=0.3.1" },
@@ -1537,7 +1534,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 docs = [
-    { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'" },
+    { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'", git = "https://github.com/kdeldycke/click-extra?branch=main" },
     { name = "furo", marker = "python_full_version >= '3.14'", specifier = ">=2025.9.25" },
     { name = "myst-parser", marker = "python_full_version >= '3.14'", specifier = ">=5.1" },
     { name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=8" },

@@ -260,6 +260,7 @@ jobs:
         run: >
           uvx --no-progress --from . repomatic test-plan
           --binary "${DOWNLOAD_PATH}/${BIN_NAME}"
+          --jobs max
 
   create-tag:
     name: 📌 Tag release (${{ matrix.short_sha }})

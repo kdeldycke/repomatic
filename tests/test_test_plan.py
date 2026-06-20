@@ -22,6 +22,7 @@ The `--jobs` option is click-extra's `JobsOption`; these tests cover how
 
 from __future__ import annotations
 
+import os
 import sys
 
 import pytest
@@ -35,18 +36,21 @@ PASS_CASE = "- cli_parameters: --version\n  exit_code: 0"
 FAIL_CASE = "- cli_parameters: --version\n  exit_code: 99"
 
 
-def _run(tmp_path, jobs, *cases: str):
+def _run(tmp_path, jobs, *cases: str, stats: bool = True):
     """Invoke `test-plan` over an inline plan, optionally setting --jobs.
 
     `jobs=None` omits the flag, exercising the default (parallel) worker count.
-    The host Python interpreter stands in for the command under test, so cases
-    stay fast and platform-neutral.
+    `stats=False` adds --no-stats to silence the run summary. The host Python
+    interpreter stands in for the command under test, so cases stay fast and
+    platform-neutral.
     """
     plan_file = tmp_path / "plan.yaml"
     plan_file.write_text("\n".join(cases))
     args = ["test-plan", "--command", sys.executable, "--plan-file", str(plan_file)]
     if jobs is not None:
         args += ["--jobs", str(jobs)]
+    if not stats:
+        args.append("--no-stats")
     return CliRunner().invoke(repomatic, args, catch_exceptions=False)
 
 
@@ -74,3 +78,19 @@ def test_non_integer_jobs_is_rejected(tmp_path):
     result = _run(tmp_path, "banana", PASS_CASE)
     assert result.exit_code != 0
     assert "banana" in result.stderr
+
+
+def test_run_summary_reports_workers_and_cpu_count(tmp_path):
+    """The run echoes the case count, the worker count, and os.cpu_count()."""
+    result = _run(tmp_path, 3, PASS_CASE, PASS_CASE)
+    assert result.exit_code == 0
+    assert "Running 2 test cases across 3 workers " in result.output
+    assert f"(os.cpu_count()={os.cpu_count()})" in result.output
+
+
+def test_no_stats_suppresses_run_summary(tmp_path):
+    """--no-stats hides the worker summary alongside the results tally."""
+    result = _run(tmp_path, 3, PASS_CASE, PASS_CASE, stats=False)
+    assert result.exit_code == 0
+    assert "os.cpu_count()" not in result.output
+    assert "Test plan results" not in result.output
