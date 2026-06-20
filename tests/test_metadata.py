@@ -33,6 +33,11 @@ from repomatic.config import (
 )
 from repomatic.github.actions import NULL_SHA
 from repomatic.metadata import Dialect, Metadata
+from repomatic.test_matrix import (
+    SINGLE_RUNNER_PYTHON_VERSIONS,
+    TEST_PYTHON_FULL,
+    UNSTABLE_PYTHON_VERSIONS,
+)
 
 # minor/major_bump_allowed trigger pydriller.Git("."), which acquires .git/config.lock.
 # Same group as test_git_ops to prevent parallel workers conflicting on the lock.
@@ -997,12 +1002,12 @@ expected: dict[str, Any] = {
         "python-version": [
             "3.10",
             "3.14",
-            "3.14t",
             "3.15",
         ],
         "include": [
             {"state": "stable"},
             {"state": "unstable", "python-version": "3.15"},
+            {"os": "ubuntu-24.04-arm", "python-version": "3.14t", "state": "stable"},
         ],
         "exclude": [
             {"os": "windows-11-arm", "python-version": "3.10"},
@@ -1825,6 +1830,34 @@ unstable = [
     pr_jobs = list(metadata.test_matrix_pr.solve())
     assert all(j["state"] == "stable" for j in pr_jobs)
     assert all(j.get("click-version") != "colorama" for j in pr_jobs)
+
+
+def test_single_runner_python_versions_are_stable_and_pinned(tmp_path, monkeypatch):
+    """Each released flavor runs once, on its pinned runner, stable; never in PR.
+
+    Locks the SINGLE_RUNNER_PYTHON_VERSIONS contract for every entry: a
+    free-threaded build is a single-runner smoke test, not the full
+    cross-platform spread, and not an unstable probe.
+    """
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+    metadata = Metadata()
+
+    full_jobs = list(metadata.test_matrix.solve())
+    pr_jobs = list(metadata.test_matrix_pr.solve())
+    assert SINGLE_RUNNER_PYTHON_VERSIONS
+    for version, runner in SINGLE_RUNNER_PYTHON_VERSIONS.items():
+        # A flavor is neither part of the full cross-platform spread nor an
+        # unstable probe: it is released and expected to pass.
+        assert version not in TEST_PYTHON_FULL
+        assert version not in UNSTABLE_PYTHON_VERSIONS
+        # Exactly one full-matrix job, on the pinned runner, marked stable.
+        assert [j for j in full_jobs if j["python-version"] == version] == [
+            {"os": runner, "python-version": version, "state": "stable"}
+        ]
+        # The reduced PR matrix never carries a flavor.
+        assert all(j["python-version"] != version for j in pr_jobs)
 
 
 def test_stale_test_matrix_excludes(tmp_path, monkeypatch):

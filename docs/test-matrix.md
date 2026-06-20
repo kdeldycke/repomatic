@@ -29,7 +29,7 @@ from repomatic.cli import repomatic
 invoke(repomatic, args=['metadata', 'test_matrix', '--format', 'json'])
 ```
 
-With no `[tool.repomatic.test-matrix.*]` overrides, this is the built-in default: the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes, here the `3.15` prerelease flagged `unstable` and `windows-11-arm` dropped on `3.10`.
+With no `[tool.repomatic.test-matrix.*]` overrides, this is the built-in default: the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.15` prerelease flagged `unstable`, the free-threaded `3.14t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`.
 
 The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
 
@@ -47,7 +47,13 @@ The combination your users actually install — released dependencies on a stabl
 
 ### Probe forward-looking axes narrowly
 
-Anything not yet shipped is an early-warning signal, not a support promise: a prerelease or free-threaded Python, a dependency's development branch, an unreleased build. Run each on a *single* runner. If it breaks you want a heads-up, not a cross-platform report, and once that version ships the broad shipped-config coverage picks it up anyway. Flag these jobs `continue-on-error` through [`test-matrix.unstable`](configuration.md) so an expected breakage does not fail the build.
+Anything not yet shipped is an early-warning signal, not a support promise: a prerelease Python, a dependency's development branch, an unreleased build. Run each on a *single* runner. If it breaks you want a heads-up, not a cross-platform report, and once that version ships the broad shipped-config coverage picks it up anyway. Flag these jobs `continue-on-error` through [`test-matrix.unstable`](configuration.md) so an expected breakage does not fail the build.
+
+(smoke-test-released-build-flavors-on-one-runner)=
+
+### Smoke-test released build flavors on one runner
+
+A free-threaded build (the `t` suffix, [officially supported since 3.14](https://peps.python.org/pep-0779/)) is a released *flavor* of a version the shipped-config slice already covers on every platform: the same interpreter, just compiled without the GIL. Because it is released, it is expected to work, so it runs **stable**, not `continue-on-error` like a prerelease. But re-running the whole suite on every platform buys little: one runner catches a free-threading-specific break, and the base version's cross-platform coverage handles the rest. So a flavor takes the narrow spread of a forward-looking probe with the stable outcome of shipped config. `repomatic` pins `3.14t` to its fastest Linux runner by default; to add another flavor, give it a `python-version` variation pinned to one runner with `exclude` (the worked example's pattern) and leave it *out* of `test-matrix.unstable`.
 
 ### Pin the dependency floor and any known-regression release
 
@@ -63,7 +69,7 @@ A pinned dependency-version is there to test the *dependency*, and a dependency'
 
 For the same reason, keep pinned (old) dependency-versions *off* the prerelease Python. "Oldest supported dependency × a Python that is not released yet" is a combination no user runs; reserve the prerelease-Python probe for the released dependency.
 
-Pinning a value to a single cell is verbose in the exclude model. Say you carry a floor (`4.2`) and one regression-prone release (`5.0`) of `acme`, and want each on a single cell: the floor Python of the fastest runner. You add them as matrix values, which multiplies them across every OS and Python, then exclude every combination but the one you want, including the prerelease Python (per the rule above). With the slow-architecture twins removed (as in the worked example below) four runners and four Pythons remain, so each pinned version costs six excludes:
+Pinning a value to a single cell is verbose in the exclude model. Say you carry a floor (`4.2`) and one regression-prone release (`5.0`) of `acme`, and want each on a single cell: the floor Python of the fastest runner. You add them as matrix values, which multiplies them across every OS and Python, then exclude every combination but the one you want, including the prerelease Python (per the rule above). With the slow-architecture twins removed (as in the worked example below) four runners and three Pythons remain, so each pinned version costs five excludes:
 
 ```toml
 [tool.repomatic]
@@ -75,18 +81,16 @@ test-matrix.exclude = [
   { "os" = "macos-26", "acme-version" = "4.2" },
   { "os" = "windows-2025", "acme-version" = "4.2" },
   { "python-version" = "3.14", "acme-version" = "4.2" },
-  { "python-version" = "3.14t", "acme-version" = "4.2" },
   { "python-version" = "3.15", "acme-version" = "4.2" },
   { "os" = "ubuntu-slim", "acme-version" = "5.0" },
   { "os" = "macos-26", "acme-version" = "5.0" },
   { "os" = "windows-2025", "acme-version" = "5.0" },
   { "python-version" = "3.14", "acme-version" = "5.0" },
-  { "python-version" = "3.14t", "acme-version" = "5.0" },
   { "python-version" = "3.15", "acme-version" = "5.0" },
 ]
 ```
 
-[`test-matrix.full-include`](configuration.md) states each cell directly instead, dropping the `acme-version` axis altogether: released becomes the default and each pin is one explicit exception that lists only what differs from the shipped configuration (unset axes inherit the defaults: released dependencies, stable state). The variation and its twelve excludes become a one-line `include` and two rows:
+[`test-matrix.full-include`](configuration.md) states each cell directly instead, dropping the `acme-version` axis altogether: released becomes the default and each pin is one explicit exception that lists only what differs from the shipped configuration (unset axes inherit the defaults: released dependencies, stable state). The variation and its ten excludes become a one-line `include` and two rows:
 
 ```toml
 [tool.repomatic]
@@ -134,9 +138,9 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 
 Relative speed is workload-dependent, so the only authoritative numbers are your own. The tendencies below come from `repomatic`'s own full test suite, taken as the median across the five most recent successful runs on all six runners. Two numbers matter and can disagree: **job wall-clock** (the `startedAt`/`completedAt` delta, what you pay in CI minutes) and **compute** (just the test-execution steps, with checkout, environment setup, and coverage upload stripped out). When they diverge, a non-compute step is the cause.
 
-- **Linux: ARM is much faster.** `ubuntu-24.04-arm` ran the suite two to three times faster than `ubuntu-slim` (median 2.9x on job wall-clock, at every Python version), and the gap holds on compute alone. `ubuntu-slim` is a deliberately lean image (`repomatic`'s default for light mechanical jobs, where small size and tool availability matter more than throughput), and for a heavy suite it is the slowest tier overall: its `py3.14t` cell (~250s) is the single slowest in the matrix and gates total wall-clock.
+- **Linux: ARM is much faster.** `ubuntu-24.04-arm` ran the suite two to three times faster than `ubuntu-slim` (median 2.9x on job wall-clock, at every Python version), and the gap holds on compute alone. `ubuntu-slim` is a deliberately lean image (`repomatic`'s default for light mechanical jobs, where small size and tool availability matter more than throughput), and for a heavy suite it is the slowest tier overall. Its free-threaded `3.14t` cell was the single slowest in the matrix at ~250s, which is one reason that flavor now runs on the faster ARM Linux runner instead of the full spread (see [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner)).
 - **macOS: Apple silicon beats Intel** by roughly 1.8-2x (about 1.8x on job wall-clock, about 2x on compute), not a single-digit margin. `macos-26` is in fact one of the *fastest* runners overall; `macos-26-intel` is the slow one. macOS as a tier does not gate the matrix: `ubuntu-slim` does.
-- **Windows: compute is a tie; x86 wins on wall-clock for a non-compute reason.** On test-execution time the two images sit within ~6% (ARM is marginally ahead on free-threaded and prerelease). `windows-2025` still finishes each job ~50s sooner, because `windows-11-arm` pays a systematic penalty on the Codecov upload step (~56s versus ~6s: the uploader is slow on ARM64 Windows). Pick `windows-2025` for the wall-clock saving, but do not read it as x86 computing faster.
+- **Windows: compute is a tie; x86 wins on wall-clock for a non-compute reason.** On test-execution time the two images sit within ~6% (ARM is marginally ahead on the prerelease Python). `windows-2025` still finishes each job ~50s sooner, because `windows-11-arm` pays a systematic penalty on the Codecov upload step (~56s versus ~6s: the uploader is slow on ARM64 Windows). Pick `windows-2025` for the wall-clock saving, but do not read it as x86 computing faster.
 
 ```{caution}
 These figures are one project's, and they drift. Runner images are re-provisioned, new images appear and old ones are retired, and an outlier can be a transient stall rather than a property of the image. Some gaps are systematic, though: the ARM-Windows Codecov penalty above shows up in every run. Per-job wall-clock also folds in checkout, setup, and upload, so isolate the test steps before attributing a gap to the image's compute. Treat all of this as a starting hypothesis, not a constant, and re-confirm against your own timings.
@@ -218,12 +222,12 @@ test-matrix.exclude = [
 test-matrix.unstable = [{ "acme-version" = "main" }]
 ```
 
-The full matrix resolves to three slices:
+On top of the built-in `3.14t` flavor smoke test (stable, on `ubuntu-24.04-arm` with released `acme`), the `acme` config resolves to three slices:
 
-| Slice                                  | Runs on                               | `continue-on-error` |
-| :------------------------------------- | :------------------------------------ | :------------------ |
-| `released` acme (the shipped config)   | all four retained OSes × every Python | no                  |
-| `4.2` floor and `5.0` regression       | `ubuntu-24.04-arm` × every Python     | no                  |
-| `main` acme (dev-branch early warning) | `ubuntu-24.04-arm` × every Python     | yes                 |
+| Slice                                  | Runs on                                    | `continue-on-error` |
+| :------------------------------------- | :----------------------------------------- | :------------------ |
+| `released` acme (the shipped config)   | all four retained OSes × every base Python | no                  |
+| `4.2` floor and `5.0` regression       | `ubuntu-24.04-arm` × every base Python     | no                  |
+| `main` acme (dev-branch early warning) | `ubuntu-24.04-arm` × every base Python     | yes                 |
 
-The shipped configuration is exercised everywhere a regression would reach a user; the floor and the one regression-prone release are verified cheaply on the fastest runner; and the development branch gives a heads-up without the power to redden the build. The PR matrix stays the curated reduced set for fast feedback, since `variations` and `unstable` apply to the full matrix only. The same shape extends to a prerelease or free-threaded Python: add it as a `python-version` variation, pin it to one runner with `exclude`, and mark it `unstable`.
+The shipped configuration is exercised everywhere a regression would reach a user; the floor and the one regression-prone release are verified cheaply on the fastest runner; and the development branch gives a heads-up without the power to redden the build. The PR matrix stays the curated reduced set for fast feedback, since `variations` and `unstable` apply to the full matrix only. The same shape extends to a prerelease Python (add it as a `python-version` variation, pin it to one runner with `exclude`, and mark it `unstable`) or to a released free-threaded flavor (the same, but stable: leave it out of `unstable`, as [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner) explains).

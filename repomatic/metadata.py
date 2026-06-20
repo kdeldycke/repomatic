@@ -345,6 +345,7 @@ from .mailmap import MAILMAP_PATH
 from .pypi import PYPI_PROJECT_URL
 from .test_matrix import (
     MYPY_VERSION_MIN,
+    SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
     TEST_PYTHON_PR,
     TEST_RUNNERS_FULL,
@@ -2290,14 +2291,26 @@ class Metadata:
         matrix = Matrix()
         matrix.add_variation("os", TEST_RUNNERS_FULL)
         matrix.add_variation("python-version", TEST_PYTHON_FULL)
+        removed_os = self.config.test_matrix.remove.get("os", ())
         # Python 3.10 has no native ARM64 Windows build. Skip this guard when
         # the project removes windows-11-arm, so it does not linger as a no-op
         # exclude that prune would warn about.
-        if "windows-11-arm" not in self.config.test_matrix.remove.get("os", ()):
+        if "windows-11-arm" not in removed_os:
             matrix.add_excludes({"os": "windows-11-arm", "python-version": "3.10"})
         matrix.add_includes({"state": "stable"})
         for version in sorted(UNSTABLE_PYTHON_VERSIONS):
             matrix.add_includes({"state": "unstable", "python-version": version})
+        # Released build flavors (free-threaded) are a variant of an
+        # already-broadly-covered base version, so they smoke-test stable on a
+        # single runner rather than the full spread. Each is a standalone
+        # include pinned to its runner (it introduces a python-version absent
+        # from the axis, so it joins one runner instead of multiplying across
+        # the os axis); skip it when that runner was removed.
+        for version, keep_os in sorted(SINGLE_RUNNER_PYTHON_VERSIONS.items()):
+            if keep_os not in removed_os:
+                matrix.add_includes(
+                    {"os": keep_os, "python-version": version, "state": "stable"}
+                )
         self._apply_test_matrix_config(matrix, full=True)
         return matrix
 
@@ -2307,8 +2320,9 @@ class Metadata:
 
         Combines all runner OS images and Python versions, excluding known
         incompatible combinations. Marks development Python versions as
-        unstable so CI can use `continue-on-error`. Per-project config
-        from `[tool.repomatic.test-matrix]` is applied last.
+        unstable so CI can use `continue-on-error`, and adds released build
+        flavors (free-threaded) as stable single-runner smoke tests. Per-project
+        config from `[tool.repomatic.test-matrix]` is applied last.
 
         When `[tool.repomatic.test-matrix] full-include` rows are configured,
         the matrix is emitted as a flat job list (`{"include": [...]}`) so each

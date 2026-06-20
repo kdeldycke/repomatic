@@ -43,7 +43,7 @@ Two variants per platform (one per architecture). See
 When reducing to one runner per OS, choose by measured speed, not architecture
 (see {doc}`/test-matrix`). Tendencies from `repomatic`'s own full test suite:
 ARM Linux (`ubuntu-24.04-arm`) runs two to three times as fast as the lean x86
-`ubuntu-slim`, the slowest tier overall, whose `py3.14t` cell gates the matrix;
+`ubuntu-slim`, the slowest tier overall;
 Apple-silicon `macos-26` beats `macos-26-intel` by ~2x; Windows is a tie on
 compute, with `windows-2025` only winning per-job because `windows-11-arm`'s
 Codecov upload is systematically slow (~56s vs ~6s). Per-job wall-clock folds in
@@ -78,12 +78,16 @@ single-threaded binaries) barely move between runners, so they keep the lean
 TEST_PYTHON_FULL = (
     "3.10",
     "3.14",
-    "3.14t",
     "3.15",
 )
-"""Python versions for the full test matrix.
+"""Python versions tested across every runner in the full matrix.
 
-Intermediate versions (3.11, 3.12, 3.13) are skipped to reduce CI load.
+Spans the supported range: the floor (`3.10`), the latest stable release
+(`3.14`), and the in-development version (`3.15`, flagged `continue-on-error`
+via {data}`UNSTABLE_PYTHON_VERSIONS`). Intermediate releases (3.11, 3.12, 3.13)
+are skipped to reduce CI load. Released build *flavors* (free-threaded) are not
+full-spread; they get a single-runner smoke test instead, see
+{data}`SINGLE_RUNNER_PYTHON_VERSIONS`.
 """
 
 TEST_PYTHON_PR = (
@@ -92,13 +96,30 @@ TEST_PYTHON_PR = (
 )
 """Reduced Python version set for pull request test matrices.
 
-Skips experimental versions (free-threaded, development) to reduce CI load.
+Just the floor and the latest stable release, for fast PR feedback. The
+in-development version and released build flavors (free-threaded) are left to
+the full matrix.
 """
 
 UNSTABLE_PYTHON_VERSIONS: Final[frozenset[str]] = frozenset({"3.15"})
 """Python versions still in development.
 
-Jobs using these versions run with `continue-on-error` in CI.
+Jobs using these versions run with `continue-on-error` in CI. Contrast with
+{data}`SINGLE_RUNNER_PYTHON_VERSIONS`, which are released and run stable.
+"""
+
+SINGLE_RUNNER_PYTHON_VERSIONS: Final[dict[str, str]] = {"3.14t": "ubuntu-24.04-arm"}
+"""Released Python build flavors smoke-tested on a single runner, mapped to it.
+
+A free-threaded build (the `t` suffix, made officially supported in 3.14 by
+[PEP 779](https://peps.python.org/pep-0779/)) runs the same released interpreter
+as its base version, just without the GIL. The base version already gets the
+full cross-platform spread ({data}`TEST_PYTHON_FULL`), so the library logic is
+covered everywhere; the flavor only needs one runner to catch a
+free-threading-specific break. These run *stable* (expected to pass), unlike the
+unreleased {data}`UNSTABLE_PYTHON_VERSIONS`. The runner is the fastest Linux
+image: free-threading targets server workloads and ARM Linux leads the test
+suite (see {doc}`/test-matrix`).
 """
 
 
