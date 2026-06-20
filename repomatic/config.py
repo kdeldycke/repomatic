@@ -618,7 +618,7 @@ class Config:
     """Click command target whose tree gets rendered as roff `.1` files and
     attached as a tarball asset on every GitHub release.
 
-    Same shape the `click-extra man` CLI accepts: a `module:function` path
+    Same shape the `click-extra wrap --man` CLI accepts: a `module:function` path
     (preferred for projects whose console-script entry point dispatches through
     a wrapper), an entry-point name, a `.py` file path, or a plain importable
     module name. Leave empty to disable release-attached man pages.
