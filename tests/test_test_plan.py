@@ -14,10 +14,12 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the `test-plan` command, focused on parallel execution via --jobs.
+"""Tests for the `test-plan` command: parallel execution and progress display.
 
 The `--jobs` option is click-extra's `JobsOption`; these tests cover how
-`test-plan` consumes its worker count, not the option's own validation.
+`test-plan` consumes its worker count, not the option's own validation. The
+spinner tests check the integration (TTY gating, `--no-progress`), not the
+`Spinner` animation itself, which click-extra exercises.
 """
 
 from __future__ import annotations
@@ -93,4 +95,43 @@ def test_no_stats_suppresses_run_summary(tmp_path):
     result = _run(tmp_path, 3, PASS_CASE, PASS_CASE, stats=False)
     assert result.exit_code == 0
     assert "os.cpu_count()" not in result.output
+    assert "Test plan results" not in result.output
+
+
+def test_progress_spinner_stays_off_non_tty(tmp_path):
+    """Off a TTY (captured buffers) the spinner draws no frame to stdout or stderr."""
+    result = _run(tmp_path, 3, PASS_CASE, PASS_CASE)
+    assert result.exit_code == 0
+    # The default Braille frame must never reach captured (non-TTY) output.
+    assert "⠋" not in result.output
+    assert "⠋" not in result.stderr
+
+
+def test_no_progress_runs_clean(tmp_path):
+    """--no-progress (a group option) silences the spinner without altering results."""
+    plan_file = tmp_path / "plan.yaml"
+    plan_file.write_text(f"{PASS_CASE}\n{FAIL_CASE}")
+    result = CliRunner().invoke(
+        repomatic,
+        ["--no-progress", "test-plan", "--command", sys.executable]
+        + ["--plan-file", str(plan_file)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "Total: 2" in result.output
+    assert "Failed: 1" in result.output
+
+
+def test_exit_on_error_bails_before_summary(tmp_path):
+    """--exit-on-error stops at the first failure and skips the results summary,
+    even with the spinner now wrapping the run."""
+    plan_file = tmp_path / "plan.yaml"
+    plan_file.write_text(f"{FAIL_CASE}\n{PASS_CASE}\n{PASS_CASE}")
+    result = CliRunner().invoke(
+        repomatic,
+        ["test-plan", "--command", sys.executable, "--plan-file", str(plan_file)]
+        + ["--jobs", "1", "--exit-on-error"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
     assert "Test plan results" not in result.output

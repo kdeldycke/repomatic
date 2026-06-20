@@ -43,6 +43,7 @@ from click_extra import (
     ParameterSource,
     ParamType,
     Section,
+    Spinner,
     UsageError,
     argument,
     context,
@@ -1523,8 +1524,13 @@ def test_plan(
     the output against expected patterns.
 
     Cases run in parallel by default (see --jobs): each is an independent
-    process invocation, so they overlap well. Pass --jobs 1 for sequential
-    execution, which lets --exit-on-error stop on the first failure.
+    process invocation, so they overlap well. Pass --jobs max to use every
+    logical core, or --jobs 1 for sequential execution, which lets
+    --exit-on-error stop on the first failure.
+
+    On an interactive terminal a spinner reports how many cases have finished.
+    It stays silent in pipes and CI logs, and the global --no-progress or
+    --accessible flag turns it off.
     """
     # click-extra's --jobs option stores its clamped worker count on the
     # context; it does not drive concurrency itself, so we read and act on it.
@@ -1609,11 +1615,8 @@ def test_plan(
             return test_number, "failed", test_case
         return test_number, "passed", test_case
 
-    def tally(outcome: tuple[int, str, CLITestCase]) -> bool:
-        """Record an outcome in the counters and echo a failure's trace.
-
-        :return: `True` if the case failed.
-        """
+    def tally(outcome: tuple[int, str, CLITestCase]) -> None:
+        """Record an outcome in the counters and echo a failure's trace."""
         _, status, test_case = outcome
         if status == "skipped":
             counter["skipped"] += 1
@@ -1621,7 +1624,6 @@ def test_plan(
             counter["failed"] += 1
             if show_trace_on_error and test_case.execution_trace:
                 echo(test_case.execution_trace)
-        return status == "failed"
 
     # Surface the parallelism picture up front so logs make clear whether cases
     # run concurrently, and how that maps to the host's logical CPU count.
@@ -1633,20 +1635,50 @@ def test_plan(
             f"(os.cpu_count()={os.cpu_count()})."
         )
 
-    if worker_count == 1 or len(pending) <= 1:
-        # Sequential: --exit-on-error can short-circuit on the first failure.
-        for item in pending:
-            if tally(run_case(item)) and exit_on_error:
-                logging.debug("Don't continue testing, a failed test was found.")
-                ctx.exit(1)
-    else:
-        # Parallel: subprocess.run releases the GIL while the child runs, so
-        # worker threads overlap each case's process spawn and execution. All
-        # selected cases run (--exit-on-error has no effect); executor.map
-        # yields in submission order, keeping traces and counters ordered.
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            for outcome in executor.map(run_case, pending):
-                tally(outcome)
+    # An indeterminate spinner reports live progress on an interactive terminal.
+    # It honors the resolved --progress flag (on by default; --no-progress and
+    # --accessible turn it off) and stays silent off a TTY, so pipes and CI logs
+    # are unaffected. Traces and the summary print only after it stops, so they
+    # never collide with a live frame.
+    show_progress = context.get(ctx, context.PROGRESS, True)
+    completed = 0
+
+    def progress_label() -> str:
+        return f"Running test cases ({completed}/{len(pending)})"
+
+    spinner = Spinner(progress_label(), enabled=None if show_progress else False)
+    outcomes: list[tuple[int, str, CLITestCase]] = []
+    bailed = False
+    with spinner:
+        if worker_count == 1 or len(pending) <= 1:
+            # Sequential: --exit-on-error can short-circuit on the first failure.
+            for item in pending:
+                outcome = run_case(item)
+                completed += 1
+                spinner.label = progress_label()
+                outcomes.append(outcome)
+                if outcome[1] == "failed" and exit_on_error:
+                    logging.debug("Don't continue testing, a failed test was found.")
+                    bailed = True
+                    break
+        else:
+            # Parallel: subprocess.run releases the GIL while the child runs, so
+            # worker threads overlap each case's process spawn and execution. All
+            # selected cases run (--exit-on-error has no effect); executor.map
+            # yields in submission order, keeping traces and counters ordered.
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                for outcome in executor.map(run_case, pending):
+                    completed += 1
+                    spinner.label = progress_label()
+                    outcomes.append(outcome)
+
+    # The spinner has stopped and cleared its line: record outcomes and print any
+    # failure traces now, clear of the animation.
+    for outcome in outcomes:
+        tally(outcome)
+
+    if bailed:
+        ctx.exit(1)
 
     if stats:
         echo(

@@ -86,7 +86,9 @@ The `output_contains`, `output_regex_matches`, and `output_regex_fullmatch` dire
 
 ## Running cases in parallel
 
-Cases are independent process invocations, so `test-plan` runs them in parallel by default, using [`--jobs`](cli.md#repomatic-test-plan) (one fewer than the host CPU count). Pass `--jobs 1` to run sequentially : the only mode in which `--exit-on-error` can stop on the first failure, since parallel cases are already in flight. A plan whose cases share mutable state (writing the same file, racing on a port) should pin `--jobs 1`.
+Cases are independent process invocations, so `test-plan` runs them in parallel by default, using [`--jobs`](cli.md#repomatic-test-plan) (`auto`: one fewer than the host CPU count, leaving a core free). Pass `--jobs max` to use every logical core, or `--jobs 1` to run sequentially : the only mode in which `--exit-on-error` can stop on the first failure, since parallel cases are already in flight. A plan whose cases share mutable state (writing the same file, racing on a port) should pin `--jobs 1`.
+
+On an interactive terminal `test-plan` shows a spinner that counts cases as they finish. It is silent in pipes, files, and CI logs, and the global `--no-progress` or `--accessible` flag turns it off.
 
 ## Exit status
 
