@@ -464,7 +464,6 @@ expected: dict[str, Any] = {
         "repomatic/sponsor.py",
         "repomatic/templates/__init__.py",
         "repomatic/test_matrix.py",
-        "repomatic/test_plan.py",
         "repomatic/tool_runner.py",
         "repomatic/uv.py",
         "repomatic/virustotal.py",
@@ -502,7 +501,6 @@ expected: dict[str, Any] = {
         "tests/test_renovate.py",
         "tests/test_status.py",
         "tests/test_sync_labels.py",
-        "tests/test_test_plan.py",
         "tests/test_tool_runner.py",
         "tests/test_uv.py",
         "tests/test_virustotal.py",
@@ -614,7 +612,6 @@ expected: dict[str, Any] = {
         "docs/security.md",
         "docs/skills.md",
         "docs/test-matrix.md",
-        "docs/test-plan.md",
         "docs/tests.md",
         "docs/todolist.md",
         "docs/tool-runner.md",
@@ -711,7 +708,6 @@ expected: dict[str, Any] = {
         "docs/security.md",
         "docs/skills.md",
         "docs/test-matrix.md",
-        "docs/test-plan.md",
         "docs/tests.md",
         "docs/todolist.md",
         "docs/tool-runner.md",
@@ -1397,9 +1393,6 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
     pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
-    assert metadata.config.test_plan.file == "./tests/cli-test-plan.yaml"
-    assert metadata.config.test_plan.timeout is None
-    assert metadata.config.test_plan.inline is None
     assert metadata.config.gitignore.location == "./.gitignore"
     assert metadata.config.gitignore.extra_categories == []
     assert metadata.config.gitignore.extra_content == (
@@ -1494,9 +1487,6 @@ name = "test-project"
 version = "1.0.0"
 
 [tool.repomatic]
-test-plan.file = "./custom/test-plan.yaml"
-test-plan.timeout = 120
-test-plan.inline = "- args: --version"
 gitignore.location = "./custom/.gitignore"
 gitignore.extra-categories = ["terraform", "go"]
 gitignore.extra-content = '''
@@ -1569,9 +1559,6 @@ click-version = ["released", "stable", "main"]
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
-    assert metadata.config.test_plan.file == "./custom/test-plan.yaml"
-    assert metadata.config.test_plan.timeout == 120
-    assert metadata.config.test_plan.inline == "- args: --version"
     assert metadata.config.gitignore.location == "./custom/.gitignore"
     assert metadata.config.gitignore.extra_categories == [
         "terraform",
@@ -2110,9 +2097,6 @@ def test_load_repomatic_config_defaults(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config = load_repomatic_config()
     assert isinstance(config, Config)
-    assert config.test_plan.file == "./tests/cli-test-plan.yaml"
-    assert config.test_plan.timeout is None
-    assert config.test_plan.inline is None
     assert config.dependency_graph.output == "./docs/assets/dependencies.mmd"
     assert config.dependency_graph.all_groups is True
     assert config.dependency_graph.all_extras is True
@@ -2137,8 +2121,6 @@ name = "test-project"
 version = "1.0.0"
 
 [tool.repomatic]
-test-plan.timeout = 120
-test-plan.file = "./custom/test-plan.yaml"
 dependency-graph.output = "./custom/deps.mmd"
 nuitka.enabled = false
 """
@@ -2146,8 +2128,6 @@ nuitka.enabled = false
     monkeypatch.chdir(tmp_path)
 
     config = load_repomatic_config()
-    assert config.test_plan.timeout == 120
-    assert config.test_plan.file == "./custom/test-plan.yaml"
     assert config.dependency_graph.output == "./custom/deps.mmd"
     assert config.nuitka_enabled is False
 
@@ -2161,10 +2141,8 @@ def test_load_repomatic_config_with_preloaded_data():
             },
         },
     }
-    config = load_repomatic_config(data)
-    assert config.test_plan.timeout == 60
+    load_repomatic_config(data)
     # Other defaults are still present.
-    assert config.test_plan.file == "./tests/cli-test-plan.yaml"
 
 
 def test_load_repomatic_config_warns_unknown_keys(tmp_path, monkeypatch, caplog):

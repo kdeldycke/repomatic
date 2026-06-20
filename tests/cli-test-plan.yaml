@@ -7,10 +7,12 @@
   # Test providing floating-point numbers to timeout.
   timeout: 80.0
   exit_code: 0
+  # click-extra 8.0's --color=auto strips color on captured (non-TTY) output,
+  # so the version line is plain text. strip_ansi stays robust if color is forced.
+  strip_ansi: true
   stdout_contains: ", version"
-  # click-extra>=7.19 renders the CLI name with separate bold+color escapes: \x1b[97m\x1b[1m.
   # yamllint disable-line rule:line-length
-  stdout_regex_fullmatch: "\x1b\\[97m\x1b\\[1mrepomatic\x1b\\[0m, version \x1b\\[32m[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z]+[0-9]+(\\+[a-f0-9]+)?)?\x1b\\[0m\n"
+  stdout_regex_fullmatch: "repomatic, version [0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z]+[0-9]+(\\+[a-f0-9]+)?)?\n"
 
 
 # Test combination of version and verbosity.
@@ -20,14 +22,17 @@
     - DEBUG
     - --version
   exit_code: 0
+  # Captured output is uncolored under click-extra 8.0 (see the --version case).
+  strip_ansi: true
   stdout_contains: ", version"
-  # click-extra>=7.19 renders the CLI name with separate bold+color escapes: \x1b[97m\x1b[1m.
-  stdout_regex_matches: "\x1b\\[97m\x1b\\[1mrepomatic\x1b\\[0m, version "
+  stdout_regex_matches: "repomatic, version "
   stderr_contains:
     - "Set <RootLogger root (DEBUG)> to DEBUG."
-    - "\x1b[34mdebug\x1b[0m: {prog_name}      : \x1b[97m\x1b[1mrepomatic\x1b[0m\n"
+    - "debug: Version string template variables:"
   stderr_regex_matches:
-    - "\x1b\\[34mdebug\x1b\\[0m: {prog_name}      : \x1b\\[97m\x1b\\[1mrepomatic\x1b\\[0m\n"
+    # The version-template debug dump aligns field names with padding, so match
+    # the package_name row loosely.
+    - "debug: \\{package_name\\} +: repomatic"
 
 
 # Test help output.
@@ -106,18 +111,3 @@
   stderr_regex_matches:
     - "info: Read initial mapping from \\S+\\.mailmap"
     - "info: (Save updated results to|Print updated results to)"
-
-
-# Test test-plan output.
-- cli_parameters:
-    - --verbosity
-    - INFO
-    - test-plan
-  exit_code: 2
-  strip_ansi: true
-  # Test multi-line single string.
-  stderr_contains: |
-    Usage: repomatic test-plan [OPTIONS]
-    Try 'repomatic test-plan --help' for help.
-
-    Error: Missing option '--command' / '--binary'.

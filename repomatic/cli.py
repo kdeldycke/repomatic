@@ -25,12 +25,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections import Counter
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 import tomlrt
-from boltons.iterutils import unique
 from click_extra import (
     UNPROCESSED,
     Choice,
@@ -42,25 +40,20 @@ from click_extra import (
     ParameterSource,
     ParamType,
     Section,
-    Spinner,
     UsageError,
     argument,
-    context,
     dir_path,
     echo,
     file_path,
     group,
-    jobs_option,
     option,
     option_group,
     pass_context,
-    run_jobs,
     style,
 )
 from click_extra.config import get_tool_config
-from click_extra.envvar import merge_envvar_ids
 from click_extra.table import SortByOption
-from extra_platforms import ALL_IDS, is_github_ci
+from extra_platforms import is_github_ci
 
 from . import __version__
 from .binary import (
@@ -171,12 +164,6 @@ from .sponsor import (
     get_default_owner,
     is_pull_request,
     is_sponsor,
-)
-from .test_plan import (
-    DEFAULT_TEST_PLAN,
-    CLITestCase,
-    SkippedTest,
-    parse_test_plan,
 )
 from .tool_runner import (
     TOOL_REGISTRY,
@@ -1425,264 +1412,6 @@ def sync_mailmap(ctx, source, create_if_missing, destination_mailmap):
             ctx.exit()
 
     echo(generate_header(ctx) + new_content, file=prep_path(destination_mailmap))
-
-
-@repomatic.command(
-    short_help="Run a test plan from a file against a binary", section=_section_lint
-)
-@option(
-    "--command",
-    "--binary",
-    required=True,
-    metavar="COMMAND",
-    help="Path to the binary file to test, or a command line to be executed.",
-)
-@option(
-    "-F",
-    "--plan-file",
-    type=file_path(exists=True, readable=True, resolve_path=True),
-    multiple=True,
-    metavar="FILE_PATH",
-    help="Path to a test plan file in YAML. This option can be repeated to run "
-    "multiple test plans in sequence. If not provided, a default test plan will be "
-    "executed.",
-)
-@option(
-    "-E",
-    "--plan-envvar",
-    multiple=True,
-    metavar="ENVVAR_NAME",
-    help="Name of an environment variable containing a test plan in YAML. This "
-    "option can be repeated to collect multiple test plans.",
-)
-@option(
-    "-t",
-    "--select-test",
-    type=IntRange(min=1),
-    multiple=True,
-    metavar="INTEGER",
-    help="Only run the tests matching the provided test case numbers. This option can "
-    "be repeated to run multiple test cases. If not provided, all test cases will be "
-    "run.",
-)
-@option(
-    "-s",
-    "--skip-platform",
-    type=Choice(sorted(ALL_IDS), case_sensitive=False),
-    multiple=True,
-    help="Skip tests for the specified platforms. This option can be repeated to "
-    "skip multiple platforms.",
-)
-@option(
-    "-x",
-    "--exit-on-error",
-    is_flag=True,
-    default=False,
-    help="Exit instantly on first failed test.",
-)
-@jobs_option
-@option(
-    "-T",
-    "--timeout",
-    # Timeout passed to subprocess.run() is a float that is silently clamped to
-    # 0.0 if negative values are provided, so we mimic this behavior here:
-    # https://github.com/python/cpython/blob/5740b95076b57feb6293cda4f5504f706a7d622d/Lib/subprocess.py#L1596-L1597
-    type=FloatRange(min=0, clamp=True),
-    metavar="SECONDS",
-    help="Set the default timeout for each CLI call, if not specified in the "
-    "test plan.",
-)
-@option(
-    "--show-trace-on-error/--hide-trace-on-error",
-    default=True,
-    help="Show execution trace of failed tests.",
-)
-@option(
-    "--stats/--no-stats",
-    is_flag=True,
-    default=True,
-    help="Print per-manager package statistics.",
-)
-@pass_context
-def test_plan(
-    ctx: Context,
-    command: str,
-    plan_file: tuple[Path, ...] | None,
-    plan_envvar: tuple[str, ...] | None,
-    select_test: tuple[int, ...] | None,
-    skip_platform: tuple[str, ...] | None,
-    exit_on_error: bool,
-    timeout: float | None,
-    show_trace_on_error: bool,
-    stats: bool,
-) -> None:
-    """Run CLI test cases against a binary or command.
-
-    Loads test plans from files (--plan-file), environment variables
-    (--plan-envvar), [tool.repomatic] config, or a built-in default.
-    Each test invokes the command with the specified arguments and validates
-    the output against expected patterns.
-
-    Cases run in parallel by default (see --jobs): each is an independent
-    process invocation, so they overlap well. Pass --jobs max to use every
-    logical core, or --jobs 1 for sequential execution, which lets
-    --exit-on-error stop on the first failure.
-
-    On an interactive terminal a spinner reports how many cases have finished.
-    It stays silent in pipes and CI logs, and the global --no-progress or
-    --accessible flag turns it off.
-    """
-    # click-extra's --jobs option stores its clamped worker count on the
-    # context; it does not drive concurrency itself, so we read and act on it.
-    worker_count = context.get(ctx, context.JOBS, 1)
-
-    # Load [tool.repomatic] config for fallback values.
-    config = get_tool_config(ctx)
-
-    # Load test plan: CLI args > pyproject.toml config > DEFAULT_TEST_PLAN.
-    test_list = []
-    if plan_file or plan_envvar:
-        # CLI-provided sources take precedence.
-        for file in unique(plan_file):
-            logging.info(f"Get test plan from {file} file")
-            tests = list(parse_test_plan(file.read_text(encoding="UTF-8")))
-            logging.info(f"{len(tests)} test cases found.")
-            test_list.extend(tests)
-        for envvar_id in merge_envvar_ids(plan_envvar):
-            logging.info(f"Get test plan from {envvar_id!r} environment variable")
-            tests = list(parse_test_plan(os.getenv(envvar_id)))
-            logging.info(f"{len(tests)} test cases found.")
-            test_list.extend(tests)
-
-    else:
-        # Fall back to [tool.repomatic] config.
-        if config.test_plan.inline:
-            logging.info("Get test plan from [tool.repomatic] test-plan.inline config.")
-            tests = list(parse_test_plan(config.test_plan.inline))
-            logging.info(f"{len(tests)} test cases found.")
-            test_list.extend(tests)
-
-        if config.test_plan.file:
-            plan_path = Path(config.test_plan.file)
-            if plan_path.exists():
-                logging.info(f"Get test plan from config path: {plan_path}")
-                tests = list(parse_test_plan(plan_path.read_text(encoding="UTF-8")))
-                logging.info(f"{len(tests)} test cases found.")
-                test_list.extend(tests)
-
-        if not test_list:
-            logging.warning(
-                "No test plan provided through CLI options or"
-                " [tool.repomatic] config: use default test plan."
-            )
-            test_list = DEFAULT_TEST_PLAN
-
-    # Fall back to config timeout if not provided via CLI.
-    if timeout is None and config.test_plan.timeout is not None:
-        timeout = float(config.test_plan.timeout)
-
-    logging.debug(f"Test plan: {test_list}")
-
-    counter = Counter(total=len(test_list), skipped=0, failed=0)
-
-    # Select the cases to run (respecting --select-test), keeping their 1-based
-    # numbers for stable reporting.
-    pending: list[tuple[int, CLITestCase]] = []
-    for index, test_case in enumerate(test_list):
-        test_number = index + 1
-        if select_test and test_number not in select_test:
-            logging.warning(f"Test #{test_number} skipped by user request.")
-            counter["skipped"] += 1
-            continue
-        pending.append((test_number, test_case))
-
-    def run_case(item: tuple[int, CLITestCase]) -> tuple[int, str, CLITestCase]:
-        """Run one case, returning its number, outcome, and the case itself."""
-        test_number, test_case = item
-        logging.info(f"Run test #{test_number}...")
-        try:
-            logging.debug(f"Test case parameters: {test_case}")
-            test_case.run_cli_test(
-                command,
-                additional_skip_platforms=skip_platform,
-                default_timeout=timeout,
-            )
-        except SkippedTest as ex:
-            logging.warning(f"Test #{test_number} skipped: {ex}")
-            return test_number, "skipped", test_case
-        except Exception as ex:  # noqa: BLE001
-            logging.error(f"Test #{test_number} failed: {ex}")
-            return test_number, "failed", test_case
-        return test_number, "passed", test_case
-
-    def tally(outcome: tuple[int, str, CLITestCase]) -> None:
-        """Record an outcome in the counters and echo a failure's trace."""
-        _, status, test_case = outcome
-        if status == "skipped":
-            counter["skipped"] += 1
-        elif status == "failed":
-            counter["failed"] += 1
-            if show_trace_on_error and test_case.execution_trace:
-                echo(test_case.execution_trace)
-
-    # Surface the parallelism picture up front so logs make clear whether cases
-    # run concurrently, and how that maps to the host's logical CPU count.
-    # os.cpu_count() reports logical CPUs (hardware threads), which is what
-    # click-extra's --jobs keys on: on a 2-core runner `auto` is 1 (sequential).
-    if stats:
-        echo(
-            f"Running {len(pending)} test cases across {worker_count} workers "
-            f"(os.cpu_count()={os.cpu_count()})."
-        )
-
-    # An indeterminate spinner reports live progress on an interactive terminal.
-    # It honors the resolved --progress flag (on by default; --no-progress and
-    # --accessible turn it off) and stays silent off a TTY, so pipes and CI logs
-    # are unaffected. Traces and the summary print only after it stops, so they
-    # never collide with a live frame.
-    show_progress = context.get(ctx, context.PROGRESS, True)
-    completed = 0
-
-    def progress_label() -> str:
-        return f"Running test cases ({completed}/{len(pending)})"
-
-    spinner = Spinner(progress_label(), enabled=None if show_progress else False)
-    outcomes: list[tuple[int, str, CLITestCase]] = []
-    bailed = False
-    # run_jobs drives the cases per the resolved --jobs count: sequential and
-    # lazy at one worker (so --exit-on-error stops before the rest start),
-    # thread-pooled otherwise, yielding in submission order so traces and
-    # counters stay ordered. subprocess.run releases the GIL, so the worker
-    # threads overlap each case's process spawn and execution.
-    is_sequential = worker_count == 1 or len(pending) <= 1
-    with spinner:
-        for outcome in run_jobs(run_case, pending, jobs=worker_count):
-            completed += 1
-            spinner.label = progress_label()
-            outcomes.append(outcome)
-            # --exit-on-error only short-circuits when sequential; in parallel
-            # every case is already in flight, so the run completes.
-            if is_sequential and outcome[1] == "failed" and exit_on_error:
-                logging.debug("Don't continue testing, a failed test was found.")
-                bailed = True
-                break
-
-    # The spinner has stopped and cleared its line: record outcomes and print any
-    # failure traces now, clear of the animation.
-    for outcome in outcomes:
-        tally(outcome)
-
-    if bailed:
-        ctx.exit(1)
-
-    if stats:
-        echo(
-            "Test plan results - "
-            + ", ".join((f"{k.title()}: {v}" for k, v in counter.items()))
-        )
-
-    if counter["failed"]:
-        ctx.exit(1)
 
 
 @repomatic.command(

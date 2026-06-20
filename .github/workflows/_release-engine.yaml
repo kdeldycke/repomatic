@@ -258,7 +258,7 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         run: >
-          uvx --no-progress --from . repomatic test-plan
+          uv run --frozen --no-progress -- click-extra test-plan
           --binary "${DOWNLOAD_PATH}/${BIN_NAME}"
           --jobs max
 

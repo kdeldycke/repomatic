@@ -2589,7 +2589,7 @@ class Metadata:
         # Add config from [tool.repomatic] in pyproject.toml.
         # Convert kebab-case config keys to snake_case metadata keys.
         # Exclude nuitka internal config (dedicated properties with validation logic)
-        # and subcommand config fields (read directly by test-plan and deps-graph).
+        # and subcommand config fields (read directly by deps-graph).
         for f in fields(Config):
             if (
                 f.name

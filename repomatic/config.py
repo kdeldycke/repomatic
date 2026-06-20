@@ -366,32 +366,6 @@ class TestMatrixConfig:
 
 
 @dataclass
-class TestPlanConfig:
-    """Nested schema for `[tool.repomatic.test-plan]`."""
-
-    file: str = "./tests/cli-test-plan.yaml"
-    """Path to the YAML test plan file for binary testing.
-
-    The test plan file defines a list of test cases to run against compiled binaries.
-    Each test case specifies command-line arguments and expected output patterns.
-    """
-
-    inline: str | None = None
-    """Inline YAML test plan for binaries.
-
-    Alternative to `test_plan_file`. Allows specifying the test plan directly in
-    `pyproject.toml` instead of a separate file.
-    """
-
-    timeout: int | None = None
-    """Timeout in seconds for each binary test.
-
-    If set, each test command will be terminated after this duration. `None` means no
-    timeout (tests can run indefinitely).
-    """
-
-
-@dataclass
 class VulnerableDepsConfig:
     """Nested schema for `[tool.repomatic.vulnerable-deps]`."""
 
@@ -758,12 +732,6 @@ class Config:
     `os`, `python-version`) and must not be normalized to snake_case.
     """
 
-    test_plan: TestPlanConfig = field(
-        default_factory=TestPlanConfig,
-        metadata={"click_extra.config_path": "test-plan"},
-    )
-    """Binary test plan configuration."""
-
     uv_lock_sync: bool = field(
         default=True,
         metadata={"click_extra.config_path": "uv-lock.sync"},
@@ -807,16 +775,15 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "setup_guide",
     "skills_location",
     "test_matrix",
-    "test_plan",
     "uv_lock_sync",
     "vulnerable_deps",
     "workflow",
 ))
 """Config fields consumed directly by subcommands, not needed as metadata outputs.
 
-The `test-plan` and `deps-graph` subcommands now read these values directly from
-`[tool.repomatic]` in `pyproject.toml`, so they no longer need to be passed through
-workflow metadata outputs.
+These fields are read directly from `[tool.repomatic]` in `pyproject.toml` by
+their respective subcommands (e.g. `deps-graph`), so they no longer need to be
+passed through workflow metadata outputs.
 """
 
 

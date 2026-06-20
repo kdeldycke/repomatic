@@ -168,11 +168,11 @@ jobs:
           --token "${CODECOV_TOKEN}"
 
       - name: Self-tests against test plan
-        # The test plan file is auto-detected from [tool.repomatic] in pyproject.toml.
-        # `--jobs max` runs cases across every logical core (click-extra 7.21+). They call
-        # the console script directly: the outer `uv run` already provides the environment,
-        # so this avoids per-case uv lock contention between parallel workers.
-        run: uv run --frozen --no-progress -- repomatic test-plan --command repomatic --jobs max
+        # click-extra owns the test-plan engine and CLI; it reads the plan from
+        # [tool.click-extra.test-plan] (default ./tests/cli-test-plan.yaml). `--jobs max`
+        # runs cases across every logical core. The outer `uv run` provides the
+        # environment, avoiding per-case uv lock contention between parallel workers.
+        run: uv run --frozen --no-progress -- click-extra test-plan --command repomatic --jobs max
 
   test-package-install:
     name: 📦 Package install

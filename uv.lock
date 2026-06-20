@@ -399,7 +399,7 @@ wheels = [
 [[package]]
 name = "click-extra"
 version = "8.0.0.dev0"
-source = { git = "https://github.com/kdeldycke/click-extra?branch=main#d013bf090a0f72c97143037bd96b1e9624268639" }
+source = { git = "https://github.com/kdeldycke/click-extra?branch=main#81f743a283c7300db5022975543fdc8bbda38a0c" }
 dependencies = [
     { name = "boltons" },
     { name = "click" },

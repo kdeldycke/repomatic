@@ -218,15 +218,6 @@
    :undoc-members:
 ```
 
-## `repomatic.test_plan` module
-
-```{eval-rst}
-.. automodule:: repomatic.test_plan
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.tool_runner` module
 
 ```{eval-rst}

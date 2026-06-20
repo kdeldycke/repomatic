@@ -41,7 +41,6 @@
 | [`repomatic sync-labels`](#repomatic-sync-labels)                           | Sync repository labels via labelmaker                    |
 | [`repomatic sync-mailmap`](#repomatic-sync-mailmap)                         | Sync Git's .mailmap file with missing contributors       |
 | [`repomatic sync-uv-lock`](#repomatic-sync-uv-lock)                         | Re-lock dependencies and roll cooldown overrides forward |
-| [`repomatic test-plan`](#repomatic-test-plan)                               | Run a test plan from a file against a binary             |
 | [`repomatic unsubscribe-threads`](#repomatic-unsubscribe-threads)           | Unsubscribe from closed, inactive notification threads   |
 | [`repomatic update-checksums`](#repomatic-update-checksums)                 | Update SHA-256 checksums for binary downloads            |
 | [`repomatic update-deps-graph`](#repomatic-update-deps-graph)               | Generate dependency graph from uv lockfile               |
@@ -265,12 +264,6 @@ invoke(repomatic, args=['sync-mailmap', '--help'])
 
 ```{click:run}
 invoke(repomatic, args=['sync-uv-lock', '--help'])
-```
-
-## `repomatic test-plan`
-
-```{click:run}
-invoke(repomatic, args=['test-plan', '--help'])
 ```
 
 ## `repomatic unsubscribe-threads`

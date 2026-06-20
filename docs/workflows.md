@@ -495,10 +495,10 @@ flowchart TD
 
 #### ✅ Test binaries (`test-binaries`)
 
-- Runs test plans against compiled binaries using [`repomatic test-plan`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/test_plan.py)
+- Runs test plans against compiled binaries using [`click-extra test-plan`](https://kdeldycke.github.io/click-extra/test-plan.html)
 - **Requires**:
   - Compiled binaries from `compile-binaries` job
-  - Test plan file (default: `./tests/cli-test-plan.yaml`)
+  - Test plan file (default: `./tests/cli-test-plan.yaml`, configured via `[tool.click-extra.test-plan]`)
 - **Skipped for**:
   - Same branches as `compile-binaries`
 

@@ -46,10 +46,6 @@ nuitka.enabled = false
 nuitka.entry-points = ["mpm"]
 nuitka.unstable-targets = ["linux-arm64", "windows-arm64"]
 
-test-plan.file = "./tests/cli-test-plan.yaml"
-test-plan.timeout = 120
-test-plan.inline = "- cli_parameters: --version"
-
 workflow.sync = false
 workflow.source-paths = ["extra_platforms"]
 workflow.extra-paths = ["install.sh", "dotfiles/**"]
@@ -121,9 +117,6 @@ patterns = ["(CVE|vulnerability)"]
 | [`test-matrix.replace`](#test-matrix-replace)                         | Per-axis value replacements applied to both full and PR test matrices.                                                    | {}                                  |
 | [`test-matrix.unstable`](#test-matrix-unstable)                       | Full-matrix-only combinations to flag continue-on-error in CI.                                                            | `[]`                                |
 | [`test-matrix.variations`](#test-matrix-variations)                   | Extra matrix dimension values added to the full test matrix only.                                                         | {}                                  |
-| [`test-plan.file`](#test-plan-file)                                   | Path to the YAML test plan file for binary testing.                                                                       | `"./tests/cli-test-plan.yaml"`      |
-| [`test-plan.inline`](#test-plan-inline)                               | Inline YAML test plan for binaries.                                                                                       | *(none)*                            |
-| [`test-plan.timeout`](#test-plan-timeout)                             | Timeout in seconds for each binary test.                                                                                  | *(none)*                            |
 | [`uv-lock.sync`](#uv-lock-sync)                                       | Whether `uv.lock` sync is enabled for this project.                                                                       | `true`                              |
 | [`vulnerable-deps.sources`](#vulnerable-deps-sources)                 | Advisory databases to consult for known vulnerabilities.                                                                  | `['uv-audit', 'github-advisories']` |
 | [`vulnerable-deps.sync`](#vulnerable-deps-sync)                       | Whether the `fix-vulnerable-deps` job is enabled for this project.                                                        | `true`                              |
@@ -667,7 +660,7 @@ Click command target whose tree gets rendered as roff `.1` files and attached as
 
 **Type:** `str` | **Default:** `""`
 
-Same shape the `click-extra man` CLI accepts: a `module:function` path (preferred for projects whose console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name. Leave empty to disable release-attached man pages.
+Same shape the `click-extra wrap --man` CLI accepts: a `module:function` path (preferred for projects whose console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name. Leave empty to disable release-attached man pages.
 
 **Example:**
 
@@ -885,37 +878,6 @@ Extra matrix dimension values added to the full test matrix only.
 **Type:** `dict[str, list[str]]` | **Default:** {}
 
 Each key is a dimension ID (e.g., `os`, `click-version`) and its value is a list of additional entries. For existing dimensions, values are merged with the upstream defaults. For new dimension IDs, a new axis is created. Only affects the full matrix; the PR matrix stays a curated reduced set.
-
-### `test-plan.file`
-
-Path to the YAML test plan file for binary testing.
-
-**Type:** `str` | **Default:** `"./tests/cli-test-plan.yaml"`
-
-The test plan file defines a list of test cases to run against compiled binaries. Each test case specifies command-line arguments and expected output patterns.
-
-**Example:**
-
-```toml
-[tool.repomatic]
-test-plan.file = "./tests/cli-test-plan.yaml"
-```
-
-### `test-plan.inline`
-
-Inline YAML test plan for binaries.
-
-**Type:** `str` | **Default:** *(none)*
-
-Alternative to `test_plan_file`. Allows specifying the test plan directly in `pyproject.toml` instead of a separate file.
-
-### `test-plan.timeout`
-
-Timeout in seconds for each binary test.
-
-**Type:** `int` | **Default:** *(none)*
-
-If set, each test command will be terminated after this duration. `None` means no timeout (tests can run indefinitely).
 
 ### `uv-lock.sync`
 
