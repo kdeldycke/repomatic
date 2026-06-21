@@ -30,12 +30,13 @@ benchmark
 :maxdepth: 2
 :hidden:
 contributing
-upstream-development
-operation-contracts
 API <repomatic>
+tests
 genindex
 modindex
 changelog
+upstream-development
+operation-contracts
 todolist
 code-of-conduct
 license

@@ -29,6 +29,7 @@ article p[align="center"]:has(img[alt="repomatic"]) {
  * follows currentColor so it works in both light and dark mode.
  */
 .sidebar-tree a.reference.internal[href="repomatic.html"]::before,
+.sidebar-tree a.reference.internal[href="tests.html"]::before,
 .sidebar-tree a.reference.internal[href="genindex.html"]::before,
 .sidebar-tree a.reference.internal[href="py-modindex.html"]::before,
 .sidebar-tree a.reference.external[href="https://github.com/kdeldycke/repomatic"]::before,
@@ -50,6 +51,10 @@ article p[align="center"]:has(img[alt="repomatic"]) {
 .sidebar-tree a.reference.internal[href="repomatic.html"]::before {
   -webkit-mask-image: var(--icon-code-review);
   mask-image: var(--icon-code-review);
+}
+.sidebar-tree a.reference.internal[href="tests.html"]::before {
+  -webkit-mask-image: var(--icon-codescan-checkmark);
+  mask-image: var(--icon-codescan-checkmark);
 }
 .sidebar-tree a.reference.internal[href="genindex.html"]::before {
   -webkit-mask-image: var(--icon-list-unordered);
