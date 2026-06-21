@@ -212,3 +212,30 @@ Architectural differences that are inherent to `sphinx.ext.autodoc` and cannot b
 | Native MyST output files           | Yes (generates `.md` API docs)         | No: generates reST internally                         |
 
 These are limitations of `sphinx.ext.autodoc` itself, not of the conversion extension. They affect how Sphinx discovers and imports modules, not how docstring content is authored or rendered.
+
+## `repomatic.myst_docstrings` API
+
+```{eval-rst}
+.. automodule:: repomatic.myst_docstrings
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
+
+## `repomatic.myst_converter` API
+
+```{eval-rst}
+.. automodule:: repomatic.myst_converter
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
+
+## `repomatic.rst_to_myst` API
+
+```{eval-rst}
+.. automodule:: repomatic.rst_to_myst
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

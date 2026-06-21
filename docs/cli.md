@@ -328,3 +328,15 @@ invoke(repomatic, args=['workflow', 'lint', '--help'])
 ```
 
 <!-- cli-reference-end -->
+
+## `repomatic.cli` API
+
+```{eval-rst}
+.. autoclasstree:: repomatic.cli
+   :strict:
+
+.. automodule:: repomatic.cli
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

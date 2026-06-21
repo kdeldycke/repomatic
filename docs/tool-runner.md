@@ -781,3 +781,15 @@ zizmor audits GitHub Actions workflows for security issues, offline by default. 
 | [zizmor](#zizmor)                   |               ![Stars](https://img.shields.io/github/stars/zizmorcore/zizmor?label=%20&style=flat-square) |        ![Last release](https://img.shields.io/github/release-date/zizmorcore/zizmor?label=%20&style=flat-square)        |        ![Last commit](https://img.shields.io/github/last-commit/zizmorcore/zizmor?label=%20&style=flat-square)        |               ![Commits](https://img.shields.io/github/commit-activity/m/zizmorcore/zizmor?label=%20&style=flat-square) |        ![Dependencies](https://img.shields.io/librariesio/github/zizmorcore/zizmor?label=%20&style=flat-square)        |        ![Language](https://img.shields.io/github/languages/top/zizmorcore/zizmor?style=flat-square)        |        ![License](https://img.shields.io/github/license/zizmorcore/zizmor?label=%20&style=flat-square)        |
 
 <!-- tool-reference-end -->
+
+## `repomatic.tool_runner` API
+
+```{eval-rst}
+.. autoclasstree:: repomatic.tool_runner
+   :strict:
+
+.. automodule:: repomatic.tool_runner
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

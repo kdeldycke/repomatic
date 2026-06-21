@@ -172,3 +172,30 @@ All submission text should mention that the binary is compiled with Nuitka `--on
 - **Microsoft**: CORS errors or stuck progress modals during upload (auth session expiring). Workaround: sign out, clear cookies for `microsoft.com`, sign back in, submit immediately.
 - **BitDefender**: form sometimes returns "Your request could not be registered!" with no details. Retry later.
 - **Avast**: form sometimes returns "An internal error occurred while sending the form." Retry later.
+
+## `repomatic.virustotal` API
+
+```{eval-rst}
+.. automodule:: repomatic.virustotal
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
+
+## `repomatic.checksums` API
+
+```{eval-rst}
+.. automodule:: repomatic.checksums
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
+
+## `repomatic.binary` API
+
+```{eval-rst}
+.. automodule:: repomatic.binary
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
