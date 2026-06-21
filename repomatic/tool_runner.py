@@ -50,9 +50,9 @@ from importlib.resources import as_file, files
 from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen
 
-import click
 import tomlrt
 import yaml
+from click_extra import ClickException, progressbar
 from extra_platforms import (
     AARCH64,
     ALL_PLATFORMS,
@@ -1473,8 +1473,11 @@ def _download_and_verify(
     with urlopen(request) as response, dest_path.open("wb") as f:
         content_length = response.headers.get("Content-Length")
         total = int(content_length) if content_length else 0
+        # click_extra.progressbar is a drop-in for click.progressbar that also
+        # honors the --no-progress / --accessible flags (via ctx.meta), hiding
+        # the bar when the user opts out even on an interactive terminal.
         progress = (
-            click.progressbar(
+            progressbar(
                 length=total,
                 label=label or dest_path.name,
                 file=sys.stderr,
@@ -1890,9 +1893,7 @@ def run_tool(
                     no_cache=no_cache,
                 )
             except RuntimeError as exc:
-                import click
-
-                raise click.ClickException(str(exc)) from exc
+                raise ClickException(str(exc)) from exc
             cmd = [str(bin_path)]
         else:
             cmd = _build_install_args(spec)

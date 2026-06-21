@@ -37,7 +37,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-import click
+from click_extra import progressbar
 
 from .tool_runner import TOOL_REGISTRY
 
@@ -112,7 +112,7 @@ def update_checksums(file_path: Path) -> list[tuple[str, str, str]]:
     pairs = list(_find_checksum_pairs(lines))
 
     progress = (
-        click.progressbar(
+        progressbar(
             pairs,
             label="Verifying checksums",
             file=sys.stderr,
@@ -164,7 +164,7 @@ def update_registry_checksums(registry_path: Path) -> list[tuple[str, str, str]]
     ]
 
     progress = (
-        click.progressbar(
+        progressbar(
             entries,
             label="Verifying checksums",
             file=sys.stderr,
