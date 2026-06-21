@@ -32,6 +32,7 @@ benchmark
 contributing
 upstream-development
 operation-contracts
+API <repomatic>
 genindex
 modindex
 changelog
