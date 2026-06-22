@@ -1575,6 +1575,15 @@ class SyncResult:
     exclude_newer: str
     """The `exclude-newer` cutoff from the lock file, or empty string."""
 
+    reverted: bool = False
+    """Whether a cosmetic-only re-lock was discarded.
+
+    `True` when `uv lock --upgrade` changed no package versions and was not
+    driven by a `pyproject.toml` cooldown edit, so {func}`sync_uv_lock`
+    restored the pre-upgrade lock verbatim. See that function for why such a
+    run is dropped.
+    """
+
 
 def sync_uv_lock(lock_path: Path) -> SyncResult:
     """Re-lock with `--upgrade` and report version changes.
@@ -1584,6 +1593,22 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     `exclude-newer` cutoff), then runs `uv lock --upgrade` to update
     transitive dependencies.
 
+    ```{note}
+    When the upgrade changes no package versions and was not driven by a
+    `pyproject.toml` cooldown edit, the pre-upgrade lock is restored
+    byte-for-byte. `uv lock --upgrade` otherwise rewrites semantically
+    equivalent environment markers in a form that varies by uv version and by
+    whether the resolution ran fresh or incrementally: a transitive
+    dependency reachable only below Python 3.11 has its
+    `python_full_version < '3.13'` marker flipped to the equivalent
+    `< '3.11'`, or back, with no change to the resolved package set. Committed
+    by one machine and re-flipped by the next, that cosmetic churn drives an
+    endless `sync-uv-lock` ping-pong of empty PRs. Since the job exists only
+    to move dependency *versions* forward, a run that moves none has nothing
+    to contribute and is discarded. This mirrors the timezone-pinning fix in
+    {func}`_date_to_utc_cutoff`.
+    ```
+
     :param lock_path: Path to the `uv.lock` file.
     :return: A {class}`SyncResult` with structured version change data.
     """
@@ -1592,12 +1617,17 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     # their locked version so the upgrade below holds them instead of
     # tracking newer releases.
     pyproject_path = lock_path.parent / "pyproject.toml"
+    pyproject_changed = False
     if pyproject_path.exists():
-        prune_stale_exclude_newer_packages(pyproject_path, lock_path)
-        freeze_exclude_newer_packages(pyproject_path, lock_path)
+        pruned = prune_stale_exclude_newer_packages(pyproject_path, lock_path)
+        frozen = freeze_exclude_newer_packages(pyproject_path, lock_path)
+        pyproject_changed = pruned or frozen
 
-    # Step 2: Snapshot versions before upgrading.
+    # Step 2: Snapshot versions and the raw lock bytes before upgrading. The
+    # bytes let Step 5 restore the lock verbatim when the upgrade is
+    # cosmetic-only.
     before = parse_lock_versions(lock_path)
+    lock_before = lock_path.read_bytes() if lock_path.exists() else None
 
     # Step 3: Run uv lock --upgrade in the project directory.
     project_dir = lock_path.parent
@@ -1610,8 +1640,27 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     upload_times = parse_lock_upload_times(lock_path)
     exclude_newer = parse_lock_exclude_newer(lock_path)
 
+    # Step 5: Discard a cosmetic-only re-lock. With no version changes and no
+    # cooldown edit behind the run, any remaining diff is uv's
+    # nondeterministic marker re-normalization (see the note above); keeping
+    # it would open an empty sync PR that the next machine reverts.
+    reverted = False
+    if (
+        not changes
+        and not pyproject_changed
+        and lock_before is not None
+        and lock_path.read_bytes() != lock_before
+    ):
+        lock_path.write_bytes(lock_before)
+        reverted = True
+        logging.info(
+            "Restored uv.lock: uv lock --upgrade changed no package versions, "
+            "only equivalent environment markers. Discarding cosmetic churn."
+        )
+
     return SyncResult(
         changes=changes,
         upload_times=upload_times,
         exclude_newer=exclude_newer,
+        reverted=reverted,
     )

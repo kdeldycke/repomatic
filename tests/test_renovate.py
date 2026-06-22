@@ -20,13 +20,16 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import tomlrt
+from click_extra.testing import CliRunner
 
+from repomatic.cli import repomatic
 from repomatic.github.pr_body import sanitize_markdown_mentions
 from repomatic.github.token import check_commit_statuses_permission
+from repomatic.init_project import export_content
 from repomatic.pypi import get_changelog_url
 from repomatic.renovate import (
     RenovateCheckResult,
@@ -436,6 +439,94 @@ def test_sync_uv_lock_returns_changes(tmp_path):
         result = sync_uv_lock(lock_path)
         assert len(result.changes) == 1
         assert result.changes[0] == ("anyio", "4.12.0", "4.12.1")
+
+
+def test_sync_uv_lock_reverts_cosmetic_only_relock(tmp_path):
+    """Discard a re-lock that flips equivalent markers without moving versions."""
+    lock_path = tmp_path / "uv.lock"
+    before_lock = (
+        'version = 1\nrequires-python = ">=3.10"\n\n'
+        "[[package]]\n"
+        'name = "exceptiongroup"\n'
+        'version = "1.3.1"\n'
+        "dependencies = [\n"
+        '    { name = "typing-extensions",'
+        " marker = \"python_full_version < '3.11'\" },\n"
+        "]\n"
+    )
+    lock_path.write_text(before_lock, encoding="UTF-8")
+
+    # Simulate uv lock --upgrade flipping the marker to the equivalent form
+    # without changing any package version.
+    def fake_relock(*args, **kwargs):
+        lock_path.write_text(
+            before_lock.replace("< '3.11'", "< '3.13'"), encoding="UTF-8"
+        )
+
+    versions = {"exceptiongroup": "1.3.1"}
+    with (
+        patch("repomatic.uv.subprocess.run", side_effect=fake_relock),
+        patch("repomatic.uv.parse_lock_versions", return_value=versions),
+    ):
+        result = sync_uv_lock(lock_path)
+
+    assert result.changes == []
+    assert result.reverted is True
+    # The committed marker form is preserved, the cosmetic flip is gone.
+    assert lock_path.read_text(encoding="UTF-8") == before_lock
+
+
+def test_sync_uv_lock_keeps_relock_when_versions_change(tmp_path):
+    """Keep the re-locked file when package versions actually changed."""
+    lock_path = tmp_path / "uv.lock"
+    lock_path.write_text("version = 1\n", encoding="UTF-8")
+
+    def fake_relock(*args, **kwargs):
+        lock_path.write_text("version = 1\n# upgraded\n", encoding="UTF-8")
+
+    before = {"anyio": "4.12.0"}
+    after = {"anyio": "4.12.1"}
+    with (
+        patch("repomatic.uv.subprocess.run", side_effect=fake_relock),
+        patch("repomatic.uv.parse_lock_versions", side_effect=[before, after]),
+    ):
+        result = sync_uv_lock(lock_path)
+
+    assert result.reverted is False
+    assert result.changes == [("anyio", "4.12.0", "4.12.1")]
+    assert "# upgraded" in lock_path.read_text(encoding="UTF-8")
+
+
+def test_sync_uv_lock_cmd_syncs_uv_pins(tmp_path, monkeypatch):
+    """The sync-uv-lock command overlays the canonical [tool.uv] pins.
+
+    The resolver pin and cooldown are folded into the lockfile sync job, so a
+    downstream repo carrying stale pins has them rewritten from the bundled
+    template while its project-owned [tool.uv] keys survive.
+    """
+    pins = tomlrt.loads(export_content("uv.toml"))
+    (tmp_path / "uv.lock").write_text("version = 1\n", encoding="UTF-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
+        "[tool.uv]\n"
+        'required-version = ">=0.10.0,<0.11"\n'
+        'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
+        'exclude-newer = "3 days"\n',
+        encoding="UTF-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with patch("repomatic.cli._sync_uv_lock", return_value=Mock(changes=[])):
+        result = CliRunner().invoke(repomatic, ["sync-uv-lock", "--no-table"])
+
+    assert result.exit_code == 0
+    uv = tomlrt.loads((tmp_path / "pyproject.toml").read_text(encoding="UTF-8"))[
+        "tool"
+    ]["uv"]
+    assert uv["required-version"] == pins["required-version"]
+    assert uv["exclude-newer"] == pins["exclude-newer"]
+    # The project-owned source survives the fold-in sync.
+    assert uv["sources"]["mango"]["git"] == "https://github.com/example/mango"
 
 
 def test_parse_lock_versions(tmp_path):

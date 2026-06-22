@@ -272,6 +272,26 @@ class ToolConfigComponent(Component):
     (e.g. gaining a regex anchor) still maps to the same slot.
     """
 
+    overlay: bool = False
+    """Treat the template as a *partial* section owning only its own keys.
+
+    Only meaningful when `sync_mode` is `ONGOING`. The default rebuild-and-graft
+    sync rebuilds the whole section from the template and grafts local additions
+    *after* it, so template keys always land first. That is wrong for a section
+    the project mostly owns and a formatter reorders: `[tool.uv]`, whose keys
+    `pyproject-fmt` sorts into a fixed schema order. Emitting the owned keys as a
+    leading block would lose to `pyproject-fmt` on the next format pass and churn
+    an endless sync PR.
+
+    With `overlay` set, an ongoing sync instead updates only the template's
+    top-level keys *in place* within the existing section (the template value
+    wins), preserving the existing key order and leaving every other key
+    untouched. The merged section is therefore already a `pyproject-fmt`
+    fixpoint. A repo missing an owned key has it appended; `pyproject-fmt`
+    canonicalizes that one position once, after which steady-state syncs are
+    no-ops.
+    """
+
     def __post_init__(self) -> None:
         """Validate required fields."""
         if not self.source_file:
@@ -628,6 +648,21 @@ COMPONENTS: tuple[Component, ...] = (
         target=Config.changelog_location.removeprefix("./"),
     ),
     # --- Tool config components (merged into pyproject.toml) ---
+    ToolConfigComponent(
+        name="uv",
+        description="uv resolver pin and dependency cooldown policy",
+        init_default=InitDefault.EXPLICIT,
+        source_file="uv.toml",
+        tool_section="tool.uv",
+        insert_before=("tool.ruff", "tool.pytest", "tool.mypy"),
+        # `[tool.uv]` is mostly project-owned (dependencies, sources,
+        # exclude-newer-package, build-backend); repomatic owns only the two
+        # policy pins in the template. Overlay updates those in place and
+        # leaves everything else, so a re-sync stays a `pyproject-fmt`
+        # fixpoint and a no-op when the pins already match.
+        sync_mode=SyncMode.ONGOING,
+        overlay=True,
+    ),
     ToolConfigComponent(
         name="lychee",
         description="Lychee link checker configuration",

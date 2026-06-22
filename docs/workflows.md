@@ -160,7 +160,8 @@ GitHub Actions has several design limitations that the workflows work around:
 
 #### ⛓️ Sync `uv.lock` (`sync-uv-lock`)
 
-- Runs `uv lock --upgrade` to update transitive dependencies to their latest allowed versions using [`repomatic sync-uv-lock`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/renovate.py)
+- Runs `uv lock --upgrade` to update transitive dependencies to their latest allowed versions using [`repomatic sync-uv-lock`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/uv.py)
+- Syncs the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) from the bundled template into `pyproject.toml`, so the lock resolves with the same uv everywhere, while leaving every other project-owned `[tool.uv]` key untouched
 - Only creates a PR when the lock file contains real dependency changes (timestamp-only noise is detected and skipped)
 - PR body includes a table of updated packages with version ranges linked to GitHub comparison diffs, plus collapsible release notes for all intermediate versions
 - Replaces Renovate's `lockFileMaintenance`, which cannot reliably revert noise-only changes

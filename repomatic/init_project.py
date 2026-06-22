@@ -26,6 +26,7 @@ Available components (`repomatic init <component>`):
 - `labels` - Label definitions (labels.toml + labeller rules)
 - `renovate` - Renovate dependency update configuration (renovate.json5)
 - `changelog` - Minimal changelog.md
+- `uv` - Syncs the `[tool.uv]` resolver pins into pyproject.toml
 - `ruff` - Merges `[tool.ruff]` into pyproject.toml
 - `pytest` - Merges `[tool.pytest]` into pyproject.toml
 - `mypy` - Merges `[tool.mypy]` into pyproject.toml
@@ -349,6 +350,44 @@ def _graft_local_additions(
         # Scalar in both: the canonical template value wins, nothing to graft.
 
 
+def _overlay_owned_keys(
+    doc: Any,
+    existing_section: Any,
+    comp: ToolConfigComponent,
+    content: str,
+) -> str | None:
+    """Update only the template's keys in place within an existing section.
+
+    The overlay sync for a partial template ({attr}`ToolConfigComponent.overlay`):
+    the template owns a few policy keys inside an otherwise project-owned
+    section. Each template key's value is written into the existing section,
+    updating it in place when present (key position and surrounding trivia
+    preserved) or appending it when absent. Every other key the project defines
+    is left untouched, so the merged section keeps its order and stays a
+    `pyproject-fmt` fixpoint. This is the inverse of the rebuild-and-graft path:
+    there the template is the base and local keys graft on; here the existing
+    section is the base and the template overlays its owned keys.
+
+    :param doc: The parsed `pyproject.toml` document, mutated in place.
+    :param existing_section: The live `[tool.X]` table being overlaid.
+    :param comp: The component whose owned keys are being synced.
+    :param content: The current `pyproject.toml` content, for no-op detection.
+    :return: Modified content, or `None` when the owned keys already match.
+    """
+    native_source = export_content(comp.source_file)
+    template_plain = tomlrt.loads(_strip_header_comments(native_source)).to_dict()
+    for key, value in template_plain.items():
+        existing_section[key] = value
+
+    modified = tomlrt.dumps(doc)
+    if modified.strip() == content.strip():
+        logging.info(f"[{comp.tool_section}] already up to date.")
+        return None
+
+    logging.info(f"Synced repomatic-owned keys in [{comp.tool_section}].")
+    return modified
+
+
 def _update_tool_config(
     content: str,
     comp: ToolConfigComponent,
@@ -361,6 +400,10 @@ def _update_tool_config(
     omits, extra items in shared arrays, and extra keys in shared nested
     tables. The template wins on shared scalars; `comp.preserved_keys`
     overrides that for named top-level keys (e.g. `current_version`).
+
+    When `comp.overlay` is set the template is partial: only its own keys are
+    updated in place via {func}`_overlay_owned_keys`, leaving the rest of the
+    project-owned section (and its key order) intact.
 
     :param content: The current pyproject.toml content.
     :param comp: The component whose config is being synced.
@@ -375,6 +418,9 @@ def _update_tool_config(
         return None
 
     existing_section = tool_table[tool_name]
+
+    if comp.overlay:
+        return _overlay_owned_keys(doc, existing_section, comp, content)
 
     # Plain-dict view of the canonical template, walked alongside the existing
     # section to decide what local-only content to graft back on.

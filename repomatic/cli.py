@@ -118,7 +118,7 @@ from .images import (
     generate_markdown_summary,
     optimize_images,
 )
-from .init_project import export_content, run_init
+from .init_project import export_content, init_config, run_init
 from .lint_repo import (
     check_branch_ruleset_on_default,
     check_fork_pr_approval_policy,
@@ -2727,6 +2727,9 @@ def sync_uv_lock_cmd(
 
     \b
     Wraps uv lock --upgrade and:
+      - syncs the repomatic-owned [tool.uv] policy pins (required-version,
+        exclude-newer) in pyproject.toml from the bundled template, so every
+        machine resolves the lockfile with the same uv
       - prunes exclude-newer-package entries from pyproject.toml whose held
         version has aged past the exclude-newer cutoff, then freezes the
         survivors at their locked version (a fixed date) so the upgrade
@@ -2763,6 +2766,21 @@ def sync_uv_lock_cmd(
             "[tool.repomatic] uv-lock.sync is disabled. Skipping uv.lock sync."
         )
         ctx.exit(0)
+
+    # Sync repomatic's canonical [tool.uv] policy pins (required-version,
+    # exclude-newer) from the bundled template before re-locking. This is the
+    # config half of the same churn fix the cosmetic-relock revert handles (see
+    # repomatic.uv.sync_uv_lock): pinning uv keeps every machine on one
+    # resolver. Done ahead of the upgrade so a bumped exclude-newer feeds the
+    # resolution and a bumped required-version rides in the same PR. Kept out of
+    # sync_uv_lock's revert accounting on purpose: required-version never
+    # changes the resolved set, so it must not suppress the cosmetic revert.
+    pyproject_path = lockfile.parent / "pyproject.toml"
+    if pyproject_path.exists():
+        merged = init_config("uv", pyproject_path)
+        if merged is not None:
+            pyproject_path.write_text(merged, encoding="UTF-8")
+            echo("Synced [tool.uv] policy pins from the bundled template.")
 
     result = _sync_uv_lock(lockfile)
 

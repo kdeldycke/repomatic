@@ -541,6 +541,111 @@ def test_init_config_lychee_preserves_other_sections() -> None:
     assert parsed["tool"]["gitleaks"]["allowlist"]["commits"] == ["abc123"]
 
 
+def test_uv_component_uses_overlay_ongoing() -> None:
+    """The uv tool config is an ongoing overlay, not a full-section rebuild."""
+    comp = _BY_NAME["uv"]
+    assert isinstance(comp, ToolConfigComponent)
+    assert comp.tool_section == "tool.uv"
+    assert comp.sync_mode == SyncMode.ONGOING
+    assert comp.overlay is True
+
+
+def test_init_config_uv_overlay_noop_when_pins_match() -> None:
+    """A [tool.uv] already carrying the canonical pins is a no-op.
+
+    The overlay updates owned keys in place, so a section whose pins already
+    match the template returns no change. A regression to the rebuild-and-graft
+    path would reorder the owned keys ahead of the project's keys and return a
+    diff, failing this fixpoint guard.
+    """
+    pins = tomlrt.loads(export_content("uv.toml"))
+    content = (
+        '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
+        "[tool.uv]\n"
+        f'required-version = "{pins["required-version"]}"\n'
+        'dependency-groups.docs = { requires-python = ">= 3.14" }\n'
+        'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
+        f'exclude-newer = "{pins["exclude-newer"]}"\n'
+        'exclude-newer-package = { mango = "0 day" }\n'
+        'build-backend.module-root = ""\n'
+    )
+    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(content)
+        f.flush()
+        path = Path(f.name)
+    try:
+        assert init_config("uv", path) is None
+    finally:
+        path.unlink()
+
+
+def test_init_config_uv_overlay_updates_stale_pins_in_place() -> None:
+    """Stale uv pins are updated in place, preserving order and local keys."""
+    pins = tomlrt.loads(export_content("uv.toml"))
+    content = (
+        '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
+        "[tool.uv]\n"
+        'required-version = ">=0.10.0,<0.11"\n'
+        'dependency-groups.docs = { requires-python = ">= 3.14" }\n'
+        'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
+        'exclude-newer = "3 days"\n'
+        'exclude-newer-package = { mango = "0 day" }\n'
+        'build-backend.module-root = ""\n'
+    )
+    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(content)
+        f.flush()
+        path = Path(f.name)
+    try:
+        result = init_config("uv", path)
+    finally:
+        path.unlink()
+    assert result is not None
+    uv = tomlrt.loads(result)["tool"]["uv"]
+    # Owned pins moved to the canonical template values.
+    assert uv["required-version"] == pins["required-version"]
+    assert uv["exclude-newer"] == pins["exclude-newer"]
+    # Key order is preserved, so the section stays a pyproject-fmt fixpoint.
+    assert list(uv.keys()) == [
+        "required-version",
+        "dependency-groups",
+        "sources",
+        "exclude-newer",
+        "exclude-newer-package",
+        "build-backend",
+    ]
+    # Project-owned keys are untouched.
+    assert uv["sources"]["mango"]["git"] == "https://github.com/example/mango"
+    assert uv["exclude-newer-package"]["mango"] == "0 day"
+    assert uv["build-backend"]["module-root"] == ""
+
+
+def test_init_config_uv_overlay_appends_missing_pins() -> None:
+    """A [tool.uv] lacking the pins gets both appended, local keys intact."""
+    pins = tomlrt.loads(export_content("uv.toml"))
+    content = (
+        '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
+        "[tool.uv]\n"
+        'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
+        'exclude-newer-package = { mango = "0 day" }\n'
+    )
+    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(content)
+        f.flush()
+        path = Path(f.name)
+    try:
+        result = init_config("uv", path)
+    finally:
+        path.unlink()
+    assert result is not None
+    uv = tomlrt.loads(result)["tool"]["uv"]
+    assert uv["required-version"] == pins["required-version"]
+    assert uv["exclude-newer"] == pins["exclude-newer"]
+    # Project-owned keys survive the overlay.
+    assert uv["sources"]["mango"]["git"] == "https://github.com/example/mango"
+    assert uv["exclude-newer-package"]["mango"] == "0 day"
+
+
 def test_full_ruff_init() -> None:
     """Verify full ruff config initialization."""
     with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:

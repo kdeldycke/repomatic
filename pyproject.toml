@@ -180,6 +180,14 @@ typing = [
 ]
 
 [tool.uv]
+# Pin uv to the 0.11 series so every contributor and CI runner resolves
+# uv.lock with the same resolver. astral-sh/setup-uv reads this automatically
+# (its `version` input defaults to the pyproject value), and uv enforces it on
+# every local invocation. Together with sync-uv-lock discarding cosmetic-only
+# re-locks (see repomatic.uv.sync_uv_lock), this stops uv.lock from
+# ping-ponging between machines that re-spell equivalent markers differently.
+# Bump the ceiling once a new uv minor has regenerated the lock.
+required-version = ">=0.11.23,<0.12"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
 # Track click-extra's git main for unreleased 8.0 APIs repomatic uses
