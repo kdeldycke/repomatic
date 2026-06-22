@@ -19,7 +19,6 @@ flowchart LR
     aiohttp(["`aiohttp`"])
     typing_extensions(["`typing-extensions`"])
     pygments(["`pygments`"])
-    requests(["`requests`"])
     yarl(["`yarl`"])
     aiosignal(["`aiosignal`"])
     click_0(["`click`"])
@@ -34,26 +33,24 @@ flowchart LR
     idna(["`idna`"])
     propcache(["`propcache`"])
     tabulate(["`tabulate`"])
+    wcwidth(["`wcwidth`"])
     aiofiles(["`aiofiles`"])
     aiohappyeyeballs(["`aiohappyeyeballs`"])
     async_timeout(["`async-timeout`"])
     attrs(["`attrs`"])
     bracex(["`bracex`"])
-    certifi(["`certifi`"])
-    charset_normalizer(["`charset-normalizer`"])
     deepmerge(["`deepmerge`"])
     pathspec(["`pathspec`"])
     pytz(["`pytz`"])
     sly(["`sly`"])
     smmap(["`smmap`"])
     types_pytz(["`types-pytz`"])
-    urllib3(["`urllib3`"])
-    wcwidth(["`wcwidth`"])
 
     subgraph grp_docs [--group docs]
         sphinx{{"`sphinx >=8`"}}
         myst_parser{{"`myst-parser >=5.1`"}}
         furo{{"`furo >=2025.9.25`"}}
+        requests(["`requests`"])
         jinja2(["`jinja2`"])
         sphinxcontrib_mermaid{{"`sphinxcontrib-mermaid >=1.2.3`"}}
         beautifulsoup4(["`beautifulsoup4`"])
@@ -68,6 +65,8 @@ flowchart LR
         sphinxext_opengraph{{"`sphinxext-opengraph >=0.13`"}}
         alabaster(["`alabaster`"])
         babel(["`babel`"])
+        certifi(["`certifi`"])
+        charset_normalizer(["`charset-normalizer`"])
         imagesize(["`imagesize`"])
         markupsafe(["`markupsafe`"])
         mdurl(["`mdurl`"])
@@ -80,6 +79,7 @@ flowchart LR
         sphinxcontrib_jsmath(["`sphinxcontrib-jsmath`"])
         sphinxcontrib_qthelp(["`sphinxcontrib-qthelp`"])
         sphinxcontrib_serializinghtml(["`sphinxcontrib-serializinghtml`"])
+        urllib3(["`urllib3`"])
     end
 
     subgraph grp_test [--group test]
@@ -101,7 +101,7 @@ flowchart LR
         types_pyyaml{{"`types-pyyaml >=6.0.12.9`"}}
     end
 
-    repomatic ==>|" >=7.19 "| click_extra
+    repomatic ==>|" >=8 "| click_extra
     repomatic ==>|" >=2 "| pydriller
     repomatic ==>|" >=17 "| packaging
     repomatic ==>|" >=6.0.3 "| pyyaml
@@ -132,7 +132,6 @@ flowchart LR
     sphinx --> sphinxcontrib_serializinghtml
     click_extra ==> sphinx
     click_extra --> pygments
-    click_extra --> requests
     click_extra --> click_0
     click_extra --> cloup
     click_extra --> docutils
@@ -141,6 +140,7 @@ flowchart LR
     click_extra ==> boltons
     click_extra ==> extra_platforms
     click_extra --> tabulate
+    click_extra --> wcwidth
     click_extra --> deepmerge
     pytest --> pygments
     pytest ==> packaging
