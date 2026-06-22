@@ -17,9 +17,15 @@
 
 ## [`6.28.1` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.28.0...v6.28.1)
 
+> [!NOTE]
+> `6.28.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.28.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.28.1).
+
 - Fix `test-matrix.full-include` matrices emitting combinations that `exclude` should have removed; they now follow GitHub's documented include/exclude algorithm.
 
 ## [`6.28.0` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.27.0...v6.28.0)
+
+> [!NOTE]
+> `6.28.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.28.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.28.0).
 
 - `repomatic test-plan` runs its cases in parallel by default (one fewer than the CPU count); pass `--jobs 1` for sequential execution.
 - Add `[tool.repomatic] test-matrix.full-include` config: declare full-matrix-only job rows as explicit combinations (each merged onto the shipped-config defaults), a readable alternative to a long `test-matrix.exclude` list.
