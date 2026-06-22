@@ -480,6 +480,9 @@ junit.xml
 # Claude Code local files.
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# Sphinx linkcheck output.
+docs/_linkcheck/
 '''
 ```
 
