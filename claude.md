@@ -390,6 +390,10 @@ When a release goes wrong — squash merge, broken artifact, bad metadata — pr
 
 When designing new workflow safeguards, default to **detection + notification** rather than **detection + automated fix**. The blast radius of a missed notification is zero; the blast radius of a bad automated fix can be catastrophic.
 
+### click_extra is both a dependency and a release consumer
+
+repomatic imports `click_extra` at runtime, and click_extra's release pipeline runs the *pinned* repomatic to build its metadata and release notes. That circular bootstrap means a click_extra change to any symbol repomatic imports breaks the pinned repomatic from inside click_extra's own release: the `metadata` step crashes after the package is already on PyPI, leaving it untagged with no GitHub release. Two rules follow. Import only click_extra's public API: if repomatic needs an internal helper, promote it to public in click_extra first, never import an underscore-prefixed name. And when a click_extra change touches an API repomatic uses, release the fixed repomatic and bump click_extra's pin *before* releasing click_extra: a fix sitting untagged on `main` does not help, because click_extra and every downstream run the pinned tag.
+
 ### Command-line options
 
 Always prefer long-form options over short-form for readability in workflow files and scripts (e.g., `--output` not `-o`, `--verbose` not `-v`).
