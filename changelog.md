@@ -1,9 +1,6 @@
 # Changelog
 
-## [`6.29.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.28.1...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`6.29.0` (2026-06-22)](https://github.com/kdeldycke/repomatic/compare/v6.28.1...v6.29.0)
 
 - **Breaking:** Remove the `repomatic test-plan` command and `[tool.repomatic] test-plan` config. The declarative test-plan engine moved upstream to [click-extra](https://kdeldycke.github.io/click-extra/test-plan.html); run `click-extra test-plan` instead, configured via `[tool.click-extra.test-plan]`.
 - Add `repomatic show-test-matrix` to render the CI test matrix as a Python-version by OS grid in any `--table-format`.
