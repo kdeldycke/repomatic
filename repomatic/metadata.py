@@ -2308,9 +2308,11 @@ class Metadata:
         # the os axis); skip it when that runner was removed.
         for version, keep_os in sorted(SINGLE_RUNNER_PYTHON_VERSIONS.items()):
             if keep_os not in removed_os:
-                matrix.add_includes(
-                    {"os": keep_os, "python-version": version, "state": "stable"}
-                )
+                matrix.add_includes({
+                    "os": keep_os,
+                    "python-version": version,
+                    "state": "stable",
+                })
         self._apply_test_matrix_config(matrix, full=True)
         return matrix
 
