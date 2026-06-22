@@ -13,6 +13,7 @@
 - Add `repomatic init uv` to sync the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) into `pyproject.toml`; `sync-uv-lock` applies the same sync, so every machine resolves `uv.lock` with the same uv.
 - `sync-uv-lock` now reverts a re-lock that changed no package versions, so uv's machine-dependent re-spelling of equivalent `uv.lock` environment markers no longer opens empty sync PRs that ping-pong between contributors and CI.
 - Move the Sphinx linkcheck output to `docs/_linkcheck/` (mirroring `docs/_build/`); `broken-links --output-json` now defaults there and the generated `.gitignore` excludes it.
+- `repomatic run` now warns when `--check` targets a post-processed formatter (currently `mdformat`): check mode bypasses the fixup, so its exit status can mislead.
 
 ## [`6.28.1` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.28.0...v6.28.1)
 

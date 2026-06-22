@@ -530,6 +530,27 @@ class ToolSpec:
 
     Intended for temporary workarounds that fix known upstream formatting bugs
     in-place. Remove the callback once upstream ships the fix.
+
+    ```{note}
+    The callback runs only after a successful **write-mode** exit (return
+    code 0) and rewrites files on disk, so it cannot apply in check/dry-run
+    mode, which writes nothing. Pair it with `check_flags` so `run_tool`
+    warns when a check invocation would silently bypass it. See
+    {meth}`check_bypasses_post_process`.
+    ```
+    """
+
+    check_flags: tuple[str, ...] = ()
+    """Flags that put the tool in check/dry-run mode, writing no files.
+
+    ```{warning}
+    Check mode bypasses `post_process`: that fixup rewrites files on disk,
+    but check mode writes nothing. So when a tool defines both a
+    `post_process` and `check_flags`, its check-mode exit status is
+    unreliable. `run_tool` detects the pairing via
+    {meth}`check_bypasses_post_process` and warns. Verify formatting by
+    running the write path, not the check flag.
+    ```
     """
 
     binary: BinarySpec | None = None
@@ -545,6 +566,20 @@ class ToolSpec:
 
     cli_docs_url: str | None = None
     """URL to the tool's CLI usage documentation."""
+
+    def check_bypasses_post_process(self, extra_args: Sequence[str]) -> bool:
+        """Return `True` when a check-mode flag will skip `post_process`.
+
+        Check/dry-run flags (`check_flags`) make the tool exit without
+        writing files, so the `post_process` fixup never runs and the exit
+        status cannot be trusted: it may flag drift the write path would
+        reconcile, or miss drift the write path would introduce. `run_tool`
+        warns on this. Returns `False` for tools with no `post_process`,
+        where check mode is authoritative.
+        """
+        return bool(self.post_process) and any(
+            flag in extra_args for flag in self.check_flags
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -985,6 +1020,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "ruff==0.15.5",
         ),
         post_process=_fix_myst_directive_options,
+        check_flags=("--check",),
     ),
     "mypy": ToolSpec(
         name="mypy",
@@ -1925,8 +1961,25 @@ def run_tool(
 
         logging.info("%s exited with code %d.", spec.name, result.returncode)
 
+        # post_process is a write-mode-only fixup: it rewrites files on disk,
+        # so it runs only after a successful write (return code 0), never in
+        # check/dry-run mode, which writes nothing. The warning below covers
+        # that gap; see ToolSpec.check_bypasses_post_process.
         if result.returncode == 0 and spec.post_process:
             spec.post_process(extra_args)
+
+        # A check/dry-run invocation of a post_process tool cannot be trusted:
+        # the fixup never ran, so warn rather than report a misleading status.
+        if spec.check_bypasses_post_process(extra_args):
+            logging.warning(
+                "%s ran in check mode, but it relies on a repomatic "
+                "post-processing step that only runs when files are written. "
+                "Its exit status is unreliable here: it can flag drift the "
+                "write path would reconcile, or miss drift the write path "
+                "would introduce. Re-run in write mode for an authoritative "
+                "result.",
+                spec.name,
+            )
 
         return result.returncode
 

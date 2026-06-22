@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import re
 import tarfile
 import zipfile
@@ -108,6 +109,17 @@ def test_tool_spec_integrity(name, spec):
             assert flag.startswith("--") or len(flag) > 2, (
                 f"{name}: short flag {flag!r} in ci_flags — use long form"
             )
+
+    # check_flags use the long-form double-dash convention, and only drive the
+    # post_process warning — so they are meaningless without a post_process.
+    for flag in spec.check_flags:
+        assert flag.startswith("--") or len(flag) > 2, (
+            f"{name}: short flag {flag!r} in check_flags — use long form"
+        )
+    if spec.check_flags:
+        assert spec.post_process is not None, (
+            f"{name}: check_flags set without a post_process callback"
+        )
 
     # computed_params must also produce long-form flags.
     if spec.computed_params:
@@ -1858,6 +1870,54 @@ def test_fix_myst_directive_options_multiple_directives(tmp_path):
         ":no-typesetting:\n"
         "```\n"
     )
+
+
+def test_check_bypasses_post_process():
+    """check_bypasses_post_process is True only for a post_process tool in check mode."""
+    mdformat = TOOL_REGISTRY["mdformat"]
+    assert mdformat.check_bypasses_post_process(("--check", "readme.md"))
+    assert not mdformat.check_bypasses_post_process(("readme.md",))
+    # Tools without a post_process callback are authoritative in check mode.
+    ruff = TOOL_REGISTRY["ruff"]
+    assert not ruff.check_bypasses_post_process(("format", "--check"))
+
+
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_warns_when_check_bypasses_post_process(
+    mock_ci,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    """mdformat --check warns that the post-process fixup is skipped."""
+    monkeypatch.chdir(tmp_path)
+    mock_run.return_value = MagicMock(returncode=1)
+
+    with caplog.at_level(logging.WARNING):
+        run_tool("mdformat", extra_args=("--check", "readme.md"))
+
+    assert "check mode" in caplog.text
+
+
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_no_check_warning_in_write_mode(
+    mock_ci,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    """mdformat in write mode (no check flag) emits no check-mode warning."""
+    monkeypatch.chdir(tmp_path)
+    mock_run.return_value = MagicMock(returncode=0)
+
+    with caplog.at_level(logging.WARNING):
+        run_tool("mdformat", extra_args=("readme.md",))
+
+    assert "check mode" not in caplog.text
 
 
 # ---------------------------------------------------------------------------
