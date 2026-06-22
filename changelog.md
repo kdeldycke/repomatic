@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.29.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.29.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.29.0` (2026-06-22)](https://github.com/kdeldycke/repomatic/compare/v6.28.1...v6.29.0)
 
 - **Breaking:** Remove the `repomatic test-plan` command and `[tool.repomatic] test-plan` config. The declarative test-plan engine moved upstream to [click-extra](https://kdeldycke.github.io/click-extra/test-plan.html); run `click-extra test-plan` instead, configured via `[tool.click-extra.test-plan]`.
