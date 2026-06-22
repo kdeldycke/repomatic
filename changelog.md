@@ -7,6 +7,9 @@
 
 ## [`6.29.0` (2026-06-22)](https://github.com/kdeldycke/repomatic/compare/v6.28.1...v6.29.0)
 
+> [!NOTE]
+> `6.29.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.29.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.29.0).
+
 - **Breaking:** Remove the `repomatic test-plan` command and `[tool.repomatic] test-plan` config. The declarative test-plan engine moved upstream to [click-extra](https://kdeldycke.github.io/click-extra/test-plan.html); run `click-extra test-plan` instead, configured via `[tool.click-extra.test-plan]`.
 - Add `repomatic show-test-matrix` to render the CI test matrix as a Python-version by OS grid in any `--table-format`.
 - Add `repomatic init uv` to sync the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) into `pyproject.toml`; `sync-uv-lock` applies the same sync, so every machine resolves `uv.lock` with the same uv.
