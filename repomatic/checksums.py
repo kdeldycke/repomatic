@@ -33,7 +33,6 @@ import hashlib
 import logging
 import re
 import sys
-from contextlib import nullcontext
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -111,16 +110,11 @@ def update_checksums(file_path: Path) -> list[tuple[str, str, str]]:
     updated: list[tuple[str, str, str]] = []
     pairs = list(_find_checksum_pairs(lines))
 
-    progress = (
-        progressbar(
-            pairs,
-            label="Verifying checksums",
-            file=sys.stderr,
-        )
-        if sys.stderr.isatty()
-        else nullcontext(pairs)
-    )
-    with progress as items:
+    with progressbar(
+        pairs,
+        label="Verifying checksums",
+        file=sys.stderr,
+    ) as items:
         for url, hash_line_idx, old_hash in items:
             logging.info(f"Verifying checksum for {url}")
             new_hash = _download_sha256(url)
@@ -163,16 +157,11 @@ def update_registry_checksums(registry_path: Path) -> list[tuple[str, str, str]]
         for pk, tmpl in spec.binary.urls.items()
     ]
 
-    progress = (
-        progressbar(
-            entries,
-            label="Verifying checksums",
-            file=sys.stderr,
-        )
-        if sys.stderr.isatty()
-        else nullcontext(entries)
-    )
-    with progress as items:
+    with progressbar(
+        entries,
+        label="Verifying checksums",
+        file=sys.stderr,
+    ) as items:
         for spec, platform_key, url, old_hash in items:
             logging.info(
                 f"Verifying registry checksum for {spec.name} ({platform_key})"

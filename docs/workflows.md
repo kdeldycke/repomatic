@@ -519,11 +519,11 @@ flowchart TD
 
 #### 📖 Man pages (`manpages`)
 
-- Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
+- Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
 - Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release **draft** via `gh release upload --clobber`, before `publish-release` publishes and locks the release
 - **Requires**:
-  - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra man SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
-  - The consumer's `click-extra` floor is `>= 7.19`: the `--output-dir DIR` option to `click-extra man` shipped in 7.19.0 and writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing
+  - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra wrap --man SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
+  - The consumer's `click-extra` floor is `>= 8`: the `--output-dir DIR` option to `click-extra wrap --man` writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing
   - Successful `create-release` job (the draft must exist; the asset must be attached before `publish-release` locks the release: see [§ Immutable releases](#immutable-releases))
 - The tarball stem defaults to `<package-name>-manpages`; override with `manpages.asset-name` in `[tool.repomatic]` to publish under a different name
 - **Skipped if**:

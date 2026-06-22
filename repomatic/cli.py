@@ -40,19 +40,19 @@ from click_extra import (
     ParameterSource,
     ParamType,
     Section,
+    SortByOption,
     UsageError,
     argument,
     dir_path,
     echo,
     file_path,
+    get_tool_config,
     group,
     option,
     option_group,
     pass_context,
     style,
 )
-from click_extra.config import get_tool_config
-from click_extra.table import SortByOption
 from extra_platforms import is_github_ci
 
 from . import __version__
@@ -696,6 +696,15 @@ init_project.help = init_project.help.format(
 )
 
 
+def _table_headers(header_defs: tuple[tuple[str, str], ...]) -> tuple[str, ...]:
+    """Return the column labels from `(label, column_id)` header definitions.
+
+    `ctx.print_table` takes `(table_data, headers)`; the column IDs drive
+    `--sort-by` through the matching `SortByOption`, not the rendered header row.
+    """
+    return tuple(label for label, _ in header_defs)
+
+
 _metadata_sort = SortByOption(*METADATA_KEYS_HEADER_DEFS, default="key")
 
 
@@ -746,7 +755,9 @@ def metadata(ctx, format, overwrite, output, list_keys, keys):
             current_version is_python_project
     """
     if list_keys:
-        ctx.print_table(METADATA_KEYS_HEADER_DEFS, metadata_keys_reference())
+        ctx.print_table(
+            metadata_keys_reference(), _table_headers(METADATA_KEYS_HEADER_DEFS)
+        )
         ctx.exit(0)
 
     # Validate requested keys.
@@ -824,7 +835,7 @@ def show_config(ctx):
         (option, escape_type_for_gfm_table(ftype), default, desc)
         for option, ftype, default, desc in config_reference()
     ]
-    ctx.print_table(CONFIG_REFERENCE_HEADER_DEFS, rows)
+    ctx.print_table(rows, _table_headers(CONFIG_REFERENCE_HEADER_DEFS))
 
 
 TEST_MATRIX_STATE_DISPLAY = {
@@ -2674,7 +2685,7 @@ def audit(
         )
         for v in vulns
     ]
-    ctx.print_table(AUDIT_HEADER_DEFS, rows)  # type: ignore[attr-defined]
+    ctx.print_table(rows, _table_headers(AUDIT_HEADER_DEFS))  # type: ignore[attr-defined]
 
     if output:
         markdown = format_vulnerability_table(vulns)
@@ -3464,7 +3475,7 @@ def run_cmd(
             (spec.name, spec.version, resolve_config_source(spec))
             for spec in TOOL_REGISTRY.values()
         ]
-        ctx.print_table(TOOL_LIST_HEADER_DEFS, rows)
+        ctx.print_table(rows, _table_headers(TOOL_LIST_HEADER_DEFS))
         ctx.exit(0)
 
     if tool_name is None:
@@ -3557,7 +3568,7 @@ def show(ctx):
             _format_age(cfg_entry.mtime),
         ))
 
-    ctx.print_table(CACHE_LIST_HEADER_DEFS, rows)
+    ctx.print_table(rows, _table_headers(CACHE_LIST_HEADER_DEFS))
     total_count = len(bin_entries) + len(http_entries) + len(cfg_entries)
     echo(f"\nTotal: {total_count} file(s), {_format_size(total_size)}")
 

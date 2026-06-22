@@ -1509,16 +1509,17 @@ def _download_and_verify(
     with urlopen(request) as response, dest_path.open("wb") as f:
         content_length = response.headers.get("Content-Length")
         total = int(content_length) if content_length else 0
-        # click_extra.progressbar is a drop-in for click.progressbar that also
-        # honors the --no-progress / --accessible flags (via ctx.meta), hiding
-        # the bar when the user opts out even on an interactive terminal.
+        # click_extra.progressbar is a drop-in for click.progressbar that honors
+        # the --no-progress / --accessible flags, hiding the bar when the user
+        # opts out; click itself draws nothing on a non-TTY. The `total` guard
+        # stays: without a Content-Length there is no determinate bar to show.
         progress = (
             progressbar(
                 length=total,
                 label=label or dest_path.name,
                 file=sys.stderr,
             )
-            if total and sys.stderr.isatty()
+            if total
             else nullcontext()
         )
         with progress as bar:

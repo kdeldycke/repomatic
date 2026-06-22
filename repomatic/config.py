@@ -32,7 +32,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import tomlrt
-from click_extra.config import make_schema_callable
+from click_extra import make_schema_callable
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
