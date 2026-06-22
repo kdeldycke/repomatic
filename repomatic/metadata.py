@@ -2335,12 +2335,9 @@ class Metadata:
         full_include = self.config.test_matrix.full_include
         if not full_include:
             return base
-        # Solve the base cross-product to explicit jobs, then append each
-        # full-include row (filled out with the matrix defaults) as its own
-        # standalone job. Emitting this flat list sidesteps GitHub's include
-        # augment-or-add ambiguity for rows sharing an os/python with the
-        # shipped-config jobs.
-        rows = list(base.solve())
+        # Single-key default includes (like {click-version: released}) that the
+        # base matrix grants every cross-product job. Collect them first so they
+        # backfill both the solved base jobs and the full-include rows below.
         defaults = {
             key: value
             for directive in base.include
@@ -2348,6 +2345,14 @@ class Metadata:
             for key, value in directive.items()
         }
         defaults.setdefault("state", "stable")
+        # Solve the base cross-product to explicit jobs, then append each
+        # full-include row as its own standalone job. Emitting this flat list
+        # sidesteps GitHub's include augment-or-add ambiguity for rows sharing
+        # an os/python with the shipped-config jobs. base.solve() also appends
+        # free-threaded probe jobs from standalone includes, which GitHub never
+        # augments with the defaults; backfill every cell so none emits an empty
+        # click-version/cloup-version that GitHub expands to "".
+        rows = [{**defaults, **cell} for cell in base.solve()]
         rows.extend({**defaults, **cell} for cell in full_include)
         flat = Matrix()
         flat.add_includes(*rows)

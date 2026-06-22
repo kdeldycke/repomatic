@@ -32,6 +32,7 @@ from repomatic.github.token import (
 from repomatic.lint_repo import (
     check_description_matches,
     check_funding_file,
+    check_inline_pins_match_upstream,
     check_package_name_vs_repo,
     check_pypi_trusted_publisher,
     check_stale_draft_releases,
@@ -846,3 +847,49 @@ def test_check_test_matrix_excludes_clean(tmp_path, monkeypatch):
 
     results = check_test_matrix_excludes()
     assert all(warning is None for warning, _ in results)
+
+
+# A SHA-pinned thin-caller `uses:` ref to the upstream toolkit, declaring v6.29.0.
+_UPSTREAM_REF = (
+    "jobs:\n"
+    "  lint:\n"
+    "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml"
+    "@1234567890abcdef1234567890abcdef12345678 # v6.29.0\n"
+)
+
+
+def test_inline_pins_match_upstream_flags_lagging_pin(tmp_path):
+    """An inline pin behind the uses: ref version is a fatal error."""
+    (tmp_path / "lint.yaml").write_text(_UPSTREAM_REF, encoding="UTF-8")
+    (tmp_path / "tests.yaml").write_text(
+        "      - run: uvx --no-progress 'repomatic==6.28.1' metadata\n",
+        encoding="UTF-8",
+    )
+    error, _ = check_inline_pins_match_upstream(tmp_path)
+    assert error is not None
+    assert "6.28.1" in error
+    assert "6.29.0" in error
+    assert "tests.yaml" in error
+
+
+def test_inline_pins_match_upstream_accepts_synced_pin(tmp_path):
+    """An inline pin equal to the uses: ref version passes."""
+    (tmp_path / "lint.yaml").write_text(_UPSTREAM_REF, encoding="UTF-8")
+    (tmp_path / "tests.yaml").write_text(
+        "      - run: uvx --no-progress 'repomatic==6.29.0' metadata\n",
+        encoding="UTF-8",
+    )
+    error, msg = check_inline_pins_match_upstream(tmp_path)
+    assert error is None
+    assert "match" in msg
+
+
+def test_inline_pins_match_upstream_skips_without_refs(tmp_path):
+    """The canonical repo (local `--from .`, no upstream refs) has nothing to check."""
+    (tmp_path / "tests.yaml").write_text(
+        "      - run: uvx --no-progress --from . repomatic metadata\n",
+        encoding="UTF-8",
+    )
+    error, msg = check_inline_pins_match_upstream(tmp_path)
+    assert error is None
+    assert "nothing to compare" in msg

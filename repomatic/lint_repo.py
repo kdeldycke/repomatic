@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import yaml
@@ -38,6 +39,7 @@ from .pypi import (
     get_trusted_publishers,
     pypi_trusted_publisher_settings_url,
 )
+from .registry import DEFAULT_REPO
 
 
 def get_repo_metadata(repo: str) -> dict[str, str | None]:
@@ -808,6 +810,66 @@ def check_test_matrix_excludes() -> list[tuple[str | None, str]]:
     return results
 
 
+def check_inline_pins_match_upstream(
+    workflow_dir: Path = Path(".github/workflows"),
+    upstream_repo: str = DEFAULT_REPO,
+) -> tuple[str | None, str]:
+    """Check inline upstream pins match the workflow `uses:` ref version.
+
+    A workflow that pins the upstream toolkit in a `run:` shell command (like
+    ``uvx 'repomatic==1.2.3' metadata``) must keep that version in lockstep with
+    the SHA-pinned `uses:` refs. A manual workflow sync bumps the refs but not
+    the inline pin, and Renovate can bump them in separate PRs, so the pin
+    silently lags. When the stale version drops a symbol the newer refs rely on,
+    the metadata job fails and a release can publish to PyPI yet never tag (the
+    toolkit chicken-and-egg). Flag the drift so the lint fails before a release
+    does.
+
+    :param workflow_dir: Directory holding the workflow YAML files.
+    :param upstream_repo: Upstream ``owner/repo``; its name is the inline
+        package to match (e.g. ``repomatic``).
+    :return: ``(error_message_or_None, info_message)``.
+    """
+    package = upstream_repo.rsplit("/", 1)[-1]
+    if not workflow_dir.is_dir():
+        return None, f"Inline {package} pin check: skipped (no {workflow_dir})."
+
+    ref_re = re.compile(
+        rf"{re.escape(upstream_repo)}/\.github/(?:workflows|actions)/[^@\s]+"
+        r"@(?:[0-9a-f]+\s+#\s+)?v(?P<version>[0-9]+(?:\.[0-9]+)*)"
+    )
+    pin_re = re.compile(rf"\b{re.escape(package)}==(?P<version>[0-9]+(?:\.[0-9]+)*)")
+
+    upstream_versions: set[str] = set()
+    pins_by_file: dict[str, set[str]] = {}
+    for wf in sorted(workflow_dir.glob("*.yaml")):
+        try:
+            content = wf.read_text(encoding="UTF-8")
+        except OSError:
+            continue
+        upstream_versions.update(m["version"] for m in ref_re.finditer(content))
+        found = {m["version"] for m in pin_re.finditer(content)}
+        if found:
+            pins_by_file[wf.name] = found
+
+    if not upstream_versions or not pins_by_file:
+        return None, f"Inline {package} pin check: nothing to compare."
+
+    lagging = {
+        name: versions
+        for name, versions in pins_by_file.items()
+        if not versions <= upstream_versions
+    }
+    expected = ", ".join(sorted(upstream_versions))
+    if lagging:
+        detail = "; ".join(
+            f"{name} pins {', '.join(sorted(v))}" for name, v in sorted(lagging.items())
+        )
+        msg = f"Inline {package} pin lags the uses: ref version ({expected}): {detail}."
+        return msg, msg
+    return None, f"Inline {package} pins match the uses: refs ({expected})."
+
+
 def run_repo_lint(
     package_name: str | None = None,
     repo_name: str | None = None,
@@ -953,6 +1015,13 @@ def run_repo_lint(
         if warning:
             emit_annotation(AnnotationLevel.WARNING, warning)
         print(f"{'⚠' if warning else '✓'} {msg}")
+
+    # Check 10c: Inline upstream pins match the workflow uses: ref version (error).
+    error, msg = check_inline_pins_match_upstream()
+    if error:
+        emit_annotation(AnnotationLevel.ERROR, error)
+        fatal_error = True
+    print(f"{'✗' if error else '✓'} {msg}")
 
     # Check 11: VIRUSTOTAL_API_KEY secret (warning, only when Nuitka builds are active).
     if nuitka_active:

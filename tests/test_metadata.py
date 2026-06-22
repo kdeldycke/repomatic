@@ -1537,6 +1537,50 @@ test-matrix.full-include = [
     assert pinned in rows
 
 
+def test_full_include_backfills_probe_defaults(tmp_path, monkeypatch):
+    """Free-threaded probe jobs inherit the single-key default includes.
+
+    The 3.14t probe is a standalone include pinned to one runner, appended by
+    ``solve()`` and never augmented by GitHub's include algorithm. The flat
+    full-include matrix backfills the matrix defaults onto it, so it never
+    emits an empty ``click-version``/``cloup-version`` that GitHub would expand
+    to ``""`` and a downstream run step would mishandle.
+    """
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text(
+        """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[tool.repomatic]
+test-matrix.include = [
+  { "click-version" = "released" },
+  { "cloup-version" = "released" },
+]
+test-matrix.full-include = [
+  { "os" = "ubuntu-24.04-arm", "python-version" = "3.14", "click-version" = "main" },
+]
+"""
+    )
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+    # `.include` is the flat job list, typed as tuple[dict[str, str], ...]; the
+    # equivalent matrix()["include"] widens to a union that defeats indexing.
+    rows = Metadata().test_matrix.include
+
+    probe = next(r for r in rows if r["python-version"] == "3.14t")
+    assert probe == {
+        "os": "ubuntu-24.04-arm",
+        "python-version": "3.14t",
+        "click-version": "released",
+        "cloup-version": "released",
+        "state": "stable",
+    }
+    # Every emitted job carries the version defaults: none leaks an empty key
+    # that GitHub would expand to "".
+    assert all(r.get("click-version") and r.get("cloup-version") for r in rows)
+
+
 def test_repomatic_config_custom_values(tmp_path, monkeypatch):
     """Test that [tool.repomatic] config properties read from pyproject.toml."""
     pyproject_content = """\
