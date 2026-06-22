@@ -2685,7 +2685,9 @@ def audit(
         )
         for v in vulns
     ]
-    ctx.print_table(rows, _table_headers(AUDIT_HEADER_DEFS))  # type: ignore[attr-defined]
+    ctx.print_table(  # type: ignore[attr-defined]
+        rows, _table_headers(AUDIT_HEADER_DEFS)
+    )
 
     if output:
         markdown = format_vulnerability_table(vulns)

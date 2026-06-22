@@ -55,9 +55,11 @@ def _private_click_extra_imports(tree: ast.Module) -> list[str]:
                 continue
             if any(part.startswith("_") for part in parts[1:]):
                 violations.append(f"from {node.module} import ...")
-            for alias in node.names:
-                if alias.name.startswith("_"):
-                    violations.append(f"from {node.module} import {alias.name}")
+            violations.extend(
+                f"from {node.module} import {alias.name}"
+                for alias in node.names
+                if alias.name.startswith("_")
+            )
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 parts = alias.name.split(".")
