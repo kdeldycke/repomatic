@@ -2027,7 +2027,7 @@ def broken_links(
     In GitHub Actions, most options are auto-detected:
     - --repo-name defaults to $GITHUB_REPOSITORY name component.
     - --body-file defaults to ./lychee/out.md when --lychee-exit-code is set.
-    - --output-json defaults to ./docs/linkcheck/output.json if it exists.
+    - --output-json defaults to ./docs/_linkcheck/output.json if it exists.
     - --source-url is composed from $GITHUB_SERVER_URL, $GITHUB_REPOSITORY,
       and $GITHUB_SHA when --output-json is set.
 

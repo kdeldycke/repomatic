@@ -10,6 +10,7 @@
 - The binary download progress bar now respects `--no-progress` and `--accessible`, hiding it when progress output is turned off.
 - Documentation pages that cover a Python module now end with that module's API reference.
 - Test the free-threaded `3.14t` build as a stable single-runner smoke test rather than across the full cross-platform matrix; only the in-development `3.15` stays `continue-on-error`.
+- Move the Sphinx linkcheck output to `docs/_linkcheck/` (mirroring `docs/_build/`); `broken-links --output-json` now defaults there and the generated `.gitignore` excludes it.
 
 ## [`6.28.1` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.28.0...v6.28.1)
 

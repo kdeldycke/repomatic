@@ -51,7 +51,7 @@ ISSUE_TITLE = "Broken links"
 LYCHEE_DEFAULT_BODY = Path("./lychee/out.md")
 """Default output path used by the lychee-action GitHub Action."""
 
-SPHINX_DEFAULT_OUTPUT = Path("./docs/linkcheck/output.json")
+SPHINX_DEFAULT_OUTPUT = Path("./docs/_linkcheck/output.json")
 """Default Sphinx linkcheck output path produced by the `docs.yaml` workflow."""
 
 
@@ -212,7 +212,7 @@ def manage_combined_broken_links_issue(
       <repomatic.metadata.Metadata.repo_name>`.
     - `lychee_body_file` defaults to `./lychee/out.md` when
       `lychee_exit_code` is provided and the file exists.
-    - `sphinx_output_json` defaults to `./docs/linkcheck/output.json`
+    - `sphinx_output_json` defaults to `./docs/_linkcheck/output.json`
       when the file exists.
     - `sphinx_source_url` is composed from {attr}`Metadata.repo_url
       <repomatic.metadata.Metadata.repo_url>` and {attr}`Metadata.sha
@@ -226,7 +226,7 @@ def manage_combined_broken_links_issue(
         `./lychee/out.md` when `lychee_exit_code` is provided and the
         file exists.
     :param sphinx_output_json: Path to Sphinx linkcheck `output.json`.
-        Defaults to `./docs/linkcheck/output.json` when the file exists.
+        Defaults to `./docs/_linkcheck/output.json` when the file exists.
     :param sphinx_source_url: Base URL for linking filenames and line numbers
         in the Sphinx report. Auto-composed from {attr}`Metadata.repo_url
         <repomatic.metadata.Metadata.repo_url>` and {attr}`Metadata.sha

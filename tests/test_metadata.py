@@ -1452,7 +1452,8 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
     assert metadata.config.gitignore.extra_categories == []
     assert metadata.config.gitignore.extra_content == (
         "junit.xml\n\n# Claude Code local files.\n"
-        ".claude/scheduled_tasks.lock\n.claude/settings.local.json"
+        ".claude/scheduled_tasks.lock\n.claude/settings.local.json\n\n"
+        "# Sphinx linkcheck output.\ndocs/_linkcheck/"
     )
     assert metadata.config.dependency_graph.output == "./docs/assets/dependencies.mmd"
     assert metadata.config.dependency_graph.all_groups is True

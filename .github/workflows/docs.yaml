@@ -123,7 +123,7 @@ jobs:
         # Do not use -W: we parse output.json directly instead of relying on exit codes.
         run: >
           uv --no-progress run --frozen --all-extras --group docs --
-          sphinx-build -b linkcheck ./docs ./docs/linkcheck
+          sphinx-build -b linkcheck ./docs ./docs/_linkcheck
         continue-on-error: true
       - name: Run lychee
         if: fromJSON(needs.metadata.outputs.metadata).doc_files

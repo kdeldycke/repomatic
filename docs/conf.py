@@ -68,7 +68,7 @@ mermaid_d3_zoom = True
 # and the live blocks render empty.
 click_extra_enable_exec_directives = True
 
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "_linkcheck", "Thumbs.db", ".DS_Store"]
 
 nitpicky = True
 
