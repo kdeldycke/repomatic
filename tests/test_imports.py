@@ -17,10 +17,16 @@
 """Guard repomatic against importing click_extra's non-public API.
 
 click_extra is both a runtime dependency of repomatic and the framework whose
-release pipeline runs the pinned repomatic. Reaching for an underscore-prefixed
-name or a private submodule couples repomatic to click_extra internals that can
-be renamed without notice, which then breaks click_extra's own release. See
-``claude.md`` ("click_extra is both a dependency and a release consumer").
+release pipeline runs the *pinned* repomatic to build its metadata and release
+notes. Reaching for an underscore-prefixed name or a private submodule couples
+repomatic to click_extra internals that can be renamed without notice; the
+rename then breaks the pinned repomatic from inside click_extra's own release:
+the ``metadata`` step crashes after the package is already on PyPI, leaving it
+untagged with no GitHub release. So repomatic imports only click_extra's public
+API, promoting any needed helper to public in click_extra first. The companion
+release-ordering rule (ship the fixed repomatic and bump click_extra's pin
+before releasing click_extra) lives in ``claude.md`` § "click_extra is both a
+dependency and a release consumer".
 """
 
 from __future__ import annotations

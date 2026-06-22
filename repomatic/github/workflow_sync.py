@@ -23,6 +23,13 @@ lint those callers by parsing the canonical workflow definitions.
 
 See {class}`WorkflowFormat` for available output formats and their behavior.
 
+Generating and reshaping workflow content in Python, rather than
+hand-maintaining YAML, keeps logic out of the platform-specific GitHub Actions
+surface: a tested generator that fails loudly beats a static YAML artifact that
+can silently drift, and the smaller GHA surface eases a future migration to
+another CI platform. `_render_publish_pypi_job` derives each downstream
+`publish-pypi` job from the canonical `release.yaml` this way.
+
 ```{caution}
 PyYAML destroys formatting and comments on round-trip. Until we find a
 layout-preserving YAML parsing and rendering solution, we use raw text
