@@ -483,6 +483,7 @@ expected: dict[str, Any] = {
         "tests/test_github_releases.py",
         "tests/test_help.py",
         "tests/test_images.py",
+        "tests/test_imports.py",
         "tests/test_init_project.py",
         "tests/test_labeller_rules.py",
         "tests/test_lint_repo.py",
@@ -2194,12 +2195,14 @@ def test_load_repomatic_config_with_preloaded_data():
     data = {
         "tool": {
             "repomatic": {
-                "test-plan": {"timeout": 60},
+                "dependency-graph": {"output": "./custom/deps.mmd"},
             },
         },
     }
-    load_repomatic_config(data)
+    config = load_repomatic_config(data)
+    assert config.dependency_graph.output == "./custom/deps.mmd"
     # Other defaults are still present.
+    assert config.gitignore.location == "./.gitignore"
 
 
 def test_load_repomatic_config_warns_unknown_keys(tmp_path, monkeypatch, caplog):

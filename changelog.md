@@ -7,14 +7,14 @@
 
 - **Breaking:** Remove the `repomatic test-plan` command and `[tool.repomatic] test-plan` config. The declarative test-plan engine moved upstream to [click-extra](https://kdeldycke.github.io/click-extra/test-plan.html); run `click-extra test-plan` instead, configured via `[tool.click-extra.test-plan]`.
 - Add `repomatic show-test-matrix` to render the CI test matrix as a Python-version by OS grid in any `--table-format`.
-- The binary download progress bar now respects `--no-progress` and `--accessible`, hiding it when progress output is turned off.
-- The `manpages` release job now uses `click-extra wrap --man`, requiring `click-extra >= 8` for consumers that enable `[tool.repomatic.manpages]`.
-- Documentation pages that cover a Python module now end with that module's API reference.
-- Test the free-threaded `3.14t` build as a stable single-runner smoke test rather than across the full cross-platform matrix; only the in-development `3.15` stays `continue-on-error`.
 - Add `repomatic init uv` to sync the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) into `pyproject.toml`; `sync-uv-lock` applies the same sync, so every machine resolves `uv.lock` with the same uv.
-- `sync-uv-lock` now reverts a re-lock that changed no package versions, so uv's machine-dependent re-spelling of equivalent `uv.lock` environment markers no longer opens empty sync PRs that ping-pong between contributors and CI.
+- Require `click-extra >= 8`; the `manpages` release job now uses `click-extra wrap --man` to generate man pages.
+- The binary download progress bar now respects `--no-progress` and `--accessible`, hiding it when progress output is turned off.
 - Move the Sphinx linkcheck output to `docs/_linkcheck/` (mirroring `docs/_build/`); `broken-links --output-json` now defaults there and the generated `.gitignore` excludes it.
 - `repomatic run` now warns when `--check` targets a post-processed formatter (currently `mdformat`): check mode bypasses the fixup, so its exit status can mislead.
+- `sync-uv-lock` now reverts a re-lock that changed no package versions, so uv's machine-dependent re-spelling of equivalent `uv.lock` environment markers no longer opens empty sync PRs that ping-pong between contributors and CI.
+- Documentation pages that cover a Python module now end with that module's API reference.
+- Test the free-threaded `3.14t` build as a stable single-runner smoke test instead of across the full cross-platform matrix; `3.15` stays `continue-on-error`.
 
 ## [`6.28.1` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.28.0...v6.28.1)
 
