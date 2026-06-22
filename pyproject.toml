@@ -207,7 +207,7 @@ exclude-newer = "1 week"
 # pinned to git main (no PyPI release to freeze), so it keeps a permanent
 # "0 day" span. tomlrt is held at 1.8.2. click-extra now tracks git main via
 # [tool.uv.sources], so the index cooldown does not apply to it.
-exclude-newer-package = { repomatic = "0 day", tomlrt = "2026-06-16T00:00:00Z" }
+exclude-newer-package = { repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
