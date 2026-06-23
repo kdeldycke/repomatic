@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- The test and release workflows now run `click-extra test-plan` with the `click-extra[yaml]` extra, so the YAML test plan parses in repos that don't depend on PyYAML.
+
 ## [`6.29.0` (2026-06-22)](https://github.com/kdeldycke/repomatic/compare/v6.28.1...v6.29.0)
 
 > [!NOTE]

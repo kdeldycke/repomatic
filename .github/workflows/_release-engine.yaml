@@ -257,8 +257,12 @@ jobs:
           DOWNLOAD_PATH: ${{ steps.artifacts.outputs.download-path }}
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
+        # Inject click-extra[yaml] into the run env so the driver can parse the
+        # YAML test plan: click-extra 8.0.0 moved YAML support behind this extra,
+        # and the consumer's frozen `uv run` env may not include it.
         run: >
-          uv run --frozen --no-progress -- click-extra test-plan
+          uv run --frozen --no-progress --with 'click-extra[yaml]' --
+          click-extra test-plan
           --binary "${DOWNLOAD_PATH}/${BIN_NAME}"
           --jobs max
 

@@ -175,10 +175,14 @@ jobs:
         # The target is this repo's own console script (from repomatic metadata), so
         # the self-test stays correct when this workflow is synced to downstream repos.
         # Skipped for repos that ship no console script (nothing to self-test).
+        # `--with click-extra[yaml]` adds YAML support to the run env: click-extra 8.0.0
+        # moved it behind this extra, which the consumer's frozen `uv run` env may lack.
         if: fromJSON(needs.metadata.outputs.metadata).cli_scripts[0]
         env:
           CLI_SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).cli_scripts[0] }}
-        run: uv run --frozen --no-progress -- click-extra test-plan --command "${CLI_SCRIPT}" --jobs max
+        run: >
+          uv run --frozen --no-progress --with 'click-extra[yaml]' --
+          click-extra test-plan --command "${CLI_SCRIPT}" --jobs max
 
   test-package-install:
     name: 📦 Package install
