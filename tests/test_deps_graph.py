@@ -65,6 +65,34 @@ SAMPLE_SBOM = {
     ],
 }
 
+# SBOM with dependency cycles, to assert graph traversals stay cycle-safe.
+# uv's CycloneDX export can in principle contain back-edges (mutually
+# dependent packages) and self-loops, so every traversal must terminate.
+# Encodes a 2-cycle (apple <-> banana) and a self-loop (cherry -> cherry):
+#
+#     orchard -> apple -> banana -> apple   (back-edge)
+#                          banana -> cherry -> cherry   (self-loop)
+CYCLIC_SBOM = {
+    "metadata": {
+        "component": {
+            "bom-ref": "orchard-1@1.0.0",
+            "name": "orchard",
+            "version": "1.0.0",
+        }
+    },
+    "components": [
+        {"bom-ref": "apple-2@1.0.0", "name": "apple", "version": "1.0.0"},
+        {"bom-ref": "banana-3@1.0.0", "name": "banana", "version": "1.0.0"},
+        {"bom-ref": "cherry-4@1.0.0", "name": "cherry", "version": "1.0.0"},
+    ],
+    "dependencies": [
+        {"ref": "orchard-1@1.0.0", "dependsOn": ["apple-2@1.0.0"]},
+        {"ref": "apple-2@1.0.0", "dependsOn": ["banana-3@1.0.0"]},
+        {"ref": "banana-3@1.0.0", "dependsOn": ["apple-2@1.0.0", "cherry-4@1.0.0"]},
+        {"ref": "cherry-4@1.0.0", "dependsOn": ["cherry-4@1.0.0"]},
+    ],
+}
+
 
 @pytest.mark.parametrize(
     ("name", "expected"),
@@ -371,6 +399,70 @@ def test_compute_node_depths() -> None:
     assert depths["requests"] == 1
     assert depths["urllib3"] == 2
     assert depths["certifi"] == 2
+
+
+def test_cyclic_graph_traversals_terminate() -> None:
+    """Every graph traversal must terminate on cyclic input.
+
+    Without their visited guards, `_compute_node_depths` would loop forever and
+    `_compute_subtree_sizes` would recurse infinitely on the apple <-> banana
+    cycle, so reaching the asserts at all proves cycle-safety; the values pin the
+    expected output.
+    """
+    root_name, nodes, edges = build_dependency_graph(CYCLIC_SBOM)
+    assert root_name == "orchard"
+    # The self-loop survives parsing as a (cherry, cherry) edge.
+    assert ("cherry", "cherry") in edges
+    assert ("apple", "banana") in edges
+    assert ("banana", "apple") in edges
+
+    # trim_graph_to_depth: BFS bounded by depth, neighbours visited once.
+    depth2_nodes, depth2_edges = trim_graph_to_depth(root_name, nodes, edges, 2)
+    assert {name for name, _ in depth2_nodes.values()} == {"orchard", "apple", "banana"}
+    # cherry sits at depth 3, so it is trimmed out at depth 2.
+    assert ("banana", "cherry") not in depth2_edges
+    # A depth far beyond the graph keeps every node and edge without looping.
+    full_nodes, full_edges = trim_graph_to_depth(root_name, nodes, edges, 100)
+    assert {name for name, _ in full_nodes.values()} == {
+        "orchard",
+        "apple",
+        "banana",
+        "cherry",
+    }
+    assert len(full_edges) == len(edges)
+
+    # filter_graph_to_package: fixed-point closure converges despite the cycle.
+    filtered_nodes, filtered_edges = filter_graph_to_package(
+        root_name, nodes, edges, "apple"
+    )
+    assert {name for name, _ in filtered_nodes.values()} == {
+        "apple",
+        "banana",
+        "cherry",
+    }
+    # orchard -> apple is dropped: orchard is not reachable from apple.
+    assert ("orchard", "apple") not in filtered_edges
+    assert ("banana", "apple") in filtered_edges
+    assert ("cherry", "cherry") in filtered_edges
+
+    # _compute_node_depths: BFS assigns each node its shortest distance once.
+    depths = _compute_node_depths(root_name, edges)
+    assert depths == {"orchard": 0, "apple": 1, "banana": 2, "cherry": 3}
+
+    # _compute_subtree_sizes: DFS counts reachable descendants, finite under
+    # cycles. A node on a cycle appears in its own descendant set (apple reaches
+    # itself via banana), and the self-loop makes cherry its own sole descendant.
+    subtree = _compute_subtree_sizes(edges)
+    assert subtree == {"orchard": 3, "apple": 3, "banana": 3, "cherry": 1}
+
+
+def test_render_mermaid_with_cycle() -> None:
+    """The full render path stays cycle-safe and emits the self-loop edge."""
+    root_name, nodes, edges = build_dependency_graph(CYCLIC_SBOM)
+    output = render_mermaid(root_name, nodes, edges)
+    assert output.startswith("flowchart LR")
+    assert "cherry --> cherry" in output
+    assert "banana ==> apple" in output
 
 
 def test_render_mermaid_primary_deps_ordering() -> None:
