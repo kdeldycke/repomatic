@@ -139,9 +139,16 @@ jobs:
         # lines) and fork PRs (secrets are not available). The version-bump
         # PR family (prepare-release, *-version-increment) is already filtered
         # by the metadata job's `github.head_ref` gate above.
+        #
+        # Also skip free-threaded builds (the `t`-suffixed python-version):
+        # codecov-cli pulls in test-results-parser, a Rust extension with no
+        # free-threaded wheel that fails to compile there. The coverage is
+        # redundant anyway, as the base version already uploads from the full
+        # cross-platform matrix (see test_matrix.SINGLE_RUNNER_PYTHON_VERSIONS).
         if: >
           github.head_ref != 'sync-repomatic'
           && env.CODECOV_TOKEN != ''
+          && !endsWith(matrix.python-version, 't')
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         shell: bash
@@ -153,9 +160,12 @@ jobs:
           --report-type coverage
           --token "${CODECOV_TOKEN}"
       - name: Upload test results to Codecov
+        # Same gating as the coverage upload above, including the free-threaded
+        # skip (codecov-cli's test-results-parser has no free-threaded wheel).
         if: >
           github.head_ref != 'sync-repomatic'
           && env.CODECOV_TOKEN != ''
+          && !endsWith(matrix.python-version, 't')
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         shell: bash
