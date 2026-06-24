@@ -496,10 +496,10 @@ flowchart TD
 
 #### ✅ Test binaries (`test-binaries`)
 
-- Runs test plans against compiled binaries using [`click-extra test-plan`](https://kdeldycke.github.io/click-extra/test-plan.html)
+- Runs test suites against compiled binaries using [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html)
 - **Requires**:
   - Compiled binaries from `compile-binaries` job
-  - Test plan file (default: `./tests/cli-test-plan.yaml`, configured via `[tool.click-extra.test-plan]`)
+  - Test suite file (configured via `[tool.click-extra.test-suite]`; default `./tests/cli-test-suite.toml`)
 - **Skipped for**:
   - Same branches as `compile-binaries`
 
@@ -607,7 +607,7 @@ flowchart TD
 - Runs the test suite across a matrix of OS (Linux/macOS/Windows × `x86_64`/`arm64`) and Python versions: `3.10`, `3.14`, and the `continue-on-error` development `3.15` on every runner, plus the free-threaded `3.14t` as a stable single-runner smoke test (see [test matrix](test-matrix.md))
 - Installs all optional extras (`--all-extras`) to catch incompatibilities between optional dependency groups
 - Runs `pytest` with coverage reporting to Codecov
-- Runs self-tests against the CLI test plan
+- Runs self-tests against the CLI test suite
 - Job names prefixed with **✅** (stable) or **⁉️** (unstable, e.g., unreleased Python versions)
 
 #### 🖥️ Validate architecture (`validate-arch`)

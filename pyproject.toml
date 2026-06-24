@@ -79,11 +79,12 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # 8.0.0 is the first release carrying the APIs repomatic uses:
-  # `make_schema_callable`, the `--no-progress`/`--accessible`-aware
-  # `progressbar`, the `wrap --man` CLI, and the unprefixed
-  # `Command`/`Group`/`Context`/`CliRunner` names (8.0.0 dropped the old
-  # `Extra*`-prefixed spellings).
+  # Tracked from git main (see [tool.uv.sources]) for unreleased click-extra
+  # 8.1.0 APIs repomatic now uses: the `test-suite` engine (renamed from
+  # `test-plan`), the `CONFIG_PATH_METADATA_KEY`/`NORMALIZE_KEYS_METADATA_KEY`
+  # schema-metadata constants, and the `@sort_by_option` / `ColumnSpec`
+  # `columns=` table registry. The >=8 floor holds until 8.1.0 reaches PyPI;
+  # then bump to >=8.1 and drop the [tool.uv.sources] pin.
   "click-extra>=8",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
@@ -189,6 +190,10 @@ typing = [
 required-version = ">=0.11.23,<0.12"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
+# Track click-extra's git main for unreleased 8.1.0 APIs repomatic uses (see the
+# click-extra entry under [project.dependencies]). Temporary until 8.1.0 ships on
+# PyPI, then drop this and bump the floor.
+sources.click-extra = { git = "https://github.com/kdeldycke/click-extra", branch = "main" }
 # Cooldown period: 7-day buffer before using newly released packages.
 # Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to
 # uv.lock for relative spans, so re-resolving never produces churn.
@@ -199,10 +204,9 @@ exclude-newer = "1 week"
 # bypasses at that date and prunes each entry once its held version ages past
 # `exclude-newer`, returning the package to the normal cooldown. repomatic is
 # pinned to git main (no PyPI release to freeze), so it keeps a permanent
-# "0 day" span. click-extra is held at its 8.0.0 release date so the lock
-# adopts it before the 1-week cooldown elapses; sync-uv-lock prunes this entry
-# once 8.0.0 ages past `exclude-newer`.
-exclude-newer-package = { click-extra = "2026-06-23T00:00:00Z", repomatic = "0 day" }
+# "0 day" span. click-extra now tracks git main via [tool.uv.sources], so the
+# index cooldown does not apply to it.
+exclude-newer-package = { repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
@@ -313,6 +317,13 @@ overrides = [
     "vt",
   ], ignore_missing_imports = true },
 ]
+
+# click-extra's `test-suite` engine reads repomatic's self-test cases from here
+# (used by the test-binaries and self-test jobs). The 8.1.0 default suite path is
+# ./tests/cli-test-suite.toml; point it at the YAML suite instead, kept as YAML to
+# avoid re-escaping the ANSI- and regex-heavy cases as TOML.
+[tool.click-extra.test-suite]
+file = "tests/cli-test-suite.yaml"
 
 [tool.pytest]
 addopts = [

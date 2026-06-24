@@ -252,17 +252,17 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         run: chmod +x "${DOWNLOAD_PATH}/${BIN_NAME}"
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-      - name: Run test plan for binary
+      - name: Run test suite for binary
         env:
           DOWNLOAD_PATH: ${{ steps.artifacts.outputs.download-path }}
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         # Inject click-extra[yaml] into the run env so the driver can parse the
-        # YAML test plan: click-extra 8.0.0 moved YAML support behind this extra,
+        # YAML test suite: click-extra keeps YAML support behind this extra,
         # and the consumer's frozen `uv run` env may not include it.
         run: >
           uv run --frozen --no-progress --with 'click-extra[yaml]' --
-          click-extra test-plan
+          click-extra test-suite
           --binary "${DOWNLOAD_PATH}/${BIN_NAME}"
           --jobs max
 

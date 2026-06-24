@@ -177,22 +177,22 @@ jobs:
           --report-type test_results
           --token "${CODECOV_TOKEN}"
 
-      - name: Self-tests against test plan
-        # click-extra owns the test-plan engine and CLI; it reads the plan from
-        # [tool.click-extra.test-plan] (default ./tests/cli-test-plan.yaml). `--jobs max`
+      - name: Self-tests against test suite
+        # click-extra owns the test-suite engine and CLI; it reads the suite from
+        # [tool.click-extra.test-suite] (this repo points it at ./tests/cli-test-suite.yaml). `--jobs max`
         # runs cases across every logical core. The outer `uv run` provides the
         # environment, avoiding per-case uv lock contention between parallel workers.
         # The target is this repo's own console script (from repomatic metadata), so
         # the self-test stays correct when this workflow is synced to downstream repos.
         # Skipped for repos that ship no console script (nothing to self-test).
-        # `--with click-extra[yaml]` adds YAML support to the run env: click-extra 8.0.0
-        # moved it behind this extra, which the consumer's frozen `uv run` env may lack.
+        # `--with click-extra[yaml]` adds YAML support to the run env: click-extra keeps
+        # it behind this extra, which the consumer's frozen `uv run` env may lack.
         if: fromJSON(needs.metadata.outputs.metadata).cli_scripts[0]
         env:
           CLI_SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).cli_scripts[0] }}
         run: >
           uv run --frozen --no-progress --with 'click-extra[yaml]' --
-          click-extra test-plan --command "${CLI_SCRIPT}" --jobs max
+          click-extra test-suite --command "${CLI_SCRIPT}" --jobs max
 
   test-package-install:
     name: 📦 Package install

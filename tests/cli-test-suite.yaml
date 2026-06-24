@@ -1,4 +1,4 @@
-# This test plan checks some high-level behavior of the repomatic CLI.
+# This test suite checks some high-level behavior of the repomatic CLI.
 # But also serves as unittests for the features supported by the YAML parser.
 
 # Output the version of the CLI.

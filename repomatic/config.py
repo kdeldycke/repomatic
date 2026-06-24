@@ -32,7 +32,11 @@ from pathlib import Path
 from textwrap import dedent
 
 import tomlrt
-from click_extra import make_schema_callable
+from click_extra import (
+    CONFIG_PATH_METADATA_KEY,
+    NORMALIZE_KEYS_METADATA_KEY,
+    make_schema_callable,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -290,7 +294,7 @@ class TestMatrixConfig:
 
     full_include: list[dict[str, str]] = field(
         default_factory=list,
-        metadata={"click_extra.config_path": "full-include"},
+        metadata={CONFIG_PATH_METADATA_KEY: "full-include"},
     )
     """Full-matrix-only job rows, added as standalone matrix combinations.
 
@@ -476,7 +480,7 @@ class Config:
 
     awesome_template_sync: bool = field(
         default=True,
-        metadata={"click_extra.config_path": "awesome-template.sync"},
+        metadata={CONFIG_PATH_METADATA_KEY: "awesome-template.sync"},
     )
     """Whether awesome-template sync is enabled for this project.
 
@@ -486,7 +490,7 @@ class Config:
 
     bumpversion_sync: bool = field(
         default=True,
-        metadata={"click_extra.config_path": "bumpversion.sync"},
+        metadata={CONFIG_PATH_METADATA_KEY: "bumpversion.sync"},
     )
     """Whether bumpversion config sync is enabled for this project.
 
@@ -496,13 +500,13 @@ class Config:
 
     cache: CacheConfig = field(
         default_factory=CacheConfig,
-        metadata={"click_extra.config_path": "cache"},
+        metadata={CONFIG_PATH_METADATA_KEY: "cache"},
     )
     """Binary cache configuration."""
 
     changelog_bullet_word_threshold: int = field(
         default=40,
-        metadata={"click_extra.config_path": "changelog.bullet-word-threshold"},
+        metadata={CONFIG_PATH_METADATA_KEY: "changelog.bullet-word-threshold"},
     )
     """Word count above which `lint-changelog` warns about a changelog bullet.
 
@@ -516,19 +520,19 @@ class Config:
 
     changelog_location: str = field(
         default="./changelog.md",
-        metadata={"click_extra.config_path": "changelog.location"},
+        metadata={CONFIG_PATH_METADATA_KEY: "changelog.location"},
     )
     """File path of the changelog, relative to the root of the repository."""
 
     dependency_graph: DependencyGraphConfig = field(
         default_factory=DependencyGraphConfig,
-        metadata={"click_extra.config_path": "dependency-graph"},
+        metadata={CONFIG_PATH_METADATA_KEY: "dependency-graph"},
     )
     """Dependency graph generation configuration."""
 
     dev_release_sync: bool = field(
         default=True,
-        metadata={"click_extra.config_path": "dev-release.sync"},
+        metadata={CONFIG_PATH_METADATA_KEY: "dev-release.sync"},
     )
     """Whether dev pre-release sync is enabled for this project.
 
@@ -538,7 +542,7 @@ class Config:
 
     docs: DocsConfig = field(
         default_factory=DocsConfig,
-        metadata={"click_extra.config_path": "docs"},
+        metadata={CONFIG_PATH_METADATA_KEY: "docs"},
     )
     """Sphinx documentation generation configuration."""
 
@@ -557,7 +561,7 @@ class Config:
 
     gitignore: GitignoreConfig = field(
         default_factory=GitignoreConfig,
-        metadata={"click_extra.config_path": "gitignore"},
+        metadata={CONFIG_PATH_METADATA_KEY: "gitignore"},
     )
     """`.gitignore` sync configuration."""
 
@@ -575,13 +579,13 @@ class Config:
 
     labels: LabelsConfig = field(
         default_factory=LabelsConfig,
-        metadata={"click_extra.config_path": "labels"},
+        metadata={CONFIG_PATH_METADATA_KEY: "labels"},
     )
     """Repository label sync configuration."""
 
     mailmap_sync: bool = field(
         default=True,
-        metadata={"click_extra.config_path": "mailmap.sync"},
+        metadata={CONFIG_PATH_METADATA_KEY: "mailmap.sync"},
     )
     """Whether `.mailmap` sync is enabled for this project.
 
@@ -591,7 +595,7 @@ class Config:
 
     manpages_script: str = field(
         default="",
-        metadata={"click_extra.config_path": "manpages.script"},
+        metadata={CONFIG_PATH_METADATA_KEY: "manpages.script"},
     )
     """Click command target whose tree gets rendered as roff `.1` files and
     attached as a tarball asset on every GitHub release.
@@ -604,7 +608,7 @@ class Config:
 
     manpages_asset_name: str = field(
         default="",
-        metadata={"click_extra.config_path": "manpages.asset-name"},
+        metadata={CONFIG_PATH_METADATA_KEY: "manpages.asset-name"},
     )
     """Filename stem (without the `.tar.gz` extension) for the man-page tarball
     uploaded to the GitHub release.
@@ -615,7 +619,7 @@ class Config:
 
     notification_unsubscribe: bool = field(
         default=False,
-        metadata={"click_extra.config_path": "notification.unsubscribe"},
+        metadata={CONFIG_PATH_METADATA_KEY: "notification.unsubscribe"},
     )
     """Whether the unsubscribe-threads workflow is enabled.
 
@@ -626,7 +630,7 @@ class Config:
 
     nuitka_enabled: bool = field(
         default=True,
-        metadata={"click_extra.config_path": "nuitka.enabled"},
+        metadata={CONFIG_PATH_METADATA_KEY: "nuitka.enabled"},
     )
     """Whether Nuitka binary compilation is enabled for this project.
 
@@ -637,7 +641,7 @@ class Config:
 
     nuitka_entry_points: list[str] = field(
         default_factory=list,
-        metadata={"click_extra.config_path": "nuitka.entry-points"},
+        metadata={CONFIG_PATH_METADATA_KEY: "nuitka.entry-points"},
     )
     """Which `[project.scripts]` entry points produce Nuitka binaries.
 
@@ -650,7 +654,7 @@ class Config:
 
     nuitka_extras: list[str] = field(
         default_factory=list,
-        metadata={"click_extra.config_path": "nuitka.extras"},
+        metadata={CONFIG_PATH_METADATA_KEY: "nuitka.extras"},
     )
     """`[project.optional-dependencies]` extras to install before the Nuitka build.
 
@@ -665,7 +669,7 @@ class Config:
 
     nuitka_unstable_targets: list[str] = field(
         default_factory=list,
-        metadata={"click_extra.config_path": "nuitka.unstable-targets"},
+        metadata={CONFIG_PATH_METADATA_KEY: "nuitka.unstable-targets"},
     )
     """Nuitka build targets allowed to fail without blocking the release.
 
@@ -702,7 +706,7 @@ class Config:
 
     agents_location: str = field(
         default="./.claude/agents/",
-        metadata={"click_extra.config_path": "agents.location"},
+        metadata={CONFIG_PATH_METADATA_KEY: "agents.location"},
     )
     """Directory prefix for Claude Code agent files, relative to the repository root.
 
@@ -713,7 +717,7 @@ class Config:
 
     skills_location: str = field(
         default="./.claude/skills/",
-        metadata={"click_extra.config_path": "skills.location"},
+        metadata={CONFIG_PATH_METADATA_KEY: "skills.location"},
     )
     """Directory prefix for Claude Code skill files, relative to the repository root.
 
@@ -725,8 +729,8 @@ class Config:
     test_matrix: TestMatrixConfig = field(
         default_factory=TestMatrixConfig,
         metadata={
-            "click_extra.config_path": "test-matrix",
-            "click_extra.normalize_keys": False,
+            CONFIG_PATH_METADATA_KEY: "test-matrix",
+            NORMALIZE_KEYS_METADATA_KEY: False,
         },
     )
     """Per-project customizations for the GitHub Actions CI test matrix.
@@ -737,7 +741,7 @@ class Config:
 
     uv_lock_sync: bool = field(
         default=True,
-        metadata={"click_extra.config_path": "uv-lock.sync"},
+        metadata={CONFIG_PATH_METADATA_KEY: "uv-lock.sync"},
     )
     """Whether `uv.lock` sync is enabled for this project.
 
@@ -747,13 +751,13 @@ class Config:
 
     vulnerable_deps: VulnerableDepsConfig = field(
         default_factory=lambda: VulnerableDepsConfig(),
-        metadata={"click_extra.config_path": "vulnerable-deps"},
+        metadata={CONFIG_PATH_METADATA_KEY: "vulnerable-deps"},
     )
     """Vulnerable dependency detection and remediation configuration."""
 
     workflow: WorkflowConfig = field(
         default_factory=WorkflowConfig,
-        metadata={"click_extra.config_path": "workflow"},
+        metadata={CONFIG_PATH_METADATA_KEY: "workflow"},
     )
     """Workflow sync configuration."""
 
@@ -803,7 +807,7 @@ def _field_to_key(name: str, cls: type | None = None) -> str:
         cls = Config
     for f in fields(cls):
         if f.name == name:
-            path = f.metadata.get("click_extra.config_path")
+            path = f.metadata.get(CONFIG_PATH_METADATA_KEY)
             if path:
                 return str(path)
             break
