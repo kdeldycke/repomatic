@@ -243,6 +243,24 @@ def test_release_thin_caller_synthesizes_triggers() -> None:
     assert extract_trigger_info("_release-engine.yaml").non_call_triggers == {}
 
 
+def test_release_caller_emits_concurrency() -> None:
+    """The release.yaml caller carries the entry workflow's concurrency group.
+
+    Unlike a simple thin caller, the multi-lane release caller must declare
+    concurrency on its push-triggered entry: the concurrency-bearing engine lane
+    runs behind ``needs: build``, so a block there joins its group too late to
+    cancel superseded runs. The group protects release commits via github.sha.
+    """
+    content = generate_thin_caller("release.yaml", version="v9.9.9")
+    data = yaml.safe_load(content)
+    assert "concurrency" in data
+    group = data["concurrency"]["group"]
+    assert "github.sha" in group
+    assert "[changelog] Release" in group
+    assert "[changelog] Post-release" in group
+    assert data["concurrency"]["cancel-in-progress"] is True
+
+
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
 def test_correct_uses_ref(filename: str) -> None:
     """Verify correct uses reference in job."""
@@ -1126,13 +1144,21 @@ WORKFLOWS_WITH_CONCURRENCY = (
     "docs.yaml",
     "labels.yaml",
     "lint.yaml",
-    "_release-engine.yaml",
+    "release.yaml",
     "renovate.yaml",
 )
 """Canonical workflows that define a concurrency block."""
 
-WORKFLOWS_WITHOUT_CONCURRENCY = ("autolock.yaml", "cancel-runs.yaml")
-"""Canonical workflows that do not define a concurrency block."""
+WORKFLOWS_WITHOUT_CONCURRENCY = (
+    "_release-engine.yaml",
+    "autolock.yaml",
+    "cancel-runs.yaml",
+)
+"""Canonical workflows that do not define a concurrency block.
+
+`_release-engine.yaml` delegates concurrency to the push-triggered `release.yaml`
+entry that calls it (see {func}`_generate_release_caller`).
+"""
 
 
 @pytest.mark.parametrize("filename", WORKFLOWS_WITH_CONCURRENCY)
@@ -1161,9 +1187,9 @@ def test_concurrency_preserves_expressions() -> None:
 
 def test_concurrency_preserves_comments() -> None:
     """Verify raw concurrency preserves inline comments."""
-    info = extract_trigger_info("_release-engine.yaml")
+    info = extract_trigger_info("release.yaml")
     assert info.raw_concurrency is not None
-    # The release engine has explanatory comments in its concurrency block.
+    # The release entry has explanatory comments in its concurrency block.
     assert "#" in info.raw_concurrency
 
 
@@ -1172,12 +1198,18 @@ def test_concurrency_preserves_comments() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
+# release.yaml is excluded: its multi-lane caller carries concurrency because
+# the engine lane it calls joins its group too late to cancel queued runs. See
+# test_release_caller_emits_concurrency.
+@pytest.mark.parametrize(
+    "filename", [f for f in REUSABLE_WORKFLOWS if f != "release.yaml"]
+)
 def test_thin_caller_omits_concurrency(filename: str) -> None:
-    """Verify thin callers never include concurrency.
+    """Verify simple thin callers never include concurrency.
 
-    The reusable workflow's own concurrency block applies when called via
-    ``workflow_call``, so duplicating it in the thin caller is unnecessary.
+    A simple thin caller's single job joins the reusable workflow's own
+    concurrency group immediately when called via ``workflow_call``, so
+    duplicating the block in the caller is unnecessary.
     """
     content = generate_thin_caller(filename)
     assert "concurrency:" not in content

@@ -793,6 +793,10 @@ def _generate_release_caller(
     - **Standard release triggers synthesized** (`push` to `main` +
       `workflow_dispatch`), so a dogfooding-only trigger added upstream never
       leaks downstream.
+    - **Concurrency carried over** from the canonical entry verbatim, so
+      superseded non-release runs cancel downstream too. The block must sit on
+      this push-triggered caller (not the engine lane it calls via `needs:`,
+      whose group joins too late to cancel queued runs); see docs/workflows.md.
     - **Local `uses: ./` refs rewritten** to the pinned cross-repo form
       (`{repo}/.github/workflows/{name}@{ref}`) for the `build` and `release`
       lanes, with their repomatic-specific comments stripped.
@@ -844,10 +848,20 @@ def _generate_release_caller(
         f"name: {info.name}",
         _render_triggers(triggers),
         "",
+    ]
+    # Carry the entry workflow's concurrency group downstream verbatim (comments
+    # included). It must live on this push-triggered caller, not the reusable
+    # engine lane it reaches via `needs: build`, so superseded non-release runs
+    # cancel while release commits keep their unique SHA group. See the canonical
+    # release.yaml and docs/workflows.md.
+    if info.raw_concurrency:
+        lines.append(info.raw_concurrency)
+        lines.append("")
+    lines.extend([
         "jobs:",
         "",
         *lane_lines(build_job),
-    ]
+    ])
     lines.extend(
         _render_publish_pypi_job(repo=repo, version=version, commit_sha=commit_sha)
     )

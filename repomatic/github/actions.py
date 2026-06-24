@@ -22,11 +22,16 @@ GitHub-specific constants and enums shared across multiple modules.
 
 ```{note} Concurrency quirks addressed by the workflows
 
-**SHA-based groups (`release.yaml`):** `cancel-in-progress` is
-evaluated on the *new* workflow, not the old one. If a regular commit is
-pushed while a release workflow is running, the new workflow would cancel
-it (same group). Solution: release commits (freeze and unfreeze) get a
-unique group keyed by `github.sha`, so they can never be cancelled.
+**SHA-based groups (`release.yaml`):** the block sits on the
+push-triggered entry workflow, not the reusable `_release-engine.yaml` it
+calls. GitHub decides run cancellation from the entry workflow's group, and
+a block on the engine lane (reached via `needs: build`) joins its group only
+after the build lane finishes, too late to cancel queued or building runs.
+`cancel-in-progress` is evaluated on the *new* workflow, not the old one. If
+a regular commit is pushed while a release workflow is running, the new
+workflow would cancel it (same group). Solution: release commits (freeze and
+unfreeze) get a unique group keyed by `github.sha`, so they can never be
+cancelled.
 
 **Event-scoped groups (`changelog.yaml`):** `changelog.yaml` has
 both `push` and `workflow_run` triggers. Without `event_name` in

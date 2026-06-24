@@ -26,6 +26,25 @@ name: 🚀 Build & release
     branches:
       - main
 
+concurrency:
+  # Declared on this push-triggered entry, not the reusable _release-engine.yaml it
+  # calls: GitHub decides run cancellation from the entry workflow's group, and a
+  # block on the engine lane (reached via `needs: build`) joins its group too late
+  # to cancel queued or building runs. Regular commits share a per-branch group and
+  # cancel each other; release commits ([changelog] Release / Post-release) get a
+  # unique SHA-based group so an in-flight release is never cancelled by a later push.
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event.pull_request.number
+      || (
+        (startsWith(github.event.head_commit.message, '[changelog] Release')
+        || startsWith(github.event.head_commit.message, '[changelog] Post-release'))
+        && github.sha
+      )
+      || github.ref
+    }}
+  cancel-in-progress: true
+
 jobs:
 
   build:

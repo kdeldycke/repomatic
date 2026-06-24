@@ -8,6 +8,7 @@
 - **Breaking:** The test and release workflows now run `click-extra test-suite` (the `test-plan` engine renamed in click-extra `8.1`), reading the suite from `./tests/cli-test-suite.toml`. Requires `click-extra >= 8.1`.
 - The test workflow skips the Codecov upload on free-threaded Python (`3.14t`), where codecov-cli cannot build its `test-results-parser` extension.
 - In generated dependency graphs, thick arrows now mark only the root package's direct dependencies; a transitive edge that points at a primary dependency stays thin, so optional extras no longer read as a primary dependency chain.
+- The release workflow now cancels superseded runs on rapid non-release pushes to `main`, so intermediate commits no longer pile up redundant binary builds; release commits still run to completion.
 
 ## [`6.29.0` (2026-06-22)](https://github.com/kdeldycke/repomatic/compare/v6.28.1...v6.29.0)
 

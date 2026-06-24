@@ -63,24 +63,24 @@ WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
     "autolock.yaml",  # Scheduled only, no concurrent execution possible.
     "cancel-runs.yaml",  # Fires on PR close, must always run to completion.
     "debug.yaml",  # Debug-only workflow, not for production use.
-    # Release fast lane: a cheap, idempotent sub-component invoked by release.yaml.
-    # A shared concurrency group would contend with the engine lane in the same
-    # run; release commits are protected from cancellation by the engine's
-    # SHA-based unique group instead.
+    # Release lanes: the push-triggered release.yaml entry owns the concurrency
+    # group. A block on either reusable lane would contend with the entry's group
+    # and, being reached via the caller's `needs: build` gate, would join its
+    # group too late to cancel queued runs.
     "_release-build.yaml",
-    # Thin-caller entry: delegates concurrency to the _release-engine.yaml it
-    # calls (which uses SHA-based unique groups to protect releases).
-    "release.yaml",
+    "_release-engine.yaml",
     "unsubscribe.yaml",  # Scheduled only, no concurrent execution possible.
 ))
 
 # Workflows that protect releases using unique concurrency groups (github.sha)
 # instead of conditional cancel-in-progress. This is necessary when
 # cancel-in-progress is evaluated on the NEW workflow, which would cancel
-# running releases.
+# running releases. The group lives on the push-triggered entry workflow, not
+# the reusable engine lane it calls (a block on a `needs:`-gated lane joins its
+# group too late to cancel queued runs).
 WORKFLOWS_WITH_UNIQUE_GROUPS = frozenset((
-    # Uses github.sha in group for release/post-release commits.
-    "_release-engine.yaml",
+    # release.yaml uses github.sha in group for release/post-release commits.
+    "release.yaml",
 ))
 
 # Workflows that use event-scoped concurrency groups (github.event_name in group)

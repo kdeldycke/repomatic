@@ -22,20 +22,10 @@ name: 🚀 Build & release
 
 permissions: {}
 
-concurrency:
-  # Release commits get a unique SHA-based group so they can never be cancelled.
-  # See repomatic/github/actions.py for rationale.
-  group: >-
-    ${{ github.workflow }}-${{
-      github.event.pull_request.number
-      || (
-        (startsWith(github.event.head_commit.message, '[changelog] Release')
-        || startsWith(github.event.head_commit.message, '[changelog] Post-release'))
-        && github.sha
-      )
-      || github.ref
-    }}
-  cancel-in-progress: true
+# No concurrency block: the push-triggered release.yaml entry owns the
+# concurrency group. A block here would join its group behind the caller's
+# `needs: build` gate, too late to cancel queued runs, and would contend with
+# the entry's group. See repomatic/github/actions.py for rationale.
 
 jobs:
 

@@ -42,8 +42,9 @@ name: 📦 Build package
 permissions: {}
 
 # No concurrency block: this lane is a release sub-component invoked by
-# release.yaml, its jobs are cheap and idempotent, and release commits are
-# protected from cancellation by _release-engine.yaml's SHA-based unique group.
+# release.yaml, its jobs are cheap and idempotent, and the push-triggered
+# release.yaml entry owns the concurrency group (its SHA-based unique group
+# protects release commits, and a block here would contend with it).
 
 jobs:
 
