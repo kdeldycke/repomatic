@@ -5,7 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** The test and release workflows now run `click-extra test-suite` (the `test-plan` engine, renamed in click-extra `8.1`), configured via `[tool.click-extra.test-suite]`. Requires `click-extra >= 8.1`.
+- **Breaking:** The test and release workflows now run `click-extra test-suite` (the `test-plan` engine renamed in click-extra `8.1`), reading the suite from `./tests/cli-test-suite.toml`. Requires `click-extra >= 8.1`.
 - The test workflow skips the Codecov upload on free-threaded Python (`3.14t`), where codecov-cli cannot build its `test-results-parser` extension.
 - In generated dependency graphs, thick arrows now mark only the root package's direct dependencies; a transitive edge that points at a primary dependency stays thin, so optional extras no longer read as a primary dependency chain.
 

@@ -1,0 +1,117 @@
+# This test suite checks some high-level behavior of the repomatic CLI. It also
+# exercises the structures the suite parser accepts: a parameter as a bare string
+# or an array, a float timeout, and mixed-case platform names.
+
+# Output the version of the CLI.
+[[cases]]
+# A single parameter, provided as a string.
+cli_parameters = "--version"
+# A floating-point timeout.
+timeout = 80.0
+exit_code = 0
+# click-extra 8.0's --color=auto strips color on captured (non-TTY) output, so
+# the version line is plain text. strip_ansi stays robust if color is forced.
+strip_ansi = true
+stdout_contains = ", version"
+stdout_regex_fullmatch = '''repomatic, version [0-9]+\.[0-9]+\.[0-9]+(\.[a-z]+[0-9]+(\+[a-f0-9]+)?)?
+'''
+
+# Force color on the same version line. --color (alias of --color=always) makes
+# click-extra emit the CLI name with bold + bright-white escapes (\x1b[97m\x1b[1m)
+# and the version in green (\x1b[32m), even though the output is captured
+# (non-TTY). No strip_ansi here: the raw ANSI sequences must round-trip, the
+# inverse of the --color=auto case above.
+[[cases]]
+cli_parameters = ["--color", "--version"]
+exit_code = 0
+stdout_contains = ", version"
+stdout_regex_fullmatch = "\u001b\\[97m\u001b\\[1mrepomatic\u001b\\[0m, version \u001b\\[32m[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z]+[0-9]+(\\+[a-f0-9]+)?)?\u001b\\[0m\n"
+
+# Test combination of version and verbosity.
+[[cases]]
+# Parameters provided as an array of strings.
+cli_parameters = ["--verbosity", "DEBUG", "--version"]
+exit_code = 0
+# Captured output is uncolored under click-extra 8.0 (see the --version case).
+strip_ansi = true
+stdout_contains = ", version"
+stdout_regex_matches = "repomatic, version "
+stderr_contains = [
+  "Set <RootLogger root (DEBUG)> to DEBUG.",
+  "debug: Version string template variables:",
+]
+# The version-template debug dump aligns field names with padding, so match the
+# package_name row loosely.
+stderr_regex_matches = ['debug: \{package_name\} +: repomatic']
+
+# Test help output.
+[[cases]]
+cli_parameters = ["--help"]
+strip_ansi = true
+stdout_contains = [
+  "Usage: repomatic [OPTIONS] COMMAND [ARGS]...",
+  "-h, --help",
+]
+
+# Test metadata output.
+[[cases]]
+cli_parameters = "--verbosity INFO metadata"
+# XXX This command fails on Windows as it tries to print emojis to the console:
+# UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f64f' in
+# position 39913: character maps to <undefined>
+skip_platforms = "windows"
+stderr_contains = ["info: Print metadata to <stdout>"]
+# Note: new_commits and new_commits_matrix are empty locally, but contain commit
+# SHAs when running in GitHub Actions CI. Use stdout_contains for key checks
+# instead of fullmatch since release_notes content varies.
+stdout_contains = [
+  "mailmap_exists=true",
+  "is_python_project=true",
+  "package_name=repomatic",
+  "is_sphinx=true",
+]
+stdout_regex_matches = [
+  "is_bot=(true|false)",
+  "skip_binary_build=(true|false)",
+  "yaml_changed=(true|false)",
+  "zsh_changed=(true|false)",
+  "workflows_changed=(true|false)",
+  "new_commits=([a-f0-9]+)?",
+  "release_commits=([a-f0-9]+)?",
+  'python_files="[\S ]+"',
+  'current_version=[0-9.]+(\.[a-z]+[0-9]+)?',
+  "release_notes<<GHA_DELIMITER_[0-9]+",
+  "GHA_DELIMITER_[0-9]+",
+  'build_targets=\[\{"target": .+\}\]',
+  'nuitka_matrix=\{"os": \[.+\]',
+  "minor_bump_allowed=(true|false)",
+  "major_bump_allowed=(true|false)",
+]
+
+# Test changelog output.
+[[cases]]
+cli_parameters = ["--verbosity", "INFO", "changelog"]
+# XXX This command fails on Windows as it tries to print emojis to the console:
+# UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f64f' in
+# position 39913: character maps to <undefined>
+skip_platforms = "Windows"
+stdout_regex_fullmatch = '''
+# Changelog
+
+## \[`[0-9\.]+(\.dev[0-9]+)?` \(unreleased\)\]\(https://github.com/kdeldycke/repomatic/compare/v[0-9\.]+\.\.\.main\)
+
+> \[\!WARNING\]
+> This version is \*\*not released yet\*\* and is under active development\.
+
+.+'''
+
+# Test sync-mailmap output.
+[[cases]]
+cli_parameters = ["--verbosity", "INFO", "sync-mailmap"]
+# Mixed-case platform names, provided as an array of strings.
+only_platforms = ["linux", "macOS", "windows"]
+exit_code = 0
+stderr_regex_matches = [
+  'info: Read initial mapping from \S+\.mailmap',
+  "info: (Save updated results to|Print updated results to)",
+]

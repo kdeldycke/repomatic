@@ -537,7 +537,6 @@ expected: dict[str, Any] = {
         "repomatic/data/labeller-file-based.yaml",
         "repomatic/data/yamllint.yaml",
         "repomatic/data/zizmor.yaml",
-        "tests/cli-test-suite.yaml",
     ],
     "toml_files": [
         "pyproject.toml",
@@ -550,6 +549,7 @@ expected: dict[str, Any] = {
         "repomatic/data/ruff.toml",
         "repomatic/data/typos.toml",
         "repomatic/data/uv.toml",
+        "tests/cli-test-suite.toml",
     ],
     "pyproject_files": [
         "pyproject.toml",

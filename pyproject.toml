@@ -318,13 +318,6 @@ overrides = [
   ], ignore_missing_imports = true },
 ]
 
-# click-extra's `test-suite` engine reads repomatic's self-test cases from here
-# (used by the test-binaries and self-test jobs). The 8.1.0 default suite path is
-# ./tests/cli-test-suite.toml; point it at the YAML suite instead, kept as YAML to
-# avoid re-escaping the ANSI- and regex-heavy cases as TOML.
-[tool.click-extra.test-suite]
-file = "tests/cli-test-suite.yaml"
-
 [tool.pytest]
 addopts = [
   "--durations=10",

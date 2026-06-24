@@ -179,19 +179,18 @@ jobs:
 
       - name: Self-tests against test suite
         # click-extra owns the test-suite engine and CLI; it reads the suite from
-        # [tool.click-extra.test-suite] (this repo points it at ./tests/cli-test-suite.yaml). `--jobs max`
-        # runs cases across every logical core. The outer `uv run` provides the
-        # environment, avoiding per-case uv lock contention between parallel workers.
-        # The target is this repo's own console script (from repomatic metadata), so
-        # the self-test stays correct when this workflow is synced to downstream repos.
+        # ./tests/cli-test-suite.toml (the click-extra 8.1 default, parsed with the
+        # built-in tomllib so no extra is needed). `--jobs max` runs cases across every
+        # logical core. The outer `uv run` provides the environment, avoiding per-case
+        # uv lock contention between parallel workers. The target is this repo's own
+        # console script (from repomatic metadata), so the self-test stays correct when
+        # this workflow is synced to downstream repos.
         # Skipped for repos that ship no console script (nothing to self-test).
-        # `--with click-extra[yaml]` adds YAML support to the run env: click-extra keeps
-        # it behind this extra, which the consumer's frozen `uv run` env may lack.
         if: fromJSON(needs.metadata.outputs.metadata).cli_scripts[0]
         env:
           CLI_SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).cli_scripts[0] }}
         run: >
-          uv run --frozen --no-progress --with 'click-extra[yaml]' --
+          uv run --frozen --no-progress --
           click-extra test-suite --command "${CLI_SCRIPT}" --jobs max
 
   test-package-install:
