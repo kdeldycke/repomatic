@@ -1,9 +1,6 @@
 # Changelog
 
-## [`6.30.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.29.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`6.30.0` (2026-06-24)](https://github.com/kdeldycke/repomatic/compare/v6.29.0...v6.30.0)
 
 - **Breaking:** The test and release workflows now run `click-extra test-suite` (the `test-plan` engine renamed in click-extra `8.1`), reading the suite from `./tests/cli-test-suite.toml`. Requires `click-extra >= 8.1`.
 - `repomatic lint-repo` now fails when a workflow's inline `repomatic==X.Y.Z` pin lags the version of its `uses:` ref.
