@@ -39,7 +39,7 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
           HAS_VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
-        run: uvx --no-progress 'repomatic==6.30.0' setup-guide
+        run: uvx --no-progress --from . repomatic setup-guide
 
   metadata:
     name: 🧬 Project metadata
@@ -52,7 +52,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' metadata
+          uvx --no-progress --from . repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           gitignore_exists python_files pyproject_files json_files doc_files
           markdown_files is_python_project mailmap_exists
@@ -81,16 +81,16 @@ jobs:
         # Explicit list of files is provided, as autopep8 is not able to handle find files in ".github" subdirectory.
         env:
           PYTHON_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).python_files }}
-        run: echo "${PYTHON_FILES}" | xargs uvx --no-progress 'repomatic==6.30.0' run autopep8 --
+        run: echo "${PYTHON_FILES}" | xargs uvx --no-progress --from . repomatic run autopep8 --
       # XXX Ruff is planning to support linting and formatting in one unified command at one point.
       #     See: https://github.com/astral-sh/ruff/issues/8232
       - name: Run Ruff
         run: |
-          uvx --no-progress 'repomatic==6.30.0' run ruff -- check --output-format github
-          uvx --no-progress 'repomatic==6.30.0' run ruff -- format --output-format github
+          uvx --no-progress --from . repomatic run ruff -- check --output-format github
+          uvx --no-progress --from . repomatic run ruff -- format --output-format github
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template format-python
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -124,11 +124,11 @@ jobs:
           PYPROJECT_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).pyproject_files }}
         run: |
           rc=0
-          echo "${PYPROJECT_FILES}" | xargs uvx --no-progress 'repomatic==6.30.0' run pyproject-fmt -- || rc=$?
+          echo "${PYPROJECT_FILES}" | xargs uvx --no-progress --from . repomatic run pyproject-fmt -- || rc=$?
           [ "$rc" -eq 0 ] || [ "$rc" -eq 123 ] || exit "$rc"
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template format-pyproject
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -165,7 +165,7 @@ jobs:
       - name: Auto-format Markdown
         env:
           MARKDOWN_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).markdown_files }}
-        run: echo "${MARKDOWN_FILES}" | xargs -n1 uvx --no-progress 'repomatic==6.30.0' run mdformat --
+        run: echo "${MARKDOWN_FILES}" | xargs -n1 uvx --no-progress --from . repomatic run mdformat --
       - name: Markdown fixes for Awesome Lists
         if: startsWith(github.event.repository.name, 'awesome-')
         # Remove forbidden TOC entries: https://github.com/sindresorhus/awesome-lint/blob/v2.2.2/rules/toc.js#L14-L18
@@ -180,7 +180,7 @@ jobs:
           -exec gawk -i inplace '!/^- \[(Contents|Contributing|Footnotes|Related Lists)\]\(#.+\)$/{print}' "{}" \;
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template format-markdown
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -215,10 +215,10 @@ jobs:
       - name: Format shell scripts
         env:
           SHELL_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).shfmt_files }}
-        run: echo "${SHELL_FILES}" | xargs uvx --no-progress 'repomatic==6.30.0' run shfmt --
+        run: echo "${SHELL_FILES}" | xargs uvx --no-progress --from . repomatic run shfmt --
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template format-shell
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -257,12 +257,12 @@ jobs:
           JSON_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).json_files }}
         run: |
           echo "${JSON_FILES}" | xargs \
-            uvx --no-progress 'repomatic==6.30.0' run biome -- \
+            uvx --no-progress --from . repomatic run biome -- \
             format --write --no-errors-on-unmatched \
             --json-parse-allow-comments=true --json-parse-allow-trailing-commas=true
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template format-json
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -294,10 +294,10 @@ jobs:
           restore-keys: |
             repomatic-bin-${{ runner.os }}-${{ runner.arch }}-typos-
       - name: Fix typos
-        run: uvx --no-progress 'repomatic==6.30.0' run typos
+        run: uvx --no-progress --from . repomatic run typos
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template fix-typos
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -334,14 +334,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress 'repomatic==6.30.0' audit --fix
+          uvx --no-progress --from . repomatic audit --fix
           --repo "${{ github.repository }}"
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata
         env:
           REPOMATIC_DIFF_TABLE: ${{ steps.fix.outputs.diff_table }}
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template fix-vulnerable-deps
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -366,11 +366,11 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Sync repomatic-managed files
         run: >
-          uvx --no-progress 'repomatic==6.30.0' init
+          uvx --no-progress --from . repomatic init
           --delete-unmodified --delete-excluded
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template sync-repomatic
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -412,13 +412,13 @@ jobs:
       - name: Format images
         id: format
         run: >
-          uvx --no-progress 'repomatic==6.30.0' format-images
+          uvx --no-progress --from . repomatic format-images
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata
         env:
           GHA_PR_BODY_PREFIX: ${{ steps.format.outputs.markdown }}
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template format-images
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -447,10 +447,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Sync .gitignore
-        run: uvx --no-progress 'repomatic==6.30.0' sync-gitignore
+        run: uvx --no-progress --from . repomatic sync-gitignore
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template sync-gitignore
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -477,10 +477,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Sync bumpversion config
-        run: uvx --no-progress 'repomatic==6.30.0' sync-bumpversion
+        run: uvx --no-progress --from . repomatic sync-bumpversion
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template sync-bumpversion
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -510,10 +510,10 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Sync .mailmap
-        run: uvx --no-progress 'repomatic==6.30.0' sync-mailmap --skip-if-missing
+        run: uvx --no-progress --from . repomatic sync-mailmap --skip-if-missing
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template sync-mailmap
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -542,14 +542,14 @@ jobs:
       - id: sync
         name: Sync uv.lock
         run: >
-          uvx --no-progress 'repomatic==6.30.0' sync-uv-lock
+          uvx --no-progress --from . repomatic sync-uv-lock
           --no-table --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata
         env:
           REPOMATIC_DIFF_TABLE: ${{ steps.sync.outputs.diff_table }}
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template sync-uv-lock
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -580,10 +580,10 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Generate graph
         # Package name and output path are auto-detected from pyproject.toml.
-        run: uvx --no-progress 'repomatic==6.30.0' update-deps-graph
+        run: uvx --no-progress --from . repomatic update-deps-graph
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template update-deps-graph
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -615,10 +615,10 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Update docs
         # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, then runs docs/docs_update.py.
-        run: uvx --no-progress 'repomatic==6.30.0' update-docs
+        run: uvx --no-progress --from . repomatic update-docs
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==6.30.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template update-docs
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
