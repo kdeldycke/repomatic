@@ -117,12 +117,12 @@ Workflows are grouped by:
 - **Pull requests**: `{workflow-name}-{pr-number}` — Multiple commits to the same PR cancel previous runs
 - **Branch pushes**: `{workflow-name}-{branch-ref}` — Multiple pushes to the same branch cancel previous runs
 
-`_release-engine.yaml` uses a stronger protection: release commits get a **unique concurrency group** based on the commit SHA, so they can never be cancelled. This ensures tagging, PyPI publishing, and GitHub release creation complete successfully.
+`release.yaml` uses a stronger protection: release commits get a **unique concurrency group** based on the commit SHA, so they can never be cancelled. This ensures tagging, PyPI publishing, and GitHub release creation complete successfully.
 
 Additionally, [`cancel-runs.yaml`](workflows.md#github-workflows-cancel-runs-yaml-jobs) actively cancels in-progress and queued runs when a PR is closed. This complements passive concurrency groups, which only trigger cancellation when a *new* run enters the same group — closing a PR doesn't produce such an event.
 
 > [!TIP]
-> For implementation details on how concurrency groups are computed and why `_release-engine.yaml` needs special handling, see the {mod}`repomatic.github.actions` module docstring.
+> For implementation details on how concurrency groups are computed and why `release.yaml` needs special handling, see the {mod}`repomatic.github.actions` module docstring.
 
 ## AV false-positive submissions
 
