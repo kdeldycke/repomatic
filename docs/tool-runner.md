@@ -49,7 +49,7 @@ invoke(repomatic, args=['run', '--list'])
 | :-------------------------------------------------------------------- | :------- | :---------- | :----------------------------------------------------------------------------- |
 | [actionlint](https://github.com/rhysd/actionlint)                     | `1.7.12` | Binary      | `.github/actionlint.yaml`, `.github/actionlint.yml`                            |
 | [autopep8](https://github.com/hhatto/autopep8)                        | `2.3.2`  | PyPI        | `[tool.autopep8]` in `pyproject.toml`                                          |
-| [Biome](https://github.com/biomejs/biome)                             | `2.4.16` | Binary      | `biome.json`, `biome.jsonc`, `.biome.json`, `.biome.jsonc`                     |
+| [Biome](https://github.com/biomejs/biome)                             | `2.5.0`  | Binary      | `biome.json`, `biome.jsonc`, `.biome.json`, `.biome.jsonc`                     |
 | [bump-my-version](https://github.com/callowayproject/bump-my-version) | `1.2.7`  | PyPI        | `.bumpversion.toml`, `[tool.bump-my-version]` in `pyproject.toml`              |
 | [Gitleaks](https://github.com/gitleaks/gitleaks)                      | `8.30.1` | Binary      | `.gitleaks.toml`                                                               |
 | [labelmaker](https://github.com/jwodder/labelmaker)                   | `0.6.4`  | Binary      | CLI flags only                                                                 |
@@ -324,7 +324,7 @@ autopep8 takes its configuration from CLI flags only. repomatic passes `--recurs
 
 ### [Biome](https://github.com/biomejs/biome)
 
-**Installed version:** `2.4.16`
+**Installed version:** `2.5.0`
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
