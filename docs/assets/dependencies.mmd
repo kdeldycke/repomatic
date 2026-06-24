@@ -101,7 +101,7 @@ flowchart LR
         types_pyyaml{{"`types-pyyaml >=6.0.12.9`"}}
     end
 
-    repomatic ==>|" >=8 "| click_extra
+    repomatic ==>|" >=8.1 "| click_extra
     repomatic ==>|" >=2 "| pydriller
     repomatic ==>|" >=17 "| packaging
     repomatic ==>|" >=6.0.3 "| pyyaml
@@ -116,7 +116,7 @@ flowchart LR
     sphinx --> pygments
     sphinx --> requests
     sphinx --> jinja2
-    sphinx ==> packaging
+    sphinx --> packaging
     sphinx --> colorama
     sphinx --> docutils
     sphinx --> alabaster
@@ -130,32 +130,32 @@ flowchart LR
     sphinx --> sphinxcontrib_jsmath
     sphinx --> sphinxcontrib_qthelp
     sphinx --> sphinxcontrib_serializinghtml
-    click_extra ==> sphinx
+    click_extra --> sphinx
     click_extra --> pygments
     click_extra --> click_0
     click_extra --> cloup
     click_extra --> docutils
     click_extra --> tomli
-    click_extra ==> wcmatch
-    click_extra ==> boltons
-    click_extra ==> extra_platforms
+    click_extra --> wcmatch
+    click_extra --> boltons
+    click_extra --> extra_platforms
     click_extra --> tabulate
     click_extra --> wcwidth
     click_extra --> deepmerge
     pytest --> pygments
-    pytest ==> packaging
+    pytest --> packaging
     pytest --> colorama
     pytest --> tomli
     pytest --> exceptiongroup
     pytest --> pluggy
     pytest --> iniconfig
-    myst_parser ==> sphinx
+    myst_parser --> sphinx
     myst_parser --> jinja2
     myst_parser --> docutils
     myst_parser --> markdown_it_py
-    myst_parser ==> pyyaml
+    myst_parser --> pyyaml
     myst_parser --> mdit_py_plugins
-    furo ==> sphinx
+    furo --> sphinx
     furo --> pygments
     furo --> beautifulsoup4
     furo --> accessible_pygments
@@ -164,27 +164,27 @@ flowchart LR
     pydriller --> gitpython
     pydriller --> pytz
     pydriller --> types_pytz
-    pytest_cov ==> pytest
-    pytest_cov ==> coverage
+    pytest_cov --> pytest
+    pytest_cov --> coverage
     pytest_cov --> pluggy
-    pytest_xdist ==> pytest
+    pytest_xdist --> pytest
     pytest_xdist --> execnet
     pytest_xdist --> psutil
-    sphinxcontrib_mermaid ==> sphinx
+    sphinxcontrib_mermaid --> sphinx
     sphinxcontrib_mermaid --> jinja2
-    sphinxcontrib_mermaid ==> pyyaml
+    sphinxcontrib_mermaid --> pyyaml
     coverage --> tomli
     vt_py --> aiohttp
     vt_py --> aiofiles
     wcmatch --> bracex
     py_walk --> sly
-    pyproject_metadata ==> packaging
-    pytest_github_actions_annotate_failures ==> pytest
-    pytest_randomly ==> pytest
-    sphinx_autodoc_typehints ==> sphinx
-    sphinx_copybutton ==> sphinx
-    sphinx_design ==> sphinx
-    sphinxext_opengraph ==> sphinx
+    pyproject_metadata --> packaging
+    pytest_github_actions_annotate_failures --> pytest
+    pytest_randomly --> pytest
+    sphinx_autodoc_typehints --> sphinx
+    sphinx_copybutton --> sphinx
+    sphinx_design --> sphinx
+    sphinxext_opengraph --> sphinx
     tomlrt --> typing_extensions
     aiohttp --> typing_extensions
     aiohttp --> yarl
@@ -212,7 +212,7 @@ flowchart LR
     exceptiongroup --> typing_extensions
     gitpython --> gitdb
     mdit_py_plugins --> markdown_it_py
-    sphinx_basic_ng ==> sphinx
+    sphinx_basic_ng --> sphinx
     tabulate --> wcwidth
     yarl --> multidict
     yarl --> idna
