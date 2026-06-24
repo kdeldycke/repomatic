@@ -343,8 +343,9 @@ def test_render_mermaid_primary_deps_in_subgraph() -> None:
     assert 'pytest_cov{{"`pytest-cov >=7`"}}' in output
     # Transitive dep uses round shape.
     assert 'iniconfig(["`iniconfig`"])' in output
-    # Arrow pointing to a primary dep uses thick style.
-    assert "pytest_cov ==> pytest" in output
+    # A transitive edge between two non-root packages stays thin, even when it
+    # points at a primary dep: only edges leaving the root are thick.
+    assert "pytest_cov --> pytest" in output
     # Arrow pointing to a transitive dep uses normal style.
     assert "pytest --> iniconfig" in output
 
@@ -462,7 +463,7 @@ def test_render_mermaid_with_cycle() -> None:
     output = render_mermaid(root_name, nodes, edges)
     assert output.startswith("flowchart LR")
     assert "cherry --> cherry" in output
-    assert "banana ==> apple" in output
+    assert "banana --> apple" in output
 
 
 def test_render_mermaid_primary_deps_ordering() -> None:

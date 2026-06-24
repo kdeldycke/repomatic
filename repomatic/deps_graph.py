@@ -657,7 +657,7 @@ def render_mermaid(
                     lines.append(f'        {node_id}(["`{label}`"])')
             lines.append("    end")
 
-    # Add edges. Use thick arrows for edges from root or pointing to primary deps.
+    # Add edges. Use thick arrows for edges leaving the root (direct deps).
     # Use dashed arrows from root to subgraphs for group/extra dependencies.
     lines.append("")
 
@@ -682,10 +682,12 @@ def render_mermaid(
 
         from_id = normalize_package_name(from_name)
         to_id = normalize_package_name(to_name)
-        # Thick arrows for edges from root or pointing to any primary dependency.
-        arrow = (
-            "==>" if from_name == root_name or to_name in all_primary_deps else "-->"
-        )
+        # Thick arrows mark direct dependencies of the root only. A primary dep
+        # is already distinguished as a node (hexagon + thick border), so a
+        # transitive edge that merely lands on one stays thin: bolding it too
+        # made chains like `root ==> extra-platforms ==> pytest` read as a
+        # single "primary" path, though pytest is only reachable via an extra.
+        arrow = "==>" if from_name == root_name else "-->"
 
         # Add specifier as edge label if available.
         spec = ""
