@@ -1,15 +1,18 @@
 ---
-# Work around https://github.com/renovatebot/renovate/discussions/42263
-# Renovate's postUpgradeTasks silently drops file changes when modifying
-# the same file the regex manager already updated. The tool registry
-# checksum rule (renovate.json5) targets repomatic/tool_runner.py for
-# both the version bump and the checksum update, so the checksum write
-# is lost. This workflow runs after Renovate's push, downloads the new
-# binaries, and commits the correct hashes to the PR branch.
+# Async fallback for the tool registry checksum update.
 #
-# This workflow is repomatic-internal: it patches repomatic/tool_runner.py
-# which only exists in this repo. It is intentionally excluded from the
-# downstream workflow registry in registry.py.
+# The primary path is atomic: Renovate's postUpgradeTask (renovate.json5)
+# bumps the version in repomatic/tool_runner.py and writes the matching
+# checksums to the separate repomatic/tool_checksums.py sidecar, so both land
+# in one branch before the PR opens (the separate file sidesteps the same-file
+# drop of https://github.com/renovatebot/renovate/discussions/42263). This
+# workflow is the belt-and-suspenders backup: it runs after Renovate's push,
+# recomputes the hashes, and commits any correction to the PR branch. When the
+# primary path already wrote the right hashes it finds nothing stale and no-ops.
+#
+# This workflow is repomatic-internal: it patches files that only exist in this
+# repo. It is intentionally excluded from the downstream workflow registry in
+# registry.py.
 name: 🔄 Update checksums
 "on":
   # Allow manual runs to recompute checksums on a Renovate branch when the
@@ -19,6 +22,7 @@ name: 🔄 Update checksums
     branches:
       - "renovate/**"
     paths:
+      - "repomatic/tool_checksums.py"
       - "repomatic/tool_runner.py"
 
 permissions: {}
@@ -54,9 +58,9 @@ jobs:
         run: uv --no-progress run --frozen -- repomatic update-checksums --registry
       - name: Commit and push if changed
         run: |
-          git diff --quiet repomatic/tool_runner.py && exit 0
+          git diff --quiet repomatic/tool_checksums.py && exit 0
           git config user.name "$(git log -1 --format='%cn')"
           git config user.email "$(git log -1 --format='%ce')"
-          git add repomatic/tool_runner.py
+          git add repomatic/tool_checksums.py
           git commit -m 'Update tool registry checksums'
           git push

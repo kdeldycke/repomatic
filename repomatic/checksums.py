@@ -21,7 +21,8 @@ Two update modes:
 1. **Workflow files** — scans for GitHub release download URLs paired with
    `sha256sum --check` verification lines. Replaces stale hashes in-place.
 2. **Tool registry** — iterates `TOOL_REGISTRY` entries with `binary`
-   specs, downloads each URL, and replaces stale hashes in `tool_runner.py`.
+   specs, downloads each URL, and replaces stale hashes (and refreshes the
+   version stamps) in the `tool_checksums.py` sidecar.
 
 Designed to be called by Renovate `postUpgradeTasks` after version bumps,
 but also works standalone for manual checksum updates.
@@ -135,18 +136,21 @@ def update_checksums(file_path: Path) -> list[tuple[str, str, str]]:
     return updated
 
 
-def update_registry_checksums(registry_path: Path) -> list[tuple[str, str, str]]:
-    """Update SHA-256 checksums for binary tools in the tool runner registry.
+def update_registry_checksums(checksums_path: Path) -> list[tuple[str, str, str]]:
+    """Update SHA-256 checksums and version stamps in the checksum sidecar.
 
-    Iterates all `TOOL_REGISTRY` entries with `binary` specs, downloads
-    each URL, computes the SHA-256, and replaces stale hashes in-place in the
-    Python source file.
+    Iterates all `TOOL_REGISTRY` entries with `binary` specs, downloads each
+    URL, computes the SHA-256, and replaces stale hashes in-place in the
+    `tool_checksums.py` sidecar. Also reconciles each tool's `VERSIONS` stamp
+    with its `ToolSpec.version`, keeping the version bump and its checksums
+    coupled in one file (the basis of the offline staleness test).
 
-    :param registry_path: Path to `tool_runner.py`.
+    :param checksums_path: Path to `tool_checksums.py`.
     :return: List of (url, old_hash, new_hash) for each updated checksum.
         Empty if all checksums are already correct.
     """
-    content = registry_path.read_text(encoding="UTF-8")
+    original = checksums_path.read_text(encoding="UTF-8")
+    content = original
     updated: list[tuple[str, str, str]] = []
 
     # Flatten all binary platform entries for progress tracking.
@@ -175,7 +179,19 @@ def update_registry_checksums(registry_path: Path) -> list[tuple[str, str, str]]
             else:
                 logging.info("Checksum unchanged.")
 
-    if updated:
-        registry_path.write_text(content, encoding="UTF-8")
+    # Reconcile each tool's version stamp with the registry (idempotent). The
+    # key pattern only matches the quoted-string values in `VERSIONS`, never
+    # the tuple-keyed `CHECKSUMS` entries.
+    for spec in TOOL_REGISTRY.values():
+        if spec.binary is None:
+            continue
+        content = re.sub(
+            rf'("{re.escape(spec.name)}":\s*)"[^"]*"',
+            rf'\g<1>"{spec.version}"',
+            content,
+        )
+
+    if content != original:
+        checksums_path.write_text(content, encoding="UTF-8")
 
     return updated

@@ -464,6 +464,7 @@ expected: dict[str, Any] = {
         "repomatic/sponsor.py",
         "repomatic/templates/__init__.py",
         "repomatic/test_matrix.py",
+        "repomatic/tool_checksums.py",
         "repomatic/tool_runner.py",
         "repomatic/uv.py",
         "repomatic/virustotal.py",

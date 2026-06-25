@@ -4112,8 +4112,8 @@ def update_checksums_cmd(workflow_file: Path | None, registry: bool) -> None:
         repomatic update-checksums --registry
     """
     if registry:
-        registry_path = Path(__file__).parent / "tool_runner.py"
-        updated = update_registry_checksums(registry_path)
+        checksums_path = Path(__file__).parent / "tool_checksums.py"
+        updated = update_registry_checksums(checksums_path)
     elif workflow_file is not None:
         updated = update_checksums(workflow_file)
     else:

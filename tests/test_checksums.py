@@ -183,3 +183,32 @@ def test_update_registry_checksums_noop_when_current(tmp_path):
 
     assert updated == []
     assert registry.read_text(encoding="UTF-8") == content
+
+
+def test_update_registry_checksums_reconciles_version_stamp(tmp_path):
+    """update_registry_checksums refreshes a stale VERSIONS stamp in the sidecar."""
+    from repomatic.tool_runner import TOOL_REGISTRY
+
+    name, spec = next((n, s) for n, s in TOOL_REGISTRY.items() if s.binary is not None)
+    assert spec.version != "9.9.9"
+
+    def real_hash(url):
+        # Return each tool's real checksum so no hash changes; only the stale
+        # version stamp should be reconciled.
+        for s in TOOL_REGISTRY.values():
+            if s.binary is None:
+                continue
+            for pk, tmpl in s.binary.urls.items():
+                if tmpl.format(version=s.version) == url:
+                    return s.binary.checksums[pk]
+        return FAKE_HASH_OLD
+
+    sidecar = tmp_path / "tool_checksums.py"
+    sidecar.write_text(f'VERSIONS = {{\n    "{name}": "9.9.9",\n}}\n', encoding="UTF-8")
+
+    with patch("repomatic.checksums._download_sha256", side_effect=real_hash):
+        update_registry_checksums(sidecar)
+
+    content = sidecar.read_text(encoding="UTF-8")
+    assert f'"{name}": "{spec.version}"' in content
+    assert "9.9.9" not in content

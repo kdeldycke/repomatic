@@ -63,18 +63,20 @@
       },
     },
     {
-      // postUpgradeTasks silently drops changes when modifying the same file
-      // as the manager update (https://github.com/renovatebot/renovate/discussions/42263).
-      // Workaround: update-checksums.yaml triggers on renovate/** pushes to
-      // tool_runner.py and commits the correct hashes. This rule stays so that
-      // checksums auto-fix if Renovate resolves the upstream bug.
+      // The binary tool custom managers bump the version in tool_runner.py;
+      // this task writes the matching checksums to the separate
+      // tool_checksums.py sidecar. Since the task no longer touches the file
+      // the manager bumped, Renovate keeps the change (avoids the same-file
+      // drop of https://github.com/renovatebot/renovate/discussions/42263), so
+      // the version and its checksums land in one branch before the PR opens.
+      // .github/workflows/update-checksums.yaml stays as an async fallback.
       description: "Update SHA-256 checksums after binary version bumps in tool registry.",
       matchFileNames: ["repomatic/tool_runner.py"],
       postUpgradeTasks: {
         commands: [
           "bash -c 'curl -fsSL https://github.com/astral-sh/uv/releases/download/0.11.21/uv-x86_64-unknown-linux-gnu.tar.gz --output /tmp/uv.tar.gz && echo 8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050  /tmp/uv.tar.gz | sha256sum --check && tar xzf /tmp/uv.tar.gz --strip-components=1 -C /tmp && /tmp/uvx --no-progress --from . repomatic update-checksums --registry'",
         ],
-        fileFilters: ["repomatic/tool_runner.py"],
+        fileFilters: ["repomatic/tool_checksums.py"],
         executionMode: "update",
       },
     },

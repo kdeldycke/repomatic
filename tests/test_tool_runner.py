@@ -44,6 +44,7 @@ from extra_platforms import (
     Platform,
 )
 
+from repomatic.tool_checksums import CHECKSUMS, VERSIONS
 from repomatic.tool_runner import (
     _DIRECTIVE_YAML_OPTIONS_RE,
     TOOL_REGISTRY,
@@ -252,6 +253,31 @@ def test_tool_registry_sorted_alphabetically():
     """Registry keys are sorted alphabetically."""
     keys = list(TOOL_REGISTRY.keys())
     assert keys == sorted(keys)
+
+
+def test_checksum_sidecar_covers_exactly_binary_tools():
+    """`CHECKSUMS` and `VERSIONS` are keyed by exactly the binary tool names."""
+    binary_tools = {n for n, s in TOOL_REGISTRY.items() if s.binary is not None}
+    assert set(CHECKSUMS) == binary_tools
+    assert set(VERSIONS) == binary_tools
+
+
+@pytest.mark.parametrize(
+    "name", [n for n, s in TOOL_REGISTRY.items() if s.binary is not None]
+)
+def test_checksum_sidecar_version_matches_registry(name):
+    """Each tool's sidecar version stamp matches its `ToolSpec.version`.
+
+    The offline tripwire: a version bump that did not refresh the checksums
+    leaves `VERSIONS` stale, failing here before the release is cut. Fix by
+    running `repomatic update-checksums --registry`.
+    """
+    assert VERSIONS[name] == TOOL_REGISTRY[name].version, (
+        f"{name}: tool_checksums.VERSIONS stamp ({VERSIONS[name]!r}) is stale vs "
+        f"registry version ({TOOL_REGISTRY[name].version!r})"
+    )
+    # Runtime checksums are sourced from the sidecar (no duplicated literals).
+    assert TOOL_REGISTRY[name].binary.checksums is CHECKSUMS[name]
 
 
 # ---------------------------------------------------------------------------
