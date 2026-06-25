@@ -894,6 +894,49 @@ def test_release_lanes_split_jobs() -> None:
         )
 
 
+def test_publish_pypi_does_not_touch_the_github_release() -> None:
+    """The publish-pypi lane must not edit the GitHub release (ordering race).
+
+    The GitHub release is created by the engine's `create-release` job, several
+    jobs deeper than the caller's fast `publish-pypi` job. A `gh release edit`
+    in publish-pypi therefore raced the release's creation, failed with
+    "release not found", and (under `continue-on-error`) silently dropped the
+    PyPI availability admonition. The admonition is now baked into the notes at
+    draft creation, so publish-pypi owns only the PyPI upload and needs no
+    `contents` write.
+    """
+    publish = load_workflow("release.yaml")["jobs"]["publish-pypi"]
+    runs = " ".join(step.get("run", "") for step in publish["steps"])
+    assert "gh release" not in runs, (
+        "publish-pypi must not run any `gh release` command: the GitHub release "
+        "is owned by the engine's create-release job, and editing it here races "
+        "its creation"
+    )
+    assert publish["permissions"] == {"id-token": "write"}, (
+        "publish-pypi needs only the OIDC token; dropping the release edit drops "
+        "its `contents: write` grant too"
+    )
+
+
+def test_create_release_bakes_pypi_admonition_at_creation() -> None:
+    """The engine bakes the PyPI availability admonition into the draft notes.
+
+    `create-release` writes the notes while the release is still a draft, so the
+    admonition lands there: this avoids both the cross-lane race (above) and the
+    immutable-release locks that apply once `publish-release` flips the draft.
+    The body falls back to the plain notes for non-PyPI projects, whose
+    `release_notes_with_admonition` is empty.
+    """
+    steps = load_workflow("_release-engine.yaml")["jobs"]["create-release"]["steps"]
+    draft = next(s for s in steps if s.get("name") == "Create GitHub release draft")
+    notes = " ".join(draft["env"]["RELEASE_NOTES"].split())
+    assert "release_notes_with_admonition" in notes
+    assert notes.rstrip().endswith(".release_notes }}"), (
+        "create-release must fall back to the plain release_notes for non-PyPI "
+        "projects (empty admonition body)"
+    )
+
+
 @pytest.mark.parametrize("lane", RELEASE_ENGINE_WORKFLOWS)
 def test_release_engine_lane_is_reusable(lane: str) -> None:
     """Each RELEASE_ENGINE_WORKFLOWS lane is a reusable workflow shipped here.

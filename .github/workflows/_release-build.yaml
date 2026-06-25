@@ -32,13 +32,6 @@ name: 📦 Build package
             && toJSON(fromJSON(jobs.metadata.outputs.metadata).release_commits_matrix)
             || ''
           }}
-      release_notes_with_admonition:
-        description: >
-          Release notes with the PyPI availability admonition. The caller's
-          publish-pypi job consumes this to update the GitHub release notes
-          after a successful OIDC upload.
-        value: ${{ fromJSON(jobs.metadata.outputs.metadata).release_notes_with_admonition }}
-
 permissions: {}
 
 # No concurrency block: this lane is a release sub-component invoked by

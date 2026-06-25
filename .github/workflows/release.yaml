@@ -70,9 +70,10 @@ jobs:
       matrix: ${{ fromJSON(needs.build.outputs.release_commits_matrix || '{"include":[]}') }}
     runs-on: ubuntu-slim
     permissions:
+      # OIDC only: the PyPI Trusted Publishing token. The GitHub release notes
+      # (with their PyPI admonition) are owned end to end by the engine lane's
+      # create-release job, so this lane needs no write access to the repo.
       id-token: write
-      # Lets the admonition step below edit the published release notes.
-      contents: write
     steps:
       # Local composite action, checked out at the release commit, so repomatic
       # publishes with the same code it is releasing rather than a published ref.
@@ -82,19 +83,6 @@ jobs:
       - uses: ./.github/actions/publish-pypi
         with:
           artifact-name: ${{ github.event.repository.name }}-${{ matrix.short_sha }}
-      # Backfill the "available on PyPI" admonition onto the release notes after a successful OIDC upload. The engine
-      # lane publishes the GitHub release without it (it cannot yet know the PyPI outcome). continue-on-error keeps a
-      # notes-edit hiccup from failing an upload that already succeeded.
-      - name: Add PyPI admonition to release notes
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-          CURRENT_VERSION: ${{ matrix.current_version }}
-          RELEASE_NOTES: ${{ needs.build.outputs.release_notes_with_admonition }}
-        run: >
-          gh release edit "v${CURRENT_VERSION}"
-          --notes-file -
-          --repo "${{ github.repository }}" <<< "${RELEASE_NOTES}"
 
   release:
     # Local reusable call: repomatic releases with its own current engine rather

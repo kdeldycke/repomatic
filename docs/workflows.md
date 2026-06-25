@@ -424,14 +424,14 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
   - The `release_commits_matrix` output from the `build` lane (`_release-build.yaml`), which drives the matrix and gates the job to release commits.
   - The `package_built` output from the `build` lane, reflecting whether the `build-package` job succeeded.
 - The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests in the engine lane) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
-- After a successful upload, the job adds the PyPI availability admonition to the GitHub release notes (via the build lane's `release_notes_with_admonition` output). The engine's `publish-release` job no longer does this, since it completes before the entry's `publish-pypi` runs and cannot yet know the upload outcome.
+- The job touches only PyPI; it does not edit the GitHub release. The PyPI availability admonition is baked into the release notes by the engine's `create-release` job at draft creation, which removes the cross-lane race where editing the release from this fast lane ran before the engine had created it (and silently dropped the admonition under `continue-on-error`).
 - Runs on `ubuntu-slim`.
 
 (github-workflows-release-build-yaml-jobs)=
 
 ### 📦 [`.github/workflows/_release-build.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-build.yaml)
 
-The release **fast lane**: it runs the squash-merge guard, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built`, `release_commits_matrix`, and `release_notes_with_admonition` outputs that `publish-pypi` consumes.
+The release **fast lane**: it runs the squash-merge guard, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built` and `release_commits_matrix` outputs that `publish-pypi` consumes.
 
 #### 🧯 Detect squash merge (`detect-squash-merge`)
 
@@ -513,6 +513,7 @@ flowchart TD
 #### 🐙 Create release draft (`create-release`)
 
 - Creates a GitHub release **draft** with the Python package attached using `gh release create`
+- The draft notes carry the PyPI availability admonition from the start (baked in via [`repomatic metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata.py)'s `release_notes_with_admonition`), so it never depends on a later cross-lane edit; non-PyPI projects fall back to the plain release notes
 - Binaries are attached independently by each `compile-binaries` matrix entry as they complete (uploading to drafts is allowed)
 - **Requires**:
   - Successful `create-tag` job

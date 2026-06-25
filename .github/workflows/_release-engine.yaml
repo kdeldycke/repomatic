@@ -325,12 +325,20 @@ jobs:
         run: uvx --no-progress --from . repomatic sync-dev-release --live --delete
       - name: Create GitHub release draft
         # Idempotent: skips if release already exists (e.g. workflow re-run).
+        # Notes carry the PyPI availability admonition from the start: baking it
+        # here (instead of editing the release from the caller's fast publish-pypi
+        # lane) removes the cross-lane race where that edit ran before this job
+        # had created the release. release_notes_with_admonition is empty for
+        # non-PyPI projects, which then fall back to the plain notes. See
+        # repomatic/metadata.py:release_notes_with_admonition for rationale.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
           COMMIT: ${{ matrix.commit }}
           REPO: ${{ github.repository }}
-          RELEASE_NOTES: ${{ fromJSON(needs.metadata.outputs.metadata).release_notes }}
+          RELEASE_NOTES: >-
+            ${{ fromJSON(needs.metadata.outputs.metadata).release_notes_with_admonition
+            || fromJSON(needs.metadata.outputs.metadata).release_notes }}
         run: |
           tag="v${CURRENT_VERSION}"
           if gh release view "${tag}" --repo "${REPO}" > /dev/null 2>&1; then

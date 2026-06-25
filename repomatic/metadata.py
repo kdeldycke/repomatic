@@ -2428,12 +2428,21 @@ class Metadata:
 
         Builds the same body as {attr}`release_notes`, but injects a
         `> [!NOTE]` admonition linking to PyPI and GitHub even before
-        `fix-changelog` has a chance to update `changelog.md`.  This
-        lets the `create-release` workflow step include the admonition
-        at creation time when `publish-pypi` succeeds.
+        `fix-changelog` has a chance to update `changelog.md`.
 
-        Returns `None` when the project is not on PyPI, has no
-        changelog, or has no version to release.
+        The engine's `create-release` job bakes this body into the GitHub
+        release at draft-creation time, so the admonition is present from the
+        start. Doing it there (rather than editing the release from the
+        caller's fast `publish-pypi` lane) removes the cross-lane race where the
+        edit ran before `create-release` had created the release, and so silently
+        dropped the admonition under `continue-on-error`. The bake is optimistic:
+        it assumes the parallel PyPI upload succeeds, which it does on the normal
+        path; a failed upload surfaces as a red `publish-pypi` job, not as a
+        wrong admonition the user must catch.
+
+        Returns `None` when the project is not on PyPI, has no changelog, or
+        has no version to release, in which case `create-release` falls back to
+        the plain {attr}`release_notes`.
         """
         # Lazy import to avoid circular dependency:
         # release_sync → pr_body → metadata.
