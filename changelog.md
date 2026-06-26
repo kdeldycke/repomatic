@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `sync-uv-lock` PRs now list newer releases held back by the `exclude-newer` cooldown, with the date each ages out of the window.
 - Fix the PyPI availability admonition missing from GitHub release notes.
 - Fix `repomatic run biome` failing with a SHA-256 mismatch: Biome `2.5.0`'s binary checksums were stale, breaking JSON, JavaScript, and TypeScript format jobs.
 - `update-checksums --registry` now maintains binary tool checksums in a dedicated `repomatic/tool_checksums.py` module.

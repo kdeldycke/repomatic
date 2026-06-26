@@ -177,9 +177,11 @@ from .uv import (
     _format_upload_date,
     build_comparison_urls,
     collect_vulnerable_packages,
+    compute_held_back_packages,
     fetch_release_notes,
     fix_vulnerable_deps as _fix_vulnerable_deps,
     format_diff_table,
+    format_held_back_table,
     format_release_notes,
     format_vulnerability_table,
     sync_uv_lock as _sync_uv_lock,
@@ -2721,6 +2723,12 @@ def audit(
     help="Fetch release notes from GitHub (markdown, appended after the table).",
 )
 @option(
+    "--held-back/--no-held-back",
+    default=True,
+    help="Report newer releases withheld by the exclude-newer cooldown "
+    "(runs a second uv resolution).",
+)
+@option(
     "--output",
     type=file_path(writable=True, resolve_path=True, allow_dash=True),
     default=None,
@@ -2733,6 +2741,7 @@ def sync_uv_lock_cmd(
     lockfile: Path,
     table: bool,
     release_notes: bool,
+    held_back: bool,
     output: Path | None,
     output_format: str,
 ) -> None:
@@ -2749,6 +2758,8 @@ def sync_uv_lock_cmd(
         holds them instead of tracking newer releases
       - prints a table of updated packages with upload dates
       - optionally fetches release notes from GitHub (markdown)
+      - optionally reports newer releases held back by the cooldown, with the
+        date each ages out of the exclude-newer window (--held-back)
 
     \b
     The table respects the global --table-format option (github, json,
@@ -2803,6 +2814,13 @@ def sync_uv_lock_cmd(
 
     echo(f"{len(result.changes)} package(s) updated.")
 
+    # Probe for releases the cooldown is withholding (a second uv resolution).
+    # Gated on a consumer being present so a --no-table --no-output run skips
+    # the extra work.
+    held_back_pkgs = (
+        compute_held_back_packages(lockfile) if held_back and (table or output) else []
+    )
+
     # Terminal output: structured table via click-extra.
     if table:
         show_uploaded = bool(result.upload_times)
@@ -2823,6 +2841,21 @@ def sync_uv_lock_cmd(
 
         ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
 
+        if held_back_pkgs:
+            echo("Held back by cooldown:")
+            hb_headers = ("Package", "Locked", "Available", "Released", "Eligible")
+            hb_rows = [
+                (
+                    pkg.name,
+                    pkg.locked_version,
+                    pkg.available_version,
+                    pkg.released,
+                    pkg.eligible,
+                )
+                for pkg in held_back_pkgs
+            ]
+            ctx.find_root().print_table(hb_rows, hb_headers)  # type: ignore[attr-defined]
+
     # Release notes (opt-in, fetched once for both terminal and file output).
     notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
     notes_section = ""
@@ -2842,14 +2875,18 @@ def sync_uv_lock_cmd(
             result.exclude_newer,
             comparison_urls=comparison_urls,
         )
-        if notes_section:
-            diff_table = diff_table + "\n\n" + notes_section
+        held_back_section = format_held_back_table(held_back_pkgs)
+        body = "\n\n".join(
+            section
+            for section in (diff_table, held_back_section, notes_section)
+            if section
+        )
 
-        if diff_table:
+        if body:
             if output_format == "github-actions":
-                content = format_multiline_output("diff_table", diff_table)
+                content = format_multiline_output("diff_table", body)
             else:
-                content = diff_table
+                content = body
             echo(content, file=prep_path(output))
 
 

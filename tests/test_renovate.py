@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
@@ -42,8 +43,10 @@ from repomatic.renovate import (
 )
 from repomatic.uv import (
     RELEASE_NOTES_MAX_LENGTH,
+    HeldBackPackage,
     _bare_date,
     _date_to_utc_cutoff,
+    _format_eligible,
     _format_upload_date,
     _freeze_cutoff,
     _packages_outside_cooldown,
@@ -54,9 +57,11 @@ from repomatic.uv import (
     _versions_in_range,
     add_exclude_newer_packages,
     build_comparison_urls,
+    compute_held_back_packages,
     diff_lock_versions,
     fetch_release_notes,
     format_diff_table,
+    format_held_back_table,
     format_release_notes,
     freeze_exclude_newer_packages,
     get_github_release_body,
@@ -643,6 +648,95 @@ def test_format_upload_date():
     # Graceful fallback for unparsable input.
     assert _format_upload_date("not-a-date") == "not-a-date"
     assert _format_upload_date("") == ""
+
+
+def test_format_eligible():
+    """Render eligibility dates with a human-readable countdown."""
+    today = date(2026, 6, 22)
+    assert _format_eligible(date(2026, 6, 26), today) == "2026-06-26 (in 4 days)"
+    assert _format_eligible(date(2026, 6, 23), today) == "2026-06-23 (in 1 day)"
+    assert _format_eligible(date(2026, 6, 22), today) == "2026-06-22 (today)"
+    # Past the window: bare date, no misleading countdown.
+    assert _format_eligible(date(2026, 6, 20), today) == "2026-06-20"
+
+
+def test_format_held_back_table_empty():
+    """Return empty string when nothing is held back."""
+    assert format_held_back_table([]) == ""
+
+
+def test_format_held_back_table():
+    """Format the held-back section with locked, available, and timing."""
+    held_back = [
+        HeldBackPackage(
+            "boltons", "25.0.0", "26.0.0", "2026-06-19", "2026-06-26 (in 4 days)"
+        ),
+        HeldBackPackage(
+            "extra-platforms", "13.0.0", "13.0.1", "2026-06-18", "2026-06-25 (today)"
+        ),
+    ]
+    table = format_held_back_table(held_back)
+    assert "### Held back by cooldown" in table
+    assert "| Package | Locked | Available | Released | Eligible |" in table
+    assert (
+        "| [boltons](https://pypi.org/project/boltons/) | `25.0.0` | `26.0.0` |"
+        " 2026-06-19 | 2026-06-26 (in 4 days) |" in table
+    )
+    assert (
+        "| [extra-platforms](https://pypi.org/project/extra-platforms/)"
+        " | `13.0.0` | `13.0.1` | 2026-06-18 | 2026-06-25 (today) |" in table
+    )
+
+
+def test_compute_held_back_packages(tmp_path):
+    """Diff a no-cooldown re-resolution to find withheld releases."""
+    lock_path = tmp_path / "uv.lock"
+    lock_path.write_text(
+        'version = 1\n\n[options]\nexclude-newer-span = "P1W"\n',
+        encoding="UTF-8",
+    )
+    locked = {"boltons": "25.0.0", "anyio": "4.12.1", "click": "8.4.2"}
+    # Without the cooldown: boltons moves up, anyio is unchanged, and click
+    # would resolve lower (a downgrade the report must ignore).
+    latest = {"boltons": "26.0.0", "anyio": "4.12.1", "click": "8.4.1"}
+    uploads = {"boltons": "2026-06-19T06:10:39Z"}
+    with (
+        patch("repomatic.uv.subprocess.run"),
+        patch("repomatic.uv.parse_lock_versions", side_effect=[locked, latest]),
+        patch("repomatic.uv.parse_lock_upload_times", return_value=uploads),
+    ):
+        held = compute_held_back_packages(lock_path)
+    assert len(held) == 1
+    assert held[0].name == "boltons"
+    assert held[0].locked_version == "25.0.0"
+    assert held[0].available_version == "26.0.0"
+    assert held[0].released == "2026-06-19"
+    # Eligible = upload + 1 week span, with a countdown appended.
+    assert held[0].eligible.startswith("2026-06-26")
+    assert "(" in held[0].eligible
+    # The canonical in-cooldown lock is restored byte-for-byte.
+    assert "exclude-newer-span" in lock_path.read_text(encoding="UTF-8")
+
+
+def test_compute_held_back_packages_probe_failure_restores_lock(tmp_path):
+    """A failed probe resolution restores the lock and reports nothing."""
+    lock_path = tmp_path / "uv.lock"
+    original = 'version = 1\n\n[options]\nexclude-newer-span = "P1W"\n'
+    lock_path.write_text(original, encoding="UTF-8")
+
+    def fail(*args, **kwargs):
+        # Simulate uv mangling the lock before erroring out.
+        lock_path.write_text("corrupted\n", encoding="UTF-8")
+        raise subprocess.CalledProcessError(1, args[0])
+
+    with (
+        patch("repomatic.uv.subprocess.run", side_effect=fail),
+        patch("repomatic.uv.parse_lock_versions", return_value={"boltons": "25.0.0"}),
+    ):
+        held = compute_held_back_packages(lock_path)
+    assert held == []
+    # The finally block restored the canonical lock despite the failure.
+    assert lock_path.read_text(encoding="UTF-8") == original
 
 
 def test_parse_lock_exclude_newer(tmp_path):

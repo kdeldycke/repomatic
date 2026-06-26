@@ -1031,7 +1031,7 @@ def format_diff_table(
     if not changes:
         return ""
     show_uploaded = bool(upload_times)
-    lines = ["### Updated packages", ""]
+    lines = ["### 🆙 Updated packages", ""]
     if exclude_newer:
         cutoff = _format_upload_date(exclude_newer)
         lines.append(
@@ -1062,6 +1062,168 @@ def format_diff_table(
             lines.append(f"| {link} | {change} | {uploaded} |")
         else:
             lines.append(f"| {link} | {change} |")
+    return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class HeldBackPackage:
+    """A newer release withheld from the lock by the `exclude-newer` cooldown.
+
+    Built by {func}`compute_held_back_packages` for the `### Held back by
+    cooldown` report section: a package has already published a newer version,
+    but it is still inside the cooldown window, so `uv lock --upgrade` keeps
+    the older {attr}`locked_version`.
+    """
+
+    name: str
+    """Package name, as it appears on PyPI."""
+
+    locked_version: str
+    """Version held in the lock: the newest release outside the cooldown."""
+
+    available_version: str
+    """Newer version already on the index, still inside the cooldown window."""
+
+    released: str
+    """Upload date of {attr}`available_version` (`YYYY-MM-DD`), or empty when
+    the lock records no upload time (a git or path source)."""
+
+    eligible: str
+    """Date {attr}`available_version` leaves the cooldown and becomes lockable,
+    with a human-readable countdown (`2026-06-25 (in 4 days)`), or empty when
+    it cannot be computed."""
+
+
+def _lock_cooldown_span(lock_path: Path) -> timedelta | None:
+    """Return the cooldown span from a lock's `options.exclude-newer-span`.
+
+    :param lock_path: Path to the `uv.lock` file.
+    :return: The configured cooldown width as a {class}`~datetime.timedelta`,
+        or `None` when no relative span is recorded.
+    """
+    if not lock_path.exists():
+        return None
+    with lock_path.open("rb") as f:
+        data = tomlrt.load(f)
+    span = data.get("options", {}).get("exclude-newer-span", "")
+    return _parse_lock_duration(span) if span else None
+
+
+def _format_eligible(eligible: date, today: date) -> str:
+    """Render an eligibility date with a human-readable countdown.
+
+    :param eligible: The date a release leaves the cooldown window.
+    :param today: The current date, for the relative offset.
+    :return: A string like `2026-06-25 (in 4 days)`, `... (in 1 day)`,
+        `... (today)`, or the bare date once the window has elapsed.
+    """
+    iso = eligible.strftime("%Y-%m-%d")
+    days = (eligible - today).days
+    if days > 1:
+        return f"{iso} (in {days} days)"
+    if days == 1:
+        return f"{iso} (in 1 day)"
+    if days == 0:
+        return f"{iso} (today)"
+    return iso
+
+
+def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
+    """Find releases withheld from the lock only by the cooldown.
+
+    Re-resolves the lock with the global cooldown lifted (`--exclude-newer`
+    set to the current instant) and diffs the result against the in-cooldown
+    lock. A package is reported only when a strictly newer version would lock
+    without the cooldown, so versions pinned by a specifier, capped by a
+    `requires-python` bound, or frozen by a per-package `exclude-newer-package`
+    exemption (like click-extra's) are excluded: those resolve identically
+    with and without the global cutoff.
+
+    The probe writes `uv.lock` and restores it byte-for-byte in a `finally`,
+    so the canonical in-cooldown lock is left untouched even when resolution
+    or parsing fails.
+
+    ```{note}
+    This runs a second `uv lock` resolution. It is the report's only cost and
+    is skipped by `sync-uv-lock --no-held-back`.
+    ```
+
+    :param lock_path: Path to the `uv.lock` file.
+    :return: Held-back packages sorted by name. Empty when the probe fails or
+        nothing is withheld.
+    """
+    if not lock_path.exists():
+        return []
+    locked = parse_lock_versions(lock_path)
+    span = _lock_cooldown_span(lock_path)
+    saved = lock_path.read_bytes()
+    now = datetime.now(timezone.utc)
+    cutoff = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        subprocess.run(
+            [*uv_cmd("lock"), "--upgrade", "--exclude-newer", cutoff],
+            check=True,
+            cwd=lock_path.parent,
+        )
+        latest = parse_lock_versions(lock_path)
+        uploads = parse_lock_upload_times(lock_path)
+    except subprocess.CalledProcessError:
+        logging.warning(
+            "Cooldown probe (uv lock --exclude-newer) failed; "
+            "skipping the held-back report."
+        )
+        return []
+    finally:
+        lock_path.write_bytes(saved)
+
+    held = []
+    for name in sorted(locked.keys() & latest.keys()):
+        old_version, new_version = locked[name], latest[name]
+        if old_version == new_version:
+            continue
+        try:
+            if Version(new_version) <= Version(old_version):
+                continue
+        except InvalidVersion:
+            continue
+        raw_upload = uploads.get(name, "")
+        released = _format_upload_date(raw_upload) if raw_upload else ""
+        eligible = ""
+        if raw_upload and span is not None:
+            upload_dt = _parse_iso_datetime(raw_upload)
+            if upload_dt is not None:
+                eligible = _format_eligible((upload_dt + span).date(), now.date())
+        held.append(HeldBackPackage(name, old_version, new_version, released, eligible))
+    return held
+
+
+def format_held_back_table(held_back: list[HeldBackPackage]) -> str:
+    """Format cooldown-withheld releases as a markdown section.
+
+    :param held_back: Packages as returned by
+        {func}`compute_held_back_packages`.
+    :return: A markdown string with a `### Held back by cooldown` heading and
+        table, or an empty string when *held_back* is empty.
+    """
+    if not held_back:
+        return ""
+    lines = [
+        "### 🔜 Held back by cooldown",
+        "",
+        "Newer releases already published but withheld because they are still"
+        " inside the [`exclude-newer`](https://docs.astral.sh/uv/reference/"
+        "settings/#exclude-newer) cooldown window. Each becomes lockable on"
+        " its eligible date.",
+        "",
+        "| Package | Locked | Available | Released | Eligible |",
+        "| :-- | :-- | :-- | :-- | :-- |",
+    ]
+    for pkg in held_back:
+        link = f"[{pkg.name}](https://pypi.org/project/{pkg.name}/)"
+        lines.append(
+            f"| {link} | `{pkg.locked_version}` | `{pkg.available_version}` |"
+            f" {pkg.released} | {pkg.eligible} |"
+        )
     return "\n".join(lines)
 
 

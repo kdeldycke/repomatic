@@ -164,6 +164,7 @@ GitHub Actions has several design limitations that the workflows work around:
 - Syncs the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) from the bundled template into `pyproject.toml`, so the lock resolves with the same uv everywhere, while leaving every other project-owned `[tool.uv]` key untouched
 - Only creates a PR when the lock file contains real dependency changes (timestamp-only noise is detected and skipped)
 - PR body includes a table of updated packages with version ranges linked to GitHub comparison diffs, plus collapsible release notes for all intermediate versions
+- PR body also lists releases held back by the `exclude-newer` cooldown: newer versions already published but still too young to lock, with the date each ages out of the window
 - Replaces Renovate's `lockFileMaintenance`, which cannot reliably revert noise-only changes
 - **Requires**:
   - Python package with a `pyproject.toml` file
