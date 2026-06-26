@@ -8,6 +8,7 @@
 - Fix the PyPI availability admonition missing from GitHub release notes.
 - Fix `repomatic run biome` failing with a SHA-256 mismatch: Biome `2.5.0`'s binary checksums were stale, breaking JSON, JavaScript, and TypeScript format jobs.
 - `update-checksums --registry` now maintains binary tool checksums in a dedicated `repomatic/tool_checksums.py` module.
+- Update `pyproject-fmt` to `2.25.1`, which keeps comments inside inline tables when `format-pyproject` reorders their keys.
 
 ## [`6.30.0` (2026-06-24)](https://github.com/kdeldycke/repomatic/compare/v6.29.0...v6.30.0)
 

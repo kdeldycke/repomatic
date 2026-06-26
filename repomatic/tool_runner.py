@@ -941,7 +941,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
-        version="2.25.0",
+        version="2.25.1",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
