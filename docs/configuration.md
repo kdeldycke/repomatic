@@ -74,6 +74,7 @@ patterns = ["(CVE|vulnerability)"]
 | [`cache.github-releases-ttl`](#cache-github-releases-ttl)             | Freshness TTL for cached all-releases responses (seconds).                                                                | `86400`                             |
 | [`cache.max-age`](#cache-max-age)                                     | Auto-purge cached entries older than this many days.                                                                      | `30`                                |
 | [`cache.pypi-ttl`](#cache-pypi-ttl)                                   | Freshness TTL for cached PyPI metadata (seconds).                                                                         | `86400`                             |
+| [`changelog.archive-location`](#changelog-archive-location)           | File path of the changelog archive, relative to the root of the repository.                                               | `""`                                |
 | [`changelog.bullet-word-threshold`](#changelog-bullet-word-threshold) | Word count above which `lint-changelog` warns about a changelog bullet.                                                   | `40`                                |
 | [`changelog.location`](#changelog-location)                           | File path of the changelog, relative to the root of the repository.                                                       | `"./changelog.md"`                  |
 | [`dependency-graph.all-extras`](#dependency-graph-all-extras)         | Whether to include all optional extras in the graph.                                                                      | `true`                              |
@@ -257,6 +258,23 @@ PyPI metadata changes when new versions are published. A 24-hour TTL avoids redu
 ```toml
 [tool.repomatic]
 cache.pypi-ttl = 86400
+```
+
+### `changelog.archive-location`
+
+File path of the changelog archive, relative to the root of the repository.
+
+**Type:** `str` | **Default:** `""`
+
+The archive holds older release sections split out of the live changelog to keep it small. Empty (the default) disables archive handling.
+
+When set, `lint-changelog` treats versions documented in the archive as present, so they are neither reported nor re-inserted as *orphans* (versions found on PyPI, GitHub, or git tags but missing from the changelog). The archive is frozen: its released entries are immutable and are not re-validated against their canonical release dates.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+changelog.archive-location = ""
 ```
 
 ### `changelog.bullet-word-threshold`

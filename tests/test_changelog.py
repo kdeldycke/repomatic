@@ -684,6 +684,58 @@ def test_lint_changelog_dates_skips_abandoned(tmp_path, monkeypatch, caplog):
     assert "1.1.0: not found on PyPI" not in caplog.text
 
 
+def test_lint_changelog_dates_archive_suppresses_orphans(tmp_path, monkeypatch):
+    """Versions documented in the archive are neither flagged nor re-inserted
+    as orphans."""
+    live = tmp_path / "changelog.md"
+    live.write_text(
+        "# Changelog\n\n"
+        "## [`2.0.0` (2026-02-01)]"
+        "(https://github.com/user/repo/compare/v1.0.0...v2.0.0)\n\n"
+        "- Latest.\n",
+        encoding="UTF-8",
+    )
+    archive = tmp_path / "changelog-archive.md"
+    archive.write_text(
+        "# Changelog archive\n\n"
+        "## [`1.0.0` (2025-12-01)]"
+        "(https://github.com/user/repo/compare/v0.9.0...v1.0.0)\n\n"
+        "- Old.\n",
+        encoding="UTF-8",
+    )
+
+    monkeypatch.setattr(
+        "repomatic.changelog.get_pypi_release_dates",
+        _pypi_mock({
+            "2.0.0": ("2026-02-01", False),
+            "1.0.0": ("2025-12-01", False),
+        }),
+    )
+    monkeypatch.setattr(
+        "repomatic.changelog.get_project_name",
+        lambda: "my-package",
+    )
+    monkeypatch.setattr(
+        "repomatic.changelog.get_github_releases",
+        _github_mock(["2.0.0", "1.0.0"]),
+    )
+    _patch_tags(monkeypatch)
+
+    # Without the archive, 1.0.0 is an orphan: on PyPI and GitHub, but missing
+    # from the live changelog.
+    assert lint_changelog_dates(live) == 1
+
+    # With the archive, 1.0.0 counts as documented: no orphan.
+    assert lint_changelog_dates(live, archive_path=archive) == 0
+
+    # Under --fix, the archived version is not resurrected into the live file.
+    assert lint_changelog_dates(live, archive_path=archive, fix=True) == 0
+    live_headings = Changelog(
+        live.read_text(encoding="UTF-8")
+    ).extract_all_version_headings()
+    assert live_headings == {"2.0.0"}
+
+
 @pytest.mark.parametrize(
     ("changes", "expected_count"),
     (

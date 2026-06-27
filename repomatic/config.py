@@ -502,6 +502,22 @@ class Config:
     )
     """Binary cache configuration."""
 
+    changelog_archive_location: str = field(
+        default="",
+        metadata={CONFIG_PATH_METADATA_KEY: "changelog.archive-location"},
+    )
+    """File path of the changelog archive, relative to the root of the repository.
+
+    The archive holds older release sections split out of the live changelog to
+    keep it small. Empty (the default) disables archive handling.
+
+    When set, `lint-changelog` treats versions documented in the archive as
+    present, so they are neither reported nor re-inserted as *orphans* (versions
+    found on PyPI, GitHub, or git tags but missing from the changelog). The
+    archive is frozen: its released entries are immutable and are not
+    re-validated against their canonical release dates.
+    """
+
     changelog_bullet_word_threshold: int = field(
         default=40,
         metadata={CONFIG_PATH_METADATA_KEY: "changelog.bullet-word-threshold"},
@@ -766,6 +782,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "awesome_template_sync",
     "bumpversion_sync",
     "cache",
+    "changelog_archive_location",
     "changelog_location",
     "dependency_graph",
     "dev_release_sync",

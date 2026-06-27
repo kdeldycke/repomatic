@@ -35,6 +35,7 @@ tests
 genindex
 modindex
 changelog
+changelog-archive
 upstream-development
 operation-contracts
 todolist

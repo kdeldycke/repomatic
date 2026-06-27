@@ -3429,10 +3429,12 @@ def lint_changelog(
     config = get_tool_config(ctx)
     if changelog_path is None:
         changelog_path = Path(config.changelog_location)
+    archive_location = config.changelog_archive_location
     exit_code = lint_changelog_dates(
         changelog_path,
         package=package,
         fix=fix,
+        archive_path=Path(archive_location) if archive_location else None,
         pypi_package_history=config.pypi_package_history,
         abandoned_versions=config.abandoned_versions,
         bullet_word_threshold=config.changelog_bullet_word_threshold,

@@ -812,6 +812,7 @@ def lint_changelog_dates(
     changelog_path: Path,
     package: str | None = None,
     *,
+    archive_path: Path | None = None,
     fix: bool = False,
     pypi_package_history: Sequence[str] = (),
     abandoned_versions: Sequence[str] = (),
@@ -853,6 +854,10 @@ def lint_changelog_dates(
       linking to adjacent versions.
 
     :param changelog_path: Path to the changelog file.
+    :param archive_path: Optional path to a frozen changelog archive. Versions
+        documented there are treated as present, suppressing false-positive
+        orphan detection (and re-insertion under `fix`) for entries split out
+        of the live changelog. Archived dates are not re-validated.
     :param package: PyPI package name. If `None`, auto-detected from
         `pyproject.toml`. If detection fails, falls back to git tags.
     :param fix: If True, fix dates and add admonitions to the file.
@@ -955,8 +960,16 @@ def lint_changelog_dates(
     # from the changelog.
     tag_versions = get_all_version_tags()
     changelog_headings = changelog.extract_all_version_headings()
+    # Versions documented in the frozen archive count as present, so entries
+    # split out of the live changelog are neither flagged nor re-inserted as
+    # orphans.
+    archive_headings: set[str] = set()
+    if archive_path and archive_path.exists():
+        archive_headings = Changelog(
+            archive_path.read_text(encoding="UTF-8")
+        ).extract_all_version_headings()
     all_known = set(pypi_data) | set(github_releases) | set(tag_versions)
-    orphans = all_known - changelog_headings
+    orphans = all_known - changelog_headings - archive_headings
     if orphans:
         for orphan in sorted(orphans, key=Version):
             logging.warning(

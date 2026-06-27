@@ -436,5 +436,6 @@ abandoned-versions = [
   "6.0.0",
   "6.18.0",
 ]
+changelog.archive-location = "./docs/changelog-archive.md"
 exclude = [ "workflows" ]
 pypi-package-history = [ "gha-utils", "repokit" ]
