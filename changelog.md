@@ -10,6 +10,9 @@
 
 ## [`6.31.0` (2026-06-27)](https://github.com/kdeldycke/repomatic/compare/v6.30.0...v6.31.0)
 
+> [!NOTE]
+> `6.31.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.31.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.31.0).
+
 - `sync-uv-lock` PRs now list newer releases held back by the `exclude-newer` cooldown, with the date each ages out of the window.
 - `sync-uv-lock` package tables now annotate each release date with a relative hint (`2 days ago`, `in 3 days`).
 - Autofix PR bodies now document every relevant `[tool.repomatic]` option in their Configuration section.
