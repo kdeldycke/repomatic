@@ -5,6 +5,7 @@ flowchart LR
         click_extra{{"`click-extra`"}}
         vt_py{{"`vt-py`"}}
         pydriller{{"`pydriller`"}}
+        arrow{{"`arrow`"}}
         wcmatch{{"`wcmatch`"}}
         py_walk{{"`py-walk`"}}
         pyproject_metadata{{"`pyproject-metadata`"}}
@@ -32,6 +33,7 @@ flowchart LR
     gitpython(["`gitpython`"])
     idna(["`idna`"])
     propcache(["`propcache`"])
+    python_dateutil(["`python-dateutil`"])
     tabulate(["`tabulate`"])
     wcwidth(["`wcwidth`"])
     aiofiles(["`aiofiles`"])
@@ -42,9 +44,11 @@ flowchart LR
     deepmerge(["`deepmerge`"])
     pathspec(["`pathspec`"])
     pytz(["`pytz`"])
+    six(["`six`"])
     sly(["`sly`"])
     smmap(["`smmap`"])
     types_pytz(["`types-pytz`"])
+    tzdata(["`tzdata`"])
 
     subgraph grp_docs [--group docs]
         sphinx{{"`sphinx >=8`"}}
@@ -104,6 +108,7 @@ flowchart LR
     repomatic ==>|" >=8.1 "| click_extra
     repomatic ==>|" >=2 "| pydriller
     repomatic ==>|" >=17 "| packaging
+    repomatic ==>|" >=1.3 "| arrow
     repomatic ==>|" >=6.0.3 "| pyyaml
     repomatic ==>|" >=0.18 "| vt_py
     repomatic ==>|" >=10 "| wcmatch
@@ -173,6 +178,8 @@ flowchart LR
     sphinxcontrib_mermaid --> sphinx
     sphinxcontrib_mermaid --> jinja2
     sphinxcontrib_mermaid --> pyyaml
+    arrow --> python_dateutil
+    arrow --> tzdata
     coverage --> tomli
     vt_py --> aiohttp
     vt_py --> aiofiles
@@ -212,6 +219,7 @@ flowchart LR
     exceptiongroup --> typing_extensions
     gitpython --> gitdb
     mdit_py_plugins --> markdown_it_py
+    python_dateutil --> six
     sphinx_basic_ng --> sphinx
     tabulate --> wcwidth
     yarl --> multidict
@@ -231,6 +239,7 @@ flowchart LR
     click aiohttp "https://pypi.org/project/aiohttp/" _blank
     click aiosignal "https://pypi.org/project/aiosignal/" _blank
     click alabaster "https://pypi.org/project/alabaster/" _blank
+    click arrow "https://pypi.org/project/arrow/" _blank
     click async_timeout "https://pypi.org/project/async-timeout/" _blank
     click attrs "https://pypi.org/project/attrs/" _blank
     click babel "https://pypi.org/project/babel/" _blank
@@ -279,11 +288,13 @@ flowchart LR
     click pytest_github_actions_annotate_failures "https://pypi.org/project/pytest-github-actions-annotate-failures/" _blank
     click pytest_randomly "https://pypi.org/project/pytest-randomly/" _blank
     click pytest_xdist "https://pypi.org/project/pytest-xdist/" _blank
+    click python_dateutil "https://pypi.org/project/python-dateutil/" _blank
     click pytz "https://pypi.org/project/pytz/" _blank
     click pyyaml "https://pypi.org/project/pyyaml/" _blank
     click repomatic "https://pypi.org/project/repomatic/" _blank
     click requests "https://pypi.org/project/requests/" _blank
     click roman_numerals "https://pypi.org/project/roman-numerals/" _blank
+    click six "https://pypi.org/project/six/" _blank
     click sly "https://pypi.org/project/sly/" _blank
     click smmap "https://pypi.org/project/smmap/" _blank
     click snowballstemmer "https://pypi.org/project/snowballstemmer/" _blank
@@ -308,6 +319,7 @@ flowchart LR
     click types_pytz "https://pypi.org/project/types-pytz/" _blank
     click types_pyyaml "https://pypi.org/project/types-pyyaml/" _blank
     click typing_extensions "https://pypi.org/project/typing-extensions/" _blank
+    click tzdata "https://pypi.org/project/tzdata/" _blank
     click urllib3 "https://pypi.org/project/urllib3/" _blank
     click vt_py "https://pypi.org/project/vt-py/" _blank
     click wcmatch "https://pypi.org/project/wcmatch/" _blank
@@ -315,6 +327,7 @@ flowchart LR
     click yarl "https://pypi.org/project/yarl/" _blank
 
     style repomatic stroke-width:3px
+    style arrow stroke-width:3px
     style backports_strenum stroke-width:3px
     style boltons stroke-width:3px
     style click_extra stroke-width:3px
