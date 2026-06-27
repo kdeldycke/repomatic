@@ -174,8 +174,6 @@ class GitignoreConfig:
     extra_content: str = field(
         default_factory=lambda: dedent(
             """
-            junit.xml
-
             # Claude Code local files.
             .claude/scheduled_tasks.lock
             .claude/settings.local.json

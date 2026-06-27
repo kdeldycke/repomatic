@@ -1026,6 +1026,14 @@ expected: dict[str, Any] = {
             {"state": "stable"},
         ],
     },
+    "coverage_cells": StringList([
+        "ubuntu-24.04-arm|3.10",
+        "ubuntu-24.04-arm|3.14",
+        "macos-26|3.10",
+        "macos-26|3.14",
+        "windows-2025|3.10",
+        "windows-2025|3.14",
+    ]),
     "changelog_bullet_word_threshold": 40,
     # Bump allowed values depend on comparing current version vs latest git tag.
     # These can be True or False depending on the current development cycle state.
@@ -1454,7 +1462,7 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
     assert metadata.config.gitignore.location == "./.gitignore"
     assert metadata.config.gitignore.extra_categories == []
     assert metadata.config.gitignore.extra_content == (
-        "junit.xml\n\n# Claude Code local files.\n"
+        "# Claude Code local files.\n"
         ".claude/scheduled_tasks.lock\n.claude/settings.local.json\n\n"
         "# Sphinx linkcheck output.\ndocs/_linkcheck/"
     )
@@ -1593,7 +1601,7 @@ version = "1.0.0"
 gitignore.location = "./custom/.gitignore"
 gitignore.extra-categories = ["terraform", "go"]
 gitignore.extra-content = '''
-junit.xml
+*.tmp
 
 # Claude Code
 .claude/
@@ -1669,7 +1677,7 @@ click-version = ["released", "stable", "main"]
     ]
     assert (
         metadata.config.gitignore.extra_content
-        == "junit.xml\n\n# Claude Code\n.claude/\n"
+        == "*.tmp\n\n# Claude Code\n.claude/\n"
     )
     assert metadata.config.dependency_graph.output == "./custom/deps.mmd"
     assert metadata.config.dependency_graph.all_groups is False
@@ -1764,6 +1772,51 @@ exclude = [
     # is pruned as a no-op.
     pr = metadata.test_matrix_pr.matrix()
     assert "exclude" not in pr or {"os": "windows-11-arm"} not in pr.get("exclude", ())
+
+
+def test_coverage_cells_match_pr_matrix(tmp_path, monkeypatch):
+    """coverage_cells lists the PR-matrix cells as `os|python-version` tokens."""
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+    metadata = Metadata()
+
+    assert set(metadata.coverage_cells) == {
+        "ubuntu-24.04-arm|3.10",
+        "ubuntu-24.04-arm|3.14",
+        "macos-26|3.10",
+        "macos-26|3.14",
+        "windows-2025|3.10",
+        "windows-2025|3.14",
+    }
+    # No duplicate tokens (the workflow tests membership, not counts).
+    assert len(metadata.coverage_cells) == len(set(metadata.coverage_cells))
+
+
+def test_coverage_cells_are_full_matrix_subset(tmp_path, monkeypatch):
+    """Coverage uploads from a strict subset of the executed full matrix.
+
+    Architecture twins, the prerelease Python, and free-threaded cells still
+    run the suite but produce coverage already captured elsewhere, so they are
+    never in coverage_cells.
+    """
+    pyproject_file = tmp_path / "pyproject.toml"
+    pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
+    metadata = Metadata()
+
+    full_cells = {
+        f"{cell['os']}|{cell['python-version']}"
+        for cell in metadata.test_matrix.solve()
+    }
+    coverage = set(metadata.coverage_cells)
+    assert coverage < full_cells
+    # Architecture twins run in the full matrix but never upload coverage.
+    assert "ubuntu-slim|3.10" in full_cells and "ubuntu-slim|3.10" not in coverage
+    assert "macos-26-intel|3.14" in full_cells and "macos-26-intel|3.14" not in coverage
+    # Prerelease and free-threaded cells never upload either.
+    assert not any(token.endswith("|3.15") for token in coverage)
+    assert not any(token.endswith("t") for token in coverage)
 
 
 def test_test_matrix_config_variations(tmp_path, monkeypatch):

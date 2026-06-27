@@ -32,8 +32,6 @@ dependency-graph.level = 0
 gitignore.location = "./.gitignore"
 gitignore.extra-categories = ["terraform", "go"]
 gitignore.extra-content = '''
-junit.xml
-
 # Claude Code
 .claude/
 '''
@@ -475,8 +473,6 @@ Additional content to append at the end of the generated `.gitignore` file.
 ```toml
 [tool.repomatic]
 gitignore.extra-content = '''
-junit.xml
-
 # Claude Code local files.
 .claude/scheduled_tasks.lock
 .claude/settings.local.json

@@ -8,6 +8,8 @@
 - `sync-uv-lock` PRs now list newer releases held back by the `exclude-newer` cooldown, with the date each ages out of the window.
 - `sync-uv-lock` package tables now annotate each release date with a relative hint (`2 days ago`, `in 3 days`).
 - Autofix PR bodies now document every relevant `[tool.repomatic]` option in their Configuration section.
+- The test workflow uploads coverage to Codecov from one runner per OS, not from every matrix cell.
+- Drop the Codecov Test Analytics (test results) upload and the `junit.xml` file it generated.
 - Fix the PyPI availability admonition missing from GitHub release notes.
 - Fix `repomatic run biome` failing with a SHA-256 mismatch: Biome `2.5.0`'s binary checksums were stale, breaking JSON, JavaScript, and TypeScript format jobs.
 - Fix `[tool.repomatic] workflow.sync = false` being ignored: it now skips workflow sync like the other `*.sync` toggles.

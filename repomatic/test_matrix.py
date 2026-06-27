@@ -44,9 +44,8 @@ When reducing to one runner per OS, choose by measured speed, not architecture
 (see {doc}`/test-matrix`). Tendencies from `repomatic`'s own full test suite:
 ARM Linux (`ubuntu-24.04-arm`) runs two to three times as fast as the lean x86
 `ubuntu-slim`, the slowest tier overall;
-Apple-silicon `macos-26` beats `macos-26-intel` by ~2x; Windows is a tie on
-compute, with `windows-2025` only winning per-job because `windows-11-arm`'s
-Codecov upload is systematically slow (~56s vs ~6s). Per-job wall-clock folds in
+Apple-silicon `macos-26` beats `macos-26-intel` by ~2x; the two Windows images
+tie on compute (`windows-2025` is the PR pick). Per-job wall-clock folds in
 setup and upload, so isolate the test steps before blaming the image. These
 figures drift as images are re-provisioned, so re-confirm against your own job
 timings.
@@ -60,10 +59,10 @@ TEST_RUNNERS_PR = (
 )
 """Reduced runner set for pull request test matrices.
 
-One runner per platform, the fastest architecture of each measured on the test
-workload: ARM Linux (`ubuntu-24.04-arm`), Apple-silicon macOS (`macos-26`), and
-x86 Windows (`windows-2025`). x86 Linux stays covered by the full matrix
-({data}`TEST_RUNNERS_FULL`).
+One runner per platform: ARM Linux (`ubuntu-24.04-arm`) and Apple-silicon macOS
+(`macos-26`) are the fastest of their platform on the test workload, plus x86
+Windows (`windows-2025`, where the two Windows images tie on compute). x86 Linux
+stays covered by the full matrix ({data}`TEST_RUNNERS_FULL`).
 
 ```{note} Why ARM Linux for the PR slot
 The suite runs `pytest --numprocesses=auto`, so it scales with cores and favors

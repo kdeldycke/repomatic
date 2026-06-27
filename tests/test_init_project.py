@@ -429,7 +429,6 @@ def test_has_addopts() -> None:
         "--cov-branch",
         "--cov-report=term",
         "--cov-report=xml",
-        "--junitxml=junit.xml",
     ],
 )
 def test_has_expected_addopts(expected_opt: str) -> None:

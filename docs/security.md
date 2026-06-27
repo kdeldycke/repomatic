@@ -47,7 +47,7 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `actions/setup-python`                   | `astral-sh/setup-uv`              | Consolidated            |
 | `peaceiris/actions-gh-pages`             | `actions/deploy-pages`            | First-party replacement |
 | `codecov/codecov-action`                 | `codecov-cli` via `uvx`           | Pinned CLI              |
-| `codecov/test-results-action`            | `codecov-cli` via `uvx`           | Pinned CLI              |
+| `codecov/test-results-action`            | None (feature dropped)            | Removed entirely        |
 | `GitHubSecurityLab/actions-permissions`  | Explicit `permissions:` key       | Removed entirely        |
 
 The remaining third-party actions (5 of 14 total) are:
