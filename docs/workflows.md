@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v6.29.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v6.30.0
 ```
 
 > [!IMPORTANT]
@@ -625,9 +625,8 @@ flowchart TD
 
 #### 🔄 Update checksums (`update-checksums`)
 
-- Workaround for [renovatebot/renovate#42263](https://github.com/renovatebot/renovate/discussions/42263): Renovate's `postUpgradeTasks` silently drops file changes when the task modifies the same file the regex manager already updated
-- Triggers when Renovate pushes a version bump to `repomatic/tool_runner.py` on a `renovate/**` branch
-- Downloads each binary tool at its new version, computes the SHA-256, and commits the corrected checksums to the PR branch
+- Belt-and-suspenders fallback for the tool registry checksum update: the primary path is Renovate's `postUpgradeTasks`, which bumps the version in `repomatic/tool_runner.py` and writes matching checksums to the separate `repomatic/tool_checksums.py` sidecar atomically, so both land in one branch before the PR opens (the separate file sidesteps the silent drop of [renovatebot/renovate#42263](https://github.com/renovatebot/renovate/discussions/42263))
+- Triggers when Renovate pushes a version bump touching `repomatic/tool_runner.py` or `repomatic/tool_checksums.py` on a `renovate/**` branch; recomputes the SHA-256 for each binary tool and commits any corrected hashes to the PR branch
 - Uses `REPOMATIC_PAT` for the push so the fix commit re-triggers CI checks on the PR
 - Safe against infinite loops: a second trigger finds all checksums already correct and exits without pushing
 - **Source-repo only**: not bundled for downstream repos (they have no tool registry)

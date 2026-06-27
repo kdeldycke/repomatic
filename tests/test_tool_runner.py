@@ -272,12 +272,14 @@ def test_checksum_sidecar_version_matches_registry(name):
     leaves `VERSIONS` stale, failing here before the release is cut. Fix by
     running `repomatic update-checksums --registry`.
     """
-    assert VERSIONS[name] == TOOL_REGISTRY[name].version, (
+    spec = TOOL_REGISTRY[name]
+    assert VERSIONS[name] == spec.version, (
         f"{name}: tool_checksums.VERSIONS stamp ({VERSIONS[name]!r}) is stale vs "
-        f"registry version ({TOOL_REGISTRY[name].version!r})"
+        f"registry version ({spec.version!r})"
     )
     # Runtime checksums are sourced from the sidecar (no duplicated literals).
-    assert TOOL_REGISTRY[name].binary.checksums is CHECKSUMS[name]
+    assert spec.binary is not None
+    assert spec.binary.checksums is CHECKSUMS[name]
 
 
 # ---------------------------------------------------------------------------
