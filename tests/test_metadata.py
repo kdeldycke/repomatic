@@ -1672,8 +1672,7 @@ click-version = ["released", "stable", "main"]
         "go",
     ]
     assert (
-        metadata.config.gitignore.extra_content
-        == "*.tmp\n\n# Claude Code\n.claude/\n"
+        metadata.config.gitignore.extra_content == "*.tmp\n\n# Claude Code\n.claude/\n"
     )
     assert metadata.config.dependency_graph.output == "./custom/deps.mmd"
     assert metadata.config.dependency_graph.all_groups is False
