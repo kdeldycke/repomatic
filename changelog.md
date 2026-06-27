@@ -1,5 +1,10 @@
 # Changelog
 
+## [`6.31.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`6.31.0` (2026-06-27)](https://github.com/kdeldycke/repomatic/compare/v6.30.0...v6.31.0)
 
 - `sync-uv-lock` PRs now list newer releases held back by the `exclude-newer` cooldown, with the date each ages out of the window.
