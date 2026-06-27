@@ -192,7 +192,6 @@ def test_skip_binary_build_disjoint_from_version_bumps():
     assert SKIP_BINARY_BUILD_BRANCHES.isdisjoint(VERSION_BUMP_BRANCHES)
 
 
-@pytest.mark.xdist_group("git")
 def test_skip_binary_build_property_is_bool():
     """Test that skip_binary_build always returns a boolean.
 

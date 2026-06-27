@@ -292,6 +292,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import fields
@@ -301,12 +302,9 @@ from pathlib import Path
 
 import tomlrt
 from extra_platforms import is_github_ci
-from git.exc import GitCommandError
-from gitdb.exc import BadName
 from packaging.version import Version
 from py_walk import get_parser_from_file
 from py_walk.models import Parser
-from pydriller import Commit, Git, Repository
 from pyproject_metadata import ConfigurationError, StandardMetadata
 from wcmatch.glob import (
     BRACE,
@@ -334,9 +332,22 @@ from .changelog import (
 from .git_ops import (
     RELEASE_COMMIT_PATTERN,
     SHORT_SHA_LENGTH,
+    Commit,
+    checkout,
+    commit_exists,
+    count_commits,
+    current_branch,
+    diff_names,
+    fetch_deepen,
+    get_commit,
     get_latest_tag_version,
     get_release_version_from_commits,
     get_repo_slug_from_remote,
+    head_sha,
+    list_commits,
+    stash,
+    stash_count,
+    stash_pop,
 )
 from .github.actions import NULL_SHA, WorkflowEvent, generate_delimiter
 from .github.gh import run_gh_command
@@ -663,18 +674,9 @@ class Metadata:
         logging.debug(json.dumps(event, indent=4))
         return event  # type:ignore[no-any-return]
 
-    @cached_property
-    def git(self) -> Git:
-        """Return a PyDriller Git object."""
-        return Git(".")
-
     def git_stash_count(self) -> int:
         """Returns the number of stashes."""
-        count = int(
-            self.git.repo.git.rev_list(
-                "--walk-reflogs", "--ignore-missing", "--count", "refs/stash"
-            )
-        )
+        count = stash_count()
         logging.debug(f"Number of stashes in repository: {count}")
         return count
 
@@ -692,49 +694,45 @@ class Metadata:
         current_depth: int | None = None
 
         for attempt in range(max_attempts):
-            try:
-                _ = self.git.get_commit(commit_hash)
-            except (ValueError, BadName) as ex:
-                logging.debug(f"Commit {commit_hash} not found: {ex}")
-
-                # Only compute depth if not cached yet.
-                if current_depth is None:
-                    current_depth = self.git.total_commits()
-
-                if attempt == max_attempts - 1:
-                    # We've exhausted all attempts.
-                    logging.error(
-                        f"Cannot find commit {commit_hash} in repository after "
-                        f"{max_attempts} deepen attempts. "
-                        f"Final depth is {current_depth} commits."
-                    )
-                    return False
-
-                logging.info(
-                    f"Commit {commit_hash} not found at depth {current_depth}."
-                )
-                logging.info(
-                    f"Deepening by {deepen_increment} commits (attempt "
-                    f"{attempt + 1}/{max_attempts})..."
-                )
-
-                try:
-                    self.git.repo.git.fetch(f"--deepen={deepen_increment}")
-                    # Update cached depth after successful fetch.
-                    current_depth = self.git.total_commits()
-                    logging.debug(
-                        f"Repository deepened successfully. New depth: {current_depth}"
-                    )
-                except GitCommandError as ex:
-                    logging.error(f"Failed to deepen repository: {ex}")
-                    return False
-            else:
+            if commit_exists(commit_hash):
                 if attempt > 0:
                     logging.info(
                         f"Found commit {commit_hash} after {attempt} deepen "
                         "operation(s)."
                     )
                 return True
+
+            logging.debug(f"Commit {commit_hash} not found.")
+
+            # Only compute depth if not cached yet.
+            if current_depth is None:
+                current_depth = count_commits()
+
+            if attempt == max_attempts - 1:
+                # We've exhausted all attempts.
+                logging.error(
+                    f"Cannot find commit {commit_hash} in repository after "
+                    f"{max_attempts} deepen attempts. "
+                    f"Final depth is {current_depth} commits."
+                )
+                return False
+
+            logging.info(f"Commit {commit_hash} not found at depth {current_depth}.")
+            logging.info(
+                f"Deepening by {deepen_increment} commits (attempt "
+                f"{attempt + 1}/{max_attempts})..."
+            )
+
+            try:
+                fetch_deepen(deepen_increment)
+            except subprocess.CalledProcessError as ex:
+                logging.error(f"Failed to deepen repository: {ex}")
+                return False
+            # Update cached depth after successful fetch.
+            current_depth = count_commits()
+            logging.debug(
+                f"Repository deepened successfully. New depth: {current_depth}"
+            )
 
         return False
 
@@ -778,7 +776,7 @@ class Metadata:
         if not commits:
             return None
 
-        current_commit = self.git.repo.head.commit.hexsha
+        current_commit = head_sha()
 
         # Check if we need to get back in time in the Git log and browse past commits.
         if len(commits) == 1:  # type: ignore[arg-type]
@@ -806,16 +804,13 @@ class Metadata:
             # Save the initial commit reference and SHA of the repository. The
             # reference is either the canonical active branch name (i.e. `main`), or
             # the commit SHA if the current HEAD commit is detached from a branch.
-            if self.git.repo.head.is_detached:
-                init_ref = current_commit
-            else:
-                init_ref = self.git.repo.active_branch.name
+            init_ref = current_branch() or current_commit
             logging.debug(f"Initial commit reference: {init_ref}")
 
             # Try to stash local changes and check if we'll need to unstash them later.
             counter_before = self.git_stash_count()
             logging.debug("Try to stash local changes before our series of checkouts.")
-            self.git.repo.git.stash()
+            stash()
             counter_after = self.git_stash_count()
             logging.debug(
                 "Stash counter changes after 'git stash' command: "
@@ -837,7 +832,7 @@ class Metadata:
         for commit in commits:
             if past_commit_lookup:
                 logging.debug(f"Checkout to commit {commit.hash}")
-                self.git.checkout(commit.hash)
+                checkout(commit.hash)
 
             commit_metadata = {
                 "commit": commit.hash,
@@ -854,11 +849,13 @@ class Metadata:
 
         # Restore the repository to its initial state.
         if past_commit_lookup:
+            # init_ref is always set to a ref string when past_commit_lookup is True.
+            assert init_ref is not None
             logging.debug(f"Restore repository to {init_ref}.")
-            self.git.checkout(init_ref)
+            checkout(init_ref)
             if need_unstash:
                 logging.debug("Unstash local changes that were previously saved.")
-                self.git.repo.git.stash("pop")
+                stash_pop()
 
         return matrix
 
@@ -1114,13 +1111,10 @@ class Metadata:
         if not start or not end:
             return None
         try:
-            diff_output = self.git.repo.git.diff("--name-only", start, end)
-        except GitCommandError:
+            return diff_names(start, end)
+        except subprocess.CalledProcessError:
             logging.warning("Failed to get changed files from git diff.")
             return None
-        if not diff_output:
-            return ()
-        return tuple(diff_output.strip().splitlines())
 
     @cached_property
     def binary_affecting_paths(self) -> tuple[str, ...]:
@@ -1316,9 +1310,13 @@ class Metadata:
         return start, end
 
     @cached_property
-    def current_commit(self) -> Commit | None:
-        """Returns the current `Commit` object."""
-        return next(Repository(".", single="HEAD").traverse_commits())
+    def current_commit(self) -> Commit:
+        """Returns the current `Commit` object.
+
+        Raises if `HEAD` cannot be resolved (an empty repository), mirroring the
+        previous behavior where traversing an empty history raised too.
+        """
+        return get_commit("HEAD")
 
     @cached_property
     def current_commit_matrix(self) -> Matrix | None:
@@ -1347,10 +1345,9 @@ class Metadata:
             )
             start = None
 
-        # Sanity check: make sure the start commit exists in the repository.
-        # XXX Even if we skip the start commit later on (range is inclusive),
-        # we still need to make sure it exists: PyDriller stills needs to
-        # find it to be able to traverse the commit history.
+        # Sanity check: make sure both ends of the range exist in the repository.
+        # Even though `start..end` excludes `start` from the result, git still
+        # needs `start` present locally to resolve the range and walk history.
         for commit_id in (start, end):
             if not commit_id:
                 continue
@@ -1364,17 +1361,11 @@ class Metadata:
         if not start:
             logging.warning("No start commit found. Only one commit in range.")
             assert end
-            return (self.git.get_commit(end),)
+            return (get_commit(end),)
 
-        commit_list = []
-        for index, commit in enumerate(
-            Repository(".", from_commit=start, to_commit=end).traverse_commits()
-        ):
-            # Skip the first commit because the commit range is inclusive.
-            if index == 0:
-                continue
-            commit_list.append(commit)
-        return tuple(commit_list)
+        # The `start..end` range already excludes `start`, so every returned
+        # commit is a new one, in chronological order (oldest first).
+        return list_commits(start, end)
 
     @cached_property
     def new_commits_matrix(self) -> Matrix | None:
@@ -2579,7 +2570,7 @@ class Metadata:
         """
         # Lazy factories: each value is computed only when the key is included.
         # This lets ``keys=("is_python_project",)`` skip ``nuitka_matrix`` and
-        # the pydriller ``Repository(...)`` walk it pulls in.
+        # the git history walk it pulls in.
         factories: dict[str, Callable[[], Any]] = {
             "is_bot": lambda: self.is_bot,
             "skip_binary_build": lambda: self.skip_binary_build,

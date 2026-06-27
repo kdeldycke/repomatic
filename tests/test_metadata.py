@@ -39,10 +39,6 @@ from repomatic.test_matrix import (
     UNSTABLE_PYTHON_VERSIONS,
 )
 
-# minor/major_bump_allowed trigger pydriller.Git("."), which acquires .git/config.lock.
-# Same group as test_git_ops to prevent parallel workers conflicting on the lock.
-pytestmark = pytest.mark.xdist_group("git")
-
 
 def regex(pattern: str) -> re.Pattern:
     """Compile a regex pattern with DOTALL flag."""

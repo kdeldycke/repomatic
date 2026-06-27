@@ -18,8 +18,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from repomatic.metadata import Metadata
@@ -35,34 +33,3 @@ def _reset_metadata():
     Metadata.reset()
     yield
     Metadata.reset()
-
-
-@pytest.fixture(autouse=True)
-def _cleanup_git_config_lock():
-    """Delete a stale .git/config.lock before each test.
-
-    ``pydriller.Git(".")`` acquires ``.git/config.lock`` in its ``__init__``
-    (to set ``blame.markUnblamableLines``), then immediately releases it.
-    On macOS with Python 3.14's incremental GC, the ``pydriller.Git`` object
-    created by a previous test can remain alive past teardown (held by the
-    ``Conf._data["git"]`` back-reference cycle), and its ``__del__`` may
-    re-enter the lock path during the next test's ``Git(".")`` init, leaving
-    the lock file on disk when ``rmfile()`` races.  Deleting it here is safe:
-    no test holds the lock between test boundaries.
-
-    On Windows, a parallel xdist worker may hold the lock at the moment this
-    fixture runs.  A ``PermissionError`` here means the file is actively held
-    — not stale — so silently skip the deletion.
-
-    Any test that calls ``pydriller.Git(".")`` directly or indirectly (via
-    ``Metadata.git``, ``Metadata.skip_binary_build``, etc.) must carry
-    ``@pytest.mark.xdist_group("git")`` so it runs on the same worker as the
-    git-group tests and avoids cross-worker lock conflicts.  This requires
-    ``--dist=loadgroup`` (the active mode in ``[tool.pytest].addopts``);
-    ``--dist=loadfile`` ignores xdist_group markers entirely.
-    """
-    try:
-        Path(".git/config.lock").unlink(missing_ok=True)
-    except PermissionError:
-        pass
-    yield

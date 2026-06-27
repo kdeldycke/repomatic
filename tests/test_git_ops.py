@@ -34,10 +34,6 @@ from repomatic.git_ops import (
 )
 from repomatic.metadata import Metadata, is_version_bump_allowed
 
-# pydriller.Git(".") acquires .git/config.lock on every init.
-# Group with test_metadata to prevent parallel workers conflicting on the lock.
-pytestmark = pytest.mark.xdist_group("git")
-
 
 def test_tag_exists_true():
     """Return True when tag exists."""

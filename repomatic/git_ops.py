@@ -38,9 +38,9 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+from typing import NamedTuple
 
 from packaging.version import Version
-from pydriller import Git
 
 SHORT_SHA_LENGTH = 7
 """Default SHA length hard-coded to `7`.
@@ -78,6 +78,147 @@ job in `release.yaml` detects this and opens an issue to notify the
 maintainer.
 """
 
+GIT_LOG_FORMAT = "%H%x00%B"
+"""`git log` pretty-format placeholders for a single commit: full SHA, then a
+`NUL`, then the raw body.
+
+Paired with `git log -z` (which terminates each commit's output with a `NUL`),
+this frames the stream as alternating `(hash, message)` tokens. Commit messages
+may contain newlines but never `NUL` bytes, so splitting on `NUL` recovers the
+fields unambiguously even for multi-line messages.
+"""
+
+
+class Commit(NamedTuple):
+    """A minimal git commit.
+
+    Only the hash and message are ever consumed downstream, so a full git
+    library object (with diffs, modified-file analysis, and complexity metrics)
+    is unnecessary: the `git` CLI feeds these two fields directly.
+    """
+
+    hash: str
+    """The commit's full 40-character SHA-1 hash."""
+
+    msg: str
+    """The commit message, stripped of surrounding whitespace."""
+
+
+def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a `git` command and capture its output.
+
+    Decodes output as UTF-8 so non-ASCII commit metadata (accented author
+    names, emoji in messages) survives on platforms whose default encoding is
+    not UTF-8 (Windows `cp1252`).
+    """
+    return subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        encoding="UTF-8",
+        check=check,
+    )
+
+
+def _parse_commit_log(output: str) -> tuple[Commit, ...]:
+    """Parse `NUL`-framed `git log --format=GIT_LOG_FORMAT` output into commits.
+
+    See {data}`GIT_LOG_FORMAT` for the framing. `git log -z` leaves a trailing
+    empty token after the final commit; a plain `git log` does not. Either way,
+    tokens pair up as `(hash, message)`.
+    """
+    tokens = output.split("\x00")
+    if tokens and not tokens[-1]:
+        tokens.pop()
+    return tuple(
+        Commit(hash=tokens[i], msg=tokens[i + 1].strip())
+        for i in range(0, len(tokens) - 1, 2)
+    )
+
+
+def get_commit(ref: str = "HEAD") -> Commit:
+    """Return the commit at *ref*.
+
+    :raises subprocess.CalledProcessError: if *ref* does not resolve to a
+        commit present in the repository.
+    """
+    result = _git("log", "-1", "-z", f"--format={GIT_LOG_FORMAT}", ref)
+    return _parse_commit_log(result.stdout)[0]
+
+
+def list_commits(start: str, end: str) -> tuple[Commit, ...]:
+    """Return the commits in the `start..end` range, oldest first.
+
+    Follows git range semantics: *start* is excluded, *end* is included. Both
+    endpoints must already exist locally, so deepen a shallow clone before
+    calling if necessary.
+    """
+    result = _git(
+        "log", "--reverse", "-z", f"--format={GIT_LOG_FORMAT}", f"{start}..{end}"
+    )
+    return _parse_commit_log(result.stdout)
+
+
+def commit_exists(ref: str) -> bool:
+    """Return `True` if *ref* resolves to a commit object present locally."""
+    return _git("cat-file", "-e", f"{ref}^{{commit}}", check=False).returncode == 0
+
+
+def count_commits(ref: str = "HEAD") -> int:
+    """Return the number of commits reachable from *ref*."""
+    return int(_git("rev-list", "--count", ref).stdout.strip())
+
+
+def head_sha() -> str:
+    """Return the full SHA of the current `HEAD` commit."""
+    return _git("rev-parse", "HEAD").stdout.strip()
+
+
+def current_branch() -> str | None:
+    """Return the checked-out branch name, or `None` when `HEAD` is detached."""
+    result = _git("symbolic-ref", "--short", "--quiet", "HEAD", check=False)
+    return result.stdout.strip() or None
+
+
+def checkout(ref: str) -> None:
+    """Check out *ref* (a branch name or commit SHA)."""
+    _git("checkout", ref)
+
+
+def stash() -> None:
+    """Stash the working tree's local changes."""
+    _git("stash")
+
+
+def stash_pop() -> None:
+    """Restore the most recently stashed local changes."""
+    _git("stash", "pop")
+
+
+def stash_count() -> int:
+    """Return the number of entries on the stash reflog."""
+    result = _git(
+        "rev-list", "--walk-reflogs", "--ignore-missing", "--count", "refs/stash"
+    )
+    return int(result.stdout.strip())
+
+
+def fetch_deepen(depth: int) -> None:
+    """Deepen a shallow clone by fetching *depth* more commits.
+
+    :raises subprocess.CalledProcessError: if the fetch fails.
+    """
+    _git("fetch", f"--deepen={depth}")
+
+
+def diff_names(start: str, end: str) -> tuple[str, ...]:
+    """Return the paths that differ between *start* and *end*.
+
+    :raises subprocess.CalledProcessError: if either ref is unknown.
+    """
+    output = _git("diff", "--name-only", start, end).stdout.strip()
+    return tuple(output.splitlines()) if output else ()
+
 
 def get_repo_slug_from_remote(remote: str = "origin") -> str | None:
     """Extract the `owner/repo` slug from a git remote URL.
@@ -106,9 +247,8 @@ def get_latest_tag_version() -> Version | None:
     Looks for tags matching the pattern `vX.Y.Z` and returns the highest version.
     Returns `None` if no matching tags are found.
     """
-    git = Git(".")
     # Get all tags matching the version pattern.
-    tags = git.repo.git.tag("--list", "v[0-9]*.[0-9]*.[0-9]*").splitlines()
+    tags = _git("tag", "--list", "v[0-9]*.[0-9]*.[0-9]*").stdout.splitlines()
 
     if not tags:
         logging.debug("No version tags found in repository.")
@@ -139,13 +279,17 @@ def get_release_version_from_commits(max_count: int = 10) -> Version | None:
     :param max_count: Maximum number of commits to search.
     :return: The version from the most recent release commit, or `None` if not found.
     """
-    git = Git(".")
+    if max_count <= 0:
+        return None
 
-    for commit in git.repo.iter_commits("HEAD", max_count=max_count):
-        match = RELEASE_COMMIT_PATTERN.fullmatch(commit.message.strip())
+    result = _git(
+        "log", "-n", str(max_count), "-z", f"--format={GIT_LOG_FORMAT}", "HEAD"
+    )
+    for commit in _parse_commit_log(result.stdout):
+        match = RELEASE_COMMIT_PATTERN.fullmatch(commit.msg)
         if match:
             version = Version(match.group("version"))
-            logging.debug(f"Found release version {version} in commit {commit.hexsha}")
+            logging.debug(f"Found release version {version} in commit {commit.hash}")
             return version
 
     logging.debug("No release commit found in recent history.")

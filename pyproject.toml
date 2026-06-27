@@ -101,8 +101,6 @@ dependencies = [
   # XXX Replace py-walk with wcmatch once the latter supports gitignore files:
   # https://github.com/facelessuser/wcmatch/issues/226
   "py-walk>=0.3.1",
-  # pydriller 2.0 redesigned the API; Git, Commit, and Repository are core 2.x classes.
-  "pydriller>=2",
   # pyproject-metadata 0.9 added PEP 639 (license expressions) and PEP 685 (extras
   # normalization); our StandardMetadata.from_pyproject() call benefits from these.
   "pyproject-metadata>=0.9",
@@ -312,9 +310,7 @@ warn_unused_configs = true
 overrides = [
   { module = [
     "bumpversion.*",
-    "gitdb.*",
     "py_walk.*",
-    "pydriller.*",
     "vt",
   ], ignore_missing_imports = true },
 ]
@@ -325,7 +321,6 @@ addopts = [
   "--cov",
   "--cov-report=term",
   "--numprocesses=auto",
-  "--dist=loadgroup",
 ]
 # https://docs.pytest.org/en/latest/customize.html#pyproject-toml
 markers = [
