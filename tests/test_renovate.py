@@ -671,7 +671,7 @@ def test_parse_iso_datetime():
 
 @pytest.mark.parametrize("value", ["not-a-date", "", "2026-13-01T00:00:00Z"])
 def test_parse_iso_datetime_invalid(value):
-    """Empty or unparseable input returns None instead of raising."""
+    """Empty or unparsable input returns None instead of raising."""
     assert _parse_iso_datetime(value) is None
 
 
