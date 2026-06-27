@@ -582,7 +582,7 @@ flowchart TD
 
 #### 🆕 Renovate (`renovate`)
 
-- Materializes the bundled default `renovate.json5` at runtime when the file is absent, so downstream repos can safely remove unmodified copies via `clean-unmodified-configs`
+- Materializes the effective `renovate.json5` at runtime (the committed copy if present, else the bundled template) and stages it into the container-mounted `/tmp`, so the Dockerized engine reads it as global config (`RENOVATE_CONFIG_FILE`) with `requireConfig=ignored`; downstream repos can safely remove unmodified copies via `clean-unmodified-configs`
 - Validates prerequisites before running (fails if not met):
   - No Dependabot config file present
   - Dependabot security updates disabled

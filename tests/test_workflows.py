@@ -708,6 +708,46 @@ def test_runner_uses_ubuntu_slim_by_default(
     pytest.fail(f"{workflow_name} ({job_name}): Unknown runner '{runs_on}'")
 
 
+# --- Renovate config staging convention ---
+
+
+def test_renovate_config_staged_into_docker_mounted_path() -> None:
+    """Stage the Renovate config where the Dockerized engine can read it.
+
+    renovatebot/github-action runs Renovate in a container that clones the
+    repository into its own directory, so a config in the Actions workspace is
+    invisible to it. The workflow therefore stages the config into a path
+    mounted via ``docker-volumes`` and points Renovate at it with
+    ``RENOVATE_CONFIG_FILE``, while ``requireConfig=ignored`` keeps a repo
+    without a committed config from being skipped as ``disabled-no-config``.
+    Regression guard: the staged path drifting away from the mounted volume, or
+    ``requireConfig`` reverting to ``required``, silently disables Renovate for
+    every downstream repo that does not commit a ``renovate.json5``.
+    """
+    steps = load_workflow("renovate.yaml")["jobs"]["renovate"]["steps"]
+    engine = next(s for s in steps if "renovatebot/github-action" in s.get("uses", ""))
+    env = engine["env"]
+    config_file = env["RENOVATE_CONFIG_FILE"]
+
+    # A config-less repo must still be processed, not skipped.
+    assert env["RENOVATE_REQUIRE_CONFIG"] == "ignored"
+
+    # The config path must sit under a host->container mount, else the engine
+    # cannot read it. Fall back to the action's documented "/tmp:/tmp" default.
+    volumes = engine.get("with", {}).get("docker-volumes", "/tmp:/tmp")
+    mount_targets = [v.split(":", 1)[1] for v in volumes.split(";")]
+    assert any(
+        config_file == target or config_file.startswith(target.rstrip("/") + "/")
+        for target in mount_targets
+    ), f"{config_file} is not under a docker-volumes mount ({volumes})"
+
+    # A run step must materialize the config at exactly that path; the staging
+    # destination and RENOVATE_CONFIG_FILE drifting apart is what disabled
+    # Renovate before.
+    staging = " ".join(s.get("run", "") for s in steps)
+    assert config_file in staging, f"No step stages the config at {config_file}"
+
+
 # --- Bundled data symlink consistency tests ---
 
 # Path to the bundled data directory.

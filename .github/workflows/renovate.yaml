@@ -72,15 +72,17 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
-      # Materialize bundled default renovate.json5 when absent. Downstream
-      # repos that use clean-unmodified-configs correctly delete on-disk
-      # copies identical to the bundled template; this step restores the
-      # config at runtime so Renovate can read it without requiring a
-      # committed copy. The file is ephemeral — discarded after the run.
-      - name: Export renovate.json5 if missing
-        run: >
-          test -f renovate.json5
-          || uvx --no-progress --from . repomatic init renovate
+      # The Dockerized Renovate engine clones the repo into its own /tmp
+      # directory and reads config from there, so a renovate.json5 in the
+      # Actions workspace (committed or materialized) is invisible to it.
+      # Materialize the effective config (the committed copy if present, else
+      # the bundled template) and stage it into /tmp, the action's default
+      # docker-volume mount, so the engine loads it below as global config.
+      # The workspace file is ephemeral: discarded after the run.
+      - name: Stage Renovate config for the engine
+        run: |
+          test -f renovate.json5 || uvx --no-progress --from . repomatic init renovate
+          cp renovate.json5 /tmp/renovate-config.json5
 
       # Validate remaining prerequisites (Dependabot absent, security
       # updates disabled, commit statuses permission).
@@ -94,15 +96,22 @@ jobs:
           # Custom PAT required for Renovate to function fully.
           # See readme.md for full list of required permissions.
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
+          # The staged config (see previous step) is read through this default
+          # mount; set it explicitly to document the dependency on it.
+          docker-volumes: "/tmp:/tmp"
         env:
           # Self-hosted configuration.
           RENOVATE_PLATFORM: "github"
           RENOVATE_AUTODISCOVER: "false"
           RENOVATE_REPOSITORIES: ${{ github.repository }}
-          # Skip onboarding PR since we already have renovate.json5.
+          # Skip onboarding PR; the config is supplied below as global config.
           RENOVATE_ONBOARDING: "false"
-          # Require a configuration file to be present.
-          RENOVATE_REQUIRE_CONFIG: "required"
+          # Drive Renovate from the staged config (global config) and ignore any
+          # in-repo copy: downstream repos needn't commit renovate.json5, and a
+          # repo that does (like this one) is not double-applied. The engine
+          # cannot read the Actions workspace, hence the mounted /tmp path.
+          RENOVATE_CONFIG_FILE: "/tmp/renovate-config.json5"
+          RENOVATE_REQUIRE_CONFIG: "ignored"
           # Fetch all PRs, not just those created by the current bot.
           # Useful for migrating between bot accounts or taking over existing PRs.
           RENOVATE_IGNORE_PR_AUTHOR: "true"
