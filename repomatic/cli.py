@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -174,6 +175,7 @@ from .tool_runner import (
 )
 from .uv import (
     AdvisorySource,
+    _format_released,
     _format_upload_date,
     build_comparison_urls,
     collect_vulnerable_packages,
@@ -2814,6 +2816,11 @@ def sync_uv_lock_cmd(
 
     echo(f"{len(result.changes)} package(s) updated.")
 
+    # Reference for the relative-time hints ("2 days ago", "in 3 days"),
+    # shared by the terminal tables and the markdown report so a run is
+    # internally consistent.
+    today = datetime.now(timezone.utc).date()
+
     # Probe for releases the cooldown is withholding (a second uv resolution).
     # Gated on a consumer being present so a --no-table --no-output run skips
     # the extra work.
@@ -2832,7 +2839,7 @@ def sync_uv_lock_cmd(
             row: tuple[str, ...] = (name, old or "(new)", new or "(removed)")
             if show_uploaded:
                 raw_time = result.upload_times.get(name, "")
-                row = (*row, _format_upload_date(raw_time) if raw_time else "")
+                row = (*row, _format_released(raw_time, today))
             rows.append(row)
 
         if result.exclude_newer:
@@ -2874,6 +2881,7 @@ def sync_uv_lock_cmd(
             result.upload_times,
             result.exclude_newer,
             comparison_urls=comparison_urls,
+            reference_date=today,
         )
         held_back_section = format_held_back_table(held_back_pkgs)
         body = "\n\n".join(

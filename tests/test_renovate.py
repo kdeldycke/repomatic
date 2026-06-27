@@ -588,7 +588,7 @@ def test_format_diff_table():
         ("old-pkg", "1.0.0", ""),
     ]
     table = format_diff_table(changes)
-    assert "### Updated packages" in table
+    assert "### 🆙 Updated packages" in table
     assert "| Package | Change |" in table
     assert "| [anyio](https://pypi.org/project/anyio/) | `4.12.0` → `4.12.1` |" in table
     assert "| [new-pkg](https://pypi.org/project/new-pkg/) | (new) `2.0.0` |" in table
@@ -640,6 +640,19 @@ def test_format_diff_table_upload_times_without_exclude_newer():
     assert "exclude-newer" not in table
 
 
+def test_format_diff_table_released_relative():
+    """A reference date annotates each Released cell with a relative hint."""
+    changes = [("coverage", "7.13.4", "7.13.5")]
+    upload_times = {"coverage": "2026-03-13T18:30:00Z"}
+    table = format_diff_table(
+        changes, upload_times=upload_times, reference_date=date(2026, 3, 16)
+    )
+    assert (
+        "| [coverage](https://pypi.org/project/coverage/)"
+        " | `7.13.4` → `7.13.5` | 2026-03-13 (3 days ago) |"
+    ) in table
+
+
 def test_format_upload_date():
     """Format ISO 8601 datetime to date-only string."""
     assert _format_upload_date("2026-03-13T18:30:00Z") == "2026-03-13"
@@ -650,12 +663,24 @@ def test_format_upload_date():
     assert _format_upload_date("") == ""
 
 
+def test_parse_iso_datetime():
+    """Parse RFC 3339 with nanoseconds and a Z suffix, truncated to micros."""
+    result = _parse_iso_datetime("2026-03-18T16:39:02.780682017Z")
+    assert result == datetime(2026, 3, 18, 16, 39, 2, 780682, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize("value", ["not-a-date", "", "2026-13-01T00:00:00Z"])
+def test_parse_iso_datetime_invalid(value):
+    """Empty or unparseable input returns None instead of raising."""
+    assert _parse_iso_datetime(value) is None
+
+
 def test_format_eligible():
-    """Render eligibility dates with a human-readable countdown."""
+    """Render eligibility dates with arrow's human-readable countdown."""
     today = date(2026, 6, 22)
     assert _format_eligible(date(2026, 6, 26), today) == "2026-06-26 (in 4 days)"
-    assert _format_eligible(date(2026, 6, 23), today) == "2026-06-23 (in 1 day)"
-    assert _format_eligible(date(2026, 6, 22), today) == "2026-06-22 (today)"
+    assert _format_eligible(date(2026, 6, 23), today) == "2026-06-23 (in a day)"
+    assert _format_eligible(date(2026, 6, 22), today) == "2026-06-22 (just now)"
     # Past the window: bare date, no misleading countdown.
     assert _format_eligible(date(2026, 6, 20), today) == "2026-06-20"
 
@@ -676,7 +701,7 @@ def test_format_held_back_table():
         ),
     ]
     table = format_held_back_table(held_back)
-    assert "### Held back by cooldown" in table
+    assert "### 🔜 Held back by cooldown" in table
     assert "| Package | Locked | Available | Released | Eligible |" in table
     assert (
         "| [boltons](https://pypi.org/project/boltons/) | `25.0.0` | `26.0.0` |"
@@ -710,10 +735,12 @@ def test_compute_held_back_packages(tmp_path):
     assert held[0].name == "boltons"
     assert held[0].locked_version == "25.0.0"
     assert held[0].available_version == "26.0.0"
-    assert held[0].released == "2026-06-19"
-    # Eligible = upload + 1 week span, with a countdown appended.
+    # Released carries the absolute date plus a relative hint; the upload is
+    # always in the past, so the phrase is "... ago".
+    assert held[0].released.startswith("2026-06-19")
+    assert "ago" in held[0].released
+    # Eligible = upload + 1 week span (the relative suffix depends on now).
     assert held[0].eligible.startswith("2026-06-26")
-    assert "(" in held[0].eligible
     # The canonical in-cooldown lock is restored byte-for-byte.
     assert "exclude-newer-span" in lock_path.read_text(encoding="UTF-8")
 
@@ -1254,21 +1281,6 @@ def test_parse_relative_duration(value, expected):
 def test_parse_relative_duration_returns_none(value):
     """Return None for non-duration strings and disallowed units."""
     assert _parse_relative_duration(value) is None
-
-
-def test_parse_iso_datetime():
-    """Parse ISO 8601 with nanosecond truncation."""
-    result = _parse_iso_datetime("2026-03-18T16:39:02.780682017Z")
-    assert result is not None
-    assert result.year == 2026
-    assert result.month == 3
-    assert result.day == 18
-
-
-def test_parse_iso_datetime_invalid():
-    """Return None for invalid strings."""
-    assert _parse_iso_datetime("not-a-date") is None
-    assert _parse_iso_datetime("") is None
 
 
 @pytest.mark.parametrize(

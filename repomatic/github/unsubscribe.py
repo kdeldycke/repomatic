@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
+import arrow
+
 from .gh import run_gh_command
 from .pr_body import render_template
 from .token import validate_classic_pat_scope
@@ -186,13 +188,6 @@ def _action_emoji(action: ItemAction) -> str:
         ItemAction.FAILED: "\u26a0\ufe0f Failed",
         ItemAction.UNSUBSCRIBED: "\U0001f515 Unsubscribed",
     }[action]
-
-
-def _days_ago(dt: datetime) -> str:
-    """Compute a human-readable "N days ago" string from now."""
-    now = datetime.now(timezone.utc)
-    delta = now - dt
-    return f"{delta.days} days ago"
 
 
 def _format_link(row: DetailRow) -> str:
@@ -441,7 +436,7 @@ def _render_detail_table(rows: list[DetailRow]) -> str:
         "| --- | --- | --- | --- |",
     ]
     for row in rows:
-        ago = _days_ago(row.updated_at) if row.updated_at else "-"
+        ago = arrow.get(row.updated_at).humanize() if row.updated_at else "-"
         lines.append(
             f"| {row.title} | {_format_link(row)}"
             f" | {ago} | {_action_emoji(row.action)} |"
@@ -636,8 +631,8 @@ def unsubscribe_threads(
         updated_str = details.get("updated_at", "")
         updated_at = None
         try:
-            updated_at = datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
+            updated_at = arrow.get(updated_str).datetime
+        except (ValueError, TypeError):
             pass
 
         # Track oldest/newest across all items with valid timestamps.
@@ -741,10 +736,8 @@ def unsubscribe_threads(
             gql_updated_str = item.get("updatedAt", "")
             gql_updated_at = None
             try:
-                gql_updated_at = datetime.fromisoformat(
-                    gql_updated_str.replace("Z", "+00:00")
-                )
-            except (ValueError, AttributeError):
+                gql_updated_at = arrow.get(gql_updated_str).datetime
+            except (ValueError, TypeError):
                 pass
 
             gql_url = item.get("url", "")

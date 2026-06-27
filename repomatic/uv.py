@@ -35,6 +35,7 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+import arrow
 import tomlrt
 from packaging.version import InvalidVersion, Version
 from tomlrt import Table
@@ -379,26 +380,26 @@ def _parse_lock_duration(value: str) -> timedelta | None:
     )
 
 
-def _parse_iso_datetime(iso_str: str) -> datetime | None:
-    """Parse an ISO 8601 datetime string into a timezone-aware datetime.
+def _parse_iso_datetime(value: str) -> datetime | None:
+    """Parse an ISO 8601 / RFC 3339 timestamp into a timezone-aware datetime.
 
-    Handles nanosecond-precision timestamps that uv emits, which Python
-    3.10's `fromisoformat` rejects. Truncates fractional seconds to
-    microseconds (6 digits) for compatibility.
+    Uses arrow, so a nanosecond fractional second and a `Z` suffix (both of
+    which Python 3.10's stdlib `datetime.fromisoformat` rejects) parse cleanly;
+    sub-microsecond precision is truncated to fit `datetime`.
 
-    :param iso_str: An ISO 8601 datetime string (e.g.,
-        `"2026-03-13T18:30:00Z"`).
-    :return: A timezone-aware {class}`~datetime.datetime`, or `None` if
-        parsing fails.
+    arrow also supplies the `.humanize()` relative-time phrasing used in the
+    sync report. whenever was the prior parser but has no humanizer; switch
+    back once one lands: https://github.com/ariebovenberg/whenever/discussions/277
+
+    :param value: An ISO 8601 / RFC 3339 instant, or empty.
+    :return: A timezone-aware {class}`~datetime.datetime`, or `None` when
+        *value* is empty or not a valid instant.
     """
+    if not value:
+        return None
     try:
-        normalized = re.sub(
-            r"(\.\d{6})\d+",
-            r"\1",
-            iso_str.replace("Z", "+00:00"),
-        )
-        return datetime.fromisoformat(normalized)
-    except (ValueError, AttributeError):
+        return arrow.get(value).datetime
+    except (ValueError, TypeError):
         return None
 
 
@@ -983,6 +984,26 @@ def _format_upload_date(iso_datetime: str) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
+def _format_released(raw_upload: str, reference: date | None) -> str:
+    """Format an upload time as a date, optionally with a relative hint.
+
+    :param raw_upload: ISO 8601 upload-time string, or empty.
+    :param reference: Date to measure the relative offset from. When `None`,
+        only the absolute date is returned.
+    :return: A string like `2026-06-24 (2 days ago)`, the bare date when
+        *reference* is `None`, or empty when *raw_upload* is empty.
+    """
+    if not raw_upload:
+        return ""
+    dt = _parse_iso_datetime(raw_upload)
+    if dt is None:
+        return _format_upload_date(raw_upload)
+    iso = dt.strftime("%Y-%m-%d")
+    if reference is None:
+        return iso
+    return f"{iso} ({arrow.get(dt.date()).humanize(arrow.get(reference))})"
+
+
 def diff_lock_versions(
     before: dict[str, str],
     after: dict[str, str],
@@ -1009,6 +1030,7 @@ def format_diff_table(
     upload_times: dict[str, str] | None = None,
     exclude_newer: str = "",
     comparison_urls: dict[str, str] | None = None,
+    reference_date: date | None = None,
 ) -> str:
     """Format version changes as a markdown table with heading.
 
@@ -1025,6 +1047,8 @@ def format_diff_table(
         the lock file, as returned by {func}`parse_lock_exclude_newer`.
     :param comparison_urls: Optional mapping of package names to GitHub
         comparison URLs, as returned by {func}`build_comparison_urls`.
+    :param reference_date: When set, each "Released" date gains a relative
+        hint (`2026-06-24 (2 days ago)`) measured from this date.
     :return: A markdown string with a `### Updated packages` heading and
         table, or an empty string if there are no changes.
     """
@@ -1058,7 +1082,7 @@ def format_diff_table(
             change = f"`{old}` (removed)"
         if show_uploaded:
             raw_time = upload_times.get(name, "")  # type: ignore[union-attr]
-            uploaded = _format_upload_date(raw_time) if raw_time else ""
+            uploaded = _format_released(raw_time, reference_date)
             lines.append(f"| {link} | {change} | {uploaded} |")
         else:
             lines.append(f"| {link} | {change} |")
@@ -1114,18 +1138,13 @@ def _format_eligible(eligible: date, today: date) -> str:
 
     :param eligible: The date a release leaves the cooldown window.
     :param today: The current date, for the relative offset.
-    :return: A string like `2026-06-25 (in 4 days)`, `... (in 1 day)`,
-        `... (today)`, or the bare date once the window has elapsed.
+    :return: A string like `2026-06-25 (in 4 days)`, `... (today)`, or the
+        bare date once the window has elapsed.
     """
     iso = eligible.strftime("%Y-%m-%d")
-    days = (eligible - today).days
-    if days > 1:
-        return f"{iso} (in {days} days)"
-    if days == 1:
-        return f"{iso} (in 1 day)"
-    if days == 0:
-        return f"{iso} (today)"
-    return iso
+    if eligible < today:
+        return iso
+    return f"{iso} ({arrow.get(eligible).humanize(arrow.get(today))})"
 
 
 def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
@@ -1187,7 +1206,7 @@ def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
         except InvalidVersion:
             continue
         raw_upload = uploads.get(name, "")
-        released = _format_upload_date(raw_upload) if raw_upload else ""
+        released = _format_released(raw_upload, now.date())
         eligible = ""
         if raw_upload and span is not None:
             upload_dt = _parse_iso_datetime(raw_upload)
