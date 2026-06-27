@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from repomatic.config import config_reference
 from repomatic.github.pr_body import (
     _parse_frontmatter,
     _unescape_dollars,
@@ -471,13 +472,16 @@ def test_render_update_deps_graph():
 
 
 def test_render_update_docs():
-    """Update docs template includes description and docs link."""
+    """Update docs template includes description, config options, and docs link."""
     result = render_template("update-docs")
 
     assert "### Description" in result
     assert "sphinx-apidoc" in result
     assert "docs_update.py" in result
     assert "autofix-yaml-jobs" in result
+    assert "### Configuration" in result
+    assert "docs.apidoc-exclude" in result
+    assert "[tool.repomatic]" in result
 
 
 def test_render_sync_mailmap():
@@ -487,6 +491,42 @@ def test_render_sync_mailmap():
     assert "### Description" in result
     assert ".mailmap" in result
     assert "autofix-yaml-jobs" in result
+
+
+# Config-option references in PR body templates, written as
+# ``- [`key`](…/configuration.html#anchor)`` bullets under "### Configuration".
+CONFIG_OPTION_BULLET = re.compile(
+    r"- \[`(?P<key>[^`]+)`\]"
+    r"\(https://kdeldycke\.github\.io/repomatic/configuration\.html#(?P<anchor>[^)]+)\)"
+)
+
+VALID_CONFIG_KEYS = frozenset(row[0].strip("`") for row in config_reference())
+"""Every `[tool.repomatic]` key, dotted and nested-expanded, from the schema."""
+
+
+@pytest.mark.parametrize("name", get_template_names())
+def test_template_config_options_are_real_keys(name: str) -> None:
+    """Every option a template lists is a real key, anchored and sorted.
+
+    Each ``- [`key`](…/configuration.html#anchor)`` bullet must name a live
+    `[tool.repomatic]` key, link to its matching anchor, and appear in
+    alphabetical order. Guards against a renamed or mistyped option silently
+    surviving in a PR body template (the lone unenforced `workflow.sync` was
+    one such drift).
+    """
+    _, body = load_template(name)
+    options = [(m["key"], m["anchor"]) for m in CONFIG_OPTION_BULLET.finditer(body)]
+
+    for key, anchor in options:
+        assert key in VALID_CONFIG_KEYS, (
+            f"{name} lists unknown [tool.repomatic] option `{key}`"
+        )
+        assert anchor == key.replace(".", "-"), (
+            f"{name} links `{key}` to #{anchor}, expected #{key.replace('.', '-')}"
+        )
+
+    keys = [key for key, _ in options]
+    assert keys == sorted(keys), f"{name} config options are not sorted: {keys}"
 
 
 FAKE_FOOTER = (

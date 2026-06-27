@@ -912,9 +912,19 @@ def _init_workflows(
     if exclude:
         workflows = tuple(w for w in workflows if w not in exclude)
 
-    # Exclude config-gated workflows whose toggle is off.
     if config is None:
         config = load_repomatic_config()
+
+    # Respect the workflow-sync opt-out: skip thin callers and headers,
+    # leaving any existing workflow files untouched (matches the sibling
+    # `*.sync` toggles). See {class}`~repomatic.config.WorkflowConfig`.
+    if not config.workflow.sync:
+        logging.info(
+            "[tool.repomatic] workflow.sync is disabled. Skipping workflow sync."
+        )
+        return
+
+    # Exclude config-gated workflows whose toggle is off.
     for entry in _BY_NAME["workflows"].files:
         if entry.file_id in workflows and not entry.is_enabled(config):
             workflows = tuple(w for w in workflows if w != entry.file_id)

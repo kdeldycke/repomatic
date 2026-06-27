@@ -29,7 +29,7 @@ import yaml
 from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__
-from repomatic.config import Config, LabelsConfig
+from repomatic.config import Config, LabelsConfig, WorkflowConfig
 from repomatic.init_project import (
     EXPORTABLE_FILES,
     RUNTIME_FRAGMENTS,
@@ -869,6 +869,34 @@ def test_init_workflow_paths_config_flows_to_generated_files(tmp_path: Path):
     assert "uv.lock" not in changelog
     # Untouched canonical entries survive.
     assert "changelog.md" in changelog
+
+
+def test_init_workflow_sync_disabled_leaves_workflows_untouched(tmp_path: Path):
+    """`[tool.repomatic.workflow] sync = false` skips workflow generation.
+
+    Like the other `*.sync` toggles, the opt-out writes nothing and leaves any
+    existing workflow file untouched rather than overwriting or deleting it.
+    Applies even when `workflows` is named explicitly.
+    """
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    custom = workflows_dir / "lint.yaml"
+    custom.write_text("# hand-written\n", encoding="UTF-8")
+
+    config = Config(workflow=WorkflowConfig(sync=False))
+    result = run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        config=config,
+    )
+
+    touched = [
+        p
+        for p in (*result.created, *result.updated)
+        if p.startswith(".github/workflows/")
+    ]
+    assert touched == []
+    assert custom.read_text(encoding="UTF-8") == "# hand-written\n"
 
 
 def test_init_existing_changelog_skipped(tmp_path: Path):
