@@ -336,7 +336,7 @@ def npm_candidates(package: str) -> list[Candidate]:
 def is_newer(new: str, old: str) -> bool:
     """Return `True` when *new* is a strictly higher version than *old*.
 
-    Unparseable versions compare as not-newer, so a malformed candidate never
+    Unparsable versions compare as not-newer, so a malformed candidate never
     triggers a bump.
     """
     try:
