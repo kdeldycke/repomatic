@@ -18,6 +18,15 @@
    :undoc-members:
 ```
 
+## `tests.test_advisories` module
+
+```{eval-rst}
+.. automodule:: tests.test_advisories
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_awesome_template` module
 
 ```{eval-rst}
@@ -108,6 +117,15 @@
    :undoc-members:
 ```
 
+## `tests.test_github_releases` module
+
+```{eval-rst}
+.. automodule:: tests.test_github_releases
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_help` module
 
 ```{eval-rst}
@@ -126,10 +144,28 @@
    :undoc-members:
 ```
 
+## `tests.test_imports` module
+
+```{eval-rst}
+.. automodule:: tests.test_imports
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_init_project` module
 
 ```{eval-rst}
 .. automodule:: tests.test_init_project
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_labeller_rules` module
+
+```{eval-rst}
+.. automodule:: tests.test_labeller_rules
    :members:
    :show-inheritance:
    :undoc-members:
@@ -171,6 +207,15 @@
    :undoc-members:
 ```
 
+## `tests.test_myst_docstrings` module
+
+```{eval-rst}
+.. automodule:: tests.test_myst_docstrings
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_platform_keys` module
 
 ```{eval-rst}
@@ -180,10 +225,28 @@
    :undoc-members:
 ```
 
+## `tests.test_pr` module
+
+```{eval-rst}
+.. automodule:: tests.test_pr
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_pr_body` module
 
 ```{eval-rst}
 .. automodule:: tests.test_pr_body
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_pypi` module
+
+```{eval-rst}
+.. automodule:: tests.test_pypi
    :members:
    :show-inheritance:
    :undoc-members:
@@ -225,10 +288,46 @@
    :undoc-members:
 ```
 
+## `tests.test_status` module
+
+```{eval-rst}
+.. automodule:: tests.test_status
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_sync_labels` module
+
+```{eval-rst}
+.. automodule:: tests.test_sync_labels
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_tool_runner` module
 
 ```{eval-rst}
 .. automodule:: tests.test_tool_runner
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_uv` module
+
+```{eval-rst}
+.. automodule:: tests.test_uv
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_version_sync` module
+
+```{eval-rst}
+.. automodule:: tests.test_version_sync
    :members:
    :show-inheritance:
    :undoc-members:

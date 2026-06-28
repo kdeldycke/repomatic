@@ -146,6 +146,33 @@
    :undoc-members:
 ```
 
+## `repomatic.myst_converter` module
+
+```{eval-rst}
+.. automodule:: repomatic.myst_converter
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.myst_docstrings` module
+
+```{eval-rst}
+.. automodule:: repomatic.myst_docstrings
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.npm` module
+
+```{eval-rst}
+.. automodule:: repomatic.npm
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.pypi` module
 
 ```{eval-rst}
@@ -177,15 +204,6 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.release_prep
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.npm` module
-
-```{eval-rst}
-.. automodule:: repomatic.npm
    :members:
    :show-inheritance:
    :undoc-members:

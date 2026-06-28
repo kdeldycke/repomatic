@@ -239,3 +239,45 @@ def test_docs_generator_matches_in_tree_state(
         f"{start!r} and {end!r}. The two will ping-pong on every CI run. "
         f"Align the generator with mdformat's output."
     )
+
+
+# Sphinx-apidoc module pages that carry importable modules. The data/, templates/,
+# and awesome-template subpackages hold only bundled assets, so they have no
+# module pages to keep in sync.
+_MODULE_DOC_PAGES = {
+    "repomatic.md": ("repomatic", REPO_ROOT / "repomatic"),
+    "repomatic.github.md": ("repomatic.github", REPO_ROOT / "repomatic" / "github"),
+    "tests.md": ("tests", REPO_ROOT / "tests"),
+}
+
+# sphinx-apidoc emits an automodule for every module except a package `__init__`
+# (covered by the package page) and `__main__` (an entry-point shim it skips).
+_APIDOC_SKIP = frozenset({"__init__", "__main__"})
+
+
+@pytest.mark.parametrize("page", sorted(_MODULE_DOC_PAGES))
+def test_every_module_has_a_docs_automodule(page: str) -> None:
+    """Every module appears in its sphinx-apidoc doc page.
+
+    These pages are write-once: ``rst_to_myst`` preserves an existing ``.md``,
+    so a module added after a page was last generated silently goes undocumented
+    (Sphinx then warns "document isn't included in any toctree"). The
+    ``update-docs`` drift test cannot catch this, since the generator never
+    rewrites the page. To regenerate a page complete, delete it and run
+    ``repomatic update-docs``.
+    """
+    prefix, root = _MODULE_DOC_PAGES[page]
+    documented = set(
+        re.findall(
+            r"automodule:: ([\w.]+)",
+            (REPO_ROOT / "docs" / page).read_text(encoding="UTF-8"),
+        )
+    )
+    on_disk = {
+        f"{prefix}.{p.stem}" for p in root.glob("*.py") if p.stem not in _APIDOC_SKIP
+    }
+    missing = sorted(on_disk - documented)
+    assert not missing, (
+        f"docs/{page} has no automodule entry for: {missing}. "
+        f"Delete docs/{page} and run `repomatic update-docs` to regenerate it."
+    )
