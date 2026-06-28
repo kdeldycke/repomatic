@@ -24,7 +24,12 @@ from click.testing import CliRunner
 from repomatic import cli
 from repomatic.cli import repomatic
 from repomatic.config import Config
-from repomatic.uv import AdvisorySource, VulnerablePackage
+from repomatic.uv import (
+    AdvisorySource,
+    VulnerablePackage,
+    format_diff_table,
+    pypi_name_urls,
+)
 
 
 def _sample_vuln() -> VulnerablePackage:
@@ -196,3 +201,47 @@ def test_audit_fix_skipped_when_sync_disabled(monkeypatch, no_github_repo):
         repomatic, ["--no-color", "audit", "--fix"], catch_exceptions=False
     )
     assert result.exit_code == 0
+
+
+def test_format_diff_table_is_the_shared_pr_table():
+    """One formatter renders every dependency PR table identically.
+
+    `sync-uv-lock`, `fix-vulnerable-deps`, `sync-tool-versions`,
+    `sync-action-pins`, and `sync-workflow-pins` all route through this, so the
+    heading, first-column subject, name link, and change link are all
+    parametrized rather than hard-coded.
+    """
+    # A sync-tool-versions / sync-action-pins style call: GitHub name link plus
+    # a comparison link on the change cell, with a custom heading and subject.
+    table = format_diff_table(
+        [("gitleaks", "8.30.1", "8.31.0")],
+        upload_times={"gitleaks": "2026-06-20"},
+        name_urls={"gitleaks": "https://github.com/gitleaks/gitleaks"},
+        comparison_urls={
+            "gitleaks": "https://github.com/gitleaks/gitleaks/compare/v8.30.1...v8.31.0"
+        },
+        heading="Updated tools",
+        subject="Tool",
+    )
+    assert "### 🆙 Updated tools" in table
+    assert "| Tool | Change | Released |" in table
+    assert "[gitleaks](https://github.com/gitleaks/gitleaks)" in table
+    assert (
+        "[`8.30.1` → `8.31.0`]"
+        "(https://github.com/gitleaks/gitleaks/compare/v8.30.1...v8.31.0)"
+    ) in table
+
+    # The PyPI defaults (sync-uv-lock / fix-vulnerable-deps): "Updated packages"
+    # heading, PyPI name links via the helper, plain change with no comparison.
+    pkg = format_diff_table(
+        [("ruff", "0.1.0", "0.2.0")],
+        name_urls=pypi_name_urls([("ruff", "0.1.0", "0.2.0")]),
+    )
+    assert "### 🆙 Updated packages" in pkg
+    assert "| Package | Change |" in pkg
+    assert "[ruff](https://pypi.org/project/ruff/)" in pkg
+    assert "`0.1.0` → `0.2.0`" in pkg
+
+    # A name absent from name_urls renders plain, and no changes yields nothing.
+    assert "| foo |" in format_diff_table([("foo", "1", "2")])
+    assert format_diff_table([]) == ""

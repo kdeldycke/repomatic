@@ -1025,14 +1025,30 @@ def diff_lock_versions(
     return changes
 
 
+def pypi_name_urls(changes: list[tuple[str, str, str]]) -> dict[str, str]:
+    """Map each changed package name to its PyPI project URL.
+
+    Convenience for {func}`format_diff_table`'s `name_urls` when the changes
+    come from a PyPI-resolved source (`sync-uv-lock`, `fix-vulnerable-deps`).
+    """
+    return {name: f"https://pypi.org/project/{name}/" for name, _old, _new in changes}
+
+
 def format_diff_table(
     changes: list[tuple[str, str, str]],
     upload_times: dict[str, str] | None = None,
     exclude_newer: str = "",
     comparison_urls: dict[str, str] | None = None,
     reference_date: date | None = None,
+    name_urls: dict[str, str] | None = None,
+    heading: str = "Updated packages",
+    subject: str = "Package",
 ) -> str:
     """Format version changes as a markdown table with heading.
+
+    The shared PR-body table for every dependency updater (`sync-uv-lock`,
+    `fix-vulnerable-deps`, `sync-tool-versions`, `sync-action-pins`,
+    `sync-workflow-pins`) so they all render identically.
 
     When `upload_times` is provided, a "Released" column is added so
     reviewers can visually verify that all updated packages respect the
@@ -1045,17 +1061,23 @@ def format_diff_table(
         upload-time strings, as returned by {func}`parse_lock_upload_times`.
     :param exclude_newer: Optional `exclude-newer` ISO 8601 datetime from
         the lock file, as returned by {func}`parse_lock_exclude_newer`.
-    :param comparison_urls: Optional mapping of package names to GitHub
-        comparison URLs, as returned by {func}`build_comparison_urls`.
+    :param comparison_urls: Optional mapping of names to comparison URLs,
+        linked on the change cell (see {func}`build_comparison_urls`).
     :param reference_date: When set, each "Released" date gains a relative
         hint (`2026-06-24 (2 days ago)`) measured from this date.
-    :return: A markdown string with a `### Updated packages` heading and
-        table, or an empty string if there are no changes.
+    :param name_urls: Optional mapping of names to a URL the name links to
+        (PyPI, GitHub, npm). Names absent from the mapping render plain. Pass
+        {func}`pypi_name_urls` for PyPI-sourced changes.
+    :param heading: Noun after `### 🆙 ` (e.g. `Updated tools`).
+    :param subject: Header for the first (name) column (e.g. `Tool`, `Action`).
+    :return: A markdown string with a `### 🆙 {heading}` heading and table,
+        or an empty string if there are no changes.
     """
     if not changes:
         return ""
+    name_urls = name_urls or {}
     show_uploaded = bool(upload_times)
-    lines = ["### 🆙 Updated packages", ""]
+    lines = [f"### 🆙 {heading}", ""]
     if exclude_newer:
         cutoff = _format_upload_date(exclude_newer)
         lines.append(
@@ -1065,13 +1087,13 @@ def format_diff_table(
         )
         lines.append("")
     if show_uploaded:
-        lines.append("| Package | Change | Released |")
+        lines.append(f"| {subject} | Change | Released |")
         lines.append("| :-- | :-- | :-- |")
     else:
-        lines.append("| Package | Change |")
+        lines.append(f"| {subject} | Change |")
         lines.append("| :-- | :-- |")
     for name, old, new in changes:
-        link = f"[{name}](https://pypi.org/project/{name}/)"
+        link = f"[{name}]({name_urls[name]})" if name in name_urls else name
         if old and new:
             change = f"`{old}` \u2192 `{new}`"
             if comparison_urls and name in comparison_urls:
@@ -1729,7 +1751,9 @@ def fix_vulnerable_deps(
     vuln_table = format_vulnerability_table(vulns)
     upload_times = parse_lock_upload_times(lock_path)
     exclude_newer = parse_lock_exclude_newer(lock_path)
-    diff_table = format_diff_table(changes, upload_times, exclude_newer)
+    diff_table = format_diff_table(
+        changes, upload_times, exclude_newer, name_urls=pypi_name_urls(changes)
+    )
 
     # Fetch and append release notes.
     notes = fetch_release_notes(changes)

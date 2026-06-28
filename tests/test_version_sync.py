@@ -210,14 +210,6 @@ def test_apply_workflow_literals():
     assert "codecov-cli==12.0.0" in new_content
 
 
-def test_format_changes_table():
-    table = vs.format_changes_table(
-        [("ruff", "0.1.0", "0.2.0")], {"ruff": "2026-06-01"}, subject="Tool"
-    )
-    assert "ruff" in table and "0.2.0" in table and "Tool" in table and "Released" in table
-    assert vs.format_changes_table([], {}) == ""
-
-
 # ---------------------------------------------------------------------------
 # Datasource adapters (mocked: no network)
 # ---------------------------------------------------------------------------

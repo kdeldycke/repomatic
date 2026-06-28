@@ -183,6 +183,7 @@ from .uv import (
     format_held_back_table,
     format_release_notes,
     format_vulnerability_table,
+    pypi_name_urls,
     sync_uv_lock as _sync_uv_lock,
 )
 from .version_sync import (
@@ -190,7 +191,6 @@ from .version_sync import (
     apply_workflow_literals,
     find_action_pins,
     find_workflow_literals,
-    format_changes_table,
     github_candidates,
     is_newer,
     npm_candidates,
@@ -2886,6 +2886,7 @@ def sync_uv_lock_cmd(
             result.exclude_newer,
             comparison_urls=comparison_urls,
             reference_date=today,
+            name_urls=pypi_name_urls(result.changes),
         )
         held_back_section = format_held_back_table(held_back_pkgs)
         body = "\n\n".join(
@@ -2910,11 +2911,17 @@ def _emit_version_sync_report(
     output_format: str,
     *,
     subject: str,
+    heading: str,
+    name_urls: dict[str, str] | None = None,
+    comparison_urls: dict[str, str] | None = None,
 ) -> None:
     """Print a terminal table and optionally write a markdown PR-body report.
 
     Shared by the three `sync-*` version updaters. *changes* are
-    `(name, old, new)` triples; *dates* maps name to the new release date.
+    `(name, old, new)` triples; *dates* maps name to the new release date. The
+    file output goes through {func}`~repomatic.uv.format_diff_table`, the same
+    formatter `sync-uv-lock` and `fix-vulnerable-deps` use, so every dependency
+    PR renders an identical table.
     """
     echo(f"{len(changes)} {subject.lower()}(s) updated.")
     rows = [(name, old, new, dates.get(name, "")) for name, old, new in sorted(changes)]
@@ -2922,7 +2929,15 @@ def _emit_version_sync_report(
         rows, (subject, "Old", "New", "Released")
     )
     if output:
-        body = format_changes_table(changes, dates, subject=subject)
+        body = format_diff_table(
+            sorted(changes),
+            upload_times=dates,
+            comparison_urls=comparison_urls,
+            reference_date=datetime.now(timezone.utc).date(),
+            name_urls=name_urls,
+            heading=heading,
+            subject=subject,
+        )
         if output_format == "github-actions":
             content = format_multiline_output("diff_table", body)
         else:
@@ -3052,8 +3067,20 @@ def sync_tool_versions(ctx: Context, output: Path | None, output_format: str) ->
     if "actionlint" in overrides:
         _sync_actionlint_matcher_url(overrides["actionlint"])
 
+    name_urls: dict[str, str] = {}
+    for name, _old, _new in changes:
+        source_url = TOOL_REGISTRY[name].source_url
+        if source_url:
+            name_urls[name] = source_url
     _emit_version_sync_report(
-        ctx, changes, dates, output, output_format, subject="Tool"
+        ctx,
+        changes,
+        dates,
+        output,
+        output_format,
+        subject="Tool",
+        heading="Updated tools",
+        name_urls=name_urls,
     )
 
 
@@ -3135,8 +3162,21 @@ def sync_action_pins(ctx: Context, output: Path | None, output_format: str) -> N
         echo("All action pins are up to date.")
         ctx.exit(0)
 
+    name_urls = {slug: f"https://github.com/{slug}" for slug, _old, _new in changes}
+    comparison_urls = {
+        slug: f"https://github.com/{slug}/compare/{old}...{new}"
+        for slug, old, new in changes
+    }
     _emit_version_sync_report(
-        ctx, changes, dates, output, output_format, subject="Action"
+        ctx,
+        changes,
+        dates,
+        output,
+        output_format,
+        subject="Action",
+        heading="Updated actions",
+        name_urls=name_urls,
+        comparison_urls=comparison_urls,
     )
 
 
@@ -3188,6 +3228,7 @@ def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) ->
 
     resolved: dict[tuple[str, str], str] = {}
     dates: dict[str, str] = {}
+    name_urls: dict[str, str] = {}
     for (ecosystem, package), current_version in sorted(current.items()):
         candidates = (
             npm_candidates(package)
@@ -3199,6 +3240,11 @@ def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) ->
             continue
         resolved[(ecosystem, package)] = latest.version
         dates[package] = latest.date
+        name_urls[package] = (
+            f"https://www.npmjs.com/package/{package}"
+            if ecosystem == "npm"
+            else f"https://pypi.org/project/{package}/"
+        )
 
     changes: list[tuple[str, str, str]] = []
     for path, text in file_data.items():
@@ -3213,7 +3259,14 @@ def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) ->
         ctx.exit(0)
 
     _emit_version_sync_report(
-        ctx, changes, dates, output, output_format, subject="Package"
+        ctx,
+        changes,
+        dates,
+        output,
+        output_format,
+        subject="Package",
+        heading="Updated packages",
+        name_urls=name_urls,
     )
 
 

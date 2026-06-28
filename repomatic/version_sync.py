@@ -37,7 +37,6 @@ import re
 from datetime import date, timedelta
 from typing import NamedTuple
 
-from click_extra import TableFormat, render_table
 from packaging.version import InvalidVersion, Version
 
 from .github.releases import (
@@ -369,30 +368,3 @@ def apply_workflow_literals(
     content = _NPM_LITERAL_RE.sub(replace("npm", "@"), content)
     content = _PYPI_LITERAL_RE.sub(replace("pypi", "=="), content)
     return content, changes
-
-
-def format_changes_table(
-    changes: list[tuple[str, str, str]],
-    dates: dict[str, str],
-    *,
-    subject: str = "Name",
-) -> str:
-    """Render a markdown table of version changes for a PR body.
-
-    :param changes: List of `(name, old_version, new_version)` tuples.
-    :param dates: Mapping of name to its new release date (`YYYY-MM-DD`).
-    :param subject: Header for the first column (e.g. `"Tool"`, `"Action"`).
-    :return: A GitHub-flavored markdown table, or an empty string when there
-        are no changes.
-    """
-    if not changes:
-        return ""
-    rows = [
-        [name, old, new, dates.get(name, "")]
-        for name, old, new in sorted(changes)
-    ]
-    return render_table(
-        rows,
-        headers=[subject, "Old", "New", "Released"],
-        table_format=TableFormat.GITHUB,
-    )
