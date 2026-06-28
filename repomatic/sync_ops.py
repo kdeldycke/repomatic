@@ -351,7 +351,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
                 continue
             candidates = github_candidates(spec.source_url, spec.tag_pattern)
         else:
-            candidates = pypi_candidates(spec.package or spec.name)
+            candidates = pypi_candidates(spec.pypi_name)
         latest = select_latest(candidates, min_age, today)
         # Held-back covers every scanned tool, even ones not bumped this run, so
         # the section shows the full cooldown pipeline (parity with sync-uv-lock).
@@ -374,7 +374,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
                     )
                 )
                 plan.held_back_name_urls[name] = spec.source_url or (
-                    f"https://pypi.org/project/{spec.package or spec.name}/"
+                    f"https://pypi.org/project/{spec.pypi_name}/"
                 )
         if latest is None or not is_newer(latest.version, spec.version):
             continue

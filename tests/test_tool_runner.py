@@ -92,6 +92,13 @@ def test_tool_spec_integrity(name, spec):
             f"{name}: package equals name — set package=None instead"
         )
 
+    # pypi_name must be a bare, queryable PyPI project name: package may carry
+    # an install extra (Nuitka's `nuitka[onefile]`), but the PyPI JSON API 404s
+    # on a bracketed name, silently stalling sync-tool-versions.
+    assert re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?", spec.pypi_name), (
+        f"{name}: pypi_name {spec.pypi_name!r} is not a bare PyPI project name"
+    )
+
     # config_flag uses the long-form double-dash convention.
     if spec.config_flag is not None:
         assert spec.config_flag.startswith("--"), (
@@ -254,6 +261,19 @@ def test_tool_registry_sorted_alphabetically():
     """Registry keys are sorted alphabetically."""
     keys = list(TOOL_REGISTRY.keys())
     assert keys == sorted(keys)
+
+
+def test_pypi_name_strips_install_extra():
+    """`pypi_name` yields the bare PyPI project name, dropping any install extra.
+
+    Nuitka pins `package="nuitka[onefile]"` for installation, but the PyPI JSON
+    API 404s on the bracketed name, so `pypi_name` must return `nuitka` for
+    `sync-tool-versions` to find the real project.
+    """
+    assert TOOL_REGISTRY["nuitka"].pypi_name == "nuitka"
+    # Extra stripped, and package=None falls back to the tool name.
+    assert ToolSpec(name="papaya", package="papaya[juice]").pypi_name == "papaya"
+    assert ToolSpec(name="papaya").pypi_name == "papaya"
 
 
 def test_checksum_sidecar_covers_exactly_binary_tools():

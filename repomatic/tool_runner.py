@@ -67,6 +67,7 @@ from extra_platforms import (
     current_platform,
     is_github_ci,
 )
+from packaging.requirements import Requirement
 
 from .cache import get_cached_binary, store_binary
 from .uv import uv_cmd, uvx_cmd
@@ -437,8 +438,10 @@ class ToolSpec:
     """Pinned version (e.g., `'1.38.0'`)."""
 
     package: str | None = None
-    """PyPI package name. `None` defaults to `name`. Only set when the
-    package name differs from the tool name.
+    """Install target passed to `uvx`/`uv run` (and pip). `None` defaults to
+    `name`. Only set when it differs from the tool name, and may carry an
+    install extra (Nuitka's `nuitka[onefile]`); for PyPI lookups query the bare
+    project name through {attr}`pypi_name`, which strips the extra.
     """
 
     executable: str | None = None
@@ -576,6 +579,18 @@ class ToolSpec:
 
     cli_docs_url: str | None = None
     """URL to the tool's CLI usage documentation."""
+
+    @property
+    def pypi_name(self) -> str:
+        """Bare PyPI project name for version and metadata lookups.
+
+        {attr}`package` doubles as the install target, so it may carry an
+        install extra (Nuitka's `nuitka[onefile]`) that `_build_install_args`
+        needs at install time. The PyPI JSON API is keyed by the bare project
+        name, though, and 404s on a bracketed extra, so `sync-tool-versions`
+        and the held-back PR links query this stripped name (`nuitka`) instead.
+        """
+        return Requirement(self.package or self.name).name
 
     def check_bypasses_post_process(self, extra_args: Sequence[str]) -> bool:
         """Return `True` when a check-mode flag will skip `post_process`.

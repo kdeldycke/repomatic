@@ -400,7 +400,7 @@ def test_registry_tool_has_resolvable_datasource(name):
         owner_repo = spec.source_url.removeprefix("https://github.com/").split("/")
         assert len(owner_repo) == 2 and all(owner_repo)
     else:
-        assert spec.package or spec.name
+        assert spec.pypi_name
 
 
 @pytest.mark.parametrize("name", sorted(TOOL_REGISTRY))
