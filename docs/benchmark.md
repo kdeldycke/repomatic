@@ -20,16 +20,16 @@ Repository automation tools span several domains: declarative settings managemen
 
 ## File sync & templates
 
-| Feature                                      | `repomatic` | `cookiecutter`[^1] | `semantic-release`[^2] | `copier`[^3] | `cruft`[^4] | `allstar`[^5] | `tf-github`[^6] | `settings`[^7] | `safe-settings`[^8] | `all-repos`[^9] |
-| -------------------------------------------- | :---------: | :----------------: | :--------------------: | :----------: | :---------: | :-----------: | :-------------: | :------------: | :-----------------: | :-------------: |
-| Project scaffolding                          |      ✓      |         ✓          |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
-| Ongoing template sync                        |      ✓      |                    |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
-| Template conflict resolution                 |             |                    |                        |      ✓       |      ~      |               |                 |                |                     |                 |
-| Template migration system                    |             |                    |                        |      ✓       |             |               |                 |                |                     |                 |
-| Config file sync (gitignore, mailmap, etc.)  |      ✓      |                    |                        |      ~       |      ~      |               |        ~        |                |                     |        ~        |
-| Dependency lock management                   |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
-| Dependency graph generation                  |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
-| Jinja2 templating                            |             |         ✓          |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
+| Feature                                     | `repomatic` | `cookiecutter`[^1] | `semantic-release`[^2] | `copier`[^3] | `cruft`[^4] | `allstar`[^5] | `tf-github`[^6] | `settings`[^7] | `safe-settings`[^8] | `all-repos`[^9] |
+| ------------------------------------------- | :---------: | :----------------: | :--------------------: | :----------: | :---------: | :-----------: | :-------------: | :------------: | :-----------------: | :-------------: |
+| Project scaffolding                         |      ✓      |         ✓          |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
+| Ongoing template sync                       |      ✓      |                    |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
+| Template conflict resolution                |             |                    |                        |      ✓       |      ~      |               |                 |                |                     |                 |
+| Template migration system                   |             |                    |                        |      ✓       |             |               |                 |                |                     |                 |
+| Config file sync (gitignore, mailmap, etc.) |      ✓      |                    |                        |      ~       |      ~      |               |        ~        |                |                     |        ~        |
+| Dependency lock management                  |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
+| Dependency graph generation                 |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
+| Jinja2 templating                           |             |         ✓          |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
 
 `repomatic init` scaffolds projects with opinionated defaults (workflows, labels, tool configs, changelog) and keeps them in sync with the upstream canonical reference via version-pinned thin-caller workflows. `copier` has the most sophisticated update mechanism: Git-native conflict resolution (inline markers or `.rej` files) and a migrations system for breaking template changes. `cruft` wraps `cookiecutter` with basic update support. `cookiecutter` is strictly one-shot: generate and forget.
 

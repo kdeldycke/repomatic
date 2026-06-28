@@ -17,7 +17,7 @@ Some workflows need a **fine-grained personal access token** to create PRs that 
    | :-------------------- | :---------------------- | :---------------------------------------------------------------------------------------- |
    | **Contents**          | Read and Write          | Tag pushes, release publishing, PR branch creation                                        |
    | **Dependabot alerts** | Read-only               | fix-vulnerable-deps reads vulnerability alerts to create security PRs                     |
-   | **Issues**            | Read and Write          | Setup guide issue management                                                               |
+   | **Issues**            | Read and Write          | Setup guide issue management                                                              |
    | **Metadata**          | Read-only *(mandatory)* | Required for all fine-grained token API operations                                        |
    | **Pull requests**     | Read and Write          | All PR-creating jobs (sync-repomatic, fix-typos, sync-uv-lock, sync-action-pins)          |
    | **Workflows**         | Read and Write          | Push changes to `.github/workflows/` files — not available via YAML `permissions:` at all |
