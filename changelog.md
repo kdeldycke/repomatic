@@ -669,4 +669,7 @@
 
 - Rename project from `gha-utils` to `repokit`. Rename GitHub repository from `kdeldycke/workflows` to `kdeldycke/repokit`.
 
-Releases `5.14.1` and earlier are recorded in the [changelog archive](https://kdeldycke.github.io/repomatic/changelog-archive.html).
+## Earlier releases
+
+> [!NOTE]
+> Releases `5.14.1` and earlier are recorded in the [changelog archive](https://kdeldycke.github.io/repomatic/changelog-archive.html).
