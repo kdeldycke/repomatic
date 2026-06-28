@@ -546,7 +546,14 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # Full history, not the default shallow clone: this job runs
+      # create-pull-request several times in one checkout, and a shallow clone
+      # trips "shallow file has changed since we read it" on the second call,
+      # corrupting the --force-with-lease push (the four standalone jobs never
+      # hit this, each having its own checkout with a single create-pull-request).
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       # Persist repomatic's HTTP cache (PyPI/GitHub/npm release metadata) across
       # runs. Entries are TTL-gated in repomatic.cache, so a restored cache never

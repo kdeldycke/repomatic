@@ -263,6 +263,14 @@ def test_consolidated_job_covers_every_operation() -> None:
     assert pr_branches == {op.branch for op in SYNC_OPERATIONS}
 
 
+def test_consolidated_job_uses_full_history() -> None:
+    """The job checks out full history so repeated create-pull-request calls in
+    one checkout do not trip git's "shallow file has changed" race."""
+    steps = _consolidated_job_steps()
+    checkout = next(s for s in steps if "actions/checkout" in s.get("uses", ""))
+    assert checkout.get("with", {}).get("fetch-depth") == 0
+
+
 def test_consolidated_job_labels_every_pr_consistently() -> None:
     """Every PR the consolidated job opens carries the shared dependency label."""
     labels = {step["with"]["labels"] for step in _pr_steps(_consolidated_job_steps())}
