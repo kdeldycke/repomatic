@@ -289,8 +289,11 @@ def test_build_held_back_formats_released_and_eligible():
 
 def test_format_held_back_table_is_parametrized_by_subject_and_links():
     """One renderer serves uv (PyPI) and the version-sync updaters (GitHub/npm)."""
-    rows = [HeldBackPackage("actions/checkout", "6.0.3",
-                            "7.0.0", "2026-06-26", "2026-07-04")]
+    rows = [
+        HeldBackPackage(
+            "actions/checkout", "6.0.3", "7.0.0", "2026-06-26", "2026-07-04"
+        )
+    ]
     table = format_held_back_table(
         rows,
         "CUSTOM COOLDOWN NOTE",
