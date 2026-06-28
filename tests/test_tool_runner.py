@@ -363,6 +363,27 @@ def test_download_and_verify_success(tmp_path):
     assert dest.read_bytes() == content
 
 
+def test_download_and_verify_no_content_length(tmp_path):
+    """A response without Content-Length downloads via the indeterminate Spinner."""
+    content = b"hello binary world"
+    expected = hashlib.sha256(content).hexdigest()
+    dest = tmp_path / "downloaded"
+
+    mock_response = MagicMock()
+    # No Content-Length: total stays 0, so the download path uses a Spinner
+    # instead of a determinate progress bar.
+    mock_response.headers.get = MagicMock(return_value=None)
+    mock_response.read = MagicMock(side_effect=[content, b""])
+    mock_response.__enter__ = MagicMock(return_value=mock_response)
+    mock_response.__exit__ = MagicMock(return_value=False)
+
+    with patch("repomatic.tool_runner.urlopen", return_value=mock_response):
+        _download_and_verify("https://example.com/file", expected, dest)
+
+    assert dest.exists()
+    assert dest.read_bytes() == content
+
+
 def test_download_and_verify_mismatch(tmp_path):
     """Checksum mismatch raises ValueError and cleans up."""
     content = b"hello binary world"

@@ -15,6 +15,7 @@
 - The autofix workflow now runs weekly on a schedule, so quiet repositories still pick up dependency, tool, and action-pin updates.
 - Add a `changelog.archive-location` config option pointing at an archive file for older release sections, so `lint-changelog` treats archived versions as documented instead of flagging them as orphans.
 - Drop the `pydriller` dependency: Git history operations now invoke the `git` CLI directly, shrinking the install and compiled-binary footprint.
+- `repomatic run` now animates a spinner while downloading a tool whose server omits a `Content-Length`, where it previously showed nothing.
 
 ## [`6.31.0` (2026-06-27)](https://github.com/kdeldycke/repomatic/compare/v6.30.0...v6.31.0)
 

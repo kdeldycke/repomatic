@@ -85,9 +85,8 @@ dependencies = [
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
   # 8.1.0 is the first release carrying the APIs repomatic uses: the `test-suite`
-  # engine (renamed from `test-plan`), the `CONFIG_PATH_METADATA_KEY` /
-  # `NORMALIZE_KEYS_METADATA_KEY` schema-metadata constants, and the
-  # `@sort_by_option` / `ColumnSpec` `columns=` table registry.
+  # engine (renamed from `test-plan`) and the `CONFIG_PATH_METADATA_KEY` /
+  # `NORMALIZE_KEYS_METADATA_KEY` schema-metadata constants.
   "click-extra>=8.1",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke

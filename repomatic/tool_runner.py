@@ -43,7 +43,7 @@ import sys
 import tarfile
 import tempfile
 import zipfile
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
 from importlib.resources import as_file, files
@@ -52,7 +52,7 @@ from urllib.request import Request, urlopen
 
 import tomlrt
 import yaml
-from click_extra import ClickException, progressbar
+from click_extra import ClickException, Spinner, progressbar
 from extra_platforms import (
     AARCH64,
     ALL_PLATFORMS,
@@ -1559,24 +1559,23 @@ def _download_and_verify(
     with urlopen(request) as response, dest_path.open("wb") as f:
         content_length = response.headers.get("Content-Length")
         total = int(content_length) if content_length else 0
-        # click_extra.progressbar is a drop-in for click.progressbar that honors
-        # the --no-progress / --accessible flags, hiding the bar when the user
-        # opts out; click itself draws nothing on a non-TTY. The `total` guard
-        # stays: without a Content-Length there is no determinate bar to show.
+        # Determinate vs indeterminate feedback, both silent off a TTY (CI logs,
+        # pipes, captured test output): with a Content-Length, click_extra's
+        # progressbar draws a percentage bar; without one there is nothing to
+        # measure, so a Spinner just signals the download is still alive.
         progress = (
-            progressbar(
-                length=total,
-                label=label or dest_path.name,
-                file=sys.stderr,
-            )
+            progressbar(length=total, label=label or dest_path.name, file=sys.stderr)
             if total
-            else nullcontext()
+            else Spinner(label or dest_path.name)
         )
         with progress as bar:
             while chunk := response.read(65536):
                 f.write(chunk)
                 sha256.update(chunk)
-                if bar is not None:
+                # Only the determinate progressbar advances per chunk; the
+                # Spinner animates on its own background thread and exposes no
+                # update(). The isinstance check also narrows the union for mypy.
+                if not isinstance(bar, Spinner):
                     bar.update(len(chunk))
     actual = sha256.hexdigest()
     if expected_sha256 is None:
