@@ -36,6 +36,7 @@
 | [`repomatic sponsor-label`](#repomatic-sponsor-label)                       | Label issues/PRs from GitHub sponsors                    |
 | [`repomatic sync-action-pins`](#repomatic-sync-action-pins)                 | Bump SHA-pinned GitHub Actions to their latest release   |
 | [`repomatic sync-bumpversion`](#repomatic-sync-bumpversion)                 | Sync bumpversion config from bundled template            |
+| [`repomatic sync-deps`](#repomatic-sync-deps)                               | Update dependencies, all or a named subset               |
 | [`repomatic sync-dev-release`](#repomatic-sync-dev-release)                 | Sync rolling dev pre-release on GitHub                   |
 | [`repomatic sync-github-releases`](#repomatic-sync-github-releases)         | Sync GitHub release notes from changelog                 |
 | [`repomatic sync-gitignore`](#repomatic-sync-gitignore)                     | Sync .gitignore from gitignore.io templates              |
@@ -237,6 +238,12 @@ invoke(repomatic, args=['sync-action-pins', '--help'])
 
 ```{click:run}
 invoke(repomatic, args=['sync-bumpversion', '--help'])
+```
+
+## `repomatic sync-deps`
+
+```{click:run}
+invoke(repomatic, args=['sync-deps', '--help'])
 ```
 
 ## `repomatic sync-dev-release`

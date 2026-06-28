@@ -100,8 +100,9 @@ def test_select_latest_skips_prereleases_by_default():
         vs.Candidate("2.0.0rc1", "2026-01-01", "v2.0.0rc1"),
     ]
     assert vs.select_latest(candidates, timedelta(days=8), TODAY).version == "1.1.0"
-    allowed = vs.select_latest(candidates, timedelta(days=8),
-                               TODAY, allow_prerelease=True)
+    allowed = vs.select_latest(
+        candidates, timedelta(days=8), TODAY, allow_prerelease=True
+    )
     assert allowed.version == "2.0.0rc1"
 
 
@@ -243,8 +244,10 @@ def test_find_workflow_literals():
         "          uvx --no-progress 'codecov-cli==11.2.8'\n"
         "          uvx --with 'extra-platforms[test]==13.0.1' run\n"
     )
-    literals = {(lit.ecosystem, lit.package, lit.version)
-                 for lit in vs.find_workflow_literals(content)}
+    literals = {
+        (lit.ecosystem, lit.package, lit.version)
+        for lit in vs.find_workflow_literals(content)
+    }
     assert ("npm", "awesome-lint", "2.3.0") in literals
     assert ("pypi", "codecov-cli", "11.2.8") in literals
     assert ("pypi", "extra-platforms", "13.0.1") in literals
@@ -326,15 +329,17 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
             # namespace; fetch_github_release_notes resolves it in releases'.
             patch("repomatic.version_sync.get_release_tags", return_value=tags),
             patch("repomatic.github.releases.get_release_tags", return_value=tags),
-            patch("repomatic.cli.resolve_tag_to_sha", return_value="b" * 40),
+            patch("repomatic.sync_ops.resolve_tag_to_sha", return_value="b" * 40),
         ):
             result = runner.invoke(
                 repomatic,
                 [
                     "sync-action-pins",
                     "--release-notes",
-                    "--output", "out.md",
-                    "--output-format", "markdown",
+                    "--output",
+                    "out.md",
+                    "--output-format",
+                    "markdown",
                 ],
             )
         assert result.exit_code == 0, result.output
@@ -426,4 +431,6 @@ def test_every_simple_action_pin_is_discoverable():
         for match in sha_uses.finditer(content):
             ref = match.group("ref")
             if ref.count("/") == 1 and not ref.startswith("."):
-                assert ref in found, f"{ref} in {path} not discovered by find_action_pins"
+                assert ref in found, (
+                    f"{ref} in {path} not discovered by find_action_pins"
+                )

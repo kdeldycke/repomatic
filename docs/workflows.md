@@ -160,7 +160,14 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 - **Skipped if**:
   - `mailmap.sync = false` in `[tool.repomatic]`
 
-#### ⛓️ Sync `uv.lock` (`sync-uv-lock`)
+#### 🔗 Sync dependencies (`sync-deps`)
+
+One consolidated job runs all four dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all four updaters.
+Each updater still opens its own pull request on its own branch (`sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`, `sync-tool-versions`), all labelled `🔗 dependencies`.
+The working tree is reset (`git checkout -- .`) before each updater so their diffs never bleed together, keeping review and revert independent.
+To run all enabled updaters locally, or a named subset, use [`repomatic sync-deps`](cli.md#repomatic-sync-deps).
+
+##### ⛓️ `sync-uv-lock` updater
 
 - Runs `uv lock --upgrade` to update transitive dependencies to their latest allowed versions using [`repomatic sync-uv-lock`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/uv.py)
 - Syncs the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) from the bundled template into `pyproject.toml`, so the lock resolves with the same uv everywhere, while leaving every other project-owned `[tool.uv]` key untouched
@@ -172,7 +179,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 - **Skipped if**:
   - `uv-lock.sync = false` in `[tool.repomatic]`
 
-#### 📌 Sync action pins (`sync-action-pins`)
+##### 📌 `sync-action-pins` updater
 
 - Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-action-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
 - Handles the SHA-to-semver mapping automatically: reads the trailing `# vX.Y.Z` comment, fetches the latest release, resolves it to a commit SHA, and rewrites the `uses:` line
@@ -182,7 +189,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 - **Skipped if**:
   - `action-pins.sync = false` in `[tool.repomatic]`
 
-#### 🔢 Sync workflow pins (`sync-workflow-pins`)
+##### 🔢 `sync-workflow-pins` updater
 
 - Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
 - Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; npm installs and `uvx` pins are handled here)
@@ -194,7 +201,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 (github-workflows-sync-tool-versions-yaml-jobs)=
 
-#### 🔄 Sync tool versions (`sync-tool-versions`)
+##### 🔄 `sync-tool-versions` updater
 
 - **Upstream-only**: runs only inside `kdeldycke/repomatic` (guarded by `github.repository == 'kdeldycke/repomatic'`); downstream repos receive updated tool versions when they sync against a new repomatic release
 - Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gitleaks, labelmaker, lychee, shfmt, typos), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
@@ -260,7 +267,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 #### 🆙 Bump version (`bump-version`)
 
 - Creates PRs for minor and major version bumps using [`bump-my-version`](https://github.com/callowayproject/bump-my-version)
-- Runs `uv lock --upgrade` to refresh `uv.lock` in the same commit (matches the [`sync-uv-lock`](#github-workflows-autofix-yaml-jobs) autofix job, so transitive marker drift does not produce a redundant follow-up PR)
+- Runs `uv lock --upgrade` to refresh `uv.lock` in the same commit (matches the [`sync-uv-lock`](#github-workflows-autofix-yaml-jobs) updater in the `sync-deps` job, so transitive marker drift does not produce a redundant follow-up PR)
 - Uses commit message parsing as fallback when tags aren't available yet
 - **Requires**:
   - `bump-my-version` configuration in `pyproject.toml`
@@ -742,15 +749,15 @@ All dependencies are pinned to specific versions for stability, reproducibility,
 
 #### Pinning mechanisms
 
-| Mechanism                   | What it pins                       | How it's updated                                           |
-| :-------------------------- | :--------------------------------- | :--------------------------------------------------------- |
-| `uv.lock`                   | Project Python dependencies        | `sync-uv-lock` autofix job                                 |
-| SHA-pinned `uses:` refs     | GitHub Actions                     | `sync-action-pins` autofix job                             |
-| Inline version literals     | npm packages, `uvx` PyPI pins      | `sync-workflow-pins` autofix job                           |
-| Binary tool registry        | `repomatic run` tool versions      | `sync-tool-versions` job in `autofix.yaml` (upstream only) |
-| `uv --exclude-newer` option | Transitive Python dependencies     | Time-based window                                          |
-| Tagged workflow URLs        | Remote workflow `uses:` references | Release process (freeze/unfreeze commits)                  |
-| `--from . repomatic`        | CLI from local source              | Release freeze                                             |
+| Mechanism                   | What it pins                       | How it's updated                                                |
+| :-------------------------- | :--------------------------------- | :-------------------------------------------------------------- |
+| `uv.lock`                   | Project Python dependencies        | `sync-uv-lock` updater in `sync-deps` job                       |
+| SHA-pinned `uses:` refs     | GitHub Actions                     | `sync-action-pins` updater in `sync-deps` job                   |
+| Inline version literals     | npm packages, `uvx` PyPI pins      | `sync-workflow-pins` updater in `sync-deps` job                 |
+| Binary tool registry        | `repomatic run` tool versions      | `sync-tool-versions` updater in `sync-deps` job (upstream only) |
+| `uv --exclude-newer` option | Transitive Python dependencies     | Time-based window                                               |
+| Tagged workflow URLs        | Remote workflow `uses:` references | Release process (freeze/unfreeze commits)                       |
+| `--from . repomatic`        | CLI from local source              | Release freeze                                                  |
 
 #### Hard-coded versions in workflows
 
@@ -761,11 +768,11 @@ GitHub Actions and npm packages are pinned directly in YAML files:
   - run: npm install eslint@9.39.1       # Pinned npm package
 ```
 
-GitHub Actions are pinned to full commit SHAs, with the semver tag preserved as a trailing comment. `sync-action-pins` reads the comment, fetches the latest release, and rewrites the `uses:` line with the new SHA. `sync-workflow-pins` handles the npm and PyPI version literals.
+GitHub Actions are pinned to full commit SHAs, with the semver tag preserved as a trailing comment. The `sync-action-pins` updater reads the comment, fetches the latest release, and rewrites the `uses:` line with the new SHA. The `sync-workflow-pins` updater handles the npm and PyPI version literals.
 
 #### Cooldowns
 
-All three sync jobs share the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. This is the GitHub/PyPI/npm counterpart to uv's `--exclude-newer`, which guards `sync-uv-lock`.
+All four updaters inside `sync-deps` share the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. This is the GitHub/PyPI/npm counterpart to uv's `--exclude-newer`, which guards the `sync-uv-lock` updater.
 
 To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically: no manual bump required.
 
@@ -773,9 +780,9 @@ Each cooldown-gated PR mirrors the `sync-uv-lock` body. Above the update table i
 
 #### `uv.lock` and `--exclude-newer`
 
-The `uv.lock` file pins all project Python dependencies. `sync-uv-lock` runs `uv lock --upgrade` on a schedule and opens a PR when real changes are detected (timestamp-only noise is skipped).
+The `uv.lock` file pins all project Python dependencies. The `sync-uv-lock` updater runs `uv lock --upgrade` on a schedule and opens a PR when real changes are detected (timestamp-only noise is skipped).
 
-The [`--exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) flag in `[tool.uv]` ignores packages released within a short window, providing a buffer against freshly-published broken releases. The window is managed by the `sync-uv-lock` job, which rolls the `exclude-newer` date forward automatically.
+The [`--exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) flag in `[tool.uv]` ignores packages released within a short window, providing a buffer against freshly-published broken releases. The window is managed by the `sync-uv-lock` updater, which rolls the `exclude-newer` date forward automatically.
 
 #### Tagged workflow URLs
 

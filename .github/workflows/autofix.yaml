@@ -530,11 +530,17 @@ jobs:
           branch: sync-mailmap
           delete-branch: true
 
-  sync-uv-lock:
-    name: ⛓️ Sync uv.lock
+  sync-deps:
+    name: 🔗 Sync dependencies
+    # Consolidated dependency updater. One runner shares the checkout, the uv
+    # install, and repomatic's HTTP cache across all four bumpers, instead of a
+    # separate job per bumper each paying that setup. Each bumper still opens its
+    # own PR: the working tree is reset before each one so their diffs never
+    # bleed, keeping review and revert independent. Mirrors the local
+    # `repomatic sync-deps` command; the steps stay per-bumper here only because
+    # each needs its own branch and PR body.
     needs:
       - metadata
-    if: fromJSON(needs.metadata.outputs.metadata).is_python_project
     runs-on: ubuntu-slim
     permissions:
       contents: write
@@ -542,43 +548,53 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-      - id: sync
+      # Persist repomatic's HTTP cache (PyPI/GitHub/npm release metadata) across
+      # runs. Entries are TTL-gated in repomatic.cache, so a restored cache never
+      # serves a stale "latest" version; this mainly speeds up bursts of pushes.
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/repomatic
+          key: repomatic-http-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            repomatic-http-${{ runner.os }}-
+
+      # --- sync-uv-lock: re-lock dependencies (Python projects). ---
+      - if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+        name: Reset tree before sync-uv-lock
+        run: git checkout -- .
+      - id: sync-uv-lock
+        if: fromJSON(needs.metadata.outputs.metadata).is_python_project
         name: Sync uv.lock
         run: >
           uvx --no-progress --from . repomatic sync-uv-lock
           --no-table --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: pr-metadata
+      - id: sync-uv-lock-meta
+        if: fromJSON(needs.metadata.outputs.metadata).is_python_project
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE: ${{ steps.sync-uv-lock.outputs.diff_table }}
         run: >
           uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template sync-uv-lock
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
           assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
+          commit-message: ${{ steps.sync-uv-lock-meta.outputs.commit_message }}
+          title: ${{ steps.sync-uv-lock-meta.outputs.title }}
+          body: ${{ steps.sync-uv-lock-meta.outputs.body }}
           labels: "🔗 dependencies"
           branch: sync-uv-lock
           delete-branch: true
 
-  sync-action-pins:
-    name: 📌 Sync action pins
-    needs:
-      - metadata
-    if: fromJSON(needs.metadata.outputs.metadata).workflow_files
-    runs-on: ubuntu-slim
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-      - id: sync
+      # --- sync-action-pins: bump SHA-pinned actions (repos with workflows). ---
+      - if: fromJSON(needs.metadata.outputs.metadata).workflow_files
+        name: Reset tree before sync-action-pins
+        run: git checkout -- .
+      - id: sync-action-pins
+        if: fromJSON(needs.metadata.outputs.metadata).workflow_files
         name: Sync action pins
         # GH_TOKEN raises the GitHub releases API rate limit when resolving
         # the latest tag and its commit SHA for each pinned action.
@@ -587,101 +603,101 @@ jobs:
         run: >
           uvx --no-progress --from . repomatic sync-action-pins --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: pr-metadata
+      - id: sync-action-pins-meta
+        if: fromJSON(needs.metadata.outputs.metadata).workflow_files
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE: ${{ steps.sync-action-pins.outputs.diff_table }}
         run: >
           uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template sync-action-pins
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - if: fromJSON(needs.metadata.outputs.metadata).workflow_files
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
           assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
+          commit-message: ${{ steps.sync-action-pins-meta.outputs.commit_message }}
+          title: ${{ steps.sync-action-pins-meta.outputs.title }}
+          body: ${{ steps.sync-action-pins-meta.outputs.body }}
           labels: "🔗 dependencies"
           branch: sync-action-pins
           delete-branch: true
 
-  sync-workflow-pins:
-    name: 🔖 Sync workflow pins
-    needs:
-      - metadata
-    if: fromJSON(needs.metadata.outputs.metadata).workflow_files
-    runs-on: ubuntu-slim
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-      - id: sync
+      # --- sync-workflow-pins: bump npm/PyPI literals (repos with workflows). ---
+      - if: fromJSON(needs.metadata.outputs.metadata).workflow_files
+        name: Reset tree before sync-workflow-pins
+        run: git checkout -- .
+      - id: sync-workflow-pins
+        if: fromJSON(needs.metadata.outputs.metadata).workflow_files
         name: Sync workflow pins
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
           uvx --no-progress --from . repomatic sync-workflow-pins
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: pr-metadata
+      - id: sync-workflow-pins-meta
+        if: fromJSON(needs.metadata.outputs.metadata).workflow_files
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE: ${{ steps.sync-workflow-pins.outputs.diff_table }}
         run: >
           uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template sync-workflow-pins
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - if: fromJSON(needs.metadata.outputs.metadata).workflow_files
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
           assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
+          commit-message: ${{ steps.sync-workflow-pins-meta.outputs.commit_message }}
+          title: ${{ steps.sync-workflow-pins-meta.outputs.title }}
+          body: ${{ steps.sync-workflow-pins-meta.outputs.body }}
           labels: "🔗 dependencies"
           branch: sync-workflow-pins
           delete-branch: true
 
-  sync-tool-versions:
-    name: 🔼 Sync tool versions
-    # Upstream-only and time-driven: it rewrites repomatic's own tool registry
-    # (repomatic/tool_runner.py), which exists only in this repo, so it runs on
-    # the weekly schedule and manual dispatch here, never in downstream callers.
-    if: >
-      github.repository == 'kdeldycke/repomatic'
-      && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-slim
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-      - id: sync
+      # --- sync-tool-versions: bump the tool registry (upstream-only). ---
+      # Upstream-only and time-driven: it rewrites repomatic's own tool registry
+      # (repomatic/tool_runner.py), which exists only in this repo, so it runs on
+      # the weekly schedule and manual dispatch here, never in downstream callers.
+      - if: >
+          github.repository == 'kdeldycke/repomatic'
+          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        name: Reset tree before sync-tool-versions
+        run: git checkout -- .
+      - id: sync-tool-versions
+        if: >
+          github.repository == 'kdeldycke/repomatic'
+          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         name: Sync tool versions
-        # `uv run` (editable), not `uvx`: this is the only autofix job that
-        # rewrites the checked-out package source, and an isolated uvx wheel
-        # would discard the edit. GH_TOKEN raises the releases API rate limit.
+        # `uv run` (editable), not `uvx`: this is the only bumper that rewrites
+        # the checked-out package source, and an isolated uvx wheel would discard
+        # the edit. GH_TOKEN raises the releases API rate limit.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
           uv --no-progress run --frozen -- repomatic sync-tool-versions --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: pr-metadata
+      - id: sync-tool-versions-meta
+        if: >
+          github.repository == 'kdeldycke/repomatic'
+          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE: ${{ steps.sync-tool-versions.outputs.diff_table }}
         run: >
           uv --no-progress run --frozen -- repomatic pr-body
           --output-format github-actions
           --template sync-tool-versions
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - if: >
+          github.repository == 'kdeldycke/repomatic'
+          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
           assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
+          commit-message: ${{ steps.sync-tool-versions-meta.outputs.commit_message }}
+          title: ${{ steps.sync-tool-versions-meta.outputs.title }}
+          body: ${{ steps.sync-tool-versions-meta.outputs.body }}
           labels: "🔗 dependencies"
           branch: sync-tool-versions
           delete-branch: true

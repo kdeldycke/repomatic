@@ -306,6 +306,15 @@
    :undoc-members:
 ```
 
+## `tests.test_sync_ops` module
+
+```{eval-rst}
+.. automodule:: tests.test_sync_ops
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_tool_runner` module
 
 ```{eval-rst}

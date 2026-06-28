@@ -108,7 +108,6 @@ from .github.release_sync import (
     render_sync_report as _render_sync_report,
     sync_github_releases as _sync_github_releases,
 )
-from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .github.unsubscribe import (
     render_report as _render_report,
     unsubscribe_threads as _unsubscribe_threads,
@@ -120,7 +119,7 @@ from .images import (
     generate_markdown_summary,
     optimize_images,
 )
-from .init_project import export_content, init_config, run_init
+from .init_project import export_content, run_init
 from .lint_repo import (
     check_branch_ruleset_on_default,
     check_fork_pr_approval_policy,
@@ -151,7 +150,6 @@ from .registry import (
     FILE_SELECTOR_COMPONENTS,
     SKILL_PHASE_ORDER,
     SKILL_PHASES,
-    UPSTREAM_REPO_SLUGS,
     valid_file_ids,
 )
 from .release_prep import ReleasePrep
@@ -162,6 +160,13 @@ from .sponsor import (
     get_default_owner,
     is_pull_request,
     is_sponsor,
+)
+from .sync_ops import (
+    OPERATIONS_BY_NAME,
+    ResolveContext,
+    render_plan_markdown,
+    run_sync_operations,
+    selected_operations,
 )
 from .tool_runner import (
     TOOL_REGISTRY,
@@ -174,35 +179,15 @@ from .uv import (
     AdvisorySource,
     _format_released,
     _format_upload_date,
-    build_comparison_urls,
-    build_held_back,
     collect_vulnerable_packages,
-    compute_held_back_packages,
-    fetch_release_notes,
     fix_vulnerable_deps as _fix_vulnerable_deps,
     format_diff_table,
-    format_exclude_newer_note,
     format_held_back_table,
-    format_release_notes,
     format_vulnerability_table,
-    pypi_name_urls,
-    sync_uv_lock as _sync_uv_lock,
 )
 from .version_sync import (
     MIN_AGE_HELD_BACK_NOTE,
-    apply_action_pins,
-    apply_workflow_literals,
-    find_action_pins,
-    find_workflow_literals,
     format_cooldown_note,
-    github_candidates,
-    is_newer,
-    npm_candidates,
-    parse_min_age,
-    pypi_candidates,
-    select_held_back,
-    select_latest,
-    set_tool_version,
 )
 from .virustotal import (
     ScanResult,
@@ -2819,89 +2804,51 @@ def sync_uv_lock_cmd(
         )
         ctx.exit(0)
 
-    # Sync repomatic's canonical [tool.uv] policy pins (required-version,
-    # exclude-newer) from the bundled template before re-locking. This is the
-    # config half of the same churn fix the cosmetic-relock revert handles (see
-    # repomatic.uv.sync_uv_lock): pinning uv keeps every machine on one
-    # resolver. Done ahead of the upgrade so a bumped exclude-newer feeds the
-    # resolution and a bumped required-version rides in the same PR. Kept out of
-    # sync_uv_lock's revert accounting on purpose: required-version never
-    # changes the resolved set, so it must not suppress the cosmetic revert.
-    pyproject_path = lockfile.parent / "pyproject.toml"
-    if pyproject_path.exists():
-        merged = init_config("uv", pyproject_path)
-        if merged is not None:
-            pyproject_path.write_text(merged, encoding="UTF-8")
-            echo("Synced [tool.uv] policy pins from the bundled template.")
+    op = OPERATIONS_BY_NAME["sync-uv-lock"]
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        # The held-back probe runs a second uv resolution, so gate it on a
+        # consumer being present (terminal table or file output).
+        held_back=held_back and (table or output is not None),
+        lockfile=lockfile,
+    )
+    plan = op.resolve(rc)
 
-    result = _sync_uv_lock(lockfile)
+    if plan.pins_synced:
+        echo("Synced [tool.uv] policy pins from the bundled template.")
 
-    if not result.changes:
+    if not plan.has_changes:
         echo("No dependency changes.")
         ctx.exit(0)
 
-    echo(f"{len(result.changes)} package(s) updated.")
+    op.apply(plan)
 
-    # Reference for the relative-time hints ("2 days ago", "in 3 days"),
-    # shared by the terminal tables and the markdown report so a run is
-    # internally consistent.
-    today = datetime.now(timezone.utc).date()
-
-    # Probe for releases the cooldown is withholding (a second uv resolution).
-    # Gated on a consumer being present so a --no-table --no-output run skips
-    # the extra work.
-    held_back_pkgs = (
-        compute_held_back_packages(lockfile) if held_back and (table or output) else []
-    )
+    echo(f"{len(plan.changes)} package(s) updated.")
 
     # Terminal output: structured table via click-extra.
     if table:
-        if result.exclude_newer:
-            cutoff = _format_upload_date(result.exclude_newer)
-            echo(f"exclude-newer cutoff: {cutoff}")
-
+        if plan.exclude_newer:
+            echo(f"exclude-newer cutoff: {_format_upload_date(plan.exclude_newer)}")
         _print_sync_table(
             ctx,
-            result.changes,
-            result.upload_times,
+            plan.changes,
+            plan.dates,
             subject="Package",
-            reference_date=today,
+            reference_date=rc.today,
         )
+        if plan.held_back:
+            _print_held_back_table(ctx, plan.held_back)
 
-        if held_back_pkgs:
-            _print_held_back_table(ctx, held_back_pkgs)
-
-    # Release notes (opt-in, fetched once for both terminal and file output).
-    notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
-    notes_section = ""
-    if release_notes and result.changes:
-        notes = fetch_release_notes(result.changes)
-        notes_section = format_release_notes(notes)
-        if notes_section:
-            echo("")
-            echo(notes_section)
+    # Release notes echoed to the terminal (already fetched during resolve).
+    if plan.notes_section:
+        echo("")
+        echo(plan.notes_section)
 
     # File output: markdown report for CI or downstream tooling.
     if output:
-        comparison_urls = build_comparison_urls(result.changes, notes)
-        diff_table = format_diff_table(
-            result.changes,
-            result.upload_times,
-            format_exclude_newer_note(result.exclude_newer),
-            comparison_urls=comparison_urls,
-            reference_date=today,
-            name_urls=pypi_name_urls(result.changes),
-        )
-        held_back_section = format_held_back_table(
-            held_back_pkgs,
-            name_urls=pypi_name_urls([(p.name, "", "") for p in held_back_pkgs]),
-        )
-        body = "\n\n".join(
-            section
-            for section in (diff_table, notes_section, held_back_section)
-            if section
-        )
-
+        body = render_plan_markdown(plan)
         if body:
             if output_format == "github-actions":
                 content = format_multiline_output("diff_table", body)
@@ -3040,40 +2987,6 @@ def _emit_version_sync_report(
         echo(content, file=prep_path(output))
 
 
-def _workflow_and_action_files() -> list[Path]:
-    """Collect workflow and composite-action YAML files under `.github/`."""
-    github_dir = Path(".github")
-    files: list[Path] = []
-    for pattern in (
-        "workflows/*.yaml",
-        "workflows/*.yml",
-        "actions/**/*.yaml",
-        "actions/**/*.yml",
-    ):
-        files.extend(github_dir.glob(pattern))
-    return sorted(set(files))
-
-
-def _sync_actionlint_matcher_url(version: str) -> None:
-    """Align the actionlint matcher URL in `lint.yaml` with the registry version.
-
-    The matcher URL embeds the actionlint version as a release tag; it is a
-    reference derived from the registry, kept in lockstep with the
-    `sync-tool-versions` bump.
-    """
-    lint_path = Path(".github/workflows/lint.yaml")
-    if not lint_path.is_file():
-        return
-    content = lint_path.read_text(encoding="UTF-8")
-    updated = re.sub(
-        r"(actionlint/refs/tags/v)[0-9][0-9.]*(/)",
-        rf"\g<1>{version}\g<2>",
-        content,
-    )
-    if updated != content:
-        lint_path.write_text(updated, encoding="UTF-8")
-
-
 @repomatic.command(
     short_help="Bump registry tool versions from upstream releases",
     section=_section_sync,
@@ -3124,104 +3037,35 @@ def sync_tool_versions(
         )
         ctx.exit(0)
 
-    min_age = parse_min_age(config.minimum_release_age)
-    today = datetime.now(timezone.utc).date()
+    op = OPERATIONS_BY_NAME["sync-tool-versions"]
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        held_back=held_back,
+    )
+    plan = op.resolve(rc)
 
-    tool_runner_path = Path(__file__).parent / "tool_runner.py"
-    content = tool_runner_path.read_text(encoding="UTF-8")
-
-    changes: list[tuple[str, str, str]] = []
-    dates: dict[str, str] = {}
-    overrides: dict[str, str] = {}
-    held_back_pkgs: list[HeldBackPackage] = []
-    held_back_name_urls: dict[str, str] = {}
-    for name, spec in sorted(TOOL_REGISTRY.items()):
-        if spec.binary is not None:
-            if not spec.source_url:
-                continue
-            candidates = github_candidates(spec.source_url, spec.tag_pattern)
-        else:
-            candidates = pypi_candidates(spec.package or spec.name)
-        latest = select_latest(candidates, min_age, today)
-        # Held-back covers every scanned tool, even ones not bumped this run, so
-        # the section shows the full cooldown pipeline (parity with sync-uv-lock).
-        final_version = (
-            latest.version
-            if latest is not None and is_newer(latest.version, spec.version)
-            else spec.version
-        )
-        if held_back:
-            withheld = select_held_back(candidates, final_version, min_age, today)
-            if withheld is not None:
-                held_back_pkgs.append(
-                    build_held_back(
-                        name, final_version, withheld.version, withheld.date,
-                        min_age, today,
-                    )
-                )
-                held_back_name_urls[name] = spec.source_url or (
-                    f"https://pypi.org/project/{spec.package or spec.name}/"
-                )
-        if latest is None or not is_newer(latest.version, spec.version):
-            continue
-        content = set_tool_version(content, name, latest.version)
-        changes.append((name, spec.version, latest.version))
-        dates[name] = latest.date
-        overrides[name] = latest.version
-
-    if not changes:
+    if not plan.has_changes:
         echo("All tools are up to date.")
         ctx.exit(0)
 
-    tool_runner_path.write_text(content, encoding="UTF-8")
-
-    # Refresh binary checksums and VERSIONS stamps for the bumped tools in the
-    # same pass, downloading at the new versions (the in-memory registry still
-    # holds the pre-bump versions because the source was edited, not reimported).
-    # Skipped when only PyPI tools changed, since those carry no checksums.
-    binary_overrides = {
-        name: version
-        for name, version in overrides.items()
-        if TOOL_REGISTRY[name].binary is not None
-    }
-    if binary_overrides:
-        update_registry_checksums(tool_runner_path, version_overrides=binary_overrides)
-
-    # Keep the actionlint matcher URL aligned with the registry.
-    if "actionlint" in overrides:
-        _sync_actionlint_matcher_url(overrides["actionlint"])
-
-    name_urls: dict[str, str] = {}
-    for name, _old, _new in changes:
-        source_url = TOOL_REGISTRY[name].source_url
-        if source_url:
-            name_urls[name] = source_url
-
-    # Release notes for GitHub-sourced tools (all registry source URLs are
-    # github.com); PyPI-only tools with no source URL contribute none.
-    notes_section = ""
-    if release_notes:
-        notes_items = [
-            (name, src, old, new, TOOL_REGISTRY[name].tag_pattern)
-            for name, old, new in changes
-            if (src := TOOL_REGISTRY[name].source_url) and "github.com" in src
-        ]
-        notes_section = format_release_notes(fetch_github_release_notes(notes_items))
+    op.apply(plan)
 
     _emit_version_sync_report(
         ctx,
-        changes,
-        dates,
+        plan.changes,
+        plan.dates,
         output,
         output_format,
-        subject="Tool",
-        heading="Updated tools",
-        name_urls=name_urls,
-        cutoff=today - min_age if min_age else None,
+        subject=plan.subject,
+        heading=plan.heading,
+        name_urls=plan.name_urls,
+        cutoff=plan.cutoff,
         min_age_label=config.minimum_release_age,
-        held_back=held_back_pkgs,
-        held_back_name_urls=held_back_name_urls,
-        notes_section=notes_section,
+        held_back=plan.held_back,
+        held_back_name_urls=plan.held_back_name_urls,
+        notes_section=plan.notes_section,
     )
 
 
@@ -3266,106 +3110,36 @@ def sync_action_pins(
         )
         ctx.exit(0)
 
-    min_age = parse_min_age(config.minimum_release_age)
-    today = datetime.now(timezone.utc).date()
+    op = OPERATIONS_BY_NAME["sync-action-pins"]
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        held_back=held_back,
+    )
+    plan = op.resolve(rc)
 
-    file_data = {
-        path: path.read_text(encoding="UTF-8") for path in _workflow_and_action_files()
-    }
-    file_pins = {path: find_action_pins(text) for path, text in file_data.items()}
-
-    # Highest currently-pinned version per slug, skipping repomatic-lineage refs
-    # (those thin-caller pins are managed by `repomatic init`).
-    current: dict[str, str] = {}
-    for pins in file_pins.values():
-        for pin in pins:
-            if pin.slug in UPSTREAM_REPO_SLUGS:
-                continue
-            version = pin.ref.removeprefix("v")
-            if pin.slug not in current or is_newer(version, current[pin.slug]):
-                current[pin.slug] = version
-
-    resolved: dict[str, tuple[str, str]] = {}
-    dates: dict[str, str] = {}
-    held_back_pkgs: list[HeldBackPackage] = []
-    held_back_name_urls: dict[str, str] = {}
-    for slug, current_version in sorted(current.items()):
-        repo_url = f"https://github.com/{slug}"
-        candidates = github_candidates(repo_url)
-        latest = select_latest(candidates, min_age, today)
-        # Held-back covers every scanned action, even ones not bumped this run.
-        final_version = (
-            latest.version
-            if latest is not None and is_newer(latest.version, current_version)
-            else current_version
-        )
-        if held_back:
-            withheld = select_held_back(candidates, final_version, min_age, today)
-            if withheld is not None:
-                held_back_pkgs.append(
-                    build_held_back(
-                        slug, final_version, withheld.version, withheld.date,
-                        min_age, today,
-                    )
-                )
-                held_back_name_urls[slug] = repo_url
-        if latest is None or not is_newer(latest.version, current_version):
-            continue
-        new_sha = resolve_tag_to_sha(repo_url, latest.ref)
-        if not new_sha:
-            logging.warning(f"Could not resolve {slug}@{latest.ref} to a commit SHA.")
-            continue
-        resolved[slug] = (new_sha, latest.ref)
-        dates[slug] = latest.date
-
-    changes: list[tuple[str, str, str]] = []
-    for path, text in file_data.items():
-        new_content, file_changes = apply_action_pins(text, resolved)
-        if file_changes:
-            path.write_text(new_content, encoding="UTF-8")
-            changes.extend(file_changes)
-
-    changes = sorted(set(changes))
-    if not changes:
+    if not plan.has_changes:
         echo("All action pins are up to date.")
         ctx.exit(0)
 
-    name_urls = {slug: f"https://github.com/{slug}" for slug, _old, _new in changes}
-    comparison_urls = {
-        slug: f"https://github.com/{slug}/compare/{old}...{new}"
-        for slug, old, new in changes
-    }
-
-    notes_section = ""
-    if release_notes:
-        # Actions tag as `vX.Y.Z`, so no per-tool extraction pattern is needed.
-        notes_items: list[tuple[str, str, str, str, str | None]] = [
-            (
-                slug,
-                f"https://github.com/{slug}",
-                old.removeprefix("v"),
-                new.removeprefix("v"),
-                None,
-            )
-            for slug, old, new in changes
-        ]
-        notes_section = format_release_notes(fetch_github_release_notes(notes_items))
+    op.apply(plan)
 
     _emit_version_sync_report(
         ctx,
-        changes,
-        dates,
+        plan.changes,
+        plan.dates,
         output,
         output_format,
-        subject="Action",
-        heading="Updated actions",
-        name_urls=name_urls,
-        comparison_urls=comparison_urls,
-        cutoff=today - min_age if min_age else None,
+        subject=plan.subject,
+        heading=plan.heading,
+        name_urls=plan.name_urls,
+        comparison_urls=plan.comparison_urls,
+        cutoff=plan.cutoff,
         min_age_label=config.minimum_release_age,
-        held_back=held_back_pkgs,
-        held_back_name_urls=held_back_name_urls,
-        notes_section=notes_section,
+        held_back=plan.held_back,
+        held_back_name_urls=plan.held_back_name_urls,
+        notes_section=plan.notes_section,
     )
 
 
@@ -3406,88 +3180,154 @@ def sync_workflow_pins(
         )
         ctx.exit(0)
 
-    min_age = parse_min_age(config.minimum_release_age)
-    today = datetime.now(timezone.utc).date()
+    op = OPERATIONS_BY_NAME["sync-workflow-pins"]
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(timezone.utc).date(),
+        held_back=held_back,
+    )
+    plan = op.resolve(rc)
 
-    file_data = {
-        path: path.read_text(encoding="UTF-8") for path in _workflow_and_action_files()
-    }
-
-    # Highest currently-pinned version per (ecosystem, package).
-    current: dict[tuple[str, str], str] = {}
-    for text in file_data.values():
-        for literal in find_workflow_literals(text):
-            key = (literal.ecosystem, literal.package)
-            if key not in current or is_newer(literal.version, current[key]):
-                current[key] = literal.version
-
-    resolved: dict[tuple[str, str], str] = {}
-    dates: dict[str, str] = {}
-    name_urls: dict[str, str] = {}
-    held_back_pkgs: list[HeldBackPackage] = []
-    held_back_name_urls: dict[str, str] = {}
-    for (ecosystem, package), current_version in sorted(current.items()):
-        candidates = (
-            npm_candidates(package)
-            if ecosystem == "npm"
-            else pypi_candidates(package)
-        )
-        latest = select_latest(candidates, min_age, today)
-        package_url = (
-            f"https://www.npmjs.com/package/{package}"
-            if ecosystem == "npm"
-            else f"https://pypi.org/project/{package}/"
-        )
-        # Held-back covers every scanned literal, even ones not bumped this run.
-        final_version = (
-            latest.version
-            if latest is not None and is_newer(latest.version, current_version)
-            else current_version
-        )
-        if held_back:
-            withheld = select_held_back(candidates, final_version, min_age, today)
-            if withheld is not None:
-                held_back_pkgs.append(
-                    build_held_back(
-                        package, final_version, withheld.version, withheld.date,
-                        min_age, today,
-                    )
-                )
-                held_back_name_urls[package] = package_url
-        if latest is None or not is_newer(latest.version, current_version):
-            continue
-        resolved[(ecosystem, package)] = latest.version
-        dates[package] = latest.date
-        name_urls[package] = package_url
-
-    changes: list[tuple[str, str, str]] = []
-    for path, text in file_data.items():
-        new_content, file_changes = apply_workflow_literals(text, resolved)
-        if file_changes:
-            path.write_text(new_content, encoding="UTF-8")
-            changes.extend(file_changes)
-
-    changes = sorted(set(changes))
-    if not changes:
+    if not plan.has_changes:
         echo("All workflow pins are up to date.")
         ctx.exit(0)
 
-    # npm and PyPI literals carry no GitHub release notes (the "GitHub sources
-    # only" scope), so no notes_section is built here.
+    op.apply(plan)
+
     _emit_version_sync_report(
         ctx,
-        changes,
-        dates,
+        plan.changes,
+        plan.dates,
         output,
         output_format,
-        subject="Package",
-        heading="Updated packages",
-        name_urls=name_urls,
-        cutoff=today - min_age if min_age else None,
+        subject=plan.subject,
+        heading=plan.heading,
+        name_urls=plan.name_urls,
+        cutoff=plan.cutoff,
         min_age_label=config.minimum_release_age,
-        held_back=held_back_pkgs,
-        held_back_name_urls=held_back_name_urls,
+        held_back=plan.held_back,
+        held_back_name_urls=plan.held_back_name_urls,
     )
+
+
+@repomatic.command(
+    short_help="Update dependencies, all or a named subset",
+    section=_section_sync,
+)
+@argument(
+    "operations",
+    nargs=-1,
+    type=Choice(list(OPERATIONS_BY_NAME)),
+)
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default=None,
+    help="Write a combined markdown report (one section per updater) to this file.",
+)
+@sync_release_notes_option
+@sync_held_back_option
+@option(
+    "--dry-run/--no-dry-run",
+    default=False,
+    help="Resolve and preview every update without writing any change.",
+)
+@output_format_option
+@pass_context
+def sync_deps(
+    ctx: Context,
+    operations: tuple[str, ...],
+    output: Path | None,
+    release_notes: bool,
+    held_back: bool,
+    dry_run: bool,
+    output_format: str,
+) -> None:
+    """Update project dependencies, the whole set or a named subset.
+
+    \b
+    The single entry point for dependency updates. It drives sync-uv-lock,
+    sync-action-pins, sync-workflow-pins, and sync-tool-versions: their network
+    discovery runs concurrently (one shared HTTP cache, one spinner), then the
+    file rewrites apply serially because three of them touch the same workflow
+    files. Name one or more updaters to run just those; with none named, every
+    enabled updater runs.
+
+    \b
+    The [tool.repomatic] feature flags are always authoritative: a disabled
+    updater never runs. With no names, updaters not meaningful in the current
+    working tree are skipped too (sync-tool-versions outside the repomatic
+    checkout, the pin updaters without workflow files); naming one runs it
+    regardless of the working tree.
+
+    \b
+    Each updater still opens its own PR in CI; this is the local one-shot, and
+    the shared engine the consolidated autofix job drives.
+
+    \b
+    Examples:
+        # Update everything enabled
+        repomatic sync-deps
+
+    \b
+        # Only the lockfile and action pins
+        repomatic sync-deps sync-uv-lock sync-action-pins
+
+    \b
+        # Preview without writing
+        repomatic sync-deps --dry-run
+    """
+    config = get_tool_config(ctx)
+    selected = selected_operations(config, names=list(operations) or None)
+    if not selected:
+        if operations:
+            echo("None of the named updaters are enabled in [tool.repomatic].")
+        else:
+            echo("No dependency updaters are enabled for this repository.")
+        ctx.exit(0)
+
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        held_back=held_back,
+        dry_run=dry_run,
+    )
+    results = run_sync_operations(
+        selected, rc, spinner_label="Resolving dependency updates"
+    )
+
+    changed = [
+        (op, plan) for op, plan in results if plan is not None and plan.has_changes
+    ]
+    failed = [op.name for op, plan in results if plan is None]
+
+    if not changed:
+        echo("All dependencies are up to date.")
+    verb = "Would update" if dry_run else "Updated"
+    for op, plan in changed:
+        echo(f"{verb} {len(plan.changes)} via {op.name}:")
+        _print_sync_table(
+            ctx, plan.changes, plan.dates, subject=plan.subject, reference_date=rc.today
+        )
+        if plan.held_back:
+            _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
+
+    if output:
+        sections = [
+            body for _op, plan in changed if (body := render_plan_markdown(plan))
+        ]
+        combined = "\n\n".join(sections)
+        if combined:
+            if output_format == "github-actions":
+                content = format_multiline_output("diff_table", combined)
+            else:
+                content = combined
+            echo(content, file=prep_path(output))
+
+    if failed:
+        echo(f"Failed to resolve: {', '.join(failed)}", err=True)
+        ctx.exit(1)
 
 
 @repomatic.command(
