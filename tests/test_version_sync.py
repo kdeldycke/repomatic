@@ -99,11 +99,12 @@ def test_select_latest_skips_prereleases_by_default():
         vs.Candidate("1.1.0", "2026-01-01", "v1.1.0"),
         vs.Candidate("2.0.0rc1", "2026-01-01", "v2.0.0rc1"),
     ]
-    assert vs.select_latest(candidates, timedelta(days=8), TODAY).version == "1.1.0"
+    picked = vs.select_latest(candidates, timedelta(days=8), TODAY)
+    assert picked is not None and picked.version == "1.1.0"
     allowed = vs.select_latest(
         candidates, timedelta(days=8), TODAY, allow_prerelease=True
     )
-    assert allowed.version == "2.0.0rc1"
+    assert allowed is not None and allowed.version == "2.0.0rc1"
 
 
 def test_select_latest_none_when_all_too_new():
@@ -117,7 +118,8 @@ def test_select_latest_skips_unparseable_versions_and_dates():
         vs.Candidate("1.0.0", "not-a-date", "v1.0.0"),
         vs.Candidate("1.1.0", "2026-01-01", "v1.1.0"),
     ]
-    assert vs.select_latest(candidates, timedelta(days=8), TODAY).version == "1.1.0"
+    picked = vs.select_latest(candidates, timedelta(days=8), TODAY)
+    assert picked is not None and picked.version == "1.1.0"
 
 
 def test_select_latest_empty():

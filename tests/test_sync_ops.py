@@ -237,7 +237,8 @@ def test_sync_deps_reports_nothing_to_do_in_an_empty_tree() -> None:
 
 def _consolidated_job_steps() -> list[dict]:
     workflow = yaml.safe_load(AUTOFIX_WORKFLOW.read_text(encoding="UTF-8"))
-    return workflow["jobs"]["sync-deps"]["steps"]
+    steps: list[dict] = workflow["jobs"]["sync-deps"]["steps"]
+    return steps
 
 
 def _pr_steps(steps: list[dict]) -> list[dict]:
