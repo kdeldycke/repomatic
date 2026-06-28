@@ -41,6 +41,11 @@ from .pypi import (
 )
 from .registry import DEFAULT_REPO
 
+# A 40-zero Git SHA that can never resolve to a real commit. Used by
+# `check_pat_stale_statuses_permission` to probe the `statuses:write`
+# permission without ever creating a commit status.
+NULL_SHA = "0" * 40
+
 
 def get_repo_metadata(repo: str) -> dict[str, str | None]:
     """Fetch repository metadata from GitHub API.
@@ -356,6 +361,58 @@ def check_pat_repository_scope(repo: str) -> tuple[str | None, str]:
         return None, "PAT scope check: skipped (probe request failed)."
 
     return None, f"PAT scope: no push access to {probe_repo} (correctly scoped)."
+
+
+def check_pat_stale_statuses_permission(repo: str) -> tuple[str | None, str]:
+    """Detect a PAT that still grants the dropped `Commit statuses` permission.
+
+    `REPOMATIC_PAT` stopped needing `statuses:write` once the Renovate
+    integration (and its `stability-days` status checks) was removed. A
+    fine-grained PAT cannot report its own granted permissions, so this probes
+    behaviorally: it attempts to create a commit status on {data}`NULL_SHA`, a
+    SHA that never resolves to a commit. GitHub authorizes the request before
+    validating the resource, which splits the outcomes cleanly:
+
+    - **HTTP 403**: the token lacks `statuses:write` (correctly scoped).
+    - **HTTP 422** (`No commit found for SHA`): authorization passed and only
+      the SHA was rejected, so the token still grants the permission. Warn.
+    - **Anything else** (404, 5xx, network): indeterminate, stay silent.
+
+    ```{note}
+
+    Because {data}`NULL_SHA` never resolves, no commit status is ever
+    created: the probe mutates nothing. Only an unambiguous 422 raises the
+    warning, so a future change to GitHub's authorize-before-validate
+    ordering degrades to under-reporting rather than a false warning.
+    ```
+
+    :param repo: Repository in 'owner/repo' format.
+    :return: Tuple of (warning_message or None, info_message).
+    """
+    try:
+        run_gh_command([
+            "api",
+            "--method",
+            "POST",
+            f"repos/{repo}/statuses/{NULL_SHA}",
+            "-f",
+            "state=success",
+            "--silent",
+        ])
+    except RuntimeError as exc:
+        stderr = str(exc)
+        if "HTTP 422" in stderr:
+            msg = (
+                "PAT still grants the 'Commit statuses' permission, which"
+                " repomatic no longer uses. Edit the token to remove it for"
+                " least privilege."
+            )
+            return msg, msg
+        if "HTTP 403" in stderr:
+            return None, "Commit statuses: token correctly lacks the dropped scope."
+        return None, "Stale Commit statuses check: skipped (indeterminate response)."
+    # A 2xx is unreachable: NULL_SHA can never resolve to a commit.
+    return None, "Stale Commit statuses check: skipped (unexpected success)."
 
 
 def check_fork_pr_approval_policy(repo: str) -> tuple[bool | None, str]:
@@ -1054,6 +1111,12 @@ def run_repo_lint(
 
     # Check PAT repository scope (warning, not fatal).
     warning, msg = check_pat_repository_scope(repo)
+    if warning:
+        emit_annotation(AnnotationLevel.WARNING, warning)
+    print(f"{'⚠' if warning else '✓'} {msg}")
+
+    # Check for the dropped Commit statuses permission (warning, not fatal).
+    warning, msg = check_pat_stale_statuses_permission(repo)
     if warning:
         emit_annotation(AnnotationLevel.WARNING, warning)
     print(f"{'⚠' if warning else '✓'} {msg}")

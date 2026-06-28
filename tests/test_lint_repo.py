@@ -21,6 +21,8 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 from repomatic.github.token import (
     PatPermissionResults,
     check_pat_contents_permission,
@@ -34,6 +36,7 @@ from repomatic.lint_repo import (
     check_funding_file,
     check_inline_pins_match_upstream,
     check_package_name_vs_repo,
+    check_pat_stale_statuses_permission,
     check_pypi_trusted_publisher,
     check_stale_draft_releases,
     check_test_matrix_excludes,
@@ -584,6 +587,42 @@ def test_pat_check_annotates_with_github_status_incident():
         assert passed is False
         assert "active incident" in msg
         assert "githubstatus.com" in msg
+
+
+def test_pat_stale_statuses_permission_present():
+    """Warn when a 422 proves the token still grants Commit statuses."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.side_effect = RuntimeError(
+            "No commit found for SHA: 000... (HTTP 422)"
+        )
+        warning, _msg = check_pat_stale_statuses_permission("owner/repo")
+        assert warning is not None
+        assert "Commit statuses" in warning
+        assert "least privilege" in warning
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    (
+        "Resource not accessible by personal access token (HTTP 403)",
+        "Not Found (HTTP 404)",
+        "network unreachable",
+    ),
+)
+def test_pat_stale_statuses_permission_absent_or_indeterminate(stderr):
+    """Stay silent when the token lacks the scope (403) or the probe is inconclusive."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.side_effect = RuntimeError(stderr)
+        warning, _msg = check_pat_stale_statuses_permission("owner/repo")
+        assert warning is None
+
+
+def test_pat_stale_statuses_permission_unexpected_success():
+    """An impossible 2xx from the null-SHA probe stays silent rather than warning."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.return_value = ""
+        warning, _msg = check_pat_stale_statuses_permission("owner/repo")
+        assert warning is None
 
 
 # --- PAT checks in run_repo_lint ---
