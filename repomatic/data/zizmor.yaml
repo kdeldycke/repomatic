@@ -18,7 +18,7 @@ rules:
   secrets-outside-env:
     disable: true
 
-  # Repo uses tag-based pins by design; Renovate manages version updates.
+  # Repo uses tag-based pins by design; sync-action-pins manages version updates.
   unpinned-uses:
     config:
       policies:

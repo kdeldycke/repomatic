@@ -72,7 +72,7 @@ from .cache import (
     http_cache_info,
 )
 from .changelog import Changelog, lint_changelog_dates
-from .checksums import update_checksums, update_registry_checksums
+from .checksums import update_registry_checksums
 from .config import (
     CONFIG_REFERENCE_HEADER_DEFS,
     Config,
@@ -108,6 +108,7 @@ from .github.release_sync import (
     render_sync_report as _render_sync_report,
     sync_github_releases as _sync_github_releases,
 )
+from .github.releases import resolve_tag_to_sha
 from .github.unsubscribe import (
     render_report as _render_report,
     unsubscribe_threads as _unsubscribe_threads,
@@ -150,14 +151,10 @@ from .registry import (
     FILE_SELECTOR_COMPONENTS,
     SKILL_PHASE_ORDER,
     SKILL_PHASES,
+    UPSTREAM_REPO_SLUGS,
     valid_file_ids,
 )
 from .release_prep import ReleasePrep
-from .renovate import (
-    CheckFormat,
-    collect_check_results,
-    run_migration_checks,
-)
 from .sponsor import (
     add_sponsor_label,
     get_default_author,
@@ -187,6 +184,20 @@ from .uv import (
     format_release_notes,
     format_vulnerability_table,
     sync_uv_lock as _sync_uv_lock,
+)
+from .version_sync import (
+    apply_action_pins,
+    apply_workflow_literals,
+    find_action_pins,
+    find_workflow_literals,
+    format_changes_table,
+    github_candidates,
+    is_newer,
+    npm_candidates,
+    parse_min_age,
+    pypi_candidates,
+    select_latest,
+    set_tool_version,
 )
 from .virustotal import (
     ScanResult,
@@ -483,7 +494,7 @@ def init_project(
     """Bootstrap a repository to use reusable workflows from kdeldycke/repomatic.
 
     With no arguments, generates thin-caller workflow files, exports
-    configuration files (Renovate, labels, labeller rules), and creates a
+    configuration files (labels, labeller rules), and creates a
     minimal changelog. Specify COMPONENTS to initialize only selected parts.
 
     Scope restrictions (awesome-only, non-awesome) and [tool.repomatic]
@@ -507,7 +518,7 @@ def init_project(
 
     \b
     Examples:
-        # Full bootstrap (workflows + labels + renovate + changelog)
+        # Full bootstrap (workflows + labels + changelog)
         repomatic init
 
     \b
@@ -2122,12 +2133,6 @@ def _wrap_setup_step(title: str, content: str, *, passed: bool | None) -> str:
     envvar="GITHUB_REPOSITORY",
     help="Repository in 'owner/repo' format. Defaults to $GITHUB_REPOSITORY.",
 )
-@option(
-    "--sha",
-    default=None,
-    envvar="GITHUB_SHA",
-    help="Commit SHA for permission checks. Defaults to $GITHUB_SHA.",
-)
 @_require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def setup_guide(
@@ -2135,7 +2140,6 @@ def setup_guide(
     has_pat: bool | None,
     has_virustotal_key: bool,
     repo: str | None,
-    sha: str | None,
 ) -> None:
     """Manage the setup guide issue lifecycle.
 
@@ -2183,7 +2187,7 @@ def setup_guide(
     has_permission_failures = False
     dependabot_ok = False
     if has_pat and repo:
-        pat_results = _token_mod.check_all_pat_permissions(repo, sha)
+        pat_results = _token_mod.check_all_pat_permissions(repo)
         failures = pat_results.failed()
         if failures:
             has_permission_failures = True
@@ -2898,6 +2902,321 @@ def sync_uv_lock_cmd(
             echo(content, file=prep_path(output))
 
 
+def _emit_version_sync_report(
+    ctx: Context,
+    changes: list[tuple[str, str, str]],
+    dates: dict[str, str],
+    output: Path | None,
+    output_format: str,
+    *,
+    subject: str,
+) -> None:
+    """Print a terminal table and optionally write a markdown PR-body report.
+
+    Shared by the three `sync-*` version updaters. *changes* are
+    `(name, old, new)` triples; *dates* maps name to the new release date.
+    """
+    echo(f"{len(changes)} {subject.lower()}(s) updated.")
+    rows = [(name, old, new, dates.get(name, "")) for name, old, new in sorted(changes)]
+    ctx.find_root().print_table(  # type: ignore[attr-defined]
+        rows, (subject, "Old", "New", "Released")
+    )
+    if output:
+        body = format_changes_table(changes, dates, subject=subject)
+        if output_format == "github-actions":
+            content = format_multiline_output("diff_table", body)
+        else:
+            content = body
+        echo(content, file=prep_path(output))
+
+
+def _workflow_and_action_files() -> list[Path]:
+    """Collect workflow and composite-action YAML files under `.github/`."""
+    github_dir = Path(".github")
+    files: list[Path] = []
+    for pattern in (
+        "workflows/*.yaml",
+        "workflows/*.yml",
+        "actions/**/*.yaml",
+        "actions/**/*.yml",
+    ):
+        files.extend(github_dir.glob(pattern))
+    return sorted(set(files))
+
+
+def _sync_actionlint_matcher_url(version: str) -> None:
+    """Align the actionlint matcher URL in `lint.yaml` with the registry version.
+
+    The matcher URL embeds the actionlint version as a release tag; it is a
+    reference derived from the registry, kept in lockstep with the
+    `sync-tool-versions` bump.
+    """
+    lint_path = Path(".github/workflows/lint.yaml")
+    if not lint_path.is_file():
+        return
+    content = lint_path.read_text(encoding="UTF-8")
+    updated = re.sub(
+        r"(actionlint/refs/tags/v)[0-9][0-9.]*(/)",
+        rf"\g<1>{version}\g<2>",
+        content,
+    )
+    if updated != content:
+        lint_path.write_text(updated, encoding="UTF-8")
+
+
+@repomatic.command(
+    short_help="Bump registry tool versions from upstream releases",
+    section=_section_sync,
+)
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default=None,
+    help="Write a markdown report (version table) to this file.",
+)
+@output_format_option
+@pass_context
+def sync_tool_versions(ctx: Context, output: Path | None, output_format: str) -> None:
+    """Bump every `repomatic run` tool to its latest eligible release.
+
+    \b
+    For each registry tool, finds the highest version that has cleared the
+    [tool.repomatic] minimum-release-age cooldown (GitHub releases for binary
+    tools, PyPI otherwise), writes it into tool_runner.py, recomputes binary
+    checksums in the same pass, and keeps the actionlint matcher URL in
+    lint.yaml in lockstep.
+
+    \b
+    Upstream-only: it rewrites repomatic's own package source, so invoke it with
+    `uv run` (editable), never `uvx` (whose isolated wheel is discarded).
+
+    \b
+    Examples:
+        repomatic sync-tool-versions
+
+    \b
+        # CI: write a markdown report as a GitHub Actions step output
+        repomatic sync-tool-versions \\
+            --output "$GITHUB_OUTPUT" --output-format github-actions
+    """
+    config = get_tool_config(ctx)
+    if not config.tool_versions_sync:
+        logging.info(
+            "[tool.repomatic] tool-versions.sync is disabled. Skipping tool sync."
+        )
+        ctx.exit(0)
+
+    min_age = parse_min_age(config.minimum_release_age)
+    today = datetime.now(timezone.utc).date()
+
+    tool_runner_path = Path(__file__).parent / "tool_runner.py"
+    content = tool_runner_path.read_text(encoding="UTF-8")
+
+    changes: list[tuple[str, str, str]] = []
+    dates: dict[str, str] = {}
+    overrides: dict[str, str] = {}
+    for name, spec in sorted(TOOL_REGISTRY.items()):
+        if spec.binary is not None:
+            if not spec.source_url:
+                continue
+            candidates = github_candidates(spec.source_url, spec.tag_pattern)
+        else:
+            candidates = pypi_candidates(spec.package or spec.name)
+        latest = select_latest(candidates, min_age, today)
+        if latest is None or not is_newer(latest.version, spec.version):
+            continue
+        content = set_tool_version(content, name, latest.version)
+        changes.append((name, spec.version, latest.version))
+        dates[name] = latest.date
+        overrides[name] = latest.version
+
+    if not changes:
+        echo("All tools are up to date.")
+        ctx.exit(0)
+
+    tool_runner_path.write_text(content, encoding="UTF-8")
+
+    # Refresh binary checksums and VERSIONS stamps for the bumped tools in the
+    # same pass, downloading at the new versions (the in-memory registry still
+    # holds the pre-bump versions because the source was edited, not reimported).
+    # Skipped when only PyPI tools changed, since those carry no checksums.
+    binary_overrides = {
+        name: version
+        for name, version in overrides.items()
+        if TOOL_REGISTRY[name].binary is not None
+    }
+    if binary_overrides:
+        update_registry_checksums(tool_runner_path, version_overrides=binary_overrides)
+
+    # Keep the actionlint matcher URL aligned with the registry.
+    if "actionlint" in overrides:
+        _sync_actionlint_matcher_url(overrides["actionlint"])
+
+    _emit_version_sync_report(
+        ctx, changes, dates, output, output_format, subject="Tool"
+    )
+
+
+@repomatic.command(
+    short_help="Bump SHA-pinned GitHub Actions to their latest release",
+    section=_section_sync,
+)
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default=None,
+    help="Write a markdown report (version table) to this file.",
+)
+@output_format_option
+@pass_context
+def sync_action_pins(ctx: Context, output: Path | None, output_format: str) -> None:
+    """Bump SHA-pinned GitHub Actions across `.github/` to their latest release.
+
+    \b
+    Scans workflow and composite-action files for
+    `uses: owner/repo@<sha> # vX.Y.Z` pins, resolves each action's latest
+    release passing the [tool.repomatic] minimum-release-age cooldown to its
+    commit SHA, and rewrites the SHA and version comment. repomatic's own
+    reusable-workflow refs are left to `repomatic init`.
+
+    \b
+    Example:
+        repomatic sync-action-pins
+    """
+    config = get_tool_config(ctx)
+    if not config.action_pins_sync:
+        logging.info(
+            "[tool.repomatic] action-pins.sync is disabled. Skipping action sync."
+        )
+        ctx.exit(0)
+
+    min_age = parse_min_age(config.minimum_release_age)
+    today = datetime.now(timezone.utc).date()
+
+    file_data = {
+        path: path.read_text(encoding="UTF-8") for path in _workflow_and_action_files()
+    }
+    file_pins = {path: find_action_pins(text) for path, text in file_data.items()}
+
+    # Highest currently-pinned version per slug, skipping repomatic-lineage refs
+    # (those thin-caller pins are managed by `repomatic init`).
+    current: dict[str, str] = {}
+    for pins in file_pins.values():
+        for pin in pins:
+            if pin.slug in UPSTREAM_REPO_SLUGS:
+                continue
+            version = pin.ref.removeprefix("v")
+            if pin.slug not in current or is_newer(version, current[pin.slug]):
+                current[pin.slug] = version
+
+    resolved: dict[str, tuple[str, str]] = {}
+    dates: dict[str, str] = {}
+    for slug, current_version in sorted(current.items()):
+        repo_url = f"https://github.com/{slug}"
+        latest = select_latest(github_candidates(repo_url), min_age, today)
+        if latest is None or not is_newer(latest.version, current_version):
+            continue
+        new_sha = resolve_tag_to_sha(repo_url, latest.ref)
+        if not new_sha:
+            logging.warning(f"Could not resolve {slug}@{latest.ref} to a commit SHA.")
+            continue
+        resolved[slug] = (new_sha, latest.ref)
+        dates[slug] = latest.date
+
+    changes: list[tuple[str, str, str]] = []
+    for path, text in file_data.items():
+        new_content, file_changes = apply_action_pins(text, resolved)
+        if file_changes:
+            path.write_text(new_content, encoding="UTF-8")
+            changes.extend(file_changes)
+
+    changes = sorted(set(changes))
+    if not changes:
+        echo("All action pins are up to date.")
+        ctx.exit(0)
+
+    _emit_version_sync_report(
+        ctx, changes, dates, output, output_format, subject="Action"
+    )
+
+
+@repomatic.command(
+    short_help="Bump npm/PyPI version literals in workflow YAML",
+    section=_section_sync,
+)
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default=None,
+    help="Write a markdown report (version table) to this file.",
+)
+@output_format_option
+@pass_context
+def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) -> None:
+    """Bump npm and PyPI version literals embedded in workflow YAML.
+
+    \b
+    Scans workflow and composite-action files for `npm install pkg@x` and
+    `uvx '<pkg>==x'` pins, resolves each to its latest release passing the
+    [tool.repomatic] minimum-release-age cooldown, and rewrites the literal.
+
+    \b
+    Example:
+        repomatic sync-workflow-pins
+    """
+    config = get_tool_config(ctx)
+    if not config.workflow_pins_sync:
+        logging.info(
+            "[tool.repomatic] workflow-pins.sync is disabled. Skipping pin sync."
+        )
+        ctx.exit(0)
+
+    min_age = parse_min_age(config.minimum_release_age)
+    today = datetime.now(timezone.utc).date()
+
+    file_data = {
+        path: path.read_text(encoding="UTF-8") for path in _workflow_and_action_files()
+    }
+
+    # Highest currently-pinned version per (ecosystem, package).
+    current: dict[tuple[str, str], str] = {}
+    for text in file_data.values():
+        for literal in find_workflow_literals(text):
+            key = (literal.ecosystem, literal.package)
+            if key not in current or is_newer(literal.version, current[key]):
+                current[key] = literal.version
+
+    resolved: dict[tuple[str, str], str] = {}
+    dates: dict[str, str] = {}
+    for (ecosystem, package), current_version in sorted(current.items()):
+        candidates = (
+            npm_candidates(package)
+            if ecosystem == "npm"
+            else pypi_candidates(package)
+        )
+        latest = select_latest(candidates, min_age, today)
+        if latest is None or not is_newer(latest.version, current_version):
+            continue
+        resolved[(ecosystem, package)] = latest.version
+        dates[package] = latest.date
+
+    changes: list[tuple[str, str, str]] = []
+    for path, text in file_data.items():
+        new_content, file_changes = apply_workflow_literals(text, resolved)
+        if file_changes:
+            path.write_text(new_content, encoding="UTF-8")
+            changes.extend(file_changes)
+
+    changes = sorted(set(changes))
+    if not changes:
+        echo("All workflow pins are up to date.")
+        ctx.exit(0)
+
+    _emit_version_sync_report(
+        ctx, changes, dates, output, output_format, subject="Package"
+    )
+
+
 @repomatic.command(
     short_help="Sync bumpversion config from bundled template", section=_section_sync
 )
@@ -2940,7 +3259,7 @@ def clean_unmodified_configs() -> None:
     """Remove config files identical to their bundled defaults.
 
     Scans both tool configs (yamllint, zizmor, etc.) and init-managed
-    configs (labels, renovate) and deletes any file whose content matches
+    configs (like labels) and deletes any file whose content matches
     the bundled default after whitespace normalization.
 
     Designed for standalone use. The sync-repomatic autofix job uses
@@ -3132,96 +3451,6 @@ def list_skills() -> None:
 
 
 @repomatic.command(
-    short_help="Check Renovate migration prerequisites", section=_section_lint
-)
-@option(
-    "--repo",
-    default=None,
-    envvar="GITHUB_REPOSITORY",
-    help="Repository in 'owner/repo' format. Defaults to $GITHUB_REPOSITORY.",
-)
-@option(
-    "--sha",
-    default=None,
-    envvar="GITHUB_SHA",
-    help="Commit SHA for permission checks. Defaults to $GITHUB_SHA.",
-)
-@option(
-    "--format",
-    "output_format",
-    type=EnumChoice(CheckFormat),
-    default=CheckFormat.text,
-    help="Output format: text (human-readable), json (structured), "
-    "or github (for $GITHUB_OUTPUT).",
-)
-@option(
-    "-o",
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default="-",
-    help="Output file path. Defaults to stdout.",
-)
-@pass_context
-def check_renovate(
-    ctx: Context,
-    repo: str | None,
-    sha: str | None,
-    output_format: CheckFormat,
-    output: Path,
-) -> None:
-    """Check prerequisites for Renovate migration.
-
-    Validates that:
-
-    \b
-    - renovate.json5 configuration exists
-    - No Dependabot version updates config exists (.github/dependabot.yaml)
-    - Dependabot security updates are disabled
-    - Token has required PAT permissions (commit statuses, contents, issues,
-      pull requests, vulnerability alerts, workflows)
-
-    Use --format=github to output results for $GITHUB_OUTPUT, allowing
-    workflows to use the values in conditional steps.
-
-    \b
-    Examples:
-        # Human-readable output (default)
-        repomatic check-renovate
-
-    \b
-        # JSON output for parsing
-        repomatic check-renovate --format=json
-
-    \b
-        # GitHub Actions output format
-        repomatic check-renovate --format=github --output "$GITHUB_OUTPUT"
-
-    \b
-        # Manual invocation
-        repomatic check-renovate --repo owner/repo --sha abc123
-    """
-    if not repo:
-        raise UsageError("No repository specified. Set --repo or $GITHUB_REPOSITORY.")
-    if not sha:
-        raise UsageError("No SHA specified. Set --sha or $GITHUB_SHA.")
-
-    # For text format, use the original function with console output.
-    if output_format == CheckFormat.text:
-        exit_code = run_migration_checks(repo, sha)
-        ctx.exit(exit_code)
-
-    # For json/github formats, collect results and output structured data.
-    results = collect_check_results(repo, sha)
-
-    if output_format == CheckFormat.json:
-        content = results.to_json()
-    else:  # github format.
-        content = results.to_github_output()
-
-    echo(content, file=prep_path(output))
-
-
-@repomatic.command(
     short_help="Run repository consistency checks", section=_section_lint
 )
 @option(
@@ -3250,12 +3479,6 @@ def check_renovate(
     envvar="HAS_VIRUSTOTAL_API_KEY",
     help="Whether VIRUSTOTAL_API_KEY is configured.",
 )
-@option(
-    "--sha",
-    default=None,
-    envvar="GITHUB_SHA",
-    help="Commit SHA for permission checks. Defaults to $GITHUB_SHA.",
-)
 @pass_context
 def lint_repo(
     ctx: Context,
@@ -3263,7 +3486,6 @@ def lint_repo(
     repo: str | None,
     has_pat: bool | None,
     has_virustotal_key: bool,
-    sha: str | None,
 ) -> None:
     """Run consistency checks on repository metadata.
 
@@ -3272,9 +3494,6 @@ def lint_repo(
 
     \b
     Checks:
-      - Dependabot config file absent (error).
-      - Renovate config exists (error).
-      - Dependabot security updates disabled (error).
       - Package name vs repository name (warning).
       - Website field set for Sphinx projects (warning).
       - Repository description matches project description (error).
@@ -3291,7 +3510,6 @@ def lint_repo(
       - Pull requests permission (error).
       - Dependabot alerts permission and alerts enabled (error).
       - Workflows permission (error).
-      - Commit statuses permission (error, requires --sha).
 
     \b
     Examples:
@@ -3304,7 +3522,7 @@ def lint_repo(
 
     \b
         # With PAT capability checks
-        repomatic lint-repo --has-pat --sha abc123
+        repomatic lint-repo --has-pat
     """
     # Auto-detect PAT from env when not explicitly specified on CLI.
     if has_pat is None:
@@ -3334,7 +3552,6 @@ def lint_repo(
         has_pat=has_pat,
         has_virustotal_key=has_virustotal_key,
         nuitka_active=nuitka_active,
-        sha=sha,
     )
     ctx.exit(exit_code)
 
@@ -4122,50 +4339,26 @@ def pr_body(
 
 
 @repomatic.command(
-    short_help="Update SHA-256 checksums for binary downloads", section=_section_setup
+    short_help="Recompute SHA-256 checksums for the binary tool registry",
+    section=_section_setup,
 )
-@argument(
-    "workflow_file",
-    type=file_path(exists=True, readable=True, writable=True, resolve_path=True),
-    required=False,
-)
-@option(
-    "--registry",
-    is_flag=True,
-    default=False,
-    help="Update checksums in the tool runner registry instead of a workflow file.",
-)
-def update_checksums_cmd(workflow_file: Path | None, registry: bool) -> None:
-    """Update SHA-256 checksums for direct binary downloads.
+def update_checksums_cmd() -> None:
+    """Recompute SHA-256 checksums for the binary tool registry.
 
-    By default, scans a workflow YAML file for GitHub release download URLs
-    paired with sha256sum --check verification lines. Downloads each binary,
-    computes the SHA-256, and replaces stale hashes in-place.
-
-    With --registry, updates checksums in the repomatic run tool registry
-    for all binary-distributed tools.
+    Downloads each binary-distributed tool in the `repomatic run` registry at
+    its pinned version, computes the SHA-256, and rewrites any stale hash (and
+    its version stamp) in tool_runner.py.
 
     \b
-    Designed for Renovate postUpgradeTasks: after a version bump changes a
-    download URL, this command downloads the new binary and updates the hash.
+    A repair path for a manual version edit: sync-tool-versions already
+    refreshes checksums when it bumps a version.
 
     \b
-    Examples:
-        # Update checksums in a single workflow file
-        repomatic update-checksums .github/workflows/docs.yaml
-
-    \b
-        # Update checksums in the tool runner registry
-        repomatic update-checksums --registry
+    Example:
+        repomatic update-checksums
     """
-    if registry:
-        checksums_path = Path(__file__).parent / "tool_checksums.py"
-        updated = update_registry_checksums(checksums_path)
-    elif workflow_file is not None:
-        updated = update_checksums(workflow_file)
-    else:
-        msg = "Either a workflow file argument or --registry flag is required."
-        raise UsageError(msg)
+    tool_runner_path = Path(__file__).parent / "tool_runner.py"
+    updated = update_registry_checksums(tool_runner_path)
 
     for url, old_hash, new_hash in updated:
         echo(f"Updated: {url}")

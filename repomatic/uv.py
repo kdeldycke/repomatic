@@ -1413,8 +1413,8 @@ def format_release_notes(
 ) -> str:
     """Render release notes as collapsible `<details>` blocks.
 
-    Follows Renovate's visual pattern: a "Release notes" heading with one
-    collapsible section per package. Long release bodies are truncated to
+    A "Release notes" heading with one collapsible section per package. Long
+    release bodies are truncated to
     {data}`RELEASE_NOTES_MAX_LENGTH` characters with a link to the full release.
 
     :param notes: A dict mapping package names to `(repo_url, versions)`

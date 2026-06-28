@@ -78,6 +78,14 @@ class CacheConfig:
     environment variable takes precedence over this setting.
     """
 
+    npm_ttl: int = 86400
+    """Freshness TTL for cached npm registry metadata (seconds).
+
+    New npm versions can appear at any time, so a 24-hour TTL balances
+    freshness with request savings. Set to `0` to disable caching for npm
+    lookups.
+    """
+
     pypi_ttl: int = 86400
     """Freshness TTL for cached PyPI metadata (seconds).
 
@@ -476,6 +484,17 @@ class Config:
     Each field has a docstring explaining its purpose.
     """
 
+    action_pins_sync: bool = field(
+        default=True,
+        metadata={CONFIG_PATH_METADATA_KEY: "action-pins.sync"},
+    )
+    """Whether the `sync-action-pins` job is enabled for this project.
+
+    Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the
+    latest release passing the `minimum-release-age` cooldown. Projects that
+    pin actions by hand can set this to `false`.
+    """
+
     awesome_template_sync: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "awesome-template.sync"},
@@ -631,6 +650,20 @@ class Config:
     is set. Has no effect when `manpages.script` is empty.
     """
 
+    minimum_release_age: str = field(
+        default="8 days",
+        metadata={CONFIG_PATH_METADATA_KEY: "minimum-release-age"},
+    )
+    """Stabilization window before a new upstream release is adopted.
+
+    Shared cooldown for the `sync-tool-versions`, `sync-action-pins`, and
+    `sync-workflow-pins` jobs: a release is only proposed once it has been
+    public for at least this long, giving upstream time to yank a bad cut. The
+    GitHub/PyPI/npm counterpart to uv's `exclude-newer` (which guards
+    `sync-uv-lock`). Accepts the same friendly durations (`8 days`, `2 weeks`,
+    `36 hours`). Set to `0 days` to adopt releases immediately.
+    """
+
     notification_unsubscribe: bool = field(
         default=False,
         metadata={CONFIG_PATH_METADATA_KEY: "notification.unsubscribe"},
@@ -753,6 +786,18 @@ class Config:
     `os`, `python-version`) and must not be normalized to snake_case.
     """
 
+    tool_versions_sync: bool = field(
+        default=True,
+        metadata={CONFIG_PATH_METADATA_KEY: "tool-versions.sync"},
+    )
+    """Whether the `sync-tool-versions` job is enabled for this project.
+
+    Bumps every tool in the `repomatic run` registry to the latest release
+    passing the `minimum-release-age` cooldown (GitHub releases for binary
+    tools, PyPI for the rest), recomputing binary checksums in the same pass.
+    Projects that pin tool versions by hand can set this to `false`.
+    """
+
     uv_lock_sync: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "uv-lock.sync"},
@@ -775,9 +820,22 @@ class Config:
     )
     """Workflow sync configuration."""
 
+    workflow_pins_sync: bool = field(
+        default=True,
+        metadata={CONFIG_PATH_METADATA_KEY: "workflow-pins.sync"},
+    )
+    """Whether the `sync-workflow-pins` job is enabled for this project.
+
+    Bumps version literals embedded in workflow YAML (npm `pkg@x` installs and
+    `uvx '<pkg>==x'` PyPI pins) to the latest release passing the
+    `minimum-release-age` cooldown. Projects that pin these by hand can set this
+    to `false`.
+    """
+
 
 SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "abandoned_versions",
+    "action_pins_sync",
     "agents_location",
     "awesome_template_sync",
     "bumpversion_sync",
@@ -792,14 +850,17 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "include",
     "labels",
     "mailmap_sync",
+    "minimum_release_age",
     "notification_unsubscribe",
     "pypi_package_history",
     "setup_guide",
     "skills_location",
     "test_matrix",
+    "tool_versions_sync",
     "uv_lock_sync",
     "vulnerable_deps",
     "workflow",
+    "workflow_pins_sync",
 ))
 """Config fields consumed directly by subcommands, not needed as metadata outputs.
 

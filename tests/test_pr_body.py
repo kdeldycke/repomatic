@@ -198,6 +198,9 @@ def test_get_template_names():
     assert "sync-gitignore" in names
     assert "sync-mailmap" in names
     assert "sync-uv-lock" in names
+    assert "sync-tool-versions" in names
+    assert "sync-action-pins" in names
+    assert "sync-workflow-pins" in names
     assert "sync-repomatic" in names
     assert "fix-changelog" in names
     assert "fix-vulnerable-deps" in names
@@ -213,7 +216,6 @@ def test_get_template_names():
     assert "broken-links-issue" in names
     assert "development-warning" in names
     assert "release-sync-report" in names
-    assert "renovate-migration" in names
     assert "unavailable-admonition" in names
     assert "unsubscribe-phase1" in names
     assert "unsubscribe-phase2" in names
@@ -222,7 +224,7 @@ def test_get_template_names():
     assert "yanked-admonition" in names
     assert "format-shell" in names
     assert "setup-guide-pypi-trusted-publisher" in names
-    assert len(names) == 43
+    assert len(names) == 45
 
 
 def test_load_template_frontmatter():
@@ -585,7 +587,6 @@ REFERENCE_WORKFLOWS = (
     # The detect-squash-merge --template reference lives in the build lane, not
     # the release.yaml entry (which only calls the lanes and publishes).
     ".github/workflows/_release-build.yaml",
-    ".github/workflows/renovate.yaml",
 )
 """Workflow files that reference PR body templates via ``--template``."""
 
@@ -600,7 +601,6 @@ PROGRAMMATIC_TEMPLATES = frozenset({
     "refresh-tip",
     "release-notes",
     "release-sync-report",
-    "renovate-migration",
     "setup-guide",
     "setup-guide-branch-ruleset",
     "setup-guide-dependabot",

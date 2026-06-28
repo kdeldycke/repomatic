@@ -36,7 +36,6 @@ from repomatic.init_project import (
     _detect_removed_assets,
     _resolve_agents_target,
     _resolve_skills_target,
-    _strip_renovate_repo_settings,
     _update_tool_config,
     default_version_pin,
     export_content,
@@ -309,32 +308,6 @@ def test_template_matches_own_pyproject(config_type: str) -> None:
                 )
 
     assert_subset(template, own_config)
-
-
-def test_bundled_renovate_matches_processed_root() -> None:
-    """Verify bundled renovate.json5 matches processed root file.
-
-    The root ``renovate.json5`` is the source of truth. The bundled version
-    in ``repomatic/data/`` should match the root file with repo-specific
-    settings (``assignees`` and the self-referencing uv ``customManagers``
-    entry) removed.
-
-    If this test fails, regenerate the bundled file by running:
-        uv run repomatic init renovate --output-dir repomatic/data
-    """
-    root_path = Path(__file__).parent.parent / "renovate.json5"
-    assert root_path.exists(), "Root renovate.json5 not found"
-
-    content = root_path.read_text(encoding="UTF-8")
-    processed = _strip_renovate_repo_settings(content)
-
-    bundled_content = get_data_content("renovate.json5")
-
-    assert bundled_content.strip() == processed.strip(), (
-        "Bundled renovate.json5 is out of sync with root file.\n"
-        "Regenerate with: uv run repomatic init renovate"
-        " --output-dir repomatic/data"
-    )
 
 
 # --- Ruff config tests ---
@@ -760,7 +733,6 @@ def test_init_default_components():
     }
     assert "changelog" in defaults
     assert "labels" in defaults
-    assert "renovate" in defaults
     assert "skills" in defaults
     assert "workflows" in defaults
     # Tool configs should not be in defaults.
@@ -776,14 +748,14 @@ def test_init_creates_all_default_files(
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n'
         "[tool.repomatic]\n"
-        'include = ["agents", "labels", "renovate", "skills"]\n',
+        'include = ["agents", "labels", "skills"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
 
     result = run_init(output_dir=tmp_path)
 
-    # All components: agents, changelog, labels, renovate, skills, workflows.
+    # All components: agents, changelog, labels, skills, workflows.
     # Opt-in workflows are excluded by default. Awesome-only skills are
     # included because ``include = ["skills"]`` bypasses scope filtering.
     config_file_count = sum(
@@ -842,7 +814,7 @@ def test_init_workflow_paths_config_flows_to_generated_files(tmp_path: Path):
         workflow=WorkflowConfig(
             extra_paths=["repo-specific.sh"],
             ignore_paths=["uv.lock"],
-            paths={"renovate.yaml": ["only-this.json5"]},
+            paths={"docs.yaml": ["only-this.json5"]},
         ),
     )
     run_init(
@@ -851,13 +823,13 @@ def test_init_workflow_paths_config_flows_to_generated_files(tmp_path: Path):
         config=config,
     )
 
-    # Per-workflow override replaces the renovate.yaml caller's paths.
-    renovate = (tmp_path / ".github" / "workflows" / "renovate.yaml").read_text(
+    # Per-workflow override replaces the docs.yaml caller's paths.
+    docs = (tmp_path / ".github" / "workflows" / "docs.yaml").read_text(
         encoding="UTF-8",
     )
-    assert "only-this.json5" in renovate
+    assert "only-this.json5" in docs
     # Override skips global knobs: extras don't leak to overridden workflows.
-    assert "repo-specific.sh" not in renovate
+    assert "repo-specific.sh" not in docs
 
     # changelog.yaml has push.paths in canonical and is not overridden, so
     # global knobs apply.
@@ -940,7 +912,6 @@ def test_init_idempotent(tmp_path: Path):
         "workflows",
         "skills",
         "labels",
-        "renovate",
     ],
 )
 def test_init_per_component_idempotent(tmp_path: Path, component: str):
@@ -1096,16 +1067,6 @@ def test_skills_consistency():
     )
 
 
-def test_init_only_renovate(tmp_path: Path):
-    """Verify only renovate config is created."""
-    result = run_init(output_dir=tmp_path, components=("renovate",))
-
-    assert "renovate.json5" in set(result.created)
-    assert (tmp_path / "renovate.json5").exists()
-    # No other default components.
-    assert "changelog.md" not in set(result.created)
-
-
 def test_init_only_workflows(tmp_path: Path):
     """Verify only workflow files are created."""
     result = run_init(output_dir=tmp_path, components=("workflows",))
@@ -1119,7 +1080,6 @@ def test_init_only_workflows(tmp_path: Path):
             assert f".github/workflows/{filename}" in created_set
 
     # No config files or changelog.
-    assert "renovate.json5" not in created_set
     assert "changelog.md" not in created_set
 
 
@@ -1867,7 +1827,7 @@ def test_typos_merged_inline_tables_use_pyproject_fmt_spacing(tmp_path: Path) ->
 
 
 def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Verify default exclude skips agents, labels, renovate, and skills."""
+    """Verify default exclude skips agents, labels, and skills."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n',
@@ -1878,9 +1838,8 @@ def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     result = run_init(output_dir=tmp_path)
 
     created_set = set(result.created)
-    # Agents, labels, skills, and renovate are excluded by default.
+    # Agents, labels, and skills are excluded by default.
     assert "labels.toml" not in created_set
-    assert "renovate.json5" not in created_set
     for _, rel_path in ((e.source, e.target) for e in _BY_NAME["agents"].files):
         assert rel_path not in created_set
     for _, rel_path in ((e.source, e.target) for e in _BY_NAME["skills"].files):
@@ -1889,7 +1848,7 @@ def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Other default components should still be created.
     assert "changelog.md" in created_set
 
-    assert result.excluded == ["agents", "labels", "renovate", "skills"]
+    assert result.excluded == ["agents", "labels", "skills"]
 
 
 def test_init_respects_exclude_components(
@@ -1913,13 +1872,10 @@ def test_init_respects_exclude_components(
     for _, rel_path in ((e.source, e.target) for e in _BY_NAME["skills"].files):
         assert rel_path not in created_set
 
-    # Renovate is also excluded by default.
-    assert "renovate.json5" not in created_set
-
     # Other default components should still be created.
     assert "changelog.md" in created_set
 
-    assert result.excluded == ["agents", "labels", "renovate", "skills"]
+    assert result.excluded == ["agents", "labels", "skills"]
 
 
 def test_init_respects_exclude_workflow_files(
@@ -3283,14 +3239,13 @@ def test_init_include_overrides_default_exclusions(
     result = run_init(output_dir=tmp_path)
 
     created_set = set(result.created)
-    # Labels included via include; agents, renovate, skills still excluded by default.
+    # Labels included via include; agents, skills still excluded by default.
     assert "labels.toml" in created_set
-    assert "renovate.json5" not in created_set
     for _, rel_path in ((e.source, e.target) for e in _BY_NAME["agents"].files):
         assert rel_path not in created_set
     for _, rel_path in ((e.source, e.target) for e in _BY_NAME["skills"].files):
         assert rel_path not in created_set
-    assert result.excluded == ["agents", "renovate", "skills"]
+    assert result.excluded == ["agents", "skills"]
 
 
 def test_init_exclude_additive_to_defaults(
@@ -3667,21 +3622,6 @@ def test_find_unmodified_init_files_skips_skills(
     assert not any("skills" in p for p in paths)
 
 
-def test_find_unmodified_init_files_renovate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Renovate redundancy check uses export_content (with stripping)."""
-    monkeypatch.chdir(tmp_path)
-    content = export_content("renovate.json5")
-    (tmp_path / "renovate.json5").write_text(content.rstrip() + "\n", encoding="UTF-8")
-
-    from repomatic.init_project import find_unmodified_init_files
-
-    result = find_unmodified_init_files()
-    paths = [p for _, p in result]
-    assert "renovate.json5" in paths
-
-
 def test_find_unmodified_init_files_multiple(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -3705,17 +3645,6 @@ def test_find_unmodified_init_files_multiple(
     assert "labels.toml" in paths
     assert ".github/labeller-file-based.yaml" in paths
     assert ".github/labeller-content-based.yaml" in paths
-
-
-def test_init_skips_identical_config(tmp_path: Path):
-    """Init skips writing when downstream file matches bundled content."""
-    result1 = run_init(output_dir=tmp_path, components=("renovate",))
-    assert "renovate.json5" in result1.created
-
-    result2 = run_init(output_dir=tmp_path, components=("renovate",))
-    assert "renovate.json5" not in result2.updated
-    assert "renovate.json5" not in result2.created
-    assert "renovate.json5" in result2.unmodified_configs
 
 
 @pytest.mark.parametrize(

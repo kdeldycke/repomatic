@@ -412,7 +412,6 @@ expected: dict[str, Any] = {
     "release_commits": OptionalList(regex(r"[a-f0-9]{40}")),
     "mailmap_exists": True,
     "gitignore_exists": True,
-    "renovate_config_exists": True,
     "python_files": [
         "docs/conf.py",
         "docs/docs_update.py",
@@ -451,18 +450,18 @@ expected: dict[str, Any] = {
         "repomatic/metadata.py",
         "repomatic/myst_converter.py",
         "repomatic/myst_docstrings.py",
+        "repomatic/npm.py",
         "repomatic/pypi.py",
         "repomatic/pyproject.py",
         "repomatic/registry.py",
         "repomatic/release_prep.py",
-        "repomatic/renovate.py",
         "repomatic/rst_to_myst.py",
         "repomatic/sponsor.py",
         "repomatic/templates/__init__.py",
         "repomatic/test_matrix.py",
-        "repomatic/tool_checksums.py",
         "repomatic/tool_runner.py",
         "repomatic/uv.py",
+        "repomatic/version_sync.py",
         "repomatic/virustotal.py",
         "tests/__init__.py",
         "tests/conftest.py",
@@ -496,11 +495,11 @@ expected: dict[str, Any] = {
         "tests/test_readme.py",
         "tests/test_release_prep.py",
         "tests/test_release_sync.py",
-        "tests/test_renovate.py",
         "tests/test_status.py",
         "tests/test_sync_labels.py",
         "tests/test_tool_runner.py",
         "tests/test_uv.py",
+        "tests/test_version_sync.py",
         "tests/test_virustotal.py",
         "tests/test_workflow_sync.py",
         "tests/test_workflows.py",
@@ -522,10 +521,8 @@ expected: dict[str, Any] = {
         ".github/workflows/labels.yaml",
         ".github/workflows/lint.yaml",
         ".github/workflows/release.yaml",
-        ".github/workflows/renovate.yaml",
         ".github/workflows/tests.yaml",
         ".github/workflows/unsubscribe.yaml",
-        ".github/workflows/update-checksums.yaml",
         "repomatic/data/awesome_template/.github/ISSUE_TEMPLATE/config.yml",
         "repomatic/data/awesome_template/.github/ISSUE_TEMPLATE/new-link.yaml",
         "repomatic/data/awesome_template/.github/funding.yml",
@@ -563,10 +560,8 @@ expected: dict[str, Any] = {
         ".github/workflows/labels.yaml",
         ".github/workflows/lint.yaml",
         ".github/workflows/release.yaml",
-        ".github/workflows/renovate.yaml",
         ".github/workflows/tests.yaml",
         ".github/workflows/unsubscribe.yaml",
-        ".github/workflows/update-checksums.yaml",
     ],
     "doc_files": [
         ".claude/agents/grunt-qa.md",
@@ -643,7 +638,6 @@ expected: dict[str, Any] = {
         "repomatic/templates/refresh-tip.md",
         "repomatic/templates/release-notes.md",
         "repomatic/templates/release-sync-report.md",
-        "repomatic/templates/renovate-migration.md",
         "repomatic/templates/setup-guide-branch-ruleset.md",
         "repomatic/templates/setup-guide-dependabot.md",
         "repomatic/templates/setup-guide-fork-pr-approval.md",
@@ -653,11 +647,14 @@ expected: dict[str, Any] = {
         "repomatic/templates/setup-guide-verify.md",
         "repomatic/templates/setup-guide-virustotal.md",
         "repomatic/templates/setup-guide.md",
+        "repomatic/templates/sync-action-pins.md",
         "repomatic/templates/sync-bumpversion.md",
         "repomatic/templates/sync-gitignore.md",
         "repomatic/templates/sync-mailmap.md",
         "repomatic/templates/sync-repomatic.md",
+        "repomatic/templates/sync-tool-versions.md",
         "repomatic/templates/sync-uv-lock.md",
+        "repomatic/templates/sync-workflow-pins.md",
         "repomatic/templates/unavailable-admonition.md",
         "repomatic/templates/unsubscribe-phase1.md",
         "repomatic/templates/unsubscribe-phase2.md",
@@ -740,7 +737,6 @@ expected: dict[str, Any] = {
         "repomatic/templates/refresh-tip.md",
         "repomatic/templates/release-notes.md",
         "repomatic/templates/release-sync-report.md",
-        "repomatic/templates/renovate-migration.md",
         "repomatic/templates/setup-guide-branch-ruleset.md",
         "repomatic/templates/setup-guide-dependabot.md",
         "repomatic/templates/setup-guide-fork-pr-approval.md",
@@ -750,11 +746,14 @@ expected: dict[str, Any] = {
         "repomatic/templates/setup-guide-verify.md",
         "repomatic/templates/setup-guide-virustotal.md",
         "repomatic/templates/setup-guide.md",
+        "repomatic/templates/sync-action-pins.md",
         "repomatic/templates/sync-bumpversion.md",
         "repomatic/templates/sync-gitignore.md",
         "repomatic/templates/sync-mailmap.md",
         "repomatic/templates/sync-repomatic.md",
+        "repomatic/templates/sync-tool-versions.md",
         "repomatic/templates/sync-uv-lock.md",
+        "repomatic/templates/sync-workflow-pins.md",
         "repomatic/templates/unavailable-admonition.md",
         "repomatic/templates/unsubscribe-phase1.md",
         "repomatic/templates/unsubscribe-phase2.md",
@@ -1278,28 +1277,14 @@ def test_null_sha_constant():
 
 def test_is_bot_false_by_default(monkeypatch):
     """Test that is_bot is False when not in a bot context."""
-    # Clear CI env vars that could make is_bot return True (e.g., when tests run
-    # on a commit pushed by Renovate, GITHUB_ACTOR is "renovate-bot").
+    # Clear CI env vars that could make is_bot return True when tests run on a
+    # commit pushed by a bot actor.
     monkeypatch.delenv("GITHUB_ACTOR", raising=False)
     monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
     monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
     metadata = Metadata()
-    # Outside of bot context (no bot actor or renovate branch), is_bot is False.
+    # Outside of bot context, is_bot is False.
     assert isinstance(metadata.is_bot, bool)
-    assert metadata.is_bot is False
-
-
-def test_is_bot_detects_renovate_branch(monkeypatch):
-    """Test that is_bot returns True for Renovate branch patterns."""
-    monkeypatch.setenv("GITHUB_HEAD_REF", "renovate/taiki-e-install-action-2.x")
-    metadata = Metadata()
-    assert metadata.is_bot is True
-
-
-def test_is_bot_ignores_non_renovate_branch(monkeypatch):
-    """Test that is_bot returns False for non-Renovate branches."""
-    monkeypatch.setenv("GITHUB_HEAD_REF", "feature/add-new-feature")
-    metadata = Metadata()
     assert metadata.is_bot is False
 
 

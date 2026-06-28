@@ -21,7 +21,8 @@ A Python CLI and `pyproject.toml` configuration that let you **release Python pa
 - Cross-platform binary compilation (Linux / macOS / Windows, x86_64 / arm64)
 - Formatting autofix for Python, Markdown, JSON, Shell, and typos
 - Linting: Python types with mypy, YAML, GitHub Actions, workflow security, URLs, secrets, and Awesome lists
-- Synchronization of `uv.lock`, `.gitignore`, `.mailmap`, and Mermaid dependency graph
+- Synchronization of `uv.lock`, GitHub Action pins, workflow version literals, and `repomatic run` tool versions with configurable stabilization cooldowns
+- Synchronization of `.gitignore`, `.mailmap`, and Mermaid dependency graph
 - Label management with file-based and content-based rules
 - Inactive issue locking
 - Static image optimization
@@ -33,7 +34,7 @@ A Python CLI and `pyproject.toml` configuration that let you **release Python pa
 - [18 third-party GitHub Actions replaced](https://kdeldycke.github.io/repomatic/security.html#third-party-action-minimization) by internal CLI commands and SHA-256-verified binary downloads, keeping the supply chain attack surface minimal
 - [8 Python linters and formatters](https://kdeldycke.github.io/repomatic/security.html#ruff-consolidation) (pylint, black, isort, pyupgrade, pydocstyle, pycln, docformatter, blacken-docs) consolidated into ruff
 - [5 packaging and install tools](https://kdeldycke.github.io/repomatic/security.html#uv-consolidation) (poetry, build, twine, check-wheel-contents, pip-audit) consolidated into uv
-- All `uses:` references [pinned to full commit SHAs](https://kdeldycke.github.io/repomatic/security.html#supply-chain-security) via Renovate, with stabilization windows before adopting new versions
+- All `uses:` references [pinned to full commit SHAs](https://kdeldycke.github.io/repomatic/security.html#supply-chain-security) with stabilization windows before adopting new versions, managed entirely by self-hosted sync jobs
 - [SLSA provenance attestations](https://kdeldycke.github.io/repomatic/security.html#supply-chain-security) on every release artifact (wheels and compiled binaries)
 - [VirusTotal scanning](https://kdeldycke.github.io/repomatic/security.html#av-false-positive-submissions) of compiled binaries to seed AV vendor databases and reduce false positives
 - [Trusted Publishing](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-release-yaml-jobs) for PyPI uploads: no long-lived tokens stored as secrets

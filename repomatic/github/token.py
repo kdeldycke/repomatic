@@ -42,13 +42,13 @@ GitHub regardless of repository-level settings.
 
 Jobs that use `REPOMATIC_PAT`:
 
-- `autofix.yaml`: fix-typos, sync-repomatic
-  (PRs touching `.github/workflows/` files).
+- `autofix.yaml`: fix-typos, sync-repomatic, sync-action-pins,
+  sync-workflow-pins (PRs touching `.github/workflows/` files),
+  sync-tool-versions (upstream-only dependency PRs), fix-vulnerable-deps
+  (reads the GitHub Advisory Database).
 - `changelog.yaml`: prepare-release (freezes versions in workflow files).
 - `release.yaml`: create-tag (push triggers `on.push.tags`),
   create-release (triggers downstream workflows).
-- `renovate.yaml`: renovate (dependency PRs, status checks, dashboard,
-  vulnerability alerts).
 
 All jobs fall back to `GITHUB_TOKEN` when the PAT is unavailable
 (`secrets.REPOMATIC_PAT || github.token`), but
@@ -60,9 +60,8 @@ Token permission mapping:
 - **Workflows** — PRs that touch `.github/workflows/` files.
 - **Contents** — Tag pushes, release publishing, PR branch creation.
 - **Pull requests** — All PR-creating jobs.
-- **Commit statuses** — Renovate `stability-days` status checks.
-- **Dependabot alerts** — Renovate vulnerability alert reading.
-- **Issues** — Renovate Dependency Dashboard.
+- **Dependabot alerts** — fix-vulnerable-deps reads vulnerability alerts.
+- **Issues** — Setup guide issue.
 - **Metadata** — Required for all fine-grained token API operations.
 ```
 """
@@ -84,7 +83,6 @@ from .status import status_annotation
 # This is the single source of truth — the setup guide template, pre-filled
 # token URL, and lint-repo capability checks must all agree with this list.
 REQUIRED_PAT_PERMISSIONS = (
-    ("Commit statuses", "Read and Write", "Renovate stability-days status checks."),
     (
         "Contents",
         "Read and Write",
@@ -93,14 +91,15 @@ REQUIRED_PAT_PERMISSIONS = (
     (
         "Dependabot alerts",
         "Read-only",
-        "Renovate reads vulnerability alerts for security PRs.",
+        "fix-vulnerable-deps reads vulnerability alerts for security PRs.",
     ),
-    ("Issues", "Read and Write", "Renovate Dependency Dashboard."),
+    ("Issues", "Read and Write", "Setup guide issue management."),
     ("Metadata", "Read-only", "Required for all fine-grained token API operations."),
     (
         "Pull requests",
         "Read and Write",
-        "All PR-creating jobs (sync-repomatic, fix-typos, prepare-release, Renovate).",
+        "All PR-creating jobs (sync-repomatic, fix-typos, sync-uv-lock, "
+        "sync-action-pins, prepare-release).",
     ),
     (
         "Workflows",
@@ -281,37 +280,12 @@ def check_pat_workflows_permission(repo: str) -> tuple[bool, str]:
     return True, "Workflows: token has access"
 
 
-def check_commit_statuses_permission(repo: str, sha: str) -> tuple[bool, str]:
-    """Check that the token has commit statuses permission.
-
-    Required for Renovate to set stability-days status checks.
-
-    :param repo: Repository in 'owner/repo' format.
-    :param sha: Commit SHA to check.
-    :return: Tuple of (passed, message).
-    """
-    try:
-        run_gh_command([
-            "api",
-            f"repos/{repo}/commits/{sha}/statuses",
-            "--silent",
-        ])
-    except RuntimeError as exc:
-        return False, _classify_pat_error(
-            str(exc),
-            "Token lacks 'Commit statuses: Read and Write' permission. "
-            "Update the PAT to include this permission.",
-        )
-    return True, "Commit statuses: token has access"
-
-
 @dataclass
 class PatPermissionResults:
     """Results of all PAT permission checks.
 
     Each field holds a `(passed, message)` tuple from the corresponding
-    `check_pat_*` function. The `commit_statuses` field is `None` when
-    no commit SHA was available to probe.
+    `check_pat_*` function.
     """
 
     contents: tuple[bool, str]
@@ -328,9 +302,6 @@ class PatPermissionResults:
 
     workflows: tuple[bool, str]
     """Result of {func}`check_pat_workflows_permission`."""
-
-    commit_statuses: tuple[bool, str] | None = None
-    """Result of {func}`check_commit_statuses_permission`, or `None` if skipped."""
 
     def all_passed(self) -> bool:
         """Return `True` when every executed check passed."""
@@ -359,10 +330,7 @@ class PatPermissionResults:
         return results
 
 
-def check_all_pat_permissions(
-    repo: str,
-    sha: str | None = None,
-) -> PatPermissionResults:
+def check_all_pat_permissions(repo: str) -> PatPermissionResults:
     """Run all PAT permission checks and return structured results.
 
     This is the single entry point for PAT permission validation. Both
@@ -370,8 +338,6 @@ def check_all_pat_permissions(
     new permission check benefits all consumers automatically.
 
     :param repo: Repository in 'owner/repo' format.
-    :param sha: Commit SHA for the statuses check. When `None`, the
-        `commit_statuses` field is set to `None` (skipped).
     :return: {class}`PatPermissionResults` with all check outcomes.
     """
     return PatPermissionResults(
@@ -380,7 +346,6 @@ def check_all_pat_permissions(
         pull_requests=check_pat_pull_requests_permission(repo),
         vulnerability_alerts=check_pat_vulnerability_alerts_permission(repo),
         workflows=check_pat_workflows_permission(repo),
-        commit_statuses=(check_commit_statuses_permission(repo, sha) if sha else None),
     )
 
 

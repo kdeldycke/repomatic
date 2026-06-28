@@ -17,7 +17,7 @@
 
 Provides a shared HTTP client and domain-specific query functions used by
 {mod}`repomatic.changelog` (release dates, yanked status) and
-{mod}`repomatic.renovate` (source repository discovery).
+{mod}`repomatic.uv` (source repository discovery for release notes).
 """
 
 from __future__ import annotations

@@ -53,12 +53,14 @@ GitHub Actions has several design limitations that the workflows work around:
 
 ### 🪄 [`.github/workflows/autofix.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/autofix.yaml)
 
+This workflow runs on every push to `main` and on a **weekly schedule** so quiet repos that see few pushes still receive dependency and pin updates automatically.
+
 *Setup* — guide new users through initial configuration:
 
 #### 📖 Setup guide (`setup-guide`)
 
 - Detects missing `REPOMATIC_PAT` secret and opens an issue with step-by-step setup instructions
-- When the PAT is present, validates all required permissions (contents, issues, pull requests, Dependabot alerts, workflows, commit statuses) using the same checks as `lint-repo`
+- When the PAT is present, validates all required permissions (contents, issues, pull requests, Dependabot alerts, workflows) using the same checks as `lint-repo`
 - Keeps the issue open with a diagnostic table when the PAT exists but permissions are incomplete
 - For projects published to PyPI, probes the latest release's PEP 740 provenance and keeps the issue open until a successful OIDC-attested upload confirms the [Trusted Publisher entry](https://docs.pypi.org/trusted-publishers/adding-a-publisher/) is registered for this repo's own `release.yaml`
 - When Nuitka binary compilation is active, includes a VirusTotal API key setup step and keeps the issue open until the key is configured
@@ -148,7 +150,7 @@ GitHub Actions has several design limitations that the workflows work around:
 - Runs [`repomatic init --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init_project.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
 - Prunes orphans of assets repomatic has dropped (renamed or removed skills, agents, or workflows), so an upstream rename propagates automatically instead of leaving a stale file behind. A skill or agent copy is deleted when its content matches any version repomatic shipped; a removed reusable workflow's thin-caller is deleted when its `uses:` line still points at the dropped upstream workflow. A locally modified copy (edited content, or a thin-caller with extra jobs) is reported for manual review, never deleted. Pass `--keep-removed` to report these without deleting, or `--delete-removed-modified` to also delete locally modified ones
-- In the upstream repository, regenerates the bundled `repomatic/data/renovate.json5` from the root config (workflows are excluded via `[tool.repomatic]`)
+- In the upstream repository, regenerates bundled data files from the project's own config (workflows are excluded via `[tool.repomatic]`)
 
 #### 📬 Sync `.mailmap` (`sync-mailmap`)
 
@@ -165,11 +167,44 @@ GitHub Actions has several design limitations that the workflows work around:
 - Only creates a PR when the lock file contains real dependency changes (timestamp-only noise is detected and skipped)
 - PR body includes a table of updated packages with version ranges linked to GitHub comparison diffs, plus collapsible release notes for all intermediate versions
 - PR body also lists releases held back by the `exclude-newer` cooldown: newer versions already published but still too young to lock, with the date each ages out of the window
-- Replaces Renovate's `lockFileMaintenance`, which cannot reliably revert noise-only changes
 - **Requires**:
   - Python package with a `pyproject.toml` file
 - **Skipped if**:
   - `uv-lock.sync = false` in `[tool.repomatic]`
+
+#### 📌 Sync action pins (`sync-action-pins`)
+
+- Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-action-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
+- Handles the SHA-to-semver mapping automatically: reads the trailing `# vX.Y.Z` comment, fetches the latest release, resolves it to a commit SHA, and rewrites the `uses:` line
+- PR body lists each updated action with old and new versions
+- **Requires**:
+  - Workflow files (`.github/workflows/**/*.yaml`) in the repository
+- **Skipped if**:
+  - `action-pins.sync = false` in `[tool.repomatic]`
+
+#### 🔢 Sync workflow pins (`sync-workflow-pins`)
+
+- Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
+- Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; npm installs and `uvx` pins are handled here)
+- PR body lists each updated pin with old and new versions
+- **Requires**:
+  - Workflow files (`.github/workflows/**/*.yaml`) in the repository
+- **Skipped if**:
+  - `workflow-pins.sync = false` in `[tool.repomatic]`
+
+(github-workflows-sync-tool-versions-yaml-jobs)=
+
+#### 🔄 Sync tool versions (`sync-tool-versions`)
+
+- **Upstream-only**: runs only inside `kdeldycke/repomatic` (guarded by `github.repository == 'kdeldycke/repomatic'`); downstream repos receive updated tool versions when they sync against a new repomatic release
+- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gitleaks, labelmaker, lychee, shfmt, typos), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
+- Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
+- Runs via `uv run` against the local editable source, rewriting `repomatic/tool_runner.py` directly
+- **Runs on**: weekly schedule and manual dispatch
+- **Requires**:
+  - `REPOMATIC_PAT` secret with contents write permission
+- **Skipped if**:
+  - `tool-versions.sync = false` in `[tool.repomatic]`
 
 #### 🕸️ Update dependency graph (`update-deps-graph`)
 
@@ -344,7 +379,7 @@ docs = [
 
 #### 🏠 Lint repository metadata (`lint-repo`)
 
-- Validates repository metadata (package name, Sphinx docs, project description) and Dependabot configuration using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py). Reads `pyproject.toml` directly. When `REPOMATIC_PAT` is configured, also validates PAT capabilities (contents, issues, pull requests, Dependabot alerts, workflows, commit statuses permissions). Warns when the fork PR workflow approval policy is weaker than `first_time_contributors`. Warns about missing `VIRUSTOTAL_API_KEY` when Nuitka binary compilation is active.
+- Validates repository metadata (package name, Sphinx docs, project description) and Dependabot configuration using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py). Reads `pyproject.toml` directly. When `REPOMATIC_PAT` is configured, also validates PAT capabilities (contents, issues, pull requests, Dependabot alerts, workflows permissions). Warns when the fork PR workflow approval policy is weaker than `first_time_contributors`. Warns about missing `VIRUSTOTAL_API_KEY` when Nuitka binary compilation is active.
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
 
@@ -563,35 +598,6 @@ flowchart TD
 - **Skipped if**:
   - `dev-release.sync = false` in `[tool.repomatic]`
 
-(github-workflows-renovate-yaml-jobs)=
-
-### 🆕 [`.github/workflows/renovate.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/renovate.yaml)
-
-#### 🚚 Migrate to Renovate (`migrate-to-renovate`)
-
-- Automatically migrates from Dependabot to Renovate by creating a PR that:
-  - Exports `renovate.json5` configuration file (if missing)
-  - Removes `.github/dependabot.yaml` or `.github/dependabot.yml` (if present)
-- PR body includes a prerequisites status table showing:
-  - What this PR fixes (config file creation, Dependabot removal)
-  - What needs manual action (security updates settings, token permissions)
-  - Links to relevant settings pages for easy access
-- Uses [`peter-evans/create-pull-request`](https://github.com/peter-evans/create-pull-request) for consistent PR creation
-- **Skipped if**:
-  - No changes needed (`renovate.json5` already exists and no Dependabot config is present)
-
-#### 🆕 Renovate (`renovate`)
-
-- Materializes the effective `renovate.json5` at runtime (the committed copy if present, else the bundled template) and stages it into the container-mounted `/tmp`, so the Dockerized engine reads it as global config (`RENOVATE_CONFIG_FILE`) with `requireConfig=ignored`; downstream repos can safely remove unmodified copies via `clean-unmodified-configs`
-- Validates prerequisites before running (fails if not met):
-  - No Dependabot config file present
-  - Dependabot security updates disabled
-- Runs self-hosted [Renovate](https://github.com/renovatebot/renovate) to update dependencies
-- Creates PRs for outdated dependencies with stabilization periods
-- Handles security vulnerabilities via `vulnerabilityAlerts`
-- **Requires**:
-  - `REPOMATIC_PAT` secret with Dependabot alerts permission
-
 (github-workflows-tests-yaml-jobs)=
 
 ### 🔬 [`.github/workflows/tests.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/tests.yaml)
@@ -618,18 +624,6 @@ flowchart TD
 - Ensures runners are not silently using emulation (e.g., x86_64 on aarch64)
 - **Requires**:
   - Build targets from `metadata` job
-
-(github-workflows-update-checksums-yaml-jobs)=
-
-### 🔄 [`.github/workflows/update-checksums.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/update-checksums.yaml)
-
-#### 🔄 Update checksums (`update-checksums`)
-
-- Belt-and-suspenders fallback for the tool registry checksum update: the primary path is Renovate's `postUpgradeTasks`, which bumps the version in `repomatic/tool_runner.py` and writes matching checksums to the separate `repomatic/tool_checksums.py` sidecar atomically, so both land in one branch before the PR opens (the separate file sidesteps the silent drop of [renovatebot/renovate#42263](https://github.com/renovatebot/renovate/discussions/42263))
-- Triggers when Renovate pushes a version bump touching `repomatic/tool_runner.py` or `repomatic/tool_checksums.py` on a `renovate/**` branch; recomputes the SHA-256 for each binary tool and commits any corrected hashes to the PR branch
-- Uses `REPOMATIC_PAT` for the push so the fix commit re-triggers CI checks on the PR
-- Safe against infinite loops: a second trigger finds all checksums already correct and exits without pushing
-- **Source-repo only**: not bundled for downstream repos (they have no tool registry)
 
 (github-workflows-unsubscribe-yaml-jobs)=
 
@@ -744,17 +738,19 @@ This repository uses these workflows for itself.
 
 ### Dependency strategy
 
-All dependencies are pinned to specific versions for stability, reproducibility, and security.
+All dependencies are pinned to specific versions for stability, reproducibility, and security. The update machinery is entirely self-hosted: no third-party dependency bot is required.
 
 #### Pinning mechanisms
 
-| Mechanism                   | What it pins                | How it's updated  |
-| :-------------------------- | :-------------------------- | :---------------- |
-| `uv.lock`                   | Project dependencies        | Renovate PRs      |
-| Hard-coded versions in YAML | GitHub Actions, npm, Python | Renovate PRs      |
-| `uv --exclude-newer` option | Transitive dependencies     | Time-based window |
-| Tagged workflow URLs        | Remote workflow references  | Release process   |
-| `--from . repomatic`        | CLI from local source       | Release freeze    |
+| Mechanism                   | What it pins                       | How it's updated                          |
+| :-------------------------- | :--------------------------------- | :---------------------------------------- |
+| `uv.lock`                   | Project Python dependencies        | `sync-uv-lock` autofix job                |
+| SHA-pinned `uses:` refs     | GitHub Actions                     | `sync-action-pins` autofix job            |
+| Inline version literals     | npm packages, `uvx` PyPI pins      | `sync-workflow-pins` autofix job          |
+| Binary tool registry        | `repomatic run` tool versions      | `sync-tool-versions` job in `autofix.yaml` (upstream only) |
+| `uv --exclude-newer` option | Transitive Python dependencies     | Time-based window                         |
+| Tagged workflow URLs         | Remote workflow `uses:` references | Release process (freeze/unfreeze commits)  |
+| `--from . repomatic`        | CLI from local source              | Release freeze                            |
 
 #### Hard-coded versions in workflows
 
@@ -765,19 +761,19 @@ GitHub Actions and npm packages are pinned directly in YAML files:
   - run: npm install eslint@9.39.1       # Pinned npm package
 ```
 
-GitHub Actions are pinned to full commit SHAs via Renovate's [`helpers:pinGitHubActionDigestsToSemver`](https://docs.renovatebot.com/presets-helpers/#helperspingithubactiondigeststosemver) preset, which rewrites every `uses:` ref to a 40-character SHA with the semver tag preserved as a trailing comment. A [custom regex manager](https://github.com/kdeldycke/repomatic/blob/main/renovate.json5) handles npm packages pinned inline in workflow files.
+GitHub Actions are pinned to full commit SHAs, with the semver tag preserved as a trailing comment. `sync-action-pins` reads the comment, fetches the latest release, and rewrites the `uses:` line with the new SHA. `sync-workflow-pins` handles the npm and PyPI version literals.
 
-#### Renovate cooldowns
+#### Cooldowns
 
-To avoid update fatigue, and [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), [`renovate.json5`](https://github.com/kdeldycke/repomatic/blob/main/renovate.json5) uses stabilization periods (with prime numbers to stagger updates).
+All three sync jobs share the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. This is the GitHub/PyPI/npm counterpart to uv's `--exclude-newer`, which guards `sync-uv-lock`.
 
-This ensures major updates get more scrutiny while patches flow through faster.
+To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically — no manual bump required.
 
 #### `uv.lock` and `--exclude-newer`
 
-The `uv.lock` file pins all project dependencies, and Renovate keeps it in sync.
+The `uv.lock` file pins all project Python dependencies. `sync-uv-lock` runs `uv lock --upgrade` on a schedule and opens a PR when real changes are detected (timestamp-only noise is skipped).
 
-The [`--exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) flag ignores packages released in the last 7 days, providing a buffer against freshly-published broken releases.
+The [`--exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) flag in `[tool.uv]` ignores packages released within a short window, providing a buffer against freshly-published broken releases. The window is managed by the `sync-uv-lock` job, which rolls the `exclude-newer` date forward automatically.
 
 #### Tagged workflow URLs
 

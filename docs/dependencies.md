@@ -60,9 +60,9 @@ Comments and changelogs can lie; the codebase is the source of truth. For each d
 
 These comment patterns typically signal a floor set at adoption or auto-bump time, not at an API boundary:
 
-- "First version we used" or "first version when we last changed the requirement": the floor is an artifact of when the dep was added or last bumped by Renovate/Dependabot.
+- "First version we used" or "first version when we last changed the requirement": the floor is an artifact of when the dep was added or last bumped by a dependency bot.
 - "First version to support Python 3.X": unless it documents a `requires-python` drop alignment or a concrete build failure, this is not a valid floor reason.
-- **The `~= -> >=` conversion pipeline:** a common inflation path where (a) dep is added as `~=X.Y` (latest at the time), (b) Renovate bumps to `~=X.Z`, (c) a bulk "relax requirements" commit converts all `~=` to `>=`. Each step inflates the floor without API validation.
+- **The `~= -> >=` conversion pipeline:** a common inflation path where (a) dep is added as `~=X.Y` (latest at the time), (b) a dependency bot bumps to `~=X.Z`, (c) a bulk "relax requirements" commit converts all `~=` to `>=`. Each step inflates the floor without API validation.
 
 ## `exclude-newer-package` cooldown overrides
 

@@ -66,6 +66,7 @@ patterns = ["(CVE|vulnerability)"]
 | Option                                                                | Description                                                                                                               | Default                             |
 | :-------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ | :---------------------------------- |
 | [`abandoned-versions`](#abandoned-versions)                           | Versions documented in the changelog but never published.                                                                 | `[]`                                |
+| [`action-pins.sync`](#action-pins-sync)                               | Whether the `sync-action-pins` job is enabled for this project.                                                           | `true`                              |
 | [`agents.location`](#agents-location)                                 | Directory prefix for Claude Code agent files, relative to the repository root.                                            | `"./.claude/agents/"`               |
 | [`awesome-template.sync`](#awesome-template-sync)                     | Whether awesome-template sync is enabled for this project.                                                                | `true`                              |
 | [`bumpversion.sync`](#bumpversion-sync)                               | Whether bumpversion config sync is enabled for this project.                                                              | `true`                              |
@@ -73,6 +74,7 @@ patterns = ["(CVE|vulnerability)"]
 | [`cache.github-release-ttl`](#cache-github-release-ttl)               | Freshness TTL for cached single-release bodies (seconds).                                                                 | `604800`                            |
 | [`cache.github-releases-ttl`](#cache-github-releases-ttl)             | Freshness TTL for cached all-releases responses (seconds).                                                                | `86400`                             |
 | [`cache.max-age`](#cache-max-age)                                     | Auto-purge cached entries older than this many days.                                                                      | `30`                                |
+| [`cache.npm-ttl`](#cache-npm-ttl)                                     | Freshness TTL for cached npm registry metadata (seconds).                                                                 | `86400`                             |
 | [`cache.pypi-ttl`](#cache-pypi-ttl)                                   | Freshness TTL for cached PyPI metadata (seconds).                                                                         | `86400`                             |
 | [`changelog.archive-location`](#changelog-archive-location)           | File path of the changelog archive, relative to the root of the repository.                                               | `""`                                |
 | [`changelog.bullet-word-threshold`](#changelog-bullet-word-threshold) | Word count above which `lint-changelog` warns about a changelog bullet.                                                   | `40`                                |
@@ -101,6 +103,7 @@ patterns = ["(CVE|vulnerability)"]
 | [`mailmap.sync`](#mailmap-sync)                                       | Whether `.mailmap` sync is enabled for this project.                                                                      | `true`                              |
 | [`manpages.asset-name`](#manpages-asset-name)                         | Filename stem (without the `.tar.gz` extension) for the man-page tarball uploaded to the GitHub release.                  | `""`                                |
 | [`manpages.script`](#manpages-script)                                 | Click command target whose tree gets rendered as roff `.1` files and attached as a tarball asset on every GitHub release. | `""`                                |
+| [`minimum-release-age`](#minimum-release-age)                         | Stabilization window before a new upstream release is adopted.                                                            | `"8 days"`                          |
 | [`notification.unsubscribe`](#notification-unsubscribe)               | Whether the unsubscribe-threads workflow is enabled.                                                                      | `false`                             |
 | [`nuitka.enabled`](#nuitka-enabled)                                   | Whether Nuitka binary compilation is enabled for this project.                                                            | `true`                              |
 | [`nuitka.entry-points`](#nuitka-entry-points)                         | Which `[project.scripts]` entry points produce Nuitka binaries.                                                           | `[]`                                |
@@ -116,6 +119,7 @@ patterns = ["(CVE|vulnerability)"]
 | [`test-matrix.replace`](#test-matrix-replace)                         | Per-axis value replacements applied to both full and PR test matrices.                                                    | {}                                  |
 | [`test-matrix.unstable`](#test-matrix-unstable)                       | Full-matrix-only combinations to flag continue-on-error in CI.                                                            | `[]`                                |
 | [`test-matrix.variations`](#test-matrix-variations)                   | Extra matrix dimension values added to the full test matrix only.                                                         | {}                                  |
+| [`tool-versions.sync`](#tool-versions-sync)                           | Whether the `sync-tool-versions` job is enabled for this project.                                                         | `true`                              |
 | [`uv-lock.sync`](#uv-lock-sync)                                       | Whether `uv.lock` sync is enabled for this project.                                                                       | `true`                              |
 | [`vulnerable-deps.sources`](#vulnerable-deps-sources)                 | Advisory databases to consult for known vulnerabilities.                                                                  | `['uv-audit', 'github-advisories']` |
 | [`vulnerable-deps.sync`](#vulnerable-deps-sync)                       | Whether the `fix-vulnerable-deps` job is enabled for this project.                                                        | `true`                              |
@@ -124,6 +128,7 @@ patterns = ["(CVE|vulnerability)"]
 | [`workflow.paths`](#workflow-paths)                                   | Per-workflow override of the `paths:` filter, keyed by filename.                                                          | {}                                  |
 | [`workflow.source-paths`](#workflow-source-paths)                     | Source code directory names for workflow trigger `paths:` filters.                                                        | *(none)*                            |
 | [`workflow.sync`](#workflow-sync)                                     | Whether workflow sync is enabled for this project.                                                                        | `true`                              |
+| [`workflow-pins.sync`](#workflow-pins-sync)                           | Whether the `sync-workflow-pins` job is enabled for this project.                                                         | `true`                              |
 
 ### `abandoned-versions`
 
@@ -138,6 +143,21 @@ A version reached only its `[changelog] Release vX.Y.Z` freeze and was then skip
 ```toml
 [tool.repomatic]
 abandoned-versions = []
+```
+
+### `action-pins.sync`
+
+Whether the `sync-action-pins` job is enabled for this project.
+
+**Type:** `bool` | **Default:** `true`
+
+Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release passing the `minimum-release-age` cooldown. Projects that pin actions by hand can set this to `false`.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+action-pins.sync = true
 ```
 
 ### `agents.location`
@@ -243,6 +263,21 @@ Set to `0` to disable auto-purge. The `REPOMATIC_CACHE_MAX_AGE` environment vari
 ```toml
 [tool.repomatic]
 cache.max-age = 30
+```
+
+### `cache.npm-ttl`
+
+Freshness TTL for cached npm registry metadata (seconds).
+
+**Type:** `int` | **Default:** `86400`
+
+New npm versions can appear at any time, so a 24-hour TTL balances freshness with request savings. Set to `0` to disable caching for npm lookups.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+cache.npm-ttl = 86400
 ```
 
 ### `cache.pypi-ttl`
@@ -686,6 +721,21 @@ Same shape the `click-extra wrap --man` CLI accepts: a `module:function` path (p
 manpages.script = ""
 ```
 
+### `minimum-release-age`
+
+Stabilization window before a new upstream release is adopted.
+
+**Type:** `str` | **Default:** `"8 days"`
+
+Shared cooldown for the `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` jobs: a release is only proposed once it has been public for at least this long, giving upstream time to yank a bad cut. The GitHub/PyPI/npm counterpart to uv's `exclude-newer` (which guards `sync-uv-lock`). Accepts the same friendly durations (`8 days`, `2 weeks`, `36 hours`). Set to `0 days` to adopt releases immediately.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+minimum-release-age = "8 days"
+```
+
 ### `notification.unsubscribe`
 
 Whether the unsubscribe-threads workflow is enabled.
@@ -896,6 +946,21 @@ Extra matrix dimension values added to the full test matrix only.
 
 Each key is a dimension ID (e.g., `os`, `click-version`) and its value is a list of additional entries. For existing dimensions, values are merged with the upstream defaults. For new dimension IDs, a new axis is created. Only affects the full matrix; the PR matrix stays a curated reduced set.
 
+### `tool-versions.sync`
+
+Whether the `sync-tool-versions` job is enabled for this project.
+
+**Type:** `bool` | **Default:** `true`
+
+Bumps every tool in the `repomatic run` registry to the latest release passing the `minimum-release-age` cooldown (GitHub releases for binary tools, PyPI for the rest), recomputing binary checksums in the same pass. Projects that pin tool versions by hand can set this to `false`.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+tool-versions.sync = true
+```
+
 ### `uv-lock.sync`
 
 Whether `uv.lock` sync is enabled for this project.
@@ -1023,6 +1088,21 @@ Projects that manage their own workflow files and do not want the autofix job to
 ```toml
 [tool.repomatic]
 workflow.sync = true
+```
+
+### `workflow-pins.sync`
+
+Whether the `sync-workflow-pins` job is enabled for this project.
+
+**Type:** `bool` | **Default:** `true`
+
+Bumps version literals embedded in workflow YAML (npm `pkg@x` installs and `uvx '<pkg>==x'` PyPI pins) to the latest release passing the `minimum-release-age` cooldown. Projects that pin these by hand can set this to `false`.
+
+**Example:**
+
+```toml
+[tool.repomatic]
+workflow-pins.sync = true
 ```
 
 <!-- config-reference-end -->

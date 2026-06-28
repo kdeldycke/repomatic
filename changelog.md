@@ -5,9 +5,16 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** Remove the Renovate integration: the `renovate.yaml` workflow, the bundled `renovate.json5`, the `check-renovate` command, and the Dependabot-to-Renovate migration tooling are gone. Dependency updates are now self-hosted (see below); downstream repos prune the orphaned `renovate.json5` and `renovate.yaml` on their next `repomatic init`.
+- **Breaking:** `repomatic update-checksums` is now registry-only: the workflow-file argument and the `--registry` flag are removed, leaving `repomatic update-checksums` to refresh the binary tool checksums.
+- **Breaking:** `REPOMATIC_PAT` no longer needs the `Commit statuses` permission, which only powered Renovate's stability-day status checks.
+- Add `sync-tool-versions`: bumps every `repomatic run` tool to its latest release past the stabilization cooldown (GitHub releases for binary tools, PyPI otherwise) and refreshes binary checksums in the same pass.
+- Add `sync-action-pins`: bumps SHA-pinned GitHub Actions to their latest release past the cooldown, resolving each release tag to its commit SHA.
+- Add `sync-workflow-pins`: bumps npm and PyPI version literals embedded in workflow YAML.
+- Add `[tool.repomatic] minimum-release-age` (default `8 days`), the shared cooldown for the three sync jobs, plus `tool-versions.sync`, `action-pins.sync`, and `workflow-pins.sync` toggles.
+- The autofix workflow now runs weekly on a schedule, so quiet repositories still pick up dependency, tool, and action-pin updates.
 - Add a `changelog.archive-location` config option pointing at an archive file for older release sections, so `lint-changelog` treats archived versions as documented instead of flagging them as orphans.
 - Drop the `pydriller` dependency: Git history operations now invoke the `git` CLI directly, shrinking the install and compiled-binary footprint.
-- Fix Renovate silently skipping downstream repositories without a committed `renovate.json5`: the `renovate.yaml` workflow now stages the materialized config where the Renovate engine can read it.
 
 ## [`6.31.0` (2026-06-27)](https://github.com/kdeldycke/repomatic/compare/v6.30.0...v6.31.0)
 

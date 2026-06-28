@@ -597,7 +597,7 @@ def test_pat_checks_skipped_without_pat(capsys):
     assert "skipped (no REPOMATIC_PAT)" in captured.out
 
 
-def _all_pass_pat_results(sha: str | None = "abc123") -> PatPermissionResults:
+def _all_pass_pat_results() -> PatPermissionResults:
     """Build a PatPermissionResults where every check passes."""
     return PatPermissionResults(
         contents=(True, "Contents: token has access"),
@@ -608,7 +608,6 @@ def _all_pass_pat_results(sha: str | None = "abc123") -> PatPermissionResults:
             "Dependabot alerts: token has access, alerts enabled",
         ),
         workflows=(True, "Workflows: token has access"),
-        commit_statuses=(True, "Commit statuses: token has access") if sha else None,
     )
 
 
@@ -623,7 +622,6 @@ def _all_fail_pat_results() -> PatPermissionResults:
             "Token lacks 'Dependabot alerts: Read-only' permission.",
         ),
         workflows=(False, "Cannot access repository workflows."),
-        commit_statuses=(False, "Cannot verify commit statuses permission."),
     )
 
 
@@ -639,7 +637,6 @@ def test_pat_checks_all_pass(capsys):
         exit_code = run_repo_lint(
             repo="owner/repo",
             has_pat=True,
-            sha="abc123",
         )
         assert exit_code == 0
         captured = capsys.readouterr()
@@ -647,7 +644,6 @@ def test_pat_checks_all_pass(capsys):
         assert "Issues: token has access" in captured.out
         assert "Pull requests: token has access" in captured.out
         assert "Dependabot alerts: token has access" in captured.out
-        assert "Commit statuses: token has access" in captured.out
         assert "Workflows: token has access" in captured.out
 
 
@@ -663,32 +659,10 @@ def test_pat_checks_fail_on_missing_permission(capsys):
         exit_code = run_repo_lint(
             repo="owner/repo",
             has_pat=True,
-            sha="abc123",
         )
         assert exit_code == 1
         captured = capsys.readouterr()
         assert "::error::" in captured.out
-
-
-def test_pat_checks_no_sha(capsys):
-    """Commit statuses check is skipped when no SHA provided."""
-    with (
-        patch("repomatic.lint_repo.run_gh_command", return_value=""),
-        patch(
-            "repomatic.lint_repo.check_all_pat_permissions",
-            return_value=_all_pass_pat_results(sha=None),
-        ),
-    ):
-        exit_code = run_repo_lint(
-            repo="owner/repo",
-            has_pat=True,
-            sha=None,
-        )
-        assert exit_code == 0
-        captured = capsys.readouterr()
-        assert "skipped (no SHA provided)" in captured.out
-        # Other PAT checks still run.
-        assert "Contents: token has access" in captured.out
 
 
 def test_pypi_trusted_publisher_no_package_name():

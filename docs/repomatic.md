@@ -182,10 +182,10 @@
    :undoc-members:
 ```
 
-## `repomatic.renovate` module
+## `repomatic.npm` module
 
 ```{eval-rst}
-.. automodule:: repomatic.renovate
+.. automodule:: repomatic.npm
    :members:
    :show-inheritance:
    :undoc-members:
@@ -231,6 +231,15 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.uv
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.version_sync` module
+
+```{eval-rst}
+.. automodule:: repomatic.version_sync
    :members:
    :show-inheritance:
    :undoc-members:

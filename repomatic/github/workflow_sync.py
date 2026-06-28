@@ -123,8 +123,9 @@ it falls back to `main` since the tag does not exist yet.
 def _pin_ref(version: str, commit_sha: str | None) -> str:
     """Build the `@`-suffix of a pinned `uses:` reference.
 
-    Returns `{sha} # {version}` (Renovate's SHA-pin format) when *commit_sha*
-    is provided, otherwise the bare *version*. Shared by every `uses:` renderer
+    Returns `{sha} # {version}` (the SHA-pin-with-comment format) when
+    *commit_sha* is provided, otherwise the bare *version*. `sync-action-pins`
+    keeps these pins current. Shared by every `uses:` renderer
     (thin callers, the `publish-pypi` action, the release lanes) so the pin
     format lives in one place.
 
@@ -505,7 +506,7 @@ def _substitute_source_paths(
       ``{source}/**`` for each entry in *source_paths*; when *source_paths*
       is empty the glob is dropped entirely.
     - Other paths starting with {data}`UPSTREAM_SOURCE_PREFIX` are dropped
-      (upstream-specific files like `repomatic/data/renovate.json5`).
+      (upstream-specific files like `repomatic/data/labels.toml`).
     - All other paths (universal paths like `pyproject.toml`, `tests/**`)
       are kept as-is.
 
@@ -546,8 +547,8 @@ def generate_thin_caller(
     automatically when *paths_spec* is `None`.
 
     When *commit_sha* is provided, the `uses:` reference is SHA-pinned
-    (`@sha # version`) matching Renovate's pin format. This eliminates
-    Renovate's initial "pin dependencies" PR on downstream repos.
+    (`@sha # version`), secure-by-default from the first commit. The
+    `sync-action-pins` job bumps it once a newer release clears the cooldown.
 
     :param filename: Canonical workflow filename (e.g., `release.yaml`).
     :param repo: Upstream repository (default: `kdeldycke/repomatic`).
@@ -688,8 +689,8 @@ def _render_publish_pypi_job(
       itself out to run the action from a local `./` ref (dogfooding); a
       downstream caller fetches the cross-repo composite action automatically
       and needs no checkout. Dropping it also keeps the generated workflow free
-      of third-party action SHA pins, which would be invisible to Renovate
-      (whose scan sees `.yaml`, not this `.py`).
+      of third-party action SHA pins, which `sync-action-pins` would not see
+      (it scans `.yaml`, not this `.py`).
     - **Rewrite the local action ref** :data:`_LOCAL_PUBLISH_PYPI_ACTION` to the
       pinned cross-repo form so the caller's OIDC `job_workflow_ref` resolves to
       its own `release.yaml` (see pypi/warehouse#11096).
@@ -699,12 +700,12 @@ def _render_publish_pypi_job(
     fuller image, that surfaces as a failure to revisit then.
 
     Sourcing the body from a `.yaml` file (rather than building it in Python)
-    keeps any future third-party SHA pin in the job Renovate-visible.
+    keeps any future third-party SHA pin in the job visible to `sync-action-pins`.
 
     :param repo: Upstream repository owning the composite action.
     :param version: Version reference for the action ref.
     :param commit_sha: Optional 40-character SHA for pin-style refs (renders
-        as `@sha # version` like Renovate).
+        as `@sha # version`).
     :return: YAML lines (without trailing blank).
     :raises RuntimeError: If the canonical `release.yaml` no longer exposes a
         `publish-pypi` job shaped the way this renderer expects (missing job,
@@ -811,7 +812,7 @@ def _generate_release_caller(
     :param repo: Upstream repository owning the reusable workflows and action.
     :param version: Version reference for the pinned refs.
     :param commit_sha: Optional 40-character SHA for pin-style refs (renders as
-        `@sha # version` like Renovate).
+        `@sha # version`).
     :return: Complete YAML content for the downstream `release.yaml` caller.
     :raises RuntimeError: If the canonical `release.yaml` no longer exposes the
         expected `build` and `release` jobs, meaning the entry changed in a way

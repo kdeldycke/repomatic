@@ -17,7 +17,6 @@
 "🔗 dependencies":
   - changed-files:
     - any-glob-to-any-file:
-      - renovate.json5
       - "*.lock"
       - "**/pyproject.toml"
 

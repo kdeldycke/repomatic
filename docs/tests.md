@@ -225,15 +225,6 @@
    :undoc-members:
 ```
 
-## `tests.test_renovate` module
-
-```{eval-rst}
-.. automodule:: tests.test_renovate
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `tests.test_tool_runner` module
 
 ```{eval-rst}

@@ -405,7 +405,6 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "release_commits": "Hashes of release commits in the push event.",
     "mailmap_exists": "Whether a .mailmap file exists in the repository.",
     "gitignore_exists": "Whether a .gitignore file exists in the repository.",
-    "renovate_config_exists": "Whether a Renovate configuration file exists.",
     "python_files": "List of Python files in the repository.",
     "json_files": "List of JSON files in the repository.",
     "yaml_files": "List of YAML files in the repository.",
@@ -907,20 +906,12 @@ class Metadata:
 
         This is useful to only run some jobs on human-triggered events. Or skip jobs
         triggered by bots to avoid infinite loops.
-
-        Also detects Renovate PRs by branch name pattern (`renovate/*`), which handles
-        cases where Renovate runs as a user account rather than the `renovate[bot]` app.
         """
         # XXX replace by self.event_sender_type != "User"?
-        if self.event_sender_type == "Bot" or self.event_actor in (
+        return self.event_sender_type == "Bot" or self.event_actor in (
             "dependabot[bot]",
             "dependabot-preview[bot]",
-            "renovate[bot]",
-        ):
-            return True
-        # Detect Renovate PRs by branch name pattern. This handles self-hosted Renovate
-        # or cases where Renovate runs as a user account.
-        return bool(self.head_branch and self.head_branch.startswith("renovate/"))
+        )
 
     @cached_property
     def head_branch(self) -> str | None:
@@ -1427,14 +1418,6 @@ class Metadata:
     @cached_property
     def gitignore_exists(self) -> bool:
         return GITIGNORE_PATH.is_file()
-
-    @cached_property
-    def renovate_config_exists(self) -> bool:
-        # Lazy import to avoid circular dependency:
-        # metadata → renovate → github.pr_body → metadata.
-        from .renovate import RENOVATE_CONFIG_PATH
-
-        return RENOVATE_CONFIG_PATH.is_file()
 
     @cached_property
     def gitignore_parser(self) -> Parser | None:
@@ -2581,7 +2564,6 @@ class Metadata:
             "release_commits": lambda: self.release_commits_hash,
             "mailmap_exists": lambda: self.mailmap_exists,
             "gitignore_exists": lambda: self.gitignore_exists,
-            "renovate_config_exists": lambda: self.renovate_config_exists,
             "python_files": lambda: self.python_files,
             "json_files": lambda: self.json_files,
             "yaml_files": lambda: self.yaml_files,

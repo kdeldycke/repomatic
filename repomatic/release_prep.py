@@ -188,20 +188,6 @@ class ReleasePrep:
 
         return count
 
-    @cached_property
-    def _json5_files(self) -> list[Path]:
-        """Return renovate.json5 files that need CLI freeze/unfreeze.
-
-        Includes the repo-root `renovate.json5` and the bundled copy under
-        `repomatic/data/`.
-        """
-        # Repo root is two levels up from .github/workflows/.
-        repo_root = self.workflow_dir.parent.parent
-        return [
-            repo_root / "renovate.json5",
-            repo_root / "repomatic" / "data" / "renovate.json5",
-        ]
-
     @staticmethod
     def _replace_skip_comments(
         content: str,
@@ -317,12 +303,8 @@ class ReleasePrep:
         tree.
 
         Replaces `--from . repomatic` with ``'repomatic=={version}'`` in all
-        workflow YAML files, and with ``repomatic=={version}`` (unquoted) in
-        `renovate.json5` files (where the command lives inside `bash -c '...'`
-        and single quotes would break the outer quoting).
-
-        Comment lines in YAML (starting with `#`) and JSON5 (starting with
-        `//`) are skipped to avoid corrupting explanatory comments.
+        workflow YAML files. Comment lines (starting with `#`) are skipped to
+        avoid corrupting explanatory comments.
 
         :param version: The PyPI version to freeze to.
         :return: Number of files modified.
@@ -341,22 +323,6 @@ class ReleasePrep:
             if self._update_file(workflow_file, content, original):
                 count += 1
 
-        # Freeze renovate.json5 files with unquoted form.
-        json5_replace = f"repomatic=={version}"
-        for json5_file in self._json5_files:
-            if not json5_file.exists():
-                logging.debug(f"JSON5 file not found: {json5_file}")
-                continue
-            original = json5_file.read_text(encoding="UTF-8")
-            content = self._replace_skip_comments(
-                original,
-                search,
-                json5_replace,
-                comment_prefix="//",
-            )
-            if self._update_file(json5_file, content, original):
-                count += 1
-
         return count
 
     def unfreeze_cli_version(self) -> int:
@@ -366,11 +332,9 @@ class ReleasePrep:
         invocations back to local source (`--from . repomatic`) for the next
         development cycle on `main`.
 
-        Replaces `'repomatic==X.Y.Z'` (quoted, in YAML) and
-        `repomatic==X.Y.Z` (unquoted, in `renovate.json5`) with
-        `--from . repomatic`.
-
-        Comment lines are skipped (see {meth}`freeze_cli_version`).
+        Replaces `'repomatic==X.Y.Z'` (quoted, in YAML) with
+        `--from . repomatic`. Comment lines are skipped (see
+        {meth}`freeze_cli_version`).
 
         :return: Number of files modified.
         """
@@ -386,22 +350,6 @@ class ReleasePrep:
             original = workflow_file.read_text(encoding="UTF-8")
             content = self._sub_skip_comments(original, yaml_pattern, replace)
             if self._update_file(workflow_file, content, original):
-                count += 1
-
-        # Unfreeze renovate.json5 files (unquoted form).
-        json5_pattern = re.compile(r"repomatic==[\d.]+")
-        for json5_file in self._json5_files:
-            if not json5_file.exists():
-                logging.debug(f"JSON5 file not found: {json5_file}")
-                continue
-            original = json5_file.read_text(encoding="UTF-8")
-            content = self._sub_skip_comments(
-                original,
-                json5_pattern,
-                replace,
-                comment_prefix="//",
-            )
-            if self._update_file(json5_file, content, original):
                 count += 1
 
         return count

@@ -26,12 +26,12 @@ Repository automation tools span several domains: declarative settings managemen
 | Ongoing template sync                        |      ✓      |                    |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
 | Template conflict resolution                 |             |                    |                        |      ✓       |      ~      |               |                 |                |                     |                 |
 | Template migration system                    |             |                    |                        |      ✓       |             |               |                 |                |                     |                 |
-| Config file sync (gitignore, renovate, etc.) |      ✓      |                    |                        |      ~       |      ~      |               |        ~        |                |                     |        ~        |
+| Config file sync (gitignore, mailmap, etc.)  |      ✓      |                    |                        |      ~       |      ~      |               |        ~        |                |                     |        ~        |
 | Dependency lock management                   |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
 | Dependency graph generation                  |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
 | Jinja2 templating                            |             |         ✓          |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
 
-`repomatic init` scaffolds projects with opinionated defaults (workflows, labels, tool configs, Renovate, changelog) and keeps them in sync with the upstream canonical reference via version-pinned thin-caller workflows. `copier` has the most sophisticated update mechanism: Git-native conflict resolution (inline markers or `.rej` files) and a migrations system for breaking template changes. `cruft` wraps `cookiecutter` with basic update support. `cookiecutter` is strictly one-shot: generate and forget.
+`repomatic init` scaffolds projects with opinionated defaults (workflows, labels, tool configs, changelog) and keeps them in sync with the upstream canonical reference via version-pinned thin-caller workflows. `copier` has the most sophisticated update mechanism: Git-native conflict resolution (inline markers or `.rej` files) and a migrations system for breaking template changes. `cruft` wraps `cookiecutter` with basic update support. `cookiecutter` is strictly one-shot: generate and forget.
 
 For config file sync, `copier` and `cruft` sync files only as part of a full template update cycle, not standalone. `tf-github` can manage individual files via `github_repository_file`. `all-repos` can push file changes across repos via custom autofixers.
 
@@ -87,7 +87,7 @@ For config file sync, `copier` and `cruft` sync files only as part of a full tem
 | Auto-lock inactive issues          |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
 | Notification management            |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
 
-`repomatic` manages the full CI/CD lifecycle: 13 reusable workflows (autofix, lint, test, release, docs, labels, changelog, renovate, etc.) deployed via thin-caller patterns, with drift detection against the upstream canonical reference. `tf-github` manages Actions infrastructure (secrets, variables, permissions, runner groups) but not workflow file content.
+`repomatic` manages the full CI/CD lifecycle: 13 reusable workflows (autofix, lint, test, release, docs, labels, changelog, etc.) deployed via thin-caller patterns, with drift detection against the upstream canonical reference. `tf-github` manages Actions infrastructure (secrets, variables, permissions, runner groups) but not workflow file content.
 
 ## Multi-repo operations
 

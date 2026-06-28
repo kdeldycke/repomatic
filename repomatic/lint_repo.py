@@ -819,8 +819,9 @@ def check_inline_pins_match_upstream(
     A workflow that pins the upstream toolkit in a `run:` shell command (like
     ``uvx 'repomatic==1.2.3' metadata``) must keep that version in lockstep with
     the SHA-pinned `uses:` refs. A manual workflow sync bumps the refs but not
-    the inline pin, and Renovate can bump them in separate PRs, so the pin
-    silently lags. When the stale version drops a symbol the newer refs rely on,
+    the inline pin, and the `sync-action-pins` and `sync-workflow-pins` jobs
+    bump them in separate PRs, so the pin can silently lag. When the stale
+    version drops a symbol the newer refs rely on,
     the metadata job fails and a release can publish to PyPI yet never tag (the
     toolkit chicken-and-egg). Flag the drift so the lint fails before a release
     does.
@@ -880,7 +881,6 @@ def run_repo_lint(
     has_pat: bool = False,
     has_virustotal_key: bool = False,
     nuitka_active: bool = False,
-    sha: str | None = None,
 ) -> int:
     """Run all repository lint checks.
 
@@ -894,7 +894,6 @@ def run_repo_lint(
     :param repo: Repository in 'owner/repo' format.
     :param has_pat: Whether `GH_TOKEN` contains `REPOMATIC_PAT`.
     :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
-    :param sha: Commit SHA for permission checks.
     :return: Exit code (0 for success, 1 for errors).
     """
     fatal_error = False
@@ -1043,9 +1042,7 @@ def run_repo_lint(
             print("ℹ PAT capability checks: skipped (no REPOMATIC_PAT)")
         return 1 if fatal_error else 0
 
-    results = check_all_pat_permissions(repo, sha)
-    if not sha:
-        print("ℹ Commit statuses check: skipped (no SHA provided)")
+    results = check_all_pat_permissions(repo)
 
     for passed, msg in results.iter_results():
         if passed:

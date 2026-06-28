@@ -144,12 +144,6 @@ def test_release_has_secrets() -> None:
     assert "REPOMATIC_PAT" in info.call_secrets
 
 
-def test_renovate_has_secrets() -> None:
-    """Verify renovate.yaml defines secrets."""
-    info = extract_trigger_info("renovate.yaml")
-    assert "REPOMATIC_PAT" in info.call_secrets
-
-
 def test_unsubscribe_has_secrets() -> None:
     """Verify unsubscribe.yaml defines secrets."""
     info = extract_trigger_info("unsubscribe.yaml")
@@ -371,8 +365,8 @@ def test_release_thin_caller_publish_pypi_omits_checkout() -> None:
 
     The cross-repo composite action `uses:` form is fetched by GitHub
     automatically: dropping `actions/checkout` keeps the generator free of
-    third-party action SHA pins (which would otherwise be invisible to
-    Renovate, since the generator's source is `.py`, not `.yaml`).
+    third-party action SHA pins (which `sync-action-pins` would not see, since
+    the generator's source is `.py`, not `.yaml`).
     """
     content = generate_thin_caller("release.yaml")
     assert "actions/checkout" not in content
@@ -382,8 +376,8 @@ def test_release_thin_caller_publish_pypi_sourced_from_release_yaml() -> None:
     """The publish-pypi job body must be sourced from the bundled release.yaml.
 
     Deriving it from a `.yaml` file (rather than building it in Python) keeps
-    any future third-party SHA pin in the job body Renovate-visible. The
-    canonical entry carries the job with a local `./` action ref that the
+    any future third-party SHA pin in the job body visible to `sync-action-pins`.
+    The canonical entry carries the job with a local `./` action ref that the
     generator reshapes for downstream callers.
     """
     release_yaml = get_data_content("release.yaml")
@@ -487,13 +481,6 @@ def test_release_thin_caller_unrecognized_job_raises(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="publish-pypi"):
         generate_thin_caller("release.yaml", version="v9.9.9")
-
-
-def test_renovate_passes_secrets_explicitly() -> None:
-    """Verify renovate.yaml thin caller passes secrets explicitly."""
-    content = generate_thin_caller("renovate.yaml")
-    assert "secrets: inherit" not in content
-    assert "REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}" in content
 
 
 def test_lint_passes_secrets_explicitly() -> None:
@@ -1145,7 +1132,6 @@ WORKFLOWS_WITH_CONCURRENCY = (
     "labels.yaml",
     "lint.yaml",
     "release.yaml",
-    "renovate.yaml",
 )
 """Canonical workflows that define a concurrency block."""
 
@@ -1224,8 +1210,8 @@ def test_thin_caller_omits_concurrency(filename: str) -> None:
 def test_thin_caller_drops_upstream_source_paths(filename: str) -> None:
     """Thin callers drop `repomatic/`-prefixed paths even without source_paths.
 
-    Universal entries (`pyproject.toml`, `renovate.json5`, workflow self-refs)
-    are preserved so trigger semantics carry over from the canonical workflow.
+    Universal entries (`pyproject.toml`, workflow self-refs) are preserved so
+    trigger semantics carry over from the canonical workflow.
     """
     content = generate_thin_caller(filename)
     data = yaml.safe_load(content)
@@ -1440,11 +1426,11 @@ def test_substitute_drops_upstream_specific() -> None:
     """Drop upstream-specific paths that aren't the source glob."""
     paths = [
         UPSTREAM_SOURCE_GLOB,
-        f"{UPSTREAM_SOURCE_PREFIX}data/renovate.json5",
-        "renovate.json5",
+        f"{UPSTREAM_SOURCE_PREFIX}data/labels.toml",
+        "config.json",
     ]
     result = _substitute_source_paths(paths, ["my_pkg"])
-    assert result == ["my_pkg/**", "renovate.json5"]
+    assert result == ["my_pkg/**", "config.json"]
 
 
 def test_substitute_keeps_universal_paths() -> None:
@@ -1480,7 +1466,7 @@ def test_adapt_trigger_paths_none_drops_upstream_keeps_universal() -> None:
         "paths": [
             UPSTREAM_SOURCE_GLOB,
             "pyproject.toml",
-            "repomatic/data/renovate.json5",
+            "repomatic/data/labels.toml",
         ],
     }
     result = _adapt_trigger_paths(config, "tests.yaml", PathsSpec())
@@ -1492,7 +1478,7 @@ def test_adapt_trigger_paths_none_drops_paths_when_only_upstream() -> None:
     """Drop the paths key when only upstream entries are present."""
     config = {
         "branches": ["main"],
-        "paths": [UPSTREAM_SOURCE_GLOB, "repomatic/data/renovate.json5"],
+        "paths": [UPSTREAM_SOURCE_GLOB, "repomatic/data/labels.toml"],
     }
     result = _adapt_trigger_paths(config, "tests.yaml", PathsSpec())
     assert "paths" not in result
@@ -1581,23 +1567,6 @@ def test_thin_caller_release_with_source_paths() -> None:
     assert "pull_request" not in triggers
 
 
-def test_thin_caller_renovate_with_source_paths() -> None:
-    """Verify renovate.yaml thin caller drops upstream-specific paths."""
-    content = generate_thin_caller("renovate.yaml", source_paths=["extra_platforms"])
-    data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
-    push_config = triggers.get("push", {})
-    assert "paths" in push_config
-    # Universal paths kept.
-    assert "renovate.json5" in push_config["paths"]
-    assert ".github/workflows/renovate.yaml" in push_config["paths"]
-    # Upstream-specific path dropped.
-    for path in push_config["paths"]:
-        assert not path.startswith(UPSTREAM_SOURCE_PREFIX)
-    # Only 2 paths remain (self-reference + renovate.json5).
-    assert len(push_config["paths"]) == 2
-
-
 def test_thin_caller_changelog_with_source_paths() -> None:
     """Verify changelog.yaml thin caller keeps universal paths unchanged.
 
@@ -1659,13 +1628,6 @@ def test_header_without_source_paths_drops_upstream_glob() -> None:
     assert "pyproject.toml" in header
 
 
-def test_header_with_source_paths_drops_upstream_specific() -> None:
-    """Verify header generation drops upstream-specific paths."""
-    header = generate_workflow_header("renovate.yaml", source_paths=["my_pkg"])
-    assert f"{UPSTREAM_SOURCE_PREFIX}data" not in header
-    assert "renovate.json5" in header
-
-
 def test_header_with_extra_paths_appends() -> None:
     """`extra_paths` are appended to every paths block in the header."""
     spec = PathsSpec(extra_paths=["install.sh", "dotfiles/**"])
@@ -1709,10 +1671,9 @@ def test_header_per_workflow_override_does_not_apply_to_other_files() -> None:
     spec = PathsSpec(
         workflow_paths={"tests.yaml": ["install.sh"]},
     )
-    header = generate_workflow_header("renovate.yaml", paths_spec=spec)
+    header = generate_workflow_header("docs.yaml", paths_spec=spec)
+    # The tests.yaml-scoped override does not leak into docs.yaml's header.
     assert "install.sh" not in header
-    # Universal canonical entry kept.
-    assert "renovate.json5" in header
 
 
 # ---------------------------------------------------------------------------
@@ -1876,13 +1837,11 @@ def test_thin_caller_paths_spec_per_workflow_override_replaces_wholesale() -> No
 def test_thin_caller_paths_spec_supersedes_legacy_source_paths_arg() -> None:
     """When both kwargs are passed, paths_spec wins over source_paths.
 
-    `renovate.yaml` push.paths references `repomatic/data/renovate.json5`,
-    which is dropped regardless of source_paths because it doesn't match
-    UPSTREAM_SOURCE_GLOB; use `extra_paths` to make the spec observable.
+    `extra_paths` makes the spec observable in the generated thin caller.
     """
     spec = PathsSpec(extra_paths=["from-spec.txt"])
     content = generate_thin_caller(
-        "renovate.yaml",
+        "docs.yaml",
         source_paths=["from_legacy"],
         paths_spec=spec,
     )

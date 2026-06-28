@@ -15,7 +15,6 @@
 | [`repomatic cache path`](#repomatic-cache-path)                             | Print the cache directory path                           |
 | [`repomatic cache show`](#repomatic-cache-show)                             | List cached entries                                      |
 | [`repomatic changelog`](#repomatic-changelog)                               | Maintain a Markdown-formatted changelog                  |
-| [`repomatic check-renovate`](#repomatic-check-renovate)                     | Check Renovate migration prerequisites                   |
 | [`repomatic clean-unmodified-configs`](#repomatic-clean-unmodified-configs) | Remove config files that match bundled defaults          |
 | [`repomatic close-stale-bump-pr`](#repomatic-close-stale-bump-pr)           | Close a stale version-bump PR                            |
 | [`repomatic convert-to-myst`](#repomatic-convert-to-myst)                   | Convert reST docstrings to MyST in Python files          |
@@ -35,15 +34,18 @@
 | [`repomatic show-config`](#repomatic-show-config)                           | Print [tool.repomatic] configuration reference           |
 | [`repomatic show-test-matrix`](#repomatic-show-test-matrix)                 | Render the CI test matrix as a grid                      |
 | [`repomatic sponsor-label`](#repomatic-sponsor-label)                       | Label issues/PRs from GitHub sponsors                    |
+| [`repomatic sync-action-pins`](#repomatic-sync-action-pins)                 | Bump SHA-pinned GitHub Actions to their latest release   |
 | [`repomatic sync-bumpversion`](#repomatic-sync-bumpversion)                 | Sync bumpversion config from bundled template            |
 | [`repomatic sync-dev-release`](#repomatic-sync-dev-release)                 | Sync rolling dev pre-release on GitHub                   |
 | [`repomatic sync-github-releases`](#repomatic-sync-github-releases)         | Sync GitHub release notes from changelog                 |
 | [`repomatic sync-gitignore`](#repomatic-sync-gitignore)                     | Sync .gitignore from gitignore.io templates              |
 | [`repomatic sync-labels`](#repomatic-sync-labels)                           | Sync repository labels via labelmaker                    |
 | [`repomatic sync-mailmap`](#repomatic-sync-mailmap)                         | Sync Git's .mailmap file with missing contributors       |
+| [`repomatic sync-tool-versions`](#repomatic-sync-tool-versions)             | Bump registry tool versions from upstream releases       |
 | [`repomatic sync-uv-lock`](#repomatic-sync-uv-lock)                         | Re-lock dependencies and roll cooldown overrides forward |
+| [`repomatic sync-workflow-pins`](#repomatic-sync-workflow-pins)             | Bump npm/PyPI version literals in workflow YAML          |
 | [`repomatic unsubscribe-threads`](#repomatic-unsubscribe-threads)           | Unsubscribe from closed, inactive notification threads   |
-| [`repomatic update-checksums`](#repomatic-update-checksums)                 | Update SHA-256 checksums for binary downloads            |
+| [`repomatic update-checksums`](#repomatic-update-checksums)                 | Recompute SHA-256 checksums for the binary tool registry |
 | [`repomatic update-deps-graph`](#repomatic-update-deps-graph)               | Generate dependency graph from uv lockfile               |
 | [`repomatic update-docs`](#repomatic-update-docs)                           | Regenerate Sphinx API docs and run update script         |
 | [`repomatic verify-binary`](#repomatic-verify-binary)                       | Verify binary architecture using exiftool                |
@@ -109,12 +111,6 @@ invoke(repomatic, args=['cache', 'show', '--help'])
 
 ```{click:run}
 invoke(repomatic, args=['changelog', '--help'])
-```
-
-## `repomatic check-renovate`
-
-```{click:run}
-invoke(repomatic, args=['check-renovate', '--help'])
 ```
 
 ## `repomatic clean-unmodified-configs`
@@ -231,6 +227,12 @@ invoke(repomatic, args=['show-test-matrix', '--help'])
 invoke(repomatic, args=['sponsor-label', '--help'])
 ```
 
+## `repomatic sync-action-pins`
+
+```{click:run}
+invoke(repomatic, args=['sync-action-pins', '--help'])
+```
+
 ## `repomatic sync-bumpversion`
 
 ```{click:run}
@@ -267,10 +269,22 @@ invoke(repomatic, args=['sync-labels', '--help'])
 invoke(repomatic, args=['sync-mailmap', '--help'])
 ```
 
+## `repomatic sync-tool-versions`
+
+```{click:run}
+invoke(repomatic, args=['sync-tool-versions', '--help'])
+```
+
 ## `repomatic sync-uv-lock`
 
 ```{click:run}
 invoke(repomatic, args=['sync-uv-lock', '--help'])
+```
+
+## `repomatic sync-workflow-pins`
+
+```{click:run}
+invoke(repomatic, args=['sync-workflow-pins', '--help'])
 ```
 
 ## `repomatic unsubscribe-threads`

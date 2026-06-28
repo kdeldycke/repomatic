@@ -42,7 +42,7 @@ class InitDefault(Enum):
     """How `init` treats the component when no explicit CLI args are given."""
 
     INCLUDE = auto()
-    """Included by default (e.g., changelog, renovate, workflows)."""
+    """Included by default (like changelog or workflows)."""
 
     EXCLUDE = auto()
     """In default set but excluded unless explicitly included
@@ -438,12 +438,6 @@ COMPONENTS: tuple[Component, ...] = (
         files=(FileEntry("codecov.yaml", ".github/codecov.yaml"),),
     ),
     BundledComponent(
-        name="renovate",
-        description="Renovate config (renovate.json5)",
-        init_default=InitDefault.EXCLUDE,
-        files=(FileEntry("renovate.json5"),),
-    ),
-    BundledComponent(
         name="publish-pypi-action",
         description=(
             "Composite action that publishes to PyPI via Trusted Publishing"
@@ -621,7 +615,6 @@ COMPONENTS: tuple[Component, ...] = (
                 ".github/workflows/release.yaml",
                 scope=RepoScope.PYTHON_ONLY,
             ),
-            FileEntry("renovate.yaml", ".github/workflows/renovate.yaml"),
             FileEntry(
                 "tests.yaml",
                 ".github/workflows/tests.yaml",
@@ -943,6 +936,13 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
         "4.25.0",
         successor="merged into labels.yaml",
     ),
+    RemovedAsset(
+        "workflows",
+        ".github/workflows/renovate.yaml",
+        "7.0.0.dev0",
+        successor="replaced by self-hosted sync-tool-versions, sync-action-pins,"
+        " and sync-workflow-pins",
+    ),
 )
 r"""Tombstones for assets repomatic has dropped (see {class}`RemovedAsset`).
 
@@ -1005,8 +1005,8 @@ UPSTREAM_SOURCE_PREFIX: str = "repomatic/"
 
 Paths starting with this prefix (but not matching
 {data}`UPSTREAM_SOURCE_GLOB`) are dropped in downstream thin callers because
-they reference files that only exist in the upstream repository (e.g.,
-`repomatic/data/renovate.json5`).
+they reference files that only exist in the upstream repository (like
+`repomatic/data/labels.toml`).
 """
 
 SKILL_PHASE_ORDER: tuple[str, ...] = (

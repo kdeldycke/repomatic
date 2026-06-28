@@ -24,7 +24,6 @@ Available components (`repomatic init <component>`):
 
 - `workflows` - Thin-caller workflow files
 - `labels` - Label definitions (labels.toml + labeller rules)
-- `renovate` - Renovate dependency update configuration (renovate.json5)
 - `changelog` - Minimal changelog.md
 - `uv` - Syncs the `[tool.uv]` resolver pins into pyproject.toml
 - `ruff` - Merges `[tool.ruff]` into pyproject.toml
@@ -145,62 +144,6 @@ def get_data_content(filename: str) -> str:
     raise FileNotFoundError(msg)
 
 
-def _strip_renovate_repo_settings(content: str) -> str:
-    """Strip upstream repo-specific settings from a Renovate config.
-
-    Removes `assignees` (repo-specific) and the self-referencing uv
-    `customManagers` entry that targets `renovate.json5` itself.
-
-    ```{note}
-    The self-referencing uv `customManagers` entry is excluded because it
-    creates an endless update loop in downstream repos: Renovate bumps the
-    pinned uv version, the merged PR triggers `repomatic init`, which
-    overwrites `renovate.json5` back to the bundled template (reverting
-    the bump), and Renovate opens the same PR again — indefinitely. All
-    other `customManagers` entries are included since they target workflow
-    files, not `renovate.json5` itself.
-    ```
-
-    :param content: Raw Renovate config content.
-    :return: The config with repo-specific settings removed.
-    """
-    # Remove assignees line (repo-specific).
-    content = re.sub(r"\s*assignees:\s*\[[^\]]*\],?\n", "\n", content)
-
-    # Remove the self-referencing uv customManagers entry (identified by its
-    # unique description). This entry targets renovate.json5 itself and causes
-    # an endless update loop when synced to downstream repos.
-    return re.sub(
-        r'\n    \{\n      description: "Update uv version in postUpgradeTasks'
-        r' download URL\.",\n.*?\n    \},',
-        "",
-        content,
-        flags=re.DOTALL,
-    )
-
-
-def _get_renovate_config() -> str:
-    """Get Renovate config, with repo-specific settings stripped.
-
-    When running from the source repository (via `uv run`), reads the root
-    `renovate.json5` and strips repo-specific settings. When installed as a
-    package (via `uvx`), falls back to the pre-processed bundled file in
-    `repomatic/data/renovate.json5`.
-
-    :return: The clean Renovate configuration content.
-    """
-    root_path = Path(__file__).parent.parent / "renovate.json5"
-
-    # When installed as a package, the root file won't exist.
-    # Fall back to the bundled pre-processed version.
-    if not root_path.exists():
-        return get_data_content("renovate.json5")
-
-    return _strip_renovate_repo_settings(
-        root_path.read_text(encoding="UTF-8"),
-    )
-
-
 def export_content(filename: str) -> str:
     """Get the content of any exportable bundled file.
 
@@ -213,11 +156,6 @@ def export_content(filename: str) -> str:
         supported = ", ".join(EXPORTABLE_FILES.keys())
         msg = f"Unknown file: {filename!r}. Supported: {supported}"
         raise ValueError(msg)
-
-    # Special handling for renovate.json5: read from root and strip
-    # repo-specific settings.
-    if filename == "renovate.json5":
-        return _get_renovate_config()
 
     return get_data_content(filename)
 
@@ -870,7 +808,7 @@ def run_init(
         _init_tool_configs(output_dir, tool_configs_to_merge, result)
 
     # Check for native tool config files identical to bundled defaults.
-    # Init-managed files (labels, renovate) are already handled inline by
+    # Init-managed files (like labels) are already handled inline by
     # _init_config_files, so only check tool_runner configs here.
     for _tool_name, rel_path in find_unmodified_configs():
         result.unmodified_configs.append(rel_path)
@@ -1019,17 +957,6 @@ def _is_source_repo(output_dir: Path) -> bool:
     return (resolved / "repomatic" / "__init__.py").exists() and (
         resolved / "repomatic" / "data"
     ).is_dir()
-
-
-def _is_renovate_source_repo(output_dir: Path) -> bool:
-    """Detect whether `output_dir` has the upstream renovate config pair.
-
-    Returns `True` when the directory is the source repo and contains the
-    root `renovate.json5`. Used by {func}`_init_config_files` to regenerate
-    the bundled copy instead of overwriting the root config.
-    """
-    resolved = output_dir.resolve()
-    return _is_source_repo(output_dir) and (resolved / "renovate.json5").exists()
 
 
 def _resolve_agents_target(entry_target: str, config: Config | None) -> str:
@@ -1342,13 +1269,6 @@ def _init_config_files(
     are identical to the bundled template are flagged as unmodified and not
     overwritten.
 
-    **Upstream renovate handling:** When running in the repomatic source
-    repository, the root `renovate.json5` is the authoritative config (it
-    contains `assignees` and self-referencing `customManagers`). Instead
-    of overwriting it with the stripped template, this function regenerates
-    `repomatic/data/renovate.json5` — the bundled copy shipped to downstream
-    repos.
-
     :param exclude_ids: File identifiers to skip within this component.
     :param include_ids: When not `None`, only export files in this set.
     :param config: Repomatic config for path overrides (like `skills.location`
@@ -1368,26 +1288,6 @@ def _init_config_files(
             effective_target = entry.target
         target = output_dir / effective_target
         rel = target.relative_to(output_dir).as_posix()
-
-        # In the repomatic source repo, the root renovate.json5 is
-        # authoritative. Read it from output_dir (not __file__-relative,
-        # which breaks under uvx), strip repo-specific settings, and
-        # regenerate the bundled data copy instead of overwriting the root.
-        if component_name == "renovate" and _is_renovate_source_repo(output_dir):
-            root_content = (output_dir / entry.source).read_text(encoding="UTF-8")
-            normalized = _strip_renovate_repo_settings(root_content).rstrip() + "\n"
-            bundled = output_dir / "repomatic" / "data" / entry.source
-            existing = bundled.read_text(encoding="UTF-8").rstrip() + "\n"
-            bundled_rel = f"repomatic/data/{entry.source}"
-            if existing == normalized:
-                # Do not mark as unmodified — it is package data, not a
-                # user-facing config that can be safely deleted.
-                logging.info(f"Bundled config up to date: {bundled_rel}")
-            else:
-                bundled.write_text(normalized, encoding="UTF-8")
-                result.updated.append(bundled_rel)
-                logging.info(f"Regenerated bundled config: {bundled_rel}")
-            continue
 
         content = export_content(entry.source)
         if component_name == "labels":
@@ -1523,7 +1423,7 @@ def find_all_unmodified_configs() -> list[tuple[str, str]]:
 
     Combines tool configs (yamllint, zizmor, etc.) from
     {func}`tool_runner.find_unmodified_configs` and init-managed configs
-    (labels, renovate) from {func}`find_unmodified_init_files`.
+    (like labels) from {func}`find_unmodified_init_files`.
 
     :return: List of `(label, relative_path)` tuples for each unmodified
         file found.
