@@ -28,6 +28,8 @@ import pytest
 from repomatic.github.releases import (
     GitHubRelease,
     GitHubReleasesUnavailable,
+    extract_version,
+    fetch_github_release_notes,
     get_github_releases,
 )
 
@@ -206,3 +208,83 @@ def test_get_github_releases_malformed_url_returns_empty():
     preserved.
     """
     assert get_github_releases("not-a-url") == {}
+
+
+# ---------------------------------------------------------------------------
+# Tag-version extraction
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("tag", "pattern", "expected"),
+    [
+        ("v1.7.12", None, "1.7.12"),
+        ("1.7.12", None, "1.7.12"),
+        ("lychee-v0.24.2", r"^lychee-v(?P<version>.+)$", "0.24.2"),
+        ("@biomejs/biome@2.5.0", r"^@biomejs/biome@(?P<version>.+)$", "2.5.0"),
+        ("nope", r"^lychee-v(?P<version>.+)$", None),
+    ],
+)
+def test_extract_version(tag, pattern, expected):
+    assert extract_version(tag, pattern) == expected
+
+
+# ---------------------------------------------------------------------------
+# Range-to-release-notes fetch
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_github_release_notes_filters_range_and_sorts():
+    fake = {
+        "v1.0.0": GitHubRelease(date="2026-01-01", body="old"),  # == old: excluded.
+        "v1.1.0": GitHubRelease(date="2026-02-01", body="notes 1.1"),
+        "v1.2.0": GitHubRelease(date="2026-03-01", body="notes 1.2"),
+        "v1.3.0": GitHubRelease(date="2026-04-01", body="too new"),  # > new: excluded.
+    }
+    with patch("repomatic.github.releases.get_release_tags", return_value=fake):
+        notes = fetch_github_release_notes(
+            [("checkout", "https://github.com/actions/checkout", "1.0.0", "1.2.0", None)]
+        )
+    repo_url, versions = notes["checkout"]
+    assert repo_url == "https://github.com/actions/checkout"
+    # Only the half-open range (1.0.0, 1.2.0], oldest first.
+    assert [tag for tag, _ in versions] == ["v1.1.0", "v1.2.0"]
+
+
+def test_fetch_github_release_notes_skips_empty_bodies():
+    fake = {"v2.0.0": GitHubRelease(date="2026-02-01", body="")}
+    with patch("repomatic.github.releases.get_release_tags", return_value=fake):
+        notes = fetch_github_release_notes(
+            [("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)]
+        )
+    assert notes == {}
+
+
+def test_fetch_github_release_notes_graceful_when_unavailable():
+    with patch(
+        "repomatic.github.releases.get_release_tags",
+        side_effect=GitHubReleasesUnavailable("boom"),
+    ):
+        notes = fetch_github_release_notes(
+            [("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)]
+        )
+    assert notes == {}
+
+
+def test_fetch_github_release_notes_honors_tag_pattern():
+    fake = {
+        "lychee-v0.24.0": GitHubRelease(date="2026-02-01", body="notes"),
+        "lychee-v0.25.0": GitHubRelease(date="2026-03-01", body="too new"),
+    }
+    with patch("repomatic.github.releases.get_release_tags", return_value=fake):
+        notes = fetch_github_release_notes([
+            (
+                "lychee",
+                "https://github.com/lycheeverse/lychee",
+                "0.23.0",
+                "0.24.0",
+                r"^lychee-v(?P<version>.+)$",
+            )
+        ])
+    _repo, versions = notes["lychee"]
+    assert [tag for tag, _ in versions] == ["lychee-v0.24.0"]

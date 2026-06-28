@@ -25,24 +25,20 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 import arrow
 import tomlrt
 from packaging.version import InvalidVersion, Version
 from tomlrt import Table
 
-from .cache import get_cached_response, store_response
-from .config import load_repomatic_config as _load_repomatic_config
 from .github.pr_body import sanitize_markdown_mentions
+from .github.releases import get_github_release_body
 from .pypi import (
     get_changelog_url as get_pypi_changelog_url,
     get_release_dates as get_pypi_release_dates,
@@ -80,11 +76,6 @@ def uvx_cmd() -> list[str]:
     """Build a `uvx` command prefix with standard flags."""
     return ["uvx", "--no-progress"]
 
-
-GITHUB_API_RELEASE_BY_TAG_URL = (
-    "https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
-)
-"""GitHub API URL for fetching a single release by tag name."""
 
 RELEASE_NOTES_MAX_LENGTH = 2000
 
@@ -1358,85 +1349,6 @@ def format_held_back_table(
 # ---------------------------------------------------------------------------
 # GitHub release notes
 # ---------------------------------------------------------------------------
-
-
-def _github_api_request(url: str) -> Request:
-    """Build a GitHub API request with optional token authentication.
-
-    Uses `GITHUB_TOKEN` or `GH_TOKEN` from the environment when available
-    to raise the rate limit from 60 to 1000 requests/hour.
-    """
-    headers = {"Accept": "application/vnd.github+json"}
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return Request(url, headers=headers)
-
-
-def _parse_github_owner_repo(repo_url: str) -> tuple[str, str] | None:
-    """Extract `(owner, repo)` from a GitHub URL.
-
-    :param repo_url: A GitHub repository URL (e.g.,
-        `https://github.com/nedbat/coveragepy`).
-    :return: A tuple of `(owner, repo)`, or `None` if parsing fails.
-    """
-    parts = repo_url.rstrip("/").removesuffix(".git").split("/")
-    if len(parts) < 2:
-        return None
-    return parts[-2], parts[-1]
-
-
-def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:
-    """Fetch the release notes body for a specific version from GitHub.
-
-    Tries ``v{version}`` first (most common for Python packages), then
-    the bare ``{version}`` tag.
-
-    :param repo_url: GitHub repository URL.
-    :param version: The version string (e.g., `7.13.5`).
-    :return: A tuple of `(tag, body)` where `tag` is the matched tag name
-        and `body` is the release notes markdown. Both are empty strings if
-        no release is found.
-    """
-    parsed = _parse_github_owner_repo(repo_url)
-    if not parsed:
-        return "", ""
-    owner, repo = parsed
-
-    # Check cache (keyed by version, not tag, since we try multiple tags).
-    cache_key = f"{owner}/{repo}/{version}"
-    ttl = _load_repomatic_config().cache.github_release_ttl
-    cached = get_cached_response("github-release", cache_key, ttl)
-    if cached is not None:
-        try:
-            data = json.loads(cached)
-            return data["tag"], data["body"]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    for tag in (f"v{version}", version):
-        url = GITHUB_API_RELEASE_BY_TAG_URL.format(
-            owner=owner,
-            repo=repo,
-            tag=tag,
-        )
-        request = _github_api_request(url)
-        try:
-            with urlopen(request, timeout=10) as response:
-                data = json.loads(response.read())
-        except (URLError, TimeoutError, json.JSONDecodeError):
-            continue
-        else:
-            body = data.get("body", "")
-            if ttl > 0:
-                store_response(
-                    "github-release",
-                    cache_key,
-                    json.dumps({"tag": tag, "body": body}).encode(),
-                )
-            return tag, body
-    logging.debug(f"No GitHub release found for {repo_url} version {version}.")
-    return "", ""
 
 
 def _versions_in_range(package: str, old: str, new: str) -> list[str]:

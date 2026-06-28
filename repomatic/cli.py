@@ -108,7 +108,7 @@ from .github.release_sync import (
     render_sync_report as _render_sync_report,
     sync_github_releases as _sync_github_releases,
 )
-from .github.releases import resolve_tag_to_sha
+from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .github.unsubscribe import (
     render_report as _render_report,
     unsubscribe_threads as _unsubscribe_threads,
@@ -192,7 +192,6 @@ from .version_sync import (
     MIN_AGE_HELD_BACK_NOTE,
     apply_action_pins,
     apply_workflow_literals,
-    fetch_github_release_notes,
     find_action_pins,
     find_workflow_literals,
     format_cooldown_note,

@@ -14,16 +14,26 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""GitHub Releases API integration."""
+"""GitHub Releases API client.
+
+The single home for reading GitHub Releases: raw cached API access (tags,
+versions, single bodies), tag-to-version extraction, tag-to-SHA resolution, and
+the range-to-release-notes fetch shared by the dependency updaters. The
+{mod}`repomatic.version_sync` adapters and {mod}`repomatic.uv` release-notes
+helper build on top of these reads.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import re
 from typing import NamedTuple
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+
+from packaging.version import InvalidVersion, Version
 
 from ..cache import get_cached_response, store_response
 from ..config import load_repomatic_config
@@ -40,6 +50,11 @@ GITHUB_API_TAG_OBJECT_URL = (
     "https://api.github.com/repos/{owner}/{repo}/git/tags/{sha}"
 )
 """GitHub API URL for dereferencing an annotated tag object to its commit."""
+
+GITHUB_API_RELEASE_BY_TAG_URL = (
+    "https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+)
+"""GitHub API URL for fetching a single release by tag name."""
 
 
 def _owner_repo(repo_url: str) -> tuple[str, str] | None:
@@ -285,3 +300,111 @@ def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:
         logging.debug(f"Annotated tag deref failed for {owner}/{repo}@{tag}: {exc}")
         return None
     return target.get("sha") or None
+
+
+def extract_version(tag: str, tag_pattern: str | None) -> str | None:
+    """Extract a version from a GitHub release tag.
+
+    :param tag: The raw tag name.
+    :param tag_pattern: A regex with a `version` named group, or `None` to
+        strip a leading `v` (the common `vX.Y.Z` scheme).
+    :return: The version string, or `None` when *tag_pattern* does not match.
+    """
+    if tag_pattern:
+        match = re.match(tag_pattern, tag)
+        return match.group("version") if match else None
+    return tag.removeprefix("v")
+
+
+def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:
+    """Fetch the release notes body for a specific version from GitHub.
+
+    Tries ``v{version}`` first (most common for Python packages), then the bare
+    ``{version}`` tag.
+
+    :param repo_url: GitHub repository URL.
+    :param version: The version string (e.g. `7.13.5`).
+    :return: A tuple of `(tag, body)` where `tag` is the matched tag name and
+        `body` is the release notes markdown. Both are empty strings if no
+        release is found.
+    """
+    parsed = _owner_repo(repo_url)
+    if not parsed:
+        return "", ""
+    owner, repo = parsed
+
+    # Cache keyed by version, not tag, since both tag spellings are tried.
+    cache_key = f"{owner}/{repo}/{version}"
+    ttl = load_repomatic_config().cache.github_release_ttl
+    cached = get_cached_response("github-release", cache_key, ttl)
+    if cached is not None:
+        try:
+            data = json.loads(cached)
+            return data["tag"], data["body"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+
+    for tag in (f"v{version}", version):
+        url = GITHUB_API_RELEASE_BY_TAG_URL.format(owner=owner, repo=repo, tag=tag)
+        try:
+            with urlopen(_api_request(url), timeout=10) as response:
+                data = json.loads(response.read())
+        except (URLError, TimeoutError, json.JSONDecodeError):
+            continue
+        else:
+            body = data.get("body", "")
+            if ttl > 0:
+                store_response(
+                    "github-release",
+                    cache_key,
+                    json.dumps({"tag": tag, "body": body}).encode(),
+                )
+            return tag, body
+    logging.debug(f"No GitHub release found for {repo_url} version {version}.")
+    return "", ""
+
+
+def fetch_github_release_notes(
+    items: list[tuple[str, str, str, str, str | None]],
+) -> dict[str, tuple[str, list[tuple[str, str]]]]:
+    """Fetch GitHub release notes for a batch of version bumps.
+
+    For each item, lists the repository's releases (a cached call, already warm
+    from a prior candidate sweep) and keeps those whose extracted version lands
+    in the half-open range `(old, new]`, oldest first. Non-GitHub datasources
+    (npm, PyPI workflow literals) contribute no item here and render no notes.
+
+    :param items: One `(name, repo_url, old, new, tag_pattern)` tuple per bumped
+        pin, where *old* and *new* are bare versions and *tag_pattern* is the
+        per-tool extraction regex (or `None` for the `vX.Y.Z` scheme).
+    :return: A dict mapping names to `(repo_url, versions)` tuples, the same
+        shape {func}`repomatic.uv.fetch_release_notes` returns, so
+        {func}`repomatic.uv.format_release_notes` renders it unchanged. Only
+        entries with at least one non-empty release body are included.
+    """
+    notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
+    for name, repo_url, old, new, tag_pattern in items:
+        try:
+            tags = get_release_tags(repo_url)
+        except GitHubReleasesUnavailable as exc:
+            logging.warning(f"Skipping release notes for {name}: {exc}")
+            continue
+        try:
+            old_version, new_version = Version(old), Version(new)
+        except InvalidVersion:
+            continue
+        fetched: list[tuple[Version, str, str]] = []
+        for tag, release in tags.items():
+            version = extract_version(tag, tag_pattern)
+            if not version or not release.body:
+                continue
+            try:
+                parsed = Version(version)
+            except InvalidVersion:
+                continue
+            if old_version < parsed <= new_version:
+                fetched.append((parsed, tag, release.body))
+        if fetched:
+            fetched.sort(key=lambda entry: entry[0])
+            notes[name] = (repo_url, [(tag, body) for _v, tag, body in fetched])
+    return notes

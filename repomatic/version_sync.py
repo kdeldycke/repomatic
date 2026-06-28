@@ -41,6 +41,7 @@ from packaging.version import InvalidVersion, Version
 
 from .github.releases import (
     GitHubReleasesUnavailable,
+    extract_version,
     get_release_tags,
 )
 from .npm import get_release_dates as npm_release_dates
@@ -285,20 +286,6 @@ def select_held_back(
     return best
 
 
-def extract_version(tag: str, tag_pattern: str | None) -> str | None:
-    """Extract a version from a GitHub release tag.
-
-    :param tag: The raw tag name.
-    :param tag_pattern: A regex with a `version` named group, or `None` to
-        strip a leading `v` (the common `vX.Y.Z` scheme).
-    :return: The version string, or `None` when *tag_pattern* does not match.
-    """
-    if tag_pattern:
-        match = re.match(tag_pattern, tag)
-        return match.group("version") if match else None
-    return tag.removeprefix("v")
-
-
 def github_candidates(repo_url: str, tag_pattern: str | None = None) -> list[Candidate]:
     """Collect release candidates from a GitHub repository.
 
@@ -319,52 +306,6 @@ def github_candidates(repo_url: str, tag_pattern: str | None = None) -> list[Can
         if version:
             candidates.append(Candidate(version=version, date=release.date, ref=tag))
     return candidates
-
-
-def fetch_github_release_notes(
-    items: list[tuple[str, str, str, str, str | None]],
-) -> dict[str, tuple[str, list[tuple[str, str]]]]:
-    """Fetch GitHub release notes for the bumped GitHub-sourced pins.
-
-    For each item, lists the repository's releases (a cached call, already warm
-    from the candidate sweep) and keeps those whose extracted version lands in
-    the half-open range `(old, new]`, oldest first. Non-GitHub datasources (npm,
-    PyPI workflow literals) contribute no item here and render no notes.
-
-    :param items: One `(name, repo_url, old, new, tag_pattern)` tuple per bumped
-        pin, where *old* and *new* are bare versions and *tag_pattern* is the
-        per-tool extraction regex (or `None` for the `vX.Y.Z` scheme).
-    :return: A dict mapping names to `(repo_url, versions)` tuples, the same
-        shape {func}`repomatic.uv.fetch_release_notes` returns, so
-        {func}`repomatic.uv.format_release_notes` renders it unchanged. Only
-        entries with at least one non-empty release body are included.
-    """
-    notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
-    for name, repo_url, old, new, tag_pattern in items:
-        try:
-            tags = get_release_tags(repo_url)
-        except GitHubReleasesUnavailable as exc:
-            logging.warning(f"Skipping release notes for {name}: {exc}")
-            continue
-        try:
-            old_version, new_version = Version(old), Version(new)
-        except InvalidVersion:
-            continue
-        fetched: list[tuple[Version, str, str]] = []
-        for tag, release in tags.items():
-            version = extract_version(tag, tag_pattern)
-            if not version or not release.body:
-                continue
-            try:
-                parsed = Version(version)
-            except InvalidVersion:
-                continue
-            if old_version < parsed <= new_version:
-                fetched.append((parsed, tag, release.body))
-        if fetched:
-            fetched.sort(key=lambda entry: entry[0])
-            notes[name] = (repo_url, [(tag, body) for _v, tag, body in fetched])
-    return notes
 
 
 def pypi_candidates(package: str) -> list[Candidate]:
