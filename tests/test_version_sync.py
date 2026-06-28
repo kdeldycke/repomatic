@@ -20,13 +20,15 @@ from __future__ import annotations
 
 import glob
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
 from repomatic import version_sync as vs
+from repomatic.cli import repomatic
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
 from repomatic.tool_runner import TOOL_REGISTRY
@@ -112,7 +114,8 @@ def test_select_latest_skips_prereleases_by_default():
         vs.Candidate("2.0.0rc1", "2026-01-01", "v2.0.0rc1"),
     ]
     assert vs.select_latest(candidates, timedelta(days=8), TODAY).version == "1.1.0"
-    allowed = vs.select_latest(candidates, timedelta(days=8), TODAY, allow_prerelease=True)
+    allowed = vs.select_latest(candidates, timedelta(days=8),
+                               TODAY, allow_prerelease=True)
     assert allowed.version == "2.0.0rc1"
 
 
@@ -132,6 +135,65 @@ def test_select_latest_skips_unparseable_versions_and_dates():
 
 def test_select_latest_empty():
     assert vs.select_latest([], timedelta(days=8), TODAY) is None
+
+
+# ---------------------------------------------------------------------------
+# Held-back selection and cooldown note
+# ---------------------------------------------------------------------------
+
+
+def test_select_held_back_returns_highest_in_cooldown_above_pinned():
+    candidates = [
+        vs.Candidate("1.1.0", "2026-06-01", "v1.1.0"),  # eligible, == pinned.
+        vs.Candidate("1.2.0", "2026-06-24", "v1.2.0"),  # 3 days old: held back.
+        vs.Candidate("1.3.0", "2026-06-26", "v1.3.0"),  # 1 day old: held back, higher.
+    ]
+    held = vs.select_held_back(candidates, "1.1.0", timedelta(days=8), TODAY)
+    assert held is not None and held.version == "1.3.0"
+
+
+def test_select_held_back_none_when_nothing_newer_in_cooldown():
+    candidates = [
+        vs.Candidate("1.0.0", "2026-01-01", "v1.0.0"),
+        vs.Candidate("1.1.0", "2026-06-01", "v1.1.0"),  # eligible, not held back.
+    ]
+    assert vs.select_held_back(candidates, "1.1.0", timedelta(days=8), TODAY) is None
+
+
+def test_select_held_back_ignores_versions_at_or_below_pinned():
+    # A recent (in-cooldown) patch of an older line must not surface as held back.
+    candidates = [vs.Candidate("1.0.1", "2026-06-26", "v1.0.1")]
+    assert vs.select_held_back(candidates, "1.1.0", timedelta(days=8), TODAY) is None
+
+
+def test_select_held_back_skips_prereleases_by_default():
+    candidates = [
+        vs.Candidate("2.0.0rc1", "2026-06-26", "v2.0.0rc1"),
+        vs.Candidate("1.2.0", "2026-06-26", "v1.2.0"),
+    ]
+    picked = vs.select_held_back(candidates, "1.1.0", timedelta(days=8), TODAY)
+    assert picked is not None and picked.version == "1.2.0"
+    allowed = vs.select_held_back(
+        candidates, "1.1.0", timedelta(days=8), TODAY, allow_prerelease=True
+    )
+    assert allowed is not None and allowed.version == "2.0.0rc1"
+
+
+def test_select_held_back_skips_unparseable():
+    candidates = [
+        vs.Candidate("bad", "2026-06-26", "x"),
+        vs.Candidate("1.2.0", "not-a-date", "v1.2.0"),
+        vs.Candidate("1.3.0", "2026-06-26", "v1.3.0"),
+    ]
+    picked = vs.select_held_back(candidates, "1.1.0", timedelta(days=8), TODAY)
+    assert picked is not None and picked.version == "1.3.0"
+
+
+def test_format_cooldown_note():
+    note = vs.format_cooldown_note("8 days", date(2026, 6, 20))
+    assert "minimum-release-age" in note
+    assert "`8 days`" in note
+    assert "`2026-06-20`" in note
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +257,8 @@ def test_find_workflow_literals():
         "          uvx --no-progress 'codecov-cli==11.2.8'\n"
         "          uvx --with 'extra-platforms[test]==13.0.1' run\n"
     )
-    literals = {(lit.ecosystem, lit.package, lit.version) for lit in vs.find_workflow_literals(content)}
+    literals = {(lit.ecosystem, lit.package, lit.version)
+                 for lit in vs.find_workflow_literals(content)}
     assert ("npm", "awesome-lint", "2.3.0") in literals
     assert ("pypi", "codecov-cli", "11.2.8") in literals
     assert ("pypi", "extra-platforms", "13.0.1") in literals
@@ -233,6 +296,129 @@ def test_github_candidates_graceful_when_unavailable():
         side_effect=GitHubReleasesUnavailable("boom"),
     ):
         assert vs.github_candidates("https://github.com/owner/repo") == []
+
+
+def test_fetch_github_release_notes_filters_range_and_sorts():
+    fake = {
+        "v1.0.0": GitHubRelease(date="2026-01-01", body="old"),  # == old: excluded.
+        "v1.1.0": GitHubRelease(date="2026-02-01", body="notes 1.1"),
+        "v1.2.0": GitHubRelease(date="2026-03-01", body="notes 1.2"),
+        "v1.3.0": GitHubRelease(date="2026-04-01", body="too new"),  # > new: excluded.
+    }
+    with patch("repomatic.version_sync.get_release_tags", return_value=fake):
+        notes = vs.fetch_github_release_notes(
+            [("checkout", "https://github.com/actions/checkout", "1.0.0", "1.2.0", None)]
+        )
+    repo_url, versions = notes["checkout"]
+    assert repo_url == "https://github.com/actions/checkout"
+    # Only the half-open range (1.0.0, 1.2.0], oldest first.
+    assert [tag for tag, _ in versions] == ["v1.1.0", "v1.2.0"]
+
+
+def test_fetch_github_release_notes_skips_empty_bodies():
+    fake = {"v2.0.0": GitHubRelease(date="2026-02-01", body="")}
+    with patch("repomatic.version_sync.get_release_tags", return_value=fake):
+        notes = vs.fetch_github_release_notes(
+            [("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)]
+        )
+    assert notes == {}
+
+
+def test_fetch_github_release_notes_graceful_when_unavailable():
+    with patch(
+        "repomatic.version_sync.get_release_tags",
+        side_effect=GitHubReleasesUnavailable("boom"),
+    ):
+        notes = vs.fetch_github_release_notes(
+            [("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)]
+        )
+    assert notes == {}
+
+
+def test_fetch_github_release_notes_honors_tag_pattern():
+    fake = {
+        "lychee-v0.24.0": GitHubRelease(date="2026-02-01", body="notes"),
+        "lychee-v0.25.0": GitHubRelease(date="2026-03-01", body="too new"),
+    }
+    with patch("repomatic.version_sync.get_release_tags", return_value=fake):
+        notes = vs.fetch_github_release_notes([
+            (
+                "lychee",
+                "https://github.com/lycheeverse/lychee",
+                "0.23.0",
+                "0.24.0",
+                r"^lychee-v(?P<version>.+)$",
+            )
+        ])
+    _repo, versions = notes["lychee"]
+    assert [tag for tag, _ in versions] == ["lychee-v0.24.0"]
+
+
+# ---------------------------------------------------------------------------
+# End-to-end PR body wiring
+# ---------------------------------------------------------------------------
+
+
+def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
+    """The sync-action-pins PR body carries the cutoff, held-back, and notes.
+
+    Locks the gap PR 2827 surfaced: the three version-sync updaters must render
+    the same cooldown cutoff line, `Held back by cooldown` section, and
+    `Release notes` dropdown that sync-uv-lock already does. Fixture release
+    dates are derived from the current date so the cooldown windows stay valid
+    whenever the test runs.
+    """
+    today = datetime.now(timezone.utc).date()
+    tags = {
+        "v1.0.0": GitHubRelease(
+            date=(today - timedelta(days=400)).isoformat(), body="one"
+        ),
+        # 30 days old: cleared the 8-day cooldown, so it is adopted.
+        "v2.0.0": GitHubRelease(
+            date=(today - timedelta(days=30)).isoformat(), body="release two notes"
+        ),
+        # 2 days old: still inside the cooldown, so it is held back.
+        "v3.0.0": GitHubRelease(
+            date=(today - timedelta(days=2)).isoformat(), body="release three notes"
+        ),
+    }
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        workflow = Path(".github/workflows/ci.yaml")
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(
+            "jobs:\n  build:\n    steps:\n"
+            f"      - uses: owner/repo@{'a' * 40} # v1.0.0\n",
+            encoding="UTF-8",
+        )
+        with (
+            patch("repomatic.version_sync.get_release_tags", return_value=tags),
+            patch("repomatic.cli.resolve_tag_to_sha", return_value="b" * 40),
+        ):
+            result = runner.invoke(
+                repomatic,
+                [
+                    "sync-action-pins",
+                    "--release-notes",
+                    "--output", "out.md",
+                    "--output-format", "markdown",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        body = Path("out.md").read_text(encoding="UTF-8")
+
+    # The action is bumped to the eligible v2.0.0.
+    assert "### 🆙 Updated actions" in body
+    assert "`v1.0.0` → `v2.0.0`" in body
+    # The relative cooldown cutoff line (the uv exclude-newer counterpart).
+    assert "minimum-release-age" in body
+    # The held-back section surfaces the in-cooldown v3.0.0.
+    assert "### 🔜 Held back by cooldown" in body
+    assert "`3.0.0`" in body
+    # Release notes for the adopted version only, not the held-back one.
+    assert "### Release notes" in body
+    assert "release two notes" in body
+    assert "release three notes" not in body
 
 
 def test_pypi_candidates_skips_yanked():

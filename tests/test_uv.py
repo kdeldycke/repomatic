@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 from click.testing import CliRunner
 
@@ -26,8 +28,12 @@ from repomatic.cli import repomatic
 from repomatic.config import Config
 from repomatic.uv import (
     AdvisorySource,
+    HeldBackPackage,
     VulnerablePackage,
+    build_held_back,
     format_diff_table,
+    format_exclude_newer_note,
+    format_held_back_table,
     pypi_name_urls,
 )
 
@@ -245,3 +251,60 @@ def test_format_diff_table_is_the_shared_pr_table():
     # A name absent from name_urls renders plain, and no changes yields nothing.
     assert "| foo |" in format_diff_table([("foo", "1", "2")])
     assert format_diff_table([]) == ""
+
+
+def test_format_exclude_newer_note():
+    """The uv cutoff sentence renders the lock's exclude-newer date, or nothing."""
+    note = format_exclude_newer_note("2026-06-21T00:00:00Z")
+    assert note == (
+        "Resolved with [`exclude-newer`]"
+        "(https://docs.astral.sh/uv/reference/settings/#exclude-newer)"
+        " cutoff: `2026-06-21`."
+    )
+    assert format_exclude_newer_note("") == ""
+
+
+def test_format_diff_table_shows_cooldown_note_above_table():
+    """A non-empty cooldown_note is rendered between the heading and the table."""
+    table = format_diff_table([("ruff", "0.1.0", "0.2.0")], cooldown_note="MY NOTE")
+    assert table.index("MY NOTE") < table.index("| Package | Change |")
+    # An empty note leaves no stray paragraph.
+    assert "MY NOTE" not in format_diff_table([("ruff", "0.1.0", "0.2.0")])
+
+
+def test_build_held_back_formats_released_and_eligible():
+    """build_held_back turns raw selection data into the uv-style row strings."""
+    today = date(2026, 6, 28)
+    row = build_held_back(
+        "astral-sh/setup-uv", "8.2.0", "8.3.0", "2026-06-26", timedelta(days=8), today
+    )
+    assert row == HeldBackPackage(
+        name="astral-sh/setup-uv",
+        locked_version="8.2.0",
+        available_version="8.3.0",
+        released="2026-06-26 (2 days ago)",
+        eligible="2026-07-04 (in 6 days)",
+    )
+
+
+def test_format_held_back_table_is_parametrized_by_subject_and_links():
+    """One renderer serves uv (PyPI) and the version-sync updaters (GitHub/npm)."""
+    rows = [HeldBackPackage("actions/checkout", "6.0.3",
+                            "7.0.0", "2026-06-26", "2026-07-04")]
+    table = format_held_back_table(
+        rows,
+        "CUSTOM COOLDOWN NOTE",
+        name_urls={"actions/checkout": "https://github.com/actions/checkout"},
+        subject="Action",
+    )
+    assert "### 🔜 Held back by cooldown" in table
+    assert "CUSTOM COOLDOWN NOTE" in table
+    assert "| Action | Locked | Available | Released | Eligible |" in table
+    assert "[actions/checkout](https://github.com/actions/checkout)" in table
+    assert "| `6.0.3` | `7.0.0` |" in table
+    # Empty input yields nothing; an unmapped name renders plain.
+    assert format_held_back_table([]) == ""
+    plain = format_held_back_table(
+        [HeldBackPackage("x", "1", "2", "", "")], "n", subject="Tool"
+    )
+    assert "| x | `1` | `2` |" in plain

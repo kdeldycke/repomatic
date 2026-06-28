@@ -585,7 +585,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --from . repomatic sync-action-pins
+          uvx --no-progress --from . repomatic sync-action-pins --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata
         env:
@@ -665,7 +665,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic sync-tool-versions
+          uv --no-progress run --frozen -- repomatic sync-tool-versions --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata
         env:

@@ -742,15 +742,15 @@ All dependencies are pinned to specific versions for stability, reproducibility,
 
 #### Pinning mechanisms
 
-| Mechanism                   | What it pins                       | How it's updated                          |
-| :-------------------------- | :--------------------------------- | :---------------------------------------- |
-| `uv.lock`                   | Project Python dependencies        | `sync-uv-lock` autofix job                |
-| SHA-pinned `uses:` refs     | GitHub Actions                     | `sync-action-pins` autofix job            |
-| Inline version literals     | npm packages, `uvx` PyPI pins      | `sync-workflow-pins` autofix job          |
+| Mechanism                   | What it pins                       | How it's updated                                           |
+| :-------------------------- | :--------------------------------- | :--------------------------------------------------------- |
+| `uv.lock`                   | Project Python dependencies        | `sync-uv-lock` autofix job                                 |
+| SHA-pinned `uses:` refs     | GitHub Actions                     | `sync-action-pins` autofix job                             |
+| Inline version literals     | npm packages, `uvx` PyPI pins      | `sync-workflow-pins` autofix job                           |
 | Binary tool registry        | `repomatic run` tool versions      | `sync-tool-versions` job in `autofix.yaml` (upstream only) |
-| `uv --exclude-newer` option | Transitive Python dependencies     | Time-based window                         |
-| Tagged workflow URLs         | Remote workflow `uses:` references | Release process (freeze/unfreeze commits)  |
-| `--from . repomatic`        | CLI from local source              | Release freeze                            |
+| `uv --exclude-newer` option | Transitive Python dependencies     | Time-based window                                          |
+| Tagged workflow URLs        | Remote workflow `uses:` references | Release process (freeze/unfreeze commits)                  |
+| `--from . repomatic`        | CLI from local source              | Release freeze                                             |
 
 #### Hard-coded versions in workflows
 
@@ -767,7 +767,9 @@ GitHub Actions are pinned to full commit SHAs, with the semver tag preserved as 
 
 All three sync jobs share the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. This is the GitHub/PyPI/npm counterpart to uv's `--exclude-newer`, which guards `sync-uv-lock`.
 
-To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically — no manual bump required.
+To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically: no manual bump required.
+
+Each cooldown-gated PR mirrors the `sync-uv-lock` body. Above the update table it prints the effective cutoff date (`today` minus `minimum-release-age`). A `🔜 Held back by cooldown` section then lists every scanned pin with a newer release still inside the window, alongside the date each becomes adoptable. For GitHub-sourced pins (every action, plus the GitHub-backed registry tools), a `Release notes` dropdown collects the adopted versions' upstream notes.
 
 #### `uv.lock` and `--exclude-newer`
 

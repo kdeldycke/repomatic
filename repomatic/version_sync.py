@@ -46,6 +46,22 @@ from .github.releases import (
 from .npm import get_release_dates as npm_release_dates
 from .pypi import get_release_dates as pypi_release_dates
 
+MINIMUM_RELEASE_AGE_URL = (
+    "https://kdeldycke.github.io/repomatic/configuration.html#minimum-release-age"
+)
+"""Docs anchor for the `minimum-release-age` cooldown, linked from PR bodies."""
+
+MIN_AGE_HELD_BACK_NOTE = (
+    "Newer releases already published but withheld because they are still"
+    f" inside the [`minimum-release-age`]({MINIMUM_RELEASE_AGE_URL}) cooldown"
+    " window. Each becomes adoptable on its eligible date."
+)
+"""Intro paragraph for the version-sync held-back section.
+
+The GitHub/PyPI/npm counterpart to
+{data}`repomatic.uv.EXCLUDE_NEWER_HELD_BACK_NOTE`.
+"""
+
 _DURATION_RE = re.compile(
     r"^\s*(\d+)\s*(second|minute|hour|day|week)s?\s*$",
     re.IGNORECASE,
@@ -156,6 +172,29 @@ def parse_min_age(value: str) -> timedelta:
     return timedelta(**{_UNIT_TO_KWARG[match.group(2).lower()]: count})
 
 
+def format_cooldown_note(age_label: str, cutoff: date) -> str:
+    """Render the `minimum-release-age` cutoff sentence for a diff table.
+
+    The version-sync counterpart to
+    {func}`repomatic.uv.format_exclude_newer_note`. uv records an absolute
+    `exclude-newer` timestamp; here the cooldown is a relative span, so the
+    effective cutoff is `today - min_age`, recomputed each run rather than
+    stored.
+
+    :param age_label: The configured `minimum-release-age` value (e.g.
+        `8 days`).
+    :param cutoff: The effective cutoff date (`today - min_age`); releases
+        published after it are held back.
+    :return: A one-line markdown note for
+        {func}`repomatic.uv.format_diff_table`.
+    """
+    return (
+        f"Resolved with [`minimum-release-age`]({MINIMUM_RELEASE_AGE_URL})"
+        f" cooldown `{age_label}`: releases after `{cutoff:%Y-%m-%d}` are"
+        " held back."
+    )
+
+
 def select_latest(
     candidates: list[Candidate],
     min_age: timedelta,
@@ -196,6 +235,56 @@ def select_latest(
     return best
 
 
+def select_held_back(
+    candidates: list[Candidate],
+    pinned: str,
+    min_age: timedelta,
+    today: date,
+    *,
+    allow_prerelease: bool = False,
+) -> Candidate | None:
+    """Return the highest release withheld from *pinned* only by the cooldown.
+
+    The counterpart to {func}`select_latest`: among candidates strictly newer
+    than *pinned*, keep those still inside the cooldown window (published more
+    recently than *min_age*) and return the highest. These are the releases a
+    later run adopts once they age out, surfaced in the `### 🔜 Held back by
+    cooldown` PR section. No extra network call is needed: the candidates are
+    already in hand from the {func}`select_latest` sweep.
+
+    :param candidates: Versions offered by a datasource.
+    :param pinned: The version this run settled on; only strictly newer
+        candidates can be held back.
+    :param min_age: The stabilization window from `minimum-release-age`.
+    :param today: Reference date for the cooldown computation.
+    :param allow_prerelease: Keep prerelease versions when `True`.
+    :return: The withheld {class}`Candidate`, or `None` when nothing newer is
+        inside the cooldown.
+    """
+    cutoff = today - min_age
+    best: Candidate | None = None
+    best_version: Version | None = None
+    for candidate in candidates:
+        try:
+            released = date.fromisoformat(candidate.date)
+        except ValueError:
+            continue
+        # Outside the cooldown: select_latest would already have adopted it.
+        if released <= cutoff:
+            continue
+        try:
+            parsed = Version(candidate.version)
+        except InvalidVersion:
+            continue
+        if parsed.is_prerelease and not allow_prerelease:
+            continue
+        if not is_newer(candidate.version, pinned):
+            continue
+        if best_version is None or parsed > best_version:
+            best, best_version = candidate, parsed
+    return best
+
+
 def extract_version(tag: str, tag_pattern: str | None) -> str | None:
     """Extract a version from a GitHub release tag.
 
@@ -230,6 +319,52 @@ def github_candidates(repo_url: str, tag_pattern: str | None = None) -> list[Can
         if version:
             candidates.append(Candidate(version=version, date=release.date, ref=tag))
     return candidates
+
+
+def fetch_github_release_notes(
+    items: list[tuple[str, str, str, str, str | None]],
+) -> dict[str, tuple[str, list[tuple[str, str]]]]:
+    """Fetch GitHub release notes for the bumped GitHub-sourced pins.
+
+    For each item, lists the repository's releases (a cached call, already warm
+    from the candidate sweep) and keeps those whose extracted version lands in
+    the half-open range `(old, new]`, oldest first. Non-GitHub datasources (npm,
+    PyPI workflow literals) contribute no item here and render no notes.
+
+    :param items: One `(name, repo_url, old, new, tag_pattern)` tuple per bumped
+        pin, where *old* and *new* are bare versions and *tag_pattern* is the
+        per-tool extraction regex (or `None` for the `vX.Y.Z` scheme).
+    :return: A dict mapping names to `(repo_url, versions)` tuples, the same
+        shape {func}`repomatic.uv.fetch_release_notes` returns, so
+        {func}`repomatic.uv.format_release_notes` renders it unchanged. Only
+        entries with at least one non-empty release body are included.
+    """
+    notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
+    for name, repo_url, old, new, tag_pattern in items:
+        try:
+            tags = get_release_tags(repo_url)
+        except GitHubReleasesUnavailable as exc:
+            logging.warning(f"Skipping release notes for {name}: {exc}")
+            continue
+        try:
+            old_version, new_version = Version(old), Version(new)
+        except InvalidVersion:
+            continue
+        fetched: list[tuple[Version, str, str]] = []
+        for tag, release in tags.items():
+            version = extract_version(tag, tag_pattern)
+            if not version or not release.body:
+                continue
+            try:
+                parsed = Version(version)
+            except InvalidVersion:
+                continue
+            if old_version < parsed <= new_version:
+                fetched.append((parsed, tag, release.body))
+        if fetched:
+            fetched.sort(key=lambda entry: entry[0])
+            notes[name] = (repo_url, [(tag, body) for _v, tag, body in fetched])
+    return notes
 
 
 def pypi_candidates(package: str) -> list[Candidate]:

@@ -1034,10 +1034,34 @@ def pypi_name_urls(changes: list[tuple[str, str, str]]) -> dict[str, str]:
     return {name: f"https://pypi.org/project/{name}/" for name, _old, _new in changes}
 
 
+def format_exclude_newer_note(exclude_newer: str) -> str:
+    """Render the uv `exclude-newer` cutoff sentence for a diff table.
+
+    The {func}`format_diff_table` counterpart for `sync-uv-lock` and
+    `fix-vulnerable-deps`, which gate on uv's absolute `exclude-newer`
+    timestamp. The relative-cooldown updaters
+    ({mod}`repomatic.version_sync`) render their own
+    `minimum-release-age` note instead.
+
+    :param exclude_newer: ISO 8601 datetime from the lock's
+        `[options].exclude-newer`, as returned by
+        {func}`parse_lock_exclude_newer`, or empty.
+    :return: A one-line markdown note, or empty when *exclude_newer* is empty.
+    """
+    if not exclude_newer:
+        return ""
+    cutoff = _format_upload_date(exclude_newer)
+    return (
+        "Resolved with [`exclude-newer`]"
+        "(https://docs.astral.sh/uv/reference/settings/#exclude-newer)"
+        f" cutoff: `{cutoff}`."
+    )
+
+
 def format_diff_table(
     changes: list[tuple[str, str, str]],
     upload_times: dict[str, str] | None = None,
-    exclude_newer: str = "",
+    cooldown_note: str = "",
     comparison_urls: dict[str, str] | None = None,
     reference_date: date | None = None,
     name_urls: dict[str, str] | None = None,
@@ -1052,15 +1076,19 @@ def format_diff_table(
 
     When `upload_times` is provided, a "Released" column is added so
     reviewers can visually verify that all updated packages respect the
-    `exclude-newer` cutoff. The cutoff itself is shown above the table
-    when `exclude_newer` is non-empty.
+    cooldown. When `cooldown_note` is provided, that pre-rendered sentence
+    (the absolute `exclude-newer` cutoff for uv, or the relative
+    `minimum-release-age` cutoff for the version-sync updaters) is shown
+    above the table.
 
     :param changes: List of `(name, old_version, new_version)` tuples
         as returned by {func}`diff_lock_versions`.
     :param upload_times: Optional mapping of package names to ISO 8601
         upload-time strings, as returned by {func}`parse_lock_upload_times`.
-    :param exclude_newer: Optional `exclude-newer` ISO 8601 datetime from
-        the lock file, as returned by {func}`parse_lock_exclude_newer`.
+    :param cooldown_note: Optional pre-rendered markdown sentence describing
+        the cooldown cutoff, shown above the table. Build it with
+        {func}`format_exclude_newer_note` (uv) or
+        {func}`repomatic.version_sync.format_cooldown_note` (version-sync).
     :param comparison_urls: Optional mapping of names to comparison URLs,
         linked on the change cell (see {func}`build_comparison_urls`).
     :param reference_date: When set, each "Released" date gains a relative
@@ -1078,13 +1106,8 @@ def format_diff_table(
     name_urls = name_urls or {}
     show_uploaded = bool(upload_times)
     lines = [f"### 🆙 {heading}", ""]
-    if exclude_newer:
-        cutoff = _format_upload_date(exclude_newer)
-        lines.append(
-            f"Resolved with [`exclude-newer`]"
-            f"(https://docs.astral.sh/uv/reference/settings/#exclude-newer)"
-            f" cutoff: `{cutoff}`."
-        )
+    if cooldown_note:
+        lines.append(cooldown_note)
         lines.append("")
     if show_uploaded:
         lines.append(f"| {subject} | Change | Released |")
@@ -1238,29 +1261,93 @@ def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
     return held
 
 
-def format_held_back_table(held_back: list[HeldBackPackage]) -> str:
+EXCLUDE_NEWER_HELD_BACK_NOTE = (
+    "Newer releases already published but withheld because they are still"
+    " inside the [`exclude-newer`](https://docs.astral.sh/uv/reference/"
+    "settings/#exclude-newer) cooldown window. Each becomes lockable on"
+    " its eligible date."
+)
+"""Intro paragraph for the `sync-uv-lock` held-back section.
+
+The {mod}`repomatic.version_sync` updaters pass their own `minimum-release-age`
+wording to {func}`format_held_back_table` instead.
+"""
+
+
+def build_held_back(
+    name: str,
+    pinned: str,
+    available: str,
+    available_date: str,
+    min_age: timedelta,
+    today: date,
+) -> HeldBackPackage:
+    """Assemble a {class}`HeldBackPackage` row from raw selection data.
+
+    The formatting half of the version-sync held-back report:
+    {func}`repomatic.version_sync.select_held_back` picks the withheld
+    candidate, and this turns its raw version and upload date into the same
+    `released`/`eligible` strings {func}`compute_held_back_packages` produces
+    for uv, so {func}`format_held_back_table` renders both identically. Unlike
+    the uv path, no second resolution is needed: the candidates are already in
+    hand from the datasource sweep.
+
+    :param name: Display name (package, action slug, or tool).
+    :param pinned: Version this run settled on (held in place by the cooldown).
+    :param available: The newer version still inside the cooldown window.
+    :param available_date: Upload date of *available* (`YYYY-MM-DD`), or empty.
+    :param min_age: The `minimum-release-age` cooldown width.
+    :param today: Reference date for the relative countdown.
+    :return: A populated {class}`HeldBackPackage`.
+    """
+    released = _format_released(available_date, today)
+    eligible = ""
+    upload_dt = _parse_iso_datetime(available_date)
+    if upload_dt is not None:
+        eligible = _format_eligible((upload_dt + min_age).date(), today)
+    return HeldBackPackage(name, pinned, available, released, eligible)
+
+
+def format_held_back_table(
+    held_back: list[HeldBackPackage],
+    note: str = EXCLUDE_NEWER_HELD_BACK_NOTE,
+    *,
+    name_urls: dict[str, str] | None = None,
+    subject: str = "Package",
+) -> str:
     """Format cooldown-withheld releases as a markdown section.
 
-    :param held_back: Packages as returned by
-        {func}`compute_held_back_packages`.
-    :return: A markdown string with a `### Held back by cooldown` heading and
-        table, or an empty string when *held_back* is empty.
+    Shared by every cooldown-gated updater: `sync-uv-lock` (rows from
+    {func}`compute_held_back_packages`) and the version-sync commands (rows
+    from {func}`build_held_back`), so the section renders identically.
+
+    :param held_back: Withheld releases as {class}`HeldBackPackage` rows.
+    :param note: Intro paragraph describing the cooldown. Defaults to the uv
+        `exclude-newer` wording; version-sync passes its `minimum-release-age`
+        wording.
+    :param name_urls: Optional mapping of names to a URL the name links to
+        (PyPI, GitHub, npm). Names absent from the mapping render plain.
+    :param subject: Header for the first column (e.g. `Action`, `Tool`).
+    :return: A markdown string with a `### 🔜 Held back by cooldown` heading
+        and table, or an empty string when *held_back* is empty.
     """
     if not held_back:
         return ""
+    name_urls = name_urls or {}
     lines = [
         "### 🔜 Held back by cooldown",
         "",
-        "Newer releases already published but withheld because they are still"
-        " inside the [`exclude-newer`](https://docs.astral.sh/uv/reference/"
-        "settings/#exclude-newer) cooldown window. Each becomes lockable on"
-        " its eligible date.",
+        note,
         "",
-        "| Package | Locked | Available | Released | Eligible |",
+        f"| {subject} | Locked | Available | Released | Eligible |",
         "| :-- | :-- | :-- | :-- | :-- |",
     ]
     for pkg in held_back:
-        link = f"[{pkg.name}](https://pypi.org/project/{pkg.name}/)"
+        link = (
+            f"[{pkg.name}]({name_urls[pkg.name]})"
+            if pkg.name in name_urls
+            else pkg.name
+        )
         lines.append(
             f"| {link} | `{pkg.locked_version}` | `{pkg.available_version}` |"
             f" {pkg.released} | {pkg.eligible} |"
@@ -1752,7 +1839,10 @@ def fix_vulnerable_deps(
     upload_times = parse_lock_upload_times(lock_path)
     exclude_newer = parse_lock_exclude_newer(lock_path)
     diff_table = format_diff_table(
-        changes, upload_times, exclude_newer, name_urls=pypi_name_urls(changes)
+        changes,
+        upload_times,
+        format_exclude_newer_note(exclude_newer),
+        name_urls=pypi_name_urls(changes),
     )
 
     # Fetch and append release notes.

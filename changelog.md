@@ -11,6 +11,7 @@
 - Add `sync-action-pins`: bumps SHA-pinned GitHub Actions to their latest release past the cooldown, resolving each release tag to its commit SHA.
 - Add `sync-workflow-pins`: bumps npm and PyPI version literals embedded in workflow YAML.
 - Add `[tool.repomatic] minimum-release-age` (default `8 days`), the shared cooldown for the three sync jobs, plus `tool-versions.sync`, `action-pins.sync`, and `workflow-pins.sync` toggles.
+- The `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` PR bodies now match `sync-uv-lock`: a cooldown cutoff date, a `Held back by cooldown` section, and a `Release notes` dropdown for GitHub-sourced pins.
 - The autofix workflow now runs weekly on a schedule, so quiet repositories still pick up dependency, tool, and action-pin updates.
 - `REPOMATIC_PAT` no longer requires the `Commit statuses` permission; `lint-repo` now warns when a token still grants it so it can be tightened.
 - Add a `changelog.archive-location` config option pointing at an archive file for older release sections, so `lint-changelog` treats archived versions as documented instead of flagging them as orphans.

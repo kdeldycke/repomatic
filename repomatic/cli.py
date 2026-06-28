@@ -175,11 +175,13 @@ from .uv import (
     _format_released,
     _format_upload_date,
     build_comparison_urls,
+    build_held_back,
     collect_vulnerable_packages,
     compute_held_back_packages,
     fetch_release_notes,
     fix_vulnerable_deps as _fix_vulnerable_deps,
     format_diff_table,
+    format_exclude_newer_note,
     format_held_back_table,
     format_release_notes,
     format_vulnerability_table,
@@ -187,15 +189,19 @@ from .uv import (
     sync_uv_lock as _sync_uv_lock,
 )
 from .version_sync import (
+    MIN_AGE_HELD_BACK_NOTE,
     apply_action_pins,
     apply_workflow_literals,
+    fetch_github_release_notes,
     find_action_pins,
     find_workflow_literals,
+    format_cooldown_note,
     github_candidates,
     is_newer,
     npm_candidates,
     parse_min_age,
     pypi_candidates,
+    select_held_back,
     select_latest,
     set_tool_version,
 )
@@ -212,6 +218,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import IO
 
+    from .uv import HeldBackPackage
+
 
 output_format_option = option(
     "--output-format",
@@ -222,6 +230,21 @@ output_format_option = option(
         " github-actions produces format for PR template"
         " consumption in workflows."
     ),
+)
+
+# Shared opt-in flags for the three version-sync updaters (sync-tool-versions,
+# sync-action-pins, sync-workflow-pins), mirroring sync-uv-lock. Held-back is
+# free here (the candidates are already fetched), so it defaults on; release
+# notes cost GitHub API calls, so they stay opt-in and CI passes the flag.
+sync_release_notes_option = option(
+    "--release-notes/--no-release-notes",
+    default=False,
+    help="Fetch release notes from GitHub (markdown, appended after the table).",
+)
+sync_held_back_option = option(
+    "--held-back/--no-held-back",
+    default=True,
+    help="Report newer releases withheld by the minimum-release-age cooldown.",
 )
 
 
@@ -2847,19 +2870,7 @@ def sync_uv_lock_cmd(
         )
 
         if held_back_pkgs:
-            echo("Held back by cooldown:")
-            hb_headers = ("Package", "Locked", "Available", "Released", "Eligible")
-            hb_rows = [
-                (
-                    pkg.name,
-                    pkg.locked_version,
-                    pkg.available_version,
-                    pkg.released,
-                    pkg.eligible,
-                )
-                for pkg in held_back_pkgs
-            ]
-            ctx.find_root().print_table(hb_rows, hb_headers)  # type: ignore[attr-defined]
+            _print_held_back_table(ctx, held_back_pkgs)
 
     # Release notes (opt-in, fetched once for both terminal and file output).
     notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
@@ -2877,12 +2888,15 @@ def sync_uv_lock_cmd(
         diff_table = format_diff_table(
             result.changes,
             result.upload_times,
-            result.exclude_newer,
+            format_exclude_newer_note(result.exclude_newer),
             comparison_urls=comparison_urls,
             reference_date=today,
             name_urls=pypi_name_urls(result.changes),
         )
-        held_back_section = format_held_back_table(held_back_pkgs)
+        held_back_section = format_held_back_table(
+            held_back_pkgs,
+            name_urls=pypi_name_urls([(p.name, "", "") for p in held_back_pkgs]),
+        )
         body = "\n\n".join(
             section
             for section in (diff_table, held_back_section, notes_section)
@@ -2928,6 +2942,33 @@ def _print_sync_table(
     ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
 
 
+def _print_held_back_table(
+    ctx: Context,
+    held_back: list[HeldBackPackage],
+    *,
+    subject: str = "Package",
+) -> None:
+    """Print the shared held-back terminal table for the cooldown-gated updaters.
+
+    Columns are `{subject} | Locked | Available | Released | Eligible`. Shared by
+    `sync-uv-lock` and the three `sync-*` commands, and respects the global
+    `--table-format`.
+    """
+    echo("Held back by cooldown:")
+    headers = (subject, "Locked", "Available", "Released", "Eligible")
+    rows = [
+        (
+            pkg.name,
+            pkg.locked_version,
+            pkg.available_version,
+            pkg.released,
+            pkg.eligible,
+        )
+        for pkg in held_back
+    ]
+    ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
+
+
 def _emit_version_sync_report(
     ctx: Context,
     changes: list[tuple[str, str, str]],
@@ -2939,30 +2980,59 @@ def _emit_version_sync_report(
     heading: str,
     name_urls: dict[str, str] | None = None,
     comparison_urls: dict[str, str] | None = None,
+    cutoff: date | None = None,
+    min_age_label: str = "",
+    held_back: list[HeldBackPackage] | None = None,
+    held_back_name_urls: dict[str, str] | None = None,
+    notes_section: str = "",
 ) -> None:
-    """Print a terminal table and optionally write a markdown PR-body report.
+    """Print a terminal report and optionally write a markdown PR-body report.
 
     Shared by the three `sync-*` version updaters. *changes* are
-    `(name, old, new)` triples; *dates* maps name to the new release date. Both
-    the terminal table ({func}`_print_sync_table`) and the markdown PR body
-    ({func}`~repomatic.uv.format_diff_table`) are the same shared renderers
-    `sync-uv-lock` and `fix-vulnerable-deps` use, so every dependency updater's
-    output matches.
+    `(name, old, new)` triples; *dates* maps name to the new release date. The
+    terminal table, the markdown diff table, the held-back section, and the
+    release notes all route through the same shared renderers `sync-uv-lock` and
+    `fix-vulnerable-deps` use, so every dependency updater's PR body matches.
     """
     today = datetime.now(timezone.utc).date()
+    held_back = held_back or []
+    cooldown_note = (
+        format_cooldown_note(min_age_label, cutoff)
+        if cutoff is not None and min_age_label
+        else ""
+    )
     echo(f"{len(changes)} {subject.lower()}(s) updated.")
+    if cutoff is not None:
+        echo(f"minimum-release-age cutoff: {cutoff:%Y-%m-%d}")
     _print_sync_table(
         ctx, sorted(changes), dates, subject=subject, reference_date=today
     )
+    if held_back:
+        _print_held_back_table(ctx, held_back, subject=subject)
+    if notes_section:
+        echo("")
+        echo(notes_section)
     if output:
-        body = format_diff_table(
+        diff_table = format_diff_table(
             sorted(changes),
             upload_times=dates,
+            cooldown_note=cooldown_note,
             comparison_urls=comparison_urls,
             reference_date=today,
             name_urls=name_urls,
             heading=heading,
             subject=subject,
+        )
+        held_back_section = format_held_back_table(
+            held_back,
+            MIN_AGE_HELD_BACK_NOTE,
+            name_urls=held_back_name_urls,
+            subject=subject,
+        )
+        body = "\n\n".join(
+            section
+            for section in (diff_table, held_back_section, notes_section)
+            if section
         )
         if output_format == "github-actions":
             content = format_multiline_output("diff_table", body)
@@ -3015,9 +3085,17 @@ def _sync_actionlint_matcher_url(version: str) -> None:
     default=None,
     help="Write a markdown report (version table) to this file.",
 )
+@sync_release_notes_option
+@sync_held_back_option
 @output_format_option
 @pass_context
-def sync_tool_versions(ctx: Context, output: Path | None, output_format: str) -> None:
+def sync_tool_versions(
+    ctx: Context,
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+) -> None:
     """Bump every `repomatic run` tool to its latest eligible release.
 
     \b
@@ -3056,6 +3134,8 @@ def sync_tool_versions(ctx: Context, output: Path | None, output_format: str) ->
     changes: list[tuple[str, str, str]] = []
     dates: dict[str, str] = {}
     overrides: dict[str, str] = {}
+    held_back_pkgs: list[HeldBackPackage] = []
+    held_back_name_urls: dict[str, str] = {}
     for name, spec in sorted(TOOL_REGISTRY.items()):
         if spec.binary is not None:
             if not spec.source_url:
@@ -3064,6 +3144,25 @@ def sync_tool_versions(ctx: Context, output: Path | None, output_format: str) ->
         else:
             candidates = pypi_candidates(spec.package or spec.name)
         latest = select_latest(candidates, min_age, today)
+        # Held-back covers every scanned tool, even ones not bumped this run, so
+        # the section shows the full cooldown pipeline (parity with sync-uv-lock).
+        final_version = (
+            latest.version
+            if latest is not None and is_newer(latest.version, spec.version)
+            else spec.version
+        )
+        if held_back:
+            withheld = select_held_back(candidates, final_version, min_age, today)
+            if withheld is not None:
+                held_back_pkgs.append(
+                    build_held_back(
+                        name, final_version, withheld.version, withheld.date,
+                        min_age, today,
+                    )
+                )
+                held_back_name_urls[name] = spec.source_url or (
+                    f"https://pypi.org/project/{spec.package or spec.name}/"
+                )
         if latest is None or not is_newer(latest.version, spec.version):
             continue
         content = set_tool_version(content, name, latest.version)
@@ -3098,6 +3197,18 @@ def sync_tool_versions(ctx: Context, output: Path | None, output_format: str) ->
         source_url = TOOL_REGISTRY[name].source_url
         if source_url:
             name_urls[name] = source_url
+
+    # Release notes for GitHub-sourced tools (all registry source URLs are
+    # github.com); PyPI-only tools with no source URL contribute none.
+    notes_section = ""
+    if release_notes:
+        notes_items = [
+            (name, src, old, new, TOOL_REGISTRY[name].tag_pattern)
+            for name, old, new in changes
+            if (src := TOOL_REGISTRY[name].source_url) and "github.com" in src
+        ]
+        notes_section = format_release_notes(fetch_github_release_notes(notes_items))
+
     _emit_version_sync_report(
         ctx,
         changes,
@@ -3107,6 +3218,11 @@ def sync_tool_versions(ctx: Context, output: Path | None, output_format: str) ->
         subject="Tool",
         heading="Updated tools",
         name_urls=name_urls,
+        cutoff=today - min_age if min_age else None,
+        min_age_label=config.minimum_release_age,
+        held_back=held_back_pkgs,
+        held_back_name_urls=held_back_name_urls,
+        notes_section=notes_section,
     )
 
 
@@ -3120,9 +3236,17 @@ def sync_tool_versions(ctx: Context, output: Path | None, output_format: str) ->
     default=None,
     help="Write a markdown report (version table) to this file.",
 )
+@sync_release_notes_option
+@sync_held_back_option
 @output_format_option
 @pass_context
-def sync_action_pins(ctx: Context, output: Path | None, output_format: str) -> None:
+def sync_action_pins(
+    ctx: Context,
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+) -> None:
     """Bump SHA-pinned GitHub Actions across `.github/` to their latest release.
 
     \b
@@ -3164,9 +3288,28 @@ def sync_action_pins(ctx: Context, output: Path | None, output_format: str) -> N
 
     resolved: dict[str, tuple[str, str]] = {}
     dates: dict[str, str] = {}
+    held_back_pkgs: list[HeldBackPackage] = []
+    held_back_name_urls: dict[str, str] = {}
     for slug, current_version in sorted(current.items()):
         repo_url = f"https://github.com/{slug}"
-        latest = select_latest(github_candidates(repo_url), min_age, today)
+        candidates = github_candidates(repo_url)
+        latest = select_latest(candidates, min_age, today)
+        # Held-back covers every scanned action, even ones not bumped this run.
+        final_version = (
+            latest.version
+            if latest is not None and is_newer(latest.version, current_version)
+            else current_version
+        )
+        if held_back:
+            withheld = select_held_back(candidates, final_version, min_age, today)
+            if withheld is not None:
+                held_back_pkgs.append(
+                    build_held_back(
+                        slug, final_version, withheld.version, withheld.date,
+                        min_age, today,
+                    )
+                )
+                held_back_name_urls[slug] = repo_url
         if latest is None or not is_newer(latest.version, current_version):
             continue
         new_sha = resolve_tag_to_sha(repo_url, latest.ref)
@@ -3193,6 +3336,22 @@ def sync_action_pins(ctx: Context, output: Path | None, output_format: str) -> N
         slug: f"https://github.com/{slug}/compare/{old}...{new}"
         for slug, old, new in changes
     }
+
+    notes_section = ""
+    if release_notes:
+        # Actions tag as `vX.Y.Z`, so no per-tool extraction pattern is needed.
+        notes_items: list[tuple[str, str, str, str, str | None]] = [
+            (
+                slug,
+                f"https://github.com/{slug}",
+                old.removeprefix("v"),
+                new.removeprefix("v"),
+                None,
+            )
+            for slug, old, new in changes
+        ]
+        notes_section = format_release_notes(fetch_github_release_notes(notes_items))
+
     _emit_version_sync_report(
         ctx,
         changes,
@@ -3203,6 +3362,11 @@ def sync_action_pins(ctx: Context, output: Path | None, output_format: str) -> N
         heading="Updated actions",
         name_urls=name_urls,
         comparison_urls=comparison_urls,
+        cutoff=today - min_age if min_age else None,
+        min_age_label=config.minimum_release_age,
+        held_back=held_back_pkgs,
+        held_back_name_urls=held_back_name_urls,
+        notes_section=notes_section,
     )
 
 
@@ -3216,9 +3380,15 @@ def sync_action_pins(ctx: Context, output: Path | None, output_format: str) -> N
     default=None,
     help="Write a markdown report (version table) to this file.",
 )
+@sync_held_back_option
 @output_format_option
 @pass_context
-def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) -> None:
+def sync_workflow_pins(
+    ctx: Context,
+    output: Path | None,
+    output_format: str,
+    held_back: bool,
+) -> None:
     """Bump npm and PyPI version literals embedded in workflow YAML.
 
     \b
@@ -3255,6 +3425,8 @@ def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) ->
     resolved: dict[tuple[str, str], str] = {}
     dates: dict[str, str] = {}
     name_urls: dict[str, str] = {}
+    held_back_pkgs: list[HeldBackPackage] = []
+    held_back_name_urls: dict[str, str] = {}
     for (ecosystem, package), current_version in sorted(current.items()):
         candidates = (
             npm_candidates(package)
@@ -3262,15 +3434,32 @@ def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) ->
             else pypi_candidates(package)
         )
         latest = select_latest(candidates, min_age, today)
-        if latest is None or not is_newer(latest.version, current_version):
-            continue
-        resolved[(ecosystem, package)] = latest.version
-        dates[package] = latest.date
-        name_urls[package] = (
+        package_url = (
             f"https://www.npmjs.com/package/{package}"
             if ecosystem == "npm"
             else f"https://pypi.org/project/{package}/"
         )
+        # Held-back covers every scanned literal, even ones not bumped this run.
+        final_version = (
+            latest.version
+            if latest is not None and is_newer(latest.version, current_version)
+            else current_version
+        )
+        if held_back:
+            withheld = select_held_back(candidates, final_version, min_age, today)
+            if withheld is not None:
+                held_back_pkgs.append(
+                    build_held_back(
+                        package, final_version, withheld.version, withheld.date,
+                        min_age, today,
+                    )
+                )
+                held_back_name_urls[package] = package_url
+        if latest is None or not is_newer(latest.version, current_version):
+            continue
+        resolved[(ecosystem, package)] = latest.version
+        dates[package] = latest.date
+        name_urls[package] = package_url
 
     changes: list[tuple[str, str, str]] = []
     for path, text in file_data.items():
@@ -3284,6 +3473,8 @@ def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) ->
         echo("All workflow pins are up to date.")
         ctx.exit(0)
 
+    # npm and PyPI literals carry no GitHub release notes (the "GitHub sources
+    # only" scope), so no notes_section is built here.
     _emit_version_sync_report(
         ctx,
         changes,
@@ -3293,6 +3484,10 @@ def sync_workflow_pins(ctx: Context, output: Path | None, output_format: str) ->
         subject="Package",
         heading="Updated packages",
         name_urls=name_urls,
+        cutoff=today - min_age if min_age else None,
+        min_age_label=config.minimum_release_age,
+        held_back=held_back_pkgs,
+        held_back_name_urls=held_back_name_urls,
     )
 
 
