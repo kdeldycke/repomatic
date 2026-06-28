@@ -112,7 +112,7 @@ def test_select_latest_none_when_all_too_new():
     assert vs.select_latest(candidates, timedelta(days=8), TODAY) is None
 
 
-def test_select_latest_skips_unparseable_versions_and_dates():
+def test_select_latest_skips_unparsable_versions_and_dates():
     candidates = [
         vs.Candidate("not-a-version", "2026-01-01", "x"),
         vs.Candidate("1.0.0", "not-a-date", "v1.0.0"),
@@ -168,7 +168,7 @@ def test_select_held_back_skips_prereleases_by_default():
     assert allowed is not None and allowed.version == "2.0.0rc1"
 
 
-def test_select_held_back_skips_unparseable():
+def test_select_held_back_skips_unparsable():
     candidates = [
         vs.Candidate("bad", "2026-06-26", "x"),
         vs.Candidate("1.2.0", "not-a-date", "v1.2.0"),
