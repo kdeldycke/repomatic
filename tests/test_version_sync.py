@@ -352,6 +352,12 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
     assert "### Release notes" in body
     assert "release two notes" in body
     assert "release three notes" not in body
+    # Release notes sit between the update table and the held-back section.
+    assert (
+        body.index("### 🆙 Updated actions")
+        < body.index("### Release notes")
+        < body.index("### 🔜 Held back by cooldown")
+    )
 
 
 def test_pypi_candidates_skips_yanked():

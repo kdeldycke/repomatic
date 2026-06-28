@@ -2898,7 +2898,7 @@ def sync_uv_lock_cmd(
         )
         body = "\n\n".join(
             section
-            for section in (diff_table, held_back_section, notes_section)
+            for section in (diff_table, notes_section, held_back_section)
             if section
         )
 
@@ -3030,7 +3030,7 @@ def _emit_version_sync_report(
         )
         body = "\n\n".join(
             section
-            for section in (diff_table, held_back_section, notes_section)
+            for section in (diff_table, notes_section, held_back_section)
             if section
         )
         if output_format == "github-actions":
