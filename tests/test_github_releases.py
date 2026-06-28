@@ -242,9 +242,9 @@ def test_fetch_github_release_notes_filters_range_and_sorts():
         "v1.3.0": GitHubRelease(date="2026-04-01", body="too new"),  # > new: excluded.
     }
     with patch("repomatic.github.releases.get_release_tags", return_value=fake):
-        notes = fetch_github_release_notes(
-            [("checkout", "https://github.com/actions/checkout", "1.0.0", "1.2.0", None)]
-        )
+        notes = fetch_github_release_notes([
+            ("checkout", "https://github.com/actions/checkout", "1.0.0", "1.2.0", None)
+        ])
     repo_url, versions = notes["checkout"]
     assert repo_url == "https://github.com/actions/checkout"
     # Only the half-open range (1.0.0, 1.2.0], oldest first.
@@ -254,9 +254,9 @@ def test_fetch_github_release_notes_filters_range_and_sorts():
 def test_fetch_github_release_notes_skips_empty_bodies():
     fake = {"v2.0.0": GitHubRelease(date="2026-02-01", body="")}
     with patch("repomatic.github.releases.get_release_tags", return_value=fake):
-        notes = fetch_github_release_notes(
-            [("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)]
-        )
+        notes = fetch_github_release_notes([
+            ("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)
+        ])
     assert notes == {}
 
 
@@ -265,9 +265,9 @@ def test_fetch_github_release_notes_graceful_when_unavailable():
         "repomatic.github.releases.get_release_tags",
         side_effect=GitHubReleasesUnavailable("boom"),
     ):
-        notes = fetch_github_release_notes(
-            [("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)]
-        )
+        notes = fetch_github_release_notes([
+            ("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)
+        ])
     assert notes == {}
 
 

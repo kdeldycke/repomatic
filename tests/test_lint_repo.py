@@ -592,9 +592,7 @@ def test_pat_check_annotates_with_github_status_incident():
 def test_pat_stale_statuses_permission_present():
     """Warn when a 422 proves the token still grants Commit statuses."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError(
-            "No commit found for SHA: 000... (HTTP 422)"
-        )
+        mock_gh.side_effect = RuntimeError("No commit found for SHA: 000... (HTTP 422)")
         warning, _msg = check_pat_stale_statuses_permission("owner/repo")
         assert warning is not None
         assert "Commit statuses" in warning

@@ -393,10 +393,7 @@ def apply_action_pins(
         if new_sha == match.group("sha"):
             return match.group(0)
         changes.append((slug, match.group("ref"), new_ref))
-        return (
-            f"{match.group('prefix')}{slug}@{new_sha}"
-            f"{match.group('gap')}{new_ref}"
-        )
+        return f"{match.group('prefix')}{slug}@{new_sha}{match.group('gap')}{new_ref}"
 
     return ACTION_PIN_RE.sub(replace, content), changes
 
@@ -435,9 +432,7 @@ def apply_workflow_literals(
             if not new_version or new_version == old_version:
                 return match.group(0)
             changes.append((package, old_version, new_version))
-            return match.group(0).replace(
-                f"{sep}{old_version}", f"{sep}{new_version}"
-            )
+            return match.group(0).replace(f"{sep}{old_version}", f"{sep}{new_version}")
 
         return inner
 

@@ -46,9 +46,7 @@ GITHUB_API_TAG_REF_URL = (
 )
 """GitHub API URL for resolving a tag name to its git object."""
 
-GITHUB_API_TAG_OBJECT_URL = (
-    "https://api.github.com/repos/{owner}/{repo}/git/tags/{sha}"
-)
+GITHUB_API_TAG_OBJECT_URL = "https://api.github.com/repos/{owner}/{repo}/git/tags/{sha}"
 """GitHub API URL for dereferencing an annotated tag object to its commit."""
 
 GITHUB_API_RELEASE_BY_TAG_URL = (
