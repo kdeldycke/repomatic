@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -2834,23 +2834,17 @@ def sync_uv_lock_cmd(
 
     # Terminal output: structured table via click-extra.
     if table:
-        show_uploaded = bool(result.upload_times)
-        headers: tuple[str, ...] = ("Package", "Old", "New")
-        if show_uploaded:
-            headers = ("Package", "Old", "New", "Released")
-        rows: list[tuple[str, ...]] = []
-        for name, old, new in result.changes:
-            row: tuple[str, ...] = (name, old or "(new)", new or "(removed)")
-            if show_uploaded:
-                raw_time = result.upload_times.get(name, "")
-                row = (*row, _format_released(raw_time, today))
-            rows.append(row)
-
         if result.exclude_newer:
             cutoff = _format_upload_date(result.exclude_newer)
             echo(f"exclude-newer cutoff: {cutoff}")
 
-        ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
+        _print_sync_table(
+            ctx,
+            result.changes,
+            result.upload_times,
+            subject="Package",
+            reference_date=today,
+        )
 
         if held_back_pkgs:
             echo("Held back by cooldown:")
@@ -2903,6 +2897,37 @@ def sync_uv_lock_cmd(
             echo(content, file=prep_path(output))
 
 
+def _print_sync_table(
+    ctx: Context,
+    changes: list[tuple[str, str, str]],
+    dates: dict[str, str],
+    *,
+    subject: str,
+    reference_date: date,
+) -> None:
+    """Print the shared terminal table for the dependency updaters.
+
+    Columns are `{subject} | Old | New | Released`, the released date carrying a
+    relative hint. Shared by `sync-uv-lock` and the three `sync-*` commands so
+    their terminal output matches, and respects the global `--table-format`.
+    Old/New stay separate columns (not the merged `Change` cell of the markdown
+    PR body) so structured `--table-format json`/`csv` output stays parseable.
+    """
+    show_released = bool(dates)
+    headers: tuple[str, ...] = (
+        (subject, "Old", "New", "Released")
+        if show_released
+        else (subject, "Old", "New")
+    )
+    rows: list[tuple[str, ...]] = []
+    for name, old, new in changes:
+        row: tuple[str, ...] = (name, old or "(new)", new or "(removed)")
+        if show_released:
+            row = (*row, _format_released(dates.get(name, ""), reference_date))
+        rows.append(row)
+    ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
+
+
 def _emit_version_sync_report(
     ctx: Context,
     changes: list[tuple[str, str, str]],
@@ -2918,22 +2943,23 @@ def _emit_version_sync_report(
     """Print a terminal table and optionally write a markdown PR-body report.
 
     Shared by the three `sync-*` version updaters. *changes* are
-    `(name, old, new)` triples; *dates* maps name to the new release date. The
-    file output goes through {func}`~repomatic.uv.format_diff_table`, the same
-    formatter `sync-uv-lock` and `fix-vulnerable-deps` use, so every dependency
-    PR renders an identical table.
+    `(name, old, new)` triples; *dates* maps name to the new release date. Both
+    the terminal table ({func}`_print_sync_table`) and the markdown PR body
+    ({func}`~repomatic.uv.format_diff_table`) are the same shared renderers
+    `sync-uv-lock` and `fix-vulnerable-deps` use, so every dependency updater's
+    output matches.
     """
+    today = datetime.now(timezone.utc).date()
     echo(f"{len(changes)} {subject.lower()}(s) updated.")
-    rows = [(name, old, new, dates.get(name, "")) for name, old, new in sorted(changes)]
-    ctx.find_root().print_table(  # type: ignore[attr-defined]
-        rows, (subject, "Old", "New", "Released")
+    _print_sync_table(
+        ctx, sorted(changes), dates, subject=subject, reference_date=today
     )
     if output:
         body = format_diff_table(
             sorted(changes),
             upload_times=dates,
             comparison_urls=comparison_urls,
-            reference_date=datetime.now(timezone.utc).date(),
+            reference_date=today,
             name_urls=name_urls,
             heading=heading,
             subject=subject,
