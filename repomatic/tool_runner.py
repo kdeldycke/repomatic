@@ -962,7 +962,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "bump-my-version": ToolSpec(
         name="bump-my-version",
-        version="1.2.7",
+        version="1.4.1",
         reads_pyproject=True,
         source_url="https://github.com/callowayproject/bump-my-version",
         config_docs_url="https://callowayproject.github.io/bump-my-version/reference/configuration/",
@@ -1131,7 +1131,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "mypy": ToolSpec(
         name="mypy",
-        version="1.19.1",
+        version="2.1.0",
         source_url="https://github.com/python/mypy",
         config_docs_url="https://mypy.readthedocs.io/en/stable/config_file.html",
         cli_docs_url="https://mypy.readthedocs.io/en/stable/command_line.html",
@@ -1148,7 +1148,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "nuitka": ToolSpec(
         name="nuitka",
         display_name="Nuitka",
-        version="4.1",
+        version="4.1.3",
         package="nuitka[onefile]",
         source_url="https://github.com/Nuitka/Nuitka",
         config_docs_url="https://nuitka.net/doc/user-manual.html",
@@ -1172,7 +1172,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.15.5",
+        version="0.15.18",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
@@ -1277,7 +1277,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "zizmor": ToolSpec(
         name="zizmor",
-        version="1.23.0",
+        version="1.26.1",
         source_url="https://github.com/zizmorcore/zizmor",
         config_docs_url="https://docs.zizmor.sh/configuration/",
         cli_docs_url="https://docs.zizmor.sh/usage/",
