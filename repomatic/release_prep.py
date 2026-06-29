@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Prepare a release by updating changelog, citation, readme, and workflow files.
+"""Prepare a release by updating changelog, citation, install guide, and workflow files.
 
 A release cycle produces exactly two commits that **must** be merged via
 "Rebase and merge" (never squash):
@@ -25,7 +25,7 @@ A release cycle produces exactly two commits that **must** be merged via
    - Finalizes the changelog date and comparison URL.
    - Freezes workflow action references: `@main` → `@vX.Y.Z`.
    - Freezes CLI invocations: `--from . repomatic` → `'repomatic==X.Y.Z'`.
-   - Freezes readme binary download URLs to versioned release paths.
+   - Freezes the install guide's binary download URLs to versioned release paths.
    - Sets the release date in `citation.cff`.
 
 2. **Unfreeze commit** (`[changelog] Post-release bump vX.Y.Z → vX.Y.(Z+1)`):
@@ -65,7 +65,7 @@ class ReleasePrep:
         changelog_path: Path | None = None,
         citation_path: Path | None = None,
         workflow_dir: Path | None = None,
-        readme_path: Path | None = None,
+        install_path: Path | None = None,
         default_branch: str = "main",
     ) -> None:
         self.changelog_path = (
@@ -73,7 +73,7 @@ class ReleasePrep:
         )
         self.citation_path = citation_path or Path("./citation.cff").resolve()
         self.workflow_dir = workflow_dir or Path("./.github/workflows").resolve()
-        self.readme_path = readme_path or Path("./readme.md").resolve()
+        self.install_path = install_path or Path("./docs/install.md").resolve()
         self.default_branch = default_branch
         self.modified_files: list[Path] = []
 
@@ -239,12 +239,14 @@ class ReleasePrep:
             for line in lines
         )
 
-    def freeze_readme_download_urls(self, version: str) -> bool:
-        """Replace binary download URLs in readme with versioned release paths.
+    def freeze_install_download_urls(self, version: str) -> bool:
+        """Replace binary download URLs in the install guide with versioned paths.
 
-        This is part of the **freeze** step: it freezes readme download links
-        to a specific GitHub release so users get explicit, versioned URLs
-        instead of the `/releases/latest/download/` redirect.
+        This is part of the **freeze** step: it freezes the install guide's
+        download links to a specific GitHub release so users get explicit,
+        versioned URLs instead of the `/releases/latest/download/` redirect.
+        The versionless redirect cannot resolve because release assets are
+        version-stamped (`repomatic-{version}-linux-arm64.bin`).
 
         Handles two input forms:
 
@@ -258,20 +260,20 @@ class ReleasePrep:
 
         ```{note}
         No unfreeze method is needed. Unlike workflow URLs (which toggle
-        `@main` ↔ `@vX.Y.Z`), readme download URLs ratchet forward —
-        they always point to a specific release. After unfreeze, the readme
-        still shows the last release's URLs, which is correct for users
-        wanting stable binaries.
+        `@main` ↔ `@vX.Y.Z`), download URLs ratchet forward — they always
+        point to a specific release. After unfreeze, the install guide still
+        shows the last release's URLs, which is correct for users wanting
+        stable binaries.
         ```
 
         :param version: The release version to freeze to.
         :return: True if the file was modified.
         """
-        if not self.readme_path.exists():
-            logging.debug(f"Readme file not found: {self.readme_path}")
+        if not self.install_path.exists():
+            logging.debug(f"Install guide not found: {self.install_path}")
             return False
 
-        original = self.readme_path.read_text(encoding="UTF-8")
+        original = self.install_path.read_text(encoding="UTF-8")
 
         # Pass 1: Rewrite URL paths from /releases/latest/download/ or
         # /releases/download/vX.Y.Z/ to /releases/download/v{version}/.
@@ -291,7 +293,7 @@ class ReleasePrep:
             content,
         )
 
-        return self._update_file(self.readme_path, content, original)
+        return self._update_file(self.install_path, content, original)
 
     def freeze_cli_version(self, version: str) -> int:
         """Replace local source CLI invocations with a frozen PyPI version.
@@ -418,7 +420,7 @@ class ReleasePrep:
         if update_workflows:
             self.freeze_workflow_urls()
             self.freeze_cli_version(self.current_version)
-            self.freeze_readme_download_urls(self.current_version)
+            self.freeze_install_download_urls(self.current_version)
 
         return self.modified_files
 

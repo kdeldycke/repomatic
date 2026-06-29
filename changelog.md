@@ -21,6 +21,8 @@
 - Drop the `pydriller` dependency: Git history operations now invoke the `git` CLI directly, shrinking the install and compiled-binary footprint.
 - `repomatic run` now animates a spinner while downloading a tool whose server omits a `Content-Length`, where it previously showed nothing.
 - Fix `sync-tool-versions` never proposing Nuitka version bumps: the `nuitka[onefile]` install extra broke the PyPI lookup, so updates were silently skipped.
+- Fix the installation guide's standalone-binary download links, which 404'd because they pointed at versionless release assets instead of the versioned files GitHub publishes.
+- Fix stale documentation links: the `pipx` installation guide and the GitHub matrix-strategy reference now point to their relocated pages.
 
 ## [`6.31.0` (2026-06-27)](https://github.com/kdeldycke/repomatic/compare/v6.30.0...v6.31.0)
 
@@ -54,7 +56,7 @@
 > [!NOTE]
 > `6.29.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.29.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.29.0).
 
-- **Breaking:** Remove the `repomatic test-plan` command and `[tool.repomatic] test-plan` config. The declarative test-plan engine moved upstream to [click-extra](https://kdeldycke.github.io/click-extra/test-plan.html); run `click-extra test-plan` instead, configured via `[tool.click-extra.test-plan]`.
+- **Breaking:** Remove the `repomatic test-plan` command and `[tool.repomatic] test-plan` config. The declarative test-plan engine moved upstream to [click-extra](https://kdeldycke.github.io/click-extra/test-suite.html); run `click-extra test-plan` instead, configured via `[tool.click-extra.test-plan]`.
 - Add `repomatic show-test-matrix` to render the CI test matrix as a Python-version by OS grid in any `--table-format`.
 - Add `repomatic init uv` to sync the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) into `pyproject.toml`; `sync-uv-lock` applies the same sync, so every machine resolves `uv.lock` with the same uv.
 - Require `click-extra >= 8`; the `manpages` release job now uses `click-extra wrap --man` to generate man pages.

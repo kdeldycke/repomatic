@@ -600,10 +600,10 @@ def test_unfreeze_workflow_urls(
 
 
 @pytest.fixture
-def temp_readme(tmp_path: Path) -> Path:
-    """Create a temporary readme with binary download table."""
-    readme = tmp_path / "readme.md"
-    readme.write_text(
+def temp_install(tmp_path: Path) -> Path:
+    """Create a temporary install guide with binary download table."""
+    install_md = tmp_path / "install.md"
+    install_md.write_text(
         dedent("""\
             # My Project
 
@@ -617,14 +617,14 @@ def temp_readme(tmp_path: Path) -> Path:
             """),
         encoding="UTF-8",
     )
-    return readme
+    return install_md
 
 
 @pytest.fixture
-def temp_readme_frozen(tmp_path: Path) -> Path:
-    """Create a temporary readme with previously frozen download URLs."""
-    readme = tmp_path / "readme.md"
-    readme.write_text(
+def temp_install_frozen(tmp_path: Path) -> Path:
+    """Create a temporary install guide with previously frozen download URLs."""
+    install_md = tmp_path / "install.md"
+    install_md.write_text(
         dedent("""\
             # My Project
 
@@ -638,23 +638,23 @@ def temp_readme_frozen(tmp_path: Path) -> Path:
             """),
         encoding="UTF-8",
     )
-    return readme
+    return install_md
 
 
-def test_freeze_readme_download_urls(
+def test_freeze_install_download_urls(
     tmp_path: Path,
-    temp_readme: Path,
+    temp_install: Path,
     temp_pyproject: Path,
     monkeypatch,
 ) -> None:
     """Test that initial ``/releases/latest/download/`` URLs are frozen."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(readme_path=temp_readme)
-    result = prep.freeze_readme_download_urls("1.2.3")
+    prep = ReleasePrep(install_path=temp_install)
+    result = prep.freeze_install_download_urls("1.2.3")
 
     assert result is True
-    content = temp_readme.read_text(encoding="UTF-8")
+    content = temp_install.read_text(encoding="UTF-8")
     assert "/releases/latest/download/" not in content
     assert "/releases/download/v1.2.3/" in content
     assert "repomatic-1.2.3-linux-arm64.bin" in content
@@ -665,20 +665,20 @@ def test_freeze_readme_download_urls(
     assert "repomatic-1.2.3-windows-x64.exe" in content
 
 
-def test_freeze_readme_download_urls_already_frozen(
+def test_freeze_install_download_urls_already_frozen(
     tmp_path: Path,
-    temp_readme_frozen: Path,
+    temp_install_frozen: Path,
     temp_pyproject: Path,
     monkeypatch,
 ) -> None:
     """Test that previously frozen URLs are re-frozen to new version."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(readme_path=temp_readme_frozen)
-    result = prep.freeze_readme_download_urls("1.2.3")
+    prep = ReleasePrep(install_path=temp_install_frozen)
+    result = prep.freeze_install_download_urls("1.2.3")
 
     assert result is True
-    content = temp_readme_frozen.read_text(encoding="UTF-8")
+    content = temp_install_frozen.read_text(encoding="UTF-8")
     assert "v1.2.2" not in content
     assert "1.2.2" not in content
     assert "/releases/download/v1.2.3/" in content
@@ -686,19 +686,19 @@ def test_freeze_readme_download_urls_already_frozen(
     assert "repomatic-1.2.3-windows-x64.exe" in content
 
 
-def test_freeze_readme_download_urls_updates_link_text(
+def test_freeze_install_download_urls_updates_link_text(
     tmp_path: Path,
-    temp_readme: Path,
+    temp_install: Path,
     temp_pyproject: Path,
     monkeypatch,
 ) -> None:
     """Test that display text in markdown links is also updated."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(readme_path=temp_readme)
-    prep.freeze_readme_download_urls("1.2.3")
+    prep = ReleasePrep(install_path=temp_install)
+    prep.freeze_install_download_urls("1.2.3")
 
-    content = temp_readme.read_text(encoding="UTF-8")
+    content = temp_install.read_text(encoding="UTF-8")
     # Display text inside backticks should be updated.
     assert "`repomatic-1.2.3-linux-arm64.bin`" in content
     assert "`repomatic-1.2.3-windows-x64.exe`" in content
@@ -707,42 +707,42 @@ def test_freeze_readme_download_urls_updates_link_text(
     assert "`repomatic-windows-x64.exe`" not in content
 
 
-def test_freeze_readme_missing_file(
+def test_freeze_install_missing_file(
     tmp_path: Path,
     temp_pyproject: Path,
     monkeypatch,
 ) -> None:
-    """Test that missing readme is handled gracefully."""
+    """Test that a missing install guide is handled gracefully."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(readme_path=tmp_path / "nonexistent.md")
-    result = prep.freeze_readme_download_urls("1.2.3")
+    prep = ReleasePrep(install_path=tmp_path / "nonexistent.md")
+    result = prep.freeze_install_download_urls("1.2.3")
 
     assert result is False
 
 
-def test_prepare_release_freezes_readme(
+def test_prepare_release_freezes_install(
     tmp_path: Path,
     temp_changelog: Path,
     temp_citation: Path,
     temp_workflows: Path,
-    temp_readme: Path,
+    temp_install: Path,
     temp_pyproject: Path,
     monkeypatch,
 ) -> None:
-    """Test that ``prepare_release(update_workflows=True)`` freezes readme URLs."""
+    """Test that ``prepare_release(update_workflows=True)`` freezes install URLs."""
     monkeypatch.chdir(tmp_path)
 
     prep = ReleasePrep(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
         workflow_dir=temp_workflows,
-        readme_path=temp_readme,
+        install_path=temp_install,
     )
     modified = prep.prepare_release(update_workflows=True)
 
-    assert temp_readme in modified
-    content = temp_readme.read_text(encoding="UTF-8")
+    assert temp_install in modified
+    content = temp_install.read_text(encoding="UTF-8")
     assert "/releases/latest/download/" not in content
     assert "/releases/download/v1.2.3/" in content
     assert "repomatic-1.2.3-linux-arm64.bin" in content

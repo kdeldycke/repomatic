@@ -268,7 +268,7 @@ class Matrix:
         """Expand the matrix to explicit jobs, applying `exclude` then `include`.
 
         Reproduces [GitHub's documented matrix
-        algorithm](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations#using-a-matrix-strategy):
+        algorithm](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations#about-matrix-strategies):
 
         1. Build the cross-product of the base variations.
         2. Drop every combination matching an `exclude` directive. A directive

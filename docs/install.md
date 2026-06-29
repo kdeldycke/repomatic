@@ -72,7 +72,7 @@ If you have difficulties to use `pip`, see [`pip`'s own installation instruction
 ````
 
 ````{tab-item} pipx
-[`pipx`](https://pipx.pypa.io/stable/installation/) is a great way to install Python applications globally:
+[`pipx`](https://pipx.pypa.io/stable/how-to/install-pipx/) is a great way to install Python applications globally:
 
 ```{code-block} shell-session
 $ pipx install repomatic
@@ -118,11 +118,11 @@ The table below shows which Python versions each `repomatic` release range suppo
 
 To ease deployment, standalone executables of `repomatic`'s latest version are available as direct downloads for several platforms and architectures:
 
-| Platform    | `arm64`                                                                                                                               | `x86_64`                                                                                                                          |
-| :---------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux**   | [Download `repomatic-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-linux-arm64.bin)     | [Download `repomatic-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-linux-x64.bin)     |
-| **macOS**   | [Download `repomatic-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-macos-arm64.bin)     | [Download `repomatic-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-macos-x64.bin)     |
-| **Windows** | [Download `repomatic-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-windows-arm64.exe) | [Download `repomatic-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-windows-x64.exe) |
+| Platform    | `arm64`                                                                                                                                              | `x86_64`                                                                                                                                         |
+| :---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Linux**   | [Download `repomatic-6.31.0-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.31.0/repomatic-6.31.0-linux-arm64.bin)     | [Download `repomatic-6.31.0-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.31.0/repomatic-6.31.0-linux-x64.bin)     |
+| **macOS**   | [Download `repomatic-6.31.0-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.31.0/repomatic-6.31.0-macos-arm64.bin)     | [Download `repomatic-6.31.0-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v6.31.0/repomatic-6.31.0-macos-x64.bin)     |
+| **Windows** | [Download `repomatic-6.31.0-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v6.31.0/repomatic-6.31.0-windows-arm64.exe) | [Download `repomatic-6.31.0-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v6.31.0/repomatic-6.31.0-windows-x64.exe) |
 
 That way you have a chance to try it out without installing Python or `uv`. Or embed it in your CI/CD pipelines running on minimal images. Or run it on old platforms without worrying about dependency hell.
 

@@ -59,6 +59,17 @@ myst_enable_extensions = [
 # See: https://github.com/mgaitan/sphinxcontrib-mermaid/issues/99#issuecomment-2339587001
 myst_fence_as_directive = ["mermaid"]
 
+# Register every heading as a resolvable cross-reference target so in-page
+# `[text](#anchor)` links resolve (and broken ones warn) at build time, making
+# Sphinx the authority for internal anchors. The slug function is pinned to
+# docutils' `make_id` so MyST anchors match the section IDs docutils already
+# emits (`cache.dir` → `cache-dir`), keeping existing anchor URLs stable. This
+# is also why the Lychee config skips intra-`docs/` fragment links: its
+# GitHub-style slugger strips dots (`cache.dir` → `cachedir`) and cannot see
+# these anchors, so it would false-positive links that resolve fine here.
+myst_heading_anchors = 6
+myst_heading_slug_func = "docutils.nodes.make_id"
+
 mermaid_d3_zoom = True
 
 # Enable the `{click:run}`/`{click:source}` and `{python:*}` execution directives
@@ -148,12 +159,22 @@ linkcheck_anchors_ignore = [
 # GitHub README anchors are JS-rendered and invisible to linkcheck.
 linkcheck_anchors_ignore_for_url = [
     r"https://github\.com/",
+    # star-history.com builds its chart and anchor with JavaScript.
+    r"https://star-history\.com/",
 ]
+
+# Some links time out the linkcheck bot intermittently (like biomejs.dev);
+# retry before reporting them as broken.
+linkcheck_retries = 3
 
 linkcheck_ignore = [
     # These sites return 403 to bots but are valid.
     r"https://docutils\.sourceforge\.io",
     r"https://www\.bitdefender\.com/submit/",
+    # npmjs.com returns 403 to bots.
+    r"https://www\.npmjs\.com/package/",
+    # githubstatus.com returns 405 to HEAD requests from bots.
+    r"https://www\.githubstatus\.com",
 ]
 
 # OpenGraph / social previews.

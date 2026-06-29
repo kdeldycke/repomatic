@@ -418,6 +418,14 @@ exclude = [
   "^https://www\\.npmjs\\.com/package/.*$",
   # star-history.com fragments are JS-rendered and invisible to lychee.
   "^https://star-history\\.com/.*$",
+  # githubstatus.com returns 405 to HEAD requests from bots.
+  "githubstatus\\.com",
+  # Local intra-docs heading fragments are Sphinx cross-references, validated
+  # at doc build time via `myst_heading_anchors`. Lychee's GitHub-style slugger
+  # strips dots (`cache.dir` → `cachedir`) and cannot see MyST `(target)=`
+  # anchors, so it would false-positive links that resolve fine in the rendered
+  # docs. Anchored to `file://` so external `.../docs/*.md#` URLs stay checked.
+  "^file://.*/docs/[\\w.-]+\\.md#",
 ]
 exclude_path = [
   # Template files contain $variable placeholders that are not real URLs.

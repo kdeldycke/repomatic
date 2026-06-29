@@ -29,8 +29,8 @@ import pytest
 
 from repomatic.binary import BINARY_ARCH_MAPPINGS, NUITKA_BUILD_TARGETS
 
-# The regex from ReleasePrep.freeze_readme_urls, extracted here so the test
-# breaks loudly if the pattern is changed without updating this file.
+# The regex from ReleasePrep.freeze_install_download_urls, extracted here so the
+# test breaks loudly if the pattern is changed without updating this file.
 BINARY_FILENAME_RE = re.compile(
     r"repomatic(?:-[\d.]+)?-"
     r"((?:linux|macos|windows)-(?:arm64|x64))\.(bin|exe)",
