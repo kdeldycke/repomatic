@@ -23,6 +23,7 @@
 - Fix `sync-tool-versions` never proposing Nuitka version bumps: the `nuitka[onefile]` install extra broke the PyPI lookup, so updates were silently skipped.
 - Fix the installation guide's standalone-binary download links, which 404'd because they pointed at versionless release assets instead of the versioned files GitHub publishes.
 - Fix stale documentation links: the `pipx` installation guide and the GitHub matrix-strategy reference now point to their relocated pages.
+- Fix `update-deps-graph` rendering only one of several extras or dependency groups that share a directly-declared dependency; each now gets its own subgraph.
 
 ## [`6.31.0` (2026-06-27)](https://github.com/kdeldycke/repomatic/compare/v6.30.0...v6.31.0)
 

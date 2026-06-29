@@ -24,6 +24,7 @@ from repomatic.deps_graph import (
     _compute_node_degrees,
     _compute_node_depths,
     _compute_subtree_sizes,
+    attribute_subgraph_packages,
     build_dependency_graph,
     filter_graph_to_package,
     get_available_extras,
@@ -367,6 +368,85 @@ def test_render_mermaid_with_extras() -> None:
     assert "subgraph ext_xml [--extra xml]" in output
     # Root uses dashed arrow to extra subgraph.
     assert "my_project -.-> ext_xml" in output
+
+
+def test_attribute_subgraph_packages_duplicate_headlines() -> None:
+    # Three subgraphs share the directly-declared package `sugar`; `water` is a
+    # base dependency excluded from every box.
+    subgraph_closures = [
+        ("bakery", {"flour", "sugar", "water"}),
+        ("cafe", {"sugar", "water"}),
+        ("diner", {"sugar", "plate", "water"}),
+    ]
+    direct_packages = {
+        "bakery": {"flour", "sugar"},
+        "cafe": {"sugar"},
+        "diner": {"sugar", "plate"},
+    }
+    primary, duplicates = attribute_subgraph_packages(
+        subgraph_closures, {"water"}, direct_packages
+    )
+    # First declarer (processing order) owns the shared headline as a real node.
+    assert primary["bakery"] == {"flour", "sugar"}
+    assert primary["cafe"] == set()
+    assert primary["diner"] == {"plate"}
+    # Base dependency never lands in a subgraph.
+    assert all("water" not in pkgs for pkgs in primary.values())
+    # Siblings that also declare `sugar` keep it as a duplicate headline, so
+    # their box still renders the dependency they exist to install.
+    assert duplicates["bakery"] == set()
+    assert duplicates["cafe"] == {"sugar"}
+    assert duplicates["diner"] == {"sugar"}
+
+
+def test_attribute_subgraph_packages_equivalent_subgraphs() -> None:
+    # Two subgraphs declare the same single package: dependency-equivalent. One
+    # owns the node, the other shows it as a duplicate, so both boxes render.
+    subgraph_closures = [("cider", {"juice"}), ("wine", {"juice"})]
+    direct_packages = {"cider": {"juice"}, "wine": {"juice"}}
+    primary, duplicates = attribute_subgraph_packages(
+        subgraph_closures, set(), direct_packages
+    )
+    assert primary["cider"] == {"juice"}
+    assert primary["wine"] == set()
+    assert duplicates["cider"] == set()
+    assert duplicates["wine"] == {"juice"}
+
+
+def test_render_mermaid_with_duplicate_headlines() -> None:
+    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    # `pyyaml` is a shared headline: owned by extra `carapace`, duplicated into
+    # extra `yaml` so both boxes render it (see attribute_subgraph_packages).
+    extra_packages = {"carapace": {"pyyaml"}, "yaml": set()}
+    extra_duplicates = {"carapace": set(), "yaml": {"pyyaml"}}
+    extended_nodes = dict(nodes)
+    extended_nodes["pyyaml-7@6.0.3"] = ("pyyaml", "6.0.3")
+    extended_edges = list(edges) + [("my-project", "pyyaml")]
+    lock_specs = LockSpecifiers(
+        by_package={},
+        by_subgraph={
+            "carapace": {"pyyaml": ">=6.0.3"},
+            "yaml": {"pyyaml": ">=6.0.3"},
+        },
+    )
+    output = render_mermaid(
+        root_name,
+        extended_nodes,
+        extended_edges,
+        extra_packages=extra_packages,
+        lock_specs=lock_specs,
+        extra_duplicates=extra_duplicates,
+    )
+    # Owner renders the real node; the duplicate box uses a prefixed node ID so
+    # Mermaid keeps it separate, with the same label and PyPI link.
+    assert 'pyyaml{{"`pyyaml >=6.0.3`"}}' in output
+    assert 'ext_yaml_pyyaml{{"`pyyaml >=6.0.3`"}}' in output
+    # The duplicate-only box still renders and gets a dashed arrow from root.
+    assert "subgraph ext_yaml [--extra yaml]" in output
+    assert "my_project -.-> ext_yaml" in output
+    # Duplicate node links to PyPI and gets the thick primary border.
+    assert 'click ext_yaml_pyyaml "https://pypi.org/project/pyyaml/" _blank' in output
+    assert "style ext_yaml_pyyaml stroke-width:3px" in output
 
 
 def test_compute_node_degrees() -> None:
