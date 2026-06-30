@@ -66,7 +66,7 @@ These steps take a downstream repository from a fresh checkout to its first rele
    /repomatic-changelog add
    ```
 
-3. Hand the rest to [`/repomatic-ship`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-ship/SKILL.md): it reconciles the changelog, code, and docs, commits and pushes (rebuilding the [release PR](workflows.md#release-engineering)), then runs [`/babysit-ci`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/babysit-ci/SKILL.md) until `main` is green, catching [Nuitka binary-build](workflows.md#github-workflows-release-engine-yaml-jobs) breakage. It shows the changelog diff before the commit prompt, so you approve each step as you go:
+3. Hand the rest to [`/repomatic-ship`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-ship/SKILL.md): it reconciles the changelog, code, and docs, commits and pushes (rebuilding the [release PR](workflows.md#release-engineering)), then runs [`/babysit-ci`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/babysit-ci/SKILL.md) until `main` is green, catching [Nuitka binary-build](#github-workflows-release-engine-yaml-jobs) breakage. It shows the changelog diff before the commit prompt, so you approve each step as you go:
 
    ```text
    /repomatic-ship
