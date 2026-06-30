@@ -307,7 +307,6 @@ pretty = true
 warn_unused_configs = true
 overrides = [
   { module = [
-    "bumpversion.*",
     "py_walk.*",
     "vt",
   ], ignore_missing_imports = true },
