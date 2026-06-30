@@ -605,8 +605,15 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         if plan.cutoff is not None
         else ""
     )
-    # npm and PyPI literals carry no GitHub release notes (the "GitHub sources
-    # only" scope), so no notes_section is built here.
+    if rc.release_notes:
+        # Only PyPI literals resolve to a source repo, reusing sync-uv-lock's
+        # path: PyPI `project_urls` to GitHub releases, with a changelog-link
+        # fallback. npm literals have no discovery path, so they are left out.
+        pypi_packages = {pkg for eco, pkg in resolved if eco == "pypi"}
+        pypi_changes = [c for c in plan.changes if c[0] in pypi_packages]
+        if pypi_changes:
+            notes = fetch_release_notes(pypi_changes)
+            plan.notes_section = format_release_notes(notes)
     return plan
 
 
@@ -760,6 +767,7 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
         applies_here=_workflow_files_present,
         write_domain=(".github/workflows/*.yaml", ".github/actions/**/*.yaml"),
         needs_gh_token=True,
+        ci_flags=("--release-notes",),
     ),
     SyncOperation(
         name="sync-tool-versions",

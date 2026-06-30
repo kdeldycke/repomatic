@@ -776,7 +776,7 @@ All four updaters inside `sync-deps` share the [`minimum-release-age`](configura
 
 To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically: no manual bump required.
 
-Each cooldown-gated PR mirrors the `sync-uv-lock` body. Above the update table it prints the effective cutoff date (`today` minus `minimum-release-age`). For GitHub-sourced pins (every action, plus the GitHub-backed registry tools), a `Release notes` dropdown then collects the adopted versions' upstream notes. A final `🔜 Held back by cooldown` section lists every scanned pin with a newer release still inside the window, alongside the date each becomes adoptable.
+Each cooldown-gated PR mirrors the `sync-uv-lock` body. Above the update table it prints the effective cutoff date (`today` minus `minimum-release-age`). For pins that resolve to a GitHub source (every action, the GitHub-backed registry tools, and PyPI version literals in workflows), a `Release notes` dropdown then collects the adopted versions' upstream notes; npm literals have no source-discovery path, so they carry no notes. A final `🔜 Held back by cooldown` section lists every scanned pin with a newer release still inside the window, alongside the date each becomes adoptable.
 
 #### `uv.lock` and `--exclude-newer`
 

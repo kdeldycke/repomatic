@@ -640,7 +640,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --from . repomatic sync-workflow-pins
+          uvx --no-progress --from . repomatic sync-workflow-pins --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: sync-workflow-pins-meta
         if: fromJSON(needs.metadata.outputs.metadata).workflow_files

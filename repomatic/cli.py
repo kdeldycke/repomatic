@@ -3153,6 +3153,7 @@ def sync_action_pins(
     default=None,
     help="Write a markdown report (version table) to this file.",
 )
+@sync_release_notes_option
 @sync_held_back_option
 @output_format_option
 @pass_context
@@ -3160,6 +3161,7 @@ def sync_workflow_pins(
     ctx: Context,
     output: Path | None,
     output_format: str,
+    release_notes: bool,
     held_back: bool,
 ) -> None:
     """Bump npm and PyPI version literals embedded in workflow YAML.
@@ -3184,6 +3186,7 @@ def sync_workflow_pins(
     rc = ResolveContext(
         config=config,
         today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
         held_back=held_back,
     )
     plan = op.resolve(rc)
@@ -3207,6 +3210,7 @@ def sync_workflow_pins(
         min_age_label=config.minimum_release_age,
         held_back=plan.held_back,
         held_back_name_urls=plan.held_back_name_urls,
+        notes_section=plan.notes_section,
     )
 
 

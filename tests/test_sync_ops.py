@@ -263,6 +263,27 @@ def test_consolidated_job_covers_every_operation() -> None:
     assert pr_branches == {op.branch for op in SYNC_OPERATIONS}
 
 
+@pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
+def test_consolidated_job_passes_ci_flags(op: SyncOperation) -> None:
+    """Each operation's `ci_flags` reach its sync step in the autofix job.
+
+    The drift guard: an updater that declares a CI capability (like
+    `--release-notes`) whose consolidated-job step never passes it silently
+    drops the feature from the PR body. Fails by name when the registry and the
+    YAML disagree.
+    """
+    steps = _consolidated_job_steps()
+    sync_runs = [
+        run
+        for step in steps
+        if f"repomatic {op.name} " in (run := step.get("run", ""))
+        and "pr-body" not in run
+    ]
+    assert len(sync_runs) == 1, f"expected exactly one sync step for {op.name}"
+    for flag in op.ci_flags:
+        assert flag in sync_runs[0], f"{op.name} step is missing {flag!r}"
+
+
 def test_consolidated_job_uses_full_history() -> None:
     """The job checks out full history so repeated create-pull-request calls in
     one checkout do not trip git's "shallow file has changed" race."""

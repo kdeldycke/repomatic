@@ -367,6 +367,69 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
     )
 
 
+def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
+    """`sync-workflow-pins --release-notes` fetches notes for PyPI pins only.
+
+    npm literals have no source-discovery path, so they are excluded from the
+    `fetch_release_notes` call even when bumped in the same run, while the PyPI
+    literal's notes still render.
+    """
+    today = datetime.now(timezone.utc).date()
+    eligible = (today - timedelta(days=30)).isoformat()
+    captured: dict[str, object] = {}
+
+    def fake_fetch(changes):
+        captured["changes"] = changes
+        return {"mango": ("https://github.com/owner/mango", [("v2.0.0", "the notes")])}
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        workflow = Path(".github/workflows/ci.yaml")
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(
+            "jobs:\n  build:\n    steps:\n"
+            "      - run: npm install grape@1.0.0\n"
+            "      - run: uvx 'mango==1.0.0'\n",
+            encoding="UTF-8",
+        )
+        with (
+            patch(
+                "repomatic.sync_ops.npm_candidates",
+                return_value=[
+                    vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")
+                ],
+            ),
+            patch(
+                "repomatic.sync_ops.pypi_candidates",
+                return_value=[
+                    vs.Candidate(version="2.0.0", date=eligible, ref="2.0.0")
+                ],
+            ),
+            patch("repomatic.sync_ops.fetch_release_notes", side_effect=fake_fetch),
+        ):
+            result = runner.invoke(
+                repomatic,
+                [
+                    "sync-workflow-pins",
+                    "--release-notes",
+                    "--output",
+                    "out.md",
+                    "--output-format",
+                    "markdown",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        body = Path("out.md").read_text(encoding="UTF-8")
+
+    # Both literals were bumped in the file.
+    assert "grape" in body
+    assert "mango" in body
+    # Notes were fetched for the PyPI literal only, never the npm one.
+    assert captured["changes"] == [("mango", "1.0.0", "2.0.0")]
+    assert "### Release notes" in body
+    assert "the notes" in body
+
+
 def test_pypi_candidates_skips_yanked():
     fake = {
         "1.0.0": PyPIRelease(date="2026-01-01", yanked=False, package="p"),
