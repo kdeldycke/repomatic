@@ -136,6 +136,16 @@ The version string is always bare (`1.2.3`). The `v` prefix is a **tag namespace
 
 Never write `#N` (a literal `#` followed by a number) in commit messages, PR titles, or PR bodies unless N is an actual issue/PR number in the target repo. GitHub auto-links every `#N`, so positional refs like `test #1` render as misleading cross-references. Use plain numbers (`test 1`, `tests 14 and 15`), backtick-quote a slot identifier (`` test `1` ``), or rephrase (`the first test`).
 
+### Linking to external repositories in Markdown
+
+In Markdown (changelog, `readme.md`, `docs/`, issue and PR bodies), link to another repository using GitHub's reference slug as the link text, not the raw URL:
+
+- Issue or PR: `[owner/repo#N](https://github.com/owner/repo/issues/N)`. Issues and PRs share one number space; pick `/issues/N` or `/pull/N` to match the real type (GitHub redirects either way).
+- Commit: `[owner/repo@shortsha](https://github.com/owner/repo/commit/fullsha)`.
+- Repository homepage: `[owner/repo](https://github.com/owner/repo)`.
+
+GitHub autolinks the bare `owner/repo#N` form only inside conversations (issues, PRs, commit messages), never in committed files, so the explicit link is what renders the compact slug in a Markdown file. Same-repo references drop the slug: `[#N](…/issues/N)`.
+
 ### Comments and docstrings
 
 - All comments in Python files must end with a period.
