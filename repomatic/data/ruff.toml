@@ -13,6 +13,13 @@ extend-include = [ "*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx}" ]
 # Enable reformatting of code snippets in docstrings.
 # https://docs.astral.sh/ruff/formatter/#docstring-formatting
 format.docstring-code-format = true
+# PLW1514: `open` and friends called without an explicit `encoding` argument.
+#   Windows defaults text I/O to cp1252, so a bare `open()`, `read_text()` or
+#   `write_text()` breaks on non-ASCII content, and only on Windows runners.
+#   Preview rule; its type inference misses unannotated `Path` locals, so
+#   PEP 597's `PYTHONWARNDEFAULTENCODING=1` remains the complete runtime net.
+#   See: https://docs.astral.sh/ruff/rules/unspecified-encoding/
+lint.extend-select = [ "PLW1514" ]
 # D400: First line should end with a period.
 #   Allows docstrings to end up with any punctuation, not just a period.
 #   See: https://github.com/astral-sh/ruff/issues/1858#issuecomment-1382640623

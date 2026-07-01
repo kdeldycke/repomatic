@@ -447,7 +447,9 @@ def test_has_files_section() -> None:
 
 def test_init_config_adds_root_section() -> None:
     """Verify that init_config produces a [tool.mypy] section."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
         f.flush()
         result = init_config("mypy", Path(f.name))
@@ -458,7 +460,9 @@ def test_init_config_adds_root_section() -> None:
 
 def test_init_config_transforms_subsections() -> None:
     """Verify that ruff lint config appears under [tool.ruff]."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
         f.flush()
         result = init_config("ruff", Path(f.name))
@@ -470,7 +474,9 @@ def test_init_config_transforms_subsections() -> None:
 
 def test_init_config_transforms_array_sections() -> None:
     """Verify that array sections get the tool prefix."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
         f.flush()
         result = init_config("bumpversion", Path(f.name))
@@ -481,7 +487,9 @@ def test_init_config_transforms_array_sections() -> None:
 
 def test_init_config_preserves_template_comments() -> None:
     """Verify that template comments are preserved during init."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
         f.flush()
         result = init_config("bumpversion", Path(f.name))
@@ -493,7 +501,9 @@ def test_init_config_preserves_template_comments() -> None:
 
 def test_init_config_lychee_preserves_other_sections() -> None:
     """Lychee init merges [tool.lychee] without stripping unrelated sections."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write(
             "[tool.gitleaks]\n"
             "[tool.gitleaks.allowlist]\n"
@@ -541,7 +551,9 @@ def test_init_config_uv_overlay_noop_when_pins_match() -> None:
         'exclude-newer-package = { mango = "0 day" }\n'
         'build-backend.module-root = ""\n'
     )
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write(content)
         f.flush()
         path = Path(f.name)
@@ -564,7 +576,9 @@ def test_init_config_uv_overlay_updates_stale_pins_in_place() -> None:
         'exclude-newer-package = { mango = "0 day" }\n'
         'build-backend.module-root = ""\n'
     )
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write(content)
         f.flush()
         path = Path(f.name)
@@ -601,7 +615,9 @@ def test_init_config_uv_overlay_appends_missing_pins() -> None:
         'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
         'exclude-newer-package = { mango = "0 day" }\n'
     )
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write(content)
         f.flush()
         path = Path(f.name)
@@ -620,7 +636,9 @@ def test_init_config_uv_overlay_appends_missing_pins() -> None:
 
 def test_full_ruff_init() -> None:
     """Verify full ruff config initialization."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
         f.flush()
         result = init_config("ruff", Path(f.name))
@@ -637,7 +655,9 @@ def test_full_ruff_init() -> None:
 
 def test_adds_config_to_empty_pyproject() -> None:
     """Verify that config is added to a pyproject.toml without the section."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
         f.flush()
         path = Path(f.name)
@@ -657,7 +677,9 @@ def test_adds_config_to_empty_pyproject() -> None:
 
 def test_adds_bumpversion_with_array_sections() -> None:
     """Verify that bumpversion [[files]] sections are transformed."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
         f.flush()
         path = Path(f.name)
@@ -673,7 +695,9 @@ def test_adds_bumpversion_with_array_sections() -> None:
 
 def test_returns_none_if_section_exists() -> None:
     """Verify that None is returned if the section already exists."""
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write(
             '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.ruff]\npreview = false\n'
         )
@@ -690,7 +714,9 @@ def test_returns_none_if_section_exists() -> None:
 def test_preserves_existing_content() -> None:
     """Verify that existing content is preserved when adding config."""
     original = '[project]\nname = "test"\nversion = "1.0.0"\n'
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write(original)
         f.flush()
         path = Path(f.name)
@@ -1257,7 +1283,9 @@ def _make_pyproject_with_template_bumpversion(version: str = "7.5.3.dev0") -> st
     Used as a fixture for tests that need an already-up-to-date config.
     """
     base = f'[project]\nname = "test-project"\nversion = "{version}"\n'
-    with NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+    with NamedTemporaryFile(
+        encoding="utf-8", mode="w", suffix=".toml", delete=False
+    ) as f:
         f.write(base)
         f.flush()
         result = init_config("bumpversion", Path(f.name))

@@ -1447,6 +1447,7 @@ def _store_config_to_cache(
         spec.name,
     )
     with tempfile.NamedTemporaryFile(
+        encoding="utf-8",
         mode="w",
         suffix=f".{spec.native_format.value}",
         prefix=f"repomatic-{spec.name}-",
