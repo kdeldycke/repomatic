@@ -355,7 +355,7 @@ def test_install_npm_without_npm_raises(mock_which, tmp_path):
         ("11.9.0\n", False),
         ("11.10.0\n", True),
         ("11.12.1\n", True),
-        # An unparseable version assumes support, so no spurious warning fires.
+        # An unparsable version assumes support, so no spurious warning fires.
         ("garbage\n", True),
     ],
 )
