@@ -363,7 +363,6 @@ from .test_matrix import (
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
 )
-from .version_sync import min_release_age_days
 
 if sys.version_info >= (3, 11):
     from enum import StrEnum
@@ -438,9 +437,6 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "coverage_cells": "Matrix cells eligible for Codecov coverage upload.",
     "minor_bump_allowed": "Minor version bump is allowed by commit history.",
     "major_bump_allowed": "Major version bump is allowed by commit history.",
-    "npm_min_release_age": (
-        "minimum-release-age in whole days, for npm's min-release-age cooldown."
-    ),
 }
 """One-liner descriptions for each metadata key produced by {meth}`Metadata.dump`."""
 
@@ -1654,17 +1650,6 @@ class Metadata:
         return load_repomatic_config(self.pyproject_toml)
 
     @cached_property
-    def npm_min_release_age(self) -> int:
-        """`minimum-release-age` in whole days, for npm's `min-release-age`.
-
-        Feeds the `lint-awesome` job so `awesome-lint` and its transitive
-        dependencies resolve only to versions past the same stabilization window
-        `sync-workflow-pins` applies to the pinned version literal. `0` disables
-        the cooldown. See {func}`repomatic.version_sync.min_release_age_days`.
-        """
-        return min_release_age_days(self.config.minimum_release_age)
-
-    @cached_property
     def nuitka_entry_points(self) -> list[str]:
         """Entry points selected for Nuitka binary compilation.
 
@@ -2611,7 +2596,6 @@ class Metadata:
             "coverage_cells": lambda: self.coverage_cells,
             "minor_bump_allowed": lambda: self.minor_bump_allowed,
             "major_bump_allowed": lambda: self.major_bump_allowed,
-            "npm_min_release_age": lambda: self.npm_min_release_age,
         }
 
         # Add config from [tool.repomatic] in pyproject.toml.

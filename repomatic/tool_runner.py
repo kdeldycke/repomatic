@@ -38,6 +38,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -69,11 +70,12 @@ from extra_platforms import (
     is_github_ci,
 )
 from packaging.requirements import Requirement
+from packaging.version import Version
 
 from .cache import get_cached_binary, store_binary
 from .config import load_repomatic_config
 from .uv import uv_cmd, uvx_cmd
-from .version_sync import exclude_newer_cutoff
+from .version_sync import exclude_newer_cutoff, min_release_age_days
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -394,6 +396,38 @@ class BinarySpec:
         return f"{key[0].id}-{key[1].id}"
 
 
+NPM_MIN_VERSION_FOR_COOLDOWN = "11.10.0"
+"""First npm release honoring `min-release-age`, the cooldown gate for npm tools.
+
+Older npm silently ignores the `--min-release-age` flag, so {func}`_install_npm`
+warns when it cannot enforce the cooldown. This is a fixed floor (the release that
+introduced the option), distinct from the auto-bumped `npm@X` bootstrap pin in
+`lint.yaml`, which tracks the latest npm.
+"""
+
+
+@dataclass(frozen=True)
+class NpmSpec:
+    """npm-registry backend marker for a {class}`ToolSpec`.
+
+    Presence (`ToolSpec.npm is not None`) selects the npm backend, the way a
+    {class}`BinarySpec` selects the download backend. The package name,
+    executable, and version all derive from the `ToolSpec` fields, so no per-tool
+    npm config is needed today; the class exists as a typed discriminator and a
+    home for future npm-specific options.
+
+    ```{note}
+    npm tools need Node.js and npm on `PATH` at run time: the one backend that
+    depends on a runtime repomatic neither bundles nor provisions (binary tools
+    are self-contained; the uv backends use uv). Integrity is npm's own
+    per-tarball verification on install, so unlike {class}`BinarySpec` there is
+    no repomatic-pinned checksum; the `minimum-release-age` cooldown (npm's
+    `min-release-age`, npm 11.10.0+) gates the transitive tree instead. Older npm
+    ignores the gate, so the runner warns rather than silently skipping it.
+    ```
+    """
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     """Specification for an external tool managed by repomatic.
@@ -562,6 +596,12 @@ class ToolSpec:
     as a binary instead of installed via `uvx` or `uv run`.
     """
 
+    npm: NpmSpec | None = None
+    """npm-registry backend marker. When set, the tool is installed from npm and
+    run via its `node_modules/.bin` executable, instead of a binary download or a
+    uv install. Mutually exclusive with `binary` and `needs_venv`.
+    """
+
     source_url: str | None = None
     """GitHub repository or project homepage URL."""
 
@@ -592,6 +632,20 @@ class ToolSpec:
         and the held-back PR links query this stripped name (`nuitka`) instead.
         """
         return Requirement(self.package or self.name).name
+
+    @property
+    def datasource_url(self) -> str:
+        """Human-facing URL for the tool's version datasource.
+
+        npmjs for npm tools, the GitHub `source_url` when set, else the PyPI
+        project page. Used by `sync-tool-versions` for the diff-table and
+        held-back links.
+        """
+        if self.npm is not None:
+            return f"https://www.npmjs.com/package/{self.package or self.name}"
+        if self.source_url:
+            return self.source_url
+        return f"https://pypi.org/project/{self.pypi_name}/"
 
     def check_bypasses_post_process(self, extra_args: Sequence[str]) -> bool:
         """Return `True` when a check-mode flag will skip `post_process`.
@@ -912,6 +966,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "--select",
             "E501",
         ),
+    ),
+    "awesome-lint": ToolSpec(
+        name="awesome-lint",
+        version="2.3.0",
+        npm=NpmSpec(),
+        cli_docs_url="https://github.com/sindresorhus/awesome-lint#usage",
     ),
     "biome": ToolSpec(
         name="biome",
@@ -1898,6 +1958,84 @@ def binary_tool_context(
         yield _install_binary(spec, Path(bin_dir), no_cache=no_cache)
 
 
+def _npm_supports_cooldown(npm: str) -> bool:
+    """Whether the npm at *npm* honors `min-release-age` (npm 11.10.0+).
+
+    Runs `npm --version` and compares against
+    {data}`NPM_MIN_VERSION_FOR_COOLDOWN`. Assumes support when the version cannot
+    be determined, so a parse or exec failure never emits a spurious warning.
+    """
+    try:
+        raw = subprocess.run(
+            [npm, "--version"],
+            capture_output=True,
+            text=True,
+            encoding="UTF-8",
+            check=False,
+        ).stdout.strip()
+        return Version(raw) >= Version(NPM_MIN_VERSION_FOR_COOLDOWN)
+    except (ValueError, OSError):
+        return True
+
+
+def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
+    """Install an npm tool into *dest* and return its executable path.
+
+    The npm counterpart to {func}`_install_binary`: installs
+    `<package>@<version>` into a throwaway prefix, relying on npm's own
+    per-tarball integrity checks (no repomatic-pinned checksum), and applies the
+    `minimum-release-age` cooldown through npm's `min-release-age` when
+    *cooldown_days* is non-zero. On npm older than
+    {data}`NPM_MIN_VERSION_FOR_COOLDOWN` the gate is a no-op and the runner warns
+    (via {func}`_npm_supports_cooldown`); the `lint-awesome` job provisions a
+    new-enough npm so CI enforces it.
+
+    :param dest: Directory to install into (`dest/node_modules/.bin/<exe>`).
+    :param cooldown_days: `minimum-release-age` in whole days; `0` omits the gate.
+    :return: Path to the installed executable.
+    :raises RuntimeError: npm is absent, the install fails, or the executable is
+        missing afterward.
+    """
+    npm = shutil.which("npm")
+    if npm is None:
+        raise RuntimeError(
+            f"{spec.name} needs Node.js and npm on PATH, but npm was not found."
+        )
+    package_pin = f"{spec.package or spec.name}@{spec.version}"
+    cmd = [
+        npm,
+        "install",
+        "--no-fund",
+        "--no-audit",
+        "--no-progress",
+        "--prefix",
+        str(dest),
+        package_pin,
+    ]
+    if cooldown_days:
+        cmd.append(f"--min-release-age={cooldown_days}")
+        if not _npm_supports_cooldown(npm):
+            logging.warning(
+                "npm on PATH is older than %s, so the minimum-release-age cooldown "
+                "is not enforced; %s's transitive dependencies resolve without it.",
+                NPM_MIN_VERSION_FOR_COOLDOWN,
+                spec.name,
+            )
+    logging.info("Installing %s via npm: %s", spec.name, " ".join(cmd))
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"npm install of {package_pin} failed with exit code {result.returncode}."
+        )
+    executable = spec.executable or spec.name
+    bin_path = dest / "node_modules" / ".bin" / executable
+    if not bin_path.exists():
+        raise RuntimeError(
+            f"{executable!r} not found under {dest} after installing {package_pin}."
+        )
+    return bin_path
+
+
 # ---------------------------------------------------------------------------
 # Tool invocation
 # ---------------------------------------------------------------------------
@@ -2000,6 +2138,16 @@ def run_tool(
                     skip_checksum,
                     no_cache=no_cache,
                 )
+            except RuntimeError as exc:
+                raise ClickException(str(exc)) from exc
+            cmd = [str(bin_path)]
+        elif spec.npm is not None:
+            bin_dir = tempfile.TemporaryDirectory(prefix=f"repomatic-{name}-npm-")
+            # Gate awesome-lint's transitive tree by the same minimum-release-age
+            # window the sync jobs apply to pins, via npm's min-release-age.
+            cooldown = min_release_age_days(load_repomatic_config().minimum_release_age)
+            try:
+                bin_path = _install_npm(spec, Path(bin_dir.name), cooldown)
             except RuntimeError as exc:
                 raise ClickException(str(exc)) from exc
             cmd = [str(bin_path)]

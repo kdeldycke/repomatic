@@ -58,6 +58,8 @@ from repomatic.tool_runner import (
     _extract_binary,
     _fix_myst_directive_options,
     _install_binary,
+    _install_npm,
+    _npm_supports_cooldown,
     _reroot_section,
     _yaml_block_to_field_list,
     binary_tool_context,
@@ -159,6 +161,14 @@ def test_tool_spec_integrity(name, spec):
     # needs_venv and binary are mutually exclusive.
     assert not (spec.needs_venv and spec.binary is not None), (
         f"{name}: needs_venv and binary are mutually exclusive"
+    )
+
+    # npm is a distinct backend: mutually exclusive with binary and needs_venv.
+    assert not (spec.npm is not None and spec.binary is not None), (
+        f"{name}: npm and binary are mutually exclusive"
+    )
+    assert not (spec.npm is not None and spec.needs_venv), (
+        f"{name}: npm and needs_venv are mutually exclusive"
     )
 
     # module requires needs_venv (module invocation uses the venv's Python).
@@ -277,6 +287,101 @@ def test_build_install_args_cooldown(name, spec):
         assert with_cutoff[idx + 1] == cutoff
         # No cutoff (0-days cooldown or unset) leaves the command unflagged.
         assert "--exclude-newer" not in _build_install_args(spec)
+
+
+def test_datasource_url_by_backend():
+    """datasource_url points at npmjs for npm tools, GitHub/PyPI otherwise."""
+    assert (
+        TOOL_REGISTRY["awesome-lint"].datasource_url
+        == "https://www.npmjs.com/package/awesome-lint"
+    )
+    assert TOOL_REGISTRY["ruff"].datasource_url == "https://github.com/astral-sh/ruff"
+    # A tool with neither npm nor source_url falls back to its PyPI page.
+    assert ToolSpec(name="widget").datasource_url == "https://pypi.org/project/widget/"
+
+
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.shutil.which", return_value="/usr/bin/npm")
+def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
+    """The npm backend installs pkg@version into a prefix with the cooldown flag."""
+    # Two subprocess calls when a cooldown is set: `npm --version`, then install.
+    mock_run.side_effect = [
+        MagicMock(returncode=0, stdout="11.10.0\n"),
+        MagicMock(returncode=0),
+    ]
+    spec = TOOL_REGISTRY["awesome-lint"]
+    # Pre-create the executable the (mocked) install would produce.
+    bin_dir = tmp_path / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "awesome-lint").write_text("")
+
+    bin_path = _install_npm(spec, tmp_path, cooldown_days=8)
+
+    cmd = mock_run.call_args_list[-1][0][0]  # the install call, after `npm --version`
+    assert cmd[0] == "/usr/bin/npm"
+    assert cmd[1] == "install"
+    assert f"awesome-lint@{spec.version}" in cmd
+    assert "--prefix" in cmd and str(tmp_path) in cmd
+    assert "--min-release-age=8" in cmd
+    assert bin_path == bin_dir / "awesome-lint"
+
+
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.shutil.which", return_value="/usr/bin/npm")
+def test_install_npm_zero_cooldown_omits_flag(mock_which, mock_run, tmp_path):
+    """A 0-day cooldown drops the min-release-age flag entirely."""
+    mock_run.return_value = MagicMock(returncode=0)
+    bin_dir = tmp_path / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "awesome-lint").write_text("")
+
+    _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
+
+    cmd = mock_run.call_args[0][0]
+    assert not any(str(arg).startswith("--min-release-age") for arg in cmd)
+
+
+@patch("repomatic.tool_runner.shutil.which", return_value=None)
+def test_install_npm_without_npm_raises(mock_which, tmp_path):
+    """A clear error surfaces when Node.js and npm are not on PATH."""
+    with pytest.raises(RuntimeError, match="npm"):
+        _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
+
+
+@pytest.mark.parametrize(
+    ("version_output", "supported"),
+    [
+        ("10.8.2\n", False),
+        ("11.9.0\n", False),
+        ("11.10.0\n", True),
+        ("11.12.1\n", True),
+        # An unparseable version assumes support, so no spurious warning fires.
+        ("garbage\n", True),
+    ],
+)
+@patch("repomatic.tool_runner.subprocess.run")
+def test_npm_supports_cooldown(mock_run, version_output, supported):
+    """min-release-age support is gated on npm >= 11.10.0."""
+    mock_run.return_value = MagicMock(returncode=0, stdout=version_output)
+    assert _npm_supports_cooldown("/usr/bin/npm") is supported
+
+
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.shutil.which", return_value="/usr/bin/npm")
+def test_install_npm_warns_when_npm_too_old(mock_which, mock_run, tmp_path, caplog):
+    """Old npm cannot enforce the cooldown, so the runner warns but still installs."""
+    mock_run.side_effect = [
+        MagicMock(returncode=0, stdout="10.8.2\n"),  # npm --version
+        MagicMock(returncode=0),  # npm install
+    ]
+    bin_dir = tmp_path / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "awesome-lint").write_text("")
+
+    with caplog.at_level(logging.WARNING):
+        _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=8)
+
+    assert "minimum-release-age cooldown is not enforced" in caplog.text
 
 
 def test_tool_registry_sorted_alphabetically():

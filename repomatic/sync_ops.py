@@ -350,6 +350,8 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
             if not spec.source_url:
                 continue
             candidates = github_candidates(spec.source_url, spec.tag_pattern)
+        elif spec.npm is not None:
+            candidates = npm_candidates(spec.package or spec.name)
         else:
             candidates = pypi_candidates(spec.pypi_name)
         latest = select_latest(candidates, min_age, today)
@@ -373,9 +375,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
                         today,
                     )
                 )
-                plan.held_back_name_urls[name] = spec.source_url or (
-                    f"https://pypi.org/project/{spec.pypi_name}/"
-                )
+                plan.held_back_name_urls[name] = spec.datasource_url
         if latest is None or not is_newer(latest.version, spec.version):
             continue
         content = set_tool_version(content, name, latest.version)
@@ -403,9 +403,9 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
     }
     plan.actionlint_version = overrides.get("actionlint")
     plan.name_urls = {
-        name: src
+        name: TOOL_REGISTRY[name].datasource_url
         for name, _old, _new in changes
-        if (src := TOOL_REGISTRY[name].source_url)
+        if TOOL_REGISTRY[name].source_url or TOOL_REGISTRY[name].npm is not None
     }
 
     if rc.release_notes:

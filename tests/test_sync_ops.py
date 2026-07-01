@@ -39,6 +39,7 @@ from repomatic.sync_ops import (
     ResolveContext,
     SyncOperation,
     SyncPlan,
+    _resolve_tool_versions,
     operation_order,
     run_sync_operations,
     selected_operations,
@@ -314,3 +315,30 @@ def test_no_standalone_dependency_jobs_remain() -> None:
     jobs = set(workflow["jobs"])
     assert "sync-deps" in jobs
     assert not (jobs & {op.name for op in SYNC_OPERATIONS})
+
+
+def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) -> None:
+    """npm-backed tools resolve versions through the npm registry datasource.
+
+    awesome-lint is the only npm tool, so recording the argument `npm_candidates`
+    receives proves the `elif spec.npm` branch routes it away from PyPI/GitHub.
+    Empty candidate lists mean nothing is bumped, so `tool_runner.py` stays put.
+    """
+    seen = {}
+
+    def fake_npm(package):
+        seen["package"] = package
+        return []
+
+    monkeypatch.setattr("repomatic.sync_ops.npm_candidates", fake_npm)
+    monkeypatch.setattr("repomatic.sync_ops.pypi_candidates", lambda name: [])
+    monkeypatch.setattr(
+        "repomatic.sync_ops.github_candidates", lambda *args, **kwargs: []
+    )
+
+    plan = _resolve_tool_versions(
+        ResolveContext(config=Config(), today=date(2026, 1, 1))
+    )
+
+    assert seen["package"] == "awesome-lint"
+    assert not plan.has_changes

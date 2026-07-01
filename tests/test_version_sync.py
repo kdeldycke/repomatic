@@ -494,6 +494,8 @@ def test_registry_tool_has_resolvable_datasource(name):
         assert spec.source_url and spec.source_url.startswith("https://github.com/")
         owner_repo = spec.source_url.removeprefix("https://github.com/").split("/")
         assert len(owner_repo) == 2 and all(owner_repo)
+    elif spec.npm is not None:
+        assert spec.package or spec.name
     else:
         assert spec.pypi_name
 

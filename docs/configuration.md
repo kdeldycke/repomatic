@@ -727,7 +727,7 @@ Stabilization window before a new upstream release is adopted.
 
 **Type:** `str` | **Default:** `"8 days"`
 
-Shared cooldown for the `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` jobs: a release is only proposed once it has been public for at least this long, giving upstream time to yank a bad cut. It also gates ad-hoc installs at run time, so their transitive trees honor the same window: `repomatic run`'s `uvx` tools (via uv's `--exclude-newer`) and the `lint-awesome` npm install (via npm's `min-release-age`). The GitHub/PyPI/npm counterpart to uv's `exclude-newer` (which guards `sync-uv-lock`). Accepts the same friendly durations (`8 days`, `2 weeks`, `36 hours`). Set to `0 days` to adopt releases immediately.
+Shared cooldown for the `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` jobs: a release is only proposed once it has been public for at least this long, giving upstream time to yank a bad cut. It also gates `repomatic run`'s ad-hoc installs at run time, so their transitive trees honor the same window: `uvx` tools via uv's `--exclude-newer`, npm tools via npm's `min-release-age`. The GitHub/PyPI/npm counterpart to uv's `exclude-newer` (which guards `sync-uv-lock`). Accepts the same friendly durations (`8 days`, `2 weeks`, `36 hours`). Set to `0 days` to adopt releases immediately.
 
 **Example:**
 

@@ -376,10 +376,12 @@ def tool_summary() -> str:
     for key in sorted(TOOL_REGISTRY):
         spec = TOOL_REGISTRY[key]
         label = spec.display_name or spec.name
-        name_link = f"[{label}]({spec.source_url})" if spec.source_url else label
+        name_link = f"[{label}]({spec.datasource_url})"
 
         if spec.binary:
             install_type = "Binary"
+        elif spec.npm:
+            install_type = "npm"
         elif spec.needs_venv:
             install_type = "PyPI (venv)"
         else:
@@ -445,7 +447,7 @@ def tool_reference() -> str:
     for key in sorted(TOOL_REGISTRY):
         spec = TOOL_REGISTRY[key]
         label = spec.display_name or spec.name
-        name_link = f"[{label}]({spec.source_url})" if spec.source_url else label
+        name_link = f"[{label}]({spec.datasource_url})"
 
         lines.append(f"### {name_link}")
         lines.append("")
@@ -455,6 +457,8 @@ def tool_reference() -> str:
 
         if spec.binary:
             install_type = "Binary (downloaded from GitHub Releases)"
+        elif spec.npm:
+            install_type = "npm registry, run via `node_modules/.bin`"
         elif spec.needs_venv:
             install_type = "PyPI, runs in project virtualenv via `uv run`"
         else:

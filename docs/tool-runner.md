@@ -7,7 +7,7 @@
 Installing a tool and running `yamllint .` yourself is fine for one tool on one machine. Once a project leans on a dozen, the same three chores repeat for each, and `repomatic run` takes care of all of them:
 
 - Configuration stays in `pyproject.toml`, one reviewed file rather than a dotfile per tool. Even tools that can't read `pyproject.toml` themselves get their `[tool.X]` table translated to a temporary native config at run time, following the [precedence chain](#config-resolution) below.
-- Installation is automatic: binaries come from GitHub Releases and are checksum-verified, PyPI tools run through `uvx`, and tools that import your code (mypy, Nuitka) run inside the project virtualenv.
+- Installation is automatic: binaries come from GitHub Releases and are checksum-verified, PyPI tools run through `uvx`, tools that import your code (mypy, Nuitka) run inside the project virtualenv, and npm tools install from the npm registry (Node.js required).
 - Versions are pinned and re-verified on each use, so a check behaves the same on your laptop and in CI instead of drifting with whatever each machine happens to have installed.
 
 ```{seealso}
@@ -49,6 +49,7 @@ invoke(repomatic, args=['run', '--list'])
 | :-------------------------------------------------------------------- | :-------- | :---------- | :----------------------------------------------------------------------------- |
 | [actionlint](https://github.com/rhysd/actionlint)                     | `1.7.12`  | Binary      | `.github/actionlint.yaml`, `.github/actionlint.yml`                            |
 | [autopep8](https://github.com/hhatto/autopep8)                        | `2.3.2`   | PyPI        | `[tool.autopep8]` in `pyproject.toml`                                          |
+| [awesome-lint](https://www.npmjs.com/package/awesome-lint)            | `2.3.0`   | npm         | CLI flags only                                                                 |
 | [Biome](https://github.com/biomejs/biome)                             | `2.5.0`   | Binary      | `biome.json`, `biome.jsonc`, `.biome.json`, `.biome.jsonc`                     |
 | [bump-my-version](https://github.com/callowayproject/bump-my-version) | `1.4.1`   | PyPI        | `.bumpversion.toml`, `[tool.bump-my-version]` in `pyproject.toml`              |
 | [Gitleaks](https://github.com/gitleaks/gitleaks)                      | `8.30.1`  | Binary      | `.gitleaks.toml`                                                               |
@@ -69,6 +70,7 @@ invoke(repomatic, args=['run', '--list'])
 - **Binary**: downloaded as platform-specific executables from GitHub Releases.
 - **PyPI**: installed via `uvx`.
 - **PyPI (venv)**: run inside the project virtualenv via `uv run` because they need to import project code.
+- **npm**: installed from the npm registry into a throwaway prefix and run via `node_modules/.bin`. The one backend that needs a foreign runtime (Node.js and npm on `PATH`); integrity is npm's own per-tarball verification, with no repomatic-pinned checksum.
 
 ## Config resolution
 
@@ -321,6 +323,20 @@ $ repomatic run autopep8 -- .
 autopep8 takes its configuration from CLI flags only. repomatic passes `--recursive --in-place --max-line-length 88 --select E501` by default; append more flags after `--`.
 
 <!-- autopep8-manual-end -->
+
+### [awesome-lint](https://www.npmjs.com/package/awesome-lint)
+
+**Installed version:** `2.3.0`
+
+**Installation method:** npm registry, run via `node_modules/.bin`
+
+**Config:** CLI flags only
+
+[CLI usage](https://github.com/sindresorhus/awesome-lint#usage)
+
+<!-- awesome-lint-manual-start -->
+
+<!-- awesome-lint-manual-end -->
 
 ### [Biome](https://github.com/biomejs/biome)
 
