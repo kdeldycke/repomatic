@@ -78,6 +78,20 @@ def test_min_release_age_days(value, expected):
     assert vs.min_release_age_days(value) == expected
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("8 days", "2026-06-23"),
+        ("2 weeks", "2026-06-17"),
+        # Disabled cooldown and unrecognized values yield no flag.
+        ("0 days", None),
+        ("garbage", None),
+    ],
+)
+def test_exclude_newer_cutoff(value, expected):
+    assert vs.exclude_newer_cutoff(value, date(2026, 7, 1)) == expected
+
+
 # ---------------------------------------------------------------------------
 # Version comparison
 # ---------------------------------------------------------------------------

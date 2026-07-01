@@ -45,6 +45,7 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from enum import Enum
 from importlib.resources import as_file, files
 from pathlib import Path, PurePosixPath
@@ -70,7 +71,9 @@ from extra_platforms import (
 from packaging.requirements import Requirement
 
 from .cache import get_cached_binary, store_binary
+from .config import load_repomatic_config
 from .uv import uv_cmd, uvx_cmd
+from .version_sync import exclude_newer_cutoff
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -97,8 +100,6 @@ def generated_header(command: str, comment_prefix: str = "# ") -> str:
     :param command: Full command path (e.g. `repomatic sync-mailmap`).
     :param comment_prefix: Comment prefix for the target format.
     """
-    from datetime import datetime, timezone
-
     from . import __version__
 
     line1 = GENERATED_HEADER_TEMPLATE.format(command=command, version=__version__)
@@ -1902,8 +1903,14 @@ def binary_tool_context(
 # ---------------------------------------------------------------------------
 
 
-def _build_install_args(spec: ToolSpec) -> list[str]:
-    """Build the command prefix for installing and running a tool."""
+def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> list[str]:
+    """Build the command prefix for installing and running a tool.
+
+    *exclude_newer* (a `YYYY-MM-DD` date) gates the isolated `uvx` resolution by
+    upload date, applying the `minimum-release-age` cooldown to the tool's
+    transitive dependencies. It is ignored for `needs_venv` tools, whose tree is
+    already pinned by the frozen `uv.lock`.
+    """
     package_pin = f"{spec.package or spec.name}=={spec.version}"
     executable = spec.executable or spec.name
 
@@ -1914,7 +1921,7 @@ def _build_install_args(spec: ToolSpec) -> list[str]:
         else:
             cmd.extend(["--with", package_pin, "--", executable])
     else:
-        cmd = uvx_cmd()
+        cmd = uvx_cmd(exclude_newer=exclude_newer)
         for pkg in spec.with_packages:
             cmd.extend(["--with", pkg])
         cmd.extend(["--from", package_pin, executable])
@@ -1997,7 +2004,13 @@ def run_tool(
                 raise ClickException(str(exc)) from exc
             cmd = [str(bin_path)]
         else:
-            cmd = _build_install_args(spec)
+            # Gate the isolated uvx resolution (tool + transitive tree) by the
+            # same minimum-release-age window the sync jobs apply to pins.
+            cutoff = exclude_newer_cutoff(
+                load_repomatic_config().minimum_release_age,
+                datetime.now(tz=timezone.utc).date(),
+            )
+            cmd = _build_install_args(spec, exclude_newer=cutoff)
 
         # Default flags (always applied).
         if spec.default_flags:

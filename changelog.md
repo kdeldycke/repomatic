@@ -15,6 +15,7 @@
 - The `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` PR bodies now match `sync-uv-lock`: a cooldown cutoff date, a `Held back by cooldown` section, and a `Release notes` dropdown for GitHub-sourced pins.
 - The `sync-workflow-pins` `Release notes` dropdown covers the PyPI literals it bumps; npm literals have no upstream source to link, so they carry no notes.
 - The `lint-awesome` job now applies the `minimum-release-age` cooldown to `awesome-lint` and its transitive dependencies through npm's `min-release-age`, gating the whole install by publication age.
+- `repomatic run` now applies the `minimum-release-age` cooldown to the transitive dependencies of its `uvx`-installed tools through uv's `--exclude-newer`; binary and `uv run` tools stay pinned as before.
 - Dependency-updater PR bodies now place the `Release notes` dropdown between the update table and the `Held back by cooldown` section.
 - The autofix workflow now runs the four dependency updaters in one consolidated `sync-deps` job, sharing the checkout, the uv install, and a cached HTTP layer, instead of four separate jobs; each updater still opens its own PR.
 - The autofix workflow now runs weekly on a schedule, so quiet repositories still pick up dependency, tool, and action-pin updates.

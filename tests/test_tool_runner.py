@@ -53,6 +53,7 @@ from repomatic.tool_runner import (
     BinarySpec,
     NativeFormat,
     ToolSpec,
+    _build_install_args,
     _download_and_verify,
     _extract_binary,
     _fix_myst_directive_options,
@@ -255,6 +256,27 @@ def test_tool_spec_integrity(name, spec):
             assert "/" not in spec.binary.archive_executable, (
                 f"{name}: RAW archive_executable must not contain path separators"
             )
+
+
+@pytest.mark.parametrize(
+    ("name", "spec"),
+    [(n, s) for n, s in TOOL_REGISTRY.items() if s.binary is None],
+)
+def test_build_install_args_cooldown(name, spec):
+    """uvx tools carry `--exclude-newer`; frozen-lock (needs_venv) tools never do."""
+    cutoff = "2026-06-23"
+    with_cutoff = _build_install_args(spec, exclude_newer=cutoff)
+
+    if spec.needs_venv:
+        # `uv run --frozen` resolves from the lock, which already pins the tree.
+        assert "--exclude-newer" not in with_cutoff
+    else:
+        # uvx resolves fresh: the cutoff gates the transitive tree, before --from.
+        idx = with_cutoff.index("--exclude-newer")
+        assert idx < with_cutoff.index("--from")
+        assert with_cutoff[idx + 1] == cutoff
+        # No cutoff (0-days cooldown or unset) leaves the command unflagged.
+        assert "--exclude-newer" not in _build_install_args(spec)
 
 
 def test_tool_registry_sorted_alphabetically():
@@ -974,7 +996,7 @@ def test_run_tool_ruff_bundled_default(mock_ci, mock_run, tmp_path, monkeypatch)
 
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "uvx"
-    assert "ruff==0.15.5" in " ".join(cmd)
+    assert f"ruff=={TOOL_REGISTRY['ruff'].version}" in " ".join(cmd)
     assert "--config" in cmd
     assert "check" in cmd
     assert "--output-format" in cmd
@@ -1012,7 +1034,9 @@ def test_run_tool_bump_my_version_via_uvx(mock_ci, mock_run, tmp_path, monkeypat
 
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "uvx"
-    assert "bump-my-version==1.2.7" in " ".join(cmd)
+    assert f"bump-my-version=={TOOL_REGISTRY['bump-my-version'].version}" in " ".join(
+        cmd
+    )
     assert "bump" in cmd
     assert "--verbose" in cmd
     assert "patch" in cmd
@@ -1595,7 +1619,7 @@ def test_run_tool_mypy_with_computed_params(
     assert "--no-progress" in cmd
     assert "run" in cmd
     assert "--frozen" in cmd
-    assert "mypy==1.19.1" in " ".join(cmd)
+    assert f"mypy=={TOOL_REGISTRY['mypy'].version}" in " ".join(cmd)
     assert "--color-output" in cmd
     assert "--python-version" in cmd
     assert "3.10" in cmd

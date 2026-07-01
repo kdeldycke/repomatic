@@ -72,9 +72,17 @@ def uv_cmd(subcommand: str, *, frozen: bool = False) -> list[str]:
     return cmd
 
 
-def uvx_cmd() -> list[str]:
-    """Build a `uvx` command prefix with standard flags."""
-    return ["uvx", "--no-progress"]
+def uvx_cmd(exclude_newer: str | None = None) -> list[str]:
+    """Build a `uvx` command prefix with standard flags.
+
+    When *exclude_newer* is set (a `YYYY-MM-DD` date), adds `--exclude-newer` so
+    the isolated resolution honors the `minimum-release-age` cooldown, gating the
+    tool's transitive dependencies by upload date.
+    """
+    cmd = ["uvx", "--no-progress"]
+    if exclude_newer:
+        cmd += ["--exclude-newer", exclude_newer]
+    return cmd
 
 
 RELEASE_NOTES_MAX_LENGTH = 2000

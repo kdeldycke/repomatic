@@ -193,6 +193,27 @@ def min_release_age_days(value: str) -> int:
     return math.ceil(parse_min_age(value).total_seconds() / 86400)
 
 
+def exclude_newer_cutoff(value: str, today: date) -> str | None:
+    """uv `--exclude-newer` cutoff date for a `minimum-release-age` value.
+
+    uv's cooldown knob is an absolute date, so the relative window is resolved
+    live against *today*: packages uploaded on or after the returned date drop
+    out of resolution. This gates ad-hoc `uvx` tool installs (via
+    {func}`repomatic.tool_runner.run_tool`) by the same window
+    `sync-workflow-pins` applies to pins. The uv counterpart to
+    {func}`min_release_age_days` (npm).
+
+    :param value: The configured `minimum-release-age` string (e.g. `8 days`).
+    :param today: Reference date, resolved once per run.
+    :return: The cutoff as `YYYY-MM-DD`, or `None` when the cooldown is disabled
+        (`0 days` or an unrecognized value), so callers omit the flag.
+    """
+    min_age = parse_min_age(value)
+    if not min_age:
+        return None
+    return (today - min_age).isoformat()
+
+
 def format_cooldown_note(age_label: str, cutoff: date) -> str:
     """Render the `minimum-release-age` cutoff sentence for a diff table.
 
