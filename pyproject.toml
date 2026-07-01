@@ -203,7 +203,7 @@ exclude-newer = "1 week"
 # "0 day" span. click-extra is held at its 8.1.0 release date so the lock adopts
 # it before the 1-week cooldown elapses; sync-uv-lock prunes this entry once
 # 8.1.0 ages past `exclude-newer`.
-exclude-newer-package = { click-extra = "2026-06-25T00:00:00Z", repomatic = "0 day" }
+exclude-newer-package = { repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
