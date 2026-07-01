@@ -21,6 +21,7 @@
 - Add a `changelog.archive-location` config option pointing at an archive file for older release sections, so `lint-changelog` treats archived versions as documented instead of flagging them as orphans.
 - Drop the `pydriller` dependency: Git history operations now invoke the `git` CLI directly, shrinking the install and compiled-binary footprint.
 - `repomatic run` now animates a spinner while downloading a tool whose server omits a `Content-Length`, where it previously showed nothing.
+- The Python compatibility matrix in `install.md` now covers pre-classifier release ranges by falling back to `requires-python`, Poetry's `[tool.poetry.dependencies].python`, or `setup.py`'s `python_requires`, with the `✅` set capped at the latest Python released while the range was current. Ancient tags declaring `>= 2.7` add a `2.7` column.
 - Fix `sync-tool-versions` never proposing Nuitka version bumps: the `nuitka[onefile]` install extra broke the PyPI lookup, so updates were silently skipped.
 - Fix the installation guide's standalone-binary download links, which 404'd because they pointed at versionless release assets instead of the versioned files GitHub publishes.
 - Fix stale documentation links: the `pipx` installation guide and the GitHub matrix-strategy reference now point to their relocated pages.

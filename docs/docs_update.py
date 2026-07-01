@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import Field, fields
+from datetime import date
 from pathlib import Path
 
 import click
@@ -645,14 +646,95 @@ def _tag_date(tag: str) -> str:
     return proc.stdout.strip()
 
 
+_PYTHON_RELEASE_DATES: dict[str, str] = {
+    "2.7": "2010-07-03",
+    "3.0": "2008-12-03",
+    "3.1": "2009-06-27",
+    "3.2": "2011-02-20",
+    "3.3": "2012-09-29",
+    "3.4": "2014-03-16",
+    "3.5": "2015-09-13",
+    "3.6": "2016-12-23",
+    "3.7": "2018-06-27",
+    "3.8": "2019-10-14",
+    "3.9": "2020-10-05",
+    "3.10": "2021-10-04",
+    "3.11": "2022-10-24",
+    "3.12": "2023-10-02",
+    "3.13": "2024-10-07",
+    "3.14": "2025-10-07",
+}
+"""ISO release date of each ``X.Y`` Python final release. Used to cap ``✅``
+cells when a release range's Python support is derived from a
+``requires-python``-style floor rather than an explicit classifier list: a
+floor without upper bound would otherwise over-claim support for Pythons
+that did not yet exist while the range was current."""
+
+
+def _python_version_sort_key(version: str) -> tuple[int, ...]:
+    """Sort ``X.Y`` version strings numerically."""
+    return tuple(int(p) for p in version.split("."))
+
+
+def _parse_python_spec(spec: str) -> tuple[str, set[str]]:
+    """Parse a Python version spec into a floor version and excluded set.
+
+    Handles PEP 440 (``>=3.10``, ``>=2.7, !=3.0.*, !=3.1.*``), Poetry
+    caret (``^3.7`` → floor ``3.7``) and tilde (``~3.7`` → floor
+    ``3.7``), and ``setup.py``'s ``python_requires``. Returns ``(floor,
+    excluded)`` where ``floor`` is a bare ``"X.Y"`` string and
+    ``excluded`` is a set of bare ``"X.Y"`` values (each ``!=X.Y.*``
+    clause yields one excluded entry). Returns ``("", set())`` if no
+    floor is found.
+    """
+    spec = spec.strip()
+    if not spec:
+        return "", set()
+    # Poetry caret and tilde: floor comes from the operator's version.
+    m = re.match(r"^[~^](\d+\.\d+)", spec)
+    if m:
+        return m.group(1), set()
+    floor = ""
+    excluded: set[str] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        m = re.match(r">=?\s*(\d+\.\d+)", part)
+        if m:
+            floor = m.group(1)
+            continue
+        m = re.match(r"!=\s*(\d+\.\d+)(?:\.\*)?", part)
+        if m:
+            excluded.add(m.group(1))
+    return floor, excluded
+
+
+def _python_versions_released_by(cutoff_date: str) -> list[str]:
+    """Return Python ``X.Y`` versions released on or before ``cutoff_date``
+    (ISO ``YYYY-MM-DD``), sorted ascending."""
+    return sorted(
+        (v for v, d in _PYTHON_RELEASE_DATES.items() if d <= cutoff_date),
+        key=_python_version_sort_key,
+    )
+
+
 def _python_compat_groups() -> list[tuple[str, str, str, tuple[str, ...]]]:
-    """Walk every `vX.Y.Z` git tag and group consecutive releases that
-    declare the same set of `Programming Language :: Python :: 3.X`
-    classifiers in `pyproject.toml`.
+    """Walk every ``vX.Y.Z`` git tag and group consecutive releases that
+    declare the same effective set of Python versions.
+
+    The primary source per tag is the ``Programming Language :: Python ::
+    X.Y`` classifier list in ``pyproject.toml`` (the explicit tested
+    grid). When a tag has no classifiers (pre-classifier eras), fall
+    back in priority order: PEP 621 ``requires-python``, Poetry's
+    ``[tool.poetry.dependencies].python``, then ``setup.py``'s
+    ``python_requires``. A floor-only declaration is capped at the
+    latest Python released on or before the range's end date (the next
+    group's first-tag date, or today for the open-ended latest range)
+    so the ``✅`` set does not over-claim support for Pythons that did
+    not yet exist while the range was current.
 
     :return: List of ``(first_tag, last_tag, first_date, python_versions)``
-        per group, in chronological order. Tags without a `pyproject.toml`
-        or without Python classifiers are skipped.
+        per group, in chronological order. Tags with no Python
+        declaration at all are skipped.
     """
     proc = subprocess.run(
         ["git", "tag", "--sort=version:refname"],
@@ -662,32 +744,105 @@ def _python_compat_groups() -> list[tuple[str, str, str, tuple[str, ...]]]:
         cwd=PROJECT_ROOT,
     )
     tag_re = re.compile(r"^v\d+\.\d+\.\d+$")
-    classifier_re = re.compile(r"Programming Language :: Python :: (3\.\d+)")
+    classifier_re = re.compile(r"Programming Language :: Python :: ([23]\.\d+)")
+    reqpy_pep = re.compile(r'requires-python\s*=\s*["\']([^"\']+)["\']')
+    reqpy_poetry = re.compile(
+        r'\[tool\.poetry\.dependencies\][^\[]*?python\s*=\s*["\']([^"\']+)["\']',
+        re.DOTALL,
+    )
+    reqpy_setup = re.compile(r'python_requires\s*=\s*["\']([^"\']+)["\']')
 
-    def _sort_key(version: str) -> tuple[int, ...]:
-        return tuple(int(p) for p in version.split("."))
-
-    groups: list[list] = []
+    # Pass 1: per-tag (tag, iso_date, classifiers, spec).
+    tag_data: list[tuple[str, str, tuple[str, ...], str]] = []
     for tag in proc.stdout.split():
         if not tag_re.match(tag):
             continue
-        show = subprocess.run(
+        pyproject = subprocess.run(
             ["git", "show", f"{tag}:pyproject.toml"],
             capture_output=True,
             encoding="utf-8",
             check=False,
             cwd=PROJECT_ROOT,
+        ).stdout
+        setup_py = subprocess.run(
+            ["git", "show", f"{tag}:setup.py"],
+            capture_output=True,
+            encoding="utf-8",
+            check=False,
+            cwd=PROJECT_ROOT,
+        ).stdout
+        classifiers = tuple(
+            sorted(
+                set(classifier_re.findall(pyproject)), key=_python_version_sort_key
+            )
         )
-        if show.returncode != 0:
+        spec = ""
+        for pat, content in (
+            (reqpy_pep, pyproject),
+            (reqpy_poetry, pyproject),
+            (reqpy_setup, setup_py),
+        ):
+            if not content:
+                continue
+            m = pat.search(content)
+            if m:
+                spec = m.group(1)
+                break
+        if not classifiers and not spec:
             continue
-        versions = tuple(sorted(set(classifier_re.findall(show.stdout)), key=_sort_key))
+        tag_data.append((tag, _tag_date(tag), classifiers, spec))
+
+    if not tag_data:
+        return []
+
+    # Pass 2: group consecutive tags with same raw (classifiers, spec).
+    # Same-classifier neighbours with different spec strings (e.g., a
+    # floor bump from ``>=3.8`` to ``>=3.8.6``) get split here and
+    # re-merge in Pass 4 when their effective versions coincide.
+    raw_groups: list[list] = []
+    for tag, iso_date, cls, spec in tag_data:
+        key = (cls, spec)
+        if raw_groups and raw_groups[-1][3] == key:
+            raw_groups[-1][1] = tag
+        else:
+            raw_groups.append([tag, tag, iso_date, key])
+
+    # Pass 3: resolve effective versions per group. Classifiers win when
+    # present; otherwise apply the parsed floor with cap.
+    today_iso = date.today().isoformat()
+    resolved: list[tuple[str, str, str, tuple[str, ...]]] = []
+    for idx, group in enumerate(raw_groups):
+        first_tag, last_tag, first_date, (cls, spec) = group
+        if cls:
+            versions = cls
+        else:
+            floor, excluded = _parse_python_spec(spec)
+            if not floor:
+                continue
+            end_date = (
+                raw_groups[idx + 1][2] if idx + 1 < len(raw_groups) else today_iso
+            )
+            existing = _python_versions_released_by(end_date)
+            versions = tuple(
+                v
+                for v in existing
+                if _python_version_sort_key(v) >= _python_version_sort_key(floor)
+                and v not in excluded
+            )
         if not versions:
             continue
-        if groups and groups[-1][3] == versions:
-            groups[-1][1] = tag
+        resolved.append((first_tag, last_tag, first_date, versions))
+
+    # Pass 4: re-merge consecutive resolved groups whose effective
+    # versions collapsed to identical sets.
+    merged: list[list] = []
+    for first_tag, last_tag, first_date, versions in resolved:
+        if merged and merged[-1][3] == versions:
+            merged[-1][1] = last_tag
         else:
-            groups.append([tag, tag, _tag_date(tag), versions])
-    return [(first, last, date, vers) for first, last, date, vers in groups]
+            merged.append([first_tag, last_tag, first_date, versions])
+
+    return [(first, last, iso_date, vers) for first, last, iso_date, vers in merged]
 
 
 def python_compat_table() -> str:
