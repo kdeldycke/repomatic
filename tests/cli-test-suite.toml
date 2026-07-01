@@ -86,6 +86,7 @@ stdout_regex_matches = [
   'nuitka_matrix=\{"os": \[.+\]',
   "minor_bump_allowed=(true|false)",
   "major_bump_allowed=(true|false)",
+  "npm_min_release_age=[0-9]+",
 ]
 
 # Test changelog output.

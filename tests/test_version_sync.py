@@ -60,6 +60,24 @@ def test_parse_min_age_unrecognized_is_no_cooldown(value):
     assert vs.parse_min_age(value) == timedelta(0)
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("8 days", 8),
+        ("1 day", 1),
+        ("2 weeks", 14),
+        # Sub-day remainders round up so the gate never collapses to 0.
+        ("36 hours", 2),
+        ("1 hour", 1),
+        ("0 days", 0),
+        # Unrecognized values yield no cooldown.
+        ("garbage", 0),
+    ],
+)
+def test_min_release_age_days(value, expected):
+    assert vs.min_release_age_days(value) == expected
+
+
 # ---------------------------------------------------------------------------
 # Version comparison
 # ---------------------------------------------------------------------------

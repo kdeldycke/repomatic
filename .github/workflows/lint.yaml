@@ -201,12 +201,23 @@ jobs:
         with:
           # Fetch all history to please linter's age checks.
           fetch-depth: 0
+      - name: Upgrade npm for the min-release-age cooldown
+        # awesome-lint@2.3.0 pins the CLI but not its transitive tree; npm's
+        # min-release-age (11.10.0+) gates every resolved version by publication
+        # age. Older npm silently ignores the flag below, so guarantee the floor
+        # here. sync-workflow-pins bumps this pin like any other npm literal.
+        run: npm install npm@11.10.0 --global # zizmor: ignore[adhoc-packages]
       - name: Install awesome-lint
-        run: |
-          npm install awesome-lint@2.3.0
-          npx awesome-lint --version
+        env:
+          # Cooldown awesome-lint's whole dependency tree by the same
+          # minimum-release-age window sync-workflow-pins applies to pins,
+          # computed once by `repomatic metadata`.
+          COOLDOWN_DAYS: ${{ fromJSON(needs.metadata.outputs.metadata).npm_min_release_age }}
+        run: npm install awesome-lint@2.3.0 --min-release-age="$COOLDOWN_DAYS" # zizmor: ignore[adhoc-packages]
       - name: Run awesome-lint
-        run: npx awesome-lint
+        run: |
+          npx awesome-lint --version
+          npx awesome-lint
 
   lint-secrets:
     name: 🔐 Lint secrets

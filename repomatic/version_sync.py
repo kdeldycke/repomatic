@@ -33,6 +33,7 @@ unit-tested without network access.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from datetime import date, timedelta
 from typing import NamedTuple
@@ -171,6 +172,25 @@ def parse_min_age(value: str) -> timedelta:
         return timedelta(0)
     count = int(match.group(1))
     return timedelta(**{_UNIT_TO_KWARG[match.group(2).lower()]: count})
+
+
+def min_release_age_days(value: str) -> int:
+    """Convert a `minimum-release-age` value to whole days for npm's cooldown.
+
+    npm's [`min-release-age`](https://docs.npmjs.com/cli/v11/using-npm/config#min-release-age)
+    resolver option (npm 11.10.0+) refuses any package version younger than the
+    given number of *days*, across the whole resolved tree, transitive
+    dependencies included. It is the runtime, transitive-tree counterpart to the
+    pin cooldown {func}`parse_min_age` feeds `sync-workflow-pins`: the same
+    `minimum-release-age` window, enforced by npm at install time.
+
+    Sub-day remainders round up, so a cooldown always over-protects rather than
+    collapsing to `0`, npm's "no cooldown" sentinel.
+
+    :param value: The configured `minimum-release-age` string (e.g. `8 days`).
+    :return: The cooldown as a whole number of days (`0` when disabled).
+    """
+    return math.ceil(parse_min_age(value).total_seconds() / 86400)
 
 
 def format_cooldown_note(age_label: str, cutoff: date) -> str:

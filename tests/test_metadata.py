@@ -1038,6 +1038,8 @@ expected: dict[str, Any] = {
     # These can be True or False depending on the current development cycle state.
     "minor_bump_allowed": AnyBool(),
     "major_bump_allowed": AnyBool(),
+    # Default minimum-release-age is "8 days", so the npm cooldown is 8 days.
+    "npm_min_release_age": 8,
 }
 
 
