@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import Field, fields
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -776,9 +776,7 @@ def _python_compat_groups() -> list[tuple[str, str, str, tuple[str, ...]]]:
             cwd=PROJECT_ROOT,
         ).stdout
         classifiers = tuple(
-            sorted(
-                set(classifier_re.findall(pyproject)), key=_python_version_sort_key
-            )
+            sorted(set(classifier_re.findall(pyproject)), key=_python_version_sort_key)
         )
         spec = ""
         for pat, content in (
@@ -813,10 +811,11 @@ def _python_compat_groups() -> list[tuple[str, str, str, tuple[str, ...]]]:
 
     # Pass 3: resolve effective versions per group. Classifiers win when
     # present; otherwise apply the parsed floor with cap.
-    today_iso = date.today().isoformat()
+    today_iso = datetime.now(timezone.utc).date().isoformat()
     resolved: list[tuple[str, str, str, tuple[str, ...]]] = []
     for idx, group in enumerate(raw_groups):
         first_tag, last_tag, first_date, (cls, spec) = group
+        versions: tuple[str, ...]
         if cls:
             versions = cls
         else:
@@ -882,9 +881,9 @@ def python_compat_table() -> str:
         return f"`{first_minor}.x` → `{last_minor}.x`"
 
     rows = []
-    for index, (first, last, date, vers) in enumerate(reversed(groups)):
+    for index, (first, last, iso_date, vers) in enumerate(reversed(groups)):
         cells = ["✅" if v in vers else "❌" for v in all_versions]
-        rows.append([_range_label(first, last, is_latest=index == 0), date, *cells])
+        rows.append([_range_label(first, last, is_latest=index == 0), iso_date, *cells])
 
     headers = ["`repomatic`", "Released", *(f"`{v}`" for v in all_versions)]
     colalign = ("left", "left", *("center",) * len(all_versions))

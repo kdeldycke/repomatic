@@ -4,7 +4,6 @@ flowchart LR
     subgraph primary-deps [Primary dependencies]
         click_extra{{"`click-extra`"}}
         vt_py{{"`vt-py`"}}
-        pydriller{{"`pydriller`"}}
         arrow{{"`arrow`"}}
         wcmatch{{"`wcmatch`"}}
         py_walk{{"`py-walk`"}}
@@ -19,18 +18,14 @@ flowchart LR
 
     aiohttp(["`aiohttp`"])
     typing_extensions(["`typing-extensions`"])
-    pygments(["`pygments`"])
     yarl(["`yarl`"])
     aiosignal(["`aiosignal`"])
     click_0(["`click`"])
     cloup(["`cloup`"])
     colorama(["`colorama`"])
-    lizard(["`lizard`"])
     multidict(["`multidict`"])
     tomli(["`tomli`"])
     frozenlist(["`frozenlist`"])
-    gitdb(["`gitdb`"])
-    gitpython(["`gitpython`"])
     idna(["`idna`"])
     propcache(["`propcache`"])
     python_dateutil(["`python-dateutil`"])
@@ -42,18 +37,15 @@ flowchart LR
     attrs(["`attrs`"])
     bracex(["`bracex`"])
     deepmerge(["`deepmerge`"])
-    pathspec(["`pathspec`"])
-    pytz(["`pytz`"])
     six(["`six`"])
     sly(["`sly`"])
-    smmap(["`smmap`"])
-    types_pytz(["`types-pytz`"])
     tzdata(["`tzdata`"])
 
     subgraph grp_docs [--group docs]
         sphinx{{"`sphinx >=8`"}}
         myst_parser{{"`myst-parser >=5.1`"}}
         furo{{"`furo >=2025.9.25`"}}
+        pygments(["`pygments`"])
         requests(["`requests`"])
         jinja2(["`jinja2`"])
         sphinxcontrib_mermaid{{"`sphinxcontrib-mermaid >=1.2.3`"}}
@@ -106,7 +98,6 @@ flowchart LR
     end
 
     repomatic ==>|" >=8.1 "| click_extra
-    repomatic ==>|" >=2 "| pydriller
     repomatic ==>|" >=17 "| packaging
     repomatic ==>|" >=1.3 "| arrow
     repomatic ==>|" >=6.0.3 "| pyyaml
@@ -165,10 +156,6 @@ flowchart LR
     furo --> beautifulsoup4
     furo --> accessible_pygments
     furo --> sphinx_basic_ng
-    pydriller --> lizard
-    pydriller --> gitpython
-    pydriller --> pytz
-    pydriller --> types_pytz
     pytest_cov --> pytest
     pytest_cov --> coverage
     pytest_cov --> pluggy
@@ -212,12 +199,9 @@ flowchart LR
     click_0 --> colorama
     cloup --> typing_extensions
     cloup --> click_0
-    lizard --> pygments
-    lizard --> pathspec
     markdown_it_py --> mdurl
     accessible_pygments --> pygments
     exceptiongroup --> typing_extensions
-    gitpython --> gitdb
     mdit_py_plugins --> markdown_it_py
     python_dateutil --> six
     sphinx_basic_ng --> sphinx
@@ -228,7 +212,6 @@ flowchart LR
     aiosignal --> typing_extensions
     aiosignal --> frozenlist
     multidict --> typing_extensions
-    gitdb --> smmap
     repomatic -.-> grp_docs
     repomatic -.-> grp_test
     repomatic -.-> grp_typing
@@ -261,13 +244,10 @@ flowchart LR
     click extra_platforms "https://pypi.org/project/extra-platforms/" _blank
     click frozenlist "https://pypi.org/project/frozenlist/" _blank
     click furo "https://pypi.org/project/furo/" _blank
-    click gitdb "https://pypi.org/project/gitdb/" _blank
-    click gitpython "https://pypi.org/project/gitpython/" _blank
     click idna "https://pypi.org/project/idna/" _blank
     click imagesize "https://pypi.org/project/imagesize/" _blank
     click iniconfig "https://pypi.org/project/iniconfig/" _blank
     click jinja2 "https://pypi.org/project/jinja2/" _blank
-    click lizard "https://pypi.org/project/lizard/" _blank
     click markdown_it_py "https://pypi.org/project/markdown-it-py/" _blank
     click markupsafe "https://pypi.org/project/markupsafe/" _blank
     click mdit_py_plugins "https://pypi.org/project/mdit-py-plugins/" _blank
@@ -275,12 +255,10 @@ flowchart LR
     click multidict "https://pypi.org/project/multidict/" _blank
     click myst_parser "https://pypi.org/project/myst-parser/" _blank
     click packaging "https://pypi.org/project/packaging/" _blank
-    click pathspec "https://pypi.org/project/pathspec/" _blank
     click pluggy "https://pypi.org/project/pluggy/" _blank
     click propcache "https://pypi.org/project/propcache/" _blank
     click psutil "https://pypi.org/project/psutil/" _blank
     click py_walk "https://pypi.org/project/py-walk/" _blank
-    click pydriller "https://pypi.org/project/pydriller/" _blank
     click pygments "https://pypi.org/project/pygments/" _blank
     click pyproject_metadata "https://pypi.org/project/pyproject-metadata/" _blank
     click pytest "https://pypi.org/project/pytest/" _blank
@@ -289,14 +267,12 @@ flowchart LR
     click pytest_randomly "https://pypi.org/project/pytest-randomly/" _blank
     click pytest_xdist "https://pypi.org/project/pytest-xdist/" _blank
     click python_dateutil "https://pypi.org/project/python-dateutil/" _blank
-    click pytz "https://pypi.org/project/pytz/" _blank
     click pyyaml "https://pypi.org/project/pyyaml/" _blank
     click repomatic "https://pypi.org/project/repomatic/" _blank
     click requests "https://pypi.org/project/requests/" _blank
     click roman_numerals "https://pypi.org/project/roman-numerals/" _blank
     click six "https://pypi.org/project/six/" _blank
     click sly "https://pypi.org/project/sly/" _blank
-    click smmap "https://pypi.org/project/smmap/" _blank
     click snowballstemmer "https://pypi.org/project/snowballstemmer/" _blank
     click soupsieve "https://pypi.org/project/soupsieve/" _blank
     click sphinx "https://pypi.org/project/sphinx/" _blank
@@ -316,7 +292,6 @@ flowchart LR
     click tomli "https://pypi.org/project/tomli/" _blank
     click tomlrt "https://pypi.org/project/tomlrt/" _blank
     click types_boltons "https://pypi.org/project/types-boltons/" _blank
-    click types_pytz "https://pypi.org/project/types-pytz/" _blank
     click types_pyyaml "https://pypi.org/project/types-pyyaml/" _blank
     click typing_extensions "https://pypi.org/project/typing-extensions/" _blank
     click tzdata "https://pypi.org/project/tzdata/" _blank
@@ -337,7 +312,6 @@ flowchart LR
     style myst_parser stroke-width:3px
     style packaging stroke-width:3px
     style py_walk stroke-width:3px
-    style pydriller stroke-width:3px
     style pyproject_metadata stroke-width:3px
     style pytest stroke-width:3px
     style pytest_cov stroke-width:3px

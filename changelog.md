@@ -5,29 +5,24 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** Remove the Renovate integration: the `renovate.yaml` workflow, the bundled `renovate.json5`, the `check-renovate` command, and the Dependabot-to-Renovate migration tooling are gone. Dependency updates are now self-hosted (see below); downstream repos prune the orphaned `renovate.json5` and `renovate.yaml` on their next `repomatic init`.
-- **Breaking:** `repomatic update-checksums` is now registry-only: the workflow-file argument and the `--registry` flag are removed, leaving `repomatic update-checksums` to refresh the binary tool checksums.
-- Add `sync-tool-versions`: bumps every `repomatic run` tool to its latest release past the stabilization cooldown (GitHub releases for binary tools, PyPI otherwise) and refreshes binary checksums in the same pass.
+- **Breaking:** Remove the Renovate integration: the `renovate.yaml` workflow, the bundled `renovate.json5`, the `check-renovate` command, and the Dependabot-to-Renovate migration are gone, replaced by self-hosted dependency updates (below). Downstream repos prune the orphaned files on their next `repomatic init`.
+- **Breaking:** `repomatic update-checksums` is now registry-only: the workflow-file argument and the `--registry` flag are removed, so it only refreshes the binary tool checksums.
+- Add `sync-deps`, the single entry point for dependency updates: runs every enabled updater or a named subset in parallel and applies them in order, with a `--dry-run` preview.
+- Add `sync-tool-versions`: bumps each `repomatic run` tool to its latest release past the cooldown and refreshes the binary tool checksums in the same pass.
 - Add `sync-action-pins`: bumps SHA-pinned GitHub Actions to their latest release past the cooldown, resolving each release tag to its commit SHA.
-- Add `sync-workflow-pins`: bumps npm and PyPI version literals embedded in workflow YAML.
-- Add `sync-deps`, the single entry point for dependency updates: run every enabled updater or a named subset, resolved in parallel and applied in order, with a `--dry-run` preview.
-- Add `[tool.repomatic] minimum-release-age` (default `8 days`), the shared cooldown for the three sync jobs, plus `tool-versions.sync`, `action-pins.sync`, and `workflow-pins.sync` toggles.
-- The `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` PR bodies now match `sync-uv-lock`: a cooldown cutoff date, a `Held back by cooldown` section, and a `Release notes` dropdown for GitHub-sourced pins.
-- The `sync-workflow-pins` `Release notes` dropdown covers the PyPI literals it bumps; npm literals have no upstream source to link, so they carry no notes.
-- `repomatic run` now runs npm-backed tools, starting with `awesome-lint`: they install from the npm registry with per-tarball integrity and honor the `minimum-release-age` cooldown via npm's `min-release-age`. The `lint-awesome` job now calls `repomatic run awesome-lint`.
-- `repomatic run` now applies the `minimum-release-age` cooldown to the transitive dependencies of its `uvx`-installed tools through uv's `--exclude-newer`; binary and `uv run` tools stay pinned as before.
-- Dependency-updater PR bodies now place the `Release notes` dropdown between the update table and the `Held back by cooldown` section.
-- The autofix workflow now runs the four dependency updaters in one consolidated `sync-deps` job, sharing the checkout, the uv install, and a cached HTTP layer, instead of four separate jobs; each updater still opens its own PR.
-- The autofix workflow now runs weekly on a schedule, so quiet repositories still pick up dependency, tool, and action-pin updates.
+- Add `sync-workflow-pins`: bumps the npm and PyPI version literals embedded in workflow YAML past the cooldown.
+- Add `[tool.repomatic] minimum-release-age` (default `8 days`), the shared stabilization cooldown for the sync updaters, plus per-updater `tool-versions.sync`, `action-pins.sync`, and `workflow-pins.sync` toggles.
+- `repomatic run` now runs npm-backed tools, starting with `awesome-lint`, installed from the npm registry with per-tarball integrity and the `minimum-release-age` cooldown; the `lint-awesome` job now calls `repomatic run awesome-lint`.
+- Add a `[tool.repomatic] changelog.archive-location` option pointing at an archive file for older release sections, so `lint-changelog` treats archived versions as documented instead of flagging them as orphans.
+- Dependency-updater PR bodies now share `sync-uv-lock`'s format: a cooldown cutoff date, a `Held back by cooldown` section, and a `Release notes` dropdown between them.
+- `repomatic run` now applies the `minimum-release-age` cooldown to the transitive dependencies of its `uvx`-installed tools; binary and `uv run` tools stay pinned as before.
+- The autofix workflow now runs the dependency updaters weekly on a schedule, so quiet repositories still pick up dependency, tool, and action-pin updates.
 - `REPOMATIC_PAT` no longer requires the `Commit statuses` permission; `lint-repo` now warns when a token still grants it so it can be tightened.
-- Add a `changelog.archive-location` config option pointing at an archive file for older release sections, so `lint-changelog` treats archived versions as documented instead of flagging them as orphans.
 - Drop the `pydriller` dependency: Git history operations now invoke the `git` CLI directly, shrinking the install and compiled-binary footprint.
 - `repomatic run` now animates a spinner while downloading a tool whose server omits a `Content-Length`, where it previously showed nothing.
-- The Python compatibility matrix in `install.md` now covers pre-classifier release ranges by falling back to `requires-python`, Poetry's `[tool.poetry.dependencies].python`, or `setup.py`'s `python_requires`, with the `✅` set capped at the latest Python released while the range was current. Ancient tags declaring `>= 2.7` add a `2.7` column.
-- Fix `sync-tool-versions` never proposing Nuitka version bumps: the `nuitka[onefile]` install extra broke the PyPI lookup, so updates were silently skipped.
-- Fix the installation guide's standalone-binary download links, which 404'd because they pointed at versionless release assets instead of the versioned files GitHub publishes.
-- Fix stale documentation links: the `pipx` installation guide and the GitHub matrix-strategy reference now point to their relocated pages.
+- The generated Python compatibility matrix in `install.md` now covers pre-classifier releases, falling back to `requires-python`, Poetry, or `setup.py` metadata to infer supported versions.
 - Fix `update-deps-graph` rendering only one of several extras or dependency groups that share a directly-declared dependency; each now gets its own subgraph.
+- Fix broken documentation links: the standalone-binary downloads (versionless 404s), the `pipx` installation guide, and the GitHub matrix-strategy reference.
 
 ## [`6.31.0` (2026-06-27)](https://github.com/kdeldycke/repomatic/compare/v6.30.0...v6.31.0)
 

@@ -34,19 +34,19 @@ Each operation splits into a read phase and a write phase so `sync-deps` can run
 the slow, network-bound discovery for every operation concurrently, then write
 serially:
 
-- {meth}`SyncOperation.resolve` performs the network discovery and computes the
+- {attr}`SyncOperation.resolve` performs the network discovery and computes the
   new file contents in memory, returning a {class}`SyncPlan`. It does not touch
   the repository, so the four resolves are safe to run in parallel.
-- {meth}`SyncOperation.apply` writes the planned contents. Three of the four
+- {attr}`SyncOperation.apply` writes the planned contents. Three of the four
   operations rewrite `.github/workflows/*.yaml` (action pins, workflow literals,
   and the actionlint matcher URL all live there), so applies must run serially.
 
 `sync-uv-lock` is the documented exception: its discovery *is* a mutation
-(`uv lock --upgrade` rewrites `uv.lock`), so {meth}`resolve` writes during the
-parallel phase and {meth}`apply` is a no-op. This is safe because its write
-domain (`uv.lock`, `pyproject.toml`'s `[tool.uv]`) is disjoint from every other
-operation's. A `--dry-run` resolve snapshots and restores those two files so the
-preview leaves no trace.
+(`uv lock --upgrade` rewrites `uv.lock`), so {attr}`SyncOperation.resolve`
+writes during the parallel phase and {attr}`SyncOperation.apply` is a no-op.
+This is safe because its write domain (`uv.lock`, `pyproject.toml`'s
+`[tool.uv]`) is disjoint from every other operation's. A `--dry-run` resolve
+snapshots and restores those two files so the preview leaves no trace.
 
 The datasource adapters, version selection, and pure string rewriters live in
 {mod}`repomatic.version_sync` and {mod}`repomatic.uv`; this module composes them
@@ -160,7 +160,7 @@ def _sync_actionlint_matcher_url(version: str) -> None:
 
 @dataclass
 class ResolveContext:
-    """Inputs shared by every {meth}`SyncOperation.resolve`.
+    """Inputs shared by every {attr}`SyncOperation.resolve`.
 
     Each operation reads the subset it needs. The cooldown is derived from
     *config* (`minimum-release-age` for the version-sync trio, `exclude-newer`
@@ -190,7 +190,7 @@ class ResolveContext:
 class SyncPlan:
     """The resolved, not-yet-written outcome of one operation's read phase.
 
-    Carries everything {meth}`SyncOperation.apply` needs to write the changes
+    Carries everything {attr}`SyncOperation.apply` needs to write the changes
     and everything {mod}`repomatic.cli` needs to render the terminal table and
     the markdown PR body, so the write and the rendering never re-resolve.
     """
@@ -238,7 +238,7 @@ class SyncPlan:
     """Reference date for the table's relative "Released" hints (the run date)."""
 
     file_writes: dict[Path, str] = field(default_factory=dict)
-    """Path to its new full text, written verbatim by {meth}`apply`."""
+    """Path to its new full text, written verbatim by {attr}`SyncOperation.apply`."""
 
     # `sync-tool-versions` extras: applied after the source rewrite.
     binary_overrides: dict[str, str] = field(default_factory=dict)
@@ -810,11 +810,11 @@ def selected_operations(
     command, which exits when its flag is off).
 
     :param config: The resolved configuration; disabled operations are dropped.
-    :param here_only: Drop operations whose {attr}`applies_here` is false (no
-        `uv.lock`, no workflow files, not the repomatic checkout). Ignored when
-        *names* is given: naming an operation is an explicit opt-in that bypasses
-        the working-tree probe (the "scope exclusions are defaults, not
-        absolutes" rule in `claude.md`).
+    :param here_only: Drop operations whose {attr}`SyncOperation.applies_here`
+        is false (no `uv.lock`, no workflow files, not the repomatic checkout).
+        Ignored when *names* is given: naming an operation is an explicit opt-in
+        that bypasses the working-tree probe (the "scope exclusions are
+        defaults, not absolutes" rule in `claude.md`).
     :param names: When given, restrict to these operation names. Unknown names
         are ignored (the CLI validates them upstream).
     """

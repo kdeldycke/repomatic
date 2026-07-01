@@ -164,6 +164,7 @@ from .sponsor import (
 from .sync_ops import (
     OPERATIONS_BY_NAME,
     ResolveContext,
+    SyncPlan,
     render_plan_markdown,
     run_sync_operations,
     selected_operations,
@@ -181,13 +182,7 @@ from .uv import (
     _format_upload_date,
     collect_vulnerable_packages,
     fix_vulnerable_deps as _fix_vulnerable_deps,
-    format_diff_table,
-    format_held_back_table,
     format_vulnerability_table,
-)
-from .version_sync import (
-    MIN_AGE_HELD_BACK_NOTE,
-    format_cooldown_note,
 )
 from .virustotal import (
     ScanResult,
@@ -2917,74 +2912,41 @@ def _print_held_back_table(
 
 def _emit_version_sync_report(
     ctx: Context,
-    changes: list[tuple[str, str, str]],
-    dates: dict[str, str],
+    plan: SyncPlan,
     output: Path | None,
     output_format: str,
-    *,
-    subject: str,
-    heading: str,
-    name_urls: dict[str, str] | None = None,
-    comparison_urls: dict[str, str] | None = None,
-    cutoff: date | None = None,
-    min_age_label: str = "",
-    held_back: list[HeldBackPackage] | None = None,
-    held_back_name_urls: dict[str, str] | None = None,
-    notes_section: str = "",
 ) -> None:
     """Print a terminal report and optionally write a markdown PR-body report.
 
-    Shared by the three `sync-*` version updaters. *changes* are
-    `(name, old, new)` triples; *dates* maps name to the new release date. The
-    terminal table, the markdown diff table, the held-back section, and the
-    release notes all route through the same shared renderers `sync-uv-lock` and
-    `fix-vulnerable-deps` use, so every dependency updater's PR body matches.
+    Shared by the three `sync-*` version updaters. The terminal table and the
+    markdown PR body (diff table, held-back section, release notes) route
+    through the same shared renderers `sync-uv-lock` and `sync-deps` use
+    ({func}`~repomatic.sync_ops.render_plan_markdown`), so every dependency
+    updater's report matches.
     """
-    today = datetime.now(timezone.utc).date()
-    held_back = held_back or []
-    cooldown_note = (
-        format_cooldown_note(min_age_label, cutoff)
-        if cutoff is not None and min_age_label
-        else ""
-    )
-    echo(f"{len(changes)} {subject.lower()}(s) updated.")
-    if cutoff is not None:
-        echo(f"minimum-release-age cutoff: {cutoff:%Y-%m-%d}")
+    echo(f"{len(plan.changes)} {plan.subject.lower()}(s) updated.")
+    if plan.cutoff is not None:
+        echo(f"minimum-release-age cutoff: {plan.cutoff:%Y-%m-%d}")
     _print_sync_table(
-        ctx, sorted(changes), dates, subject=subject, reference_date=today
+        ctx,
+        plan.changes,
+        plan.dates,
+        subject=plan.subject,
+        reference_date=plan.reference_date or datetime.now(timezone.utc).date(),
     )
-    if held_back:
-        _print_held_back_table(ctx, held_back, subject=subject)
-    if notes_section:
+    if plan.held_back:
+        _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
+    if plan.notes_section:
         echo("")
-        echo(notes_section)
+        echo(plan.notes_section)
     if output:
-        diff_table = format_diff_table(
-            sorted(changes),
-            upload_times=dates,
-            cooldown_note=cooldown_note,
-            comparison_urls=comparison_urls,
-            reference_date=today,
-            name_urls=name_urls,
-            heading=heading,
-            subject=subject,
-        )
-        held_back_section = format_held_back_table(
-            held_back,
-            MIN_AGE_HELD_BACK_NOTE,
-            name_urls=held_back_name_urls,
-            subject=subject,
-        )
-        body = "\n\n".join(
-            section
-            for section in (diff_table, notes_section, held_back_section)
-            if section
-        )
-        if output_format == "github-actions":
-            content = format_multiline_output("diff_table", body)
-        else:
-            content = body
-        echo(content, file=prep_path(output))
+        body = render_plan_markdown(plan)
+        if body:
+            if output_format == "github-actions":
+                content = format_multiline_output("diff_table", body)
+            else:
+                content = body
+            echo(content, file=prep_path(output))
 
 
 @repomatic.command(
@@ -3052,21 +3014,7 @@ def sync_tool_versions(
 
     op.apply(plan)
 
-    _emit_version_sync_report(
-        ctx,
-        plan.changes,
-        plan.dates,
-        output,
-        output_format,
-        subject=plan.subject,
-        heading=plan.heading,
-        name_urls=plan.name_urls,
-        cutoff=plan.cutoff,
-        min_age_label=config.minimum_release_age,
-        held_back=plan.held_back,
-        held_back_name_urls=plan.held_back_name_urls,
-        notes_section=plan.notes_section,
-    )
+    _emit_version_sync_report(ctx, plan, output, output_format)
 
 
 @repomatic.command(
@@ -3125,22 +3073,7 @@ def sync_action_pins(
 
     op.apply(plan)
 
-    _emit_version_sync_report(
-        ctx,
-        plan.changes,
-        plan.dates,
-        output,
-        output_format,
-        subject=plan.subject,
-        heading=plan.heading,
-        name_urls=plan.name_urls,
-        comparison_urls=plan.comparison_urls,
-        cutoff=plan.cutoff,
-        min_age_label=config.minimum_release_age,
-        held_back=plan.held_back,
-        held_back_name_urls=plan.held_back_name_urls,
-        notes_section=plan.notes_section,
-    )
+    _emit_version_sync_report(ctx, plan, output, output_format)
 
 
 @repomatic.command(
@@ -3197,21 +3130,7 @@ def sync_workflow_pins(
 
     op.apply(plan)
 
-    _emit_version_sync_report(
-        ctx,
-        plan.changes,
-        plan.dates,
-        output,
-        output_format,
-        subject=plan.subject,
-        heading=plan.heading,
-        name_urls=plan.name_urls,
-        cutoff=plan.cutoff,
-        min_age_label=config.minimum_release_age,
-        held_back=plan.held_back,
-        held_back_name_urls=plan.held_back_name_urls,
-        notes_section=plan.notes_section,
-    )
+    _emit_version_sync_report(ctx, plan, output, output_format)
 
 
 @repomatic.command(

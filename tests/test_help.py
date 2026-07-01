@@ -30,7 +30,7 @@ def _collect_commands(
     prefix: tuple[str, ...] = (),
 ) -> list[tuple[str, ...]]:
     """Recursively collect all command paths from a Click group."""
-    paths = [prefix] if prefix else [()]
+    paths: list[tuple[str, ...]] = [prefix] if prefix else [()]
     if isinstance(group, click.Group):
         for name in sorted(group.list_commands(click.Context(group))):
             cmd = group.get_command(click.Context(group), name)
