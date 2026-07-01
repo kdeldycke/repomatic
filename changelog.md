@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.0.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.0.0` (2026-07-01)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...v7.0.0)
 
 - **Breaking:** Remove the Renovate integration: the `renovate.yaml` workflow, the bundled `renovate.json5`, the `check-renovate` command, and the Dependabot-to-Renovate migration are gone, replaced by self-hosted dependency updates (below). Downstream repos prune the orphaned files on their next `repomatic init`.
