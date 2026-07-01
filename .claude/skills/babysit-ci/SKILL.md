@@ -1,11 +1,11 @@
 ---
-description: Monitor CI tests, lint, autofix, and Nuitka binary-build workflows, diagnose failures, fix code, commit, and loop until all stable jobs pass. Ignores unstable failures.
+description: Monitor CI tests, lint, autofix, docs, and Nuitka binary-build workflows, diagnose failures, fix code, commit, and loop until all stable jobs pass. Ignores unstable failures.
 user_invocable: true
 ---
 
-# Babysit CI: monitor and fix tests.yaml + lint.yaml + autofix.yaml + release.yaml binaries
+# Babysit CI: monitor and fix tests.yaml + lint.yaml + autofix.yaml + docs.yaml + release.yaml binaries
 
-Monitor the `tests.yaml`, `lint.yaml`, `autofix.yaml`, and `release.yaml` (Nuitka `compile-binaries`) workflows in a fix-verify loop until all stable matrix variations pass and type-checking is clean.
+Monitor the `tests.yaml`, `lint.yaml`, `autofix.yaml`, `docs.yaml`, and `release.yaml` (Nuitka `compile-binaries`) workflows in a fix-verify loop until all stable matrix variations pass and type-checking is clean.
 
 ## Invocation
 
@@ -71,20 +71,21 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
    $ gh run list --workflow=tests.yaml --branch=<BRANCH> --limit=1
    $ gh run list --workflow=lint.yaml --branch=<BRANCH> --limit=1
    $ gh run list --workflow=autofix.yaml --branch=<BRANCH> --limit=1
+   $ gh run list --workflow=docs.yaml --branch=<BRANCH> --limit=1
    $ gh run list --workflow=release.yaml --branch=<BRANCH> --limit=1
    ```
 
-   Track all four run IDs. The `tests.yaml` run exercises the full test matrix; `lint.yaml` runs mypy on all Python files (source **and** tests) and lints YAML; `autofix.yaml` runs the mechanical fix jobs (`format-*`, `sync-*`, `fix-typos`, `fix-vulnerable-deps`) and turns red when one *crashes* instead of committing a fix; `release.yaml` runs the Nuitka `compile-binaries` matrix (dev binaries, rebuilt on every push to `main`). All must pass — see § Autofix job failures and § Nuitka binary build failures below for how to triage them without stalling the loop.
+   Track all five run IDs (`docs.yaml` may have none: its `paths:` filter skips pushes touching nothing docs-relevant). The `tests.yaml` run exercises the full test matrix; `lint.yaml` runs mypy on every tracked Python file and lints YAML; `autofix.yaml` runs the mechanical fix jobs (`format-*`, `sync-*`, `fix-typos`, `fix-vulnerable-deps`) and turns red when one *crashes* instead of committing a fix; `docs.yaml` builds and deploys the Sphinx site and runs the broken-links check (an externally cancelled or link-flaky run re-runs cleanly via `gh workflow run docs.yaml --ref <BRANCH>`, no commit needed); `release.yaml` runs the Nuitka `compile-binaries` matrix (dev binaries, rebuilt on every push to `main`). All must pass — see § Autofix job failures and § Nuitka binary build failures below for how to triage them without stalling the loop.
 
 3. **Run local tests while waiting for CI.** Don't idle while polling. Start the full test suite and linters locally in the background immediately after identifying the run:
 
    ```shell-session
    $ uv run pytest --no-header -q &
-   $ uv run --group typing repomatic run mypy -- repomatic tests &
-   $ uv run repomatic run ruff -- check repomatic tests &
+   $ uv run --group typing repomatic run mypy -- repomatic tests docs &
+   $ uv run repomatic run ruff -- check repomatic tests docs &
    ```
 
-   The mypy and ruff commands must cover **both** `repomatic` and `tests` directories. CI's `lint.yaml` type-checks all Python files (source + tests), so running mypy only on `repomatic/` locally will miss errors that fail in CI.
+   The mypy and ruff commands must cover **every directory holding tracked Python** — `repomatic`, `tests`, and `docs`. CI's `lint.yaml` type-checks every tracked Python file (`docs/conf.py` and `docs/docs_update.py` included), so a narrower local scope misses errors that fail only in CI (the `7.0.0` cycle's Lint went red on a `docs/docs_update.py` mypy error that a `repomatic tests` scope stayed green on).
 
    **Gate 1 (local, ~30s):** Wait for local results first. If any of the three fail, you already have the diagnosis: skip straight to step 5 without waiting for CI.
 
