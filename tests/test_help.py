@@ -14,15 +14,26 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests that --help renders without errors for every CLI command."""
+"""Keeps the CLI test suite's per-command `--help` roster in sync.
+
+The `--help` invocations themselves live as `[[cases]]` entries in
+`tests/cli-test-suite.toml`, executed by `click-extra test-suite` in CI and
+against the compiled binaries during releases. A static roster drifts as
+commands are added or removed, so this conformance test compares it against
+the live command tree and fails naming the missing or orphaned entries.
+"""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 import pytest
-from click.testing import CliRunner
+import tomlrt
 
 from repomatic.cli import repomatic
+
+SUITE_PATH = Path(__file__).parent / "cli-test-suite.toml"
 
 
 def _collect_commands(
@@ -41,21 +52,35 @@ def _collect_commands(
     return paths
 
 
-_ALL_COMMANDS = _collect_commands(repomatic)
+def _suite_help_paths() -> set[tuple[str, ...]]:
+    """Extract the command path of each `--help` case in the test suite.
+
+    A `--help` case is one whose `cli_parameters` end with `--help`; the
+    words before it are the command path (empty for the root CLI).
+    """
+    suite = tomlrt.loads(SUITE_PATH.read_text(encoding="UTF-8"))
+    paths: set[tuple[str, ...]] = set()
+    for case in suite["cases"]:
+        params = case["cli_parameters"]
+        if isinstance(params, str):
+            params = params.split()
+        if params and params[-1] == "--help":
+            paths.add(tuple(params[:-1]))
+    return paths
 
 
 @pytest.mark.once
-@pytest.mark.parametrize(
-    "cmd_path",
-    _ALL_COMMANDS,
-    ids=[" ".join(p) if p else "repomatic" for p in _ALL_COMMANDS],
-)
-def test_help_renders(cmd_path: tuple[str, ...]) -> None:
-    """Every command and subcommand must render --help without crashing."""
-    runner = CliRunner()
-    args = ["--no-color", *cmd_path, "--help"]
-    result = runner.invoke(repomatic, args, catch_exceptions=False)
-    assert result.exit_code == 0, (
-        f"repomatic {' '.join(cmd_path)} --help failed "
-        f"(exit code {result.exit_code}):\n{result.output}"
+def test_suite_covers_all_commands() -> None:
+    """Every command and subcommand must have a `--help` case in the suite."""
+    tree = set(_collect_commands(repomatic))
+    suite_paths = _suite_help_paths()
+    missing = sorted(tree - suite_paths)
+    orphans = sorted(suite_paths - tree)
+    assert not missing, (
+        "Commands without a --help case in tests/cli-test-suite.toml: "
+        + ", ".join(" ".join(path) or "(root)" for path in missing)
+    )
+    assert not orphans, (
+        "--help cases in tests/cli-test-suite.toml without a live command: "
+        + ", ".join(" ".join(path) for path in orphans)
     )

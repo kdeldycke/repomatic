@@ -115,3 +115,296 @@ stderr_regex_matches = [
   'info: Read initial mapping from \S+\.mailmap',
   "info: (Save updated results to|Print updated results to)",
 ]
+
+# Every command and subcommand must render its --help screen without crashing.
+# One case per command path, in the CLI's own sorted order; the root --help is
+# covered by its dedicated case above. tests/test_help.py keeps this roster in
+# sync with the live command tree.
+
+[[cases]]
+cli_parameters = "audit --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic audit"
+
+[[cases]]
+cli_parameters = "broken-links --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic broken-links"
+
+[[cases]]
+cli_parameters = "cache --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic cache"
+
+[[cases]]
+cli_parameters = "cache clean --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic cache clean"
+
+[[cases]]
+cli_parameters = "cache help --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic cache help"
+
+[[cases]]
+cli_parameters = "cache path --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic cache path"
+
+[[cases]]
+cli_parameters = "cache show --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic cache show"
+
+[[cases]]
+cli_parameters = "changelog --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic changelog"
+
+[[cases]]
+cli_parameters = "clean-unmodified-configs --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic clean-unmodified-configs"
+
+[[cases]]
+cli_parameters = "close-stale-bump-pr --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic close-stale-bump-pr"
+
+[[cases]]
+cli_parameters = "convert-to-myst --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic convert-to-myst"
+
+[[cases]]
+cli_parameters = "format-images --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic format-images"
+
+[[cases]]
+cli_parameters = "git-tag --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic git-tag"
+
+[[cases]]
+cli_parameters = "help --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic help"
+
+[[cases]]
+cli_parameters = "init --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic init"
+
+[[cases]]
+cli_parameters = "lint-changelog --help"
+# XXX This command's help fails on Windows: it contains characters outside
+# the console's cp1252 codepage, raising UnicodeEncodeError.
+skip_platforms = "windows"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic lint-changelog"
+
+[[cases]]
+cli_parameters = "lint-repo --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic lint-repo"
+
+[[cases]]
+cli_parameters = "list-skills --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic list-skills"
+
+[[cases]]
+cli_parameters = "metadata --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic metadata"
+
+[[cases]]
+cli_parameters = "pr-body --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic pr-body"
+
+[[cases]]
+cli_parameters = "release-prep --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic release-prep"
+
+[[cases]]
+cli_parameters = "run --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic run"
+
+[[cases]]
+cli_parameters = "scan-virustotal --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic scan-virustotal"
+
+[[cases]]
+cli_parameters = "setup-guide --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic setup-guide"
+
+[[cases]]
+cli_parameters = "show-config --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic show-config"
+
+[[cases]]
+cli_parameters = "show-test-matrix --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic show-test-matrix"
+
+[[cases]]
+cli_parameters = "sponsor-label --help"
+# XXX This command's help fails on Windows: it contains characters outside
+# the console's cp1252 codepage, raising UnicodeEncodeError.
+skip_platforms = "windows"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sponsor-label"
+
+[[cases]]
+cli_parameters = "sync-action-pins --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-action-pins"
+
+[[cases]]
+cli_parameters = "sync-bumpversion --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-bumpversion"
+
+[[cases]]
+cli_parameters = "sync-deps --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-deps"
+
+[[cases]]
+cli_parameters = "sync-dev-release --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-dev-release"
+
+[[cases]]
+cli_parameters = "sync-github-releases --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-github-releases"
+
+[[cases]]
+cli_parameters = "sync-gitignore --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-gitignore"
+
+[[cases]]
+cli_parameters = "sync-labels --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-labels"
+
+[[cases]]
+cli_parameters = "sync-mailmap --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-mailmap"
+
+[[cases]]
+cli_parameters = "sync-tool-versions --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-tool-versions"
+
+[[cases]]
+cli_parameters = "sync-uv-lock --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-uv-lock"
+
+[[cases]]
+cli_parameters = "sync-workflow-pins --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-workflow-pins"
+
+[[cases]]
+cli_parameters = "unsubscribe-threads --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic unsubscribe-threads"
+
+[[cases]]
+cli_parameters = "update-checksums --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic update-checksums"
+
+[[cases]]
+cli_parameters = "update-deps-graph --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic update-deps-graph"
+
+[[cases]]
+cli_parameters = "update-docs --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic update-docs"
+
+[[cases]]
+cli_parameters = "verify-binary --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic verify-binary"
+
+[[cases]]
+cli_parameters = "version-check --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic version-check"
+
+[[cases]]
+cli_parameters = "workflow --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic workflow"
+
+[[cases]]
+cli_parameters = "workflow help --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic workflow help"
+
+[[cases]]
+cli_parameters = "workflow lint --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic workflow lint"
