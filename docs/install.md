@@ -99,9 +99,9 @@ $ pacaur -S python-repomatic
 
 ## Python compatibility
 
-The table below shows which Python versions each `repomatic` release range supports. Support is taken from the `Programming Language :: Python :: X.Y` classifiers in `pyproject.toml`; when a tag has no classifiers, the generator falls back to `requires-python` (or Poetry's `[tool.poetry.dependencies].python`, or `setup.py`'s `python_requires`), capped at the latest Python released on or before the range's end date. Releases prior to `4.0.0` did not declare Python version support in any form and are not represented.
+The table below shows which Python versions each `repomatic` release range supports, derived from the declarations in each git tag's `pyproject.toml`. It is refreshed by [click-extra's `{matrix}` directive machinery](https://kdeldycke.github.io/click-extra/sphinx.html#matrix-directives) through the `update-docs` job. Releases prior to `4.0.0` did not declare Python version support in any form and are not represented.
 
-<!-- python-compat-start -->
+<!-- matrix python -->
 
 | `repomatic`         | Released   | `3.8` | `3.9` | `3.10` | `3.11` | `3.12` | `3.13` | `3.14` |
 | :------------------ | :--------- | :---: | :---: | :----: | :----: | :----: | :----: | :----: |
@@ -112,7 +112,7 @@ The table below shows which Python versions each `repomatic` release range suppo
 | `4.4.x` → `4.6.x`   | 2024-07-27 |  ❌   |  ✅   |   ✅   |   ✅   |   ✅   |   ❌   |   ❌   |
 | `4.0.x` → `4.3.x`   | 2024-06-29 |  ✅   |  ✅   |   ✅   |   ✅   |   ✅   |   ❌   |   ❌   |
 
-<!-- python-compat-end -->
+<!-- matrix-end -->
 
 ## Executables
 

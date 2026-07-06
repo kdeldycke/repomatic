@@ -50,7 +50,7 @@
 | [`repomatic unsubscribe-threads`](#repomatic-unsubscribe-threads)           | Unsubscribe from closed, inactive notification threads   |
 | [`repomatic update-checksums`](#repomatic-update-checksums)                 | Recompute SHA-256 checksums for the binary tool registry |
 | [`repomatic update-deps-graph`](#repomatic-update-deps-graph)               | Generate dependency graph from uv lockfile               |
-| [`repomatic update-docs`](#repomatic-update-docs)                           | Regenerate Sphinx API docs and run update script         |
+| [`repomatic update-docs`](#repomatic-update-docs)                           | Regenerate Sphinx API docs and dynamic content           |
 | [`repomatic verify-binary`](#repomatic-verify-binary)                       | Verify binary architecture using exiftool                |
 | [`repomatic version-check`](#repomatic-version-check)                       | Check if a version bump is allowed                       |
 | [`repomatic workflow`](#repomatic-workflow)                                 | Lint downstream workflow caller files                    |

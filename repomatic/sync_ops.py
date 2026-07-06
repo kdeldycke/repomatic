@@ -58,13 +58,12 @@ from __future__ import annotations
 
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from click_extra import Spinner
+from click_extra import Spinner, run_jobs
 
 from . import tool_runner
 from .checksums import update_registry_checksums
@@ -115,14 +114,6 @@ DEPENDENCY_LABEL = "🔗 dependencies"
 """GitHub label applied to every dependency-update PR.
 
 Shared by all four bumpers so a single label filters the whole family.
-"""
-
-_MAX_RESOLVE_WORKERS = 8
-"""Upper bound on concurrent resolves in {func}`run_sync_operations`.
-
-The work is network-bound (PyPI, GitHub, npm) and funneled through the on-disk
-HTTP cache, so a handful of threads saturates the useful parallelism; the family
-is only four operations today.
 """
 
 
@@ -878,12 +869,15 @@ def run_sync_operations(
 ) -> list[tuple[SyncOperation, SyncPlan | None]]:
     """Resolve operations concurrently, then apply them serially.
 
-    The resolve phase runs in a {class}`~concurrent.futures.ThreadPoolExecutor`
-    (the work is network-bound and disjoint per operation). The apply phase runs
-    in {data}`SYNC_OPERATIONS` order because three of the four rewrite the same
-    workflow files. In `--dry-run` no apply runs. An operation whose resolve
-    raises is logged and reported with a `None` plan so one failure never blocks
-    the others.
+    The resolve phase fans out through {func}`click_extra.run_jobs` (the work is
+    network-bound and disjoint per operation), sized by the global `--jobs`
+    option and sequential when no CLI context is active (as in tests). At
+    `DEBUG` verbosity the fan-out also collapses to sequential so per-operation
+    log narration stays coherent, and a Ctrl+C drops queued resolves instead of
+    waiting for them. The apply phase runs in {data}`SYNC_OPERATIONS` order
+    because three of the four rewrite the same workflow files. In `--dry-run` no
+    apply runs. An operation whose resolve raises is logged and reported with a
+    `None` plan so one failure never blocks the others.
 
     :param operations: The operations to run (already filtered by the caller).
     :param rc: Shared resolve inputs.
@@ -895,21 +889,22 @@ def run_sync_operations(
     if not operations:
         return []
 
-    plans: dict[str, SyncPlan | None] = {}
+    def resolve_safely(op: SyncOperation) -> SyncPlan | None:
+        try:
+            return op.resolve(rc)
+        except Exception:
+            logging.exception(f"{op.name} failed to resolve.")
+            return None
+
     progress = Spinner(spinner_label) if spinner_label else nullcontext()
-    with (
-        progress,
-        ThreadPoolExecutor(
-            max_workers=min(len(operations), _MAX_RESOLVE_WORKERS)
-        ) as executor,
-    ):
-        futures = {executor.submit(op.resolve, rc): op for op in operations}
-        for future, op in futures.items():
-            try:
-                plans[op.name] = future.result()
-            except Exception:
-                logging.exception(f"{op.name} failed to resolve.")
-                plans[op.name] = None
+    with progress:
+        plans = {
+            op.name: plan
+            for op, plan in zip(
+                operations,
+                run_jobs(resolve_safely, operations, serial_at_debug=True),
+            )
+        }
 
     if not rc.dry_run:
         for op in operations:

@@ -13,6 +13,12 @@
 - The release pipeline now records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.json` and refreshes the binaries page instead of editing release notes.
 - `sync-uv-lock` PR bodies gain a `Cooldown bypasses` section: each active `exclude-newer-package` freeze with the date it expires and is cleared from `pyproject.toml`, plus the entries the run froze or pruned.
 - The `Held back by cooldown` table now also lists releases blocked by an `exclude-newer-package` freeze, not only those inside the global `exclude-newer` window.
+- Add a global `--jobs` option controlling how many parallel workers commands may use, defaulting to one fewer than the host's logical CPUs.
+- `update-checksums` and `sync-tool-versions` now download binary release artifacts concurrently, sized by `--jobs`.
+- `sync-deps` resolves its operations under the same `--jobs` policy; Ctrl+C aborts the fan-out promptly and `--verbosity DEBUG` collapses it to sequential for readable logs.
+- `update-docs` gains a fourth phase refreshing self-updating `{matrix}` directive blocks in `docs/` and `readme.md` via `click-extra refresh-directives`.
+- The Python compatibility matrix in the installation docs is now maintained by click-extra's `{matrix}` markers instead of an in-repo generator.
+- Require `click-extra >= 8.2`, adding the `--export-config` option and `--theme auto` terminal-background detection to every command.
 - Exclude VirusTotal analysis links from lychee broken-link checks.
 - Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.

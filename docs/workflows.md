@@ -224,6 +224,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 - Regenerates Sphinx autodoc files using [`sphinx-apidoc`](https://github.com/sphinx-doc/sphinx)
 - Runs `docs/docs_update.py` if present to generate dynamic content (tables, diagrams, Sphinx directives)
+- Refreshes self-updating directive blocks (like [`{matrix}` compatibility tables](https://kdeldycke.github.io/click-extra/sphinx.html#matrix-directives)) in `docs/` and `readme.md` with `click-extra refresh-directives`
 - **Requires**:
   - Python package with a `pyproject.toml` file
   - `docs` dependency group

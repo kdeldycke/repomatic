@@ -33,9 +33,9 @@ import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from click_extra import progressbar
+from click_extra import progressbar, run_jobs
 
-from .tool_runner import TOOL_REGISTRY
+from .tool_runner import TOOL_REGISTRY, PlatformKey, ToolSpec
 
 
 def _download_sha256(url: str) -> str:
@@ -58,9 +58,11 @@ def update_registry_checksums(
     """Recompute binary checksums and version stamps in `tool_runner.py`.
 
     Iterates every `TOOL_REGISTRY` entry with a `binary` spec, downloads each
-    platform URL, computes its SHA-256, and replaces stale hashes in-place.
-    Also reconciles each tool's `VERSIONS` stamp with the version the checksums
-    were computed for, the basis of the offline staleness test.
+    platform URL (concurrently, sized by the global `--jobs` option and
+    sequential at `DEBUG` verbosity or without an active CLI context), computes
+    its SHA-256, and replaces stale hashes in-place. Also reconciles each tool's
+    `VERSIONS` stamp with the version the checksums were computed for, the basis
+    of the offline staleness test.
 
     :param tool_runner_path: Path to `tool_runner.py`.
     :param version_overrides: Optional mapping of tool name to a version to
@@ -90,17 +92,20 @@ def update_registry_checksums(
         for pk, tmpl in spec.binary.urls.items()
     ]
 
+    def entry_sha256(entry: tuple[ToolSpec, PlatformKey, str, str]) -> str:
+        spec, platform_key, url, _ = entry
+        logging.info(f"Verifying registry checksum for {spec.name} ({platform_key})")
+        return _download_sha256(url)
+
+    # run_jobs yields digests in submission order, so the rewrite loop below
+    # stays deterministic while the downloads overlap.
     with progressbar(
-        entries,
+        zip(entries, run_jobs(entry_sha256, entries, serial_at_debug=True)),
+        length=len(entries),
         label="Verifying checksums",
         file=sys.stderr,
     ) as items:
-        for spec, platform_key, url, old_hash in items:
-            logging.info(
-                f"Verifying registry checksum for {spec.name} ({platform_key})"
-            )
-            new_hash = _download_sha256(url)
-
+        for (spec, platform_key, url, old_hash), new_hash in items:
             if old_hash != new_hash:
                 content = content.replace(old_hash, new_hash)
                 updated.append((url, old_hash, new_hash))

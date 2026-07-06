@@ -760,7 +760,8 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Update docs
-        # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, then runs docs/docs_update.py.
+        # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, runs docs/docs_update.py, then
+        # refreshes self-updating directive blocks with click-extra refresh-directives.
         run: uvx --no-progress --from . repomatic update-docs
       - id: pr-metadata
         run: >

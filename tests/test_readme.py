@@ -31,7 +31,6 @@ from repomatic.tool_runner import TOOL_REGISTRY, NativeFormat
 REPO_ROOT = Path(__file__).parent.parent
 CLI_MD = REPO_ROOT / "docs" / "cli.md"
 CONFIGURATION_MD = REPO_ROOT / "docs" / "configuration.md"
-INSTALL_MD = REPO_ROOT / "docs" / "install.md"
 TOOL_RUNNER_MD = REPO_ROOT / "docs" / "tool-runner.md"
 
 sys.path.insert(0, str(REPO_ROOT / "docs"))
@@ -207,12 +206,6 @@ def _between(text: str, start: str, end: str) -> str:
             "<!-- tool-reference-start -->",
             "<!-- tool-reference-end -->",
             "tool_reference",
-        ),
-        (
-            INSTALL_MD,
-            "<!-- python-compat-start -->",
-            "<!-- python-compat-end -->",
-            "python_compat_table",
         ),
     ],
 )

@@ -48,6 +48,7 @@ from click_extra import (
     file_path,
     get_tool_config,
     group,
+    jobs_option,
     option,
     option_group,
     pass_context,
@@ -333,6 +334,7 @@ def _require_token(module, attr):
 # names (e.g., "setup-guide" is both a config key and a subcommand). Config
 # access goes exclusively through config_schema + get_tool_config().
 @group(config_schema=Config, schema_strict=False, included_params=())
+@jobs_option
 def repomatic():
     pass
 
@@ -1864,19 +1866,22 @@ def _validate_docs_script_path(script: str, repo_root: Path) -> Path | None:
 
 @repomatic.command(
     name="update-docs",
-    short_help="Regenerate Sphinx API docs and run update script",
+    short_help="Regenerate Sphinx API docs and dynamic content",
     section=_section_setup,
 )
 def update_docs() -> None:
     """Regenerate Sphinx autodoc stubs and run the project's update script.
 
-    Orchestrates three phases:
+    Orchestrates four phases:
 
     1. Run `sphinx-apidoc` to generate RST stubs for all modules.
     2. If MyST-Parser is detected, convert the RST stubs to MyST markdown
        with ``{eval-rst}`` blocks.
     3. Run the project-specific `docs/docs_update.py` script (if present)
        to generate dynamic content.
+    4. Refresh self-updating directive blocks (like `{matrix}` compatibility
+       tables) found in `docs/` pages and `readme.md`, via
+       `click-extra refresh-directives`.
 
     Configuration is read from `[tool.repomatic]` in `pyproject.toml`.
     """
@@ -1958,6 +1963,43 @@ def update_docs() -> None:
         logging.info(f"Docs update script not found: {script_path}")
     else:
         logging.info("Docs update script disabled (empty path).")
+
+    # Phase 4: self-updating directive blocks. Both forms are refreshed: the
+    # `{matrix}` MyST fence (live-rendered by Sphinx) and the `<!-- matrix -->`
+    # comment region (whose embedded table renders on GitHub too). Only files
+    # already carrying a block are passed, so repositories without any stay
+    # clear of the sphinx extra that `refresh-directives` requires.
+    def has_directive_block(path: Path) -> bool:
+        text = path.read_text(encoding="UTF-8")
+        return "{matrix}" in text or "<!-- matrix" in text
+
+    candidates = sorted(docs_dir.rglob("*.md")) if docs_dir.is_dir() else []
+    readme_path = repo_root / "readme.md"
+    if readme_path.is_file():
+        candidates.append(readme_path)
+    directive_files = [path for path in candidates if has_directive_block(path)]
+    if directive_files:
+        refresh_cmd = [
+            "uv",
+            "--no-progress",
+            "run",
+            "--frozen",
+            "--group",
+            "docs",
+            "--",
+            "click-extra",
+            "refresh-directives",
+            *(str(path) for path in directive_files),
+        ]
+        logging.info(f"Running: {' '.join(refresh_cmd)}")
+        result = subprocess.run(refresh_cmd, check=False)
+        if result.returncode:
+            raise ClickException(
+                f"refresh-directives failed with exit code {result.returncode}"
+            )
+        echo("Directive-block refresh completed.")
+    else:
+        logging.info("No self-updating directive blocks found. Skipping refresh.")
 
 
 @repomatic.command(
