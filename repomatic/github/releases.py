@@ -150,6 +150,53 @@ class GitHubRelease(NamedTuple):
     """Release description body (markdown)."""
 
 
+class ReleaseAsset(NamedTuple):
+    """A single downloadable asset attached to a GitHub release."""
+
+    name: str
+    """Asset filename."""
+
+    size: int
+    """Asset size in bytes."""
+
+    sha256: str
+    """SHA-256 hex digest from the API's `digest` field.
+
+    Empty for assets uploaded before GitHub started recording digests
+    (mid-2025), where the API returns `digest: null`.
+    """
+
+    download_url: str
+    """Public browser download URL."""
+
+
+class ReleaseWithAssets(NamedTuple):
+    """Full release metadata including its assets and visibility flags."""
+
+    tag: str
+    """Raw tag name (e.g. `v1.2.3`)."""
+
+    date: str
+    """Publication date in `YYYY-MM-DD` format."""
+
+    draft: bool
+    """`True` for draft releases, which are only visible to maintainers."""
+
+    prerelease: bool
+    """`True` for releases marked as pre-release."""
+
+    assets: tuple[ReleaseAsset, ...]
+    """Assets attached to the release, in API order."""
+
+    body: str = ""
+    """Release notes body (markdown).
+
+    Carried so `sync-binaries --backfill-records` can recover detection
+    snapshots from the legacy VirusTotal tables that release notes held
+    before the scan history file existed.
+    """
+
+
 def get_github_releases(repo_url: str) -> dict[str, GitHubRelease]:
     """Get versions and dates for all GitHub releases.
 
@@ -257,6 +304,53 @@ def get_release_tags(repo_url: str) -> dict[str, GitHubRelease]:
         )
 
     return result
+
+
+def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
+    """Get every release with its assets, visibility flags, and digests.
+
+    Deliberately uncached, unlike {func}`get_github_releases`: the main
+    consumer is `sync-binaries`, which runs minutes after a release is
+    published and must see the assets that were just uploaded. A cached
+    view would regenerate the binaries page from a pre-release snapshot.
+
+    :param repo_url: Repository URL (e.g. `https://github.com/user/repo`).
+    :return: One {class}`ReleaseWithAssets` per release (drafts and
+        pre-releases included, for the caller to filter), in API order
+        (newest first). Empty when the repository has no releases or
+        *repo_url* does not parse to an `owner/repo` pair.
+    :raises GitHubReleasesUnavailable: When any page fetch fails or returns
+        unparsable JSON.
+    """
+    parsed = _owner_repo(repo_url)
+    if parsed is None:
+        return []
+    owner, repo = parsed
+
+    releases = []
+    for release in _fetch_release_pages(owner, repo):
+        assets = tuple(
+            ReleaseAsset(
+                name=asset.get("name", ""),
+                size=asset.get("size", 0),
+                # The API reports digests as "sha256:<hex>"; strip the
+                # algorithm prefix to match VirusTotal URL and git usage.
+                sha256=(asset.get("digest") or "").removeprefix("sha256:"),
+                download_url=asset.get("browser_download_url", ""),
+            )
+            for asset in release.get("assets", ())
+        )
+        releases.append(
+            ReleaseWithAssets(
+                tag=release.get("tag_name", ""),
+                date=_release_date(release),
+                draft=release.get("draft", False),
+                prerelease=release.get("prerelease", False),
+                assets=assets,
+                body=release.get("body") or "",
+            )
+        )
+    return releases
 
 
 def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:

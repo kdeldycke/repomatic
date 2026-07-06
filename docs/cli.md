@@ -19,6 +19,7 @@
 | [`repomatic close-stale-bump-pr`](#repomatic-close-stale-bump-pr)           | Close a stale version-bump PR                            |
 | [`repomatic convert-to-myst`](#repomatic-convert-to-myst)                   | Convert reST docstrings to MyST in Python files          |
 | [`repomatic format-images`](#repomatic-format-images)                       | Format images with lossless optimization                 |
+| [`repomatic git-commit-push`](#repomatic-git-commit-push)                   | Commit files and push, rebasing on rejection             |
 | [`repomatic git-tag`](#repomatic-git-tag)                                   | Create and push a Git tag                                |
 | [`repomatic help`](#repomatic-help)                                         | Show help for a command                                  |
 | [`repomatic init`](#repomatic-init)                                         | Bootstrap a repository to use reusable workflows         |
@@ -35,6 +36,7 @@
 | [`repomatic show-test-matrix`](#repomatic-show-test-matrix)                 | Render the CI test matrix as a grid                      |
 | [`repomatic sponsor-label`](#repomatic-sponsor-label)                       | Label issues/PRs from GitHub sponsors                    |
 | [`repomatic sync-action-pins`](#repomatic-sync-action-pins)                 | Bump SHA-pinned GitHub Actions to their latest release   |
+| [`repomatic sync-binaries`](#repomatic-sync-binaries)                       | Regenerate the binaries catalog page                     |
 | [`repomatic sync-bumpversion`](#repomatic-sync-bumpversion)                 | Sync bumpversion config from bundled template            |
 | [`repomatic sync-deps`](#repomatic-sync-deps)                               | Update dependencies, all or a named subset               |
 | [`repomatic sync-dev-release`](#repomatic-sync-dev-release)                 | Sync rolling dev pre-release on GitHub                   |
@@ -138,6 +140,12 @@ invoke(repomatic, args=['convert-to-myst', '--help'])
 invoke(repomatic, args=['format-images', '--help'])
 ```
 
+## `repomatic git-commit-push`
+
+```{click:run}
+invoke(repomatic, args=['git-commit-push', '--help'])
+```
+
 ## `repomatic git-tag`
 
 ```{click:run}
@@ -232,6 +240,12 @@ invoke(repomatic, args=['sponsor-label', '--help'])
 
 ```{click:run}
 invoke(repomatic, args=['sync-action-pins', '--help'])
+```
+
+## `repomatic sync-binaries`
+
+```{click:run}
+invoke(repomatic, args=['sync-binaries', '--help'])
 ```
 
 ## `repomatic sync-bumpversion`

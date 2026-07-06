@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import functools
-import json
 import logging
 import os
 import re
@@ -57,6 +56,11 @@ from click_extra import (
 from extra_platforms import is_github_ci
 
 from . import __version__
+from .binaries_page import (
+    BINARY_ASSET_SUFFIXES,
+    render_binaries_section,
+    update_binaries_page,
+)
 from .binary import (
     BINARY_ARCH_MAPPINGS,
     verify_binary_arch,
@@ -84,7 +88,7 @@ from .deps_graph import (
     get_available_extras,
     get_available_groups,
 )
-from .git_ops import create_and_push_tag
+from .git_ops import commit_and_push_files, create_and_push_tag
 from .github import token as _token_mod, unsubscribe as _unsub_mod
 from .github.actions import format_multiline_output
 from .github.dev_release import (
@@ -107,6 +111,10 @@ from .github.pr_body import (
 from .github.release_sync import (
     render_sync_report as _render_sync_report,
     sync_github_releases as _sync_github_releases,
+)
+from .github.releases import (
+    GitHubReleasesUnavailable,
+    get_releases_with_assets,
 )
 from .github.unsubscribe import (
     render_report as _render_report,
@@ -185,11 +193,12 @@ from .uv import (
     format_vulnerability_table,
 )
 from .virustotal import (
-    ScanResult,
-    _extract_results_from_body,
+    load_scan_records,
     poll_detection_stats,
+    records_from_release_notes,
+    records_from_results,
     scan_files,
-    update_release_body,
+    upsert_scan_records,
 )
 
 TYPE_CHECKING = False
@@ -4022,6 +4031,69 @@ def git_tag(
 
 
 @repomatic.command(
+    name="git-commit-push",
+    short_help="Commit files and push, rebasing on rejection",
+    section=_section_release,
+)
+@option(
+    "--message",
+    required=True,
+    help="Commit message.",
+)
+@option(
+    "--remote",
+    default="origin",
+    show_default=True,
+    help="Remote to push to.",
+)
+@option(
+    "--branch",
+    default="main",
+    show_default=True,
+    help="Remote branch to push to.",
+)
+@argument(
+    "paths",
+    nargs=-1,
+    required=True,
+    type=file_path(exists=True, resolve_path=True),
+)
+def git_commit_push(
+    message: str,
+    remote: str,
+    branch: str,
+    paths: tuple[Path, ...],
+) -> None:
+    """Commit the given files and push them to a remote branch.
+
+    Idempotent: exits successfully without creating a commit when the files
+    are unchanged. A rejected push (something else pushed meanwhile) is
+    retried after rebasing onto the fresh remote tip, so release jobs can
+    publish generated files to the default branch without racing other
+    pushes. Works from a detached HEAD.
+
+    \b
+    Examples:
+        repomatic git-commit-push --message "Record v1.2.3 binaries" \\
+            docs/binaries.md docs/assets/virustotal-scans.json
+    """
+    try:
+        pushed = commit_and_push_files(paths, message, remote=remote, branch=branch)
+    except RuntimeError as e:
+        raise ClickException(str(e))
+    except subprocess.CalledProcessError as e:
+        msg = f"Git operation failed: {e}"
+        if e.stderr:
+            msg += f"\n{e.stderr.strip()}"
+        raise ClickException(msg)
+
+    if pushed:
+        echo(f"Pushed to {remote}/{branch}.")
+    else:
+        echo("No changes to commit.")
+
+
+@repomatic.command(
     name="scan-virustotal",
     short_help="Upload release binaries to VirusTotal",
     section=_section_release,
@@ -4029,13 +4101,7 @@ def git_tag(
 @option(
     "--tag",
     required=True,
-    help="Release tag to scan (e.g., v1.2.3).",
-)
-@option(
-    "--repo",
-    default=None,
-    envvar="GITHUB_REPOSITORY",
-    help="Repository in owner/repo format.",
+    help="Release tag the binaries belong to (e.g., v1.2.3).",
 )
 @option(
     "--api-key",
@@ -4046,7 +4112,7 @@ def git_tag(
 @option(
     "--binaries-dir",
     type=dir_path(exists=True, resolve_path=True),
-    default=None,
+    required=True,
     help="Directory containing binary files to upload.",
 )
 @option(
@@ -4055,11 +4121,6 @@ def git_tag(
     default=4,
     show_default=True,
     help="Maximum VirusTotal API requests per minute.",
-)
-@option(
-    "--update-release/--no-update-release",
-    default=True,
-    help="Append scan links to the GitHub release body.",
 )
 @option(
     "--poll/--no-poll",
@@ -4073,106 +4134,175 @@ def git_tag(
     show_default=True,
     help="Maximum seconds to wait for analysis completion when polling.",
 )
+@option(
+    "--records",
+    type=file_path(resolve_path=True),
+    default=None,
+    help="JSON scan history file to record detection snapshots in "
+    "(requires --poll).",
+)
 def scan_virustotal(
     tag: str,
-    repo: str | None,
     api_key: str,
-    binaries_dir: Path | None,
+    binaries_dir: Path,
     rate_limit: int,
-    update_release: bool,
     poll: bool,
     poll_timeout: int,
+    records: Path | None,
 ) -> None:
-    """Upload release binaries to VirusTotal and update the release body.
+    """Upload release binaries to VirusTotal.
 
-    Scans all .bin and .exe files in the given directory, uploads them to
-    VirusTotal, and optionally appends analysis links to the GitHub release
-    body.
+    Scans all .bin and .exe files in the given directory and uploads them to
+    VirusTotal, seeding antivirus vendor databases with the signatures of the
+    freshly built binaries.
 
-    With --poll, polls the VirusTotal API for detection statistics after
-    uploading (or standalone without --binaries-dir to enrich an existing
-    table).
+    With --poll, waits for the analyses to complete and reports each binary's
+    flagged / total verdict counts. With --records, the polled snapshots are
+    merged into a JSON history file, which sync-binaries renders into the
+    binaries catalog page.
 
     \b
     Examples:
         repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries
 
     \b
-        repomatic scan-virustotal --tag v1.2.3 --repo owner/repo --poll
+        repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries \\
+            --poll --records docs/assets/virustotal-scans.json
     """
-    if not binaries_dir and not poll:
-        raise UsageError("At least one of --binaries-dir or --poll is required.")
+    if records and not poll:
+        raise UsageError("--records requires --poll.")
 
-    results: list[ScanResult] = []
+    file_paths = sorted(
+        p
+        for p in binaries_dir.iterdir()
+        if p.is_file() and p.suffix in BINARY_ASSET_SUFFIXES
+    )
+    if not file_paths:
+        echo("No .bin or .exe files found, nothing to upload.")
+        return
 
-    # Phase 1: upload binaries and write initial table.
-    if binaries_dir:
-        file_paths = sorted(
-            p
-            for p in binaries_dir.iterdir()
-            if p.is_file() and p.suffix in {".bin", ".exe"}
-        )
+    echo(f"Uploading {len(file_paths)} file(s) to VirusTotal...")
+    results = scan_files(api_key, file_paths, rate_limit)
+    for result in results:
+        echo(f"  {result.filename}: {result.analysis_url}")
+    if not results:
+        echo("All uploads failed.")
+        return
 
-        if not file_paths:
-            echo("No .bin or .exe files found, nothing to upload.")
-            if not poll:
-                return
-        else:
-            echo(f"Uploading {len(file_paths)} file(s) to VirusTotal...")
-            results = scan_files(api_key, file_paths, rate_limit)
-
-            for r in results:
-                echo(f"  {r.filename}: {r.analysis_url}")
-
-            if not results:
-                echo("All uploads failed.")
-                if not poll:
-                    return
-
-            if results and update_release and repo:
-                updated = update_release_body(repo, tag, results)
-                if updated:
-                    echo(f"Updated release body for {tag}.")
-                else:
-                    echo(f"Release body for {tag} already has VirusTotal links.")
-            elif results and update_release and not repo:
-                echo("No --repo specified, skipping release body update.")
-
-    # Phase 2: poll for detection statistics.
     if poll:
-        if not repo:
-            raise UsageError("--repo is required when using --poll.")
-
-        if not results:
-            # Standalone poll: extract SHA-256s from release body.
-            raw = run_gh_command([
-                "release",
-                "view",
-                tag,
-                "--repo",
-                repo,
-                "--json",
-                "body",
-            ])
-            body = json.loads(raw).get("body", "")
-            results = _extract_results_from_body(body)
-            if not results:
-                echo(f"No VirusTotal section found in {tag} release body.")
-                return
-
         echo(
             f"Polling VirusTotal for {len(results)} file(s)"
             f" (timeout {poll_timeout}s)..."
         )
-        enriched = poll_detection_stats(api_key, results, rate_limit, poll_timeout)
+        results = poll_detection_stats(api_key, results, rate_limit, poll_timeout)
+        for result in results:
+            stats = (
+                str(result.detection_stats) if result.detection_stats else "pending"
+            )
+            echo(f"  {result.filename}: {stats}")
 
-        for r in enriched:
-            stats = str(r.detection_stats) if r.detection_stats else "pending"
-            echo(f"  {r.filename}: {stats}")
+    if records:
+        new_records = records_from_results(results, tag)
+        # Write even when no analysis completed: a normalized (possibly
+        # empty) history file lets later pipeline steps rely on its presence.
+        changed = upsert_scan_records(records, new_records)
+        if changed:
+            echo(f"Recorded {len(new_records)} scan(s) in {records}.")
+        else:
+            echo(f"Scan records in {records} already up to date.")
 
-        if update_release:
-            update_release_body(repo, tag, enriched, replace=True)
-            echo(f"Updated release body for {tag} with detection statistics.")
+
+@repomatic.command(
+    name="sync-binaries",
+    short_help="Regenerate the binaries catalog page",
+    section=_section_release,
+)
+@option(
+    "--repo",
+    required=True,
+    envvar="GITHUB_REPOSITORY",
+    help="Repository in owner/repo format.",
+)
+@option(
+    "--page",
+    type=file_path(resolve_path=True),
+    default="docs/binaries.md",
+    show_default=True,
+    help="Markdown page to create or refresh.",
+)
+@option(
+    "--records",
+    type=file_path(resolve_path=True),
+    default=None,
+    help="JSON scan history file written by scan-virustotal.",
+)
+@option(
+    "--backfill-records/--no-backfill-records",
+    default=False,
+    help="Recover detection snapshots from legacy release-notes tables into "
+    "the records file (requires --records).",
+)
+def sync_binaries(
+    repo: str,
+    page: Path,
+    records: Path | None,
+    backfill_records: bool,
+) -> None:
+    """Regenerate the binaries catalog page from the GitHub Releases API.
+
+    Rebuilds the generated region of the page from live release data: one
+    table per published release carrying compiled binaries, with download
+    links, sizes, and SHA-256 checksums linking to VirusTotal analyses. When
+    a scan history file is given, tables gain a Detections column and the
+    page a detection trend chart.
+
+    With --backfill-records, detection snapshots are first recovered from the
+    VirusTotal tables that release notes carried before the history file
+    existed, and merged into the records file. Release notes are immutable,
+    so the backfill converges and is safe to leave enabled.
+
+    The page is created from a default template when missing; the intro above
+    the markers is left untouched, so it can be edited per repository.
+
+    \b
+    Examples:
+        repomatic sync-binaries --repo owner/repo
+
+    \b
+        repomatic sync-binaries --repo owner/repo \\
+            --records docs/assets/virustotal-scans.json --backfill-records
+    """
+    if backfill_records and not records:
+        raise UsageError("--backfill-records requires --records.")
+
+    try:
+        releases = get_releases_with_assets(f"https://github.com/{repo}")
+    except GitHubReleasesUnavailable as e:
+        raise ClickException(str(e))
+
+    try:
+        if backfill_records and records:
+            legacy = [
+                record
+                for release in releases
+                if not release.draft and release.date
+                for record in records_from_release_notes(
+                    release.body, release.tag, release.date
+                )
+            ]
+            if legacy and upsert_scan_records(records, legacy):
+                echo(f"Backfilled {len(legacy)} snapshot(s) from release notes.")
+
+        scan_records = load_scan_records(records) if records else []
+        section = render_binaries_section(repo, releases, scan_records)
+        changed = update_binaries_page(page, section)
+    except ValueError as e:
+        raise ClickException(str(e))
+
+    if changed:
+        echo(f"Updated {page}.")
+    else:
+        echo(f"{page} already up to date.")
 
 
 @repomatic.command(

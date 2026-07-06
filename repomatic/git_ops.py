@@ -42,6 +42,21 @@ from typing import NamedTuple
 
 from packaging.version import Version
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+
+COMMIT_IDENTITY_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
+"""Commit author email for automated commits: GitHub's own Actions bot user.
+
+The `41898282+` prefix is the bot's stable user ID, which makes GitHub link
+the commit to the verified `github-actions[bot]` account.
+"""
+
+COMMIT_IDENTITY_NAME = "github-actions[bot]"
+"""Commit author name for automated commits."""
+
 SHORT_SHA_LENGTH = 7
 """Default SHA length hard-coded to `7`.
 
@@ -389,6 +404,83 @@ def push_tag(tag: str, remote: str = "origin") -> None:
     cmd = ["git", "push", remote, tag]
     logging.debug(f"Pushing tag: {' '.join(cmd)}")
     subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+
+def commit_and_push_files(
+    paths: Sequence[Path | str],
+    message: str,
+    remote: str = "origin",
+    branch: str = "main",
+    attempts: int = 3,
+) -> bool:
+    """Commit the given files and push, rebasing and retrying on rejection.
+
+    Designed for CI jobs that append to tracked files (scan records, the
+    binaries page) and publish the result on the default branch. The commit
+    is authored as {data}`COMMIT_IDENTITY_NAME` via per-command `-c` config,
+    since CI checkouts carry no git identity.
+
+    Idempotent: when the files are unchanged, no commit is created and the
+    function returns `False`. A rejected push (another job or the maintainer
+    pushed meanwhile) is retried after fetching and rebasing onto the fresh
+    remote tip. Works from a detached `HEAD`: the push targets
+    ``HEAD:{branch}`` explicitly.
+
+    :param paths: Files to stage and commit.
+    :param message: Commit message.
+    :param remote: Remote to push to.
+    :param branch: Remote branch to push to.
+    :param attempts: Maximum push attempts before giving up.
+    :return: `True` when a commit was pushed, `False` when there was nothing
+        to commit.
+    :raises RuntimeError: When the rebase hits a conflict (the local change
+        overlaps a concurrent push) or every push attempt is rejected.
+    :raises subprocess.CalledProcessError: When a git command fails outright.
+    """
+    _git("add", "--", *(str(path) for path in paths))
+    if _git("diff", "--cached", "--quiet", check=False).returncode == 0:
+        logging.info("No changes to commit.")
+        return False
+
+    _git(
+        "-c",
+        f"user.name={COMMIT_IDENTITY_NAME}",
+        "-c",
+        f"user.email={COMMIT_IDENTITY_EMAIL}",
+        "commit",
+        "--message",
+        message,
+    )
+    logging.info(f"Committed: {message}")
+
+    for attempt in range(1, attempts + 1):
+        push = _git("push", remote, f"HEAD:{branch}", check=False)
+        if push.returncode == 0:
+            logging.info(f"Pushed to {remote}/{branch}.")
+            return True
+        logging.warning(
+            f"Push attempt {attempt}/{attempts} rejected: "
+            f"{push.stderr.strip()}\nRebasing onto fresh {remote}/{branch}."
+        )
+        _git("fetch", remote, branch)
+        # Replaying the commit needs a committer identity too.
+        rebase = _git(
+            "-c",
+            f"user.name={COMMIT_IDENTITY_NAME}",
+            "-c",
+            f"user.email={COMMIT_IDENTITY_EMAIL}",
+            "rebase",
+            "FETCH_HEAD",
+            check=False,
+        )
+        if rebase.returncode:
+            _git("rebase", "--abort", check=False)
+            raise RuntimeError(
+                f"Rebase onto {remote}/{branch} conflicted, aborted. "
+                "A concurrent push touched the same files; re-run the job "
+                "once it settles."
+            )
+    raise RuntimeError(f"Push to {remote}/{branch} failed after {attempts} attempts.")
 
 
 def create_and_push_tag(

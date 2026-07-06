@@ -25,6 +25,8 @@ import pytest
 from packaging.version import Version
 
 from repomatic.git_ops import (
+    COMMIT_IDENTITY_NAME,
+    commit_and_push_files,
     create_and_push_tag,
     create_tag,
     get_latest_tag_version,
@@ -120,6 +122,99 @@ def test_push_tag_failure():
         mock_run.side_effect = subprocess.CalledProcessError(1, "git")
         with pytest.raises(subprocess.CalledProcessError):
             push_tag("v1.0.0")
+
+
+# --- commit_and_push_files ---
+
+
+def _run_git(*args: str, cwd) -> str:
+    """Run a git command in *cwd* and return its stdout."""
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="UTF-8",
+    )
+    return result.stdout
+
+
+def _seed_commit(workdir, filename: str, content: str, message: str) -> None:
+    """Create a file and commit it with a throwaway identity."""
+    (workdir / filename).write_text(content, encoding="utf-8")
+    _run_git("add", "--", filename, cwd=workdir)
+    _run_git(
+        "-c",
+        "user.name=Seeder",
+        "-c",
+        "user.email=seeder@example.com",
+        "commit",
+        "--message",
+        message,
+        cwd=workdir,
+    )
+
+
+@pytest.fixture()
+def git_workdir(tmp_path, monkeypatch):
+    """A working clone (cwd) of a bare `origin` remote, one commit on main."""
+    # Shield the temporary repos (and the code under test) from the
+    # developer's global git config: commit signing, hooks, and identity
+    # would otherwise leak in and break hermeticity.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+    remote = tmp_path / "remote.git"
+    _run_git("init", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
+    work = tmp_path / "work"
+    _run_git("clone", str(remote), str(work), cwd=tmp_path)
+    _run_git("checkout", "-B", "main", cwd=work)
+    _seed_commit(work, "seed.txt", "seed\n", "Seed commit")
+    _run_git("push", "--set-upstream", "origin", "main", cwd=work)
+    monkeypatch.chdir(work)
+    return work
+
+
+def test_commit_and_push_files_no_changes(git_workdir):
+    """Unchanged files produce no commit and report False."""
+    assert commit_and_push_files(["seed.txt"], "No-op") is False
+    assert "No-op" not in _run_git("log", "--format=%s", cwd=git_workdir)
+
+
+def test_commit_and_push_files_pushes(git_workdir, tmp_path):
+    """A changed file is committed with the bot identity and pushed."""
+    (git_workdir / "seed.txt").write_text("updated\n", encoding="utf-8")
+    assert commit_and_push_files(["seed.txt"], "Record update") is True
+    remote_log = _run_git(
+        "log", "--format=%s|%an", "main", cwd=tmp_path / "remote.git"
+    )
+    assert f"Record update|{COMMIT_IDENTITY_NAME}" in remote_log
+
+
+def test_commit_and_push_files_rebases_on_rejection(git_workdir, tmp_path):
+    """A concurrent push to another file is absorbed by fetch and rebase."""
+    other = tmp_path / "other"
+    _run_git("clone", str(tmp_path / "remote.git"), str(other), cwd=tmp_path)
+    _seed_commit(other, "other.txt", "other\n", "Concurrent commit")
+    _run_git("push", "origin", "main", cwd=other)
+
+    (git_workdir / "seed.txt").write_text("updated\n", encoding="utf-8")
+    assert commit_and_push_files(["seed.txt"], "Record update") is True
+    remote_log = _run_git("log", "--format=%s", "main", cwd=tmp_path / "remote.git")
+    assert "Record update" in remote_log
+    assert "Concurrent commit" in remote_log
+
+
+def test_commit_and_push_files_conflict_raises(git_workdir, tmp_path):
+    """A concurrent push touching the same lines aborts with a clear error."""
+    other = tmp_path / "other"
+    _run_git("clone", str(tmp_path / "remote.git"), str(other), cwd=tmp_path)
+    _seed_commit(other, "seed.txt", "theirs\n", "Concurrent conflicting commit")
+    _run_git("push", "origin", "main", cwd=other)
+
+    (git_workdir / "seed.txt").write_text("ours\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="conflicted"):
+        commit_and_push_files(["seed.txt"], "Record update")
 
 
 def test_create_new_tag():

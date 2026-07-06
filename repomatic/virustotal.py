@@ -14,18 +14,27 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Upload release binaries to VirusTotal and update GitHub release notes.
+"""Upload release binaries to VirusTotal and record detection snapshots.
 
 Submits compiled binaries (`.bin`, `.exe`) to the VirusTotal API for malware
-scanning, then appends analysis links to the GitHub release body so users can
-verify scan results.
+scanning. This seeds antivirus vendor databases with the signatures of freshly
+built binaries, which keeps false-positive rates in check for downstream
+distributors.
 
-Supports two-phase operation: phase 1 uploads files and writes an initial table
-with scan links, phase 2 polls for analysis completion and replaces the table
-with detection statistics.
+Detection statistics polled after an upload are appended to a JSON history
+file, one record per binary per scan date. The `sync-binaries` command renders
+that history into the binaries catalog page (`docs/binaries.md`).
 
 ```{note}
+Scan results are deliberately kept out of GitHub release notes: a raw
+`flagged / total` count next to a download link reads as a malware verdict to
+visitors, when it is almost always Nuitka onefile false positives. See
+[kdeldycke/meta-package-manager#1911](https://github.com/kdeldycke/meta-package-manager/issues/1911)
+for the confusion this caused. The catalog page provides the context release
+notes cannot.
+```
 
+```{note}
 The free-tier API allows 4 requests per minute. All API calls (uploads and
 polls) are rate-limited with a sleep between each request.
 ```
@@ -39,36 +48,27 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import vt
-
-from .github.gh import run_gh_command
+from packaging.version import InvalidVersion, Version
 
 VIRUSTOTAL_GUI_URL = "https://www.virustotal.com/gui/file/{sha256}"
 """URL template for the VirusTotal file analysis page."""
 
-VIRUSTOTAL_SECTION_HEADER = "### \U0001f6e1\ufe0f VirusTotal scans"
-"""Markdown header identifying the VirusTotal section in release bodies.
+_LEGACY_NOTES_ROW_RE = re.compile(
+    r"\|\s*\[?`(?P<filename>[^`|]+)`[^|]*"
+    r"\|\s*(?P<flagged>\d+)\s*/\s*(?P<total>\d+)\s*"
+    r"\|[^|]*https://www\.virustotal\.com/gui/file/(?P<sha256>[a-f0-9]{64})"
+)
+"""Matches one row of the legacy VirusTotal table in GitHub release notes.
 
-Used for idempotency: if this header is already present, the release body
-is not modified (unless `replace=True` is passed to `update_release_body`).
+The retired release-body format was
+`| [\\`file\\`](url) | flagged / total | [View scan](analysis-url) |`.
+Rows without a numeric Detections cell (link-only tables, `*pending*`
+placeholders) deliberately don't match: they carry no snapshot to recover.
 """
-
-DETECTION_PENDING = "*pending*"
-"""Placeholder text for the Detections column when analysis is not yet complete."""
-
-_VT_SHA256_RE = re.compile(
-    r"https://www\.virustotal\.com/gui/file/([a-f0-9]{64})",
-)
-"""Regex to extract SHA-256 hashes from VirusTotal GUI URLs in release bodies."""
-
-_VT_ROW_RE = re.compile(
-    r"\|\s*\[?`([^`]+)`\]?"  # Binary name (with or without link).
-    r".*?"
-    r"https://www\.virustotal\.com/gui/file/([a-f0-9]{64})"  # SHA-256 from URL.
-)
-"""Regex to extract filename and SHA-256 from a VirusTotal table row."""
 
 
 @dataclass(frozen=True)
@@ -121,6 +121,67 @@ class ScanResult:
 
     detection_stats: DetectionStats | None = None
     """Detection statistics, or `None` if analysis is still pending."""
+
+
+@dataclass(frozen=True)
+class ScanRecord:
+    """A detection snapshot for one binary, taken on a given date.
+
+    Records accumulate in a JSON history file (see
+    {func}`upsert_scan_records`) committed to the repository. Each record
+    freezes the `flagged / total` verdict counts at scan time, so the history
+    supports trend analysis across releases even after VirusTotal re-analyzes
+    the files or vendors process false-positive reports.
+    """
+
+    tag: str
+    """Git tag of the release the binary belongs to (e.g. `v1.2.3`)."""
+
+    filename: str
+    """Filename of the scanned binary."""
+
+    sha256: str
+    """SHA-256 hash of the file content."""
+
+    scanned: str
+    """Scan date in `YYYY-MM-DD` format."""
+
+    stats: DetectionStats
+    """Detection statistics at scan time."""
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """Deduplication identity: the same file scanned on the same day."""
+        return (self.sha256, self.scanned)
+
+    def to_dict(self) -> dict[str, int | str]:
+        """Flatten to a JSON-ready mapping, detection stats inlined."""
+        return {
+            "filename": self.filename,
+            "harmless": self.stats.harmless,
+            "malicious": self.stats.malicious,
+            "scanned": self.scanned,
+            "sha256": self.sha256,
+            "suspicious": self.stats.suspicious,
+            "tag": self.tag,
+            "undetected": self.stats.undetected,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ScanRecord:
+        """Rebuild a record from its flattened JSON mapping."""
+        return cls(
+            tag=data["tag"],
+            filename=data["filename"],
+            sha256=data["sha256"],
+            scanned=data["scanned"],
+            stats=DetectionStats(
+                malicious=int(data["malicious"]),
+                suspicious=int(data["suspicious"]),
+                undetected=int(data["undetected"]),
+                harmless=int(data["harmless"]),
+            ),
+        )
 
 
 def _compute_sha256(path: Path) -> str:
@@ -260,158 +321,147 @@ def poll_detection_stats(
     ]
 
 
-def _extract_results_from_body(body: str) -> list[ScanResult]:
-    """Extract scan results from the VirusTotal section in a release body.
-
-    Parses table rows to recover filenames and SHA-256 hashes, enabling the
-    poll phase to run without access to the original binaries.
-
-    :param body: GitHub release body text.
-    :return: Scan results reconstructed from the body, or empty list if no
-        VirusTotal section is found.
-    """
-    if VIRUSTOTAL_SECTION_HEADER not in body:
-        return []
-
-    results = []
-    # Only parse lines after the VT header.
-    in_section = False
-    for line in body.splitlines():
-        if VIRUSTOTAL_SECTION_HEADER in line:
-            in_section = True
-            continue
-        if not in_section:
-            continue
-        m = _VT_ROW_RE.search(line)
-        if m:
-            filename, sha256 = m.group(1), m.group(2)
-            results.append(
-                ScanResult(
-                    filename=filename,
-                    sha256=sha256,
-                    analysis_url=VIRUSTOTAL_GUI_URL.format(sha256=sha256),
-                )
-            )
-
-    return results
-
-
-def format_virustotal_section(
+def records_from_results(
     results: list[ScanResult],
-    repo: str = "",
-    tag: str = "",
-) -> str:
-    """Format scan results as a markdown section for a GitHub release body.
-
-    When any result has `detection_stats`, a three-column table is rendered
-    with a Detections column. Otherwise the simpler two-column format is used.
-
-    :param results: Scan results to format.
-    :param repo: Repository in `owner/repo` format. When provided along with
-        `tag`, binary names are linked to their GitHub release download URLs.
-    :param tag: Release tag (e.g., `v6.11.1`).
-    :return: Markdown string, or empty string if no results.
-    """
-    if not results:
-        return ""
-
-    has_detections = any(r.detection_stats is not None for r in results)
-
-    lines = [
-        "---",
-        "",
-        VIRUSTOTAL_SECTION_HEADER,
-        "",
-    ]
-    if has_detections:
-        lines.append("| Binary | Detections | Analysis |")
-        lines.append("| --- | --- | --- |")
-    else:
-        lines.append("| Binary | Analysis |")
-        lines.append("| --- | --- |")
-
-    for r in results:
-        if repo and tag:
-            download_url = (
-                f"https://github.com/{repo}/releases/download/{tag}/{r.filename}"
-            )
-            binary_cell = f"[`{r.filename}`]({download_url})"
-        else:
-            binary_cell = f"`{r.filename}`"
-
-        if has_detections:
-            det_cell = (
-                str(r.detection_stats) if r.detection_stats else DETECTION_PENDING
-            )
-            lines.append(
-                f"| {binary_cell} | {det_cell} | [View scan]({r.analysis_url}) |"
-            )
-        else:
-            lines.append(f"| {binary_cell} | [View scan]({r.analysis_url}) |")
-
-    return "\n".join(lines) + "\n"
-
-
-def update_release_body(
-    repo: str,
     tag: str,
-    results: list[ScanResult],
-    replace: bool = False,
-) -> bool:
-    """Append or replace VirusTotal scan links in a GitHub release body.
+    scanned: str | None = None,
+) -> list[ScanRecord]:
+    """Build history records from scan results whose analysis completed.
 
-    :param repo: Repository in `owner/repo` format.
-    :param tag: Release tag (e.g., `v6.11.1`).
-    :param results: Scan results to write.
-    :param replace: When `True`, replace an existing VirusTotal section
-        instead of skipping. When `False` (default), skip if the section
-        is already present.
-    :return: `True` if the body was updated, `False` if skipped.
+    Results still pending (no detection statistics) are skipped: a record
+    without verdict counts carries no information the release assets don't
+    already provide.
+
+    :param results: Scan results, typically from {func}`poll_detection_stats`.
+    :param tag: Git tag of the release the binaries belong to.
+    :param scanned: Snapshot date in `YYYY-MM-DD` format. Today (UTC) when
+        `None`.
+    :return: One record per result with detection statistics.
     """
-    if not results:
-        logging.info("No scan results to add to release body.")
-        return False
+    if scanned is None:
+        scanned = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return [
+        ScanRecord(
+            tag=tag,
+            filename=r.filename,
+            sha256=r.sha256,
+            scanned=scanned,
+            stats=r.detection_stats,
+        )
+        for r in results
+        if r.detection_stats is not None
+    ]
 
-    raw = run_gh_command([
-        "release",
-        "view",
-        tag,
-        "--repo",
-        repo,
-        "--json",
-        "body",
-    ])
-    current_body = json.loads(raw).get("body", "")
 
-    section = format_virustotal_section(results, repo=repo, tag=tag)
+def records_from_release_notes(
+    body: str,
+    tag: str,
+    scanned: str,
+) -> list[ScanRecord]:
+    """Recover detection snapshots from a legacy release-notes table.
 
-    if VIRUSTOTAL_SECTION_HEADER in current_body:
-        if not replace:
-            logging.info(
-                f"VirusTotal section already present in {tag}, skipping update."
+    Before the scan history file existed, the release pipeline appended a
+    VirusTotal table to GitHub release notes, with a `flagged / total`
+    Detections cell frozen minutes after publication. Those cells are genuine
+    at-release snapshots, so `sync-binaries --backfill-records` harvests them
+    to seed the history for releases that predate the file.
+
+    ```{note}
+    The legacy table only recorded the flagged and total aggregates, not the
+    malicious/suspicious/undetected/harmless split. The split is rebuilt as
+    flagged = malicious and the remainder = undetected, which is lossless for
+    everything the catalog consumes (`flagged` and `total`).
+    ```
+
+    :param body: Release notes markdown.
+    :param tag: Git tag of the release.
+    :param scanned: Snapshot date, normally the release publication date.
+    :return: One record per table row carrying a numeric Detections cell.
+    """
+    records = []
+    for match in _LEGACY_NOTES_ROW_RE.finditer(body):
+        flagged = int(match["flagged"])
+        total = int(match["total"])
+        if total < flagged:
+            continue
+        records.append(
+            ScanRecord(
+                tag=tag,
+                filename=match["filename"],
+                sha256=match["sha256"],
+                scanned=scanned,
+                stats=DetectionStats(
+                    malicious=flagged,
+                    suspicious=0,
+                    undetected=total - flagged,
+                    harmless=0,
+                ),
             )
-            return False
-        # Replace: find the horizontal rule before the VT header and remove
-        # everything from there to the end of the body.
-        header_idx = current_body.index(VIRUSTOTAL_SECTION_HEADER)
-        # Walk backwards to find the preceding "---" separator.
-        prefix = current_body[:header_idx]
-        rule_idx = prefix.rfind("---")
-        if rule_idx >= 0:
-            new_body = current_body[:rule_idx].rstrip() + "\n\n" + section
-        else:
-            new_body = current_body[:header_idx].rstrip() + "\n\n" + section
-    else:
-        new_body = current_body.rstrip() + "\n\n" + section
+        )
+    return records
 
-    run_gh_command([
-        "release",
-        "edit",
-        tag,
-        "--repo",
-        repo,
-        "--notes",
-        new_body,
-    ])
-    logging.info(f"Updated release body for {tag} with VirusTotal scan links.")
+
+def _record_sort_key(record: ScanRecord) -> tuple[Version, str, str, str]:
+    """Order records by release version, then filename, then scan date.
+
+    Tags that don't parse as versions sort first under `Version("0")`, with
+    the raw tag string as tie-breaker.
+    """
+    try:
+        version = Version(record.tag.removeprefix("v"))
+    except InvalidVersion:
+        version = Version("0")
+    return (version, record.tag, record.filename, record.scanned)
+
+
+def load_scan_records(path: Path) -> list[ScanRecord]:
+    """Load scan records from a JSON history file.
+
+    :param path: Path to the JSON file.
+    :return: The records, or an empty list when the file does not exist.
+    :raises ValueError: When the file exists but cannot be parsed. Loud on
+        purpose: a corrupt history must never be silently clobbered by the
+        next {func}`upsert_scan_records` write.
+    """
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="UTF-8"))
+        return [ScanRecord.from_dict(entry) for entry in data]
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Malformed scan records file {path}: {exc}") from exc
+
+
+def upsert_scan_records(path: Path, new_records: list[ScanRecord]) -> bool:
+    """Merge new records into the JSON history file at *path*.
+
+    Records sharing the same `(sha256, scanned)` identity are replaced, so
+    re-running a scan the same day is idempotent. The file is created (with
+    its parent directories) when missing, and always rewritten in normalized
+    form: sorted by version, filename, and scan date, serialized with the
+    same layout Biome's JSON formatter produces so the `format-json` autofix
+    job never rewrites it.
+
+    :param path: Path to the JSON history file.
+    :param new_records: Records to merge in.
+    :return: `True` when the file content changed.
+    """
+    merged = {record.key: record for record in load_scan_records(path)}
+    for record in new_records:
+        merged[record.key] = record
+    ordered = sorted(merged.values(), key=_record_sort_key)
+    # Tab indentation matches Biome's JSON style, so `format-json` never
+    # rewrites the file.
+    content = (
+        json.dumps(
+            [record.to_dict() for record in ordered], indent="\t", sort_keys=True
+        )
+        + "\n"
+    )
+    if path.exists() and path.read_text(encoding="UTF-8") == content:
+        logging.info(f"Scan records in {path} already up to date.")
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="UTF-8")
+    logging.info(f"Wrote {len(ordered)} scan record(s) to {path}.")
     return True

@@ -420,6 +420,9 @@ exclude = [
   "archive\\.ph",
   # npmjs.com returns 403 to bots.
   "^https://www\\.npmjs\\.com/package/.*$",
+  # VirusTotal analysis pages are a JS app that rate-limits bots, and the
+  # binaries page links one per released binary.
+  "^https://www\\.virustotal\\.com/gui/.*$",
   # star-history.com fragments are JS-rendered and invisible to lychee.
   "^https://star-history\\.com/.*$",
   # githubstatus.com returns 405 to HEAD requests from bots.

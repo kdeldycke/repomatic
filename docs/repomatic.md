@@ -20,6 +20,15 @@
 
 ## Submodules
 
+## `repomatic.binaries_page` module
+
+```{eval-rst}
+.. automodule:: repomatic.binaries_page
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.binary` module
 
 ```{eval-rst}

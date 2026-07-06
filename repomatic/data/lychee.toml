@@ -12,4 +12,7 @@ exclude = [
   "sci-hub\\.st",
   "ycombinator\\.com",
   "x\\.com",
+  # VirusTotal analysis pages are a JS app that rate-limits bots, and the
+  # binaries page links one per released binary.
+  "^https://www\\.virustotal\\.com/gui/.*$",
 ]

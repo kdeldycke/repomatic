@@ -105,7 +105,7 @@ The table below shows which Python versions each `repomatic` release range suppo
 
 | `repomatic`         | Released   | `3.8` | `3.9` | `3.10` | `3.11` | `3.12` | `3.13` | `3.14` |
 | :------------------ | :--------- | :---: | :---: | :----: | :----: | :----: | :----: | :----: |
-| `4.25.x` → `6.x`    | 2025-12-05 |  ❌   |  ❌   |   ✅   |   ✅   |   ✅   |   ✅   |   ✅   |
+| `4.25.x` → `7.x`    | 2025-12-05 |  ❌   |  ❌   |   ✅   |   ✅   |   ✅   |   ✅   |   ✅   |
 | `4.20.x` → `4.24.x` | 2025-10-10 |  ❌   |  ❌   |   ❌   |   ✅   |   ✅   |   ✅   |   ✅   |
 | `4.15.x` → `4.19.x` | 2025-03-05 |  ❌   |  ❌   |   ❌   |   ✅   |   ✅   |   ✅   |   ❌   |
 | `4.7.x` → `4.14.x`  | 2024-11-03 |  ❌   |  ❌   |   ✅   |   ✅   |   ✅   |   ✅   |   ❌   |
@@ -125,6 +125,8 @@ To ease deployment, standalone executables of `repomatic`'s latest version are a
 | **Windows** | [Download `repomatic-7.0.0-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v7.0.0/repomatic-7.0.0-windows-arm64.exe) | [Download `repomatic-7.0.0-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v7.0.0/repomatic-7.0.0-windows-x64.exe) |
 
 That way you have a chance to try it out without installing Python or `uv`. Or embed it in your CI/CD pipelines running on minimal images. Or run it on old platforms without worrying about dependency hell.
+
+Binaries of all past releases, with sizes, SHA-256 checksums, and VirusTotal analyses, are cataloged on the [binaries page](binaries.md).
 
 ## Default dependencies
 

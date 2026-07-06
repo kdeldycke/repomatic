@@ -471,20 +471,27 @@ jobs:
     needs:
       - metadata
       - publish-release
-    # Run after publish-release so the release exists. Skip if no VT key or no binaries.
+    # Run after publish-release so the release assets exist. Skip if no VT key.
     if: >-
       always()
       && needs.publish-release.result == 'success'
       && needs.metadata.outputs.has_virustotal_key
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+      # Each cell commits scan records to the default branch; serializing the
+      # (rare) multi-release runs keeps them from racing on the same files.
+      max-parallel: 1
     runs-on: ubuntu-slim
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ matrix.commit }}
+          # Scan records and the binaries page are committed on top of the
+          # default branch tip, not the release commit. The PAT (when
+          # available) lets the push trigger the docs deploy workflow.
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
@@ -498,27 +505,36 @@ jobs:
           --pattern "*.bin"
           --pattern "*.exe"
           --dir ./binaries
-      - name: Upload to VirusTotal and update release body
+      - name: Upload to VirusTotal and record detections
         env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
           CURRENT_VERSION: ${{ matrix.current_version }}
         run: >
           uvx --no-progress --from . repomatic scan-virustotal
           --tag "v${CURRENT_VERSION}"
-          --repo "${{ github.repository }}"
           --binaries-dir ./binaries
-      - name: Poll VirusTotal for detection statistics
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
-          CURRENT_VERSION: ${{ matrix.current_version }}
-        run: >
-          uvx --no-progress --from . repomatic scan-virustotal
-          --tag "v${CURRENT_VERSION}"
-          --repo "${{ github.repository }}"
           --poll
           --poll-timeout 600
+          --records docs/assets/virustotal-scans.json
+      - name: Regenerate binaries page
+        # See repomatic/binaries_page.py for the page design rationale.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          uvx --no-progress --from . repomatic sync-binaries
+          --repo "${{ github.repository }}"
+          --page docs/binaries.md
+          --records docs/assets/virustotal-scans.json
+          --backfill-records
+      - name: Commit and push scan records
+        env:
+          CURRENT_VERSION: ${{ matrix.current_version }}
+        run: >
+          uvx --no-progress --from . repomatic git-commit-push
+          --message "Record v${CURRENT_VERSION} binaries"
+          --branch "${{ github.event.repository.default_branch }}"
+          docs/binaries.md
+          docs/assets/virustotal-scans.json
 
   sync-dev-release:
     name: 🔄 Sync dev pre-release
