@@ -253,7 +253,7 @@ def render_chart_section(records: Sequence[ScanRecord]) -> str:
         f"const VT_DANGER_PCT = {FLAGGED_DANGER_PCT};\n"
         "const vtCss = getComputedStyle(document.documentElement);\n"
         "const vtColor = (name, fallback) =>\n"
-        '    vtCss.getPropertyValue(name).trim() || fallback;\n'
+        "    vtCss.getPropertyValue(name).trim() || fallback;\n"
         "const vtTint = (p) => {\n"
         '    if (p.pct === 0) { return vtColor("--sd-color-success", "#28a745"); }\n'
         "    return p.pct >= VT_DANGER_PCT\n"
@@ -280,8 +280,8 @@ def render_chart_section(records: Sequence[ScanRecord]) -> str:
         "                title: (items) => VT_TREND[items[0].dataIndex].tag,\n"
         "                label: (item) => {\n"
         "                    const p = VT_TREND[item.dataIndex];\n"
-        "                    return p.flagged + \" / \" + p.total\n"
-        "                        + \" verdicts flagged (\" + p.pct + \"%)\";\n"
+        '                    return p.flagged + " / " + p.total\n'
+        '                        + " verdicts flagged (" + p.pct + "%)";\n'
         "                },\n"
         "            }},\n"
         "        },\n"
@@ -359,8 +359,7 @@ def render_binaries_csv(
                     # out, the goal state stays calm.
                     if record.stats.flagged == 0:
                         vt_cell = (
-                            f"[{{octicon}}`shield-check;1em;sd-text-success`]"
-                            f"({vt_url})"
+                            f"[{{octicon}}`shield-check;1em;sd-text-success`]({vt_url})"
                         )
                     else:
                         pct = 100 * record.stats.flagged / record.stats.total
@@ -433,9 +432,7 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
             )
         text = original
     else:
-        text = PAGE_TEMPLATE.replace(
-            "{repo_url}", f"https://github.com/{repo_slug}"
-        )
+        text = PAGE_TEMPLATE.replace("{repo_url}", f"https://github.com/{repo_slug}")
 
     before, rest = text.split(PAGE_START_MARKER, 1)
     _, after = rest.split(PAGE_END_MARKER, 1)

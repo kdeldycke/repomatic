@@ -217,9 +217,7 @@ def test_upsert_scan_records_creates_file(tmp_path, sample_records):
     """The history file and its parent directories are created on demand."""
     path = tmp_path / "assets" / "scans.json"
     assert upsert_scan_records(path, sample_records) is True
-    assert load_scan_records(path) == sorted(
-        sample_records, key=lambda r: r.tag
-    )
+    assert load_scan_records(path) == sorted(sample_records, key=lambda r: r.tag)
 
 
 def test_upsert_scan_records_empty_creates_file(tmp_path):
