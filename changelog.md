@@ -11,8 +11,11 @@
 - `sync-binaries --backfill-records` recovers detection snapshots from the VirusTotal tables of legacy release notes into the scan history file.
 - Add `git-commit-push`: commits files and pushes them, rebasing and retrying on rejection, for release jobs publishing generated files to the default branch.
 - The release pipeline now records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.json` and refreshes the binaries page instead of editing release notes.
+- `sync-uv-lock` PR bodies gain a `Cooldown bypasses` section: each active `exclude-newer-package` freeze with the date it expires and is cleared from `pyproject.toml`, plus the entries the run froze or pruned.
+- The `Held back by cooldown` table now also lists releases blocked by an `exclude-newer-package` freeze, not only those inside the global `exclude-newer` window.
 - Exclude VirusTotal analysis links from lychee broken-link checks.
 - Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.
+- Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 
 ## [`7.0.0` (2026-07-01)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...v7.0.0)

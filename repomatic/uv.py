@@ -560,6 +560,23 @@ def _freeze_cutoff(upload_str: str) -> str | None:
     return _date_to_utc_cutoff((upload_dt + timedelta(days=1)).date())
 
 
+def _bypass_entries(pyproject_path: Path) -> dict[str, str]:
+    """Read the `[tool.uv].exclude-newer-package` entries from `pyproject.toml`.
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :return: Package name to raw entry value (a freeze timestamp or a relative
+        span), or an empty mapping when the file or the table is absent.
+    """
+    if not pyproject_path.exists():
+        return {}
+    content = pyproject_path.read_text(encoding="UTF-8")
+    table = tomlrt.loads(content).get("tool", {}).get("uv", {})
+    pkg_table = table.get("exclude-newer-package")
+    if not pkg_table:
+        return {}
+    return {pkg: str(value) for pkg, value in pkg_table.items()}
+
+
 def add_exclude_newer_packages(
     pyproject_path: Path,
     packages: set[str],
@@ -641,7 +658,7 @@ def add_exclude_newer_packages(
     return True
 
 
-def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> bool:
+def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> set[str]:
     """Convert relative-span cooldown bypasses into fixed freeze cutoffs.
 
     A `"0 day"` (or any relative-span) `exclude-newer-package` entry tells
@@ -662,17 +679,19 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> bool
 
     :param pyproject_path: Path to the `pyproject.toml` file.
     :param lock_path: Path to the `uv.lock` file.
-    :return: `True` if the file was modified, `False` otherwise.
+    :return: The names of the packages whose entry was rewritten (span frozen
+        or bare date pinned); empty when no entry needed rewriting (the file
+        is then left untouched).
     """
     content = pyproject_path.read_text(encoding="UTF-8")
     doc = tomlrt.loads(content)
     pkg_table = doc.get("tool", {}).get("uv", {}).get("exclude-newer-package")
     if not pkg_table:
-        return False
+        return set()
 
     upload_times = parse_lock_upload_times(lock_path)
     frozen: dict[str, str] = {}
-    changed = False
+    rewritten: set[str] = set()
     for pkg, value in pkg_table.items():
         text = str(value)
         # Only relative spans track the latest release; fixed cutoffs already hold.
@@ -684,7 +703,7 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> bool
             freeze = _freeze_cutoff(upload_times.get(pkg, ""))
             if freeze is not None:
                 frozen[pkg] = freeze
-                changed = True
+                rewritten.add(pkg)
                 logging.info(f"Freezing {pkg} cooldown bypass at {freeze}.")
                 continue
             # Git/path source with no release to freeze against: keep the span.
@@ -698,23 +717,23 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> bool
         if bare is not None:
             pinned = _date_to_utc_cutoff(bare)
             frozen[pkg] = pinned
-            changed = True
+            rewritten.add(pkg)
             logging.info(f"Pinning {pkg} cooldown date {text} to {pinned}.")
             continue
         frozen[pkg] = value
 
-    if not changed:
-        return False
+    if not rewritten:
+        return set()
 
     doc["tool"]["uv"]["exclude-newer-package"] = _build_inline_table(frozen)
     pyproject_path.write_text(tomlrt.dumps(doc), encoding="UTF-8")
-    return True
+    return rewritten
 
 
 def prune_stale_exclude_newer_packages(
     pyproject_path: Path,
     lock_path: Path,
-) -> bool:
+) -> set[str]:
     """Remove stale entries from `[tool.uv].exclude-newer-package`.
 
     ```{note}
@@ -731,7 +750,8 @@ def prune_stale_exclude_newer_packages(
 
     :param pyproject_path: Path to the `pyproject.toml` file.
     :param lock_path: Path to the `uv.lock` file.
-    :return: `True` if the file was modified, `False` otherwise.
+    :return: The names of the pruned packages; empty when nothing was stale
+        (the file is then left untouched).
     """
     content = pyproject_path.read_text(encoding="UTF-8")
     doc = tomlrt.loads(content)
@@ -740,14 +760,14 @@ def prune_stale_exclude_newer_packages(
     exclude_newer_str = uv.get("exclude-newer", "")
     pkg_table = uv.get("exclude-newer-package")
     if not pkg_table or not exclude_newer_str:
-        return False
+        return set()
 
     cutoff = _resolve_exclude_newer_cutoff(exclude_newer_str)
     if cutoff is None:
         logging.warning(
             f"Cannot parse exclude-newer value {exclude_newer_str!r}; skipping prune."
         )
-        return False
+        return set()
 
     upload_times = parse_lock_upload_times(lock_path)
 
@@ -769,7 +789,7 @@ def prune_stale_exclude_newer_packages(
 
     if not stale:
         logging.debug("No stale exclude-newer-package entries.")
-        return False
+        return set()
 
     # Rebuild the inline table without stale entries to produce
     # pyproject-fmt-compatible formatting.
@@ -785,7 +805,7 @@ def prune_stale_exclude_newer_packages(
         f"Pruned {', '.join(sorted(stale))} from"
         f" exclude-newer-package in {pyproject_path}."
     )
-    return True
+    return stale
 
 
 # ---------------------------------------------------------------------------
@@ -1194,13 +1214,17 @@ def _format_eligible(eligible: date, today: date) -> str:
 def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
     """Find releases withheld from the lock only by the cooldown.
 
-    Re-resolves the lock with the global cooldown lifted (`--exclude-newer`
-    set to the current instant) and diffs the result against the in-cooldown
-    lock. A package is reported only when a strictly newer version would lock
-    without the cooldown, so versions pinned by a specifier, capped by a
-    `requires-python` bound, or frozen by a per-package `exclude-newer-package`
-    exemption (like click-extra's) are excluded: those resolve identically
-    with and without the global cutoff.
+    Re-resolves the lock with the cooldown lifted and diffs the result against
+    the in-cooldown lock. Both the global `exclude-newer` cutoff and every
+    per-package `exclude-newer-package` freeze are raised to the current
+    instant, so a release blocked by a cooldown-bypass freeze is reported like
+    any cooldown-blocked one. That keeps the section's wording and "Eligible"
+    math honest: {func}`prune_stale_exclude_newer_packages` drops a freeze as
+    soon as its held version exits the window, so any release a freeze still
+    blocks is necessarily inside the global window too, and becomes lockable
+    on its own cooldown-exit date. Versions pinned by a specifier or capped by
+    a `requires-python` bound resolve identically with and without the lift,
+    so they are excluded.
 
     The probe writes `uv.lock` and restores it byte-for-byte in a `finally`,
     so the canonical in-cooldown lock is left untouched even when resolution
@@ -1222,9 +1246,14 @@ def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
     saved = lock_path.read_bytes()
     now = datetime.now(timezone.utc)
     cutoff = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # A CLI --exclude-newer-package beats the pyproject.toml entry for the
+    # same package, lifting each freeze for the duration of the probe.
+    lifts: list[str] = []
+    for pkg in sorted(_bypass_entries(lock_path.parent / "pyproject.toml")):
+        lifts.extend(["--exclude-newer-package", f"{pkg}={cutoff}"])
     try:
         subprocess.run(
-            [*uv_cmd("lock"), "--upgrade", "--exclude-newer", cutoff],
+            [*uv_cmd("lock"), "--upgrade", "--exclude-newer", cutoff, *lifts],
             check=True,
             cwd=lock_path.parent,
         )
@@ -1351,6 +1380,142 @@ def format_held_back_table(
             f"| {link} | `{pkg.locked_version}` | `{pkg.available_version}` |"
             f" {pkg.released} | {pkg.eligible} |"
         )
+    return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class BypassForecast:
+    """An active cooldown-bypass freeze and the date it self-clears.
+
+    Built by {func}`compute_bypass_forecasts` for the `### ❄️ Cooldown
+    bypasses` report section: a fixed-timestamp `exclude-newer-package` entry
+    holds {attr}`name` at {attr}`held_version` until that version ages past
+    the `exclude-newer` cutoff, at which point `sync-uv-lock` prunes the
+    entry and the package resumes normal cooldown resolution.
+    """
+
+    name: str
+    """Package name, as it appears on PyPI."""
+
+    held_version: str
+    """Version the freeze holds in the lock."""
+
+    expires: str
+    """Date the freeze expires and the entry is pruned, with a human-readable
+    countdown (`2026-07-08 (in 2 days)`), or empty when it cannot be computed
+    (no upload time in the lock, or no rolling `exclude-newer` span)."""
+
+
+def compute_bypass_forecasts(
+    pyproject_path: Path,
+    lock_path: Path,
+) -> list[BypassForecast]:
+    """Forecast when each active cooldown-bypass freeze self-clears.
+
+    Covers only the fixed-timestamp `exclude-newer-package` entries. Relative
+    spans (`"0 day"`) are permanent exemptions for packages with no PyPI
+    release to age against (git or path sources), so they never expire and
+    would repeat a static row in every report; auditing them is left to the
+    dependency review (see `docs/dependencies.md`). Entries for packages
+    absent from the lock (dropped dependencies) are skipped for the same
+    reason.
+
+    The expiry mirrors the {func}`prune_stale_exclude_newer_packages`
+    condition: the held version's upload time plus the rolling
+    `exclude-newer` span, which is the day the next `sync-uv-lock` run
+    prunes the entry.
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param lock_path: Path to the `uv.lock` file.
+    :return: Forecasts sorted by package name; empty when there is no freeze.
+    """
+    versions = parse_lock_versions(lock_path)
+    uploads = parse_lock_upload_times(lock_path)
+    span = _lock_cooldown_span(lock_path)
+    today = datetime.now(timezone.utc).date()
+    forecasts = []
+    for pkg, value in sorted(_bypass_entries(pyproject_path).items()):
+        is_span = (
+            _parse_relative_duration(value) is not None
+            or _parse_lock_duration(value) is not None
+        )
+        if is_span:
+            continue
+        held_version = versions.get(pkg, "")
+        if not held_version:
+            continue
+        expires = ""
+        upload_dt = _parse_iso_datetime(uploads.get(pkg, ""))
+        if upload_dt is not None and span is not None:
+            expires = _format_eligible((upload_dt + span).date(), today)
+        forecasts.append(BypassForecast(pkg, held_version, expires))
+    return forecasts
+
+
+BYPASS_SECTION_NOTE = (
+    "Packages pulled in ahead of the cooldown by an [`exclude-newer-package`]"
+    "(https://docs.astral.sh/uv/reference/settings/#exclude-newer-package)"
+    " freeze. Each entry is cleared from `pyproject.toml` automatically once"
+    " its held version ages past the `exclude-newer` cutoff."
+)
+"""Intro paragraph for the `sync-uv-lock` cooldown-bypasses section."""
+
+
+def format_bypass_section(
+    forecasts: list[BypassForecast],
+    pruned: list[str] | None = None,
+    frozen: list[str] | None = None,
+    *,
+    name_urls: dict[str, str] | None = None,
+) -> str:
+    """Format the cooldown-bypass lifecycle as a markdown section.
+
+    The `sync-uv-lock` report section covering `exclude-newer-package`
+    freezes: the entries the run pruned or froze (the news explaining the
+    `pyproject.toml` hunk in the PR diff), then the freezes still active,
+    each with its expiry forecast.
+
+    :param forecasts: Active freezes from {func}`compute_bypass_forecasts`.
+    :param pruned: Names of the expired entries the run removed.
+    :param frozen: Names of the entries the run rewrote into freeze cutoffs.
+    :param name_urls: Optional mapping of names to a URL the name links to.
+        Names absent from the mapping render plain.
+    :return: A markdown string with a `### ❄️ Cooldown bypasses` heading, or
+        an empty string when there is nothing to report.
+    """
+    pruned = pruned or []
+    frozen = frozen or []
+    if not (forecasts or pruned or frozen):
+        return ""
+    name_urls = name_urls or {}
+
+    def link(name: str) -> str:
+        return f"[{name}]({name_urls[name]})" if name in name_urls else name
+
+    lines = ["### ❄️ Cooldown bypasses", "", BYPASS_SECTION_NOTE]
+    if pruned:
+        names = ", ".join(link(name) for name in pruned)
+        lines.extend([
+            "",
+            f"🧹 Expired entries cleared from `pyproject.toml` in this PR: {names}.",
+        ])
+    if frozen:
+        names = ", ".join(link(name) for name in frozen)
+        lines.extend([
+            "",
+            f"📌 Entries frozen at their locked version in this PR: {names}.",
+        ])
+    if forecasts:
+        lines.extend([
+            "",
+            "| Package | Held at | Expires |",
+            "| :-- | :-- | :-- |",
+        ])
+        for forecast in forecasts:
+            lines.append(
+                f"| {link(forecast.name)} | `{forecast.held_version}` |"
+                f" {forecast.expires} |"
+            )
     return "\n".join(lines)
 
 
@@ -1799,6 +1964,16 @@ class SyncResult:
     run is dropped.
     """
 
+    pruned_bypasses: list[str] = field(default_factory=list)
+    """Expired `exclude-newer-package` entries removed from `pyproject.toml`."""
+
+    frozen_bypasses: list[str] = field(default_factory=list)
+    """`exclude-newer-package` entries rewritten into freeze cutoffs."""
+
+    bypass_forecasts: list[BypassForecast] = field(default_factory=list)
+    """Active cooldown-bypass freezes with their expiry forecasts (post-run
+    state)."""
+
 
 def sync_uv_lock(lock_path: Path) -> SyncResult:
     """Re-lock with `--upgrade` and report version changes.
@@ -1825,18 +2000,21 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     ```
 
     :param lock_path: Path to the `uv.lock` file.
-    :return: A {class}`SyncResult` with structured version change data.
+    :return: A {class}`SyncResult` with structured version change data and
+        the cooldown-bypass lifecycle (entries pruned, frozen, and still
+        active with their expiry forecasts).
     """
     # Step 1: Prune bypasses whose held version has aged past the cooldown
     # (so uv resolves them normally again), then freeze the survivors at
     # their locked version so the upgrade below holds them instead of
     # tracking newer releases.
     pyproject_path = lock_path.parent / "pyproject.toml"
-    pyproject_changed = False
+    pruned: set[str] = set()
+    frozen: set[str] = set()
     if pyproject_path.exists():
         pruned = prune_stale_exclude_newer_packages(pyproject_path, lock_path)
         frozen = freeze_exclude_newer_packages(pyproject_path, lock_path)
-        pyproject_changed = pruned or frozen
+    pyproject_changed = bool(pruned or frozen)
 
     # Step 2: Snapshot versions and the raw lock bytes before upgrading. The
     # bytes let Step 5 restore the lock verbatim when the upgrade is
@@ -1873,9 +2051,14 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
             "only equivalent environment markers. Discarding cosmetic churn."
         )
 
+    # Step 6: Forecast the expiry of the freezes still active, on the final
+    # pyproject.toml and lock state the run leaves behind.
     return SyncResult(
         changes=changes,
         upload_times=upload_times,
         exclude_newer=exclude_newer,
         reverted=reverted,
+        pruned_bypasses=sorted(pruned),
+        frozen_bypasses=sorted(frozen),
+        bypass_forecasts=compute_bypass_forecasts(pyproject_path, lock_path),
     )

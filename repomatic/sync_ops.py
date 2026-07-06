@@ -74,11 +74,13 @@ from .registry import UPSTREAM_REPO_SLUGS
 from .tool_runner import TOOL_REGISTRY
 from .uv import (
     EXCLUDE_NEWER_HELD_BACK_NOTE,
+    BypassForecast,
     HeldBackPackage,
     build_comparison_urls,
     build_held_back,
     compute_held_back_packages,
     fetch_release_notes,
+    format_bypass_section,
     format_diff_table,
     format_exclude_newer_note,
     format_held_back_table,
@@ -260,10 +262,24 @@ class SyncPlan:
     pins_synced: bool = False
     """Whether the `[tool.uv]` policy pins were refreshed from the template."""
 
+    pruned_bypasses: list[str] = field(default_factory=list)
+    """Expired `exclude-newer-package` entries removed from `pyproject.toml`."""
+
+    frozen_bypasses: list[str] = field(default_factory=list)
+    """`exclude-newer-package` entries rewritten into freeze cutoffs."""
+
+    bypass_forecasts: list[BypassForecast] = field(default_factory=list)
+    """Active cooldown-bypass freezes with their expiry forecasts."""
+
     @property
     def has_changes(self) -> bool:
-        """Whether the operation found anything to update."""
-        return bool(self.changes)
+        """Whether the operation found anything to update.
+
+        Cooldown-bypass edits count: a run that only prunes or freezes
+        `exclude-newer-package` entries still rewrites `pyproject.toml` and
+        must produce a report explaining that hunk.
+        """
+        return bool(self.changes or self.pruned_bypasses or self.frozen_bypasses)
 
 
 def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
@@ -303,11 +319,16 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
         plan.reverted = result.reverted
         plan.cooldown_note = format_exclude_newer_note(result.exclude_newer)
         plan.name_urls = pypi_name_urls(result.changes)
+        plan.pruned_bypasses = result.pruned_bypasses
+        plan.frozen_bypasses = result.frozen_bypasses
+        plan.bypass_forecasts = result.bypass_forecasts
 
         # The probe runs a second uv resolution, so skip it with nothing to
         # report: the caller already gates `held_back` on a consumer being
-        # present (terminal table or file output).
-        if rc.held_back and result.changes:
+        # present (terminal table or file output). Bypass edits count as
+        # changes: a prune may leave newer releases cooldown-held, and this
+        # is the report that explains them.
+        if rc.held_back and plan.has_changes:
             plan.held_back = compute_held_back_packages(lockfile)
             plan.held_back_name_urls = pypi_name_urls([
                 (pkg.name, "", "") for pkg in plan.held_back
@@ -647,9 +668,10 @@ def _workflow_files_present() -> bool:
 def render_plan_markdown(plan: SyncPlan) -> str:
     """Render a plan as the markdown PR-body section every updater shares.
 
-    Concatenates the diff table, the held-back section, and any release notes
-    exactly as the individual `sync-*` commands do, so `sync-deps` and the thin
-    commands produce identical output for the same plan.
+    Concatenates the diff table, any release notes, the held-back section,
+    and the uv cooldown-bypass section exactly as the individual `sync-*`
+    commands do, so `sync-deps` and the thin commands produce identical
+    output for the same plan.
     """
     diff_table = format_diff_table(
         plan.changes,
@@ -667,9 +689,27 @@ def render_plan_markdown(plan: SyncPlan) -> str:
         name_urls=plan.held_back_name_urls,
         subject=plan.subject,
     )
+    # Bypasses are always PyPI packages (a uv-only concept), so their link
+    # targets are derived here rather than carried on the plan.
+    bypass_names = [
+        *(forecast.name for forecast in plan.bypass_forecasts),
+        *plan.pruned_bypasses,
+        *plan.frozen_bypasses,
+    ]
+    bypass_section = format_bypass_section(
+        plan.bypass_forecasts,
+        pruned=plan.pruned_bypasses,
+        frozen=plan.frozen_bypasses,
+        name_urls=pypi_name_urls([(name, "", "") for name in bypass_names]),
+    )
     return "\n\n".join(
         section
-        for section in (diff_table, plan.notes_section, held_back_section)
+        for section in (
+            diff_table,
+            plan.notes_section,
+            held_back_section,
+            bypass_section,
+        )
         if section
     )
 

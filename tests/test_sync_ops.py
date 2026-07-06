@@ -41,6 +41,7 @@ from repomatic.sync_ops import (
     SyncPlan,
     _resolve_tool_versions,
     operation_order,
+    render_plan_markdown,
     run_sync_operations,
     selected_operations,
 )
@@ -342,3 +343,22 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
 
     assert seen["package"] == "awesome-lint"
     assert not plan.has_changes
+
+
+def test_bypass_only_plan_counts_as_changed_and_renders() -> None:
+    """A run that only edits cooldown bypasses still produces a PR report.
+
+    Pruning or freezing an `exclude-newer-package` entry rewrites
+    `pyproject.toml` even when no package version moves; without this the
+    sync PR would carry that hunk with an empty body.
+    """
+    plan = SyncPlan(
+        operation="sync-uv-lock",
+        subject="Package",
+        heading="Updated packages",
+        pruned_bypasses=["mango"],
+    )
+    assert plan.has_changes
+    body = render_plan_markdown(plan)
+    assert "### ❄️ Cooldown bypasses" in body
+    assert "[mango](https://pypi.org/project/mango/)" in body

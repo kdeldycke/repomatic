@@ -208,7 +208,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import IO
 
-    from .uv import HeldBackPackage
+    from .uv import BypassForecast, HeldBackPackage
 
 
 output_format_option = option(
@@ -2776,6 +2776,8 @@ def sync_uv_lock_cmd(
         survivors at their locked version (a fixed date) so the upgrade
         holds them instead of tracking newer releases
       - prints a table of updated packages with upload dates
+      - reports the cooldown-bypass lifecycle: entries pruned or frozen by
+        the run, and each active freeze with the date it expires
       - optionally fetches release notes from GitHub (markdown)
       - optionally reports newer releases held back by the cooldown, with the
         date each ages out of the exclude-newer window (--held-back)
@@ -2831,7 +2833,18 @@ def sync_uv_lock_cmd(
 
     op.apply(plan)
 
-    echo(f"{len(plan.changes)} package(s) updated.")
+    if plan.changes:
+        echo(f"{len(plan.changes)} package(s) updated.")
+    if plan.pruned_bypasses:
+        echo(
+            "Expired cooldown bypass(es) cleared from pyproject.toml: "
+            + ", ".join(plan.pruned_bypasses)
+        )
+    if plan.frozen_bypasses:
+        echo(
+            "Cooldown bypass(es) frozen at their locked version: "
+            + ", ".join(plan.frozen_bypasses)
+        )
 
     # Terminal output: structured table via click-extra.
     if table:
@@ -2846,6 +2859,8 @@ def sync_uv_lock_cmd(
         )
         if plan.held_back:
             _print_held_back_table(ctx, plan.held_back)
+        if plan.bypass_forecasts:
+            _print_bypass_table(ctx, plan.bypass_forecasts)
 
     # Release notes echoed to the terminal (already fetched during resolve).
     if plan.notes_section:
@@ -2917,6 +2932,22 @@ def _print_held_back_table(
             pkg.eligible,
         )
         for pkg in held_back
+    ]
+    ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
+
+
+def _print_bypass_table(ctx: Context, forecasts: list[BypassForecast]) -> None:
+    """Print the active cooldown-bypass freezes with their expiry forecasts.
+
+    Columns are `Package | Held at | Expires`, mirroring the markdown section
+    from {func}`~repomatic.uv.format_bypass_section`, and respects the global
+    `--table-format`.
+    """
+    echo("Cooldown bypasses:")
+    headers = ("Package", "Held at", "Expires")
+    rows = [
+        (forecast.name, forecast.held_version, forecast.expires)
+        for forecast in forecasts
     ]
     ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
 
@@ -3246,6 +3277,8 @@ def sync_deps(
         )
         if plan.held_back:
             _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
+        if plan.bypass_forecasts:
+            _print_bypass_table(ctx, plan.bypass_forecasts)
 
     if output:
         sections = [

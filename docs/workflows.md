@@ -171,9 +171,10 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 - Runs `uv lock --upgrade` to update transitive dependencies to their latest allowed versions using [`repomatic sync-uv-lock`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/uv.py)
 - Syncs the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) from the bundled template into `pyproject.toml`, so the lock resolves with the same uv everywhere, while leaving every other project-owned `[tool.uv]` key untouched
-- Only creates a PR when the lock file contains real dependency changes (timestamp-only noise is detected and skipped)
+- Only creates a PR when the lock file contains real dependency changes or a cooldown-bypass edit (timestamp-only noise is detected and skipped)
 - PR body includes a table of updated packages with version ranges linked to GitHub comparison diffs, plus collapsible release notes for all intermediate versions
-- PR body also lists releases held back by the `exclude-newer` cooldown: newer versions already published but still too young to lock, with the date each ages out of the window
+- PR body also lists releases held back by the `exclude-newer` cooldown, including those blocked by an `exclude-newer-package` freeze: newer versions already published but still too young to lock, with the date each ages out of the window
+- PR body tracks the [`exclude-newer-package`](https://docs.astral.sh/uv/reference/settings/#exclude-newer-package) cooldown bypasses in a `Cooldown bypasses` section: each active freeze with the date it expires and is cleared from `pyproject.toml`, plus the entries the run froze or pruned
 - **Requires**:
   - Python package with a `pyproject.toml` file
 - **Skipped if**:

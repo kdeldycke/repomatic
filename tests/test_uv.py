@@ -14,11 +14,13 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the `audit` command: read-only report by default, `--fix` to upgrade."""
+"""Tests for the `audit` command (read-only report by default, `--fix` to
+upgrade) and the `exclude-newer-package` cooldown-bypass lifecycle."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -28,12 +30,17 @@ from repomatic.cli import repomatic
 from repomatic.config import Config
 from repomatic.uv import (
     AdvisorySource,
+    BypassForecast,
     HeldBackPackage,
     VulnerablePackage,
     build_held_back,
+    compute_bypass_forecasts,
+    format_bypass_section,
     format_diff_table,
     format_exclude_newer_note,
     format_held_back_table,
+    freeze_exclude_newer_packages,
+    prune_stale_exclude_newer_packages,
     pypi_name_urls,
 )
 
@@ -311,3 +318,163 @@ def test_format_held_back_table_is_parametrized_by_subject_and_links():
         [HeldBackPackage("x", "1", "2", "", "")], "n", subject="Tool"
     )
     assert "| x | `1` | `2` |" in plain
+
+
+def _write_pyproject(tmp_path: Path, uv_lines: str) -> Path:
+    """Write a minimal `pyproject.toml` with the given `[tool.uv]` body."""
+    path = tmp_path / "pyproject.toml"
+    path.write_text(f"[tool.uv]\n{uv_lines}", encoding="UTF-8")
+    return path
+
+
+def _write_lock(tmp_path: Path, *packages: tuple[str, str, str]) -> Path:
+    """Write a minimal `uv.lock` with a `P1W` cooldown span.
+
+    Each package is a `(name, version, upload_time)` triple; an empty upload
+    time omits the `sdist` block, mimicking a git or path source.
+    """
+    lines = [
+        "version = 1",
+        'requires-python = ">=3.10"',
+        "",
+        "[options]",
+        'exclude-newer = "0001-01-01T00:00:00Z"',
+        'exclude-newer-span = "P1W"',
+    ]
+    for name, version, upload in packages:
+        lines.extend([
+            "",
+            "[[package]]",
+            f'name = "{name}"',
+            f'version = "{version}"',
+            'source = { registry = "https://pypi.org/simple" }',
+        ])
+        if upload:
+            lines.append(
+                f'sdist = {{ url = "https://example.test/{name}.tar.gz",'
+                f' upload-time = "{upload}" }}'
+            )
+    path = tmp_path / "uv.lock"
+    path.write_text("\n".join(lines) + "\n", encoding="UTF-8")
+    return path
+
+
+def test_prune_stale_exclude_newer_packages_returns_pruned_names(tmp_path):
+    """An entry whose held version aged past the cutoff is dropped by name."""
+    pyproject = _write_pyproject(
+        tmp_path,
+        'exclude-newer = "1 week"\n'
+        'exclude-newer-package = { mango = "2026-01-02T00:00:00Z" }\n',
+    )
+    lock = _write_lock(tmp_path, ("mango", "2.0.0", "2026-01-01T12:00:00Z"))
+    assert prune_stale_exclude_newer_packages(pyproject, lock) == {"mango"}
+    assert "exclude-newer-package" not in pyproject.read_text(encoding="UTF-8")
+
+
+def test_prune_stale_exclude_newer_packages_keeps_active_freeze(tmp_path):
+    """A freeze whose held version is still inside the window stays put."""
+    fresh = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    pyproject = _write_pyproject(
+        tmp_path,
+        f'exclude-newer = "1 week"\nexclude-newer-package = {{ mango = "{fresh}" }}\n',
+    )
+    lock = _write_lock(tmp_path, ("mango", "2.0.0", fresh))
+    before = pyproject.read_text(encoding="UTF-8")
+    assert prune_stale_exclude_newer_packages(pyproject, lock) == set()
+    assert pyproject.read_text(encoding="UTF-8") == before
+
+
+def test_freeze_exclude_newer_packages_returns_frozen_names(tmp_path):
+    """A relative-span bypass is rewritten to hold the locked version."""
+    pyproject = _write_pyproject(
+        tmp_path,
+        'exclude-newer = "1 week"\nexclude-newer-package = { mango = "0 day" }\n',
+    )
+    lock = _write_lock(tmp_path, ("mango", "2.0.0", "2026-07-01T12:00:00Z"))
+    assert freeze_exclude_newer_packages(pyproject, lock) == {"mango"}
+    # Frozen just past the held upload: the day after (upload + 1 day).
+    assert (
+        'exclude-newer-package = { mango = "2026-07-03T00:00:00Z" }'
+        in pyproject.read_text(encoding="UTF-8")
+    )
+    # Re-running is a no-op: the frozen cutoff already holds.
+    assert freeze_exclude_newer_packages(pyproject, lock) == set()
+
+
+def test_freeze_exclude_newer_packages_pins_bare_date(tmp_path):
+    """A legacy bare date is pinned to the equivalent explicit UTC instant."""
+    pyproject = _write_pyproject(
+        tmp_path,
+        'exclude-newer = "1 week"\nexclude-newer-package = { mango = "2026-06-13" }\n',
+    )
+    lock = _write_lock(tmp_path, ("mango", "2.0.0", "2026-06-12T08:00:00Z"))
+    assert freeze_exclude_newer_packages(pyproject, lock) == {"mango"}
+    assert '"2026-06-14T00:00:00Z"' in pyproject.read_text(encoding="UTF-8")
+
+
+def test_freeze_exclude_newer_packages_keeps_span_without_upload_time(tmp_path):
+    """A git/path package has no release to freeze against: span kept as-is."""
+    pyproject = _write_pyproject(
+        tmp_path,
+        'exclude-newer = "1 week"\nexclude-newer-package = { papaya = "0 day" }\n',
+    )
+    lock = _write_lock(tmp_path, ("papaya", "1.0.0", ""))
+    before = pyproject.read_text(encoding="UTF-8")
+    assert freeze_exclude_newer_packages(pyproject, lock) == set()
+    assert pyproject.read_text(encoding="UTF-8") == before
+
+
+def test_compute_bypass_forecasts_reports_freezes_only(tmp_path):
+    """Fixed-timestamp freezes get an expiry; spans and dropped deps do not."""
+    pyproject = _write_pyproject(
+        tmp_path,
+        'exclude-newer = "1 week"\n'
+        "exclude-newer-package = {"
+        ' cherry = "2026-01-02T00:00:00Z",'
+        ' mango = "2026-07-02T00:00:00Z",'
+        ' papaya = "0 day" }\n',
+    )
+    lock = _write_lock(tmp_path, ("mango", "2.0.0", "2026-07-01T12:00:00Z"))
+    forecasts = compute_bypass_forecasts(pyproject, lock)
+    # papaya is a permanent span and cherry left the lock: only mango shows.
+    assert len(forecasts) == 1
+    assert forecasts[0].name == "mango"
+    assert forecasts[0].held_version == "2.0.0"
+    # The held upload (2026-07-01) plus the lock's P1W span.
+    assert forecasts[0].expires.startswith("2026-07-08")
+
+
+def test_compute_bypass_forecasts_without_entries(tmp_path):
+    """No `exclude-newer-package` table yields no forecasts."""
+    pyproject = _write_pyproject(tmp_path, 'exclude-newer = "1 week"\n')
+    lock = _write_lock(tmp_path, ("mango", "2.0.0", "2026-07-01T12:00:00Z"))
+    assert compute_bypass_forecasts(pyproject, lock) == []
+
+
+def test_format_bypass_section_renders_events_and_forecasts():
+    """The section shows prune/freeze news first, then the active freezes."""
+    section = format_bypass_section(
+        [BypassForecast("mango", "2.0.0", "2026-07-08 (in 2 days)")],
+        pruned=["cherry"],
+        frozen=["papaya"],
+        name_urls=pypi_name_urls([
+            ("cherry", "", ""),
+            ("mango", "", ""),
+            ("papaya", "", ""),
+        ]),
+    )
+    assert "### ❄️ Cooldown bypasses" in section
+    assert "cleared from `pyproject.toml` in this PR:" in section
+    assert "[cherry](https://pypi.org/project/cherry/)" in section
+    assert "frozen at their locked version in this PR:" in section
+    assert "[papaya](https://pypi.org/project/papaya/)" in section
+    assert "| Package | Held at | Expires |" in section
+    assert (
+        "| [mango](https://pypi.org/project/mango/) | `2.0.0` |"
+        " 2026-07-08 (in 2 days) |"
+    ) in section
+    # Empty input yields nothing; an unmapped name renders plain.
+    assert format_bypass_section([]) == ""
+    assert "| mango |" in format_bypass_section([BypassForecast("mango", "1", "")])
