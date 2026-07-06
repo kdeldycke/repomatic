@@ -18,7 +18,10 @@
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 
-## [`7.0.0` (2026-07-01)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...v7.0.0)
+## [`7.0.0` (2026-07-02)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...v7.0.0)
+
+> [!NOTE]
+> `7.0.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.0.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.0.0).
 
 - **Breaking:** Remove the Renovate integration: the `renovate.yaml` workflow, the bundled `renovate.json5`, the `check-renovate` command, and the Dependabot-to-Renovate migration are gone, replaced by self-hosted dependency updates (below). Downstream repos prune the orphaned files on their next `repomatic init`.
 - **Breaking:** `repomatic update-checksums` is now registry-only: the workflow-file argument and the `--registry` flag are removed, so it only refreshes the binary tool checksums.
