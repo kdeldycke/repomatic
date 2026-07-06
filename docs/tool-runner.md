@@ -50,7 +50,7 @@ invoke(repomatic, args=['run', '--list'])
 | [actionlint](https://github.com/rhysd/actionlint)                     | `1.7.12`  | Binary      | `.github/actionlint.yaml`, `.github/actionlint.yml`                            |
 | [autopep8](https://github.com/hhatto/autopep8)                        | `2.3.2`   | PyPI        | `[tool.autopep8]` in `pyproject.toml`                                          |
 | [awesome-lint](https://www.npmjs.com/package/awesome-lint)            | `2.3.0`   | npm         | CLI flags only                                                                 |
-| [Biome](https://github.com/biomejs/biome)                             | `2.5.0`   | Binary      | `biome.json`, `biome.jsonc`, `.biome.json`, `.biome.jsonc`                     |
+| [Biome](https://github.com/biomejs/biome)                             | `2.5.1`   | Binary      | `biome.json`, `biome.jsonc`, `.biome.json`, `.biome.jsonc`                     |
 | [bump-my-version](https://github.com/callowayproject/bump-my-version) | `1.4.1`   | PyPI        | `.bumpversion.toml`, `[tool.bump-my-version]` in `pyproject.toml`              |
 | [Gitleaks](https://github.com/gitleaks/gitleaks)                      | `8.30.1`  | Binary      | `.gitleaks.toml`                                                               |
 | [labelmaker](https://github.com/jwodder/labelmaker)                   | `0.6.4`   | Binary      | CLI flags only                                                                 |
@@ -59,7 +59,7 @@ invoke(repomatic, args=['run', '--list'])
 | [mypy](https://github.com/python/mypy)                                | `2.1.0`   | PyPI (venv) | `[tool.mypy]` in `pyproject.toml`                                              |
 | [Nuitka](https://github.com/Nuitka/Nuitka)                            | `4.1.3`   | PyPI (venv) | `[tool.nuitka]` in `pyproject.toml`                                            |
 | [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt)             | `2.25.1`  | PyPI        | `pyproject-fmt.toml`, `[tool.pyproject-fmt]` in `pyproject.toml`               |
-| [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.18` | PyPI        | `.ruff.toml`, `ruff.toml`, `[tool.ruff]` in `pyproject.toml`                   |
+| [Ruff](https://github.com/astral-sh/ruff)                             | `0.15.20` | PyPI        | `.ruff.toml`, `ruff.toml`, `[tool.ruff]` in `pyproject.toml`                   |
 | [shfmt](https://github.com/mvdan/sh)                                  | `3.13.1`  | Binary      | `.editorconfig`                                                                |
 | [typos](https://github.com/crate-ci/typos)                            | `1.47.2`  | Binary      | `typos.toml`, `_typos.toml`, `.typos.toml`, `[tool.typos]` in `pyproject.toml` |
 | [yamllint](https://github.com/adrienverge/yamllint)                   | `1.38.0`  | PyPI        | `.yamllint`, `.yamllint.yaml`, `.yamllint.yml`                                 |
@@ -340,7 +340,7 @@ autopep8 takes its configuration from CLI flags only. repomatic passes `--recurs
 
 ### [Biome](https://github.com/biomejs/biome)
 
-**Installed version:** `2.5.0`
+**Installed version:** `2.5.1`
 
 **Installation method:** Binary (downloaded from GitHub Releases)
 
@@ -624,7 +624,7 @@ pyproject-fmt normalizes and reorders `pyproject.toml` in place. It reads its ow
 
 ### [Ruff](https://github.com/astral-sh/ruff)
 
-**Installed version:** `0.15.18`
+**Installed version:** `0.15.20`
 
 **Installation method:** PyPI, installed via `uvx`
 
