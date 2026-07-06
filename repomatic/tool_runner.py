@@ -745,27 +745,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "27c9bc5994dfb5711f5f09a4c3c35749ca9c4a898a063bb062e6b932dbc2571d",
+        ): "d6bc3cf1e48e5ec631228f46ab783cb8564cef3078e124c72f7328981663f979",
         (
             LINUX,
             X86_64,
-        ): "e7df298f0551dd90bea4425779369aa3130d9817f4acc4f663ef63c327206a19",
+        ): "beb442e5c9bea7f52ae6d6eb6ae4819388a8b590492d6706b9dfffca8088f066",
         (
             MACOS,
             AARCH64,
-        ): "9b9e04f749db6b037b0ad38ba0c5cce63b185a7cc3b049e577dad3c18f4adb2c",
+        ): "08fd07b53503fc433586eecb4eeb92491dba0b31dea0aa7dc158a935734a1c4c",
         (
             MACOS,
             X86_64,
-        ): "0c7002cc808eebabe7852c8417b9deb1a5615342e6881c588b49367c6c56db8c",
+        ): "44cce7ced9643d03f0855ace64a32e7830af0eff0cf20677fc48a308db9a8c5e",
         (
             WINDOWS,
             AARCH64,
-        ): "d561b19067059dfffb1244f00313958f6fcd41c0eaa9542d7787e362118a915d",
+        ): "ef3b9b65c08d84701970f70fb67e20901c5e4da39b5b9cd2eea7c194c51addac",
         (
             WINDOWS,
             X86_64,
-        ): "84d4e71fdbb4b15b1aa83c1b1cc033aae9856d48a7a857c1381b1bd499430f7c",
+        ): "c176d3309e744c4f0d4f36c6c5a9bcd316ca977f48b874f777cd4223aa23d5ae",
     },
     "gitleaks": {
         (
@@ -888,7 +888,7 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.5.0",
+    "biome": "2.5.1",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
@@ -976,7 +976,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "biome": ToolSpec(
         name="biome",
         display_name="Biome",
-        version="2.5.0",
+        version="2.5.1",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
@@ -1233,7 +1233,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.15.18",
+        version="0.15.20",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
