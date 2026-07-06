@@ -4173,8 +4173,7 @@ def git_commit_push(
     "--records",
     type=file_path(resolve_path=True),
     default=None,
-    help="JSON scan history file to record detection snapshots in "
-    "(requires --poll).",
+    help="JSON scan history file to record detection snapshots in (requires --poll).",
 )
 def scan_virustotal(
     tag: str,
@@ -4231,9 +4230,7 @@ def scan_virustotal(
         )
         results = poll_detection_stats(api_key, results, rate_limit, poll_timeout)
         for result in results:
-            stats = (
-                str(result.detection_stats) if result.detection_stats else "pending"
-            )
+            stats = str(result.detection_stats) if result.detection_stats else "pending"
             echo(f"  {result.filename}: {stats}")
 
     if records:

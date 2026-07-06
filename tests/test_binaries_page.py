@@ -192,8 +192,7 @@ def test_csv_analysis_link_without_record():
     ]
     content = render_binaries_csv(REPO, releases, [])
     assert (
-        "[{octicon}`shield` analysis]"
-        f"(https://www.virustotal.com/gui/file/{sha})"
+        f"[{{octicon}}`shield` analysis](https://www.virustotal.com/gui/file/{sha})"
     ) in content
 
 
@@ -225,8 +224,7 @@ def test_chart_content():
     assert "cdn.jsdelivr.net/npm/chart.js@" in section
     assert "const VT_DANGER_PCT = 10;" in section
     assert (
-        '{"date": "2026-07-01", "flagged": 0, "pct": 0.0, '
-        '"tag": "v1.0.0", "total": 10}'
+        '{"date": "2026-07-01", "flagged": 0, "pct": 0.0, "tag": "v1.0.0", "total": 10}'
     ) in section
     assert (
         '{"date": "2026-07-06", "flagged": 1, "pct": 10.0, '

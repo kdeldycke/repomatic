@@ -185,9 +185,7 @@ def test_commit_and_push_files_pushes(git_workdir, tmp_path):
     """A changed file is committed with the bot identity and pushed."""
     (git_workdir / "seed.txt").write_text("updated\n", encoding="utf-8")
     assert commit_and_push_files(["seed.txt"], "Record update") is True
-    remote_log = _run_git(
-        "log", "--format=%s|%an", "main", cwd=tmp_path / "remote.git"
-    )
+    remote_log = _run_git("log", "--format=%s|%an", "main", cwd=tmp_path / "remote.git")
     assert f"Record update|{COMMIT_IDENTITY_NAME}" in remote_log
 
 
