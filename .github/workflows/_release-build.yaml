@@ -139,7 +139,7 @@ jobs:
         env:
           COMMIT: ${{ matrix.commit }}
         run: >
-          uvx --no-progress 'click-extra==8.1.1'
+          uvx --no-progress 'click-extra==8.1.4'
           prebake field git_tag_sha "${COMMIT}"
       - name: Build package
         run: uv --no-progress build
