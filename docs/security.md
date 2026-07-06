@@ -131,6 +131,14 @@ The [`scan-virustotal`](#github-workflows-release-engine-yaml-jobs) job in `_rel
 
 When a release is flagged, the `/av-false-positive` [skill](skills.md) generates per-vendor submission files with pre-written text and form field mappings. The vendor details below document the process for manual reference.
 
+### Why binaries get flagged
+
+Nuitka `--onefile` creates a self-extracting archive that decompresses an embedded Python runtime to a temporary directory and executes it at launch. This "drop and execute from temp" pattern is behaviorally identical to trojan droppers, which triggers heuristic and ML-based detections. Two more factors compound it: Nuitka is popular with malware authors for source code protection, which poisons AV heuristics for all Nuitka-compiled binaries, and Microsoft has gone as far as [suspending an Artifact Signing account](https://github.com/Nuitka/Nuitka/issues/3842) over Nuitka onefile binaries.
+
+The detection profile is consistent across projects: Linux binaries scan clean, macOS ones pick up the occasional ML false positive, Windows ARM64 stays low (fewer ARM64 heuristics in AV engines), and Windows x64 attracts the bulk of the detections through generic signatures like `Gen:Variant.Application.tedy` (BitDefender family), [`Trojan:Win32/Sabsik`](https://www.microsoft.com/en-us/wdsi/threats/malware-encyclopedia-description?Name=Trojan:Win32/Sabsik.EN.A!ml&threatId=-2147156305) (Microsoft), `Python/Packed.Nuitka.AL` (ESET), and various ML classifiers. Pure-Python `.whl` and `.tar.gz` distributions scan clean.
+
+The Nuitka project tracks the situation in [Nuitka/Nuitka#2685](https://github.com/Nuitka/Nuitka/issues/2685), [Nuitka/Nuitka#2495](https://github.com/Nuitka/Nuitka/issues/2495), [Nuitka/Nuitka#2757](https://github.com/Nuitka/Nuitka/issues/2757), and [Nuitka/Nuitka#3842](https://github.com/Nuitka/Nuitka/issues/3842).
+
 ### Vendor portals
 
 | Vendor      | Engines covered                                                                     | Portal                                                                                                | Format                                                                             | Turnaround             |
@@ -141,6 +149,8 @@ When a release is flagged, the `/av-false-positive` [skill](skills.md) generates
 | Symantec    | `Symantec`                                                                          | [symsubmit.symantec.com](https://symsubmit.symantec.com/false_positive)                               | Hash submission only (no `.exe`/`.bin` upload), one hash per form, 5000 char limit | 3-7 business days      |
 | Avast/AVG   | `Avast`, `AVG`                                                                      | [avast.com/submit-a-sample](https://www.avast.com/submit-a-sample)                                    | One file per form, shared engine                                                   | Medium                 |
 | Sophos      | `Sophos`                                                                            | [sophos.com filesubmission](https://support.sophos.com/support/s/filesubmission)                      | One file per form, 25 MB max per submission                                        | Up to 15 business days |
+
+Complete directories of vendor false-positive contacts are maintained by [VirusTotal](https://docs.virustotal.com/docs/false-positive-contacts) and [False-Positive-Center](https://github.com/yaronelh/False-Positive-Center).
 
 ### Submission priority
 
@@ -171,6 +181,14 @@ All submission text should mention that the binary is compiled with Nuitka `--on
 - **Microsoft**: CORS errors or stuck progress modals during upload (auth session expiring). Workaround: sign out, clear cookies for `microsoft.com`, sign back in, submit immediately.
 - **BitDefender**: form sometimes returns "Your request could not be registered!" with no details. Retry later.
 - **Avast**: form sometimes returns "An internal error occurred while sending the form." Retry later.
+
+### Long-term mitigations
+
+False-positive submissions are a per-release moving target. The structural fixes:
+
+- **Code signing with an EV certificate** would reduce heuristic detections across the board, especially from Microsoft and Symantec ML models.
+- **Switching from `--onefile` to `--standalone`** would eliminate the self-extracting pattern entirely, at the cost of distributing a directory instead of a single `.exe`.
+- **[Nuitka Commercial](https://nuitka.net/doc/commercial.html)** claims proprietary AV-mitigation techniques but offers no guarantees.
 
 ## `repomatic.virustotal` API
 

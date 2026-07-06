@@ -541,3 +541,6 @@ $RECYCLE.BIN/
 
 # Sphinx linkcheck output.
 docs/_linkcheck/
+
+# Local Sphinx HTML builds outside the standard docs/_build/ output.
+docs/html/

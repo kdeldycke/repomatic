@@ -126,7 +126,7 @@ To ease deployment, standalone executables of `repomatic`'s latest version are a
 
 That way you have a chance to try it out without installing Python or `uv`. Or embed it in your CI/CD pipelines running on minimal images. Or run it on old platforms without worrying about dependency hell.
 
-Binaries of all past releases, with sizes, SHA-256 checksums, and VirusTotal analyses, are cataloged on the [binaries page](binaries.md).
+Binaries of all past releases, with their VirusTotal analyses, are cataloged on the [binaries page](binaries.md).
 
 ## Default dependencies
 

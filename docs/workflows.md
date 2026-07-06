@@ -586,7 +586,7 @@ flowchart TD
 
 - Uploads compiled binaries (`.bin` and `.exe`) to [VirusTotal](https://www.virustotal.com/) via `repomatic scan-virustotal`, polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.json`
 - Seeds AV vendor databases to reduce false positive detections for downstream distributors (Chocolatey, Scoop, etc.)
-- Regenerates the binaries catalog page (`docs/binaries.md`) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then commits both files to the default branch via `repomatic git-commit-push`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
+- Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then commits the files to the default branch via `repomatic git-commit-push`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
 - **Requires**:
   - `VIRUSTOTAL_API_KEY` repository secret ([free API key](https://www.virustotal.com/gui/my-apikey))
   - Successful `publish-release` job

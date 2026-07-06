@@ -6,11 +6,13 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** `scan-virustotal` no longer writes scan tables into GitHub release notes; the `--update-release` and `--repo` options are removed, and `--binaries-dir` is now required.
-- Add `sync-binaries`: regenerates `docs/binaries.md`, a catalog of every released binary with download links, sizes, SHA-256 checksums, VirusTotal analyses, and a detection trend chart.
+- Add `sync-binaries`: regenerates `docs/assets/binaries.csv` and its `docs/binaries.md` page, a catalog of every released binary with download links, VirusTotal analyses, and a detection trend chart.
+- The documentation build gains `sphinx-datatables`, rendering the binaries catalog as a searchable, sortable table; downstream repos can opt in with the same extension.
 - `sync-binaries --backfill-records` recovers detection snapshots from the VirusTotal tables of legacy release notes into the scan history file.
 - Add `git-commit-push`: commits files and pushes them, rebasing and retrying on rejection, for release jobs publishing generated files to the default branch.
 - The release pipeline now records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.json` and refreshes the binaries page instead of editing release notes.
 - Exclude VirusTotal analysis links from lychee broken-link checks.
+- Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 
 ## [`7.0.0` (2026-07-01)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...v7.0.0)

@@ -14,37 +14,50 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Generate the binaries catalog page (`docs/binaries.md`).
+"""Generate the binaries catalog: a CSV data file and its `docs/binaries.md` page.
 
-The page inventories every compiled binary the repository ever released: one
-table per version with download links, sizes, SHA-256 checksums (linking to
-VirusTotal analyses), and detection snapshots, plus a chart of the detection
-trend across releases. It gives alpha and beta testers a single place to grab
-binaries from, and the maintainer an overview of how antivirus engines treat
-each release.
+The catalog inventories every compiled binary the repository ever released,
+one CSV row per binary: version (linking to the GitHub release), platform
+target (linking to the direct download), release date, and the VirusTotal
+detection snapshot (linking to the live analysis). It gives alpha and beta
+testers a single place to grab binaries from, and the maintainer an overview
+of how antivirus engines treat each release.
 
-The section between the page markers is regenerated wholesale on every
-release: names, sizes, digests, and download URLs all come from the GitHub
-Releases API (the single source of truth for published assets), and detection
-snapshots come from the JSON history file maintained by `scan-virustotal`.
-Only the intro above the markers is hand-editable per repository.
+The data lives in `docs/assets/binaries.csv`, regenerated wholesale on every
+release from the GitHub Releases API (the single source of truth for
+published assets) and the JSON scan history maintained by `scan-virustotal`.
+The Markdown page renders it through a single `csv-table` directive and is
+otherwise static: it is created once from {data}`PAGE_TEMPLATE` and only its
+marker-delimited region (the detection trend chart) is rewritten afterwards,
+so the intro and section prose stay hand-editable per repository.
 
 ```{note}
-Development builds are only linked, not tabulated: the rolling dev
+On the documentation site, the table is searchable and sortable client-side
+via the `sphinx-datatables` extension, which activates on the
+`sphinx-datatable` CSS class. The extension is optional: without it the
+`csv-table` directive still renders a plain table, and on GitHub the CSV
+file itself gets the built-in searchable grid viewer.
+```
+
+```{note}
+Development builds are only linked, not cataloged: the rolling dev
 pre-release is refreshed on every push to the default branch, so any row
-frozen into this page would be stale within hours, while the release page
-behind the link always shows the current assets.
+frozen into the CSV would be stale within hours, while the workflow run
+artifacts behind the link always are the current builds.
 ```
 """
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
-import math
 from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 
+from .binary import NUITKA_BUILD_TARGETS
 from .virustotal import VIRUSTOTAL_GUI_URL
 
 TYPE_CHECKING = False
@@ -61,75 +74,85 @@ Same set the `scan-virustotal` command uploads and the release workflow
 downloads (`--pattern` flags in `_release-engine.yaml`).
 """
 
-GRAPH_MAX_RELEASES = 20
-"""Number of most recent releases plotted in the detection trend chart.
+CSV_HEADERS = (
+    "Version",
+    "Platform",
+    "Released",
+    "VirusTotal",
+)
+"""Column headers of the binaries CSV.
 
-Mermaid renders every x-axis label; past this point they overlap into an
-unreadable smear, and the trend of interest is the recent one anyway.
+Deliberately compact: the version cell carries the link to the GitHub
+release, the platform cell the direct binary download, and the VirusTotal
+cell the analysis link, so no column holds a bare URL, filename, or
+64-character checksum.
+"""
+
+FLAGGED_DANGER_PCT = 10
+"""Flagged-verdict share (percent) at which the catalog shield turns red.
+
+Below it, a flagged binary is the routine Nuitka false-positive tail worth a
+warning tint; from one engine in ten upward, the release deserves a
+false-positive submission round (see the `/av-false-positive` skill).
 """
 
 PAGE_END_MARKER = "<!-- binaries-end -->"
-"""Closing marker of the generated region in the binaries page."""
+"""Closing marker of the generated chart region in the binaries page."""
 
 PAGE_START_MARKER = "<!-- binaries-start -->"
-"""Opening marker of the generated region in the binaries page."""
+"""Opening marker of the generated chart region in the binaries page."""
 
-PAGE_TEMPLATE = f"""\
+PAGE_TEMPLATE = """\
 ---
 orphan: true
 ---
 
 # Binaries
 
-All standalone executables published by this repository, one section per release, freshest first. Sizes and SHA-256 checksums come from the GitHub release assets, and each checksum links to the binary's [VirusTotal](https://www.virustotal.com/) analysis.
+All standalone executables published by this repository, one row per binary, newest release first. The version links to its GitHub release, the platform to the direct binary download, and the VirusTotal cell to the file's public analysis.
 
-Compiled Python binaries are regularly flagged by heuristic antivirus engines, so every release is submitted to VirusTotal: this seeds vendor databases with the new signatures and keeps false positives in check. The **Detections** column counts the `flagged / total` engine verdicts minutes after publication, before false-positive reports get processed: the live analysis behind each checksum link supersedes it.
+Compiled Python binaries are regularly flagged by heuristic antivirus engines, so every release is submitted to [VirusTotal](https://www.virustotal.com/): this seeds vendor databases with the new signatures and keeps false positives in check. The VirusTotal cell tracks those false positives: a green check marks binaries no engine flags, and flagged binaries show the share of engine verdicts flagging them, snapshotted minutes after publication and before false-positive reports get processed. The live analysis behind the link supersedes it.
 
-{PAGE_START_MARKER}
+## Development builds
 
-{PAGE_END_MARKER}
+Fresh binaries are compiled from every push to the default branch by the [release workflow]({repo_url}/actions/workflows/release.yaml). To try the latest development build: open the most recent successful run and download the artifact matching your platform (a GitHub account is required, and the binary comes wrapped in a zip). The same builds are also attached to a rolling dev pre-release, a draft only visible to repository maintainers.
+
+<!-- binaries-start -->
+
+<!-- binaries-end -->
+
+## Catalog
+
+The table is searchable and sortable on the documentation site; the raw data lives in [`binaries.csv`](assets/binaries.csv).
+
+```{csv-table}
+:file: assets/binaries.csv
+:header-rows: 1
+:class: sphinx-datatable
+```
 """
 """Initial page content, used when the page does not exist yet.
 
-Everything above the start marker is a hand-editable intro: repositories can
-reword it or add context without fighting the generator.
+The `{repo_url}` placeholder is substituted with `str.replace` (not
+`str.format`, which would choke on the csv-table directive's braces).
+Everything outside the marker pair is written once and never touched again:
+repositories can reword the prose without fighting the generator.
 
 :meta hide-value:
 """
 
 
-def _format_size(size: int) -> str:
-    """Format a byte count as mebibytes with one decimal."""
-    return f"{size / 1024 / 1024:.1f} MiB"
+def _platform_target(name: str) -> str:
+    """Extract the platform-arch target from a binary filename.
 
-
-def _format_gfm_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
-    """Render a GFM table in mdformat's canonical layout.
-
-    Cells are padded to the widest cell of their column (minimum 3, the GFM
-    delimiter floor) and the delimiter row uses the same width, matching what
-    `mdformat` with its tables plugin produces. Emitting the canonical layout
-    up front keeps the page a fixed point under the `format-markdown` autofix
-    job: see `claude.md` § "Generator/formatter ping-pong is recurrent".
-
-    Cell content is never escaped: filenames, sizes, digests, and GitHub
-    URLs cannot contain pipe characters.
+    Matches against the known Nuitka build targets (`linux-arm64`, …), the
+    same vocabulary the compile matrix uses. Falls back to the full filename
+    for foreign naming schemes, so the cell always identifies the file.
     """
-    widths = [
-        max(3, len(header), *(len(row[i]) for row in rows))
-        for i, header in enumerate(headers)
-    ]
-
-    def render_row(cells: Sequence[str]) -> str:
-        padded = (cell.ljust(width) for cell, width in zip(cells, widths))
-        return "| " + " | ".join(padded) + " |"
-
-    lines = [
-        render_row(headers),
-        render_row(["-" * width for width in widths]),
-        *(render_row(row) for row in rows),
-    ]
-    return "\n".join(lines)
+    for target in NUITKA_BUILD_TARGETS:
+        if target in name:
+            return target
+    return name
 
 
 def _release_version(release: ReleaseWithAssets) -> Version | None:
@@ -153,7 +176,7 @@ def _at_scan_records(records: Sequence[ScanRecord]) -> dict[str, ScanRecord]:
 
     The earliest record is the at-release snapshot; later re-scans of the
     same file reflect vendor whitelisting, not the state the binary shipped
-    in, so they are excluded from the per-release tables and chart.
+    in, so they are excluded from the catalog and chart.
     """
     earliest: dict[str, ScanRecord] = {}
     for record in records:
@@ -163,140 +186,155 @@ def _at_scan_records(records: Sequence[ScanRecord]) -> dict[str, ScanRecord]:
     return earliest
 
 
-def _dev_builds_section(repo_url: str) -> str:
-    """Render the pointer to the latest development builds.
+def render_chart_section(records: Sequence[ScanRecord]) -> str:
+    """Render the detection trend across releases as a Chart.js timeline.
 
-    Points testers at the release workflow's run artifacts: any signed-in
-    GitHub user can download them, unlike the rolling dev pre-release, which
-    is a draft only maintainers can see (kept as such so its assets stay
-    mutable under GitHub's immutable-releases setting). Anonymous artifact
-    downloads are a known GitHub limitation
-    ([actions/upload-artifact#51](https://github.com/actions/upload-artifact/issues/51)).
-    """
-    return (
-        "## Development builds\n\n"
-        "Fresh binaries are compiled from every push to the default branch "
-        f"by the [release workflow]({repo_url}/actions/workflows/"
-        "release.yaml). To try the latest development build: open the most "
-        "recent successful run and download the artifact matching your "
-        "platform (a GitHub account is required, and the binary comes "
-        "wrapped in a zip). The same builds are also attached to a rolling "
-        "dev pre-release, a draft only visible to repository maintainers."
-    )
-
-
-def _detections_chart(records: Sequence[ScanRecord]) -> str:
-    """Render the detection trend across releases as a Mermaid line chart.
-
-    Plots the share of antivirus engine verdicts flagging the release's
+    Plots the share of antivirus engine verdicts flagging each release's
     binaries (all platforms aggregated), using the at-release snapshot of
-    each file. Clean verdicts are the complement, so a single line carries
-    the whole story.
+    every file, on a true time axis: spacing reflects the actual gaps
+    between releases. Points reuse the catalog shields' color language,
+    read at view time from sphinx-design's CSS variables so they match the
+    theme exactly (with hardcoded fallbacks). The data is embedded in the
+    page rather than fetched, so the chart also works on `file://`
+    previews; only the Chart.js bundle comes from its CDN, mirroring how
+    the table's DataTables assets load.
 
-    :return: A `## VirusTotal detections` section with an `xychart-beta`
-        fence, or an empty string when fewer than two releases have records
-        (a one-point trend is not a trend).
+    :return: A `## VirusTotal detections` section with a `raw` HTML fence,
+        or an empty string when fewer than two releases have records (a
+        one-point trend is not a trend).
     """
     at_scan = _at_scan_records(records).values()
-    totals: dict[str, tuple[int, int]] = {}
+    per_tag: dict[str, tuple[str, int, int]] = {}
     for record in at_scan:
-        flagged, total = totals.get(record.tag, (0, 0))
-        totals[record.tag] = (
+        date, flagged, total = per_tag.get(record.tag, (record.scanned, 0, 0))
+        per_tag[record.tag] = (
+            min(date, record.scanned),
             flagged + record.stats.flagged,
             total + record.stats.total,
         )
 
     points = []
-    for tag, (flagged, total) in totals.items():
+    for tag, (date, flagged, total) in per_tag.items():
         try:
             version = Version(tag.removeprefix("v"))
         except InvalidVersion:
             continue
         if total:
-            points.append((version, tag, 100 * flagged / total))
+            points.append((version, tag, date, flagged, total))
     points.sort()
-    points = points[-GRAPH_MAX_RELEASES:]
     if len(points) < 2:
         return ""
 
-    labels = ", ".join(f'"{tag}"' for _version, tag, _pct in points)
-    values = ", ".join(f"{pct:.1f}" for _version, _tag, pct in points)
-    y_max = max(1, math.ceil(max(pct for _version, _tag, pct in points)))
+    payload = json.dumps(
+        [
+            {
+                "date": date,
+                "flagged": flagged,
+                "pct": round(100 * flagged / total, 1),
+                "tag": tag,
+                "total": total,
+            }
+            for _version, tag, date, flagged, total in points
+        ],
+        sort_keys=True,
+    )
     return (
         "## VirusTotal detections\n\n"
         "Share of antivirus engine verdicts flagging the binaries of each "
-        "release, at scan time:\n\n"
-        "```mermaid\n"
-        "xychart-beta\n"
-        '    title "Antivirus verdicts flagging the binaries (%)"\n'
-        f"    x-axis [{labels}]\n"
-        f'    y-axis "Flagged verdicts (%)" 0 --> {y_max}\n'
-        f"    line [{values}]\n"
+        "release, at scan time. Colors follow the catalog shields: green "
+        f"for zero detections, amber below {FLAGGED_DANGER_PCT}%, red from "
+        "there up.\n\n"
+        "```{raw} html\n"
+        '<div style="height: 320px;"><canvas id="vt-trend"></canvas></div>\n'
+        '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/'
+        'chart.umd.min.js"></script>\n'
+        "<script>\n"
+        f"const VT_TREND = {payload};\n"
+        f"const VT_DANGER_PCT = {FLAGGED_DANGER_PCT};\n"
+        "const vtCss = getComputedStyle(document.documentElement);\n"
+        "const vtColor = (name, fallback) =>\n"
+        '    vtCss.getPropertyValue(name).trim() || fallback;\n'
+        "const vtTint = (p) => {\n"
+        '    if (p.pct === 0) { return vtColor("--sd-color-success", "#28a745"); }\n'
+        "    return p.pct >= VT_DANGER_PCT\n"
+        '        ? vtColor("--sd-color-danger", "#dc3545")\n'
+        '        : vtColor("--sd-color-warning", "#f0b37e");\n'
+        "};\n"
+        'new Chart(document.getElementById("vt-trend"), {\n'
+        '    type: "line",\n'
+        "    data: {\n"
+        "        datasets: [{\n"
+        "            data: VT_TREND.map((p) => ({x: Date.parse(p.date), y: p.pct})),\n"
+        '            borderColor: "#88888866",\n'
+        "            pointBackgroundColor: VT_TREND.map(vtTint),\n"
+        "            pointBorderColor: VT_TREND.map(vtTint),\n"
+        "            pointRadius: 4,\n"
+        "            tension: 0.2,\n"
+        "        }],\n"
+        "    },\n"
+        "    options: {\n"
+        "        maintainAspectRatio: false,\n"
+        "        plugins: {\n"
+        "            legend: {display: false},\n"
+        "            tooltip: {callbacks: {\n"
+        "                title: (items) => VT_TREND[items[0].dataIndex].tag,\n"
+        "                label: (item) => {\n"
+        "                    const p = VT_TREND[item.dataIndex];\n"
+        "                    return p.flagged + \" / \" + p.total\n"
+        "                        + \" verdicts flagged (\" + p.pct + \"%)\";\n"
+        "                },\n"
+        "            }},\n"
+        "        },\n"
+        "        scales: {\n"
+        "            x: {\n"
+        '                type: "linear",\n'
+        "                ticks: {\n"
+        "                    maxTicksLimit: 8,\n"
+        "                    callback: (value) =>\n"
+        "                        new Date(value).toISOString().slice(0, 10),\n"
+        "                },\n"
+        "            },\n"
+        "            y: {\n"
+        "                beginAtZero: true,\n"
+        '                title: {display: true, text: "Flagged verdicts (%)"},\n'
+        "            },\n"
+        "        },\n"
+        "    },\n"
+        "});\n"
+        "</script>\n"
         "```"
     )
 
 
-def _release_section(
-    repo_url: str,
-    release: ReleaseWithAssets,
-    version: Version,
-    at_scan: dict[str, ScanRecord],
-) -> str:
-    """Render one release's heading and binaries table.
-
-    :return: The section, or an empty string when the release carries no
-        compiled binaries (pre-Nuitka releases, pure-Python releases).
-    """
-    assets = _binary_assets(release)
-    if not assets:
-        return ""
-
-    rows = []
-    for asset in assets:
-        if asset.sha256:
-            sha_cell = (
-                f"[`{asset.sha256}`]"
-                f"({VIRUSTOTAL_GUI_URL.format(sha256=asset.sha256)})"
-            )
-        else:
-            sha_cell = ""
-        record = at_scan.get(asset.sha256) if asset.sha256 else None
-        rows.append((
-            f"[`{asset.name}`]({asset.download_url})",
-            _format_size(asset.size),
-            sha_cell,
-            str(record.stats) if record else "",
-        ))
-
-    heading = (
-        f"## [`{version}` ({release.date})]({repo_url}/releases/tag/{release.tag})"
-    )
-    table = _format_gfm_table(("Binary", "Size", "SHA-256", "Detections"), rows)
-    return f"{heading}\n\n{table}"
-
-
-def render_binaries_section(
+def render_binaries_csv(
     repo_slug: str,
     releases: Sequence[ReleaseWithAssets],
     records: Sequence[ScanRecord],
 ) -> str:
-    """Render the full generated region of the binaries page.
+    """Render the catalog data as CSV, one row per released binary.
+
+    Rows cover every published release carrying compiled binaries, ordered
+    by descending version then filename. Cells hold Markdown links (parsed
+    by MyST inside the `csv-table` directive): the version to the GitHub
+    release, the platform to the binary download, and the VirusTotal cell to
+    the file's analysis. The VirusTotal cell renders the at-release snapshot
+    as a green check when no engine flags the binary, as the flagged-verdict
+    share (tinted by {data}`FLAGGED_DANGER_PCT`) otherwise, and as a bare
+    `analysis` link when no snapshot exists. Assets without a digest get an
+    empty VirusTotal cell.
+
+    ```{caution}
+    The version and platform cells decorate their links with sphinx-design's
+    `octicon` role, so the rendering repository needs `sphinx-design` in its
+    documentation build (already true across this ecosystem's docs stacks).
+    ```
 
     :param repo_slug: Repository in `owner/repo` form.
     :param releases: Releases from
         {func}`repomatic.github.releases.get_releases_with_assets`.
     :param records: Detection snapshots from the scan history file.
-    :return: Markdown for the region between the page markers: the dev builds
-        pointer, the detection trend chart, then one section per published
-        release carrying binaries, freshest first.
+    :return: The full CSV content, header row included.
     """
-    repo_url = f"https://github.com/{repo_slug}"
-    parts = [_dev_builds_section(repo_url)]
-
-    chart = _detections_chart(records)
-    if chart:
-        parts.append(chart)
-
     versioned = [
         (version, release)
         for release in releases
@@ -305,24 +343,81 @@ def render_binaries_section(
     versioned.sort(key=lambda pair: pair[0], reverse=True)
 
     at_scan = _at_scan_records(records)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(CSV_HEADERS)
     for version, release in versioned:
-        section = _release_section(repo_url, release, version, at_scan)
-        if section:
-            parts.append(section)
+        release_url = f"https://github.com/{repo_slug}/releases/tag/{release.tag}"
+        for asset in _binary_assets(release):
+            if asset.sha256:
+                vt_url = VIRUSTOTAL_GUI_URL.format(sha256=asset.sha256)
+                record = at_scan.get(asset.sha256)
+                if record and record.stats.total:
+                    # The KPI is the distance to the goal (zero false
+                    # positives), so flagged rows show the failure share and
+                    # clean rows reduce to a green check: exceptions stand
+                    # out, the goal state stays calm.
+                    if record.stats.flagged == 0:
+                        vt_cell = (
+                            f"[{{octicon}}`shield-check;1em;sd-text-success`]"
+                            f"({vt_url})"
+                        )
+                    else:
+                        pct = 100 * record.stats.flagged / record.stats.total
+                        tint = (
+                            "sd-text-danger"
+                            if pct >= FLAGGED_DANGER_PCT
+                            else "sd-text-warning"
+                        )
+                        vt_cell = (
+                            f"[{{octicon}}`shield;1em;{tint}` {pct:.1f}%]({vt_url})"
+                        )
+                else:
+                    vt_cell = f"[{{octicon}}`shield` analysis]({vt_url})"
+            else:
+                vt_cell = ""
+            # The octicon role comes from sphinx-design, same as the icons in
+            # the docs page titles; the icons are part of the link text so
+            # they stay clickable with their label.
+            writer.writerow((
+                f"[`{version}` {{octicon}}`link-external`]({release_url})",
+                f"[{{octicon}}`download` `{_platform_target(asset.name)}`]"
+                f"({asset.download_url})",
+                release.date,
+                vt_cell,
+            ))
+    return buffer.getvalue()
 
-    return "\n\n".join(parts)
+
+def update_binaries_csv(csv_path: Path, content: str) -> bool:
+    """Write the catalog CSV, creating parent directories as needed.
+
+    :param csv_path: Path to the CSV file.
+    :param content: Rendered CSV from {func}`render_binaries_csv`.
+    :return: `True` when the file was created or its content changed.
+    """
+    if csv_path.exists() and csv_path.read_text(encoding="UTF-8") == content:
+        logging.info(f"Binaries CSV {csv_path} already up to date.")
+        return False
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    csv_path.write_text(content, encoding="UTF-8")
+    logging.info(f"Wrote binaries CSV {csv_path}.")
+    return True
 
 
-def update_binaries_page(page_path: Path, section: str) -> bool:
-    """Create or refresh the binaries catalog page.
+def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) -> bool:
+    """Create the binaries page if missing and refresh its chart region.
 
-    Replaces the region between {data}`PAGE_START_MARKER` and
-    {data}`PAGE_END_MARKER`, leaving the intro above it untouched. A missing
-    page is created (with parent directories) from {data}`PAGE_TEMPLATE`.
+    A missing page is created (with parent directories) from
+    {data}`PAGE_TEMPLATE`. On an existing page only the region between
+    {data}`PAGE_START_MARKER` and {data}`PAGE_END_MARKER` is replaced,
+    leaving all surrounding prose untouched.
 
     :param page_path: Path to the Markdown page.
-    :param section: Rendered region content, from
-        {func}`render_binaries_section`.
+    :param chart_section: Rendered chart from {func}`render_chart_section`,
+        or an empty string to leave the region empty.
+    :param repo_slug: Repository in `owner/repo` form, interpolated into the
+        template on first creation.
     :return: `True` when the file was created or its content changed.
     :raises ValueError: When the page exists but lacks the markers. Loud on
         purpose: a page not written by this generator must never be
@@ -338,19 +433,15 @@ def update_binaries_page(page_path: Path, section: str) -> bool:
             )
         text = original
     else:
-        text = PAGE_TEMPLATE
+        text = PAGE_TEMPLATE.replace(
+            "{repo_url}", f"https://github.com/{repo_slug}"
+        )
 
     before, rest = text.split(PAGE_START_MARKER, 1)
     _, after = rest.split(PAGE_END_MARKER, 1)
-    new_text = (
-        before
-        + PAGE_START_MARKER
-        + "\n\n"
-        + section.strip()
-        + "\n\n"
-        + PAGE_END_MARKER
-        + after
-    )
+    section = chart_section.strip()
+    between = f"\n\n{section}\n\n" if section else "\n\n"
+    new_text = before + PAGE_START_MARKER + between + PAGE_END_MARKER + after
 
     if new_text == original:
         logging.info(f"Binaries page {page_path} already up to date.")

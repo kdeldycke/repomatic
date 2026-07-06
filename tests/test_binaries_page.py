@@ -14,18 +14,19 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the binaries catalog page generator."""
+"""Tests for the binaries catalog generator."""
 
 from __future__ import annotations
 
 import pytest
 
 from repomatic.binaries_page import (
+    CSV_HEADERS,
     PAGE_END_MARKER,
     PAGE_START_MARKER,
-    _format_gfm_table,
-    _format_size,
-    render_binaries_section,
+    render_binaries_csv,
+    render_chart_section,
+    update_binaries_csv,
     update_binaries_page,
 )
 from repomatic.github.releases import ReleaseAsset, ReleaseWithAssets
@@ -54,162 +55,184 @@ def _release(
     )
 
 
-def _record(tag: str, sha256: str, scanned: str, flagged: int = 0) -> ScanRecord:
+def _record(
+    tag: str, sha256: str, scanned: str, flagged: int = 0, total: int = 10
+) -> ScanRecord:
     return ScanRecord(
         tag=tag,
         filename="papaya.bin",
         sha256=sha256,
         scanned=scanned,
         stats=DetectionStats(
-            malicious=flagged, suspicious=0, undetected=10 - flagged, harmless=0
+            malicious=flagged, suspicious=0, undetected=total - flagged, harmless=0
         ),
     )
 
 
-# --- _format_size ---
+# --- render_binaries_csv ---
 
 
-@pytest.mark.parametrize(
-    ("size", "expected"),
-    [
-        (1048576, "1.0 MiB"),
-        (24956928, "23.8 MiB"),
-        (0, "0.0 MiB"),
-    ],
-)
-def test_format_size(size, expected):
-    assert _format_size(size) == expected
+def test_csv_header_row():
+    """An empty catalog still carries the header row."""
+    assert render_binaries_csv(REPO, [], []) == ",".join(CSV_HEADERS) + "\n"
 
 
-# --- _format_gfm_table ---
-
-
-def test_format_gfm_table_matches_mdformat_layout():
-    """Cells pad to the widest column entry, delimiters at least 3 dashes.
-
-    The exact layout mdformat's tables plugin produces, so generated pages
-    are a fixed point under the `format-markdown` autofix job.
-    """
-    table = _format_gfm_table(
-        ("Binary", "Size"),
-        [("papaya-linux-arm64.bin", "1.0 MiB"), ("x", "")],
-    )
-    assert table == (
-        "| Binary                 | Size    |\n"
-        "| ---------------------- | ------- |\n"
-        "| papaya-linux-arm64.bin | 1.0 MiB |\n"
-        "| x                      |         |"
-    )
-
-
-def test_format_gfm_table_minimum_width():
-    """A column narrower than 3 characters still gets a 3-dash delimiter."""
-    table = _format_gfm_table(("A", "B"), [("x", "y")])
-    assert table == ("| A   | B   |\n| --- | --- |\n| x   | y   |")
-
-
-# --- render_binaries_section ---
-
-
-def test_render_dev_builds_pointer():
-    """The dev builds section always opens the generated region."""
-    section = render_binaries_section(REPO, [], [])
-    assert section.startswith("## Development builds\n")
-    assert f"https://github.com/{REPO}/actions/workflows/release.yaml" in section
-    assert "GitHub account is required" in section
-    assert "draft" in section
-
-
-def test_render_skips_drafts_and_foreign_tags():
+def test_csv_skips_drafts_and_foreign_tags():
     """Draft releases and non-version tags stay out of the catalog."""
     releases = [
         _release("v1.0.0.dev0", (_asset("papaya-dev.bin"),), draft=True),
         _release("weekly-snapshot", (_asset("papaya-weekly.bin"),)),
         _release("v1.0.0", (_asset("papaya-1.0.0-linux-x64.bin"),)),
     ]
-    section = render_binaries_section(REPO, releases, [])
-    assert "papaya-1.0.0-linux-x64.bin" in section
-    assert "papaya-dev.bin" not in section
-    assert "papaya-weekly.bin" not in section
+    content = render_binaries_csv(REPO, releases, [])
+    assert "papaya-1.0.0-linux-x64.bin" in content
+    assert "papaya-dev.bin" not in content
+    assert "papaya-weekly.bin" not in content
 
 
-def test_render_skips_binaryless_releases():
-    """Releases without .bin or .exe assets get no section."""
+def test_csv_skips_non_binary_assets():
+    """Only .bin and .exe assets become rows."""
     releases = [
-        _release("v1.1.0", (_asset("papaya-1.1.0-linux-x64.bin"),)),
-        _release("v1.0.0", (_asset("papaya-1.0.0.tar.gz"), _asset("notes.md"))),
+        _release(
+            "v1.0.0",
+            (
+                _asset("papaya-1.0.0-linux-x64.bin"),
+                _asset("papaya-1.0.0.tar.gz"),
+                _asset("notes.md"),
+            ),
+        ),
     ]
-    section = render_binaries_section(REPO, releases, [])
-    assert "## [`1.1.0`" in section
-    assert "## [`1.0.0`" not in section
+    content = render_binaries_csv(REPO, releases, [])
+    assert content.count("\n") == 2
+    assert "tar.gz" not in content
 
 
-def test_render_sections_newest_first():
-    """Release sections are ordered by descending version, not API order."""
+def test_csv_rows_newest_version_first():
+    """Rows are ordered by descending version, not API order."""
     releases = [
         _release("v1.2.0", (_asset("papaya-1.2.0-linux-x64.bin"),)),
         _release("v1.10.0", (_asset("papaya-1.10.0-linux-x64.bin"),)),
     ]
-    section = render_binaries_section(REPO, releases, [])
-    assert section.index("## [`1.10.0`") < section.index("## [`1.2.0`")
+    content = render_binaries_csv(REPO, releases, [])
+    assert content.index("[`1.10.0`") < content.index("[`1.2.0`")
 
 
-def test_render_release_table_cells():
-    """Table rows carry download link, size, VirusTotal link, and snapshot."""
+def test_csv_row_cells():
+    """Cells link the release, the download, and the VirusTotal analysis."""
     sha = "c" * 64
     releases = [
         _release(
             "v1.0.0",
             (
-                _asset("papaya-1.0.0-linux-x64.bin", size=24956928, sha256=sha),
+                _asset("papaya-1.0.0-linux-x64.bin", sha256=sha),
                 _asset("papaya-1.0.0-windows-x64.exe"),
             ),
             date="2026-06-30",
         ),
     ]
     records = [_record("v1.0.0", sha, "2026-06-30", flagged=2)]
-    section = render_binaries_section(REPO, releases, records)
+    content = render_binaries_csv(REPO, releases, records)
+    lines = content.splitlines()
 
-    assert (
-        f"## [`1.0.0` (2026-06-30)](https://github.com/{REPO}/releases/tag/v1.0.0)"
-        in section
-    )
-    assert "| Binary" in section
-    assert (
-        f"[`papaya-1.0.0-linux-x64.bin`]"
+    assert lines[0] == ",".join(CSV_HEADERS)
+    assert lines[1] == (
+        "[`1.0.0` {octicon}`link-external`]"
+        f"(https://github.com/{REPO}/releases/tag/v1.0.0),"
+        "[{octicon}`download` `linux-x64`]"
         f"(https://github.com/{REPO}/releases/download/v1.0.0/"
-        f"papaya-1.0.0-linux-x64.bin)"
-    ) in section
-    assert "23.8 MiB" in section
-    assert f"[`{sha}`](https://www.virustotal.com/gui/file/{sha})" in section
-    assert "2 / 10" in section
-    # The digest-less asset renders empty SHA-256 and Detections cells.
-    exe_row = next(
-        line for line in section.splitlines() if "windows-x64.exe" in line
+        "papaya-1.0.0-linux-x64.bin),"
+        "2026-06-30,"
+        "[{octicon}`shield;1em;sd-text-danger` 20.0%]"
+        f"(https://www.virustotal.com/gui/file/{sha})"
     )
-    assert exe_row.rstrip("| ").endswith("1.0 MiB")
+    # A digest-less asset gets an empty VirusTotal cell.
+    assert lines[2] == (
+        "[`1.0.0` {octicon}`link-external`]"
+        f"(https://github.com/{REPO}/releases/tag/v1.0.0),"
+        "[{octicon}`download` `windows-x64`]"
+        f"(https://github.com/{REPO}/releases/download/v1.0.0/"
+        "papaya-1.0.0-windows-x64.exe),"
+        "2026-06-30,"
+    )
+
+
+def test_csv_shield_tiers():
+    """Clean rows get a green check; low flagged shares a warning tint."""
+    clean_sha = "e" * 64
+    warn_sha = "f" * 64
+    releases = [
+        _release(
+            "v1.0.0",
+            (
+                _asset("papaya-1.0.0-linux-arm64.bin", sha256=clean_sha),
+                _asset("papaya-1.0.0-linux-x64.bin", sha256=warn_sha),
+            ),
+        ),
+    ]
+    records = [
+        _record("v1.0.0", clean_sha, "2026-07-01", flagged=0, total=62),
+        _record("v1.0.0", warn_sha, "2026-07-01", flagged=1, total=62),
+    ]
+    content = render_binaries_csv(REPO, releases, records)
+    assert (
+        "[{octicon}`shield-check;1em;sd-text-success`]"
+        f"(https://www.virustotal.com/gui/file/{clean_sha})"
+    ) in content
+    assert (
+        "[{octicon}`shield;1em;sd-text-warning` 1.6%]"
+        f"(https://www.virustotal.com/gui/file/{warn_sha})"
+    ) in content
+
+
+def test_csv_analysis_link_without_record():
+    """A digest with no scan record links to the analysis without a score."""
+    sha = "d" * 64
+    releases = [
+        _release("v1.0.0", (_asset("papaya-1.0.0-macos-arm64.bin", sha256=sha),)),
+    ]
+    content = render_binaries_csv(REPO, releases, [])
+    assert (
+        "[{octicon}`shield` analysis]"
+        f"(https://www.virustotal.com/gui/file/{sha})"
+    ) in content
+
+
+def test_csv_platform_fallback_to_filename():
+    """A filename without a known target keeps the full name as label."""
+    releases = [_release("v1.0.0", (_asset("papaya-portable.exe"),))]
+    content = render_binaries_csv(REPO, releases, [])
+    assert "`papaya-portable.exe`]" in content
+
+
+# --- render_chart_section ---
 
 
 def test_chart_requires_two_releases():
     """A single release with records renders no trend chart."""
-    releases = [_release("v1.0.0", (_asset("papaya.bin", sha256="a" * 64),))]
     records = [_record("v1.0.0", "a" * 64, "2026-07-01")]
-    section = render_binaries_section(REPO, releases, records)
-    assert "xychart-beta" not in section
+    assert render_chart_section(records) == ""
 
 
 def test_chart_content():
-    """The chart plots flagged verdict share per release, oldest first."""
+    """The chart embeds per-release timeline points, oldest first."""
     records = [
         _record("v1.1.0", "b" * 64, "2026-07-06", flagged=1),
         _record("v1.0.0", "a" * 64, "2026-07-01", flagged=0),
     ]
-    section = render_binaries_section(REPO, [], records)
-    assert "## VirusTotal detections" in section
-    assert "```mermaid\nxychart-beta" in section
-    assert 'x-axis ["v1.0.0", "v1.1.0"]' in section
-    assert "line [0.0, 10.0]" in section
-    assert 'y-axis "Flagged verdicts (%)" 0 --> 10' in section
+    section = render_chart_section(records)
+    assert section.startswith("## VirusTotal detections\n")
+    assert '<canvas id="vt-trend">' in section
+    assert "cdn.jsdelivr.net/npm/chart.js@" in section
+    assert "const VT_DANGER_PCT = 10;" in section
+    assert (
+        '{"date": "2026-07-01", "flagged": 0, "pct": 0.0, '
+        '"tag": "v1.0.0", "total": 10}'
+    ) in section
+    assert (
+        '{"date": "2026-07-06", "flagged": 1, "pct": 10.0, '
+        '"tag": "v1.1.0", "total": 10}'
+    ) in section
+    assert section.index('"tag": "v1.0.0"') < section.index('"tag": "v1.1.0"')
 
 
 def test_chart_uses_earliest_snapshot():
@@ -220,46 +243,76 @@ def test_chart_uses_earliest_snapshot():
         _record("v1.0.0", "a" * 64, "2026-07-20", flagged=0),
         _record("v1.1.0", "b" * 64, "2026-07-06", flagged=1),
     ]
-    section = render_binaries_section(REPO, [], records)
-    assert "line [50.0, 10.0]" in section
+    section = render_chart_section(records)
+    assert '"pct": 50.0, "tag": "v1.0.0"' in section
+    assert '"date": "2026-07-01"' in section
+
+
+# --- update_binaries_csv ---
+
+
+def test_update_binaries_csv_creates_file(tmp_path):
+    """The CSV and its parent directories are created on demand."""
+    path = tmp_path / "assets" / "binaries.csv"
+    assert update_binaries_csv(path, "Version\n1.0.0\n") is True
+    assert path.read_text(encoding="utf-8") == "Version\n1.0.0\n"
+
+
+def test_update_binaries_csv_idempotent(tmp_path):
+    """Rewriting identical content reports no change."""
+    path = tmp_path / "binaries.csv"
+    update_binaries_csv(path, "Version\n")
+    assert update_binaries_csv(path, "Version\n") is False
 
 
 # --- update_binaries_page ---
 
 
 def test_update_binaries_page_creates_from_template(tmp_path):
-    """A missing page is created with frontmatter, intro, and markers."""
+    """A missing page is created with frontmatter, prose, and directives."""
     page = tmp_path / "docs" / "binaries.md"
-    assert update_binaries_page(page, "## Development builds\n\ncontent") is True
+    assert update_binaries_page(page, "chart content", REPO) is True
     text = page.read_text(encoding="utf-8")
     assert text.startswith("---\norphan: true\n---\n")
     assert "# Binaries" in text
-    assert PAGE_START_MARKER in text
-    assert PAGE_END_MARKER in text
-    assert text.index(PAGE_START_MARKER) < text.index("content")
-    assert text.index("content") < text.index(PAGE_END_MARKER)
+    assert f"https://github.com/{REPO}/actions/workflows/release.yaml" in text
+    assert "GitHub account is required" in text
+    assert "```{csv-table}\n:file: assets/binaries.csv" in text
+    assert ":class: sphinx-datatable" in text
+    assert text.index(PAGE_START_MARKER) < text.index("chart content")
+    assert text.index("chart content") < text.index(PAGE_END_MARKER)
 
 
-def test_update_binaries_page_preserves_intro(tmp_path):
-    """A hand-edited intro above the markers survives regeneration."""
+def test_update_binaries_page_empty_chart(tmp_path):
+    """An empty chart leaves a bare marker pair."""
+    page = tmp_path / "binaries.md"
+    assert update_binaries_page(page, "", REPO) is True
+    assert f"{PAGE_START_MARKER}\n\n{PAGE_END_MARKER}" in page.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_update_binaries_page_preserves_prose(tmp_path):
+    """Hand-edited prose around the markers survives regeneration."""
     page = tmp_path / "binaries.md"
     page.write_text(
         f"# Custom intro\n\nHand-written context.\n\n{PAGE_START_MARKER}\n\n"
-        f"old content\n\n{PAGE_END_MARKER}\n",
+        f"old chart\n\n{PAGE_END_MARKER}\n\nTrailing prose.\n",
         encoding="utf-8",
     )
-    assert update_binaries_page(page, "new content") is True
+    assert update_binaries_page(page, "new chart", REPO) is True
     text = page.read_text(encoding="utf-8")
     assert "Hand-written context." in text
-    assert "old content" not in text
-    assert "new content" in text
+    assert "Trailing prose." in text
+    assert "old chart" not in text
+    assert "new chart" in text
 
 
 def test_update_binaries_page_idempotent(tmp_path):
     """Rewriting identical content reports no change."""
     page = tmp_path / "binaries.md"
-    update_binaries_page(page, "content")
-    assert update_binaries_page(page, "content") is False
+    update_binaries_page(page, "chart", REPO)
+    assert update_binaries_page(page, "chart", REPO) is False
 
 
 def test_update_binaries_page_refuses_markerless_file(tmp_path):
@@ -267,4 +320,4 @@ def test_update_binaries_page_refuses_markerless_file(tmp_path):
     page = tmp_path / "binaries.md"
     page.write_text("# Not ours\n", encoding="utf-8")
     with pytest.raises(ValueError, match="markers"):
-        update_binaries_page(page, "content")
+        update_binaries_page(page, "chart", REPO)

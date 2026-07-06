@@ -58,7 +58,9 @@ from extra_platforms import is_github_ci
 from . import __version__
 from .binaries_page import (
     BINARY_ASSET_SUFFIXES,
-    render_binaries_section,
+    render_binaries_csv,
+    render_chart_section,
+    update_binaries_csv,
     update_binaries_page,
 )
 from .binary import (
@@ -4248,21 +4250,19 @@ def sync_binaries(
     records: Path | None,
     backfill_records: bool,
 ) -> None:
-    """Regenerate the binaries catalog page from the GitHub Releases API.
+    """Regenerate the binaries catalog from the GitHub Releases API.
 
-    Rebuilds the generated region of the page from live release data: one
-    table per published release carrying compiled binaries, with download
-    links, sizes, and SHA-256 checksums linking to VirusTotal analyses. When
-    a scan history file is given, tables gain a Detections column and the
-    page a detection trend chart.
+    Writes the catalog data to assets/binaries.csv next to the page, one row
+    per released binary: download link, size, SHA-256 checksum linking to the
+    VirusTotal analysis, and the detection snapshot when a scan history file
+    is given. The page renders the CSV through a csv-table directive and is
+    created from a default template when missing; only its chart region is
+    rewritten afterwards, so the prose can be edited per repository.
 
     With --backfill-records, detection snapshots are first recovered from the
     VirusTotal tables that release notes carried before the history file
     existed, and merged into the records file. Release notes are immutable,
     so the backfill converges and is safe to leave enabled.
-
-    The page is created from a default template when missing; the intro above
-    the markers is left untouched, so it can be edited per repository.
 
     \b
     Examples:
@@ -4280,6 +4280,10 @@ def sync_binaries(
     except GitHubReleasesUnavailable as e:
         raise ClickException(str(e))
 
+    # Fixed location relative to the page, matching the `:file:` path in the
+    # page template's csv-table directive.
+    csv_path = page.parent / "assets" / "binaries.csv"
+
     try:
         if backfill_records and records:
             legacy = [
@@ -4294,15 +4298,20 @@ def sync_binaries(
                 echo(f"Backfilled {len(legacy)} snapshot(s) from release notes.")
 
         scan_records = load_scan_records(records) if records else []
-        section = render_binaries_section(repo, releases, scan_records)
-        changed = update_binaries_page(page, section)
+        csv_changed = update_binaries_csv(
+            csv_path, render_binaries_csv(repo, releases, scan_records)
+        )
+        page_changed = update_binaries_page(
+            page, render_chart_section(scan_records), repo
+        )
     except ValueError as e:
         raise ClickException(str(e))
 
-    if changed:
-        echo(f"Updated {page}.")
-    else:
-        echo(f"{page} already up to date.")
+    for path, changed in ((csv_path, csv_changed), (page, page_changed)):
+        if changed:
+            echo(f"Updated {path}.")
+        else:
+            echo(f"{path} already up to date.")
 
 
 @repomatic.command(
