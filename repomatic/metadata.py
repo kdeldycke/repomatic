@@ -301,6 +301,7 @@ from operator import itemgetter
 from pathlib import Path
 
 import tomlrt
+from click_extra import field_docstrings
 from extra_platforms import is_github_ci
 from packaging.version import Version
 from py_walk import get_parser_from_file
@@ -372,7 +373,6 @@ else:
 from .config import (
     SUBCOMMAND_CONFIG_FIELDS,
     Config,
-    _extract_field_docstrings,
     load_repomatic_config,
 )
 from .pyproject import is_python_project as _is_python_project
@@ -458,8 +458,13 @@ def metadata_keys_reference() -> list[tuple[str, str]]:
     """
     rows = [(k, v) for k, v in _METADATA_KEY_DESCRIPTIONS.items()]
 
-    # Add config fields exposed as metadata (same filter as dump()).
-    docstrings = _extract_field_docstrings()
+    # Add config fields exposed as metadata (same filter as dump()). Collapse
+    # each attribute docstring to its first paragraph, single-spaced: the
+    # metadata table wants the one-line summary, not the full prose.
+    docstrings = {
+        name: " ".join(text.split("\n\n")[0].split())
+        for name, text in field_docstrings(Config).items()
+    }
     for f in fields(Config):
         if (
             f.name

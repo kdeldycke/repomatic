@@ -23,9 +23,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
-from repomatic.cli import repomatic
 from repomatic.tool_runner import TOOL_REGISTRY, NativeFormat
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -60,45 +58,27 @@ def _parse_tool_runner_table() -> dict[str, str]:
     return result
 
 
-def test_docs_cli_reference_covers_all_commands() -> None:
-    """Every command must have a ``{click:run}`` directive in docs/cli.md.
+def test_docs_cli_reference_uses_tree_directive() -> None:
+    """docs/cli.md must render the CLI reference through ``{click:tree}``.
 
-    Help text is rendered live by ``click_extra.sphinx`` at build time, so we
-    only check that each command path has a directive block invoking it.
+    The directive walks the live command tree at build time, so per-command
+    coverage is guaranteed by construction. This canary only guards against
+    the directive block being dropped from the page.
     """
     cli_text = CLI_MD.read_text(encoding="UTF-8")
-    paths: list[list[str]] = [["--help"]]
-    for name, cmd in repomatic.commands.items():
-        paths.append([name, "--help"])
-        if hasattr(cmd, "commands"):
-            paths.extend([name, sub, "--help"] for sub in cmd.commands)
-    for path in paths:
-        args_repr = ", ".join(repr(a) for a in path)
-        invocation = f"invoke(repomatic, args=[{args_repr}])"
-        assert invocation in cli_text, (
-            f"Missing {{click:run}} block for `{path}` in docs/cli.md. "
-            "Re-run: repomatic update-docs"
-        )
+    assert "```{click:tree} repomatic" in cli_text
 
 
-def test_docs_config_table_matches() -> None:
-    """All show-config options must be documented in docs/configuration.md."""
-    runner = CliRunner()
-    result = runner.invoke(
-        repomatic, ["--no-color", "--table-format", "github", "show-config"]
-    )
-    assert result.exit_code == 0
-    assert result.output, "No output from `repomatic show-config`"
+def test_docs_config_reference_uses_config_directive() -> None:
+    """docs/configuration.md must render the reference through ``{click:config}``.
+
+    The directive documents the live `Config` schema at build time, from the
+    same `schema_field_infos()` records `show-config` renders, so option
+    coverage is guaranteed by construction. This canary only guards against
+    the directive block being dropped from the page.
+    """
     config_text = CONFIGURATION_MD.read_text(encoding="UTF-8")
-    # Extract option names from lines like: | `option-name` | type | default |
-    option_re = re.compile(r"^\|\s*`([^`]+)`\s*\|", re.MULTILINE)
-    options = {m.group(1) for m in option_re.finditer(result.output)}
-    assert options, "No options found in show-config output"
-    missing = {opt for opt in options if f"`{opt}`" not in config_text}
-    assert not missing, (
-        f"Options from show-config missing from docs/configuration.md: "
-        f"{sorted(missing)}. Re-run: repomatic update-docs"
-    )
+    assert "```{click:config} repomatic" in config_text
 
 
 def test_docs_bridge_table_covers_registry() -> None:
@@ -183,18 +163,6 @@ def _between(text: str, start: str, end: str) -> str:
 @pytest.mark.parametrize(
     ("md_path", "start", "end", "generator_name"),
     [
-        (
-            CLI_MD,
-            "<!-- cli-reference-start -->",
-            "<!-- cli-reference-end -->",
-            "cli_reference",
-        ),
-        (
-            CONFIGURATION_MD,
-            "<!-- config-reference-start -->",
-            "<!-- config-reference-end -->",
-            "config_deflist",
-        ),
         (
             TOOL_RUNNER_MD,
             "<!-- tool-summary-start -->",

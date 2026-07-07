@@ -18,7 +18,8 @@
 - `sync-deps` resolves its operations under the same `--jobs` policy; Ctrl+C aborts the fan-out promptly and `--verbosity DEBUG` collapses it to sequential for readable logs.
 - `update-docs` gains a fourth phase refreshing self-updating `{matrix}` directive blocks in `docs/` and `readme.md` via `click-extra refresh-directives`.
 - The Python compatibility matrix in the installation docs is now maintained by click-extra's `{matrix}` markers instead of an in-repo generator.
-- Require `click-extra >= 8.2`, adding the `--export-config` option and `--theme auto` terminal-background detection to every command.
+- The CLI and configuration references in the docs render live through the `click:tree` and `click:config` directives, replacing the checked-in generated tables.
+- Require `click-extra >= 8.3`, adding the `--export-config` option, `--theme auto` terminal-background detection, and the `click:config` Sphinx directive.
 - Exclude VirusTotal analysis links from lychee broken-link checks.
 - Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.

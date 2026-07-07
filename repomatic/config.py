@@ -23,11 +23,8 @@ Defines the `Config` dataclass, its TOML serialization helpers, and the
 
 from __future__ import annotations
 
-import ast
-import inspect
 import logging
-import textwrap
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import dedent
 
@@ -36,6 +33,7 @@ from click_extra import (
     CONFIG_PATH_METADATA_KEY,
     NORMALIZE_KEYS_METADATA_KEY,
     make_schema_callable,
+    schema_field_infos,
 )
 
 TYPE_CHECKING = False
@@ -873,78 +871,6 @@ passed through workflow metadata outputs.
 """
 
 
-def _field_to_key(name: str, cls: type | None = None) -> str:
-    """Convert a dataclass field name to its TOML config key.
-
-    For fields with `click_extra.config_path` metadata, returns that path
-    directly. Otherwise, falls back to simple kebab-case conversion
-    (e.g., `setup_guide` → `setup-guide`).
-
-    :param cls: Dataclass to inspect for metadata. Defaults to `Config`.
-    """
-    if cls is None:
-        cls = Config
-    for f in fields(cls):
-        if f.name == name:
-            path = f.metadata.get(CONFIG_PATH_METADATA_KEY)
-            if path:
-                return str(path)
-            break
-    return name.replace("_", "-")
-
-
-def _extract_field_docstrings(
-    cls: type | None = None,
-    *,
-    full: bool = False,
-) -> dict[str, str]:
-    """Extract attribute docstrings from a dataclass via AST.
-
-    Attribute docstrings are string literals immediately following an annotated
-    assignment in a class body (PEP 257 convention). By default, returns a
-    mapping of field name to the first paragraph of its docstring (stripped,
-    dedented, single-spaced). When `full=True`, returns the entire docstring
-    with paragraph breaks preserved.
-
-    :param cls: Dataclass to inspect. Defaults to `Config`.
-    :param full: When `True`, keep the complete docstring. When `False`,
-        keep only the first paragraph collapsed onto a single line.
-    """
-    if cls is None:
-        cls = Config
-    source = inspect.getsource(cls)
-    tree = ast.parse(textwrap.dedent(source))
-    cls_node = tree.body[0]
-    assert isinstance(cls_node, ast.ClassDef)
-
-    docstrings: dict[str, str] = {}
-    current_field = None
-    for node in cls_node.body:
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            current_field = node.target.id
-        elif (
-            isinstance(node, ast.Expr)
-            and isinstance(node.value, ast.Constant)
-            and isinstance(node.value.value, str)
-        ):
-            if current_field:
-                # cleandoc trims the first line and dedents the rest based on
-                # the common indent of subsequent lines (PEP 257), unlike
-                # textwrap.dedent which fails when the first line has no
-                # leading whitespace but subsequent lines do.
-                text = inspect.cleandoc(node.value.value)
-                if full:
-                    docstrings[current_field] = text
-                else:
-                    # Collapse the first paragraph onto a single line.
-                    docstrings[current_field] = " ".join(text.split("\n\n")[0].split())
-                current_field = None
-        else:
-            current_field = None
-
-    return docstrings
-
-
 def _format_default(value: object) -> str:
     """Format a `Config` field default for the reference table."""
     if value is None:
@@ -1005,66 +931,25 @@ CONFIG_REFERENCE_HEADER_DEFS: tuple[tuple[str, str], ...] = (
 """Column definitions for the `[tool.repomatic]` configuration reference table."""
 
 
-def config_full_descriptions() -> dict[str, str]:
-    """Return full attribute docstrings keyed by TOML option name.
-
-    Unlike `config_reference()` which truncates to a one-line summary
-    suitable for the `show-config` CLI table, this returns the entire
-    docstring for use in long-form documentation.
-    """
-    schema = Config()
-    descriptions: dict[str, str] = {}
-    for f in fields(Config):
-        sub = getattr(schema, f.name)
-        if hasattr(sub, "__dataclass_fields__"):
-            prefix = _field_to_key(f.name)
-            sub_cls = type(sub)
-            sub_docs = _extract_field_docstrings(sub_cls, full=True)
-            for sf in fields(sub_cls):
-                key = f"{prefix}.{sf.name.replace('_', '-')}"
-                descriptions[key] = sub_docs.get(sf.name, "")
-        else:
-            key = _field_to_key(f.name)
-            full_docs = _extract_field_docstrings(full=True)
-            descriptions[key] = full_docs.get(f.name, "")
-    return descriptions
-
-
 def config_reference() -> list[tuple[str, str, str, str]]:
     """Build the `[tool.repomatic]` configuration reference as table rows.
 
-    Introspects the `Config` dataclass fields, their type annotations,
-    defaults, and attribute docstrings. Nested dataclass fields are expanded
-    into individual rows with dotted keys. Returns a list of
+    Introspection comes from click-extra's `schema_field_infos()` (dotted
+    kebab-case keys, type annotations, defaults, attribute-docstring
+    summaries); this wrapper only applies the Markdown presentation of the
+    `show-config` table. Returns a list of
     `(option, type, default, description)` tuples suitable for
     `click_extra.table.print_table`.
     """
-    schema = Config()
-    docstrings = _extract_field_docstrings()
-    sorted_fields = sorted(fields(Config), key=lambda f: _field_to_key(f.name))
-
-    rows = []
-    for f in sorted_fields:
-        sub_type = getattr(schema, f.name)
-        if hasattr(sub_type, "__dataclass_fields__"):
-            # Expand nested dataclass into individual rows.
-            prefix = _field_to_key(f.name)
-            sub_cls = type(sub_type)
-            sub_docstrings = _extract_field_docstrings(sub_cls)
-            for sf in sorted(fields(sub_cls), key=lambda sf: sf.name):
-                key = f"`{prefix}.{sf.name.replace('_', '-')}`"
-                ftype = _format_type(sub_cls.__annotations__[sf.name])
-                default = _format_default(getattr(sub_type, sf.name))
-                desc = sub_docstrings.get(sf.name, "")
-                rows.append((key, ftype, default, desc))
-        else:
-            key = f"`{_field_to_key(f.name)}`"
-            ftype = _format_type(Config.__annotations__[f.name])
-            default = _format_default(getattr(schema, f.name))
-            desc = docstrings.get(f.name, "")
-            rows.append((key, ftype, default, desc))
-
-    return rows
+    return [
+        (
+            f"`{info.key}`",
+            _format_type(info.type_hint),
+            _format_default(info.default),
+            info.summary,
+        )
+        for info in schema_field_infos(Config)
+    ]
 
 
 def load_repomatic_config(
@@ -1092,7 +977,7 @@ def load_repomatic_config(
     # Warn about unknown top-level keys before loading. Collect all known
     # TOML key prefixes (e.g., "test-matrix", "nuitka", "workflow") so we
     # can flag unrecognized entries without crashing.
-    known_keys = {_field_to_key(f.name).split(".")[0] for f in fields(Config)}
+    known_keys = {info.key.split(".")[0] for info in schema_field_infos(Config)}
     for key in user_config:
         if key.replace("_", "-") not in known_keys:
             logging.warning(
