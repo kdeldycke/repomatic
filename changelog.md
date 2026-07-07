@@ -24,6 +24,9 @@
 - Require `click-extra >= 8.3`, adding the `--export-config` option, `--theme auto` terminal-background detection, and the `click:config` Sphinx directive.
 - Exclude VirusTotal analysis links from lychee broken-link checks.
 - Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.
+- Label added and removed packages in dependency report tables consistently after the version, with 🆕 and 🗑️ status emoji.
+- Trim oversized PR and issue bodies to GitHub's 65536-character limit, keeping the refresh tip, metadata block, and attribution footer that end-of-body truncation used to chop off.
+- Add the humanized age next to `Released` dates in `fix-vulnerable-deps` reports, matching the other dependency updaters.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.
 - Disable mouse zoom on the class inheritance diagrams of the documentation's API sections, so they no longer hijack page scrolling; the fullscreen viewer keeps zoom.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.

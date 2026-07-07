@@ -47,6 +47,22 @@ from string import Template
 from .. import __version__
 from ..metadata import Metadata
 
+GITHUB_BODY_MAX_CHARS = 65536
+"""GitHub's maximum PR and issue body size, in UTF-16 code units.
+
+GitHub's API rejects longer bodies, and
+[peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request)
+pre-empts the rejection by hard-truncating the **end** of the body
+(`main.ts`: `inputs.body.substring(0, 65536)`), silently dropping whatever
+sits last: the refresh tip, the metadata block, and the attribution footer.
+{func}`build_pr_body` (PRs) and {func}`fit_issue_body` (issues) trim the
+leading content instead, so the tail always survives.
+"""
+
+_TRUNCATION_NOTICE = "> [!CAUTION]\n> Report truncated to fit GitHub's body size limit."
+"""Admonition replacing the content dropped by {func}`build_pr_body` and
+{func}`fit_issue_body`."""
+
 _ZERO_WIDTH_SPACE = "\u200b"
 """Unicode zero-width space inserted to break GitHub's mention/issue parser.
 
@@ -458,11 +474,46 @@ def generate_refresh_tip() -> str:
     )
 
 
+def _utf16_len(text: str) -> int:
+    """Length of *text* in UTF-16 code units.
+
+    GitHub's body size limit and create-pull-request's truncation both count
+    JavaScript string length (UTF-16 code units), not Unicode code points, so
+    emoji-heavy reports must be measured the same way.
+    """
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _trim_to_budget(text: str, budget: int) -> str:
+    """Keep the leading whole lines of *text* that fit in *budget*.
+
+    Cutting on line boundaries keeps the trimmed markdown rendering: a table
+    missing rows still renders, one cut mid-row does not.
+
+    :param text: Content to trim.
+    :param budget: Available room, in UTF-16 code units.
+    :return: The kept lines, right-stripped; empty when nothing fits.
+    """
+    kept: list[str] = []
+    used = 0
+    for line in text.splitlines():
+        used += _utf16_len(line) + 1  # The joining newline.
+        if used > budget:
+            break
+        kept.append(line)
+    return "\n".join(kept).rstrip()
+
+
 def build_pr_body(prefix: str, metadata_block: str) -> str:
     """Concatenate prefix, refresh tip, and metadata block into a PR body.
 
     The `metadata_block` already includes the attribution footer (appended
     automatically by {func}`render_template`).
+
+    Bodies over {data}`GITHUB_BODY_MAX_CHARS` have their prefix trimmed to
+    fit, replacing the dropped lines with a caution admonition, so the refresh
+    tip, metadata block, and attribution footer always survive. Left alone,
+    GitHub-side truncation would chop the body from the end instead.
 
     :param prefix: Content to prepend before the metadata block. Can be empty.
     :param metadata_block: The collapsible metadata block from
@@ -476,4 +527,46 @@ def build_pr_body(prefix: str, metadata_block: str) -> str:
     if tip:
         parts.append(tip)
     parts.append(metadata_block)
-    return "\n\n\n".join(parts)
+    body = "\n\n\n".join(parts)
+    if not prefix or _utf16_len(body) <= GITHUB_BODY_MAX_CHARS:
+        return body
+
+    # Rebuild with the prefix cut down to whatever budget the fixed tail
+    # leaves.
+    tail = "\n\n\n".join([_TRUNCATION_NOTICE, *parts[1:]])
+    budget = GITHUB_BODY_MAX_CHARS - _utf16_len(tail) - len("\n\n\n")
+    truncated_prefix = _trim_to_budget(prefix, budget)
+    if not truncated_prefix:
+        return tail
+    return f"{truncated_prefix}\n\n\n{tail}"
+
+
+def fit_issue_body(body: str) -> str:
+    """Trim an oversized issue body, keeping the attribution footer.
+
+    The {func}`build_pr_body` counterpart for issue bodies rendered straight
+    from a footer-carrying template (broken-links report, setup guide). The
+    GitHub API rejects oversized issue bodies outright (`gh issue create` and
+    `gh issue edit` fail), so the content above the attribution footer is
+    trimmed on line boundaries, with a caution admonition marking the cut.
+
+    :param body: The rendered issue body, attribution footer included.
+    :return: The body unchanged when it fits, else trimmed to fit.
+    """
+    if _utf16_len(body) <= GITHUB_BODY_MAX_CHARS:
+        return body
+    footer_suffix = (
+        "\n\n---\n\n" + render_template("generated-footer", version=__version__) + "\n"
+    )
+    if body.endswith(footer_suffix):
+        content = body.removesuffix(footer_suffix)
+        tail = f"\n\n{_TRUNCATION_NOTICE}{footer_suffix}"
+    else:
+        # No recognizable footer (external or hand-built body): still trim to
+        # fit, without resurrecting a footer that was never there.
+        content = body
+        tail = f"\n\n{_TRUNCATION_NOTICE}\n"
+    trimmed = _trim_to_budget(content, GITHUB_BODY_MAX_CHARS - _utf16_len(tail))
+    if not trimmed:
+        return tail.lstrip()
+    return f"{trimmed}{tail}"

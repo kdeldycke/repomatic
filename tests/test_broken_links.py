@@ -34,7 +34,8 @@ from repomatic.broken_links import (
     parse_output_json,
 )
 from repomatic.cli import repomatic as repomatic_cli
-from repomatic.github.issue import triage_issues
+from repomatic.github.issue import _fit_body_file, triage_issues
+from repomatic.github.pr_body import GITHUB_BODY_MAX_CHARS
 
 TITLE = "Broken links"
 
@@ -228,6 +229,27 @@ def test_state_defaults_to_open():
         {"number": 42, "title": TITLE, "createdAt": "2025-01-01T00:00:00Z"},
     ]
     assert triage_issues(issues, TITLE, needed=True) == (True, 42, "OPEN", set())
+
+
+def test_fit_body_file_rewrites_oversized_body(tmp_path):
+    """Oversized issue bodies are trimmed in place before reaching `gh`.
+
+    The GitHub API rejects bodies over the size limit outright, so the
+    lifecycle helpers rewrite the body file to fit, keeping the attribution
+    footer at the end.
+    """
+    body_file = tmp_path / "body.md"
+    small = "A short issue body."
+    body_file.write_text(small, encoding="UTF-8")
+    _fit_body_file(body_file)
+    assert body_file.read_text(encoding="UTF-8") == small
+
+    oversized = "\n".join(["- broken link report row 🍈"] * 5000)
+    body_file.write_text(oversized, encoding="UTF-8")
+    _fit_body_file(body_file)
+    fitted = body_file.read_text(encoding="UTF-8")
+    assert len(fitted.encode("utf-16-le")) // 2 <= GITHUB_BODY_MAX_CHARS
+    assert "> Report truncated to fit GitHub's body size limit." in fitted
 
 
 # ---------------------------------------------------------------------------

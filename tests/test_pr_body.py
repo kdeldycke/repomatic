@@ -24,12 +24,16 @@ from pathlib import Path
 
 import pytest
 
+from repomatic import __version__
 from repomatic.config import config_reference
 from repomatic.github.pr_body import (
+    GITHUB_BODY_MAX_CHARS,
     _parse_frontmatter,
     _unescape_dollars,
+    _utf16_len,
     build_pr_body,
     extract_workflow_filename,
+    fit_issue_body,
     generate_pr_metadata_block,
     generate_refresh_tip,
     get_template_names,
@@ -575,6 +579,96 @@ def test_build_pr_body_empty_prefix(monkeypatch):
 
     assert "Generated with [repomatic]" in result
     assert "<details>metadata</details>" in result
+
+
+def test_build_pr_body_trims_oversized_prefix(monkeypatch):
+    """An oversized prefix is trimmed so the tail always survives.
+
+    GitHub and create-pull-request truncate oversized bodies from the end,
+    which silently drops the refresh tip, metadata block, and attribution
+    footer (the fate of huge `sync-uv-lock` tables). The prefix is trimmed
+    instead, on line boundaries, with a caution admonition marking the cut.
+    """
+    for key, value in GITHUB_ENV_VARS.items():
+        monkeypatch.setenv(key, value)
+
+    # Astral-plane emoji make the UTF-16 length diverge from the code-point
+    # length, matching real dependency tables (🆙 heading, 🆕/🗑️ labels).
+    row = "| [papaya](https://pypi.org/project/papaya/) | `1.0` → `2.0` 🆙 |"
+    prefix = "\n".join([row] * 3000)
+    result = build_pr_body(prefix, FAKE_FOOTER)
+
+    assert _utf16_len(result) <= GITHUB_BODY_MAX_CHARS
+    assert result.endswith(FAKE_FOOTER)
+    assert "> Report truncated to fit GitHub's body size limit." in result
+    # The refresh tip survives too.
+    assert "> [!IMPORTANT]" in result
+    # The cut runs on line boundaries: rows are dropped, never split, and the
+    # notice replaces them right where the table ends.
+    assert result.startswith(row)
+    assert 0 < result.count(row) < 3000
+    assert f"{row}\n\n\n> [!CAUTION]" in result
+
+
+def test_build_pr_body_under_limit_untouched(monkeypatch):
+    """A body under the limit is returned without any truncation notice."""
+    for key, value in GITHUB_ENV_VARS.items():
+        monkeypatch.setenv(key, value)
+
+    result = build_pr_body("Small report.", FAKE_FOOTER)
+
+    assert result.startswith("Small report.")
+    assert "> Report truncated" not in result
+
+
+def test_fit_issue_body_trims_keeping_footer():
+    """An oversized issue body is trimmed above the footer, which survives.
+
+    Unlike PR bodies (silently truncated by create-pull-request), oversized
+    issue bodies make `gh issue create` and `gh issue edit` fail outright, so
+    the guard rewrites the body to fit before it reaches the API.
+    """
+    line = "- [https://example.com/papaya](https://example.com/papaya) 🍈 404"
+    body = render_template(
+        "broken-links-issue",
+        lychee_section="## Lychee\n\n" + "\n".join([line] * 2000),
+        sphinx_section="## Sphinx linkcheck\n\nNo broken links found.",
+    )
+    assert _utf16_len(body) > GITHUB_BODY_MAX_CHARS
+
+    fitted = fit_issue_body(body)
+
+    assert _utf16_len(fitted) <= GITHUB_BODY_MAX_CHARS
+    # The attribution footer still closes the body.
+    assert fitted.endswith(
+        "Generated with [repomatic](https://github.com/kdeldycke/repomatic)"
+        f" `{__version__}`\n"
+    )
+    # The notice marks the cut, between the kept rows and the footer.
+    assert 0 < fitted.count(line) < 2000
+    assert fitted.index(line) < fitted.index("> [!CAUTION]")
+    assert fitted.index("> [!CAUTION]") < fitted.index("Generated with")
+
+
+def test_fit_issue_body_small_unchanged():
+    """A body under the limit passes through byte-for-byte."""
+    body = render_template(
+        "broken-links-issue",
+        lychee_section="## Lychee\n\nNo broken links found.",
+        sphinx_section="",
+    )
+    assert fit_issue_body(body) == body
+
+
+def test_fit_issue_body_without_footer_still_fits():
+    """A footerless oversized body is trimmed too, without inventing a footer."""
+    body = "\n".join(["| papaya | 🆙 |"] * 9000)
+
+    fitted = fit_issue_body(body)
+
+    assert _utf16_len(fitted) <= GITHUB_BODY_MAX_CHARS
+    assert "> Report truncated to fit GitHub's body size limit." in fitted
+    assert "Generated with" not in fitted
 
 
 # ---------------------------------------------------------------------------

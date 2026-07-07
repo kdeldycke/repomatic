@@ -1141,9 +1141,9 @@ def format_diff_table(
             if comparison_urls and name in comparison_urls:
                 change = f"[{change}]({comparison_urls[name]})"
         elif new:
-            change = f"(new) `{new}`"
+            change = f"`{new}` (🆕 new)"
         else:
-            change = f"`{old}` (removed)"
+            change = f"`{old}` (🗑️ removed)"
         if show_uploaded:
             raw_time = upload_times.get(name, "")  # type: ignore[union-attr]
             uploaded = _format_released(raw_time, reference_date)
@@ -1928,6 +1928,7 @@ def fix_vulnerable_deps(
         upload_times,
         format_exclude_newer_note(exclude_newer),
         name_urls=pypi_name_urls(changes),
+        reference_date=datetime.now(timezone.utc).date(),
     )
 
     # Fetch and append release notes.

@@ -36,7 +36,7 @@ from operator import itemgetter
 from pathlib import Path
 
 from .gh import run_gh_command
-from .pr_body import generate_pr_metadata_block
+from .pr_body import fit_issue_body, generate_pr_metadata_block
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -127,6 +127,20 @@ def reopen_issue(number: int, comment: str = "") -> None:
     logging.info(f"Reopened issue #{number}")
 
 
+def _fit_body_file(body_file: Path) -> None:
+    """Rewrite the body file in place when it exceeds GitHub's size limit.
+
+    Guards `gh issue create` and `gh issue edit` against the API's hard
+    rejection of oversized bodies. See
+    {func}`repomatic.github.pr_body.fit_issue_body`.
+    """
+    body = body_file.read_text(encoding="UTF-8")
+    fitted = fit_issue_body(body)
+    if fitted != body:
+        logging.warning("Issue body exceeds GitHub's size limit, trimming.")
+        body_file.write_text(fitted, encoding="UTF-8")
+
+
 def create_issue(body_file: Path, labels: list[str], title: str) -> int:
     """Create a new issue.
 
@@ -135,6 +149,7 @@ def create_issue(body_file: Path, labels: list[str], title: str) -> int:
     :param title: Issue title.
     :return: The created issue number.
     """
+    _fit_body_file(body_file)
     args = [
         "issue",
         "create",
@@ -161,6 +176,7 @@ def update_issue(number: int, body_file: Path) -> None:
     :param number: The issue number to update.
     :param body_file: Path to the file containing the new issue body.
     """
+    _fit_body_file(body_file)
     run_gh_command([
         "issue",
         "edit",

@@ -19,6 +19,7 @@ upgrade) and the `exclude-newer-package` cooldown-bypass lifecycle."""
 
 from __future__ import annotations
 
+import ast
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -259,6 +260,15 @@ def test_format_diff_table_is_the_shared_pr_table():
     assert "| foo |" in format_diff_table([("foo", "1", "2")])
     assert format_diff_table([]) == ""
 
+    # Added and removed packages share one label layout: version first, then
+    # a parenthesized status with emoji.
+    assert "| papaya | `1.4.0` (🆕 new) |" in format_diff_table([
+        ("papaya", "", "1.4.0"),
+    ])
+    assert "| papaya | `0.7.0` (🗑️ removed) |" in format_diff_table([
+        ("papaya", "0.7.0", ""),
+    ])
+
 
 def test_format_exclude_newer_note():
     """The uv cutoff sentence renders the lock's exclude-newer date, or nothing."""
@@ -277,6 +287,35 @@ def test_format_diff_table_shows_cooldown_note_above_table():
     assert table.index("MY NOTE") < table.index("| Package | Change |")
     # An empty note leaves no stray paragraph.
     assert "MY NOTE" not in format_diff_table([("ruff", "0.1.0", "0.2.0")])
+
+
+def test_format_diff_table_call_sites_pass_reference_date():
+    """Every PR-report call site opts into the humanized `Released` delta.
+
+    `reference_date` drives the relative hint on the `Released` column; a call
+    site omitting it renders bare dates, as `fix-vulnerable-deps` once did
+    while the other dependency updaters showed the delta.
+    """
+    package_dir = Path(cli.__file__).parent
+    violations = []
+    for py_file in sorted(package_dir.rglob("*.py")):
+        tree = ast.parse(py_file.read_text(encoding="UTF-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else (func.id if isinstance(func, ast.Name) else "")
+            )
+            if name != "format_diff_table":
+                continue
+            if "reference_date" not in {kw.arg for kw in node.keywords}:
+                violations.append(f"{py_file.name}:{node.lineno}")
+    assert not violations, (
+        f"format_diff_table calls missing reference_date: {violations}"
+    )
 
 
 def test_build_held_back_formats_released_and_eligible():
