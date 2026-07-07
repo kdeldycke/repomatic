@@ -25,6 +25,7 @@
 - Exclude VirusTotal analysis links from lychee broken-link checks.
 - Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.
+- Disable mouse zoom on the class inheritance diagrams of the documentation's API sections, so they no longer hijack page scrolling; the fullscreen viewer keeps zoom.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 
 ## [`7.0.0` (2026-07-02)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...v7.0.0)

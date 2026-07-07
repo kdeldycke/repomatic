@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import tomllib  # type: ignore[import-not-found]
+from docutils.nodes import container
+from sphinxcontrib.mermaid import MermaidClassDiagram
 
 project_path = Path(__file__).parent.parent.resolve()
 
@@ -76,6 +78,26 @@ myst_heading_anchors = 6
 myst_heading_slug_func = "docutils.nodes.make_id"
 
 mermaid_d3_zoom = True
+
+
+class NoZoomClassDiagram(MermaidClassDiagram):
+    """``autoclasstree`` with its diagram opted out of inline d3 zoom.
+
+    ``mermaid_d3_zoom`` is all-or-nothing: it attaches wheel and drag handlers
+    to every diagram's ``<svg>``, and sphinxcontrib-mermaid has no per-diagram
+    opt-out while its fullscreen feature is active. On the tall class
+    inheritance trees of the API sections, the wheel handler hijacks page
+    scrolling. So this subclass wraps each tree in a marked container that
+    ``custom.css`` targets to disable pointer events on the inline SVG: events
+    then never reach the ``<svg>``, d3's handlers stay quiet, and the page
+    scrolls normally. The fullscreen viewer clones the diagram outside the
+    container, so its button and zoom still work there. Registered in
+    :func:`setup` as an override of the upstream directive.
+    """
+
+    def run(self):
+        return [container("", *super().run(), classes=["autoclasstree"])]
+
 
 # Applies to every table carrying the (default) `sphinx-datatable` class:
 # currently only the binaries catalog. An empty `order` preserves the CSV's
@@ -251,3 +273,13 @@ html_show_sphinx = False
 
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
+
+
+def setup(app):
+    """Sphinx extension entry point.
+
+    Swaps sphinxcontrib-mermaid's ``autoclasstree`` directive for
+    :class:`NoZoomClassDiagram`: conf.py is loaded as the last extension,
+    so this registration wins.
+    """
+    app.add_directive("autoclasstree", NoZoomClassDiagram, override=True)
