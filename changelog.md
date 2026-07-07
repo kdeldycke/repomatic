@@ -19,6 +19,8 @@
 - `update-docs` gains a fourth phase refreshing self-updating `{matrix}` directive blocks in `docs/` and `readme.md` via `click-extra refresh-directives`.
 - The Python compatibility matrix in the installation docs is now maintained by click-extra's `{matrix}` markers instead of an in-repo generator.
 - The CLI and configuration references in the docs render live through the `click:tree` and `click:config` directives, replacing the checked-in generated tables.
+- The tool-runner reference renders live from the registry through `{python:render}` blocks; per-tool usage notes move to the new `ToolSpec.docs_notes` field and `docs/docs_update.py` is removed.
+- Each tool section in the tool-runner reference shows Stars and Last release badges; the separate `Comparison` table is removed.
 - Require `click-extra >= 8.3`, adding the `--export-config` option, `--theme auto` terminal-background detection, and the `click:config` Sphinx directive.
 - Exclude VirusTotal analysis links from lychee broken-link checks.
 - Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.

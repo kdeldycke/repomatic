@@ -414,7 +414,6 @@ expected: dict[str, Any] = {
     "gitignore_exists": True,
     "python_files": [
         "docs/conf.py",
-        "docs/docs_update.py",
         "repomatic/__init__.py",
         "repomatic/__main__.py",
         "repomatic/binaries_page.py",
@@ -462,6 +461,7 @@ expected: dict[str, Any] = {
         "repomatic/templates/__init__.py",
         "repomatic/test_matrix.py",
         "repomatic/tool_runner.py",
+        "repomatic/tool_runner_page.py",
         "repomatic/uv.py",
         "repomatic/version_sync.py",
         "repomatic/virustotal.py",

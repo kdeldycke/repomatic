@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 import pytest
@@ -31,14 +30,14 @@ CLI_MD = REPO_ROOT / "docs" / "cli.md"
 CONFIGURATION_MD = REPO_ROOT / "docs" / "configuration.md"
 TOOL_RUNNER_MD = REPO_ROOT / "docs" / "tool-runner.md"
 
-sys.path.insert(0, str(REPO_ROOT / "docs"))
-
 
 def _parse_tool_runner_table() -> dict[str, str]:
-    """Parse the combined tool table in docs/tool-runner.md.
+    """Parse the hand-written `[tool.X]` support table in docs/tool-runner.md.
 
-    Returns a dict mapping display name to support column content,
-    for rows that list either 'repomatic bridge' or 'Native' support.
+    Returns a dict mapping display name to support column content, for rows
+    that list either 'repomatic bridge' or 'Native' support. This table is
+    hand-curated prose (unlike the registry-rendered `{python:render}`
+    blocks), so it needs a conformance test against the registry.
     """
     tool_runner_text = TOOL_RUNNER_MD.read_text(encoding="UTF-8")
     result = {}
@@ -153,53 +152,19 @@ def test_docs_tip_table_covers_registry() -> None:
     )
 
 
-def _between(text: str, start: str, end: str) -> str:
-    """Extract content between two markers, stripped of surrounding blanks."""
-    assert start in text, f"start marker {start!r} missing"
-    assert end in text, f"end marker {end!r} missing"
-    return text.split(start, 1)[1].split(end, 1)[0].strip()
-
-
 @pytest.mark.parametrize(
-    ("md_path", "start", "end", "generator_name"),
-    [
-        (
-            TOOL_RUNNER_MD,
-            "<!-- tool-summary-start -->",
-            "<!-- tool-summary-end -->",
-            "tool_summary",
-        ),
-        (
-            TOOL_RUNNER_MD,
-            "<!-- tool-reference-start -->",
-            "<!-- tool-reference-end -->",
-            "tool_reference",
-        ),
-    ],
+    "renderer",
+    ["tool_summary", "tool_reference"],
 )
-def test_docs_generator_matches_in_tree_state(
-    md_path: Path, start: str, end: str, generator_name: str
-) -> None:
-    """Each ``docs_update.py`` generator must produce a fixed point under ``mdformat``.
+def test_docs_tool_runner_uses_render_blocks(renderer: str) -> None:
+    """docs/tool-runner.md must render its registry content live.
 
-    The in-tree files have been processed by ``format-markdown`` after the last
-    ``update-docs`` run. If the generator's output diverges from the in-tree
-    region between the start/end markers, the next ``update-docs`` run will
-    revert ``mdformat``'s normalization and the next ``format-markdown`` run
-    will undo the revert: an `update-docs` ↔ `format-markdown` ping-pong.
-
-    Align the generator with what ``mdformat`` produces, not the other way
-    around. See `claude.md` § "Generator/formatter ping-pong is recurrent".
+    Each `repomatic.tool_runner_page` renderer is embedded through a
+    `{python:render}` block, so registry coverage is by construction. These
+    canaries only guard against a block being dropped from the page.
     """
-    import docs_update
-
-    fresh = getattr(docs_update, generator_name)().strip()
-    in_tree = _between(md_path.read_text(encoding="UTF-8"), start, end)
-    assert fresh == in_tree, (
-        f"{generator_name}() output diverges from {md_path.name} between "
-        f"{start!r} and {end!r}. The two will ping-pong on every CI run. "
-        f"Align the generator with mdformat's output."
-    )
+    tool_runner_text = TOOL_RUNNER_MD.read_text(encoding="UTF-8")
+    assert f"from repomatic.tool_runner_page import {renderer}" in tool_runner_text
 
 
 # Sphinx-apidoc module pages that carry importable modules. The data/, templates/,

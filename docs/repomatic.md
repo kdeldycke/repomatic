@@ -263,6 +263,15 @@
    :undoc-members:
 ```
 
+## `repomatic.tool_runner_page` module
+
+```{eval-rst}
+.. automodule:: repomatic.tool_runner_page
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.uv` module
 
 ```{eval-rst}

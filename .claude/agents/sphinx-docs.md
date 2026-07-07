@@ -431,7 +431,7 @@ For `pyproject.toml` schemas, CLI command lists, and tool registries, generate t
 - `<!-- managers-sankey-start -->` / `<!-- managers-sankey-end -->` (a Mermaid sankey of supported managers).
 - `<!-- operation-matrix-start -->` / `<!-- operation-matrix-end -->` (a feature-coverage table).
 - `<!-- pytest-decorators-autodata-start -->` / `<!-- pytest-decorators-autodata-end -->` (autodata blocks for pytest fixtures).
-- `<!-- tool-summary-start -->` / `<!-- tool-summary-end -->` (the managed-tools table in `tool-runner.md`).
+- `<!-- python-compat-matrix-start -->` / `<!-- python-compat-matrix-end -->` (a compatibility table refreshed by a regenerator).
 
 Pick the `{feature}` slug from the canonical name of the source-of-truth (registry name, dataclass name, command path); pick the `{kind}` slug from the output shape (`table`, `sankey`, `mindmap`, `autodata`, `automodule`, `autodoc`, `reference`).
 
@@ -443,7 +443,7 @@ Document **dataclass fields with attribute docstrings** (PEP 257 string literal 
 
 ## Recipes for common doc artifacts
 
-The patterns below are how this repo renders `docs/configuration.md`, `docs/cli.md`, and `docs/install.md`. Downstream CLI projects can replicate them verbatim by pointing at their own dataclass schema and Click root command. The reference pages are live click-extra directives, not checked-in generated markdown: only `tool-runner.md` still goes through `docs/docs_update.py` marker regions.
+The patterns below are how this repo renders `docs/configuration.md`, `docs/cli.md`, and `docs/install.md`. Downstream CLI projects can replicate them verbatim by pointing at their own dataclass schema and Click root command. Every reference page renders live (click-extra directives for the CLI and config references, `{python:render}` blocks over `repomatic.tool_runner_page` for the tool registry); the repo has no `docs_update.py` regenerator, and only `install.md`'s matrix stays checked in as a marker region for GitHub rendering. Free-form per-tool prose lives in the registry itself (`ToolSpec.docs_notes`), not in the page, so it survives without marker islands.
 
 ### `configuration.md`: option reference from a dataclass
 

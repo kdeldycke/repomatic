@@ -49,6 +49,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from importlib.resources import as_file, files
+from inspect import cleandoc
 from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen
 
@@ -621,6 +622,15 @@ class ToolSpec:
     cli_docs_url: str | None = None
     """URL to the tool's CLI usage documentation."""
 
+    docs_notes: str = ""
+    """Hand-written Markdown appended to the tool's section in `tool-runner.md`.
+
+    Free-form usage notes the registry cannot derive: a `**Try it:**` shell
+    session, a minimal `[tool.X]` example, caveats. Rendered live by
+    `repomatic.tool_runner_page.tool_reference` after the generated metadata
+    lines, so the prose stays next to the spec it documents.
+    """
+
     @property
     def pypi_name(self) -> str:
         """Bare PyPI project name for version and metadata lookups.
@@ -951,6 +961,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 WINDOWS: ArchiveFormat.ZIP,
             },
         ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run actionlint
+            ```
+
+            **Minimal `[tool.actionlint]`:**
+
+            ```toml
+            [tool.actionlint.self-hosted-runner]
+            labels = ["my-linux-runner"]
+            ```
+
+            With no arguments actionlint lints every workflow under `.github/workflows`. The `[tool.actionlint]` section is bridged to a temporary YAML config: declaring self-hosted runner labels stops custom `runs-on:` values being flagged as unknown.
+            """),
     ),
     "autopep8": ToolSpec(
         name="autopep8",
@@ -966,6 +992,15 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "--select",
             "E501",
         ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run autopep8 -- .
+            ```
+
+            autopep8 takes its configuration from CLI flags only. repomatic passes `--recursive --in-place --max-line-length 88 --select E501` by default; append more flags after `--`.
+            """),
     ),
     "awesome-lint": ToolSpec(
         name="awesome-lint",
@@ -1020,6 +1055,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             checksums=CHECKSUMS["biome"],
             archive_format=ArchiveFormat.RAW,
         ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run biome -- check .
+            ```
+
+            **Minimal `[tool.biome]`:**
+
+            ```toml
+            [tool.biome.formatter]
+            indentStyle = "space"
+            ```
+
+            `biome check` reports formatting and lint issues; add `--write` after `--` to apply fixes. The `[tool.biome]` section is bridged to a temporary `biome.json`, so keys keep Biome's camelCase spelling.
+            """),
     ),
     "bump-my-version": ToolSpec(
         name="bump-my-version",
@@ -1031,6 +1082,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         native_config_files=(".bumpversion.toml",),
         config_flag="--config-file",
         native_format=NativeFormat.TOML,
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run bump-my-version -- show-bump
+            ```
+
+            **Minimal `[tool.bumpversion]`:**
+
+            ```toml
+            [tool.bumpversion]
+            current_version = "1.2.3"
+            ```
+
+            The configuration table is `[tool.bumpversion]`, not `[tool.bump-my-version]`: the section name predates the project's rename. `show-bump` previews the next versions without writing; `repomatic run bump-my-version -- bump minor` performs the bump.
+            """),
     ),
     "gitleaks": ToolSpec(
         name="gitleaks",
@@ -1075,6 +1142,25 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 WINDOWS: ArchiveFormat.ZIP,
             },
         ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run gitleaks -- dir .
+            ```
+
+            **Minimal `[tool.gitleaks]`:**
+
+            ```toml
+            [tool.gitleaks.extend]
+            useDefault = true
+
+            [tool.gitleaks.allowlist]
+            paths = ['''\.env\.sample$''']
+            ```
+
+            `gitleaks dir .` scans the working tree; `gitleaks git` scans history instead. The `[tool.gitleaks]` section is bridged to a temporary `.gitleaks.toml`: keep `extend.useDefault = true`, or a custom config silently replaces the built-in rule set.
+            """),
     ),
     "labelmaker": ToolSpec(
         name="labelmaker",
@@ -1111,6 +1197,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             },
             strip_components=1,
         ),
+        docs_notes=cleandoc(r"""
+            labelmaker syncs a repository's issue and PR labels from a label-definition file, so unlike the linters it needs a target repository and a `GITHUB_TOKEN`, not a path in the working tree. There is no `[tool.labelmaker]` section: the label file is the configuration. See the [upstream usage docs](https://github.com/jwodder/labelmaker) for its flags and file schema.
+            """),
     ),
     "lychee": ToolSpec(
         name="lychee",
@@ -1153,6 +1242,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             },
             strip_components=1,
         ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run lychee -- .
+            ```
+
+            **Minimal `[tool.lychee]`:**
+
+            ```toml
+            [tool.lychee]
+            max_redirects = 5
+            ```
+
+            lychee checks links found in the given path. Since v0.24 it reads `[tool.lychee]` from `pyproject.toml` natively, so repomatic does not translate it.
+            """),
     ),
     # TODO: add config_flag="--config" once upstream adds --config support.
     #   See https://github.com/hukkin/mdformat/issues/432
@@ -1189,6 +1294,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         ),
         post_process=_fix_myst_directive_options,
         check_flags=("--check",),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run mdformat -- .
+            ```
+
+            **Minimal `[tool.mdformat]`:**
+
+            ```toml
+            [tool.mdformat]
+            wrap = "no"
+            ```
+
+            mdformat rewrites Markdown in place. repomatic bundles a plugin set (GFM, MyST, front-matter, and others) and a baseline `mdformat.toml`; `[tool.mdformat]` in your `pyproject.toml` overrides it.
+            """),
     ),
     "mypy": ToolSpec(
         name="mypy",
@@ -1205,6 +1326,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         needs_venv=True,
         default_flags=("--color-output",),
         computed_params=lambda m: m.mypy_params or [],
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run mypy -- .
+            ```
+
+            **Minimal `[tool.mypy]`:**
+
+            ```toml
+            [tool.mypy]
+            strict = true
+            ```
+
+            mypy runs inside the project virtualenv (via `uv run`) so it can import your dependencies. repomatic derives `--python-version` from `requires-python`, so the check matches your lowest supported interpreter.
+            """),
     ),
     "nuitka": ToolSpec(
         name="nuitka",
@@ -1218,6 +1355,23 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         module="nuitka",
         native_format=NativeFormat.FLAGS,
         default_flags=("--mode=onefile", "--assume-yes-for-downloads"),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run nuitka -- my_app/__main__.py
+            ```
+
+            **Minimal `[tool.nuitka]`:**
+
+            ```toml
+            [tool.nuitka]
+            onefile = true
+            output-dir = "build"
+            ```
+
+            repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka does not read `[tool.nuitka]` natively yet ([Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)); repomatic's bridge fills the gap until it does.
+            """),
     ),
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
@@ -1229,6 +1383,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         config_flag="--config",
         native_format=NativeFormat.TOML,
         reads_pyproject=True,
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run pyproject-fmt -- pyproject.toml
+            ```
+
+            **Minimal `[tool.pyproject-fmt]`:**
+
+            ```toml
+            [tool.pyproject-fmt]
+            indent = 4
+            ```
+
+            pyproject-fmt normalizes and reorders `pyproject.toml` in place. It reads its own `[tool.pyproject-fmt]` section natively.
+            """),
     ),
     "ruff": ToolSpec(
         name="ruff",
@@ -1242,6 +1412,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         native_format=NativeFormat.TOML,
         default_config="ruff.toml",
         reads_pyproject=True,
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run ruff -- check .
+            ```
+
+            **Minimal `[tool.ruff]`:**
+
+            ```toml
+            [tool.ruff]
+            line-length = 100
+            ```
+
+            `ruff check .` lints; `ruff format .` reformats. Both read `[tool.ruff]` natively. With no project config, repomatic falls back to its bundled `ruff.toml` baseline.
+            """),
     ),
     "shfmt": ToolSpec(
         name="shfmt",
@@ -1278,6 +1464,15 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             checksums=CHECKSUMS["shfmt"],
             archive_format=ArchiveFormat.RAW,
         ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run shfmt -- .
+            ```
+
+            shfmt formats shell scripts in place. It has no `[tool.shfmt]` section: indentation and style come from `.editorconfig` (`indent_size`, `shell_variant`, and the `shfmt`-specific keys).
+            """),
     ),
     "typos": ToolSpec(
         name="typos",
@@ -1319,6 +1514,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 WINDOWS: ArchiveFormat.ZIP,
             },
         ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run typos -- .
+            ```
+
+            **Minimal `[tool.typos]`:**
+
+            ```toml
+            [tool.typos.files]
+            extend-exclude = ["*.lock"]
+            ```
+
+            typos scans the tree and, with repomatic's default `--write-changes`, fixes what it finds. It reads `[tool.typos]` natively; use `[tool.typos.default.extend-words]` to map project-specific terms to their intended spelling.
+            """),
     ),
     "yamllint": ToolSpec(
         name="yamllint",
@@ -1335,6 +1546,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         default_config="yamllint.yaml",
         default_flags=("--strict",),
         ci_flags=("--format", "github"),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run yamllint -- .
+            ```
+
+            **Minimal `[tool.yamllint]`:**
+
+            ```toml
+            [tool.yamllint.rules.line-length]
+            max = 120
+            ```
+
+            yamllint has no native `pyproject.toml` support, so repomatic bridges `[tool.yamllint]` to a temporary YAML config passed via `--config-file`. With no project config it uses repomatic's strict bundled `yamllint.yaml`.
+            """),
     ),
     "zizmor": ToolSpec(
         name="zizmor",
@@ -1352,6 +1579,15 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         default_config="zizmor.yaml",
         default_flags=("--offline",),
         ci_flags=("--format", "github"),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run zizmor -- .
+            ```
+
+            zizmor audits GitHub Actions workflows for security issues, offline by default. repomatic bridges `[tool.zizmor]` to a temporary YAML config (passed via `--config`); with none, it uses the bundled `zizmor.yaml`. See the [configuration reference](https://docs.zizmor.sh/configuration/) for available keys.
+            """),
     ),
 }
 
