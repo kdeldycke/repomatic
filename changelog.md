@@ -25,6 +25,7 @@
 - Exclude VirusTotal analysis links from lychee broken-link checks.
 - Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.
 - Label added and removed packages in dependency report tables consistently after the version, with 🆕 and 🗑️ status emoji.
+- `sync-workflow-pins` now aligns the inline `repomatic` pin to the newest `uses:` ref version, bypassing the release-age cooldown that kept `lint-repo`'s lockstep check red after every refs bump.
 - Trim oversized PR and issue bodies to GitHub's 65536-character limit, keeping the refresh tip, metadata block, and attribution footer that end-of-body truncation used to chop off.
 - Add the humanized age next to `Released` dates in `fix-vulnerable-deps` reports, matching the other dependency updaters.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.

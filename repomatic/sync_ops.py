@@ -69,7 +69,7 @@ from . import tool_runner
 from .checksums import update_registry_checksums
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .init_project import init_config
-from .registry import UPSTREAM_REPO_SLUGS
+from .registry import DEFAULT_REPO, UPSTREAM_REPO_SLUGS
 from .tool_runner import TOOL_REGISTRY
 from .uv import (
     EXCLUDE_NEWER_HELD_BACK_NOTE,
@@ -92,6 +92,7 @@ from .version_sync import (
     apply_action_pins,
     apply_workflow_literals,
     find_action_pins,
+    find_upstream_ref_versions,
     find_workflow_literals,
     format_cooldown_note,
     github_candidates,
@@ -546,7 +547,16 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
 
 
 def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
-    """Bump npm and PyPI version literals embedded in workflow YAML."""
+    """Bump npm and PyPI version literals embedded in workflow YAML.
+
+    The upstream toolkit's inline pin (``repomatic==X.Y.Z``) is the exception:
+    it is aligned to the newest `uses:` ref version instead of the newest
+    cooldown-eligible PyPI release. The refs are its source of truth (bumped
+    by a separate, already-decided sync, see `_resolve_action_pins`), and
+    `lint-repo`'s lockstep check fails on any drift, so honoring the
+    `minimum-release-age` cooldown here would leave the lint red for a full
+    cooldown window after every refs bump.
+    """
     min_age = parse_min_age(rc.config.minimum_release_age)
     today = rc.today
     plan = SyncPlan(
@@ -565,9 +575,31 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             if key not in current or is_newer(literal.version, current[key]):
                 current[key] = literal.version
 
+    # Newest upstream `uses:` ref version, for the lockstep alignment.
+    upstream_package = DEFAULT_REPO.rsplit("/", 1)[-1]
+    lockstep_version: str | None = None
+    for text in file_data.values():
+        for version in find_upstream_ref_versions(text, DEFAULT_REPO):
+            if lockstep_version is None or is_newer(version, lockstep_version):
+                lockstep_version = version
+
     resolved: dict[tuple[str, str], str] = {}
     held_back_pkgs: list[HeldBackPackage] = []
     for (ecosystem, package), current_version in sorted(current.items()):
+        if (
+            ecosystem == "pypi"
+            and package == upstream_package
+            and lockstep_version is not None
+        ):
+            # Lockstep alignment, in either direction and regardless of the
+            # cooldown. Resolved unconditionally so every literal of the
+            # package realigns, even a straggler file lagging behind an
+            # already-aligned one; equal pins rewrite to themselves, which
+            # records no change. No held-back entry either: the pin tracks
+            # the refs, not PyPI.
+            resolved[(ecosystem, package)] = lockstep_version
+            plan.name_urls[package] = f"https://pypi.org/project/{package}/"
+            continue
         candidates = (
             npm_candidates(package) if ecosystem == "npm" else pypi_candidates(package)
         )

@@ -296,6 +296,20 @@ def test_apply_workflow_literals():
     assert "codecov-cli==12.0.0" in new_content
 
 
+def test_find_upstream_ref_versions():
+    content = (
+        "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
+        "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
+        "      - uses: kdeldycke/repomatic/.github/actions/publish-pypi@v6.31.0\n"
+        "    uses: other/repo/.github/workflows/tests.yaml@deadbeef # v9.9.9\n"
+        "          uvx --no-progress 'repomatic==6.30.0' metadata\n"
+    )
+    versions = vs.find_upstream_ref_versions(content, "kdeldycke/repomatic")
+    # SHA-pinned and tag-pinned refs are both read; foreign repos and inline
+    # `==` pins are not.
+    assert versions == {"7.0.0", "6.31.0"}
+
+
 # ---------------------------------------------------------------------------
 # Datasource adapters (mocked: no network)
 # ---------------------------------------------------------------------------
@@ -460,6 +474,153 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
     assert captured["changes"] == [("mango", "1.0.0", "2.0.0")]
     assert "### Release notes" in body
     assert "the notes" in body
+
+
+def _write_workflow(path: str, content: str) -> Path:
+    """Create a workflow file with parents inside the isolated filesystem."""
+    workflow = Path(path)
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text(content, encoding="UTF-8")
+    return workflow
+
+
+def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
+    """The upstream toolkit pin aligns to the `uses:` ref despite the cooldown.
+
+    A fresh upstream release is normally withheld by `minimum-release-age`,
+    which left the inline pin lagging the already-bumped refs and `lint-repo`
+    failing until the cooldown expired. Regular literals in the same run stay
+    cooldown-governed.
+    """
+    today = datetime.now(timezone.utc).date()
+    fresh = today.isoformat()
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        workflow = _write_workflow(
+            ".github/workflows/ci.yaml",
+            "jobs:\n"
+            "  lint:\n"
+            "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
+            "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
+            "  build:\n"
+            "    steps:\n"
+            "      - run: uvx 'repomatic==6.31.0' metadata\n"
+            "      - run: uvx 'mango==1.0.0'\n",
+        )
+        with patch(
+            "repomatic.sync_ops.pypi_candidates",
+            return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
+        ):
+            result = runner.invoke(
+                repomatic,
+                ["sync-workflow-pins", "--output", "out.md"],
+            )
+        assert result.exit_code == 0, result.output
+        content = workflow.read_text(encoding="UTF-8")
+
+    # The upstream pin aligned to the ref version, not to PyPI's fresh 9.0.0.
+    assert "repomatic==7.0.0" in content
+    # The regular literal stayed put: its only release is inside the cooldown.
+    assert "mango==1.0.0" in content
+    # The refs themselves are never rewritten by this updater.
+    assert "lint.yaml@36523e5a56f287e814210042ca7b852147a95498 # v7.0.0" in content
+
+
+def test_sync_workflow_pins_upstream_pin_cooldown_without_refs():
+    """Without upstream `uses:` refs, the toolkit pin stays cooldown-governed."""
+    today = datetime.now(timezone.utc).date()
+    fresh = today.isoformat()
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        workflow = _write_workflow(
+            ".github/workflows/ci.yaml",
+            "jobs:\n  build:\n    steps:\n"
+            "      - run: uvx 'repomatic==6.31.0' metadata\n",
+        )
+        with patch(
+            "repomatic.sync_ops.pypi_candidates",
+            return_value=[vs.Candidate(version="7.0.0", date=fresh, ref="7.0.0")],
+        ):
+            result = runner.invoke(
+                repomatic,
+                ["sync-workflow-pins", "--output", "out.md"],
+            )
+        assert result.exit_code == 0, result.output
+        content = workflow.read_text(encoding="UTF-8")
+
+    assert "repomatic==6.31.0" in content
+
+
+def test_sync_workflow_pins_upstream_pin_already_aligned():
+    """A pin equal to the `uses:` ref version ignores newer PyPI releases."""
+    today = datetime.now(timezone.utc).date()
+    eligible = (today - timedelta(days=30)).isoformat()
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        workflow = _write_workflow(
+            ".github/workflows/ci.yaml",
+            "jobs:\n"
+            "  lint:\n"
+            "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
+            "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
+            "  build:\n"
+            "    steps:\n"
+            "      - run: uvx 'repomatic==7.0.0' metadata\n",
+        )
+        with patch(
+            "repomatic.sync_ops.pypi_candidates",
+            return_value=[vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")],
+        ):
+            result = runner.invoke(
+                repomatic,
+                ["sync-workflow-pins", "--output", "out.md"],
+            )
+        assert result.exit_code == 0, result.output
+        content = workflow.read_text(encoding="UTF-8")
+
+    # The eligible 9.0.0 release does not override the ref-locked version.
+    assert "repomatic==7.0.0" in content
+
+
+def test_sync_workflow_pins_upstream_pin_realigns_stragglers_both_ways():
+    """Every literal realigns to the refs, lagging or ahead, across files."""
+    today = datetime.now(timezone.utc).date()
+    fresh = today.isoformat()
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        behind = _write_workflow(
+            ".github/workflows/tests.yaml",
+            "jobs:\n"
+            "  lint:\n"
+            "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
+            "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
+            "  build:\n"
+            "    steps:\n"
+            "      - run: uvx 'repomatic==6.31.0' metadata\n",
+        )
+        ahead = _write_workflow(
+            ".github/workflows/docs.yaml",
+            "jobs:\n  build:\n    steps:\n"
+            "      - run: uvx 'repomatic==7.1.0' changelog\n",
+        )
+        with patch(
+            "repomatic.sync_ops.pypi_candidates",
+            return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
+        ):
+            result = runner.invoke(
+                repomatic,
+                ["sync-workflow-pins", "--output", "out.md"],
+            )
+        assert result.exit_code == 0, result.output
+        behind_content = behind.read_text(encoding="UTF-8")
+        ahead_content = ahead.read_text(encoding="UTF-8")
+
+    assert "repomatic==7.0.0" in behind_content
+    assert "repomatic==7.0.0" in ahead_content
 
 
 def test_pypi_candidates_skips_yanked():

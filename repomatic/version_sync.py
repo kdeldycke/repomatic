@@ -480,3 +480,22 @@ def apply_workflow_literals(
     content = _NPM_LITERAL_RE.sub(replace("npm", "@"), content)
     content = _PYPI_LITERAL_RE.sub(replace("pypi", "=="), content)
     return content, changes
+
+
+def find_upstream_ref_versions(content: str, upstream_repo: str) -> set[str]:
+    """Extract the `uses:` ref versions of the upstream repo's workflows.
+
+    Matches reusable-workflow and composite-action refs of *upstream_repo*,
+    both SHA-pinned with a trailing version comment
+    (``owner/repo/.github/workflows/lint.yaml@abc123 # v1.2.3``) and directly
+    tag-pinned (``...@v1.2.3``), and returns the bare version strings.
+
+    Shared by `lint-repo`'s inline-pin lockstep check and
+    `sync-workflow-pins`' upstream-pin alignment, so both read the refs the
+    same way.
+    """
+    ref_re = re.compile(
+        rf"{re.escape(upstream_repo)}/\.github/(?:workflows|actions)/[^@\s]+"
+        r"@(?:[0-9a-f]+\s+#\s+)?v(?P<version>[0-9]+(?:\.[0-9]+)*)"
+    )
+    return {m["version"] for m in ref_re.finditer(content)}

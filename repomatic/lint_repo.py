@@ -40,6 +40,7 @@ from .pypi import (
     pypi_trusted_publisher_settings_url,
 )
 from .registry import DEFAULT_REPO
+from .version_sync import find_upstream_ref_versions
 
 # A 40-zero Git SHA that can never resolve to a real commit. Used by
 # `check_pat_stale_statuses_permission` to probe the `statuses:write`
@@ -876,12 +877,11 @@ def check_inline_pins_match_upstream(
     A workflow that pins the upstream toolkit in a `run:` shell command (like
     ``uvx 'repomatic==1.2.3' metadata``) must keep that version in lockstep with
     the SHA-pinned `uses:` refs. A manual workflow sync bumps the refs but not
-    the inline pin, and the `sync-action-pins` and `sync-workflow-pins` jobs
-    bump them in separate PRs, so the pin can silently lag. When the stale
-    version drops a symbol the newer refs rely on,
-    the metadata job fails and a release can publish to PyPI yet never tag (the
-    toolkit chicken-and-egg). Flag the drift so the lint fails before a release
-    does.
+    the inline pin, and `sync-workflow-pins` only realigns it on its next
+    scheduled run, so the pin can lag in between. When the stale version drops
+    a symbol the newer refs rely on, the metadata job fails and a release can
+    publish to PyPI yet never tag (the toolkit chicken-and-egg). Flag the
+    drift so the lint fails before a release does.
 
     :param workflow_dir: Directory holding the workflow YAML files.
     :param upstream_repo: Upstream ``owner/repo``; its name is the inline
@@ -892,10 +892,6 @@ def check_inline_pins_match_upstream(
     if not workflow_dir.is_dir():
         return None, f"Inline {package} pin check: skipped (no {workflow_dir})."
 
-    ref_re = re.compile(
-        rf"{re.escape(upstream_repo)}/\.github/(?:workflows|actions)/[^@\s]+"
-        r"@(?:[0-9a-f]+\s+#\s+)?v(?P<version>[0-9]+(?:\.[0-9]+)*)"
-    )
     pin_re = re.compile(rf"\b{re.escape(package)}==(?P<version>[0-9]+(?:\.[0-9]+)*)")
 
     upstream_versions: set[str] = set()
@@ -905,7 +901,7 @@ def check_inline_pins_match_upstream(
             content = wf.read_text(encoding="UTF-8")
         except OSError:
             continue
-        upstream_versions.update(m["version"] for m in ref_re.finditer(content))
+        upstream_versions.update(find_upstream_ref_versions(content, upstream_repo))
         found = {m["version"] for m in pin_re.finditer(content)}
         if found:
             pins_by_file[wf.name] = found
