@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.1.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
 
 - **Breaking:** `scan-virustotal` no longer writes scan tables into GitHub release notes; the `--update-release` and `--repo` options are removed, and `--binaries-dir` is now required.
 - Add `sync-binaries`: regenerates `docs/assets/binaries.csv` and its `docs/binaries.md` page, a catalog of every released binary with download links, VirusTotal analyses, and a detection trend chart.
