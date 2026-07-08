@@ -273,7 +273,7 @@ def get_latest_tag_version() -> Version | None:
     versions = []
     for tag in tags:
         # Strip the 'v' prefix and parse.
-        version = Version(tag.lstrip("v"))
+        version = Version(tag.removeprefix("v"))
         versions.append(version)
 
     latest = max(versions)

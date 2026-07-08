@@ -155,10 +155,10 @@ def _platform_target(name: str) -> str:
     return name
 
 
-def _release_version(release: ReleaseWithAssets) -> Version | None:
-    """Parse the release tag as a version, or `None` for foreign tag schemes."""
+def _release_version(tag: str) -> Version | None:
+    """Parse a release tag as a version, or `None` for foreign tag schemes."""
     try:
-        return Version(release.tag.removeprefix("v"))
+        return Version(tag.removeprefix("v"))
     except InvalidVersion:
         return None
 
@@ -215,9 +215,8 @@ def render_chart_section(records: Sequence[ScanRecord]) -> str:
 
     points = []
     for tag, (date, flagged, total) in per_tag.items():
-        try:
-            version = Version(tag.removeprefix("v"))
-        except InvalidVersion:
+        version = _release_version(tag)
+        if version is None:
             continue
         if total:
             points.append((version, tag, date, flagged, total))
@@ -338,7 +337,7 @@ def render_binaries_csv(
     versioned = [
         (version, release)
         for release in releases
-        if not release.draft and (version := _release_version(release)) is not None
+        if not release.draft and (version := _release_version(release.tag)) is not None
     ]
     versioned.sort(key=lambda pair: pair[0], reverse=True)
 

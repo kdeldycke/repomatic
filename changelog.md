@@ -7,38 +7,33 @@
 
 - **Breaking:** `scan-virustotal` no longer writes scan tables into GitHub release notes; the `--update-release` and `--repo` options are removed, and `--binaries-dir` is now required.
 - Add `sync-binaries`: regenerates `docs/assets/binaries.csv` and its `docs/binaries.md` page, a catalog of every released binary with download links, VirusTotal analyses, and a detection trend chart.
-- The documentation build gains `sphinx-datatables`, rendering the binaries catalog as a searchable, sortable table; downstream repos can opt in with the same extension.
 - `sync-binaries --backfill-records` recovers detection snapshots from the VirusTotal tables of legacy release notes into the scan history file.
-- Add `git-commit-push`: commits files and pushes them, rebasing and retrying on rejection, for release jobs publishing generated files to the default branch.
 - The release pipeline now records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.json` and refreshes the binaries page instead of editing release notes.
+- The documentation build gains `sphinx-datatables`, rendering the binaries catalog as a searchable, sortable table; downstream repos can opt in with the same extension.
+- Add `git-commit-push`: commits files and pushes them, rebasing and retrying on rejection, for release jobs publishing generated files to the default branch.
+- Add a global `--jobs` option controlling how many parallel workers commands may use, defaulting to one fewer than the host's logical CPUs.
+- `update-checksums`, `sync-tool-versions`, and `sync-deps` now download artifacts and resolve updates concurrently, sized by `--jobs`; Ctrl+C aborts the fan-out promptly and `--verbosity DEBUG` collapses it to sequential.
 - `sync-uv-lock` PR bodies gain a `Cooldown bypasses` section: each active `exclude-newer-package` freeze with the date it expires and is cleared from `pyproject.toml`, plus the entries the run froze or pruned.
 - The `Held back by cooldown` table now also lists releases blocked by an `exclude-newer-package` freeze, not only those inside the global `exclude-newer` window.
-- Add a global `--jobs` option controlling how many parallel workers commands may use, defaulting to one fewer than the host's logical CPUs.
-- `update-checksums` and `sync-tool-versions` now download binary release artifacts concurrently, sized by `--jobs`.
-- `sync-deps` resolves its operations under the same `--jobs` policy; Ctrl+C aborts the fan-out promptly and `--verbosity DEBUG` collapses it to sequential for readable logs.
-- `update-docs` gains a fourth phase refreshing self-updating `{matrix}` directive blocks in `docs/` and `readme.md` via `click-extra refresh-directives`.
-- The Python compatibility matrix in the installation docs is now maintained by click-extra's `{matrix}` markers instead of an in-repo generator.
-- The CLI and configuration references in the docs render live through the `click:tree` and `click:config` directives, replacing the checked-in generated tables.
-- The tool-runner reference renders live from the registry through `{python:render}` blocks; per-tool usage notes move to the new `ToolSpec.docs_notes` field and `docs/docs_update.py` is removed.
+- `update-docs` gains a fourth phase refreshing self-updating `{matrix}` directive blocks in `docs/` and `readme.md`; the Python compatibility matrix in the installation docs now renders from those markers instead of an in-repo generator.
+- The CLI, configuration, and tool-runner references in the docs render live through the `click:tree`, `click:config`, and `{python:render}` directives; the checked-in generated tables and `docs/docs_update.py` are removed.
 - Each tool section in the tool-runner reference shows Stars and Last release badges; the separate `Comparison` table is removed.
 - Require `click-extra >= 8.3`, adding the `--export-config` option, `--theme auto` terminal-background detection, and the `click:config` Sphinx directive.
+- Label added and removed packages in dependency report tables consistently after the version, with 🆕 and 🗑️ status emoji.
+- `sync-workflow-pins` now aligns the inline `repomatic` pin to the newest `uses:` ref version, bypassing the release-age cooldown.
+- `sync-action-pins` now converges actions pinned at several versions onto the highest pin, even when no newer release clears the cooldown.
+- Trim oversized PR and issue bodies to GitHub's 65536-character limit, preserving the refresh tip, metadata block, and attribution footer.
+- Add the humanized age next to `Released` dates in `fix-vulnerable-deps` reports, matching the other dependency updaters.
+- `update-deps-graph` now places a package declared by several groups or extras in the box where most of its dependents live, drawing the duplicates with a dashed border and a dotted identity link to the real node.
+- The setup guide and `lint-repo` now flag a missing `REPOMATIC_NOTIFICATIONS_PAT` secret when `notification.unsubscribe` is enabled.
 - Exclude VirusTotal analysis links from lychee broken-link checks.
 - Update the `av-false-positive` skill to start from the scan history file and to record post-submission re-scans into it.
-- Label added and removed packages in dependency report tables consistently after the version, with 🆕 and 🗑️ status emoji.
-- `sync-workflow-pins` now aligns the inline `repomatic` pin to the newest `uses:` ref version, bypassing the release-age cooldown that kept `lint-repo`'s lockstep check red after every refs bump.
-- `sync-action-pins` now converges actions pinned at several versions onto the highest pin, even when no newer release clears the cooldown.
-- Trim oversized PR and issue bodies to GitHub's 65536-character limit, keeping the refresh tip, metadata block, and attribution footer that end-of-body truncation used to chop off.
-- Add the humanized age next to `Released` dates in `fix-vulnerable-deps` reports, matching the other dependency updaters.
-- `update-deps-graph` now draws duplicate nodes of a package shared by several groups or extras with a dashed border and a dotted identity link to the real node.
-- `update-deps-graph` now places a package declared by several groups or extras in the box where most of its dependents live, instead of the first declaring one.
-- The setup guide and `lint-repo` now flag a missing `REPOMATIC_NOTIFICATIONS_PAT` secret when `notification.unsubscribe` is enabled, with a pre-filled walkthrough for creating the classic token.
+- The `babysit-ci` and `repomatic-ship` skills now mandate sleeps between CI polls and document GitHub API rate-limit exhaustion, whose symptoms masquerade as PAT permission errors.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.
 - Fix downstream manual dispatches of the `unsubscribe` workflow ignoring their inputs and always running live: generated thin callers now forward `workflow_dispatch` inputs to the reusable workflow.
-- The `publish-pypi` composite action no longer triggers setup-uv's `Empty workdir detected` warning on downstream releases, which run it without a checkout.
-- The `unsubscribe` workflow no longer triggers setup-uv's cache-invalidation and `Empty workdir detected` warnings on downstream runs, which execute without a checkout.
-- Fix the binary cache self-purging tools whose release archive carries an old build date: cached binaries are now stamped with the store time, instead of being aged out by the archive's mtime and re-downloaded on every run.
+- The `publish-pypi` composite action and the `unsubscribe` workflow no longer trigger setup-uv's cache-invalidation and `Empty workdir detected` warnings on downstream runs, which execute without a checkout.
 - The PR-creation steps of the changelog workflow now time out after 10 minutes instead of hanging when the GitHub API is rate-limit starved.
-- The babysit-ci and repomatic-ship skills now mandate sleeps between CI polls and document GitHub API rate-limit exhaustion, whose symptoms masquerade as PAT permission errors and PR-creation hangs.
+- Fix the binary cache purging fresh entries whose release archive carries an old build date: cached binaries are now aged by their store time, not the archive's mtime.
 - Disable mouse zoom on the class inheritance diagrams of the documentation's API sections, so they no longer hijack page scrolling; the fullscreen viewer keeps zoom.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 
