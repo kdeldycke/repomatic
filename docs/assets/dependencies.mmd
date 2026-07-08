@@ -48,6 +48,7 @@ flowchart LR
         pygments(["`pygments`"])
         requests(["`requests`"])
         jinja2(["`jinja2`"])
+        sphinx_datatables{{"`sphinx-datatables >=1`"}}
         sphinxcontrib_mermaid{{"`sphinxcontrib-mermaid >=1.2.3`"}}
         beautifulsoup4(["`beautifulsoup4`"])
         docutils(["`docutils`"])
@@ -58,6 +59,7 @@ flowchart LR
         sphinx_basic_ng(["`sphinx-basic-ng`"])
         sphinx_copybutton{{"`sphinx-copybutton >=0.5.2`"}}
         sphinx_design{{"`sphinx-design >=0.6`"}}
+        sphinxcontrib_jquery(["`sphinxcontrib-jquery`"])
         sphinxext_opengraph{{"`sphinxext-opengraph >=0.13`"}}
         alabaster(["`alabaster`"])
         babel(["`babel`"])
@@ -94,10 +96,11 @@ flowchart LR
 
     subgraph grp_typing [--group typing]
         types_boltons{{"`types-boltons >=25.0.0.20250822`"}}
+        types_docutils{{"`types-docutils >=0.22.3.20251115`"}}
         types_pyyaml{{"`types-pyyaml >=6.0.12.9`"}}
     end
 
-    repomatic ==>|" >=8.1 "| click_extra
+    repomatic ==>|" >=8.3 "| click_extra
     repomatic ==>|" >=17 "| packaging
     repomatic ==>|" >=1.3 "| arrow
     repomatic ==>|" >=6.0.3 "| pyyaml
@@ -109,10 +112,10 @@ flowchart LR
     repomatic ==>|" >=0.9 "| pyproject_metadata
     repomatic ==>|" >=1.7.6 "| tomlrt
     repomatic ==>|" >=1 "| backports_strenum
+    sphinx --> packaging
     sphinx --> pygments
     sphinx --> requests
     sphinx --> jinja2
-    sphinx --> packaging
     sphinx --> colorama
     sphinx --> docutils
     sphinx --> alabaster
@@ -138,8 +141,8 @@ flowchart LR
     click_extra --> tabulate
     click_extra --> wcwidth
     click_extra --> deepmerge
-    pytest --> pygments
     pytest --> packaging
+    pytest --> pygments
     pytest --> colorama
     pytest --> tomli
     pytest --> exceptiongroup
@@ -162,6 +165,9 @@ flowchart LR
     pytest_xdist --> pytest
     pytest_xdist --> execnet
     pytest_xdist --> psutil
+    sphinx_datatables --> sphinx
+    sphinx_datatables --> packaging
+    sphinx_datatables --> sphinxcontrib_jquery
     sphinxcontrib_mermaid --> sphinx
     sphinxcontrib_mermaid --> jinja2
     sphinxcontrib_mermaid --> pyyaml
@@ -205,6 +211,7 @@ flowchart LR
     mdit_py_plugins --> markdown_it_py
     python_dateutil --> six
     sphinx_basic_ng --> sphinx
+    sphinxcontrib_jquery --> sphinx
     tabulate --> wcwidth
     yarl --> multidict
     yarl --> idna
@@ -279,10 +286,12 @@ flowchart LR
     click sphinx_autodoc_typehints "https://pypi.org/project/sphinx-autodoc-typehints/" _blank
     click sphinx_basic_ng "https://pypi.org/project/sphinx-basic-ng/" _blank
     click sphinx_copybutton "https://pypi.org/project/sphinx-copybutton/" _blank
+    click sphinx_datatables "https://pypi.org/project/sphinx-datatables/" _blank
     click sphinx_design "https://pypi.org/project/sphinx-design/" _blank
     click sphinxcontrib_applehelp "https://pypi.org/project/sphinxcontrib-applehelp/" _blank
     click sphinxcontrib_devhelp "https://pypi.org/project/sphinxcontrib-devhelp/" _blank
     click sphinxcontrib_htmlhelp "https://pypi.org/project/sphinxcontrib-htmlhelp/" _blank
+    click sphinxcontrib_jquery "https://pypi.org/project/sphinxcontrib-jquery/" _blank
     click sphinxcontrib_jsmath "https://pypi.org/project/sphinxcontrib-jsmath/" _blank
     click sphinxcontrib_mermaid "https://pypi.org/project/sphinxcontrib-mermaid/" _blank
     click sphinxcontrib_qthelp "https://pypi.org/project/sphinxcontrib-qthelp/" _blank
@@ -292,6 +301,7 @@ flowchart LR
     click tomli "https://pypi.org/project/tomli/" _blank
     click tomlrt "https://pypi.org/project/tomlrt/" _blank
     click types_boltons "https://pypi.org/project/types-boltons/" _blank
+    click types_docutils "https://pypi.org/project/types-docutils/" _blank
     click types_pyyaml "https://pypi.org/project/types-pyyaml/" _blank
     click typing_extensions "https://pypi.org/project/typing-extensions/" _blank
     click tzdata "https://pypi.org/project/tzdata/" _blank
@@ -322,11 +332,13 @@ flowchart LR
     style sphinx stroke-width:3px
     style sphinx_autodoc_typehints stroke-width:3px
     style sphinx_copybutton stroke-width:3px
+    style sphinx_datatables stroke-width:3px
     style sphinx_design stroke-width:3px
     style sphinxcontrib_mermaid stroke-width:3px
     style sphinxext_opengraph stroke-width:3px
     style tomlrt stroke-width:3px
     style types_boltons stroke-width:3px
+    style types_docutils stroke-width:3px
     style types_pyyaml stroke-width:3px
     style vt_py stroke-width:3px
     style wcmatch stroke-width:3px
