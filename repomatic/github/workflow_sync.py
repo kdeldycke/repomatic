@@ -540,7 +540,8 @@ def generate_thin_caller(
     The generated caller mirrors the canonical workflow's non-`workflow_call`
     triggers verbatim and delegates to the upstream workflow via `uses:`.
     `workflow_dispatch` is not injected: workflows that should expose manual
-    dispatch declare it in the canonical definition.
+    dispatch declare it in the canonical definition. Declared `workflow_call`
+    inputs and secrets are forwarded explicitly via `with:` and `secrets:`.
 
     Canonical `paths:` filters are adapted via *paths_spec* (see
     {class}`PathsSpec`). The legacy *source_paths* kwarg builds a spec
@@ -607,6 +608,23 @@ def generate_thin_caller(
         f"  {main_job}:",
         f"    uses: {repo}/.github/workflows/{source}@{uses_ref}",
     ]
+
+    # Forward workflow_call inputs, so a manual dispatch of the thin caller
+    # reaches the reusable workflow. Canonical workflows only declare
+    # workflow_call inputs as passthroughs of their own workflow_dispatch
+    # inputs (enforced by tests/test_workflow_sync.py), which the caller
+    # mirrors above, so `inputs.*` here resolves to the dispatch form values.
+    # Boolean inputs are coerced with `== true`: on non-dispatch events
+    # (schedule, push) the caller's `inputs` context is null, and GitHub does
+    # not document how a null passed to a boolean-typed input behaves.
+    if info.call_inputs:
+        lines.append("    with:")
+        for input_name, input_config in info.call_inputs.items():
+            if (input_config or {}).get("type") == "boolean":
+                input_value = f"${{{{ inputs.{input_name} == true }}}}"
+            else:
+                input_value = f"${{{{ inputs.{input_name} }}}}"
+            lines.append(f"      {input_name}: {input_value}")
 
     # Pass only the specific secrets the canonical workflow declares, so
     # downstream callers don't trigger zizmor's `secrets-inherit` finding.

@@ -4,6 +4,19 @@
 name: "\U0001F515 Unsubscribe closed threads"
 "on":
   workflow_call:
+    # Passthrough of the workflow_dispatch inputs below, so generated thin callers can forward
+    # a manual dispatch to this workflow. Types and defaults must stay in sync with the
+    # workflow_dispatch declarations (enforced by tests/test_workflow_sync.py).
+    inputs:
+      months:
+        default: "3"
+        type: string
+      batch-size:
+        default: "200"
+        type: string
+      dry-run:
+        default: true
+        type: boolean
     secrets:
       REPOMATIC_NOTIFICATIONS_PAT:
         required: false
@@ -42,6 +55,13 @@ jobs:
       - if: github.repository == 'kdeldycke/repomatic'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          # Downstream runs have no checkout (the uvx call below is frozen to a PyPI pin at
+          # release time), so the workdir is empty by design and there are never dependency
+          # files for the default cache-dependency-glob to key on: the cache would never
+          # invalidate.
+          enable-cache: false
+          ignore-empty-workdir: true
       - name: Unsubscribe from closed threads
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}

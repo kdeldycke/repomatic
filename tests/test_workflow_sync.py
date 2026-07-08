@@ -150,6 +150,46 @@ def test_unsubscribe_has_secrets() -> None:
     assert "REPOMATIC_NOTIFICATIONS_PAT" in info.call_secrets
 
 
+def test_unsubscribe_has_call_inputs() -> None:
+    """Verify unsubscribe.yaml exposes its dispatch inputs to callers."""
+    info = extract_trigger_info("unsubscribe.yaml")
+    assert set(info.call_inputs) == {"batch-size", "dry-run", "months"}
+
+
+def test_unsubscribe_caller_forwards_inputs() -> None:
+    """Verify the generated caller forwards each input with the right expression.
+
+    Boolean inputs are coerced with ``== true`` so non-dispatch events
+    (schedule), where the caller's ``inputs`` context is null, pass an explicit
+    ``false`` instead of relying on GitHub's undocumented handling of a null
+    value for a boolean-typed input.
+    """
+    content = generate_thin_caller("unsubscribe.yaml")
+    data = yaml.safe_load(content)
+    assert data["jobs"]["unsubscribe"]["with"] == {
+        "months": "${{ inputs.months }}",
+        "batch-size": "${{ inputs.batch-size }}",
+        "dry-run": "${{ inputs.dry-run == true }}",
+    }
+
+
+# release.yaml is excluded: its multi-lane caller is synthesized by
+# _generate_release_caller, not the single-job thin delegation checked here.
+@pytest.mark.parametrize(
+    "filename", [f for f in REUSABLE_WORKFLOWS if f != "release.yaml"]
+)
+def test_caller_with_block_matches_call_inputs(filename: str) -> None:
+    """Caller emits a ``with:`` forwarding block only for declared call inputs."""
+    content = generate_thin_caller(filename)
+    data = yaml.safe_load(content)
+    job = data["jobs"][filename.removesuffix(".yaml")]
+    info = extract_trigger_info(WORKFLOW_SOURCES.get(filename, filename))
+    if info.call_inputs:
+        assert set(job["with"]) == set(info.call_inputs)
+    else:
+        assert "with" not in job
+
+
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
 def test_no_python_literals_in_yaml(filename: str) -> None:
     """Verify generated YAML contains no Python dict/list literals.
@@ -168,16 +208,30 @@ def test_no_python_literals_in_yaml(filename: str) -> None:
 
 
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
-def test_no_workflow_call_inputs(filename: str) -> None:
-    """Verify no reusable workflow defines ``workflow_call`` inputs.
+def test_call_inputs_are_dispatch_passthroughs(filename: str) -> None:
+    """Verify ``workflow_call`` inputs only mirror ``workflow_dispatch`` ones.
 
-    All configurable options live in ``[tool.repomatic]`` in ``pyproject.toml``.
-    Workflows read config via ``repomatic`` CLI instead of accepting inputs.
+    All persistent configuration lives in ``[tool.repomatic]`` in
+    ``pyproject.toml``: workflows read config via the ``repomatic`` CLI instead
+    of accepting inputs. The only ``workflow_call`` inputs allowed are
+    passthroughs of the workflow's own ``workflow_dispatch`` inputs, so
+    generated thin callers can forward a manual dispatch to the reusable
+    workflow (see ``_generate_thin_caller``). Type and default must match the
+    dispatch declaration, so both entry points behave identically.
     """
     info = extract_trigger_info(WORKFLOW_SOURCES.get(filename, filename))
-    assert len(info.call_inputs) == 0, (
-        f"{filename} still defines workflow_call inputs: {sorted(info.call_inputs)}"
-    )
+    dispatch_config = info.non_call_triggers.get("workflow_dispatch") or {}
+    dispatch_inputs = dispatch_config.get("inputs") or {}
+    for input_name, call_input in info.call_inputs.items():
+        assert input_name in dispatch_inputs, (
+            f"{filename}: workflow_call input {input_name!r} has no"
+            " workflow_dispatch counterpart"
+        )
+        for prop in ("type", "default"):
+            assert call_input.get(prop) == dispatch_inputs[input_name].get(prop), (
+                f"{filename}: workflow_call input {input_name!r} {prop} differs"
+                " from its workflow_dispatch declaration"
+            )
 
 
 def test_changelog_has_workflow_run() -> None:

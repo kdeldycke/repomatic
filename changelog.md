@@ -32,7 +32,9 @@
 - `update-deps-graph` now draws duplicate nodes of a package shared by several groups or extras with a dashed border and a dotted identity link to the real node.
 - `update-deps-graph` now places a package declared by several groups or extras in the box where most of its dependents live, instead of the first declaring one.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.
+- Fix downstream manual dispatches of the `unsubscribe` workflow ignoring their inputs and always running live: generated thin callers now forward `workflow_dispatch` inputs to the reusable workflow.
 - The `publish-pypi` composite action no longer triggers setup-uv's `Empty workdir detected` warning on downstream releases, which run it without a checkout.
+- The `unsubscribe` workflow no longer triggers setup-uv's cache-invalidation and `Empty workdir detected` warnings on downstream runs, which execute without a checkout.
 - Disable mouse zoom on the class inheritance diagrams of the documentation's API sections, so they no longer hijack page scrolling; the fullscreen viewer keeps zoom.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 
