@@ -9,6 +9,9 @@
 
 ## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
 
+> [!NOTE]
+> `7.1.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.1.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.1.0).
+
 - **Breaking:** `scan-virustotal` no longer writes scan tables into GitHub release notes; the `--update-release` and `--repo` options are removed, and `--binaries-dir` is now required.
 - Add `sync-binaries`: regenerates `docs/assets/binaries.csv` and its `docs/binaries.md` page, a catalog of every released binary with download links, VirusTotal analyses, and a detection trend chart.
 - `sync-binaries --backfill-records` recovers detection snapshots from the VirusTotal tables of legacy release notes into the scan history file.
