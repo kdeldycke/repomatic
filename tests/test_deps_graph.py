@@ -372,7 +372,8 @@ def test_render_mermaid_with_extras() -> None:
 
 def test_attribute_subgraph_packages_duplicate_headlines() -> None:
     # Three subgraphs share the directly-declared package `sugar`; `water` is a
-    # base dependency excluded from every box.
+    # base dependency excluded from every box. No edges, so all dependent
+    # counts tie at zero and declaration order picks the owner.
     subgraph_closures = [
         ("bakery", {"flour", "sugar", "water"}),
         ("cafe", {"sugar", "water"}),
@@ -384,7 +385,7 @@ def test_attribute_subgraph_packages_duplicate_headlines() -> None:
         "diner": {"sugar", "plate"},
     }
     primary, duplicates = attribute_subgraph_packages(
-        subgraph_closures, {"water"}, direct_packages
+        subgraph_closures, {"water"}, direct_packages, [], "pantry"
     )
     # First declarer (processing order) owns the shared headline as a real node.
     assert primary["bakery"] == {"flour", "sugar"}
@@ -402,15 +403,46 @@ def test_attribute_subgraph_packages_duplicate_headlines() -> None:
 def test_attribute_subgraph_packages_equivalent_subgraphs() -> None:
     # Two subgraphs declare the same single package: dependency-equivalent. One
     # owns the node, the other shows it as a duplicate, so both boxes render.
+    # Root edges never count as dependents, so ownership falls back to
+    # declaration order despite the root depending on `juice`.
     subgraph_closures = [("cider", {"juice"}), ("wine", {"juice"})]
     direct_packages = {"cider": {"juice"}, "wine": {"juice"}}
     primary, duplicates = attribute_subgraph_packages(
-        subgraph_closures, set(), direct_packages
+        subgraph_closures, set(), direct_packages, [("orchard", "juice")], "orchard"
     )
     assert primary["cider"] == {"juice"}
     assert primary["wine"] == set()
     assert duplicates["cider"] == set()
     assert duplicates["wine"] == {"juice"}
+
+
+def test_attribute_subgraph_packages_dependents_tie_break() -> None:
+    # Both subgraphs declare `yeast` directly, but only `bread`'s closure holds
+    # packages depending on it: `bread` wins the real node even though `pastry`
+    # declares it first, and `pastry` keeps a duplicate headline instead.
+    subgraph_closures = [
+        ("pastry", {"butter", "yeast"}),
+        ("bread", {"sourdough", "baguette", "yeast"}),
+    ]
+    direct_packages = {
+        "pastry": {"butter", "yeast"},
+        "bread": {"sourdough", "baguette", "yeast"},
+    }
+    edges = [
+        ("kitchen", "butter"),
+        ("kitchen", "yeast"),
+        ("kitchen", "sourdough"),
+        ("kitchen", "baguette"),
+        ("sourdough", "yeast"),
+        ("baguette", "yeast"),
+    ]
+    primary, duplicates = attribute_subgraph_packages(
+        subgraph_closures, set(), direct_packages, edges, "kitchen"
+    )
+    assert primary["pastry"] == {"butter"}
+    assert primary["bread"] == {"sourdough", "baguette", "yeast"}
+    assert duplicates["pastry"] == {"yeast"}
+    assert duplicates["bread"] == set()
 
 
 def test_render_mermaid_with_duplicate_headlines() -> None:
@@ -444,9 +476,13 @@ def test_render_mermaid_with_duplicate_headlines() -> None:
     # The duplicate-only box still renders and gets a dashed arrow from root.
     assert "subgraph ext_yaml [--extra yaml]" in output
     assert "my_project -.-> ext_yaml" in output
-    # Duplicate node links to PyPI and gets the thick primary border.
+    # A dotted arrowless identity link ties the duplicate to its real node.
+    assert "ext_yaml_pyyaml -.- pyyaml" in output
+    # Duplicate node links to PyPI and gets a dashed thick border, while the
+    # real node keeps the solid primary border.
     assert 'click ext_yaml_pyyaml "https://pypi.org/project/pyyaml/" _blank' in output
-    assert "style ext_yaml_pyyaml stroke-width:3px" in output
+    assert "style ext_yaml_pyyaml stroke-width:3px,stroke-dasharray:5 5" in output
+    assert "style pyyaml stroke-width:3px\n" in output
 
 
 def test_compute_node_degrees() -> None:

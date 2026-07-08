@@ -105,6 +105,15 @@ light and dark page backgrounds.
 STYLE_PRIMARY_NODE: str = "stroke-width:3px"
 """Mermaid style for root and primary dependency nodes (thick border)."""
 
+STYLE_DUPLICATE_NODE: str = f"{STYLE_PRIMARY_NODE},stroke-dasharray:5 5"
+"""Mermaid style for duplicate headline nodes (dashed thick border).
+
+The dashes mark the node as a display-only mirror of the real node owned by
+another subgraph; a dotted identity link ties the two together. Derived from
+{data}`STYLE_PRIMARY_NODE` since duplicates are always headline (primary)
+dependencies of their box.
+"""
+
 
 MERMAID_RESERVED_KEYWORDS: frozenset[str] = frozenset((
     "C4Component",
@@ -528,11 +537,13 @@ def render_mermaid(
     :param group_duplicates: Optional dict mapping group names to package names the
         group declares directly but that another subgraph owns as a real node.
         Rendered as display-only duplicate nodes so every group still shows its
-        headline dependency. See {func}`attribute_subgraph_packages`.
+        headline dependency, dash-bordered and tied to the real node by a dotted
+        identity link. See {func}`attribute_subgraph_packages`.
     :param extra_duplicates: Optional dict mapping extra names to package names the
         extra declares directly but that another subgraph owns as a real node.
         Rendered as display-only duplicate nodes so every extra still shows its
-        headline dependency. See {func}`attribute_subgraph_packages`.
+        headline dependency, dash-bordered and tied to the real node by a dotted
+        identity link. See {func}`attribute_subgraph_packages`.
     :return: Mermaid flowchart string.
     """
     lines = ["flowchart LR"]
@@ -733,6 +744,14 @@ def render_mermaid(
         for subgraph_name in sorted(root_to_subgraphs | emitted_subgraph_ids)
     )
 
+    # Tie each duplicate headline to the real node it mirrors, so both boxes
+    # read as installing the same package. Dotted and arrowless, to not be
+    # confused with a dependency edge.
+    lines.extend(
+        f"    {node_id} -.- {normalize_package_name(name)}"
+        for node_id, name in duplicate_nodes
+    )
+
     # Add click links to PyPI for each package.
     lines.append("")
     for name in sorted(packages):
@@ -754,9 +773,10 @@ def render_mermaid(
             if name in packages:
                 node_id = normalize_package_name(name)
                 lines.append(f"    style {node_id} {STYLE_PRIMARY_NODE}")
-    # Duplicate headline nodes get the same thick border as their real node.
+    # Duplicate headline nodes keep the thick primary border, dashed to mark
+    # them as mirrors of their real node.
     for node_id, _name in duplicate_nodes:
-        lines.append(f"    style {node_id} {STYLE_PRIMARY_NODE}")
+        lines.append(f"    style {node_id} {STYLE_DUPLICATE_NODE}")
 
     # Style subgraphs with different colors. Key on emitted boxes, not just
     # those with a primary node, so a duplicate-only box still gets its tint.
@@ -783,6 +803,8 @@ def attribute_subgraph_packages(
     subgraph_closures: list[tuple[str, set[str]]],
     base_packages: set[str],
     direct_packages: dict[str, set[str]],
+    edges: list[tuple[str, str]],
+    root_name: str,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """Attribute each package to one owning subgraph, plus duplicate headlines.
 
@@ -791,22 +813,29 @@ def attribute_subgraph_packages(
     subgraph's directly-declared (headline) dependency is never stolen by a
     sibling that only reaches it transitively:
 
-    1. Reserve each subgraph's direct declarations (first declarer wins on a
-       direct-vs-direct tie).
+    1. Reserve each subgraph's direct declarations. When several subgraphs
+       declare the same package, the one whose closure holds the most dependents
+       wins (declaration order breaks ties): arrows point where the package is
+       consumed, so the busiest box is its most natural home and those edges
+       stay box-internal. The root is not a dependent, as it reaches every
+       headline package by definition.
     2. Attribute the remaining transitive packages first-come.
 
-    When several subgraphs declare the same package directly, the first owns the
-    real node; the others list it as a *duplicate headline* so every extra/group
-    still shows the dependency it exists to install (rendered as a display-only
-    duplicate node by {func}`render_mermaid`). For example the `carapace` and
-    `yaml` extras both declare only `pyyaml`: `carapace` owns the node and `yaml`
-    carries `pyyaml` as a duplicate.
+    The losing declarers list the package as a *duplicate headline* so every
+    extra/group still shows the dependency it exists to install (rendered as a
+    display-only duplicate node by {func}`render_mermaid`). For example the
+    `carapace` and `yaml` extras both declare only `pyyaml`, which no other
+    package depends on: the dependent counts tie at zero, `carapace` owns the
+    node by declaration order, and `yaml` carries `pyyaml` as a duplicate.
 
     :param subgraph_closures: Ordered ``(name, closure_package_names)`` pairs.
-        Order is the tie-break for shared packages (first wins).
+        Order is the last-resort tie-break for shared packages (first wins).
     :param base_packages: Packages in the base set, excluded from every subgraph.
     :param direct_packages: Map of subgraph name to the package names it declares
         directly (from `uv.lock`), keyed by SBOM-normalized name.
+    :param edges: ``(from_name, to_name)`` dependency edges from the full SBOM,
+        used to count each declaring subgraph's local dependents.
+    :param root_name: The root package name, excluded from dependent counts.
     :return: ``(primary, duplicates)``. *primary* maps each subgraph to the
         packages it owns as real nodes; *duplicates* maps it to directly-declared
         packages owned by another subgraph.
@@ -815,12 +844,29 @@ def attribute_subgraph_packages(
     duplicates: dict[str, set[str]] = {name: set() for name, _ in subgraph_closures}
     seen: set[str] = set()
 
-    # Pass 1: reserve directly-declared headline packages (first declarer wins).
+    # Non-root packages depending on each package, for the ownership contest.
+    dependents: dict[str, set[str]] = {}
+    for from_name, to_name in edges:
+        if from_name != root_name:
+            dependents.setdefault(to_name, set()).add(from_name)
+
+    closures = dict(subgraph_closures)
+    rank = {name: index for index, (name, _) in enumerate(subgraph_closures)}
+
+    # Pass 1: reserve directly-declared headline packages. The declarer whose
+    # closure holds the most dependents wins; earliest declaration on a tie.
+    declarers: dict[str, list[str]] = {}
     for name, closure in subgraph_closures:
-        direct = (direct_packages.get(name, set()) & closure) - base_packages
-        owned = direct - seen
-        primary[name] |= owned
-        seen |= owned
+        for pkg in (direct_packages.get(name, set()) & closure) - base_packages:
+            declarers.setdefault(pkg, []).append(name)
+    for pkg, declaring in declarers.items():
+        pkg_dependents = dependents.get(pkg, set())
+        *_, winner = max(
+            (len(pkg_dependents & closures[name]), -rank[name], name)
+            for name in declaring
+        )
+        primary[winner].add(pkg)
+        seen.add(pkg)
 
     # Pass 2: attribute the remaining transitive packages first-come.
     for name, closure in subgraph_closures:
@@ -828,7 +874,7 @@ def attribute_subgraph_packages(
         primary[name] |= transitive
         seen |= transitive
 
-    # A direct declaration owned by an earlier sibling becomes a duplicate.
+    # A direct declaration owned by another declarer becomes a duplicate.
     for name, closure in subgraph_closures:
         direct = (direct_packages.get(name, set()) & closure) - base_packages
         duplicates[name] = direct - primary[name]
@@ -887,7 +933,7 @@ def generate_dependency_graph(
         direct_packages[extra] = set(lock_specs.by_subgraph.get(extra, {}))
 
     primary, duplicates = attribute_subgraph_packages(
-        subgraph_closures, base_packages, direct_packages
+        subgraph_closures, base_packages, direct_packages, edges, root_name
     )
     group_packages = {g: primary[g] for g in groups} if groups else None
     extra_packages = {e: primary[e] for e in extras} if extras else None

@@ -29,6 +29,8 @@
 - `sync-action-pins` now converges actions pinned at several versions onto the highest pin, even when no newer release clears the cooldown.
 - Trim oversized PR and issue bodies to GitHub's 65536-character limit, keeping the refresh tip, metadata block, and attribution footer that end-of-body truncation used to chop off.
 - Add the humanized age next to `Released` dates in `fix-vulnerable-deps` reports, matching the other dependency updaters.
+- `update-deps-graph` now draws duplicate nodes of a package shared by several groups or extras with a dashed border and a dotted identity link to the real node.
+- `update-deps-graph` now places a package declared by several groups or extras in the box where most of its dependents live, instead of the first declaring one.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.
 - The `publish-pypi` composite action no longer triggers setup-uv's `Empty workdir detected` warning on downstream releases, which run it without a checkout.
 - Disable mouse zoom on the class inheritance diagrams of the documentation's API sections, so they no longer hijack page scrolling; the fullscreen viewer keeps zoom.
