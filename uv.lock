@@ -11,7 +11,7 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P1W"
 
 [options.exclude-newer-package]
-click-extra = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
+click-extra = "2026-07-10T00:00:00Z"
 repomatic = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 
 [[package]]
@@ -411,8 +411,8 @@ wheels = [
 
 [[package]]
 name = "click-extra"
-version = "8.3.0.dev0"
-source = { git = "https://github.com/kdeldycke/click-extra.git?rev=main#891106d6cb49a7efaf8604f297fbce5d4867ec62" }
+version = "8.3.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boltons" },
     { name = "click" },
@@ -423,6 +423,10 @@ dependencies = [
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "wcmatch" },
     { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a6/2c/114e90d1703ccfb25c14dc0f2a44f2296c3d924cb91948a36c92c1f77e11/click_extra-8.3.0.tar.gz", hash = "sha256:f95cdec794dbb7f1f191f82a60be4ae3175e79c3f26ed4d3079f4b06d9542301", size = 335861, upload-time = "2026-07-08T05:33:13.684Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/19/73cc96f8db1a4216b0b44acba6bd39d94d24a1e22426127a47b4d53e44df/click_extra-8.3.0-py3-none-any.whl", hash = "sha256:5ed238baefc20b17f09ce95959a340fb80417e4c8303d4d7c8a26a04241ef3c2", size = 362627, upload-time = "2026-07-08T05:33:12.165Z" },
 ]
 
 [package.optional-dependencies]
@@ -1462,7 +1466,7 @@ requires-dist = [
     { name = "arrow", specifier = ">=1.3" },
     { name = "backports-strenum", marker = "python_full_version < '3.11'", specifier = ">=1" },
     { name = "boltons", specifier = ">=25" },
-    { name = "click-extra", git = "https://github.com/kdeldycke/click-extra.git?rev=main" },
+    { name = "click-extra", specifier = ">=8.3" },
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=17" },
     { name = "py-walk", specifier = ">=0.3.1" },
