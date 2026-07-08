@@ -243,6 +243,30 @@ def test_website_warning(capsys):
         assert "::warning::" in captured.out
 
 
+@pytest.mark.parametrize(
+    ("unsubscribe_active", "has_notifications_pat", "expected"),
+    (
+        (False, False, None),
+        (True, False, "::warning::"),
+        (True, True, "✓ REPOMATIC_NOTIFICATIONS_PAT secret is configured."),
+    ),
+)
+def test_notifications_pat_check(
+    capsys, unsubscribe_active, has_notifications_pat, expected
+):
+    """The notifications PAT check only fires when the workflow is opted in."""
+    exit_code = run_repo_lint(
+        unsubscribe_active=unsubscribe_active,
+        has_notifications_pat=has_notifications_pat,
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    if expected is None:
+        assert "REPOMATIC_NOTIFICATIONS_PAT" not in captured.out
+    else:
+        assert expected in captured.out
+
+
 def test_minimal_run(capsys):
     """Run with no checks enabled."""
     exit_code = run_repo_lint()

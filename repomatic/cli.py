@@ -2168,6 +2168,13 @@ def _wrap_setup_step(title: str, content: str, *, passed: bool | None) -> str:
     short_help="Manage setup guide issue lifecycle", section=_section_github
 )
 @option(
+    "--has-notifications-pat",
+    is_flag=True,
+    default=False,
+    envvar="HAS_REPOMATIC_NOTIFICATIONS_PAT",
+    help="Whether REPOMATIC_NOTIFICATIONS_PAT is configured.",
+)
+@option(
     "--has-pat/--no-has-pat",
     default=None,
     help=(
@@ -2192,6 +2199,7 @@ def _wrap_setup_step(title: str, content: str, *, passed: bool | None) -> str:
 @pass_context
 def setup_guide(
     ctx: Context,
+    has_notifications_pat: bool,
     has_pat: bool | None,
     has_virustotal_key: bool,
     repo: str | None,
@@ -2393,6 +2401,21 @@ def setup_guide(
             passed=has_virustotal_key,
         )
 
+    # Notifications PAT step: only relevant when the unsubscribe workflow is
+    # opted in via notification.unsubscribe. The workflow skips silently
+    # without the secret, so the guide is the only onboarding surface.
+    step_notifications_pat = ""
+    if config.notification_unsubscribe:
+        step_notifications_pat = _wrap_setup_step(
+            "Create and configure the notifications token",
+            render_template(
+                "setup-guide-notifications-pat",
+                repo_url=repo_url,
+                repo_slug=repo_slug,
+            ),
+            passed=has_notifications_pat,
+        )
+
     step_verify = _wrap_setup_step(
         "Verify the setup",
         render_template(
@@ -2440,6 +2463,7 @@ def setup_guide(
         step_pypi_trusted_publisher=step_pypi_trusted_publisher,
         step_pages_source=step_pages_source,
         step_virustotal=step_virustotal,
+        step_notifications_pat=step_notifications_pat,
         step_verify=step_verify,
         org_tip=org_tip,
         repo_url=repo_url,
@@ -2459,6 +2483,7 @@ def setup_guide(
     # Pages source: when is_sphinx, treat "not configured" (None) as a
     # failure so the setup guide reopens with the Pages step.
     vt_ok = not nuitka_active or has_virustotal_key
+    notifications_ok = not config.notification_unsubscribe or has_notifications_pat
     fork_pr_gate = fork_pr_ok is not False
     pages_gate = bool(pages_ok) if md.is_sphinx else pages_ok is not False
     # Trusted Publisher: when the project publishes to PyPI, only close once
@@ -2471,6 +2496,7 @@ def setup_guide(
         and dependabot_ok
         and branch_ok
         and vt_ok
+        and notifications_ok
         and fork_pr_gate
         and pages_gate
         and pypi_publisher_gate
@@ -3587,6 +3613,13 @@ def list_skills() -> None:
     help="Repository in 'owner/repo' format. Defaults to $GITHUB_REPOSITORY.",
 )
 @option(
+    "--has-notifications-pat",
+    is_flag=True,
+    default=False,
+    envvar="HAS_REPOMATIC_NOTIFICATIONS_PAT",
+    help="Whether REPOMATIC_NOTIFICATIONS_PAT is configured.",
+)
+@option(
     "--has-pat/--no-has-pat",
     default=None,
     help=(
@@ -3606,6 +3639,7 @@ def lint_repo(
     ctx: Context,
     repo_name: str | None,
     repo: str | None,
+    has_notifications_pat: bool,
     has_pat: bool | None,
     has_virustotal_key: bool,
 ) -> None:
@@ -3624,6 +3658,8 @@ def lint_repo(
       - Stale draft releases (non-.dev0 drafts) (warning).
       - Fork PR workflow approval policy strict enough (warning).
       - VIRUSTOTAL_API_KEY secret missing when Nuitka is active (warning).
+      - REPOMATIC_NOTIFICATIONS_PAT secret missing when the unsubscribe
+        workflow is enabled (warning).
 
     \b
     When a PAT is detected, additional capability checks are run:
@@ -3674,6 +3710,8 @@ def lint_repo(
         has_pat=has_pat,
         has_virustotal_key=has_virustotal_key,
         nuitka_active=nuitka_active,
+        has_notifications_pat=has_notifications_pat,
+        unsubscribe_active=config.notification_unsubscribe,
     )
     ctx.exit(exit_code)
 

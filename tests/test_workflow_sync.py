@@ -965,6 +965,8 @@ def test_no_secrets_needed(tmp_path: Path) -> None:
         "---\njobs:\n  lint:\n"
         f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@v5.8.0\n"
         "    secrets:\n"
+        "      REPOMATIC_NOTIFICATIONS_PAT:"
+        " ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}\n"
         "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
         "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
         encoding="UTF-8",

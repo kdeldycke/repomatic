@@ -934,6 +934,8 @@ def run_repo_lint(
     has_pat: bool = False,
     has_virustotal_key: bool = False,
     nuitka_active: bool = False,
+    has_notifications_pat: bool = False,
+    unsubscribe_active: bool = False,
 ) -> int:
     """Run all repository lint checks.
 
@@ -947,6 +949,10 @@ def run_repo_lint(
     :param repo: Repository in 'owner/repo' format.
     :param has_pat: Whether `GH_TOKEN` contains `REPOMATIC_PAT`.
     :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
+    :param has_notifications_pat: Whether `REPOMATIC_NOTIFICATIONS_PAT` is
+        configured.
+    :param unsubscribe_active: Whether the unsubscribe workflow is opted in
+        via `notification.unsubscribe`.
     :return: Exit code (0 for success, 1 for errors).
     """
     fatal_error = False
@@ -1088,6 +1094,23 @@ def run_repo_lint(
             )
             emit_annotation(AnnotationLevel.WARNING, vt_msg)
             print(f"⚠ {vt_msg}")
+
+    # Check 12: REPOMATIC_NOTIFICATIONS_PAT secret (warning, only when the
+    # unsubscribe workflow is opted in via notification.unsubscribe).
+    if unsubscribe_active:
+        if has_notifications_pat:
+            print("✓ REPOMATIC_NOTIFICATIONS_PAT secret is configured.")
+        else:
+            notif_msg = (
+                "REPOMATIC_NOTIFICATIONS_PAT secret is not configured."
+                " The unsubscribe workflow will skip silently."
+                " Create a classic PAT with the notifications scope at"
+                " https://github.com/settings/tokens/new"
+                "?description=REPOMATIC_NOTIFICATIONS_PAT&scopes=notifications"
+                " and add it as a repository secret."
+            )
+            emit_annotation(AnnotationLevel.WARNING, notif_msg)
+            print(f"⚠ {notif_msg}")
 
     # PAT capability checks (only when REPOMATIC_PAT is configured).
     if not has_pat or not repo:

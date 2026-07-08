@@ -31,6 +31,7 @@
 - Add the humanized age next to `Released` dates in `fix-vulnerable-deps` reports, matching the other dependency updaters.
 - `update-deps-graph` now draws duplicate nodes of a package shared by several groups or extras with a dashed border and a dotted identity link to the real node.
 - `update-deps-graph` now places a package declared by several groups or extras in the box where most of its dependents live, instead of the first declaring one.
+- The setup guide and `lint-repo` now flag a missing `REPOMATIC_NOTIFICATIONS_PAT` secret when `notification.unsubscribe` is enabled, with a pre-filled walkthrough for creating the classic token.
 - Fix `sync-uv-lock` reporting `No dependency changes` and writing no PR body when a run only prunes or freezes cooldown bypasses in `pyproject.toml`.
 - Fix downstream manual dispatches of the `unsubscribe` workflow ignoring their inputs and always running live: generated thin callers now forward `workflow_dispatch` inputs to the reusable workflow.
 - The `publish-pypi` composite action no longer triggers setup-uv's `Empty workdir detected` warning on downstream releases, which run it without a checkout.
