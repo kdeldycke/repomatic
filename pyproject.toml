@@ -173,12 +173,14 @@ docs = [
   "sphinxext-opengraph>=0.13",
 ]
 # types-boltons: first stub release covering boltons 25.0 API (FrozenDict, unique, flatten,
-# strip_ansi). types-pyyaml: stub release covering PyYAML 6.0 (safe_load, safe_dump, full_load).
+# strip_ansi). types-docutils: covers the docutils.nodes imports in docs/conf.py.
+# types-pyyaml: stub release covering PyYAML 6.0 (safe_load, safe_dump, full_load).
 typing = [
   # backports-strenum: provides StrEnum stubs for mypy --python-version 3.10 analysis;
   # not in main deps (version-gated to Python<3.11 there), so added here unconditionally.
   "backports-strenum>=1",
   "types-boltons>=25.0.0.20250822",
+  "types-docutils>=0.22.3.20251115",
   "types-pyyaml>=6.0.12.9",
 ]
 
@@ -316,6 +318,7 @@ warn_unused_configs = true
 overrides = [
   { module = [
     "py_walk.*",
+    "sphinxcontrib.mermaid",
     "vt",
   ], ignore_missing_imports = true },
 ]

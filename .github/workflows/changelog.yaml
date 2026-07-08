@@ -103,6 +103,8 @@ jobs:
           --template fix-changelog
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        # Fail fast instead of hanging when the GitHub API is rate-limit starved.
+        timeout-minutes: 10
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
           assignees: ${{ github.actor }}
@@ -168,6 +170,8 @@ jobs:
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
+        # Fail fast instead of hanging when the GitHub API is rate-limit starved.
+        timeout-minutes: 10
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
           assignees: ${{ github.actor }}
@@ -254,6 +258,8 @@ jobs:
           --version "${CURRENT_VERSION}"
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        # Fail fast instead of hanging when the GitHub API is rate-limit starved.
+        timeout-minutes: 10
         with:
           # We need custom PAT with workflows permission to hard-code version numbers in URLs in
           # .github/workflows/*.yaml files.

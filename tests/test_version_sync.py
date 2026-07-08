@@ -453,7 +453,13 @@ def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade():
         ):
             result = runner.invoke(
                 repomatic,
-                ["sync-action-pins", "--output", "out.md", "--output-format", "markdown"],
+                [
+                    "sync-action-pins",
+                    "--output",
+                    "out.md",
+                    "--output-format",
+                    "markdown",
+                ],
             )
         assert result.exit_code == 0, result.output
         content = workflow.read_text(encoding="UTF-8")

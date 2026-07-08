@@ -235,6 +235,30 @@ def test_store_binary_triggers_auto_purge(monkeypatch, tmp_path):
         mock_purge.assert_called_once()
 
 
+def test_store_binary_stamps_store_time(monkeypatch, tmp_path):
+    """A source carrying an old archive mtime is not self-purged on store.
+
+    shutil.copy2 preserves the source mtime, which for a binary extracted
+    from a release archive is the upstream build date. auto_purge ages
+    entries by mtime, so without a fresh timestamp the auto_purge call
+    inside store_binary would delete the entry it just stored.
+    """
+    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "30")  # Purge enabled.
+
+    source = tmp_path / "staging" / "ruff"
+    source.parent.mkdir()
+    source.write_bytes(b"binary-content")
+    source.chmod(0o755)
+    ancient = time.time() - 90 * 86400
+    os.utime(source, (ancient, ancient))
+
+    result = store_binary("ruff", "0.11.0", "linux-x64", source)
+
+    assert result.is_file()
+    assert abs(result.stat().st_mtime - time.time()) < 60
+
+
 # ---------------------------------------------------------------------------
 # cache_info
 # ---------------------------------------------------------------------------

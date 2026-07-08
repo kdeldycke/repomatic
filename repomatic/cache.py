@@ -248,6 +248,12 @@ def store_binary(
         tmp_path = Path(tmp)
         shutil.copy2(source, tmp_path)
         tmp_path.chmod(0o755)
+        # copy2 preserves the source mtime, which for a binary extracted from
+        # a release archive is the upstream build date. Purging ages entries
+        # by mtime, so an old build date would get the entry deleted by the
+        # auto_purge() call below, before this store even returns. Stamp the
+        # store time instead.
+        os.utime(tmp_path)
         tmp_path.replace(dest)
     except BaseException:
         # Clean up partial writes on any failure.

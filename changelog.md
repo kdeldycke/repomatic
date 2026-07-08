@@ -36,6 +36,9 @@
 - Fix downstream manual dispatches of the `unsubscribe` workflow ignoring their inputs and always running live: generated thin callers now forward `workflow_dispatch` inputs to the reusable workflow.
 - The `publish-pypi` composite action no longer triggers setup-uv's `Empty workdir detected` warning on downstream releases, which run it without a checkout.
 - The `unsubscribe` workflow no longer triggers setup-uv's cache-invalidation and `Empty workdir detected` warnings on downstream runs, which execute without a checkout.
+- Fix the binary cache self-purging tools whose release archive carries an old build date: cached binaries are now stamped with the store time, instead of being aged out by the archive's mtime and re-downloaded on every run.
+- The PR-creation steps of the changelog workflow now time out after 10 minutes instead of hanging when the GitHub API is rate-limit starved.
+- The babysit-ci and repomatic-ship skills now mandate sleeps between CI polls and document GitHub API rate-limit exhaustion, whose symptoms masquerade as PAT permission errors and PR-creation hangs.
 - Disable mouse zoom on the class inheritance diagrams of the documentation's API sections, so they no longer hijack page scrolling; the fullscreen viewer keeps zoom.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 
