@@ -413,6 +413,62 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
     )
 
 
+def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade():
+    """Stragglers converge onto the highest pin when no upgrade qualifies.
+
+    Locks the gap kdeldycke/extra-platforms#600 surfaced: with one action
+    pinned at two versions, the repo-wide maximum masked the older pins, so
+    the held-back table claimed the action was locked at the highest version
+    while stale pins stayed on disk. The stragglers must be rewritten to the
+    winning pin's SHA without any tag resolution, even when the only newer
+    release is still inside the cooldown.
+    """
+    today = datetime.now(timezone.utc).date()
+    tags = {
+        # 100 days old: cleared the cooldown, and already the highest pin.
+        "v2.0.0": GitHubRelease(
+            date=(today - timedelta(days=100)).isoformat(), body="two"
+        ),
+        # 2 days old: still inside the cooldown, so no upgrade qualifies.
+        "v3.0.0": GitHubRelease(
+            date=(today - timedelta(days=2)).isoformat(), body="three"
+        ),
+    }
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        workflow = Path(".github/workflows/ci.yaml")
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(
+            "jobs:\n  build:\n    steps:\n"
+            f"      - uses: owner/repo@{'a' * 40} # v1.0.0\n"
+            f"      - uses: owner/repo@{'c' * 40} # v2.0.0\n",
+            encoding="UTF-8",
+        )
+        with (
+            patch("repomatic.version_sync.get_release_tags", return_value=tags),
+            patch(
+                "repomatic.sync_ops.resolve_tag_to_sha",
+                side_effect=AssertionError("convergence must not resolve tags"),
+            ),
+        ):
+            result = runner.invoke(
+                repomatic,
+                ["sync-action-pins", "--output", "out.md", "--output-format", "markdown"],
+            )
+        assert result.exit_code == 0, result.output
+        content = workflow.read_text(encoding="UTF-8")
+        body = Path("out.md").read_text(encoding="UTF-8")
+
+    # The straggler now pins the winning SHA and version comment.
+    assert content.count(f"owner/repo@{'c' * 40} # v2.0.0") == 2
+    assert "v1.0.0" not in content
+    # The report shows the convergence, dated from the release candidates.
+    assert "`v1.0.0` → `v2.0.0`" in body
+    # The held-back table stays truthful: locked at 2.0.0, 3.0.0 withheld.
+    assert "`2.0.0`" in body
+    assert "`3.0.0`" in body
+
+
 def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
     """`sync-workflow-pins --release-notes` fetches notes for PyPI pins only.
 

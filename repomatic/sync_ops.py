@@ -449,7 +449,12 @@ def _apply_tool_versions(plan: SyncPlan) -> None:
 
 
 def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
-    """Bump SHA-pinned GitHub Actions across `.github/` to their latest release."""
+    """Bump SHA-pinned GitHub Actions across `.github/` to their latest release.
+
+    An action pinned at more than one version also has its stragglers
+    converged onto the highest pin, even when no newer release clears the
+    cooldown, so every file agrees with the version the report claims.
+    """
     min_age = parse_min_age(rc.config.minimum_release_age)
     today = rc.today
     plan = SyncPlan(
@@ -461,15 +466,27 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
     }
 
     # Highest currently-pinned version per slug, skipping repomatic-lineage refs
-    # (those thin-caller pins are managed by `repomatic init`).
+    # (those thin-caller pins are managed by `repomatic init`). The winning
+    # pin's `(sha, ref)` is kept so slugs pinned at more than one version can
+    # converge their stragglers onto it without a network round-trip, even
+    # when no newer release clears the cooldown.
     current: dict[str, str] = {}
+    current_pins: dict[str, tuple[str, str]] = {}
+    mixed: set[str] = set()
     for text in file_data.values():
         for pin in find_action_pins(text):
             if pin.slug in UPSTREAM_REPO_SLUGS:
                 continue
             version = pin.ref.removeprefix("v")
-            if pin.slug not in current or is_newer(version, current[pin.slug]):
+            if pin.slug not in current:
                 current[pin.slug] = version
+                current_pins[pin.slug] = (pin.sha, pin.ref)
+                continue
+            if version != current[pin.slug]:
+                mixed.add(pin.slug)
+                if is_newer(version, current[pin.slug]):
+                    current[pin.slug] = version
+                    current_pins[pin.slug] = (pin.sha, pin.ref)
 
     resolved: dict[str, tuple[str, str]] = {}
     held_back_pkgs: list[HeldBackPackage] = []
@@ -498,6 +515,20 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
                 )
                 plan.held_back_name_urls[slug] = repo_url
         if latest is None or not is_newer(latest.version, current_version):
+            # No release beats the highest pin, but stragglers pinned at older
+            # versions still converge onto it: otherwise the repo-wide maximum
+            # masks them until a strictly newer release clears the cooldown,
+            # and the held-back table reports a "Locked" version that some
+            # files do not actually pin. The winning on-disk pin already
+            # carries the SHA, so no tag resolution is needed.
+            if slug in mixed:
+                resolved[slug] = current_pins[slug]
+                date = next(
+                    (c.date for c in candidates if c.version == current_version),
+                    "",
+                )
+                if date:
+                    plan.dates[slug] = date
             continue
         new_sha = resolve_tag_to_sha(repo_url, latest.ref)
         if not new_sha:
