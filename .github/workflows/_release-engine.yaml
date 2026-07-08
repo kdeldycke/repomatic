@@ -246,6 +246,10 @@ jobs:
         env:
           DOWNLOAD_PATH: ${{ steps.artifacts.outputs.download-path }}
           BIN_NAME: ${{ matrix.bin_name }}
+          # Inherited by the compiled binary so it emits UTF-8 on piped stdout. Windows defaults
+          # pipes to cp1252, whose bytes (an em dash in help text) crash the harness's strict-UTF-8
+          # reader thread. Mirrors the "Force UTF-8 encoding on Windows" step in tests.yaml.
+          PYTHONIOENCODING: utf8
         shell: bash
         # The binary self-test reads ./tests/cli-test-suite.toml (the click-extra 8.1
         # default), parsed with the built-in tomllib, so no optional extra is needed.
