@@ -112,6 +112,7 @@ FLAT_BUILD_TARGETS = [
 
 
 BINARY_AFFECTING_PATHS: Final[tuple[str, ...]] = (
+    ".github/workflows/_release-engine.yaml",
     ".github/workflows/release.yaml",
     "pyproject.toml",
     "tests/",
@@ -122,6 +123,12 @@ BINARY_AFFECTING_PATHS: Final[tuple[str, ...]] = (
 Project-specific source directories (derived from `[project.scripts]` in
 `pyproject.toml`) are added dynamically by
 {attr}`~repomatic.metadata.Metadata.binary_affecting_paths`.
+
+The release workflow entries cover both layouts: upstream keeps the
+`_release-engine.yaml` lane (which defines the Nuitka compile and binary
+self-test jobs) in-repo, while downstream repos call the engine cross-repo
+from their generated `release.yaml`, so a pin bump there rightly triggers a
+rebuild.
 """
 
 SKIP_BINARY_BUILD_BRANCHES: Final[frozenset[str]] = frozenset((

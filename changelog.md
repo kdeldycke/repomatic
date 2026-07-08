@@ -34,6 +34,7 @@
 - The `publish-pypi` composite action and the `unsubscribe` workflow no longer trigger setup-uv's cache-invalidation and `Empty workdir detected` warnings on downstream runs, which execute without a checkout.
 - The PR-creation steps of the changelog workflow now time out after 10 minutes instead of hanging when the GitHub API is rate-limit starved.
 - Fix the binary cache purging fresh entries whose release archive carries an old build date: cached binaries are now aged by their store time, not the archive's mtime.
+- Rebuild binaries on pushes that only touch `.github/workflows/_release-engine.yaml`: the release workflow split left the engine lane outside the binary-affecting paths.
 - Disable mouse zoom on the class inheritance diagrams of the documentation's API sections, so they no longer hijack page scrolling; the fullscreen viewer keeps zoom.
 - Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 

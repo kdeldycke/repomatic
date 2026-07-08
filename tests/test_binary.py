@@ -32,6 +32,7 @@ from repomatic.binary import (
     run_exiftool,
     verify_binary_arch,
 )
+from repomatic.github.actions import WorkflowEvent
 from repomatic.metadata import Metadata
 
 
@@ -200,6 +201,31 @@ def test_skip_binary_build_property_is_bool():
     """
     metadata = Metadata()
     assert isinstance(metadata.skip_binary_build, bool)
+
+
+@pytest.mark.parametrize(
+    "workflow_file",
+    [
+        ".github/workflows/_release-engine.yaml",
+        ".github/workflows/release.yaml",
+    ],
+)
+def test_skip_binary_build_release_workflow_push(workflow_file):
+    """A push that only touches a release-pipeline workflow must rebuild binaries.
+
+    Those workflows define how binaries are compiled and self-tested, so any
+    change there needs a full matrix revalidation. Regression test for the
+    ``release.yaml`` split leaving ``_release-engine.yaml`` outside
+    ``BINARY_AFFECTING_PATHS``, which let engine-only fixes skip the Nuitka
+    matrix.
+    """
+    metadata = Metadata()
+    # Prime the cached properties with a push event touching a single file.
+    metadata.__dict__["event_type"] = WorkflowEvent.push
+    metadata.__dict__["head_branch"] = "main"
+    metadata.__dict__["head_commit_message"] = "Water the papaya trees"
+    metadata.__dict__["changed_files"] = (workflow_file,)
+    assert metadata.skip_binary_build is False
 
 
 def test_nuitka_enabled_default():
