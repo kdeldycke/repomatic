@@ -71,8 +71,10 @@ jobs:
         # GitHub Actions does not allow secrets.* in job-level if: conditions,
         # so the check is done here at step level via the env var.
         if: env.GH_TOKEN != ''
+        # stdout (the markdown report) is redirected to the step summary; --verbosity INFO
+        # streams per-thread progress to the live job log via stderr.
         run: >
-          uvx --no-progress --from . repomatic
+          uvx --no-progress --from . repomatic --verbosity INFO
           unsubscribe-threads
           --months "$MONTHS"
           --batch-size "$BATCH_SIZE"
