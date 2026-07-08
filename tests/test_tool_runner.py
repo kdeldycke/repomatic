@@ -499,6 +499,7 @@ def test_download_and_verify_success(tmp_path):
     dest = tmp_path / "downloaded"
 
     mock_response = MagicMock()
+    mock_response.headers.get = MagicMock(return_value=str(len(content)))
     mock_response.read = MagicMock(side_effect=[content, b""])
     mock_response.__enter__ = MagicMock(return_value=mock_response)
     mock_response.__exit__ = MagicMock(return_value=False)
@@ -537,6 +538,7 @@ def test_download_and_verify_mismatch(tmp_path):
     dest = tmp_path / "downloaded"
 
     mock_response = MagicMock()
+    mock_response.headers.get = MagicMock(return_value=str(len(content)))
     mock_response.read = MagicMock(side_effect=[content, b""])
     mock_response.__enter__ = MagicMock(return_value=mock_response)
     mock_response.__exit__ = MagicMock(return_value=False)
@@ -546,6 +548,36 @@ def test_download_and_verify_mismatch(tmp_path):
         pytest.raises(ValueError, match="SHA-256 mismatch"),
     ):
         _download_and_verify("https://example.com/file", "bad" * 16, dest)
+
+    assert not dest.exists()
+
+
+def test_download_and_verify_truncated(tmp_path):
+    """A body shorter than Content-Length raises OSError, not a mismatch.
+
+    A truncated transfer (proxy hiccup, dropped connection) hashes to a wrong
+    digest, so it used to be reported as a SHA-256 mismatch: that reads as a
+    stale pin or a tampered artifact when the registry checksum is correct.
+    """
+    content = b"hello binary world"
+    dest = tmp_path / "downloaded"
+
+    mock_response = MagicMock()
+    # Advertise more bytes than the body delivers.
+    mock_response.headers.get = MagicMock(return_value=str(len(content) + 7))
+    mock_response.read = MagicMock(side_effect=[content, b""])
+    mock_response.__enter__ = MagicMock(return_value=mock_response)
+    mock_response.__exit__ = MagicMock(return_value=False)
+
+    with (
+        patch("repomatic.tool_runner.urlopen", return_value=mock_response),
+        pytest.raises(OSError, match="Truncated download .* got 18 of 25 bytes"),
+    ):
+        _download_and_verify(
+            "https://example.com/file",
+            hashlib.sha256(content).hexdigest(),
+            dest,
+        )
 
     assert not dest.exists()
 

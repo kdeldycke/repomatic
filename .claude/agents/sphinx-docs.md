@@ -558,6 +558,7 @@ Page-shape rules that apply across the roster:
   | `agents.md`              | `dependabot`         |
   | `architectures.md`       | `cpu`                |
   | `benchmark.md`           | `trophy`             |
+  | `binaries.md`            | `desktop-download`   |
   | `changelog.md`           | `diff`               |
   | `cli.md`                 | `command-palette`    |
   | `code-of-conduct.md`     | `code-of-conduct`    |

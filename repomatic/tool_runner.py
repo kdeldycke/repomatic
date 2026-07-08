@@ -1865,10 +1865,12 @@ def _download_and_verify(
         `None` skips verification (logs the computed digest for reference).
     :param dest_path: Where to write the downloaded file.
     :param label: Progress bar label. Defaults to the destination filename.
+    :raises OSError: If the body is shorter than the advertised `Content-Length`.
     :raises ValueError: If the checksum does not match.
     """
     request = Request(url)
     sha256 = hashlib.sha256()
+    bytes_read = 0
     with urlopen(request) as response, dest_path.open("wb") as f:
         content_length = response.headers.get("Content-Length")
         total = int(content_length) if content_length else 0
@@ -1885,11 +1887,20 @@ def _download_and_verify(
             while chunk := response.read(65536):
                 f.write(chunk)
                 sha256.update(chunk)
+                bytes_read += len(chunk)
                 # Only the determinate progressbar advances per chunk; the
                 # Spinner animates on its own background thread and exposes no
                 # update(). The isinstance check also narrows the union for mypy.
                 if not isinstance(bar, Spinner):
                     bar.update(len(chunk))
+    # A short body (proxy hiccup, dropped connection) hashes to a wrong digest,
+    # so without this check it surfaces below as a checksum mismatch: that reads
+    # as a stale pin or a tampered artifact when nothing is wrong upstream. Name
+    # the real failure instead.
+    if total and bytes_read != total:
+        dest_path.unlink(missing_ok=True)
+        msg = f"Truncated download for {url}: got {bytes_read} of {total} bytes."
+        raise OSError(msg)
     actual = sha256.hexdigest()
     if expected_sha256 is None:
         logging.info("SHA-256 of %s: %s (not verified).", url, actual)
