@@ -475,6 +475,76 @@ def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade():
     assert "`3.0.0`" in body
 
 
+def test_sync_action_pins_merges_mixed_pins_onto_widest_range():
+    """Mixed pins bumping to one release report a single widest-range row.
+
+    With one action pinned at two versions and an eligible release above
+    both, per-file reporting used to emit one table row per starting version,
+    while the slug-keyed compare-URL and release-notes mappings kept a single
+    arbitrary range (the last one, after sorting), so rows linked to compare
+    URLs that contradicted their own text. The merged row must span from the
+    lowest pin and its release notes must cover every release any pin skips.
+    """
+    today = datetime.now(timezone.utc).date()
+    tags = {
+        "v1.0.0": GitHubRelease(
+            date=(today - timedelta(days=400)).isoformat(), body="release one notes"
+        ),
+        # 100 days old: an intermediate release the lowest pin jumps over.
+        "v2.0.0": GitHubRelease(
+            date=(today - timedelta(days=100)).isoformat(), body="release two notes"
+        ),
+        # 30 days old: cleared the cooldown, adopted by every pin.
+        "v3.0.0": GitHubRelease(
+            date=(today - timedelta(days=30)).isoformat(), body="release three notes"
+        ),
+    }
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        workflow = Path(".github/workflows/ci.yaml")
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(
+            "jobs:\n  build:\n    steps:\n"
+            f"      - uses: owner/repo@{'a' * 40} # v1.0.0\n"
+            f"      - uses: owner/repo@{'c' * 40} # v2.0.0\n",
+            encoding="UTF-8",
+        )
+        with (
+            patch("repomatic.version_sync.get_release_tags", return_value=tags),
+            patch("repomatic.github.releases.get_release_tags", return_value=tags),
+            patch("repomatic.sync_ops.resolve_tag_to_sha", return_value="b" * 40),
+        ):
+            result = runner.invoke(
+                repomatic,
+                [
+                    "sync-action-pins",
+                    "--release-notes",
+                    "--output",
+                    "out.md",
+                    "--output-format",
+                    "markdown",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        content = workflow.read_text(encoding="UTF-8")
+        body = Path("out.md").read_text(encoding="UTF-8")
+
+    # Both pins converge onto the eligible v3.0.0.
+    assert content.count(f"owner/repo@{'b' * 40} # v3.0.0") == 2
+    # A single row spans from the lowest pin; the narrower range is subsumed.
+    assert "`v1.0.0` → `v3.0.0`" in body
+    assert "`v2.0.0` → `v3.0.0`" not in body
+    # The compare URL matches the merged row, not an arbitrary range.
+    assert "https://github.com/owner/repo/compare/v1.0.0...v3.0.0" in body
+    assert "compare/v2.0.0...v3.0.0" not in body
+    # One dropdown covering every release inside the widest range, half-open
+    # on the old side: the lowest pin's own notes stay out.
+    assert body.count("<summary><code>owner/repo</code></summary>") == 1
+    assert "release two notes" in body
+    assert "release three notes" in body
+    assert "release one notes" not in body
+
+
 def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
     """`sync-workflow-pins --release-notes` fetches notes for PyPI pins only.
 

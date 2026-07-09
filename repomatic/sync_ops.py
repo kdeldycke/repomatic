@@ -448,6 +448,32 @@ def _apply_tool_versions(plan: SyncPlan) -> None:
         _sync_actionlint_matcher_url(plan.actionlint_version)
 
 
+def _widest_changes(
+    changes: Iterable[tuple[str, str, str]],
+) -> list[tuple[str, str, str]]:
+    """Collapse a name updated from several versions onto its widest range.
+
+    Files can pin the same action or package at different versions, but one
+    run converges them all onto a single resolved target, so a name's
+    `(name, old, new)` triples differ only by *old*. Reporting each range
+    separately duplicates table rows, and the name-keyed mappings derived
+    from the changes (compare URLs, release-notes items) would silently keep
+    one arbitrary range. Keeping the lowest parseable *old* per name yields a
+    single row whose compare URL and release notes subsume every narrower
+    range.
+
+    :param changes: `(name, old, new)` triples, possibly repeating a name.
+    :return: One triple per name, sorted, spanning from that name's lowest
+        *old* (`v` prefixes are ignored for the comparison).
+    """
+    widest: dict[str, tuple[str, str]] = {}
+    for name, old, new in changes:
+        kept = widest.get(name)
+        if kept is None or is_newer(kept[0].removeprefix("v"), old.removeprefix("v")):
+            widest[name] = (old, new)
+    return [(name, old, new) for name, (old, new) in sorted(widest.items())]
+
+
 def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
     """Bump SHA-pinned GitHub Actions across `.github/` to their latest release.
 
@@ -543,7 +569,7 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
         if file_changes:
             plan.file_writes[path] = new_content
             changes.extend(file_changes)
-    plan.changes = sorted(set(changes))
+    plan.changes = _widest_changes(changes)
     plan.held_back = held_back_pkgs
     plan.cutoff = today - min_age if min_age else None
     plan.cooldown_note = (
@@ -672,7 +698,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         if file_changes:
             plan.file_writes[path] = new_content
             changes.extend(file_changes)
-    plan.changes = sorted(set(changes))
+    plan.changes = _widest_changes(changes)
     plan.held_back = held_back_pkgs
     plan.cutoff = today - min_age if min_age else None
     plan.cooldown_note = (

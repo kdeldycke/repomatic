@@ -40,6 +40,7 @@ from repomatic.sync_ops import (
     SyncOperation,
     SyncPlan,
     _resolve_tool_versions,
+    _widest_changes,
     operation_order,
     render_plan_markdown,
     run_sync_operations,
@@ -343,6 +344,51 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
 
     assert seen["package"] == "awesome-lint"
     assert not plan.has_changes
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    (
+        # No changes pass through empty.
+        ([], []),
+        # A single range is untouched.
+        (
+            [("owner/repo", "v1.0.0", "v2.0.0")],
+            [("owner/repo", "v1.0.0", "v2.0.0")],
+        ),
+        # Exact per-file duplicates collapse into one row.
+        (
+            [("owner/repo", "v1.0.0", "v2.0.0"), ("owner/repo", "v1.0.0", "v2.0.0")],
+            [("owner/repo", "v1.0.0", "v2.0.0")],
+        ),
+        # Mixed starting pins keep the lowest, subsuming the narrower range.
+        (
+            [("owner/repo", "v6.0.3", "v7.0.0"), ("owner/repo", "v6.0.2", "v7.0.0")],
+            [("owner/repo", "v6.0.2", "v7.0.0")],
+        ),
+        # Version ordering, not lexicographic: v6.0.9 is lower than v6.0.10.
+        (
+            [("owner/repo", "v6.0.10", "v7.0.0"), ("owner/repo", "v6.0.9", "v7.0.0")],
+            [("owner/repo", "v6.0.9", "v7.0.0")],
+        ),
+        # Bare workflow-literal versions compare the same as v-prefixed refs.
+        (
+            [("mango", "1.10.0", "2.0.0"), ("mango", "1.2.0", "2.0.0")],
+            [("mango", "1.2.0", "2.0.0")],
+        ),
+        # Distinct names each keep their own range, sorted by name.
+        (
+            [("kiwi/kiwi", "v1.1.0", "v2.0.0"), ("fig/fig", "v1.0.0", "v2.0.0")],
+            [("fig/fig", "v1.0.0", "v2.0.0"), ("kiwi/kiwi", "v1.1.0", "v2.0.0")],
+        ),
+    ),
+)
+def test_widest_changes(
+    changes: list[tuple[str, str, str]],
+    expected: list[tuple[str, str, str]],
+) -> None:
+    """A name repeated across files collapses onto its lowest starting version."""
+    assert _widest_changes(changes) == expected
 
 
 def test_bypass_only_plan_counts_as_changed_and_renders() -> None:
