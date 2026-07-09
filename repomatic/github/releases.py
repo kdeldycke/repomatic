@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import re
+from http.client import IncompleteRead
 from typing import NamedTuple
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -98,6 +99,23 @@ def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
         try:
             with urlopen(_api_request(url), timeout=10) as response:
                 data = json.loads(response.read())
+        except IncompleteRead:
+            # A truncated body is transient (a flaky connection or an
+            # interfering proxy), so the page earns one retry before the
+            # lookup is declared unavailable.
+            try:
+                with urlopen(_api_request(url), timeout=10) as response:
+                    data = json.loads(response.read())
+            except (
+                URLError,
+                TimeoutError,
+                json.JSONDecodeError,
+                IncompleteRead,
+            ) as exc:
+                raise GitHubReleasesUnavailable(
+                    f"GitHub releases lookup failed for {owner}/{repo} "
+                    f"on page {page}: {exc}"
+                ) from exc
         except (URLError, TimeoutError, json.JSONDecodeError) as exc:
             # A failed page fetch can corrupt the result in two ways: a total
             # failure on page 1 returns `{}` (indistinguishable from "repo has

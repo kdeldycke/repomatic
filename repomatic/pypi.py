@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+from http.client import IncompleteRead
 from typing import NamedTuple
 from urllib.error import URLError
 from urllib.parse import urlencode
@@ -169,13 +170,20 @@ def _fetch_json(package: str) -> dict | None:
 
     url = PYPI_API_URL.format(package=package)
     request = Request(url, headers={"Accept": "application/json"})
-    try:
-        with urlopen(request, timeout=10) as response:
-            raw = response.read()
-            result: dict[str, object] = json.loads(raw)
-    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-        logging.debug(f"PyPI lookup failed for {package}: {exc}")
-        return None
+    for retry in (True, False):
+        try:
+            with urlopen(request, timeout=10) as response:
+                raw = response.read()
+                result: dict[str, object] = json.loads(raw)
+            break
+        except (URLError, TimeoutError, json.JSONDecodeError, IncompleteRead) as exc:
+            # A truncated body is transient (a flaky connection or an
+            # interfering proxy), so it earns one retry; the other failure
+            # modes fail straight away.
+            if retry and isinstance(exc, IncompleteRead):
+                continue
+            logging.debug(f"PyPI lookup failed for {package}: {exc}")
+            return None
 
     if ttl > 0:
         store_response("pypi", package, raw)
@@ -334,13 +342,22 @@ def get_trusted_publishers(
         package=package, version=version, filename=filename
     )
     request = Request(url, headers={"Accept": "application/json"})
-    try:
-        with urlopen(request, timeout=10) as response:
-            raw = response.read()
-            data: dict[str, object] = json.loads(raw)
-    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-        logging.debug(f"PyPI provenance lookup failed for {package} {version}: {exc}")
-        return None
+    for retry in (True, False):
+        try:
+            with urlopen(request, timeout=10) as response:
+                raw = response.read()
+                data: dict[str, object] = json.loads(raw)
+            break
+        except (URLError, TimeoutError, json.JSONDecodeError, IncompleteRead) as exc:
+            # A truncated body is transient (a flaky connection or an
+            # interfering proxy), so it earns one retry; the other failure
+            # modes fail straight away.
+            if retry and isinstance(exc, IncompleteRead):
+                continue
+            logging.debug(
+                f"PyPI provenance lookup failed for {package} {version}: {exc}"
+            )
+            return None
 
     raw_bundles = data.get("attestation_bundles")
     bundles = raw_bundles if isinstance(raw_bundles, list) else []

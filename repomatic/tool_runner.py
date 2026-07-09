@@ -1529,6 +1529,16 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
 
             typos scans the tree and, with repomatic's default `--write-changes`, fixes what it finds. It reads `[tool.typos]` natively; use `[tool.typos.default.extend-words]` to map project-specific terms to their intended spelling.
+
+            Because the `fix-typos` workflow job ships whatever typos rewrites as an unattended pull request, guard content where a "correction" is a corruption with `[tool.typos.default.extend-ignore-re]` patterns. The two known traps are encoded hashes, whose random letter runs typos happily respells (a Guix `(base32 "...")` source hash losing its value to an `and` to `and` fix), and intentional-typo examples that docs or tests exercise on purpose:
+
+            ```toml
+            [tool.typos.default]
+            extend-ignore-re = [
+              'base32 "[0-9a-z]{52}"',
+              "\\{query\\}",
+            ]
+            ```
             """),
     ),
     "yamllint": ToolSpec(

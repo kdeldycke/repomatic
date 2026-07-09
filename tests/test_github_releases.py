@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+from http.client import IncompleteRead
 from io import BytesIO
 from unittest.mock import patch
 from urllib.error import URLError
@@ -139,6 +140,36 @@ def test_get_github_releases_raises_on_url_error(monkeypatch):
         patch(
             "repomatic.github.releases.urlopen",
             side_effect=URLError("502 Bad Gateway"),
+        ),
+        pytest.raises(GitHubReleasesUnavailable) as exc_info,
+    ):
+        get_github_releases("https://github.com/user/repo")
+    assert "user/repo" in str(exc_info.value)
+
+
+def test_get_github_releases_retries_incomplete_read(monkeypatch):
+    """A truncated page body gets one retry before the lookup fails."""
+    _bypass_cache(monkeypatch)
+    page_1 = json.dumps([_release_payload("1.0.0", "2026-01-01")]).encode()
+    with patch(
+        "repomatic.github.releases.urlopen",
+        side_effect=[
+            IncompleteRead(b""),
+            _FakeResponse(page_1),
+            _FakeResponse(b"[]"),
+        ],
+    ):
+        result = get_github_releases("https://github.com/user/repo")
+    assert set(result) == {"1.0.0"}
+
+
+def test_get_github_releases_raises_on_persistent_incomplete_read(monkeypatch):
+    """A page truncated on the retry too raises GitHubReleasesUnavailable."""
+    _bypass_cache(monkeypatch)
+    with (
+        patch(
+            "repomatic.github.releases.urlopen",
+            side_effect=IncompleteRead(b""),
         ),
         pytest.raises(GitHubReleasesUnavailable) as exc_info,
     ):
