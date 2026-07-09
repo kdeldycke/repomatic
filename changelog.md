@@ -5,6 +5,9 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `update-deps-graph` now keeps only directly-declared dependencies inside the `--group` and `--extra` boxes; transitive dependencies render outside as plain ovals, like around the primary dependencies box.
+- With `--level`, an extra's transitive dependencies now count as depth 2 instead of 1.
+- Consolidate the `repomatic.deps_graph` API around `Subgraph` and `SubgraphKind` types; the unused `parse_bom_ref` helper is removed.
 - The `unsubscribe.yaml` workflow now streams per-thread progress to the job log; runs were previously silent until the report landed in the step summary.
 - `sync-action-pins` and `sync-workflow-pins` PR bodies now report an action or package pinned at several versions as a single row spanning from the oldest pin, with the compare link and release-notes dropdown covering that widest range.
 - `lint-changelog`'s PyPI and GitHub lookups now retry once on a truncated response body instead of crashing with `IncompleteRead`.

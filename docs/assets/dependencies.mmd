@@ -18,66 +18,71 @@ flowchart LR
 
     aiohttp(["`aiohttp`"])
     typing_extensions(["`typing-extensions`"])
+    pygments(["`pygments`"])
+    requests(["`requests`"])
+    jinja2(["`jinja2`"])
     yarl(["`yarl`"])
     aiosignal(["`aiosignal`"])
+    beautifulsoup4(["`beautifulsoup4`"])
     click_0(["`click`"])
     cloup(["`cloup`"])
     colorama(["`colorama`"])
+    docutils(["`docutils`"])
+    markdown_it_py(["`markdown-it-py`"])
     multidict(["`multidict`"])
     tomli(["`tomli`"])
+    accessible_pygments(["`accessible-pygments`"])
+    exceptiongroup(["`exceptiongroup`"])
     frozenlist(["`frozenlist`"])
     idna(["`idna`"])
+    mdit_py_plugins(["`mdit-py-plugins`"])
+    pluggy(["`pluggy`"])
     propcache(["`propcache`"])
     python_dateutil(["`python-dateutil`"])
+    sphinx_basic_ng(["`sphinx-basic-ng`"])
+    sphinxcontrib_jquery(["`sphinxcontrib-jquery`"])
     tabulate(["`tabulate`"])
     wcwidth(["`wcwidth`"])
     aiofiles(["`aiofiles`"])
     aiohappyeyeballs(["`aiohappyeyeballs`"])
+    alabaster(["`alabaster`"])
     async_timeout(["`async-timeout`"])
     attrs(["`attrs`"])
+    babel(["`babel`"])
     bracex(["`bracex`"])
+    certifi(["`certifi`"])
+    charset_normalizer(["`charset-normalizer`"])
     deepmerge(["`deepmerge`"])
+    execnet(["`execnet`"])
+    imagesize(["`imagesize`"])
+    iniconfig(["`iniconfig`"])
+    markupsafe(["`markupsafe`"])
+    mdurl(["`mdurl`"])
+    psutil(["`psutil`"])
+    roman_numerals(["`roman-numerals`"])
     six(["`six`"])
     sly(["`sly`"])
+    snowballstemmer(["`snowballstemmer`"])
+    soupsieve(["`soupsieve`"])
+    sphinxcontrib_applehelp(["`sphinxcontrib-applehelp`"])
+    sphinxcontrib_devhelp(["`sphinxcontrib-devhelp`"])
+    sphinxcontrib_htmlhelp(["`sphinxcontrib-htmlhelp`"])
+    sphinxcontrib_jsmath(["`sphinxcontrib-jsmath`"])
+    sphinxcontrib_qthelp(["`sphinxcontrib-qthelp`"])
+    sphinxcontrib_serializinghtml(["`sphinxcontrib-serializinghtml`"])
     tzdata(["`tzdata`"])
+    urllib3(["`urllib3`"])
 
     subgraph grp_docs [--group docs]
         sphinx{{"`sphinx >=8`"}}
         myst_parser{{"`myst-parser >=5.1`"}}
         furo{{"`furo >=2025.9.25`"}}
-        pygments(["`pygments`"])
-        requests(["`requests`"])
-        jinja2(["`jinja2`"])
         sphinx_datatables{{"`sphinx-datatables >=1`"}}
         sphinxcontrib_mermaid{{"`sphinxcontrib-mermaid >=1.2.3`"}}
-        beautifulsoup4(["`beautifulsoup4`"])
-        docutils(["`docutils`"])
-        markdown_it_py(["`markdown-it-py`"])
-        accessible_pygments(["`accessible-pygments`"])
-        mdit_py_plugins(["`mdit-py-plugins`"])
         sphinx_autodoc_typehints{{"`sphinx-autodoc-typehints >=2.4`"}}
-        sphinx_basic_ng(["`sphinx-basic-ng`"])
         sphinx_copybutton{{"`sphinx-copybutton >=0.5.2`"}}
         sphinx_design{{"`sphinx-design >=0.6`"}}
-        sphinxcontrib_jquery(["`sphinxcontrib-jquery`"])
         sphinxext_opengraph{{"`sphinxext-opengraph >=0.13`"}}
-        alabaster(["`alabaster`"])
-        babel(["`babel`"])
-        certifi(["`certifi`"])
-        charset_normalizer(["`charset-normalizer`"])
-        imagesize(["`imagesize`"])
-        markupsafe(["`markupsafe`"])
-        mdurl(["`mdurl`"])
-        roman_numerals(["`roman-numerals`"])
-        snowballstemmer(["`snowballstemmer`"])
-        soupsieve(["`soupsieve`"])
-        sphinxcontrib_applehelp(["`sphinxcontrib-applehelp`"])
-        sphinxcontrib_devhelp(["`sphinxcontrib-devhelp`"])
-        sphinxcontrib_htmlhelp(["`sphinxcontrib-htmlhelp`"])
-        sphinxcontrib_jsmath(["`sphinxcontrib-jsmath`"])
-        sphinxcontrib_qthelp(["`sphinxcontrib-qthelp`"])
-        sphinxcontrib_serializinghtml(["`sphinxcontrib-serializinghtml`"])
-        urllib3(["`urllib3`"])
     end
 
     subgraph grp_test [--group test]
@@ -85,13 +90,8 @@ flowchart LR
         pytest_cov{{"`pytest-cov >=4`"}}
         pytest_xdist{{"`pytest-xdist >=3.7`"}}
         coverage{{"`coverage >=7.11`"}}
-        exceptiongroup(["`exceptiongroup`"])
-        pluggy(["`pluggy`"])
         pytest_github_actions_annotate_failures{{"`pytest-github-actions-annotate-failures >=0.2`"}}
         pytest_randomly{{"`pytest-randomly >=3`"}}
-        execnet(["`execnet`"])
-        iniconfig(["`iniconfig`"])
-        psutil(["`psutil`"])
     end
 
     subgraph grp_typing [--group typing]

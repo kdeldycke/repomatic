@@ -115,7 +115,7 @@ class DependencyGraphConfig:
     level: int | None = None
     """Maximum depth of the dependency graph.
 
-    `None` means unlimited. `1` = primary deps only, `2` = primary +
+    `None` means unlimited. `1` = directly-declared deps only, `2` = adds
     their deps, etc. Equivalent to `--level`.
     """
 

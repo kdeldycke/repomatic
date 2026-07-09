@@ -88,9 +88,9 @@ from .config import (
     escape_type_for_gfm_table,
 )
 from .deps_graph import (
+    SubgraphKind,
     generate_dependency_graph,
-    get_available_extras,
-    get_available_groups,
+    resolve_subgraph_selection,
 )
 from .git_ops import commit_and_push_files, create_and_push_tag
 from .github import token as _token_mod, unsubscribe as _unsub_mod
@@ -1705,7 +1705,7 @@ def sponsor_label(
     type=IntRange(min=1),
     default=None,
     help="Maximum depth of the dependency graph. "
-    "1 = primary deps only, 2 = primary + their deps, etc.",
+    "1 = directly-declared deps only, 2 = adds their deps, etc.",
 )
 @option(
     "-o",
@@ -1790,43 +1790,30 @@ def deps_graph(
         else:
             output = Path("-")
 
-    # Apply config defaults when CLI flags are not explicitly provided.
-    if not all_groups and not groups and not only_groups:
-        all_groups = config.dependency_graph.all_groups
-    if not all_extras and not extras and not only_extras:
-        all_extras = config.dependency_graph.all_extras
-    if not excluded_groups and config.dependency_graph.no_groups:
-        excluded_groups = tuple(config.dependency_graph.no_groups)
-    if not excluded_extras and config.dependency_graph.no_extras:
-        excluded_extras = tuple(config.dependency_graph.no_extras)
     if level is None:
         level = config.dependency_graph.level
 
-    # Resolve --only-group/--only-extra (exclusive mode: no main deps).
+    # --only-group/--only-extra select an exclusive mode: no main deps.
     exclude_base = bool(only_groups or only_extras)
-    if only_groups:
-        groups = only_groups
-    if only_extras:
-        extras = only_extras
 
-    # Resolve --all-groups and --all-extras flags.
-    resolved_groups: tuple[str, ...] | None = groups if groups else None
-    if all_groups:
-        resolved_groups = get_available_groups()
-        logging.info(f"Discovered groups: {', '.join(resolved_groups)}")
-
-    resolved_extras: tuple[str, ...] | None = extras if extras else None
-    if all_extras:
-        resolved_extras = get_available_extras()
-        logging.info(f"Discovered extras: {', '.join(resolved_extras)}")
-
-    # Apply --no-group and --no-extra exclusions.
-    if excluded_groups and resolved_groups:
-        resolved_groups = tuple(g for g in resolved_groups if g not in excluded_groups)
-        logging.info(f"After exclusions, groups: {', '.join(resolved_groups)}")
-    if excluded_extras and resolved_extras:
-        resolved_extras = tuple(e for e in resolved_extras if e not in excluded_extras)
-        logging.info(f"After exclusions, extras: {', '.join(resolved_extras)}")
+    resolved_groups = resolve_subgraph_selection(
+        SubgraphKind.GROUP,
+        groups,
+        all_groups,
+        excluded_groups,
+        only_groups,
+        config.dependency_graph.all_groups,
+        config.dependency_graph.no_groups,
+    )
+    resolved_extras = resolve_subgraph_selection(
+        SubgraphKind.EXTRA,
+        extras,
+        all_extras,
+        excluded_extras,
+        only_extras,
+        config.dependency_graph.all_extras,
+        config.dependency_graph.no_extras,
+    )
 
     graph = generate_dependency_graph(
         package=package,

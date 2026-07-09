@@ -21,17 +21,17 @@ from pathlib import Path
 import pytest
 
 from repomatic.deps_graph import (
+    Subgraph,
+    SubgraphKind,
     _compute_node_degrees,
     _compute_node_depths,
     _compute_subtree_sizes,
     attribute_subgraph_packages,
     build_dependency_graph,
     filter_graph_to_package,
-    get_available_extras,
-    get_available_groups,
     normalize_package_name,
-    parse_bom_ref,
     render_mermaid,
+    resolve_subgraph_selection,
     trim_graph_to_depth,
 )
 from repomatic.uv import LockSpecifiers
@@ -95,6 +95,18 @@ CYCLIC_SBOM = {
 }
 
 
+def _subgraph_block(output: str, subgraph_id: str) -> list[str]:
+    """Extract the lines between a subgraph declaration and its closing `end`."""
+    lines = output.splitlines()
+    start = next(
+        i
+        for i, line in enumerate(lines)
+        if line.strip().startswith(f"subgraph {subgraph_id} ")
+    )
+    end = next(i for i in range(start, len(lines)) if lines[i].strip() == "end")
+    return [line.strip() for line in lines[start + 1 : end]]
+
+
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
@@ -113,35 +125,25 @@ def test_normalize_package_name(name: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("bom_ref", "expected_name", "expected_version"),
+    ("kind", "name", "mermaid_id", "title"),
     [
-        ("click-2@8.0.0", "click", "8.0.0"),
-        ("click-extra-11@7.4.0", "click-extra", "7.4.0"),
-        ("my-project-1@1.0.0", "my-project", "1.0.0"),
-        ("simple@1.0", "simple", "1.0"),
-        ("no-version-123", "no-version", ""),
-        ("urllib3-4@1.26.0", "urllib3", "1.26.0"),
+        (SubgraphKind.GROUP, "test", "grp_test", "--group test"),
+        (SubgraphKind.EXTRA, "json5", "ext_json5", "--extra json5"),
     ],
 )
-def test_parse_bom_ref(bom_ref: str, expected_name: str, expected_version: str) -> None:
-    name, version = parse_bom_ref(bom_ref)
-    assert name == expected_name
-    assert version == expected_version
+def test_subgraph_identity(
+    kind: SubgraphKind, name: str, mermaid_id: str, title: str
+) -> None:
+    subgraph = Subgraph(kind, name, set(), set())
+    assert subgraph.mermaid_id == mermaid_id
+    assert subgraph.title == title
 
 
 def test_build_dependency_graph() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
 
     assert root_name == "my-project"
-    assert len(nodes) == 5  # root + 4 components.
-
-    # Check nodes contain expected packages.
-    node_names = {name for name, _ in nodes.values()}
-    assert "my-project" in node_names
-    assert "click" in node_names
-    assert "requests" in node_names
-    assert "urllib3" in node_names
-    assert "certifi" in node_names
+    assert packages == {"my-project", "click", "requests", "urllib3", "certifi"}
 
     # Check edges.
     assert ("my-project", "click") in edges
@@ -152,20 +154,15 @@ def test_build_dependency_graph() -> None:
 
 
 def test_filter_graph_to_package() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    _root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
 
     # Filter to requests package.
-    filtered_nodes, filtered_edges = filter_graph_to_package(
-        root_name, nodes, edges, "requests"
+    filtered_packages, filtered_edges = filter_graph_to_package(
+        packages, edges, "requests"
     )
 
     # Should only include requests and its dependencies.
-    filtered_names = {name for name, _ in filtered_nodes.values()}
-    assert "requests" in filtered_names
-    assert "urllib3" in filtered_names
-    assert "certifi" in filtered_names
-    assert "my-project" not in filtered_names
-    assert "click" not in filtered_names
+    assert filtered_packages == {"requests", "urllib3", "certifi"}
 
     # Check edges.
     assert ("requests", "urllib3") in filtered_edges
@@ -174,24 +171,22 @@ def test_filter_graph_to_package() -> None:
 
 
 def test_trim_graph_to_depth_zero() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
 
     # Depth 0 = root only.
-    trimmed_nodes, trimmed_edges = trim_graph_to_depth(root_name, nodes, edges, 0)
+    trimmed_packages, trimmed_edges = trim_graph_to_depth(root_name, packages, edges, 0)
 
-    trimmed_names = {name for name, _ in trimmed_nodes.values()}
-    assert trimmed_names == {"my-project"}
+    assert trimmed_packages == {"my-project"}
     assert trimmed_edges == []
 
 
 def test_trim_graph_to_depth_one() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
 
     # Depth 1 = root + primary deps.
-    trimmed_nodes, trimmed_edges = trim_graph_to_depth(root_name, nodes, edges, 1)
+    trimmed_packages, trimmed_edges = trim_graph_to_depth(root_name, packages, edges, 1)
 
-    trimmed_names = {name for name, _ in trimmed_nodes.values()}
-    assert trimmed_names == {"my-project", "click", "requests"}
+    assert trimmed_packages == {"my-project", "click", "requests"}
     # Only edges from root to primary deps.
     assert ("my-project", "click") in trimmed_edges
     assert ("my-project", "requests") in trimmed_edges
@@ -199,30 +194,30 @@ def test_trim_graph_to_depth_one() -> None:
 
 
 def test_trim_graph_to_depth_two() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
 
     # Depth 2 = root + primary deps + their deps.
-    trimmed_nodes, trimmed_edges = trim_graph_to_depth(root_name, nodes, edges, 2)
+    trimmed_packages, trimmed_edges = trim_graph_to_depth(root_name, packages, edges, 2)
 
-    trimmed_names = {name for name, _ in trimmed_nodes.values()}
-    assert trimmed_names == {"my-project", "click", "requests", "urllib3", "certifi"}
+    assert trimmed_packages == {"my-project", "click", "requests", "urllib3", "certifi"}
     assert len(trimmed_edges) == 4
 
 
 def test_trim_graph_to_depth_exceeding() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
 
     # Depth larger than the graph keeps everything.
-    trimmed_nodes, trimmed_edges = trim_graph_to_depth(root_name, nodes, edges, 100)
+    trimmed_packages, trimmed_edges = trim_graph_to_depth(
+        root_name, packages, edges, 100
+    )
 
-    trimmed_names = {name for name, _ in trimmed_nodes.values()}
-    assert len(trimmed_names) == 5
+    assert trimmed_packages == packages
     assert len(trimmed_edges) == len(edges)
 
 
 def test_render_mermaid() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
-    output = render_mermaid(root_name, nodes, edges)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
+    output = render_mermaid(root_name, packages, edges)
 
     assert output.startswith("flowchart LR")
     # "click" is a reserved Mermaid keyword, so it gets "_0" suffix.
@@ -245,7 +240,7 @@ def test_render_mermaid() -> None:
 
 
 def test_render_mermaid_with_specifiers() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
     # Provide specifiers for edge labels.
     lock_specs = LockSpecifiers(
         by_package={
@@ -254,7 +249,7 @@ def test_render_mermaid_with_specifiers() -> None:
         },
         by_subgraph={},
     )
-    output = render_mermaid(root_name, nodes, edges, lock_specs=lock_specs)
+    output = render_mermaid(root_name, packages, edges, lock_specs=lock_specs)
 
     # Check edge labels with specifiers.
     assert 'my_project ==>|" >=8.0 "| click_0' in output
@@ -264,34 +259,31 @@ def test_render_mermaid_with_specifiers() -> None:
 
 
 def test_render_mermaid_with_groups() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
-    # Add a test package to a group.
-    group_packages = {"test": {"pytest"}}
-    # Add pytest to nodes and edges.
-    extended_nodes = dict(nodes)
-    extended_nodes["pytest-6@7.0.0"] = ("pytest", "7.0.0")
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
+    # Add a test package declared by a group.
+    subgraphs = [Subgraph(SubgraphKind.GROUP, "test", {"pytest"}, set())]
+    extended_packages = packages | {"pytest"}
     extended_edges = list(edges) + [("my-project", "pytest")]
 
-    output = render_mermaid(root_name, extended_nodes, extended_edges, group_packages)
+    output = render_mermaid(root_name, extended_packages, extended_edges, subgraphs)
 
     # Group subgraph ID is prefixed to avoid collision with node IDs.
     assert "subgraph grp_test [--group test]" in output
-    # Root uses dashed arrow to group subgraph.
+    # Root uses dashed arrow to group subgraph, not an individual edge.
     assert "my_project -.-> grp_test" in output
+    assert "my_project ==> pytest" not in output
 
 
 def test_render_mermaid_with_subgraph_specifiers() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
-    # Add test packages to a group.
-    group_packages = {"test": {"pytest", "coverage"}}
-    extended_nodes = dict(nodes)
-    extended_nodes["pytest-6@7.0.0"] = ("pytest", "7.0.0")
-    extended_nodes["coverage-7@7.0.0"] = ("coverage", "7.0.0")
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
+    # Add test packages declared by a group.
+    subgraphs = [Subgraph(SubgraphKind.GROUP, "test", {"pytest", "coverage"}, set())]
+    extended_packages = packages | {"pytest", "coverage"}
     extended_edges = list(edges) + [
         ("my-project", "pytest"),
         ("my-project", "coverage"),
     ]
-    # Specifiers for primary deps in the test group.
+    # Specifiers for the declared deps of the test group.
     lock_specs = LockSpecifiers(
         by_package={},
         by_subgraph={"test": {"pytest": ">=9", "coverage": ">=7.11"}},
@@ -299,33 +291,30 @@ def test_render_mermaid_with_subgraph_specifiers() -> None:
 
     output = render_mermaid(
         root_name,
-        extended_nodes,
+        extended_packages,
         extended_edges,
-        group_packages,
+        subgraphs,
         lock_specs=lock_specs,
     )
 
-    # Primary group deps use hexagon shape with specifier in label.
+    # Declared group deps use hexagon shape with specifier in label.
     assert 'pytest{{"`pytest >=9`"}}' in output
     assert 'coverage{{"`coverage >=7.11`"}}' in output
 
 
-def test_render_mermaid_primary_deps_in_subgraph() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
-    # Add test packages: pytest and pytest-cov (primary), iniconfig (transitive).
-    group_packages = {"test": {"pytest", "pytest-cov", "iniconfig"}}
-    extended_nodes = dict(nodes)
-    extended_nodes["pytest-6@7.0.0"] = ("pytest", "7.0.0")
-    extended_nodes["pytest-cov-8@7.0.0"] = ("pytest-cov", "7.0.0")
-    extended_nodes["iniconfig-9@2.0.0"] = ("iniconfig", "2.0.0")
+def test_render_mermaid_transitive_deps_outside_box() -> None:
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
+    # pytest and pytest-cov are declared by the group; iniconfig is only pulled
+    # in transitively, so it must render outside the box like any other
+    # transitive dependency.
+    subgraphs = [Subgraph(SubgraphKind.GROUP, "test", {"pytest", "pytest-cov"}, set())]
+    extended_packages = packages | {"pytest", "pytest-cov", "iniconfig"}
     extended_edges = list(edges) + [
         ("my-project", "pytest"),
         ("my-project", "pytest-cov"),
-        ("my-project", "iniconfig"),
         ("pytest-cov", "pytest"),
         ("pytest", "iniconfig"),
     ]
-    # pytest and pytest-cov are primary deps (in lock_specs.by_subgraph).
     lock_specs = LockSpecifiers(
         by_package={},
         by_subgraph={"test": {"pytest": ">=9", "pytest-cov": ">=7"}},
@@ -333,41 +322,54 @@ def test_render_mermaid_primary_deps_in_subgraph() -> None:
 
     output = render_mermaid(
         root_name,
-        extended_nodes,
+        extended_packages,
         extended_edges,
-        group_packages,
+        subgraphs,
         lock_specs=lock_specs,
     )
 
-    # Primary deps use hexagon shape.
-    assert 'pytest{{"`pytest >=9`"}}' in output
-    assert 'pytest_cov{{"`pytest-cov >=7`"}}' in output
-    # Transitive dep uses round shape.
+    # Declared deps use hexagon shape, inside the box.
+    box_lines = _subgraph_block(output, "grp_test")
+    assert 'pytest{{"`pytest >=9`"}}' in box_lines
+    assert 'pytest_cov{{"`pytest-cov >=7`"}}' in box_lines
+    # The transitive dep renders outside the box, as a plain oval.
+    assert all("iniconfig" not in line for line in box_lines)
     assert 'iniconfig(["`iniconfig`"])' in output
+    # Declared deps get the thick border; the transitive dep does not.
+    assert "style pytest stroke-width:3px" in output
+    assert "style iniconfig" not in output
     # A transitive edge between two non-root packages stays thin, even when it
-    # points at a primary dep: only edges leaving the root are thick.
+    # points at a declared dep: only edges leaving the root are thick.
     assert "pytest_cov --> pytest" in output
     # Arrow pointing to a transitive dep uses normal style.
     assert "pytest --> iniconfig" in output
 
 
 def test_render_mermaid_with_extras() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
-    # Add a package to an extra.
-    extra_packages = {"xml": {"lxml"}}
-    # Add lxml to nodes and edges.
-    extended_nodes = dict(nodes)
-    extended_nodes["lxml-7@4.9.0"] = ("lxml", "4.9.0")
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
+    # Add a package declared by an extra.
+    subgraphs = [Subgraph(SubgraphKind.EXTRA, "xml", {"lxml"}, set())]
+    extended_packages = packages | {"lxml"}
     extended_edges = list(edges) + [("my-project", "lxml")]
 
-    output = render_mermaid(
-        root_name, extended_nodes, extended_edges, extra_packages=extra_packages
-    )
+    output = render_mermaid(root_name, extended_packages, extended_edges, subgraphs)
 
     # Extra subgraph ID is prefixed to avoid collision with node IDs.
     assert "subgraph ext_xml [--extra xml]" in output
     # Root uses dashed arrow to extra subgraph.
     assert "my_project -.-> ext_xml" in output
+
+
+def test_render_mermaid_skips_filtered_out_box() -> None:
+    # The group's packages were all filtered out of the graph (depth trim or
+    # package focus): the box, its dashed arrow, and its style line all vanish.
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
+    subgraphs = [Subgraph(SubgraphKind.GROUP, "test", {"pytest"}, set())]
+
+    output = render_mermaid(root_name, packages, edges, subgraphs)
+
+    assert "grp_test" not in output
+    assert "pytest" not in output
 
 
 def test_attribute_subgraph_packages_duplicate_headlines() -> None:
@@ -384,15 +386,15 @@ def test_attribute_subgraph_packages_duplicate_headlines() -> None:
         "cafe": {"sugar"},
         "diner": {"sugar", "plate"},
     }
-    primary, duplicates = attribute_subgraph_packages(
+    owned, duplicates = attribute_subgraph_packages(
         subgraph_closures, {"water"}, direct_packages, [], "pantry"
     )
     # First declarer (processing order) owns the shared headline as a real node.
-    assert primary["bakery"] == {"flour", "sugar"}
-    assert primary["cafe"] == set()
-    assert primary["diner"] == {"plate"}
+    assert owned["bakery"] == {"flour", "sugar"}
+    assert owned["cafe"] == set()
+    assert owned["diner"] == {"plate"}
     # Base dependency never lands in a subgraph.
-    assert all("water" not in pkgs for pkgs in primary.values())
+    assert all("water" not in pkgs for pkgs in owned.values())
     # Siblings that also declare `sugar` keep it as a duplicate headline, so
     # their box still renders the dependency they exist to install.
     assert duplicates["bakery"] == set()
@@ -407,11 +409,11 @@ def test_attribute_subgraph_packages_equivalent_subgraphs() -> None:
     # declaration order despite the root depending on `juice`.
     subgraph_closures = [("cider", {"juice"}), ("wine", {"juice"})]
     direct_packages = {"cider": {"juice"}, "wine": {"juice"}}
-    primary, duplicates = attribute_subgraph_packages(
+    owned, duplicates = attribute_subgraph_packages(
         subgraph_closures, set(), direct_packages, [("orchard", "juice")], "orchard"
     )
-    assert primary["cider"] == {"juice"}
-    assert primary["wine"] == set()
+    assert owned["cider"] == {"juice"}
+    assert owned["wine"] == set()
     assert duplicates["cider"] == set()
     assert duplicates["wine"] == {"juice"}
 
@@ -436,23 +438,36 @@ def test_attribute_subgraph_packages_dependents_tie_break() -> None:
         ("sourdough", "yeast"),
         ("baguette", "yeast"),
     ]
-    primary, duplicates = attribute_subgraph_packages(
+    owned, duplicates = attribute_subgraph_packages(
         subgraph_closures, set(), direct_packages, edges, "kitchen"
     )
-    assert primary["pastry"] == {"butter"}
-    assert primary["bread"] == {"sourdough", "baguette", "yeast"}
+    assert owned["pastry"] == {"butter"}
+    assert owned["bread"] == {"sourdough", "baguette", "yeast"}
     assert duplicates["pastry"] == {"yeast"}
     assert duplicates["bread"] == set()
 
 
+def test_attribute_subgraph_packages_transitive_stays_out() -> None:
+    # `yeast` is pulled in by bakery's declared `flour` but is not declared
+    # itself: it must not land in any box, nor count as a duplicate.
+    subgraph_closures = [("bakery", {"flour", "yeast"})]
+    direct_packages = {"bakery": {"flour"}}
+    owned, duplicates = attribute_subgraph_packages(
+        subgraph_closures, set(), direct_packages, [("flour", "yeast")], "pantry"
+    )
+    assert owned["bakery"] == {"flour"}
+    assert duplicates["bakery"] == set()
+
+
 def test_render_mermaid_with_duplicate_headlines() -> None:
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
     # `pyyaml` is a shared headline: owned by extra `carapace`, duplicated into
     # extra `yaml` so both boxes render it (see attribute_subgraph_packages).
-    extra_packages = {"carapace": {"pyyaml"}, "yaml": set()}
-    extra_duplicates = {"carapace": set(), "yaml": {"pyyaml"}}
-    extended_nodes = dict(nodes)
-    extended_nodes["pyyaml-7@6.0.3"] = ("pyyaml", "6.0.3")
+    subgraphs = [
+        Subgraph(SubgraphKind.EXTRA, "carapace", {"pyyaml"}, set()),
+        Subgraph(SubgraphKind.EXTRA, "yaml", set(), {"pyyaml"}),
+    ]
+    extended_packages = packages | {"pyyaml"}
     extended_edges = list(edges) + [("my-project", "pyyaml")]
     lock_specs = LockSpecifiers(
         by_package={},
@@ -463,11 +478,10 @@ def test_render_mermaid_with_duplicate_headlines() -> None:
     )
     output = render_mermaid(
         root_name,
-        extended_nodes,
+        extended_packages,
         extended_edges,
-        extra_packages=extra_packages,
+        subgraphs,
         lock_specs=lock_specs,
-        extra_duplicates=extra_duplicates,
     )
     # Owner renders the real node; the duplicate box uses a prefixed node ID so
     # Mermaid keeps it separate, with the same label and PyPI link.
@@ -526,7 +540,7 @@ def test_cyclic_graph_traversals_terminate() -> None:
     cycle, so reaching the asserts at all proves cycle-safety; the values pin the
     expected output.
     """
-    root_name, nodes, edges = build_dependency_graph(CYCLIC_SBOM)
+    root_name, packages, edges = build_dependency_graph(CYCLIC_SBOM)
     assert root_name == "orchard"
     # The self-loop survives parsing as a (cherry, cherry) edge.
     assert ("cherry", "cherry") in edges
@@ -534,29 +548,20 @@ def test_cyclic_graph_traversals_terminate() -> None:
     assert ("banana", "apple") in edges
 
     # trim_graph_to_depth: BFS bounded by depth, neighbours visited once.
-    depth2_nodes, depth2_edges = trim_graph_to_depth(root_name, nodes, edges, 2)
-    assert {name for name, _ in depth2_nodes.values()} == {"orchard", "apple", "banana"}
+    depth2_packages, depth2_edges = trim_graph_to_depth(root_name, packages, edges, 2)
+    assert depth2_packages == {"orchard", "apple", "banana"}
     # cherry sits at depth 3, so it is trimmed out at depth 2.
     assert ("banana", "cherry") not in depth2_edges
     # A depth far beyond the graph keeps every node and edge without looping.
-    full_nodes, full_edges = trim_graph_to_depth(root_name, nodes, edges, 100)
-    assert {name for name, _ in full_nodes.values()} == {
-        "orchard",
-        "apple",
-        "banana",
-        "cherry",
-    }
+    full_packages, full_edges = trim_graph_to_depth(root_name, packages, edges, 100)
+    assert full_packages == {"orchard", "apple", "banana", "cherry"}
     assert len(full_edges) == len(edges)
 
     # filter_graph_to_package: fixed-point closure converges despite the cycle.
-    filtered_nodes, filtered_edges = filter_graph_to_package(
-        root_name, nodes, edges, "apple"
+    filtered_packages, filtered_edges = filter_graph_to_package(
+        packages, edges, "apple"
     )
-    assert {name for name, _ in filtered_nodes.values()} == {
-        "apple",
-        "banana",
-        "cherry",
-    }
+    assert filtered_packages == {"apple", "banana", "cherry"}
     # orchard -> apple is dropped: orchard is not reachable from apple.
     assert ("orchard", "apple") not in filtered_edges
     assert ("banana", "apple") in filtered_edges
@@ -575,8 +580,8 @@ def test_cyclic_graph_traversals_terminate() -> None:
 
 def test_render_mermaid_with_cycle() -> None:
     """The full render path stays cycle-safe and emits the self-loop edge."""
-    root_name, nodes, edges = build_dependency_graph(CYCLIC_SBOM)
-    output = render_mermaid(root_name, nodes, edges)
+    root_name, packages, edges = build_dependency_graph(CYCLIC_SBOM)
+    output = render_mermaid(root_name, packages, edges)
     assert output.startswith("flowchart LR")
     assert "cherry --> cherry" in output
     assert "banana --> apple" in output
@@ -584,8 +589,8 @@ def test_render_mermaid_with_cycle() -> None:
 
 def test_render_mermaid_primary_deps_ordering() -> None:
     """Primary deps with larger subtrees should be declared first."""
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
-    output = render_mermaid(root_name, nodes, edges)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
+    output = render_mermaid(root_name, packages, edges)
     # requests (subtree=2) should appear before click (subtree=0).
     lines = output.splitlines()
     requests_idx = next(i for i, line in enumerate(lines) if "requests{{" in line)
@@ -595,8 +600,8 @@ def test_render_mermaid_primary_deps_ordering() -> None:
 
 def test_render_mermaid_edge_ordering() -> None:
     """Root edges should come before transitive edges."""
-    root_name, nodes, edges = build_dependency_graph(SAMPLE_SBOM)
-    output = render_mermaid(root_name, nodes, edges)
+    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
+    output = render_mermaid(root_name, packages, edges)
     lines = output.splitlines()
     # Find edge lines (contain ==> or -->).
     edge_lines = [line.strip() for line in lines if "==>" in line or "-->" in line]
@@ -617,24 +622,66 @@ def test_render_mermaid_edge_ordering() -> None:
     assert requests_edge < click_edge
 
 
-def test_get_available_groups() -> None:
+def test_available_groups() -> None:
     # Test against the actual pyproject.toml in the repo.
-    groups = get_available_groups()
+    groups = SubgraphKind.GROUP.available()
     # Should discover test and typing groups.
     assert "test" in groups
     assert "typing" in groups
 
 
-def test_get_available_extras(tmp_path: Path) -> None:
+def test_available_extras(tmp_path: Path) -> None:
     # Use a temporary pyproject.toml with known extras.
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         "[project.optional-dependencies]\n"
         'xml = ["click-extra [xml]"]\n'
         'yaml = ["click-extra [yaml]"]\n'
-        'json5 = ["click-extra [json5]"]\n'
+        'json5 = ["click-extra [json5]"]\n',
+        encoding="utf-8",
     )
-    extras = get_available_extras(pyproject)
-    assert "xml" in extras
-    assert "yaml" in extras
-    assert "json5" in extras
+    assert SubgraphKind.EXTRA.available(tmp_path) == ("json5", "xml", "yaml")
+    # The same file declares no dependency groups.
+    assert SubgraphKind.GROUP.available(tmp_path) == ()
+
+
+def test_resolve_subgraph_selection() -> None:
+    # Resolve against the actual pyproject.toml in the repo, whose groups
+    # include docs, test and typing.
+    groups = SubgraphKind.GROUP.available()
+    assert {"docs", "test", "typing"} <= set(groups)
+
+    def resolve(
+        explicit: tuple[str, ...] = (),
+        select_all: bool = False,
+        excluded: tuple[str, ...] = (),
+        only: tuple[str, ...] = (),
+        config_all: bool = False,
+        config_excluded: tuple[str, ...] = (),
+    ) -> tuple[str, ...] | None:
+        return resolve_subgraph_selection(
+            SubgraphKind.GROUP,
+            explicit,
+            select_all,
+            excluded,
+            only,
+            config_all,
+            config_excluded,
+        )
+
+    # No flags and no config default: the axis is not requested.
+    assert resolve() is None
+    # No flags: the config default expands to every declared group.
+    assert resolve(config_all=True) == groups
+    # An explicit selection wins over the config default.
+    assert resolve(explicit=("test",), config_all=True) == ("test",)
+    # --only-* replaces the explicit selection.
+    assert resolve(explicit=("test",), only=("typing",)) == ("typing",)
+    # --no-* prunes the expanded selection.
+    assert resolve(select_all=True, excluded=("docs",)) == tuple(
+        name for name in groups if name != "docs"
+    )
+    # The configured exclusions apply when no --no-* flag is passed.
+    assert resolve(select_all=True, config_excluded=("docs", "typing")) == tuple(
+        name for name in groups if name not in {"docs", "typing"}
+    )

@@ -15,6 +15,12 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 """Generate Mermaid dependency graphs from uv lockfiles.
 
+Every box in the graph (the primary dependencies rectangle and each
+`--group`/`--extra` subgraph) only holds directly-declared dependencies,
+drawn as hexagons: the packages under the project's control, referenced in
+`pyproject.toml`. Transitive dependencies always render outside the boxes,
+as plain ovals.
+
 ```{note}
 Uses `uv export --format cyclonedx1.5` which provides structured JSON
 with dependency relationships, replacing the need for pipdeptree.
@@ -34,15 +40,17 @@ import json
 import logging
 import re
 import subprocess
+from dataclasses import dataclass
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 
-import tomlrt
-
+from repomatic.pyproject import read_pyproject_toml
 from repomatic.uv import load_lock_data, parse_lock_specifiers, uv_cmd
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from typing import Any
 
     from repomatic.uv import LockSpecifiers
@@ -115,6 +123,88 @@ dependencies of their box.
 """
 
 
+class SubgraphKind(Enum):
+    """Kind of dependency selector a subgraph box represents."""
+
+    GROUP = "group"
+    EXTRA = "extra"
+
+    @property
+    def flag(self) -> str:
+        """CLI flag selecting this kind, shown as the box title prefix."""
+        return f"--{self.value}"
+
+    def available(self, project_root: Path | None = None) -> tuple[str, ...]:
+        """Discover this kind's declared names from `pyproject.toml`.
+
+        Groups come from the `[dependency-groups]` table, extras from
+        `[project.optional-dependencies]`.
+
+        :param project_root: Directory holding `pyproject.toml`. Defaults to
+            the current working directory.
+        :return: Sorted tuple of group or extra names.
+        """
+        data = read_pyproject_toml(project_root)
+        if self is SubgraphKind.GROUP:
+            table = data.get("dependency-groups", {})
+        else:
+            table = data.get("project", {}).get("optional-dependencies", {})
+        return tuple(sorted(table))
+
+    @property
+    def mermaid_prefix(self) -> str:
+        """Namespace prefix keeping subgraph IDs distinct from node IDs.
+
+        Without it, a `json5` extra box would collide with a `json5` package
+        node.
+        """
+        return "grp" if self is SubgraphKind.GROUP else "ext"
+
+    @property
+    def style(self) -> str:
+        """Mermaid style for boxes of this kind."""
+        if self is SubgraphKind.GROUP:
+            return STYLE_GROUP_SUBGRAPH
+        return STYLE_EXTRA_SUBGRAPH
+
+
+@dataclass
+class Subgraph:
+    """One `--group` or `--extra` box in the rendered graph.
+
+    A box only holds the packages its group or extra declares directly: the
+    dependencies under the project's control, referenced in `pyproject.toml`.
+    Transitive dependencies always render outside the boxes, exactly like the
+    transitive dependencies of the primary set.
+    """
+
+    kind: SubgraphKind
+    """Whether the box represents a dependency group or an optional extra."""
+
+    name: str
+    """Group or extra name, as declared in `pyproject.toml`."""
+
+    owned: set[str]
+    """Directly-declared packages this box renders as real hexagon nodes."""
+
+    duplicates: set[str]
+    """Directly-declared packages owned by a sibling box.
+
+    Rendered as display-only duplicate nodes tied to the real node by a dotted
+    identity link. See {func}`attribute_subgraph_packages`.
+    """
+
+    @property
+    def mermaid_id(self) -> str:
+        """Mermaid subgraph ID, namespaced away from node IDs."""
+        return f"{self.kind.mermaid_prefix}_{self.name}"
+
+    @property
+    def title(self) -> str:
+        """Box title, echoing the CLI flag that pulls these packages in."""
+        return f"{self.kind.flag} {self.name}"
+
+
 MERMAID_RESERVED_KEYWORDS: frozenset[str] = frozenset((
     "C4Component",
     "C4Container",
@@ -158,69 +248,46 @@ def normalize_package_name(name: str) -> str:
     return node_id
 
 
-def parse_bom_ref(bom_ref: str) -> tuple[str, str]:
-    """Parse a CycloneDX bom-ref into package name and version.
+def resolve_subgraph_selection(
+    kind: SubgraphKind,
+    explicit: tuple[str, ...],
+    select_all: bool,
+    excluded: tuple[str, ...],
+    only: tuple[str, ...],
+    config_all: bool,
+    config_excluded: Sequence[str],
+) -> tuple[str, ...] | None:
+    """Resolve which groups or extras the graph should render.
 
-    The format is typically `name-index@version` (e.g., `click-extra-11@7.4.0`).
+    Mirrors one selection axis of the `update-deps-graph` command: explicit
+    CLI values win over the `[tool.repomatic] dependency-graph` defaults;
+    `--only-*` replaces the explicit selection; `--all-*` expands to every
+    name declared in `pyproject.toml`; `--no-*` prunes last.
 
-    :param bom_ref: The bom-ref string from CycloneDX.
-    :return: Tuple of (package_name, version).
+    :param kind: The axis to resolve, groups or extras.
+    :param explicit: Names selected one by one (`--group`/`--extra`).
+    :param select_all: Select every declared name (`--all-groups`/`--all-extras`).
+    :param excluded: Names to prune from the selection (`--no-group`/`--no-extra`).
+    :param only: Names selected in exclusive mode (`--only-group`/`--only-extra`).
+    :param config_all: Configured default for *select_all*, applied when no
+        selection flag is passed.
+    :param config_excluded: Configured default for *excluded*.
+    :return: Selected names, or `None` when the axis is not requested at all.
     """
-    # Split on @ to get version.
-    if "@" in bom_ref:
-        name_part, version = bom_ref.rsplit("@", 1)
-    else:
-        name_part = bom_ref
-        version = ""
-
-    # Remove trailing index (e.g., "click-extra-11" -> "click-extra").
-    # The index is a number added by uv to ensure uniqueness.
-    match = re.match(r"^(.+)-(\d+)$", name_part)
-    if match:
-        name = match.group(1)
-    else:
-        name = name_part
-
-    return name, version
-
-
-def get_available_groups(pyproject_path: Path | None = None) -> tuple[str, ...]:
-    """Discover available dependency groups from pyproject.toml.
-
-    :param pyproject_path: Path to pyproject.toml. If None, looks in current directory.
-    :return: Tuple of group names.
-    """
-    if pyproject_path is None:
-        pyproject_path = Path("pyproject.toml")
-
-    if not pyproject_path.exists():
-        return ()
-
-    with pyproject_path.open("rb") as f:
-        pyproject = tomlrt.load(f)
-
-    groups = pyproject.get("dependency-groups", {})
-    return tuple(sorted(groups.keys()))
-
-
-def get_available_extras(pyproject_path: Path | None = None) -> tuple[str, ...]:
-    """Discover available optional extras from pyproject.toml.
-
-    :param pyproject_path: Path to pyproject.toml. If None, looks in current directory.
-    :return: Tuple of extra names.
-    """
-    if pyproject_path is None:
-        pyproject_path = Path("pyproject.toml")
-
-    if not pyproject_path.exists():
-        return ()
-
-    with pyproject_path.open("rb") as f:
-        pyproject = tomlrt.load(f)
-
-    project = pyproject.get("project", {})
-    extras = project.get("optional-dependencies", {})
-    return tuple(sorted(extras.keys()))
+    if not select_all and not explicit and not only:
+        select_all = config_all
+    if not excluded:
+        excluded = tuple(config_excluded)
+    if only:
+        explicit = only
+    resolved = explicit if explicit else None
+    if select_all:
+        resolved = kind.available()
+        logging.info(f"Discovered {kind.value}s: {', '.join(resolved)}")
+    if excluded and resolved:
+        resolved = tuple(name for name in resolved if name not in excluded)
+        logging.info(f"After exclusions, {kind.value}s: {', '.join(resolved)}")
+    return resolved
 
 
 def get_cyclonedx_sbom(
@@ -269,75 +336,55 @@ def get_package_names_from_sbom(sbom: dict[str, Any]) -> set[str]:
 
 def build_dependency_graph(
     sbom: dict[str, Any],
-    root_package: str | None = None,
-) -> tuple[str, dict[str, tuple[str, str]], list[tuple[str, str]]]:
+) -> tuple[str, set[str], list[tuple[str, str]]]:
     """Build a dependency graph from CycloneDX SBOM data.
 
     :param sbom: Parsed CycloneDX SBOM dictionary.
-    :param root_package: Optional package name to use as root. If None, uses the
-        metadata component from the SBOM.
-    :return: Tuple of (root_name, nodes_dict, edges_list) where:
+    :return: Tuple of (root_name, package_names, edges_list) where:
         - root_name is the root package name
-        - nodes_dict maps bom-ref to (name, version) tuples
+        - package_names is the set of all package names
         - edges_list is a list of (from_name, to_name) tuples
     """
-    # Build a mapping from bom-ref to (name, version).
-    nodes: dict[str, tuple[str, str]] = {}
+    # Map each bom-ref to its package name to resolve dependency edges.
+    ref_names: dict[str, str] = {}
 
-    # Get root package info from metadata.
     metadata = sbom.get("metadata", {})
     root_component = metadata.get("component", {})
     root_ref = root_component.get("bom-ref", "")
     root_name = root_component.get("name", "")
-    root_version = root_component.get("version", "")
-
     if root_ref:
-        nodes[root_ref] = (root_name, root_version)
+        ref_names[root_ref] = root_name
 
-    # Add all components.
     for component in sbom.get("components", []):
         bom_ref = component.get("bom-ref", "")
         name = component.get("name", "")
-        version = component.get("version", "")
         if bom_ref and name:
-            nodes[bom_ref] = (name, version)
+            ref_names[bom_ref] = name
 
-    # Build edges from dependencies.
     edges: list[tuple[str, str]] = []
     for dep in sbom.get("dependencies", []):
         from_ref = dep.get("ref", "")
-        depends_on = dep.get("dependsOn", [])
-
-        if from_ref not in nodes:
+        if from_ref not in ref_names:
             continue
+        from_name = ref_names[from_ref]
+        for to_ref in dep.get("dependsOn", []):
+            if to_ref in ref_names:
+                edges.append((from_name, ref_names[to_ref]))
 
-        from_name, _ = nodes[from_ref]
-
-        for to_ref in depends_on:
-            if to_ref in nodes:
-                to_name, _ = nodes[to_ref]
-                edges.append((from_name, to_name))
-
-    # Filter to root package if specified.
-    if root_package:
-        root_name = root_package
-
-    return root_name, nodes, edges
+    return root_name, set(ref_names.values()), edges
 
 
 def filter_graph_to_package(
-    root_name: str,
-    nodes: dict[str, tuple[str, str]],
+    packages: set[str],
     edges: list[tuple[str, str]],
     package: str,
-) -> tuple[dict[str, tuple[str, str]], list[tuple[str, str]]]:
+) -> tuple[set[str], list[tuple[str, str]]]:
     """Filter the graph to only include dependencies of a specific package.
 
-    :param root_name: The root package name.
-    :param nodes: Dictionary mapping bom-ref to (name, version) tuples.
+    :param packages: Set of all package names.
     :param edges: List of (from_name, to_name) edge tuples.
     :param package: Package name to filter to.
-    :return: Filtered (nodes, edges) tuple.
+    :return: Filtered (packages, edges) tuple.
     """
     # Find all packages reachable from the target package.
     reachable: set[str] = {package}
@@ -356,37 +403,31 @@ def filter_graph_to_package(
         if from_name in reachable and to_name in reachable
     ]
 
-    # Filter nodes to only those that appear in edges or are the target.
+    # Keep only the target and the packages that appear in surviving edges.
     used_names = {package}
     for from_name, to_name in filtered_edges:
         used_names.add(from_name)
         used_names.add(to_name)
 
-    filtered_nodes = {
-        ref: (name, version)
-        for ref, (name, version) in nodes.items()
-        if name in used_names
-    }
-
-    return filtered_nodes, filtered_edges
+    return packages & used_names, filtered_edges
 
 
 def trim_graph_to_depth(
     root_name: str,
-    nodes: dict[str, tuple[str, str]],
+    packages: set[str],
     edges: list[tuple[str, str]],
     depth: int,
-) -> tuple[dict[str, tuple[str, str]], list[tuple[str, str]]]:
+) -> tuple[set[str], list[tuple[str, str]]]:
     """Trim the graph to only include nodes within a given depth from the root.
 
     Performs a breadth-first traversal from the root, keeping only nodes
     reachable within `depth` hops and edges between those nodes.
 
     :param root_name: The root package name.
-    :param nodes: Dictionary mapping bom-ref to (name, version) tuples.
+    :param packages: Set of all package names.
     :param edges: List of (from_name, to_name) edge tuples.
     :param depth: Maximum depth from root. 0 = root only, 1 = root + primary deps, etc.
-    :return: Filtered (nodes, edges) tuple.
+    :return: Filtered (packages, edges) tuple.
     """
     # Build adjacency list for BFS.
     adjacency: dict[str, list[str]] = {}
@@ -414,14 +455,7 @@ def trim_graph_to_depth(
         if from_name in reachable and to_name in reachable
     ]
 
-    # Filter nodes to only reachable ones.
-    filtered_nodes = {
-        ref: (name, version)
-        for ref, (name, version) in nodes.items()
-        if name in reachable
-    }
-
-    return filtered_nodes, filtered_edges
+    return packages & reachable, filtered_edges
 
 
 def _compute_node_degrees(edges: list[tuple[str, str]]) -> dict[str, int]:
@@ -508,13 +542,10 @@ def _compute_node_depths(
 
 def render_mermaid(
     root_name: str,
-    nodes: dict[str, tuple[str, str]],
+    packages: set[str],
     edges: list[tuple[str, str]],
-    group_packages: dict[str, set[str]] | None = None,
-    extra_packages: dict[str, set[str]] | None = None,
+    subgraphs: list[Subgraph] | None = None,
     lock_specs: LockSpecifiers | None = None,
-    group_duplicates: dict[str, set[str]] | None = None,
-    extra_duplicates: dict[str, set[str]] | None = None,
 ) -> str:
     """Render the dependency graph as a Mermaid flowchart.
 
@@ -523,65 +554,45 @@ def render_mermaid(
     `sphinxcontrib-mermaid`. See module docstring for details.
     ```
 
+    Every box holds only directly-declared dependencies, drawn as hexagons
+    with a thick border; transitive dependencies render outside the boxes as
+    plain ovals. See the module docstring.
+
     :param root_name: The root package name (used to highlight it).
-    :param nodes: Dictionary mapping bom-ref to (name, version) tuples.
+    :param packages: Package names to render as nodes.
     :param edges: List of (from_name, to_name) edge tuples.
-    :param group_packages: Optional dict mapping group names to sets of package names
-        that are unique to that group. These will be rendered in subgraphs with
-        `--group` prefix.
-    :param extra_packages: Optional dict mapping extra names to sets of package names
-        that are unique to that extra. These will be rendered in subgraphs with
-        `--extra` prefix.
+    :param subgraphs: Boxes to render, in display order (extras before groups
+        keeps them closer to the main dependencies). See {class}`Subgraph`.
     :param lock_specs: Optional specifiers extracted from `uv.lock`. Provides
         edge labels (`by_package`) and subgraph node labels (`by_subgraph`).
-    :param group_duplicates: Optional dict mapping group names to package names the
-        group declares directly but that another subgraph owns as a real node.
-        Rendered as display-only duplicate nodes so every group still shows its
-        headline dependency, dash-bordered and tied to the real node by a dotted
-        identity link. See {func}`attribute_subgraph_packages`.
-    :param extra_duplicates: Optional dict mapping extra names to package names the
-        extra declares directly but that another subgraph owns as a real node.
-        Rendered as display-only duplicate nodes so every extra still shows its
-        headline dependency, dash-bordered and tied to the real node by a dotted
-        identity link. See {func}`attribute_subgraph_packages`.
     :return: Mermaid flowchart string.
     """
     lines = ["flowchart LR"]
+    subgraphs = subgraphs or []
 
-    # Collect all unique package names.
-    packages: set[str] = set()
-    for name, _version in nodes.values():
-        packages.add(name)
-
-    # Also collect from edges in case some are missing from nodes.
+    # Complete the node set from edges in case some endpoints are missing.
+    packages = set(packages)
     for from_name, to_name in edges:
         packages.add(from_name)
         packages.add(to_name)
 
-    # Determine which packages belong to which group or extra.
-    # Subgraph IDs are prefixed with `grp_` / `ext_` to avoid collisions
-    # with node IDs (e.g., the `json5` package inside a `json5` extra).
-    package_to_subgraph: dict[str, str] = {}
-    if group_packages:
-        for group_name, pkg_names in group_packages.items():
-            for pkg_name in pkg_names:
-                package_to_subgraph[pkg_name] = f"grp_{group_name}"
-    if extra_packages:
-        for extra_name, pkg_names in extra_packages.items():
-            for pkg_name in pkg_names:
-                package_to_subgraph[pkg_name] = f"ext_{extra_name}"
+    # Map each box-owned package to its subgraph ID.
+    package_to_subgraph: dict[str, str] = {
+        pkg: subgraph.mermaid_id for subgraph in subgraphs for pkg in subgraph.owned
+    }
 
     # Identify primary dependencies (explicitly declared in pyproject.toml) from root.
-    primary_deps: set[str] = set()
-    for from_name, to_name in edges:
-        if from_name == root_name and to_name not in package_to_subgraph:
-            primary_deps.add(to_name)
+    primary_deps: set[str] = {
+        to_name
+        for from_name, to_name in edges
+        if from_name == root_name and to_name not in package_to_subgraph
+    }
 
-    # Build the full set of primary deps across all subgraphs.
-    all_primary_deps: set[str] = set(primary_deps)
-    if lock_specs:
-        for sg_deps in lock_specs.by_subgraph.values():
-            all_primary_deps.update(sg_deps.keys())
+    # Directly-declared dependencies across all boxes: the root's primary deps
+    # plus every box's owned packages, all rendered with a thick border.
+    declared_deps: set[str] = set(primary_deps)
+    for subgraph in subgraphs:
+        declared_deps |= subgraph.owned
 
     # Pre-compute graph metrics for smarter declaration ordering.
     # Dagre uses declaration order as a heuristic for node positioning,
@@ -591,14 +602,10 @@ def render_mermaid(
     subtree = _compute_subtree_sizes(unique_edges)
     depth = _compute_node_depths(root_name, unique_edges)
 
-    # Separate packages into: root, primary deps, other, and subgraph-specific.
-    other_main_packages = {
-        name
-        for name in packages
-        if name not in package_to_subgraph
-        and name not in primary_deps
-        and name != root_name
-    }
+    # Transitive dependencies live outside every box.
+    transitive_packages = (
+        packages - set(package_to_subgraph) - primary_deps - {root_name}
+    )
 
     # Define root node first.
     if root_name in packages:
@@ -618,88 +625,49 @@ def render_mermaid(
             lines.append(f'        {node_id}{{{{"`{name}`"}}}}')
         lines.append("    end")
 
-    # Define other main nodes (transitive dependencies).
-    if other_main_packages:
+    # Define transitive dependency nodes.
+    if transitive_packages:
         lines.append("")
         for name in sorted(
-            other_main_packages,
+            transitive_packages,
             key=lambda n: (-degree.get(n, 0), n),
         ):
             node_id = normalize_package_name(name)
             lines.append(f'    {node_id}(["`{name}`"])')
 
-    # Render one extra/group subgraph. Duplicate headline nodes (packages the
-    # subgraph declares directly but another subgraph owns as a real node) get a
-    # subgraph-prefixed node ID so Mermaid keeps them in this box instead of
-    # merging them into the owner's; they reuse the real node's label and link.
+    # Render the group/extra boxes. Duplicate headline nodes (packages the box
+    # declares directly but a sibling box owns as a real node) get a
+    # box-prefixed node ID so Mermaid keeps them in this box instead of merging
+    # them into the owner's; they reuse the real node's label and link. A box
+    # whose packages were all filtered out (depth trim, package focus) is
+    # dropped entirely, along with its dashed arrow and style line.
     duplicate_nodes: list[tuple[str, str]] = []
-    emitted_subgraph_ids: set[str] = set()
-
-    def _emit_subgraph(
-        sg_id: str,
-        header: str,
-        name: str,
-        primary_names: set[str],
-        dup_names: set[str],
-    ) -> None:
-        if not primary_names and not dup_names:
-            return
-        sg_specs = lock_specs.by_subgraph.get(name, {}) if lock_specs else {}
+    rendered_subgraphs: list[Subgraph] = []
+    for subgraph in subgraphs:
+        owned_names = subgraph.owned & packages
+        dup_names = subgraph.duplicates & packages
+        if not owned_names and not dup_names:
+            continue
+        sg_specs = lock_specs.by_subgraph.get(subgraph.name, {}) if lock_specs else {}
         lines.append("")
-        lines.append(f"    subgraph {sg_id} [{header}]")
-        for pkg in sorted(primary_names, key=lambda n: (-degree.get(n, 0), n)):
-            if pkg not in packages:
-                continue
+        lines.append(f"    subgraph {subgraph.mermaid_id} [{subgraph.title}]")
+        for pkg in sorted(owned_names, key=lambda n: (-degree.get(n, 0), n)):
             node_id = normalize_package_name(pkg)
             spec = sg_specs.get(pkg, "")
             label = f"{pkg} {spec}" if spec else pkg
-            # Primary deps use hexagon shape.
-            if pkg in all_primary_deps:
-                lines.append(f'        {node_id}{{{{"`{label}`"}}}}')
-            else:
-                lines.append(f'        {node_id}(["`{label}`"])')
+            lines.append(f'        {node_id}{{{{"`{label}`"}}}}')
         for pkg in sorted(dup_names, key=lambda n: (-degree.get(n, 0), n)):
-            if pkg not in packages:
-                continue
-            # Headline deps are always primary, so duplicates use hexagon shape.
-            node_id = f"{sg_id}_{normalize_package_name(pkg)}"
+            node_id = f"{subgraph.mermaid_id}_{normalize_package_name(pkg)}"
             spec = sg_specs.get(pkg, "")
             label = f"{pkg} {spec}" if spec else pkg
             lines.append(f'        {node_id}{{{{"`{label}`"}}}}')
             duplicate_nodes.append((node_id, pkg))
         lines.append("    end")
-        emitted_subgraph_ids.add(sg_id)
-
-    # Define extra subgraphs (before groups so they appear closer to main deps).
-    if extra_packages:
-        for extra_name in sorted(extra_packages.keys()):
-            dup = extra_duplicates.get(extra_name, set()) if extra_duplicates else set()
-            _emit_subgraph(
-                f"ext_{extra_name}",
-                f"--extra {extra_name}",
-                extra_name,
-                extra_packages[extra_name],
-                dup,
-            )
-
-    # Define group subgraphs (after extras, further from main deps).
-    if group_packages:
-        for group_name in sorted(group_packages.keys()):
-            dup = group_duplicates.get(group_name, set()) if group_duplicates else set()
-            _emit_subgraph(
-                f"grp_{group_name}",
-                f"--group {group_name}",
-                group_name,
-                group_packages[group_name],
-                dup,
-            )
+        rendered_subgraphs.append(subgraph)
 
     # Add edges. Use thick arrows for edges leaving the root (direct deps).
     # Use dashed arrows from root to subgraphs for group/extra dependencies.
     lines.append("")
-
-    # Track which subgraphs have edges from root.
-    root_to_subgraphs: set[str] = set()
 
     for from_name, to_name in sorted(
         set(edges),
@@ -711,11 +679,9 @@ def render_mermaid(
             e[1],
         ),
     ):
-        # Check if target is in a subgraph and source is root.
+        # A root edge into a box is replaced by the box's dashed arrow below.
         if from_name == root_name and to_name in package_to_subgraph:
-            # Track that we need a link to this subgraph.
-            root_to_subgraphs.add(package_to_subgraph[to_name])
-            continue  # Skip individual edge, will link to subgraph instead.
+            continue
 
         from_id = normalize_package_name(from_name)
         to_id = normalize_package_name(to_name)
@@ -735,13 +701,14 @@ def render_mermaid(
         else:
             lines.append(f"    {from_id} {arrow} {to_id}")
 
-    # Add dashed arrows from root to each rendered subgraph. A duplicate-only
-    # box (no primary node, so no root edge feeds root_to_subgraphs) still needs
-    # its arrow, so union in every emitted subgraph.
+    # Add a dashed arrow from root to each rendered box: boxes always hang off
+    # the root, since they only hold directly-declared dependencies.
     root_id = normalize_package_name(root_name)
     lines.extend(
-        f"    {root_id} -.-> {subgraph_name}"
-        for subgraph_name in sorted(root_to_subgraphs | emitted_subgraph_ids)
+        f"    {root_id} -.-> {subgraph_id}"
+        for subgraph_id in sorted(
+            subgraph.mermaid_id for subgraph in rendered_subgraphs
+        )
     )
 
     # Tie each duplicate headline to the real node it mirrors, so both boxes
@@ -763,38 +730,29 @@ def render_mermaid(
         pypi_url = f"https://pypi.org/project/{name}/"
         lines.append(f'    click {node_id} "{pypi_url}" _blank')
 
-    # Style root and primary dependency nodes with thick borders.
+    # Style root and directly-declared dependency nodes with thick borders.
     lines.append("")
     if root_name in packages:
         root_id = normalize_package_name(root_name)
         lines.append(f"    style {root_id} {STYLE_PRIMARY_NODE}")
-    if all_primary_deps:
-        for name in sorted(all_primary_deps):
-            if name in packages:
-                node_id = normalize_package_name(name)
-                lines.append(f"    style {node_id} {STYLE_PRIMARY_NODE}")
+    for name in sorted(declared_deps):
+        if name in packages:
+            node_id = normalize_package_name(name)
+            lines.append(f"    style {node_id} {STYLE_PRIMARY_NODE}")
     # Duplicate headline nodes keep the thick primary border, dashed to mark
     # them as mirrors of their real node.
     for node_id, _name in duplicate_nodes:
         lines.append(f"    style {node_id} {STYLE_DUPLICATE_NODE}")
 
-    # Style subgraphs with different colors. Key on emitted boxes, not just
-    # those with a primary node, so a duplicate-only box still gets its tint.
+    # Style boxes with per-kind colors, keyed on rendered boxes so a skipped
+    # box never leaves a dangling style line.
     lines.append("")
     if primary_deps:
         lines.append(f"    style primary-deps {STYLE_PRIMARY_DEPS_SUBGRAPH}")
-    if extra_packages:
-        lines.extend(
-            f"    style ext_{extra_name} {STYLE_EXTRA_SUBGRAPH}"
-            for extra_name in sorted(extra_packages.keys())
-            if f"ext_{extra_name}" in emitted_subgraph_ids
-        )
-    if group_packages:
-        lines.extend(
-            f"    style grp_{group_name} {STYLE_GROUP_SUBGRAPH}"
-            for group_name in sorted(group_packages.keys())
-            if f"grp_{group_name}" in emitted_subgraph_ids
-        )
+    lines.extend(
+        f"    style {subgraph.mermaid_id} {subgraph.kind.style}"
+        for subgraph in rendered_subgraphs
+    )
 
     return "\n".join(lines)
 
@@ -806,23 +764,19 @@ def attribute_subgraph_packages(
     edges: list[tuple[str, str]],
     root_name: str,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Attribute each package to one owning subgraph, plus duplicate headlines.
+    """Attribute each directly-declared package to one owning subgraph box.
 
-    A dependency graph node can live in only one subgraph box, but several
-    extras/groups can pull the same package. Two passes decide ownership so a
-    subgraph's directly-declared (headline) dependency is never stolen by a
-    sibling that only reaches it transitively:
-
-    1. Reserve each subgraph's direct declarations. When several subgraphs
-       declare the same package, the one whose closure holds the most dependents
-       wins (declaration order breaks ties): arrows point where the package is
-       consumed, so the busiest box is its most natural home and those edges
-       stay box-internal. The root is not a dependent, as it reaches every
-       headline package by definition.
-    2. Attribute the remaining transitive packages first-come.
+    Boxes only hold the packages their group/extra declares directly;
+    transitive dependencies stay outside every box (see the module docstring).
+    A directly-declared package can still be claimed by several boxes, but a
+    graph node can live in only one: the declarer whose closure holds the most
+    dependents wins the real node (declaration order breaks ties), since
+    arrows point where the package is consumed and the busiest box is its most
+    natural home. The root is not a dependent, as it reaches every declared
+    package by definition.
 
     The losing declarers list the package as a *duplicate headline* so every
-    extra/group still shows the dependency it exists to install (rendered as a
+    box still shows the dependency it exists to install (rendered as a
     display-only duplicate node by {func}`render_mermaid`). For example the
     `carapace` and `yaml` extras both declare only `pyyaml`, which no other
     package depends on: the dependent counts tie at zero, `carapace` owns the
@@ -830,19 +784,18 @@ def attribute_subgraph_packages(
 
     :param subgraph_closures: Ordered ``(name, closure_package_names)`` pairs.
         Order is the last-resort tie-break for shared packages (first wins).
-    :param base_packages: Packages in the base set, excluded from every subgraph.
+    :param base_packages: Packages in the base set, excluded from every box.
     :param direct_packages: Map of subgraph name to the package names it declares
         directly (from `uv.lock`), keyed by SBOM-normalized name.
     :param edges: ``(from_name, to_name)`` dependency edges from the full SBOM,
         used to count each declaring subgraph's local dependents.
     :param root_name: The root package name, excluded from dependent counts.
-    :return: ``(primary, duplicates)``. *primary* maps each subgraph to the
-        packages it owns as real nodes; *duplicates* maps it to directly-declared
-        packages owned by another subgraph.
+    :return: ``(owned, duplicates)``. *owned* maps each subgraph to the declared
+        packages it renders as real nodes; *duplicates* maps it to declared
+        packages owned by a sibling box.
     """
-    primary: dict[str, set[str]] = {name: set() for name, _ in subgraph_closures}
+    owned: dict[str, set[str]] = {name: set() for name, _ in subgraph_closures}
     duplicates: dict[str, set[str]] = {name: set() for name, _ in subgraph_closures}
-    seen: set[str] = set()
 
     # Non-root packages depending on each package, for the ownership contest.
     dependents: dict[str, set[str]] = {}
@@ -853,8 +806,8 @@ def attribute_subgraph_packages(
     closures = dict(subgraph_closures)
     rank = {name: index for index, (name, _) in enumerate(subgraph_closures)}
 
-    # Pass 1: reserve directly-declared headline packages. The declarer whose
-    # closure holds the most dependents wins; earliest declaration on a tie.
+    # Reserve each declared package for the winning declarer: the one whose
+    # closure holds the most dependents; earliest declaration on a tie.
     declarers: dict[str, list[str]] = {}
     for name, closure in subgraph_closures:
         for pkg in (direct_packages.get(name, set()) & closure) - base_packages:
@@ -865,21 +818,14 @@ def attribute_subgraph_packages(
             (len(pkg_dependents & closures[name]), -rank[name], name)
             for name in declaring
         )
-        primary[winner].add(pkg)
-        seen.add(pkg)
+        owned[winner].add(pkg)
 
-    # Pass 2: attribute the remaining transitive packages first-come.
-    for name, closure in subgraph_closures:
-        transitive = closure - base_packages - seen
-        primary[name] |= transitive
-        seen |= transitive
-
-    # A direct declaration owned by another declarer becomes a duplicate.
+    # A declaration owned by another declarer becomes a duplicate.
     for name, closure in subgraph_closures:
         direct = (direct_packages.get(name, set()) & closure) - base_packages
-        duplicates[name] = direct - primary[name]
+        duplicates[name] = direct - owned[name]
 
-    return primary, duplicates
+    return owned, duplicates
 
 
 def generate_dependency_graph(
@@ -891,6 +837,10 @@ def generate_dependency_graph(
     exclude_base: bool = False,
 ) -> str:
     """Generate a Mermaid dependency graph.
+
+    Each requested group/extra renders as a box holding only the packages it
+    declares directly; the transitive dependencies they pull in render outside
+    the boxes, like the transitive dependencies of the main set.
 
     :param package: Optional package name to focus on. If None, shows the entire
         project dependency tree.
@@ -905,7 +855,7 @@ def generate_dependency_graph(
     """
     # Get the full SBOM with all requested groups and extras.
     sbom = get_cyclonedx_sbom(groups=groups, extras=extras, frozen=frozen)
-    root_name, nodes, edges = build_dependency_graph(sbom)
+    root_name, packages, edges = build_dependency_graph(sbom)
 
     # Parse specifiers from uv.lock for edge labels and subgraph node labels.
     lock_specs = parse_lock_specifiers(lock_data=load_lock_data())
@@ -915,7 +865,8 @@ def generate_dependency_graph(
     base_packages = get_package_names_from_sbom(base_sbom)
 
     # Closure and directly-declared packages for every requested subgraph.
-    # Groups precede extras so a package only a group declares lands in its box.
+    # Groups precede extras so a package both declare lands in the group's box
+    # on a dependent-count tie.
     # by_subgraph keys are SBOM-normalized names, matching render_mermaid labels.
     subgraph_closures: list[tuple[str, set[str]]] = []
     direct_packages: dict[str, set[str]] = {}
@@ -932,40 +883,41 @@ def generate_dependency_graph(
         subgraph_closures.append((extra, closure))
         direct_packages[extra] = set(lock_specs.by_subgraph.get(extra, {}))
 
-    primary, duplicates = attribute_subgraph_packages(
+    owned, duplicates = attribute_subgraph_packages(
         subgraph_closures, base_packages, direct_packages, edges, root_name
     )
-    group_packages = {g: primary[g] for g in groups} if groups else None
-    extra_packages = {e: primary[e] for e in extras} if extras else None
-    group_duplicates = {g: duplicates[g] for g in groups} if groups else None
-    extra_duplicates = {e: duplicates[e] for e in extras} if extras else None
 
-    # Every package owned by a subgraph as a real node, for exclude_base below.
-    seen_in_subgraphs: set[str] = set()
-    for owned in primary.values():
-        seen_in_subgraphs |= owned
+    # Boxes in display order: extras before groups, closer to the main deps.
+    subgraphs = [
+        Subgraph(SubgraphKind.EXTRA, extra, owned[extra], duplicates[extra])
+        for extra in sorted(extras or ())
+    ]
+    subgraphs += [
+        Subgraph(SubgraphKind.GROUP, group, owned[group], duplicates[group])
+        for group in sorted(groups or ())
+    ]
 
-    # Add synthetic edges from root to extra-owned packages.
-    # CycloneDX SBOMs don't include direct edges from root to packages
-    # activated by extras (they appear as transitive deps of the parent
-    # package, e.g. click-extra -> xmltodict). Adding synthetic edges
-    # ensures extras are treated as depth-1 dependencies and get dashed
-    # arrows from root to their subgraphs.
-    if extra_packages:
-        for extra_pkgs in extra_packages.values():
-            for pkg in extra_pkgs:
-                edges.append((root_name, pkg))
+    # CycloneDX SBOMs carry no edge from root to the packages its extras
+    # activate (they only appear as dependencies of the package whose extra
+    # pulls them in, e.g. click-extra -> xmltodict). Synthetic root edges to
+    # each extra's declared packages keep them reachable under --package
+    # filtering and pin them at depth 1, like group headliners; their
+    # transitive dependencies sit at depth 2+ through regular SBOM edges.
+    # Groups need no synthetic edges: the SBOM already links root to their
+    # declared packages.
+    for subgraph in subgraphs:
+        if subgraph.kind is SubgraphKind.EXTRA:
+            edges.extend((root_name, pkg) for pkg in subgraph.owned)
 
     # Exclude base (main) dependencies when --only-group/--only-extra is used.
-    # Keeps the root node and packages unique to groups/extras, removing
-    # everything that belongs to the base dependency set.
+    # Keeps the root node and every package the requested groups/extras pull
+    # in (declared and transitive), removing the base dependency set.
     if exclude_base:
-        allowed = seen_in_subgraphs | {root_name}
-        nodes = {
-            ref: (name, version)
-            for ref, (name, version) in nodes.items()
-            if name in allowed
-        }
+        subgraph_union: set[str] = set()
+        for _name, closure in subgraph_closures:
+            subgraph_union |= closure
+        allowed = (subgraph_union - base_packages) | {root_name}
+        packages &= allowed
         edges = [
             (from_name, to_name)
             for from_name, to_name in edges
@@ -974,20 +926,11 @@ def generate_dependency_graph(
 
     # Filter to specific package if requested.
     if package:
-        nodes, edges = filter_graph_to_package(root_name, nodes, edges, package)
+        packages, edges = filter_graph_to_package(packages, edges, package)
         root_name = package
 
     # Trim graph to maximum depth if requested.
     if depth is not None:
-        nodes, edges = trim_graph_to_depth(root_name, nodes, edges, depth)
+        packages, edges = trim_graph_to_depth(root_name, packages, edges, depth)
 
-    return render_mermaid(
-        root_name,
-        nodes,
-        edges,
-        group_packages,
-        extra_packages,
-        lock_specs,
-        group_duplicates,
-        extra_duplicates,
-    )
+    return render_mermaid(root_name, packages, edges, subgraphs, lock_specs)
