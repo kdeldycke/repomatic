@@ -783,6 +783,7 @@ expected: dict[str, Any] = {
     "shfmt_files": [".claude/package-skills.sh"],
     "zsh_files": [".claude/package-skills.sh"],
     "is_python_project": True,
+    "binaries_sync": True,
     "manpages_script": "",
     "manpages_asset_name": "",
     "nuitka_enabled": True,
@@ -1472,6 +1473,7 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
     assert metadata.config.pypi_package_history == []
     assert metadata.config.notification_unsubscribe is False
     assert metadata.config.awesome_template_sync is True
+    assert metadata.config.binaries_sync is True
     assert metadata.config.bumpversion_sync is True
     assert metadata.config.dev_release_sync is True
     assert metadata.config.gitignore.sync is True
@@ -1610,6 +1612,7 @@ labels.extra-files = ["https://example.com/labels.toml"]
 pypi-package-history = ["old-name", "older-name"]
 notification.unsubscribe = true
 awesome-template.sync = false
+binaries.sync = false
 bumpversion.sync = false
 dev-release.sync = false
 gitignore.sync = false
@@ -1710,6 +1713,7 @@ click-version = ["released", "stable", "main"]
     assert metadata.config.pypi_package_history == ["old-name", "older-name"]
     assert metadata.config.notification_unsubscribe is True
     assert metadata.config.awesome_template_sync is False
+    assert metadata.config.binaries_sync is False
     assert metadata.config.bumpversion_sync is False
     assert metadata.config.dev_release_sync is False
     assert metadata.config.gitignore.sync is False

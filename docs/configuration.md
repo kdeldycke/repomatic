@@ -13,6 +13,7 @@ The `[tool.repomatic]` section is powered by [Click Extra's `pyproject.toml` con
 pypi-package-history = ["old-name", "older-name"]
 
 awesome-template.sync = false
+binaries.sync = false
 bumpversion.sync = false
 cache.max-age = 14
 dev-release.sync = false

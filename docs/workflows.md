@@ -589,13 +589,17 @@ flowchart TD
 
 - Uploads compiled binaries (`.bin` and `.exe`) to [VirusTotal](https://www.virustotal.com/) via `repomatic scan-virustotal`, polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.json`
 - Seeds AV vendor databases to reduce false positive detections for downstream distributors (Chocolatey, Scoop, etc.)
-- Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then commits the files to the default branch via `repomatic git-commit-push`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
+- Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then commits the files directly to the default branch via `repomatic git-commit-push`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
 - **Requires**:
   - `VIRUSTOTAL_API_KEY` repository secret ([free API key](https://www.virustotal.com/gui/my-apikey))
   - Successful `publish-release` job
 - **Skipped if**:
   - `VIRUSTOTAL_API_KEY` secret is not configured
   - `publish-release` job did not succeed
+- **Recording steps skipped if**: `binaries.sync = false` in [`[tool.repomatic]`](configuration.md) (the scan still runs and seeds AV vendor databases; the catalog and scan history are not committed)
+
+> [!IMPORTANT]
+> The recording lands as a direct push to the default branch, not a pull request: it captures facts about an already-published release, and the binaries page must be live while the release is fresh. This is the only file-modifying operation exempt from the PR convention: see [§ Release-lane direct commits](operation-contracts.md#release-lane-direct-commits) for the full rationale, and set `binaries.sync = false` to disable the recording while keeping the scan.
 
 #### 🔄 Sync dev pre-release (`sync-dev-release`)
 

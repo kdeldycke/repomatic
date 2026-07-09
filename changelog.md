@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Add `[tool.repomatic] binaries.sync`: set to `false` to stop the release pipeline from pushing the binaries catalog and scan records to the default branch, while binaries still get scanned on VirusTotal.
 - `update-deps-graph` now keeps only directly-declared dependencies inside the `--group` and `--extra` boxes; transitive dependencies render outside as plain ovals, like around the primary dependencies box.
 - With `--level`, an extra's transitive dependencies now count as depth 2 instead of 1.
 - Consolidate the `repomatic.deps_graph` API around `Subgraph` and `SubgraphKind` types; the unused `parse_bom_ref` helper is removed.
@@ -12,6 +13,7 @@
 - `sync-action-pins` and `sync-workflow-pins` PR bodies now report an action or package pinned at several versions as a single row spanning from the oldest pin, with the compare link and release-notes dropdown covering that widest range.
 - `lint-changelog`'s PyPI and GitHub lookups now retry once on a truncated response body instead of crashing with `IncompleteRead`.
 - The `run typos` guidance now recommends `extend-ignore-re` guards for encoded hashes and intentional-typo examples, which the unattended `fix-typos` pull request would otherwise corrupt.
+- Document the scan job contract and the release-lane direct-commit exception: why `scan-virustotal` records its results with a direct push to the default branch instead of a pull request.
 
 ## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
 

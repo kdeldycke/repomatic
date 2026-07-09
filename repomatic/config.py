@@ -503,6 +503,23 @@ class Config:
     from files bundled in `repomatic`. Set to `false` to opt out.
     """
 
+    binaries_sync: bool = field(
+        default=True,
+        metadata={CONFIG_PATH_METADATA_KEY: "binaries.sync"},
+    )
+    """Whether the release pipeline records released binaries into the repository.
+
+    When enabled, the `scan-virustotal` release job regenerates the binaries
+    catalog (`docs/binaries.md` and `docs/assets/binaries.csv`) and pushes it,
+    along with the scan history (`docs/assets/virustotal-scans.json`), straight
+    to the default branch without a pull request: the release-lane exception
+    documented in
+    [`docs/operation-contracts.md`](https://kdeldycke.github.io/repomatic/operation-contracts.html#scan-job-contract).
+    Set to `false` to keep the repository untouched: binaries are still
+    scanned on VirusTotal (seeding AV vendor databases), but no catalog page,
+    CSV, or scan record is committed.
+    """
+
     bumpversion_sync: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "bumpversion.sync"},

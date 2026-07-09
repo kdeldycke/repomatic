@@ -56,7 +56,7 @@ jobs:
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
           nuitka_extras is_python_project package_name current_version
           released_version release_notes release_notes_with_admonition
-          skip_binary_build manpages_script manpages_asset_name
+          skip_binary_build manpages_script manpages_asset_name binaries_sync
       - name: Check VirusTotal API key
         id: check-vt-key
         env:
@@ -522,6 +522,8 @@ jobs:
           --records docs/assets/virustotal-scans.json
       - name: Regenerate binaries page
         # See repomatic/binaries_page.py for the page design rationale.
+        # Skipped when [tool.repomatic] binaries.sync is disabled.
+        if: fromJSON(needs.metadata.outputs.metadata).binaries_sync != false
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
@@ -531,6 +533,11 @@ jobs:
           --records docs/assets/virustotal-scans.json
           --backfill-records
       - name: Commit and push scan records
+        # Direct push to the default branch, not a PR: this step records facts
+        # about an already-published release. Skipped when [tool.repomatic]
+        # binaries.sync is disabled. See docs/operation-contracts.md § Scan job
+        # contract for the rationale.
+        if: fromJSON(needs.metadata.outputs.metadata).binaries_sync != false
         env:
           CURRENT_VERSION: ${{ matrix.current_version }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}

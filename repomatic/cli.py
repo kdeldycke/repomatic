@@ -4348,7 +4348,9 @@ def scan_virustotal(
     help="Recover detection snapshots from legacy release-notes tables into "
     "the records file (requires --records).",
 )
+@pass_context
 def sync_binaries(
+    ctx: Context,
     repo: str,
     page: Path,
     records: Path | None,
@@ -4376,6 +4378,14 @@ def sync_binaries(
         repomatic sync-binaries --repo owner/repo \\
             --records docs/assets/virustotal-scans.json --backfill-records
     """
+    config = get_tool_config(ctx)
+    if not config.binaries_sync:
+        logging.info(
+            "[tool.repomatic] binaries.sync is disabled. Skipping binaries catalog"
+            " sync."
+        )
+        ctx.exit(0)
+
     if backfill_records and not records:
         raise UsageError("--backfill-records requires --records.")
 

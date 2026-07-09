@@ -19,3 +19,6 @@ Or add it manually: **this repo → [Settings → Secrets → Actions]($repo_url
 
 > [!NOTE]
 > This step is optional. Without the key, release workflows skip the VirusTotal scan. The free-tier API allows 4 requests per minute, which is sufficient for typical release binaries.
+
+> [!IMPORTANT]
+> With the key configured, each release also records its scan results and the refreshed binaries catalog (`docs/binaries.md`) with a commit pushed directly to the default branch (no pull request): see the [rationale](https://kdeldycke.github.io/repomatic/operation-contracts.html#release-lane-direct-commits). To keep the scan but skip that commit, set `binaries.sync = false` in `[tool.repomatic]`.
