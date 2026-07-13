@@ -755,27 +755,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "d6bc3cf1e48e5ec631228f46ab783cb8564cef3078e124c72f7328981663f979",
+        ): "fe69df99abdc101a66597dfeb720dd40818fc58fe96d6c53b9c2e32c5065ab7a",
         (
             LINUX,
             X86_64,
-        ): "beb442e5c9bea7f52ae6d6eb6ae4819388a8b590492d6706b9dfffca8088f066",
+        ): "ccd6adc50bb997bf4f5f91140255977f3a5cd12cbdde82d5406b8d7c7154a96b",
         (
             MACOS,
             AARCH64,
-        ): "08fd07b53503fc433586eecb4eeb92491dba0b31dea0aa7dc158a935734a1c4c",
+        ): "6289b71d281928926a50136f555f0b36b84c1fbdd5090f86f47c98abb2e74128",
         (
             MACOS,
             X86_64,
-        ): "44cce7ced9643d03f0855ace64a32e7830af0eff0cf20677fc48a308db9a8c5e",
+        ): "e5a8da8fdd6dd8f47027f7a914568d0aa71728b77ed5e9bc909c00afc344f3bf",
         (
             WINDOWS,
             AARCH64,
-        ): "ef3b9b65c08d84701970f70fb67e20901c5e4da39b5b9cd2eea7c194c51addac",
+        ): "89e9220ded685420b1ae650fd4aedeb0e97d221e13480f7a4f50f2b04cbcbe1c",
         (
             WINDOWS,
             X86_64,
-        ): "c176d3309e744c4f0d4f36c6c5a9bcd316ca977f48b874f777cd4223aa23d5ae",
+        ): "04a054ca18527404fce4e7a7aa8b882616ecc1a4afa74cfad0cb54a4b165dfb2",
     },
     "gitleaks": {
         (
@@ -869,23 +869,23 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "596d5c6b9ecf34307f68bea649178c5b45a4398fe3a1fcef9598e85aa2ccb742",
+        ): "2960ae07bc1ffe19e4895e4359394dd349c9c31de78aac3a124b6e4aeb206698",
         (
             LINUX,
             X86_64,
-        ): "7aef58932fc123b4cf4b40d86468e89a3297d80169051d7cfd13a235e05fc426",
+        ): "72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c",
         (
             MACOS,
             AARCH64,
-        ): "23ca24a9186b5cb395b5f6c8eea8cdb02911c8980833e016454b56e90c3bd474",
+        ): "7dcaf386ec255995dcbaf629641f961574b7e8785203921115eab75cbf1ca107",
         (
             MACOS,
             X86_64,
-        ): "469a2d9fc894b0cdcec6e4fa3719b4c4638e195feee6517d4845450f8e8985c6",
+        ): "f4335c255db3d57374484e0e96505c8910c0e2fa6d8813b15de529c98f93b1a9",
         (
             WINDOWS,
             X86_64,
-        ): "f4a12400c48cc08e7f5435b64d0ecb08c54091b97c3ccabf6cea178d0969ca1f",
+        ): "ce018a2352da7c1b23bd2684019ee279d2080dc063087020e80c1247d11b0743",
     },
 }
 """Tool name to platform-keyed SHA-256 hex digest mapping.
@@ -898,12 +898,12 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.5.1",
+    "biome": "2.5.2",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
     "shfmt": "3.13.1",
-    "typos": "1.47.2",
+    "typos": "1.48.0",
 }
 """Tool name to the version each checksum set was computed for.
 
@@ -1011,7 +1011,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "biome": ToolSpec(
         name="biome",
         display_name="Biome",
-        version="2.5.1",
+        version="2.5.2",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
@@ -1476,7 +1476,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "typos": ToolSpec(
         name="typos",
-        version="1.47.2",
+        version="1.48.0",
         source_url="https://github.com/crate-ci/typos",
         config_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
         cli_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
