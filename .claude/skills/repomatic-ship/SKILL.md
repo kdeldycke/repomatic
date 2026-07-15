@@ -17,7 +17,7 @@ allowed-tools: Bash, Read, Grep, Glob, Skill, Agent
 
 ## Instructions
 
-You drive a release from a working tree to a ready-to-merge release PR: reconcile the tree to its **net state since the last tag**, validate it locally, commit and push, then babysit CI until the auto-generated release PR is green. You stop there: the human performs the final "Rebase and merge".
+You drive a release from a working tree to a ready-to-merge release PR: reconcile the tree to its **net state since the last tag**, validate it locally, commit and push, then babysit CI until the auto-generated release PR is green. You stop there: the human marks the draft release PR ready for review and performs the final "Rebase and merge".
 
 The release is push-driven: the `prepare-release` job in `changelog.yaml` runs `repomatic release-prep` on push to `main` to build the freeze and unfreeze commits and open the release PR. **Do not run `release-prep` yourself**: a local run previews a freeze that must not be committed (it marks the changelog "released", and on the canonical repo rewrites every workflow action ref). Your job is to make `main` clean enough that the auto-generated release PR is correct, then keep `main` green.
 
@@ -107,7 +107,7 @@ Spawn a **foreground `Agent` on the `sonnet` model** to run `/babysit-ci` to com
 
 **Verify the Nuitka run yourself.** Babysit's own early exit declares success once the fast platforms are green, leaving macOS and the entire `release.yaml` matrix still building: its "every stable job passes" never covers the binaries. Independently confirm the `release.yaml` run reached a terminal green state (`gh run watch <release-run-id>`, then read its `conclusion`); never infer the Nuitka result from babysit's summary. If a binary build fails, re-spawn babysit or fix inline.
 
-**Refresh the release PR after non-trigger pushes.** Only changes to `changelog.md`, `pyproject.toml`, a workflow, or `uv.lock` re-run `prepare-release`; a fix touching other files leaves the PR based on the pre-fix commit. Once `main` is green, run `gh workflow run changelog.yaml --ref main` and confirm the `prepare-release` branch contains your final commit before step 7.
+**Refresh the release PR after non-trigger pushes.** Whether a push re-runs `prepare-release` (and so refreshes the PR onto your new HEAD) depends on `changelog.yaml`'s `paths:` filter, which varies per repo: commonly `changelog.md`, `pyproject.toml`, workflows, and `uv.lock`, but many repos also list `docs/**` and `**/*.py`, so a docs-only or Python-only fix can refresh the PR on its own. Do not infer it from the path list. Once `main` is green, verify that `changelog.yaml` actually ran on your latest commit (`gh run list --workflow changelog.yaml --branch main` shows a green run titled with your commit). Only if it did not, run `gh workflow run changelog.yaml --ref main`; then confirm the `prepare-release` branch contains your final commit before step 7.
 
 **A racing version-increment merge can leave your commit's heavy CI uncompleted.** Merging the `minor-`/`major-version-increment` PR mid-build cancels your in-flight `tests`/`lint` (shared concurrency group) while the bump commit is itself gated out of them, so the release PR can show them `skipped`. This is by design: step 2 is the authoritative pre-merge check, so read `skipped` tests/lint on a bump commit as expected and do not re-push to force a run.
 
@@ -123,9 +123,9 @@ Once `main` is green and the release PR exists (`gh pr list --head prepare-relea
 
 - the release PR URL,
 - the version it will cut, plus the bump advisory from step 3,
-- that the only remaining action is **"Rebase and merge"** (never squash).
+- that the PR is opened as a **draft** (`prepare-release` creates it with `draft: always-true`), so the remaining human actions are to mark it **"Ready for review"**, then **"Rebase and merge"** (never squash).
 
-Do not merge the PR. That single human action is the boundary this skill stops at.
+Do not merge the PR, and do not mark it ready yourself. That final human action is the boundary this skill stops at.
 
 ### 8. Reflect and contribute back
 
