@@ -64,7 +64,7 @@ jobs:
           # See repomatic/github/actions.py for rationale.
           ref: ${{ github.sha }}
           fetch-tags: true
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@f98e06938123ccabd21905ea5d0069192241f9f1 # v8.3.1
       - name: Run repomatic metadata
         id: metadata
         run: >
@@ -92,7 +92,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-tags: true
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@f98e06938123ccabd21905ea5d0069192241f9f1 # v8.3.1
       - name: Fix changelog dates and admonitions
         env:
           GH_TOKEN: ${{ github.token }}
@@ -145,7 +145,7 @@ jobs:
           # to "allow" and silently skips closing the orphan PR, leaving the
           # decision inconsistent with the metadata job (which fetches tags).
           fetch-tags: true
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@f98e06938123ccabd21905ea5d0069192241f9f1 # v8.3.1
       - name: ${{ matrix.part }} version bump
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
         run: uvx --no-progress --from . repomatic run bump-my-version -- bump --verbose ${{ matrix.part }}
@@ -203,7 +203,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@f98e06938123ccabd21905ea5d0069192241f9f1 # v8.3.1
       # --- Freeze commit: freeze everything to the release version. ---
       - name: Strip dev suffix for release
         # Bump the "dev" part: .dev0 → release (omitted), producing a clean X.Y.Z version.
