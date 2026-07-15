@@ -1,11 +1,8 @@
 ---
 title: Format `pyproject.toml`
+docs: https://kdeldycke.github.io/repomatic/workflows.html#format-pyproject-toml-format-pyproject
 footer: false
 ---
-
-### Description
-
-Auto-formats `pyproject.toml` with [pyproject-fmt](https://github.com/tox-dev/pyproject-fmt). See the [`format-pyproject` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-autofix-yaml-jobs) for details.
 
 > [!TIP]
 > Customize formatting rules via [`[tool.pyproject-fmt]`](https://pyproject-fmt.readthedocs.io/en/latest/) in your `pyproject.toml`.

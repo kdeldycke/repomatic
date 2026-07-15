@@ -111,6 +111,7 @@ from .github.pr_body import (
     render_template,
     render_title,
     template_args,
+    template_docs_url,
 )
 from .github.release_sync import (
     render_sync_report as _render_sync_report,
@@ -2900,7 +2901,7 @@ def sync_uv_lock_cmd(
     if plan.pruned_bypasses:
         echo(
             "Expired cooldown bypass(es) cleared from pyproject.toml: "
-            + ", ".join(plan.pruned_bypasses)
+            + ", ".join(forecast.name for forecast in plan.pruned_bypasses)
         )
     if plan.frozen_bypasses:
         echo(
@@ -3001,12 +3002,12 @@ def _print_held_back_table(
 def _print_bypass_table(ctx: Context, forecasts: list[BypassForecast]) -> None:
     """Print the active cooldown-bypass freezes with their expiry forecasts.
 
-    Columns are `Package | Held at | Expires`, mirroring the markdown section
-    from {func}`~repomatic.uv.format_bypass_section`, and respects the global
-    `--table-format`.
+    Columns are `Package | Held at | Held until`, mirroring the markdown
+    section from {func}`~repomatic.uv.format_bypass_section`, and respects
+    the global `--table-format`.
     """
     echo("Cooldown bypasses:")
-    headers = ("Package", "Held at", "Expires")
+    headers = ("Package", "Held at", "Held until")
     rows = [
         (forecast.name, forecast.held_version, forecast.expires)
         for forecast in forecasts
@@ -4517,8 +4518,8 @@ def pr_body(
     """Generate a PR body with a collapsible workflow metadata block.
 
     Reads GITHUB_* environment variables to produce a <details> block
-    containing a metadata table (trigger, actor, ref, commit, job,
-    workflow, run).
+    listing the workflow metadata (documentation, trigger, actor, ref,
+    commit, job, workflow, run).
 
     The prefix can be set via --template (built-in templates) or --prefix
     (arbitrary content, also via GHA_PR_BODY_PREFIX env var). If both are
@@ -4606,7 +4607,19 @@ def pr_body(
         title_str = render_title(template_ref, **kwargs)
         commit_msg_str = render_commit_message(template_ref, **kwargs)
 
-    metadata_block = generate_pr_metadata_block()
+    # Surface the template's job documentation deep link in the metadata
+    # block, standing in for the description section PR bodies used to carry.
+    docs_url = ""
+    docs_name = ""
+    if template_ref:
+        docs_url = template_docs_url(template_ref)
+        if template:
+            docs_name = template
+        elif template_file:
+            docs_name = template_file.name.removesuffix(".noformat").removesuffix(
+                ".md"
+            )
+    metadata_block = generate_pr_metadata_block(docs_url=docs_url, docs_name=docs_name)
     body = build_pr_body(prefix, metadata_block)
 
     if output_format == "github-actions":

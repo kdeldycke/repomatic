@@ -1,13 +1,10 @@
 ---
 title: Regenerate dependency graph
+docs: https://kdeldycke.github.io/repomatic/workflows.html#update-dependency-graph-update-deps-graph
 footer: false
 ---
 
-### Description
-
-Regenerates the Mermaid dependency graph from the `uv` lockfile. See the [`update-deps-graph` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-autofix-yaml-jobs) for details.
-
-### Configuration
+## Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 

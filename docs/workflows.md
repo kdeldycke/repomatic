@@ -74,7 +74,8 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 #### 🐍 Format Python (`format-python`)
 
-- Auto-formats Python code using [`autopep8`](https://github.com/hhatto/autopep8) and [`ruff`](https://github.com/astral-sh/ruff)
+- Auto-formats Python code using [`autopep8`](https://github.com/hhatto/autopep8) (comment wrapping) and [`ruff`](https://github.com/astral-sh/ruff) (linting and formatting)
+- When the project has no `[tool.ruff]` section or `ruff.toml`, [repomatic's bundled defaults](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/ruff.toml) are applied at runtime
 - **Requires**:
   - Python files (`**/*.{py,pyi,pyw,pyx,ipynb}`) in the repository, or
   - documentation files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx,rst,tex}`)
@@ -87,7 +88,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 #### ✍️ Format Markdown (`format-markdown`)
 
-- Auto-formats Markdown files using [`mdformat`](https://github.com/hukkin/mdformat)
+- Auto-formats Markdown files using [`mdformat`](https://github.com/hukkin/mdformat) and its plugins
 - **Requires**:
   - Markdown files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx}`) in the repository
 
@@ -175,7 +176,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - Only creates a PR when the lock file contains real dependency changes or a cooldown-bypass edit (timestamp-only noise is detected and skipped)
 - PR body includes a table of updated packages with version ranges linked to GitHub comparison diffs, plus collapsible release notes for all intermediate versions
 - PR body also lists releases held back by the `exclude-newer` cooldown, including those blocked by an `exclude-newer-package` freeze: newer versions already published but still too young to lock, with the date each ages out of the window
-- PR body tracks the [`exclude-newer-package`](https://docs.astral.sh/uv/reference/settings/#exclude-newer-package) cooldown bypasses in a `Cooldown bypasses` section: each active freeze with the date it expires and is cleared from `pyproject.toml`, plus the entries the run froze or pruned
+- PR body tracks the [`exclude-newer-package`](https://docs.astral.sh/uv/reference/settings/#exclude-newer-package) cooldown bypasses in a single `Cooldown bypasses` table: one row per freeze with its held version and a `Held until` expiry, `📌 frozen:` and `🧹 cleared:` labels on the entries the run rewrote or removed, and a `🚧 unreleased:` label with a *needs release* expiry for freezes holding git or path sources
 - **Requires**:
   - Python package with a `pyproject.toml` file
 - **Skipped if**:
@@ -224,7 +225,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 #### 📚 Update docs (`update-docs`)
 
-- Regenerates Sphinx autodoc files using [`sphinx-apidoc`](https://github.com/sphinx-doc/sphinx)
+- Regenerates Sphinx autodoc files using [`sphinx-apidoc`](https://github.com/sphinx-doc/sphinx), converting the generated RST stubs to [MyST markdown](https://myst-parser.readthedocs.io/) when the docs tree uses it
 - Runs `docs/docs_update.py` if present to generate dynamic content (tables, diagrams, Sphinx directives)
 - Refreshes self-updating directive blocks (like [`{matrix}` compatibility tables](https://kdeldycke.github.io/click-extra/sphinx.html#matrix-directives)) in `docs/` and `readme.md` with `click-extra refresh-directives`
 - **Requires**:

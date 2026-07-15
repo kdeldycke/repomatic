@@ -6,6 +6,13 @@
 > This version is **not released yet** and is under active development.
 
 - Add `[tool.repomatic] binaries.sync`: set to `false` to stop the release pipeline from pushing the binaries catalog and scan records to the default branch, while binaries still get scanned on VirusTotal.
+- The `Cooldown bypasses` PR section is now a single table: entries the run cleared or froze become `🧹 cleared:` and `📌 frozen:` rows instead of prose lines, and cleared rows keep the held version and expiry date.
+- The bypass table's expiry column is renamed `Held until`, and a freeze holding an unreleased version (git or path source) is labelled `🚧 unreleased:` with a *needs release* expiry instead of empty cells.
+- Diff tables label added and removed packages with `🆕 new:` and `🗑️ removed:` prefixes ahead of the version.
+- Generated PR and issue bodies now use `##` section headings instead of `###`.
+- Remove the boilerplate `Description` section from generated PR bodies.
+- The `Workflow metadata` block is now a compact list instead of a table, led by a `Documentation` entry deep-linking the job's section of the workflows reference.
+- Drop the "Each becomes lockable on its eligible date" sentence from the held-back cooldown notes.
 - `update-deps-graph` now keeps only directly-declared dependencies inside the `--group` and `--extra` boxes; transitive dependencies render outside as plain ovals, like around the primary dependencies box.
 - With `--level`, an extra's transitive dependencies now count as depth 2 instead of 1.
 - Consolidate the `repomatic.deps_graph` API around `Subgraph` and `SubgraphKind` types; the unused `parse_bom_ref` helper is removed.

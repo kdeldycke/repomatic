@@ -120,12 +120,9 @@ def test_generate_metadata_block_all_vars(monkeypatch):
 
     assert "<details>" in block
     assert "<summary><code>Workflow metadata</code></summary>" in block
-    assert "**Trigger**" in block
-    assert "`push`" in block
-    assert "**Actor**" in block
-    assert "@dependabot[bot]" in block
-    assert "**Ref**" in block
-    assert "`main`" in block
+    assert "- **Trigger**: `push`" in block
+    assert "- **Actor**: @dependabot[bot]" in block
+    assert "- **Ref**: `main`" in block
     assert "**Commit**" in block
     assert "[`abc12345`]" in block
     assert "**Job**" in block
@@ -135,20 +132,46 @@ def test_generate_metadata_block_all_vars(monkeypatch):
     assert "**Run**" in block
     assert "[#42.1]" in block
     assert "</details>" in block
-    # Same actor, no re-run row.
+    # The block is a list, not a table.
+    assert "| Field | Value |" not in block
+    # Same actor, no re-run entry; no docs URL, no documentation entry.
     assert "Re-run by" not in block
+    assert "Documentation" not in block
 
 
 def test_generate_metadata_block_rerun(monkeypatch):
-    """Re-run by row appears when triggering actor differs from actor."""
+    """Re-run by entry appears when triggering actor differs from actor."""
     for key, value in GITHUB_ENV_VARS.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setenv("GITHUB_TRIGGERING_ACTOR", "admin-user")
 
     block = generate_pr_metadata_block()
 
-    assert "**Re-run by**" in block
-    assert "@admin-user" in block
+    assert "- **Re-run by**: @admin-user" in block
+
+
+def test_generate_metadata_block_docs_entry(monkeypatch):
+    """The documentation deep link leads the list when a template provides one."""
+    for key, value in GITHUB_ENV_VARS.items():
+        monkeypatch.setenv(key, value)
+
+    block = generate_pr_metadata_block(
+        docs_url="https://example.test/workflows.html#pack-fruit",
+        docs_name="pack-fruit",
+    )
+
+    assert (
+        "- **Documentation**:"
+        " [`pack-fruit`](https://example.test/workflows.html#pack-fruit)\n"
+        "- **Trigger**:"
+    ) in block
+    # Without a label the raw URL renders as an autolink.
+    unlabelled = generate_pr_metadata_block(
+        docs_url="https://example.test/workflows.html#pack-fruit"
+    )
+    assert (
+        "- **Documentation**: <https://example.test/workflows.html#pack-fruit>"
+    ) in unlabelled
 
 
 def test_generate_metadata_block_minimal_vars(monkeypatch):
@@ -237,7 +260,7 @@ def test_load_template_frontmatter():
     meta, body = load_template("bump-version")
 
     assert meta["args"] == ["version", "part"]
-    assert body.startswith("### Description")
+    assert body.startswith("Ready to be merged")
 
 
 def test_load_template_title_only_frontmatter():
@@ -246,7 +269,7 @@ def test_load_template_title_only_frontmatter():
 
     assert "title" in meta
     assert "args" not in meta
-    assert body.startswith("### Description")
+    assert body.startswith("> [!TIP]")
 
 
 def test_load_template_external_file(tmp_path):
@@ -368,7 +391,7 @@ def test_render_bump_version():
     result = render_template("bump-version", version="1.2.0", part="minor")
 
     assert "bump the minor part" in result
-    assert "### To bump version to `v1.2.0`" in result
+    assert "## To bump version to `v1.2.0`" in result
     assert "Ready for review" in result
     assert "Rebase and merge" in result
     assert "bump-version" in result
@@ -385,7 +408,7 @@ def test_render_prepare_release(monkeypatch):
         version="5.8.1",
     )
 
-    assert "### How-to release `v5.8.1`" in result
+    assert "## How-to release `v5.8.1`" in result
     assert "`v5.8.1` tag on `main`" in result
     assert "`v5.8.1` release" in result
     assert "[!CAUTION]" in result
@@ -397,13 +420,10 @@ def test_render_prepare_release(monkeypatch):
 
 
 def test_render_sync_gitignore():
-    """Sync gitignore template includes description, config options, and docs link."""
+    """Sync gitignore template surfaces its config options."""
     result = render_template("sync-gitignore")
 
-    assert "### Description" in result
-    assert "gitignore.io" in result
-    assert "sync-gitignore" in result
-    assert "### Configuration" in result
+    assert "## Configuration" in result
     assert "gitignore.extra-categories" in result
     assert "gitignore.extra-content" in result
     assert "gitignore.location" in result
@@ -411,97 +431,85 @@ def test_render_sync_gitignore():
 
 
 def test_render_fix_typos():
-    """Fix typos template includes description and docs link."""
+    """Fix typos template points at the spell checker's config surface."""
     result = render_template("fix-typos")
 
-    assert "### Description" in result
-    assert "typos" in result
-    assert "autofix-yaml-jobs" in result
+    assert "[!TIP]" in result
+    assert "[tool.typos]" in result
 
 
 def test_render_format_json():
-    """Format JSON template includes description and docs link."""
+    """Format JSON template points at Biome's config surface."""
     result = render_template("format-json")
 
-    assert "### Description" in result
-    assert "Biome" in result
-    assert "autofix-yaml-jobs" in result
+    assert "[!TIP]" in result
+    assert "[tool.biome]" in result
 
 
 def test_render_format_markdown():
-    """Format Markdown template includes description and docs link."""
+    """Format Markdown template points at mdformat's config surface."""
     result = render_template("format-markdown")
 
-    assert "### Description" in result
-    assert "mdformat" in result
-    assert "autofix-yaml-jobs" in result
+    assert "[!TIP]" in result
+    assert "[tool.mdformat]" in result
 
 
 def test_render_format_pyproject():
-    """Format pyproject template includes description and docs link."""
+    """Format pyproject template points at pyproject-fmt's config surface."""
     result = render_template("format-pyproject")
 
-    assert "### Description" in result
-    assert "pyproject-fmt" in result
-    assert "autofix-yaml-jobs" in result
+    assert "[!TIP]" in result
+    assert "[tool.pyproject-fmt]" in result
 
 
 def test_render_format_python():
-    """Format Python template includes description, tools, and docs link."""
+    """Format Python template points at both formatters' config surfaces."""
     result = render_template("format-python")
 
-    assert "### Description" in result
-    assert "autopep8" in result
-    assert "Ruff" in result
+    assert "[!TIP]" in result
     assert "[tool.ruff]" in result
-    assert "autofix-yaml-jobs" in result
+    assert "[tool.autopep8]" in result
 
 
 def test_render_sync_bumpversion():
-    """Sync bumpversion template includes description and docs link."""
+    """Sync bumpversion template surfaces its config options."""
     result = render_template("sync-bumpversion")
 
-    assert "### Description" in result
-    assert "bumpversion" in result
-    assert "autofix-yaml-jobs" in result
+    assert "## Configuration" in result
+    assert "bumpversion.sync" in result
+    assert "[tool.repomatic]" in result
 
 
 def test_render_update_deps_graph():
-    """Update deps graph template includes description, config options, and docs link."""
+    """Update deps graph template surfaces its config options."""
     result = render_template("update-deps-graph")
 
-    assert "### Description" in result
-    assert "Mermaid" in result
-    assert "autofix-yaml-jobs" in result
-    assert "### Configuration" in result
+    assert "## Configuration" in result
     assert "dependency-graph.output" in result
     assert "[tool.repomatic]" in result
 
 
 def test_render_update_docs():
-    """Update docs template includes description, config options, and docs link."""
+    """Update docs template surfaces its config options."""
     result = render_template("update-docs")
 
-    assert "### Description" in result
-    assert "sphinx-apidoc" in result
-    assert "docs_update.py" in result
-    assert "autofix-yaml-jobs" in result
-    assert "### Configuration" in result
+    assert "## Configuration" in result
     assert "docs.apidoc-exclude" in result
+    assert "docs.update-script" in result
     assert "[tool.repomatic]" in result
 
 
 def test_render_sync_mailmap():
-    """Sync mailmap template includes description and docs link."""
+    """Sync mailmap template surfaces its config options."""
     result = render_template("sync-mailmap")
 
-    assert "### Description" in result
-    assert ".mailmap" in result
-    assert "autofix-yaml-jobs" in result
+    assert "## Configuration" in result
+    assert "mailmap.sync" in result
+    assert "[tool.repomatic]" in result
 
 
 # Config-option references in PR body templates, written as
-# ``- [`key`](…/configuration.html#anchor)`` bullets under "### Configuration".
+# ``- [`key`](…/configuration.html#anchor)`` bullets under "## Configuration".
 CONFIG_OPTION_BULLET = re.compile(
     r"- \[`(?P<key>[^`]+)`\]"
     r"\(https://kdeldycke\.github\.io/repomatic/configuration\.html#(?P<anchor>[^)]+)\)"
@@ -714,6 +722,33 @@ PROGRAMMATIC_TEMPLATES = frozenset({
 """Templates rendered from Python code, not via the ``--template`` CLI flag."""
 
 
+WORKFLOWS_DOCS_URL = "https://kdeldycke.github.io/repomatic/workflows.html"
+"""Hosted workflows reference that template ``docs:`` fields deep-link into."""
+
+
+def _workflows_heading_anchors() -> set[str]:
+    """Anchors available in ``docs/workflows.md``: heading slugs and explicit targets.
+
+    Heading slugs follow the docutils section-id algorithm (lowercase, every
+    non-alphanumeric run collapsed to one hyphen, trimmed), which is what the
+    published Sphinx page exposes as ``id=`` attributes.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    text = (repo_root / "docs" / "workflows.md").read_text(encoding="UTF-8")
+    anchors = set()
+    for line in text.splitlines():
+        if re.match(r"#{1,6} ", line):
+            title = line.lstrip("#").strip()
+            # Keep the text of markdown links, drop their targets.
+            title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title)
+            anchors.add(re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-"))
+        else:
+            explicit = re.fullmatch(r"\(([\w-]+)\)=", line.strip())
+            if explicit:
+                anchors.add(explicit.group(1))
+    return anchors
+
+
 def _collect_template_references() -> set[str]:
     """Scan reference workflows for all ``--template <name>`` arguments."""
     repo_root = Path(__file__).resolve().parent.parent
@@ -785,13 +820,29 @@ def test_template_file_policy(filename, name):
                 f" but neither body nor frontmatter contains {marker}"
             )
 
-    # Body must start with a markdown heading.
-    assert body.startswith("###"), (
-        f"Template {name!r} body must start with a '###' heading"
+    # PR body sections render as h2: no h3 heading (like the retired
+    # per-template "### Description" boilerplate) may sneak back in.
+    assert "### " not in body, (
+        f"Template {name!r} body must use '##' section headings"
+    )
+
+    # Every CLI template deep-links its job's section of the workflows
+    # reference (surfaced as the metadata block's Documentation entry, in
+    # place of the retired description section). Validating the anchor
+    # against the in-tree headings keeps a docs reword from orphaning it.
+    docs = meta.get("docs")
+    assert isinstance(docs, str) and docs.startswith(f"{WORKFLOWS_DOCS_URL}#"), (
+        f"Template {name!r} must declare a 'docs' deep link into"
+        f" {WORKFLOWS_DOCS_URL}"
+    )
+    anchor = docs.partition("#")[2]
+    assert anchor in _workflows_heading_anchors(), (
+        f"Template {name!r} docs anchor {anchor!r} matches no"
+        " docs/workflows.md heading"
     )
 
 
-FRONTMATTER_KEY_ORDER = ["args", "title", "commit_message", "footer"]
+FRONTMATTER_KEY_ORDER = ["args", "title", "commit_message", "docs", "footer"]
 """Canonical ordering of keys within template frontmatter."""
 
 

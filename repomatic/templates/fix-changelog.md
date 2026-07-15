@@ -1,13 +1,10 @@
 ---
 title: Fix changelog
+docs: https://kdeldycke.github.io/repomatic/workflows.html#fix-changelog-fix-changelog
 footer: false
 ---
 
-### Description
-
-Fixes changelog release dates and updates availability admonitions.
-
-### Configuration
+## Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 

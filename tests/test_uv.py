@@ -30,12 +30,14 @@ from repomatic import cli
 from repomatic.cli import repomatic
 from repomatic.config import Config
 from repomatic.uv import (
+    BYPASS_NEEDS_RELEASE,
     AdvisorySource,
     BypassForecast,
     HeldBackPackage,
     VulnerablePackage,
     build_held_back,
     compute_bypass_forecasts,
+    compute_pruned_forecasts,
     format_bypass_section,
     format_diff_table,
     format_exclude_newer_note,
@@ -137,7 +139,7 @@ def test_audit_output_writes_markdown(
     )
     assert result.exit_code == 1
     content = out.read_text(encoding="UTF-8")
-    assert "### Vulnerabilities" in content
+    assert "## Vulnerabilities" in content
     assert "aiohttp" in content
 
 
@@ -185,7 +187,7 @@ def test_audit_fix_delegates_to_engine(monkeypatch, default_config, no_github_re
 
     def fake_fix(lock_path, repo=None, sources=None):
         calls["fixed"] = True
-        return True, "### Updated packages\n\n| pkg | old | new |"
+        return True, "## Updated packages\n\n| pkg | old | new |"
 
     monkeypatch.setattr(cli, "_fix_vulnerable_deps", fake_fix)
     monkeypatch.setattr(cli, "collect_vulnerable_packages", _fail)
@@ -237,7 +239,7 @@ def test_format_diff_table_is_the_shared_pr_table():
         heading="Updated tools",
         subject="Tool",
     )
-    assert "### 🆙 Updated tools" in table
+    assert "## 🆙 Updated tools" in table
     assert "| Tool | Change | Released |" in table
     assert "[gitleaks](https://github.com/gitleaks/gitleaks)" in table
     assert (
@@ -251,7 +253,7 @@ def test_format_diff_table_is_the_shared_pr_table():
         [("ruff", "0.1.0", "0.2.0")],
         name_urls=pypi_name_urls([("ruff", "0.1.0", "0.2.0")]),
     )
-    assert "### 🆙 Updated packages" in pkg
+    assert "## 🆙 Updated packages" in pkg
     assert "| Package | Change |" in pkg
     assert "[ruff](https://pypi.org/project/ruff/)" in pkg
     assert "`0.1.0` → `0.2.0`" in pkg
@@ -260,12 +262,12 @@ def test_format_diff_table_is_the_shared_pr_table():
     assert "| foo |" in format_diff_table([("foo", "1", "2")])
     assert format_diff_table([]) == ""
 
-    # Added and removed packages share one label layout: version first, then
-    # a parenthesized status with emoji.
-    assert "| papaya | `1.4.0` (🆕 new) |" in format_diff_table([
+    # Added and removed packages share one label layout: emoji status first,
+    # then the version.
+    assert "| papaya | 🆕 new: `1.4.0` |" in format_diff_table([
         ("papaya", "", "1.4.0"),
     ])
-    assert "| papaya | `0.7.0` (🗑️ removed) |" in format_diff_table([
+    assert "| papaya | 🗑️ removed: `0.7.0` |" in format_diff_table([
         ("papaya", "0.7.0", ""),
     ])
 
@@ -346,7 +348,7 @@ def test_format_held_back_table_is_parametrized_by_subject_and_links():
         name_urls={"actions/checkout": "https://github.com/actions/checkout"},
         subject="Action",
     )
-    assert "### 🔜 Held back by cooldown" in table
+    assert "## 🔜 Held back by cooldown" in table
     assert "CUSTOM COOLDOWN NOTE" in table
     assert "| Action | Locked | Available | Released | Eligible |" in table
     assert "[actions/checkout](https://github.com/actions/checkout)" in table
@@ -485,6 +487,18 @@ def test_compute_bypass_forecasts_reports_freezes_only(tmp_path):
     assert forecasts[0].expires.startswith("2026-07-08")
 
 
+def test_compute_bypass_forecasts_flags_unreleased_hold(tmp_path):
+    """A freeze holding a version with no upload time can only end by release."""
+    pyproject = _write_pyproject(
+        tmp_path,
+        'exclude-newer = "1 week"\n'
+        'exclude-newer-package = { papaya = "2026-07-02T00:00:00Z" }\n',
+    )
+    lock = _write_lock(tmp_path, ("papaya", "1.0.0.dev0", ""))
+    forecasts = compute_bypass_forecasts(pyproject, lock)
+    assert forecasts == [BypassForecast("papaya", "1.0.0.dev0", BYPASS_NEEDS_RELEASE)]
+
+
 def test_compute_bypass_forecasts_without_entries(tmp_path):
     """No `exclude-newer-package` table yields no forecasts."""
     pyproject = _write_pyproject(tmp_path, 'exclude-newer = "1 week"\n')
@@ -492,11 +506,26 @@ def test_compute_bypass_forecasts_without_entries(tmp_path):
     assert compute_bypass_forecasts(pyproject, lock) == []
 
 
-def test_format_bypass_section_renders_events_and_forecasts():
-    """The section shows prune/freeze news first, then the active freezes."""
+def test_compute_pruned_forecasts_snapshots_cleared_freezes(tmp_path):
+    """Pruned entries keep the version and the (past) date the freeze aged out."""
+    lock = _write_lock(tmp_path, ("mango", "2.0.0", "2026-01-01T12:00:00Z"))
+    records = compute_pruned_forecasts({"mango"}, lock)
+    assert len(records) == 1
+    assert records[0].name == "mango"
+    assert records[0].held_version == "2.0.0"
+    # The held upload (2026-01-01) plus the lock's P1W span, long past.
+    assert records[0].expires.startswith("2026-01-08")
+    assert compute_pruned_forecasts(set(), lock) == []
+
+
+def test_format_bypass_section_renders_unified_table():
+    """Every lifecycle state is a row: active plain, frozen and cleared labelled."""
     section = format_bypass_section(
-        [BypassForecast("mango", "2.0.0", "2026-07-08 (in 2 days)")],
-        pruned=["cherry"],
+        [
+            BypassForecast("mango", "2.0.0", "2026-07-08 (in 2 days)"),
+            BypassForecast("papaya", "3.1.0", "2026-07-10 (in 4 days)"),
+        ],
+        pruned=[BypassForecast("cherry", "1.5.0", "2026-07-01 (5 days ago)")],
         frozen=["papaya"],
         name_urls=pypi_name_urls([
             ("cherry", "", ""),
@@ -504,16 +533,33 @@ def test_format_bypass_section_renders_events_and_forecasts():
             ("papaya", "", ""),
         ]),
     )
-    assert "### ❄️ Cooldown bypasses" in section
-    assert "cleared from `pyproject.toml` in this PR:" in section
-    assert "[cherry](https://pypi.org/project/cherry/)" in section
-    assert "frozen at their locked version in this PR:" in section
-    assert "[papaya](https://pypi.org/project/papaya/)" in section
-    assert "| Package | Held at | Expires |" in section
+    assert "## ❄️ Cooldown bypasses" in section
+    assert "| Package | Held at | Held until |" in section
+    assert (
+        "| [cherry](https://pypi.org/project/cherry/) | 🧹 cleared: `1.5.0` |"
+        " 2026-07-01 (5 days ago) |"
+    ) in section
     assert (
         "| [mango](https://pypi.org/project/mango/) | `2.0.0` |"
         " 2026-07-08 (in 2 days) |"
     ) in section
+    assert (
+        "| [papaya](https://pypi.org/project/papaya/) | 📌 frozen: `3.1.0` |"
+        " 2026-07-10 (in 4 days) |"
+    ) in section
+    # Rows merge sorted by name, and the old prose lines are gone.
+    assert section.index("cherry") < section.index("mango") < section.index("papaya")
+    assert "in this PR" not in section
     # Empty input yields nothing; an unmapped name renders plain.
     assert format_bypass_section([]) == ""
     assert "| mango |" in format_bypass_section([BypassForecast("mango", "1", "")])
+
+
+def test_format_bypass_section_labels_unreleased_hold():
+    """An unreleased hold is labelled, with an italicized expiry marker."""
+    section = format_bypass_section(
+        [BypassForecast("papaya", "1.0.0.dev0", BYPASS_NEEDS_RELEASE)]
+    )
+    assert (
+        f"| 🚧 unreleased: `1.0.0.dev0` | *{BYPASS_NEEDS_RELEASE}* |"
+    ) in section

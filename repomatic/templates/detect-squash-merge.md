@@ -1,15 +1,16 @@
 ---
 args: [pr_ref]
 title: 🚨 Squash merge detected — release skipped
+docs: https://kdeldycke.github.io/repomatic/workflows.html#detect-squash-merge-detect-squash-merge
 footer: false
 ---
 
-### Summary
+## Summary
 
 > [!CAUTION]
 > The release PR \$pr_ref was squash-merged instead of rebase-merged.
 
-### What happened
+## What happened
 
 The release process requires the freeze and unfreeze commits to land as **separate commits** via "Rebase and merge". A squash merge combines them into one, preventing the tagging pipeline from identifying the freeze commit.
 
@@ -21,7 +22,7 @@ Existing safeguards prevented the release from being published:
 
 The merged changes are the net effect of freeze + unfreeze, which leaves `main` in a valid state for the next development cycle. The skipped version appears in the changelog but was never published.
 
-### Recovery
+## Recovery
 
 No immediate action is required. To release:
 

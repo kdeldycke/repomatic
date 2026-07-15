@@ -1,13 +1,10 @@
 ---
 title: Sync repomatic-managed files
+docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-repomatic-sync-repomatic
 footer: false
 ---
 
-### Description
-
-Syncs all [repomatic](https://github.com/kdeldycke/repomatic)-managed files: [thin-caller workflows](https://kdeldycke.github.io/repomatic/workflows.html#example-usage), configuration files, and skill definitions. Also removes redundant config files identical to bundled defaults and cleans up excluded or stale files.
-
-### Configuration
+## Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 

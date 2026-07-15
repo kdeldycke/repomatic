@@ -1,10 +1,9 @@
 ---
 args: [version]
 title: Release `v$version`
+docs: https://kdeldycke.github.io/repomatic/workflows.html#prepare-release-prepare-release
 footer: false
 ---
-
-### Description
 
 This PR is ready to be merged. See the [`prepare-release` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-changelog-yaml-jobs) for details. The [merge event will trigger](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-release-yaml-jobs) the:
 
@@ -16,7 +15,7 @@ This PR is ready to be merged. See the [`prepare-release` job documentation](htt
 
 4. Publication of a GitHub `v$version` release with all artifacts above attached
 
-### How-to release `v$version`
+## How-to release `v$version`
 
 1. **Click `Ready for review`** button below, to get this PR out of `Draft` mode
 

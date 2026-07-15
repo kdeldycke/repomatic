@@ -394,22 +394,22 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
         body = Path("out.md").read_text(encoding="UTF-8")
 
     # The action is bumped to the eligible v2.0.0.
-    assert "### 🆙 Updated actions" in body
+    assert "## 🆙 Updated actions" in body
     assert "`v1.0.0` → `v2.0.0`" in body
     # The relative cooldown cutoff line (the uv exclude-newer counterpart).
     assert "minimum-release-age" in body
     # The held-back section surfaces the in-cooldown v3.0.0.
-    assert "### 🔜 Held back by cooldown" in body
+    assert "## 🔜 Held back by cooldown" in body
     assert "`3.0.0`" in body
     # Release notes for the adopted version only, not the held-back one.
-    assert "### Release notes" in body
+    assert "## Release notes" in body
     assert "release two notes" in body
     assert "release three notes" not in body
     # Release notes sit between the update table and the held-back section.
     assert (
-        body.index("### 🆙 Updated actions")
-        < body.index("### Release notes")
-        < body.index("### 🔜 Held back by cooldown")
+        body.index("## 🆙 Updated actions")
+        < body.index("## Release notes")
+        < body.index("## 🔜 Held back by cooldown")
     )
 
 
@@ -604,7 +604,7 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
     assert "mango" in body
     # Notes were fetched for the PyPI literal only, never the npm one.
     assert captured["changes"] == [("mango", "1.0.0", "2.0.0")]
-    assert "### Release notes" in body
+    assert "## Release notes" in body
     assert "the notes" in body
 
 

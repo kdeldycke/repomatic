@@ -1,13 +1,10 @@
 ---
 title: Sync `.gitignore`
+docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-gitignore-sync-gitignore
 footer: false
 ---
 
-### Description
-
-Regenerates `.gitignore` from [gitignore.io](https://github.com/toptal/gitignore.io) templates. See the [`sync-gitignore` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-autofix-yaml-jobs) for details.
-
-### Configuration
+## Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 

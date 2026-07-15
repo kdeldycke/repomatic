@@ -235,8 +235,8 @@ def load_template(name: str | Path) -> tuple[dict[str, object], str]:
     - `str` (e.g. `"bump-version"`): looked up as a packaged resource under
       `repomatic.templates`. Tries `{name}.md.noformat` first, then `{name}.md`.
       The `.md.noformat` extension is used for templates whose
-      `string.Template` placeholders confuse mdformat (e.g. `$rerun_row` at
-      the start of a table row is parsed as a cell value, breaking the table
+      `string.Template` placeholders confuse mdformat (e.g. `$rerun_entry`
+      prefixed to a list line is parsed as literal text, breaking the list
       structure). See `pr-metadata.md.noformat` for the canonical example.
     - `Path`: read directly from the filesystem. Lets downstream repos ship
       project-specific templates without forking repomatic.
@@ -379,6 +379,23 @@ def template_args(name: str | Path) -> list[str]:
     return []
 
 
+def template_docs_url(name: str | Path) -> str:
+    """Return a template's documentation deep link, if it declares one.
+
+    PR templates carry a `docs:` frontmatter field pointing at their job's
+    section of the hosted workflows reference, surfaced as the
+    `Documentation` entry of the metadata block now that PR bodies have no
+    description section.
+
+    :param name: Template name without `.md` extension, or a
+        {class}`~pathlib.Path` pointing to a template file.
+    :return: The URL from the frontmatter `docs` field, or an empty string.
+    """
+    meta, _body = load_template(name)
+    docs = meta.get("docs", "")
+    return docs if isinstance(docs, str) else ""
+
+
 def get_template_names() -> list[str]:
     """Discover all available template names from the templates package.
 
@@ -411,13 +428,19 @@ def extract_workflow_filename(workflow_ref: str | None) -> str:
     return path_part.rsplit("/", 1)[-1] if "/" in path_part else path_part
 
 
-def generate_pr_metadata_block() -> str:
+def generate_pr_metadata_block(docs_url: str = "", docs_name: str = "") -> str:
     """Generate a collapsible metadata block from CI context.
 
     Uses {class}`~repomatic.metadata.Metadata` to read `GITHUB_*`
     environment variables and returns a markdown `<details>` block
-    containing a table of workflow metadata fields.
+    listing the workflow metadata fields.
 
+    :param docs_url: Optional deep link to the job's section of the hosted
+        workflows reference, rendered as the leading `Documentation` entry.
+        Comes from the PR template's `docs:` frontmatter field (see
+        {func}`template_docs_url`).
+    :param docs_name: Label for the documentation link, usually the template
+        (operation) name. Without it the raw URL renders as an autolink.
     :return: A markdown string with the metadata block.
     """
     md = Metadata()
@@ -425,15 +448,20 @@ def generate_pr_metadata_block() -> str:
     sha = md.sha or ""
     actor = md.event_actor or ""
     triggering_actor = md.triggering_actor
-    rerun_row = ""
+    rerun_entry = ""
     if triggering_actor and triggering_actor != actor:
-        rerun_row = f"| **Re-run by** | @{triggering_actor} |\n"
+        rerun_entry = f"- **Re-run by**: @{triggering_actor}\n"
+    docs_entry = ""
+    if docs_url:
+        link = f"[`{docs_name}`]({docs_url})" if docs_name else f"<{docs_url}>"
+        docs_entry = f"- **Documentation**: {link}\n"
 
     return render_template(
         "pr-metadata",
+        docs_entry=docs_entry,
         event_name=md.event_name,
         actor=actor,
-        rerun_row=rerun_row,
+        rerun_entry=rerun_entry,
         ref_name=md.ref_name,
         repo_url=md.repo_url,
         sha=sha,

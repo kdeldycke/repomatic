@@ -56,7 +56,7 @@ MINIMUM_RELEASE_AGE_URL = (
 MIN_AGE_HELD_BACK_NOTE = (
     "Newer releases already published but withheld because they are still"
     f" inside the [`minimum-release-age`]({MINIMUM_RELEASE_AGE_URL}) cooldown"
-    " window. Each becomes adoptable on its eligible date."
+    " window."
 )
 """Intro paragraph for the version-sync held-back section.
 
@@ -290,7 +290,7 @@ def select_held_back(
     The counterpart to {func}`select_latest`: among candidates strictly newer
     than *pinned*, keep those still inside the cooldown window (published more
     recently than *min_age*) and return the highest. These are the releases a
-    later run adopts once they age out, surfaced in the `### 🔜 Held back by
+    later run adopts once they age out, surfaced in the `## 🔜 Held back by
     cooldown` PR section. No extra network call is needed: the candidates are
     already in hand from the {func}`select_latest` sweep.
 

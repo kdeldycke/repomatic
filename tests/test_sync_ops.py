@@ -40,6 +40,7 @@ from repomatic.registry import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComp
 from repomatic.sync_ops import (
     DEPENDENCY_LABEL,
     SYNC_OPERATIONS,
+    BypassForecast,
     ResolveContext,
     SyncOperation,
     SyncPlan,
@@ -407,12 +408,15 @@ def test_bypass_only_plan_counts_as_changed_and_renders() -> None:
         operation="sync-uv-lock",
         subject="Package",
         heading="Updated packages",
-        pruned_bypasses=["mango"],
+        pruned_bypasses=[BypassForecast("mango", "2.0.0", "2026-07-01 (5 days ago)")],
     )
     assert plan.has_changes
     body = render_plan_markdown(plan)
-    assert "### ❄️ Cooldown bypasses" in body
-    assert "[mango](https://pypi.org/project/mango/)" in body
+    assert "## ❄️ Cooldown bypasses" in body
+    assert (
+        "| [mango](https://pypi.org/project/mango/) | 🧹 cleared: `2.0.0` |"
+        " 2026-07-01 (5 days ago) |"
+    ) in body
 
 
 @pytest.mark.parametrize("in_source_repo", (False, True))

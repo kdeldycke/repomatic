@@ -1,11 +1,8 @@
 ---
 title: Typo
+docs: https://kdeldycke.github.io/repomatic/workflows.html#fix-typos-fix-typos
 footer: false
 ---
-
-### Description
-
-Fixes typos detected by [typos](https://github.com/crate-ci/typos). See the [`fix-typos` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-autofix-yaml-jobs) for details.
 
 > [!TIP]
 > Manage false positives and customize spell-checking rules via [`[tool.typos]`](https://github.com/crate-ci/typos/blob/master/docs/reference.md) in your `pyproject.toml`.

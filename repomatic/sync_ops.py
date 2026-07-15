@@ -219,7 +219,7 @@ class SyncPlan:
     """Header for the first table column (`Package`, `Tool`, `Action`)."""
 
     heading: str
-    """Noun after `### 🆙 ` in the diff table (`Updated tools`, …)."""
+    """Noun after `## 🆙 ` in the diff table (`Updated tools`, …)."""
 
     changes: list[tuple[str, str, str]] = field(default_factory=list)
     """Applied `(name, old, new)` triples, in the order the report renders."""
@@ -277,8 +277,9 @@ class SyncPlan:
     pins_synced: bool = False
     """Whether the `[tool.uv]` policy pins were refreshed from the template."""
 
-    pruned_bypasses: list[str] = field(default_factory=list)
-    """Expired `exclude-newer-package` entries removed from `pyproject.toml`."""
+    pruned_bypasses: list[BypassForecast] = field(default_factory=list)
+    """Expired `exclude-newer-package` entries removed from `pyproject.toml`,
+    snapshot with the version and expiry each freeze had."""
 
     frozen_bypasses: list[str] = field(default_factory=list)
     """`exclude-newer-package` entries rewritten into freeze cutoffs."""
@@ -792,7 +793,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
     # targets are derived here rather than carried on the plan.
     bypass_names = [
         *(forecast.name for forecast in plan.bypass_forecasts),
-        *plan.pruned_bypasses,
+        *(forecast.name for forecast in plan.pruned_bypasses),
         *plan.frozen_bypasses,
     ]
     bypass_section = format_bypass_section(

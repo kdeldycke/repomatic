@@ -250,13 +250,13 @@ def format_vulnerability_table(vulns: list[VulnerablePackage]) -> str:
     GitHub Advisory DB, or both) detected the vulnerability.
 
     :param vulns: List of {class}`VulnerablePackage` entries.
-    :return: A markdown string with a `### Vulnerabilities` heading and table,
+    :return: A markdown string with a `## Vulnerabilities` heading and table,
         or an empty string if no vulnerabilities are provided.
     """
     if not vulns:
         return ""
     lines = [
-        "### Vulnerabilities",
+        "## Vulnerabilities",
         "",
         "| Package | Advisory | Current | Fixed | Sources |",
         "| :-- | :-- | :-- | :-- | :-- |",
@@ -1115,16 +1115,16 @@ def format_diff_table(
     :param name_urls: Optional mapping of names to a URL the name links to
         (PyPI, GitHub, npm). Names absent from the mapping render plain. Pass
         {func}`pypi_name_urls` for PyPI-sourced changes.
-    :param heading: Noun after `### 🆙 ` (e.g. `Updated tools`).
+    :param heading: Noun after `## 🆙 ` (e.g. `Updated tools`).
     :param subject: Header for the first (name) column (e.g. `Tool`, `Action`).
-    :return: A markdown string with a `### 🆙 {heading}` heading and table,
+    :return: A markdown string with a `## 🆙 {heading}` heading and table,
         or an empty string if there are no changes.
     """
     if not changes:
         return ""
     name_urls = name_urls or {}
     show_uploaded = bool(upload_times)
-    lines = [f"### 🆙 {heading}", ""]
+    lines = [f"## 🆙 {heading}", ""]
     if cooldown_note:
         lines.append(cooldown_note)
         lines.append("")
@@ -1141,9 +1141,9 @@ def format_diff_table(
             if comparison_urls and name in comparison_urls:
                 change = f"[{change}]({comparison_urls[name]})"
         elif new:
-            change = f"`{new}` (🆕 new)"
+            change = f"🆕 new: `{new}`"
         else:
-            change = f"`{old}` (🗑️ removed)"
+            change = f"🗑️ removed: `{old}`"
         if show_uploaded:
             raw_time = upload_times.get(name, "")  # type: ignore[union-attr]
             uploaded = _format_released(raw_time, reference_date)
@@ -1157,7 +1157,7 @@ def format_diff_table(
 class HeldBackPackage:
     """A newer release withheld from the lock by the `exclude-newer` cooldown.
 
-    Built by {func}`compute_held_back_packages` for the `### Held back by
+    Built by {func}`compute_held_back_packages` for the `## Held back by
     cooldown` report section: a package has already published a newer version,
     but it is still inside the cooldown window, so `uv lock --upgrade` keeps
     the older {attr}`locked_version`.
@@ -1292,8 +1292,7 @@ def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
 EXCLUDE_NEWER_HELD_BACK_NOTE = (
     "Newer releases already published but withheld because they are still"
     " inside the [`exclude-newer`](https://docs.astral.sh/uv/reference/"
-    "settings/#exclude-newer) cooldown window. Each becomes lockable on"
-    " its eligible date."
+    "settings/#exclude-newer) cooldown window."
 )
 """Intro paragraph for the `sync-uv-lock` held-back section.
 
@@ -1356,14 +1355,14 @@ def format_held_back_table(
     :param name_urls: Optional mapping of names to a URL the name links to
         (PyPI, GitHub, npm). Names absent from the mapping render plain.
     :param subject: Header for the first column (e.g. `Action`, `Tool`).
-    :return: A markdown string with a `### 🔜 Held back by cooldown` heading
+    :return: A markdown string with a `## 🔜 Held back by cooldown` heading
         and table, or an empty string when *held_back* is empty.
     """
     if not held_back:
         return ""
     name_urls = name_urls or {}
     lines = [
-        "### 🔜 Held back by cooldown",
+        "## 🔜 Held back by cooldown",
         "",
         note,
         "",
@@ -1383,15 +1382,28 @@ def format_held_back_table(
     return "\n".join(lines)
 
 
+BYPASS_NEEDS_RELEASE = "needs release"
+"""Expiry placeholder for a freeze holding an unreleased version.
+
+A fixed-timestamp `exclude-newer-package` entry whose held version has no
+upload time in the lock (a git, path, or otherwise unpublished source) can
+never age past the rolling `exclude-newer` cutoff on its own: the freeze only
+ends once the package ships a release the lock can adopt. The markdown report
+renders the marker in italics to set it apart from real dates.
+"""
+
+
 @dataclass(frozen=True)
 class BypassForecast:
-    """An active cooldown-bypass freeze and the date it self-clears.
+    """A cooldown-bypass freeze and the date it self-clears.
 
-    Built by {func}`compute_bypass_forecasts` for the `### ❄️ Cooldown
-    bypasses` report section: a fixed-timestamp `exclude-newer-package` entry
-    holds {attr}`name` at {attr}`held_version` until that version ages past
-    the `exclude-newer` cutoff, at which point `sync-uv-lock` prunes the
-    entry and the package resumes normal cooldown resolution.
+    Built by {func}`compute_bypass_forecasts` (freezes still active) and
+    {func}`compute_pruned_forecasts` (freezes the run just cleared) for the
+    `## ❄️ Cooldown bypasses` report section: a fixed-timestamp
+    `exclude-newer-package` entry holds {attr}`name` at {attr}`held_version`
+    until that version ages past the `exclude-newer` cutoff, at which point
+    `sync-uv-lock` prunes the entry and the package resumes normal cooldown
+    resolution.
     """
 
     name: str
@@ -1402,8 +1414,28 @@ class BypassForecast:
 
     expires: str
     """Date the freeze expires and the entry is pruned, with a human-readable
-    countdown (`2026-07-08 (in 2 days)`), or empty when it cannot be computed
-    (no upload time in the lock, or no rolling `exclude-newer` span)."""
+    countdown (`2026-07-08 (in 2 days)`, in the past for an already-cleared
+    freeze), {data}`BYPASS_NEEDS_RELEASE` when the held version has no upload
+    time in the lock, or empty when there is no rolling `exclude-newer` span
+    to forecast against."""
+
+
+def _forecast_expiry(upload_str: str, span: timedelta | None, today: date) -> str:
+    """Format the date a held version ages past the rolling cooldown cutoff.
+
+    :param upload_str: The held version's `upload-time` from `uv.lock`.
+    :param span: The rolling `exclude-newer` span, or `None` when the cutoff
+        is absolute.
+    :param today: Reference date for the relative hint.
+    :return: The humanized expiry, {data}`BYPASS_NEEDS_RELEASE` when the
+        version has no upload time, or empty when *span* is absent.
+    """
+    upload_dt = _parse_iso_datetime(upload_str)
+    if upload_dt is None:
+        return BYPASS_NEEDS_RELEASE
+    if span is None:
+        return ""
+    return _format_eligible((upload_dt + span).date(), today)
 
 
 def compute_bypass_forecasts(
@@ -1444,12 +1476,42 @@ def compute_bypass_forecasts(
         held_version = versions.get(pkg, "")
         if not held_version:
             continue
-        expires = ""
-        upload_dt = _parse_iso_datetime(uploads.get(pkg, ""))
-        if upload_dt is not None and span is not None:
-            expires = _format_eligible((upload_dt + span).date(), today)
+        expires = _forecast_expiry(uploads.get(pkg, ""), span, today)
         forecasts.append(BypassForecast(pkg, held_version, expires))
     return forecasts
+
+
+def compute_pruned_forecasts(
+    names: set[str],
+    lock_path: Path,
+) -> list[BypassForecast]:
+    """Snapshot the freezes a prune just cleared, for their `(cleared)` rows.
+
+    Must run against the pre-upgrade `uv.lock`: once the entry is pruned the
+    package rejoins normal resolution, so the post-upgrade lock may hold a
+    newer version whose upload time would misstate what the freeze held and
+    when it aged out.
+
+    :param names: Names of the pruned entries, as returned by
+        {func}`prune_stale_exclude_newer_packages`.
+    :param lock_path: Path to the `uv.lock` file, still pre-upgrade.
+    :return: One record per pruned entry, sorted by package name, with the
+        version the freeze held and the (past) date it expired.
+    """
+    if not names:
+        return []
+    versions = parse_lock_versions(lock_path)
+    uploads = parse_lock_upload_times(lock_path)
+    span = _lock_cooldown_span(lock_path)
+    today = datetime.now(timezone.utc).date()
+    return [
+        BypassForecast(
+            pkg,
+            versions.get(pkg, ""),
+            _forecast_expiry(uploads.get(pkg, ""), span, today),
+        )
+        for pkg in sorted(names)
+    ]
 
 
 BYPASS_SECTION_NOTE = (
@@ -1463,59 +1525,68 @@ BYPASS_SECTION_NOTE = (
 
 def format_bypass_section(
     forecasts: list[BypassForecast],
-    pruned: list[str] | None = None,
+    pruned: list[BypassForecast] | None = None,
     frozen: list[str] | None = None,
     *,
     name_urls: dict[str, str] | None = None,
 ) -> str:
-    """Format the cooldown-bypass lifecycle as a markdown section.
+    """Format the cooldown-bypass lifecycle as a single markdown table.
 
     The `sync-uv-lock` report section covering `exclude-newer-package`
-    freezes: the entries the run pruned or froze (the news explaining the
-    `pyproject.toml` hunk in the PR diff), then the freezes still active,
-    each with its expiry forecast.
+    freezes. Every lifecycle state is a row in one table so the section scans
+    like the `## 🆙 Updated packages` one: freezes still active render plain,
+    entries this run rewrote into freeze cutoffs are labelled `📌 frozen:`,
+    and expired entries this run removed from `pyproject.toml` are labelled
+    `🧹 cleared:`, keeping the version and expiry data the freeze had. A
+    freeze holding an unreleased version is labelled `🚧 unreleased:` and its
+    {data}`BYPASS_NEEDS_RELEASE` expiry renders in italics.
 
     :param forecasts: Active freezes from {func}`compute_bypass_forecasts`.
-    :param pruned: Names of the expired entries the run removed.
-    :param frozen: Names of the entries the run rewrote into freeze cutoffs.
+    :param pruned: Expired entries the run removed, snapshot by
+        {func}`compute_pruned_forecasts` before the prune.
+    :param frozen: Names of the entries the run rewrote into freeze cutoffs;
+        their *forecasts* rows get the `📌 frozen:` label.
     :param name_urls: Optional mapping of names to a URL the name links to.
         Names absent from the mapping render plain.
-    :return: A markdown string with a `### ❄️ Cooldown bypasses` heading, or
-        an empty string when there is nothing to report.
+    :return: A markdown string with a `## ❄️ Cooldown bypasses` heading and
+        table, or an empty string when there is no row to report.
     """
-    pruned = pruned or []
-    frozen = frozen or []
-    if not (forecasts or pruned or frozen):
+    frozen_names = set(frozen or [])
+    rows = sorted(
+        [(forecast, "cleared") for forecast in pruned or []]
+        + [
+            (forecast, "frozen" if forecast.name in frozen_names else "")
+            for forecast in forecasts
+        ],
+        key=lambda row: row[0].name,
+    )
+    if not rows:
         return ""
     name_urls = name_urls or {}
 
     def link(name: str) -> str:
         return f"[{name}]({name_urls[name]})" if name in name_urls else name
 
-    lines = ["### ❄️ Cooldown bypasses", "", BYPASS_SECTION_NOTE]
-    if pruned:
-        names = ", ".join(link(name) for name in pruned)
-        lines.extend([
-            "",
-            f"🧹 Expired entries cleared from `pyproject.toml` in this PR: {names}.",
-        ])
-    if frozen:
-        names = ", ".join(link(name) for name in frozen)
-        lines.extend([
-            "",
-            f"📌 Entries frozen at their locked version in this PR: {names}.",
-        ])
-    if forecasts:
-        lines.extend([
-            "",
-            "| Package | Held at | Expires |",
-            "| :-- | :-- | :-- |",
-        ])
-        for forecast in forecasts:
-            lines.append(
-                f"| {link(forecast.name)} | `{forecast.held_version}` |"
-                f" {forecast.expires} |"
-            )
+    lines = [
+        "## ❄️ Cooldown bypasses",
+        "",
+        BYPASS_SECTION_NOTE,
+        "",
+        "| Package | Held at | Held until |",
+        "| :-- | :-- | :-- |",
+    ]
+    for forecast, marker in rows:
+        held = f"`{forecast.held_version}`"
+        if marker == "cleared":
+            held = f"🧹 cleared: {held}"
+        elif marker == "frozen":
+            held = f"📌 frozen: {held}"
+        elif forecast.expires == BYPASS_NEEDS_RELEASE:
+            held = f"🚧 unreleased: {held}"
+        expires = forecast.expires
+        if expires == BYPASS_NEEDS_RELEASE:
+            expires = f"*{expires}*"
+        lines.append(f"| {link(forecast.name)} | {held} | {expires} |")
     return "\n".join(lines)
 
 
@@ -1619,7 +1690,7 @@ def format_release_notes(
     """
     if not notes:
         return ""
-    lines = ["### Release notes", ""]
+    lines = ["## Release notes", ""]
     for name, (repo_url, versions) in sorted(notes.items()):
         lines.append("<details>")
         lines.append(f"<summary><code>{name}</code></summary>")
@@ -1965,8 +2036,10 @@ class SyncResult:
     run is dropped.
     """
 
-    pruned_bypasses: list[str] = field(default_factory=list)
-    """Expired `exclude-newer-package` entries removed from `pyproject.toml`."""
+    pruned_bypasses: list[BypassForecast] = field(default_factory=list)
+    """Expired `exclude-newer-package` entries removed from `pyproject.toml`,
+    each with the version and (past) expiry the freeze had, snapshot against
+    the pre-upgrade lock by {func}`compute_pruned_forecasts`."""
 
     frozen_bypasses: list[str] = field(default_factory=list)
     """`exclude-newer-package` entries rewritten into freeze cutoffs."""
@@ -2011,9 +2084,13 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     # tracking newer releases.
     pyproject_path = lock_path.parent / "pyproject.toml"
     pruned: set[str] = set()
+    pruned_records: list[BypassForecast] = []
     frozen: set[str] = set()
     if pyproject_path.exists():
         pruned = prune_stale_exclude_newer_packages(pyproject_path, lock_path)
+        # Snapshot the cleared freezes now, while the lock still holds the
+        # versions the entries froze (see compute_pruned_forecasts).
+        pruned_records = compute_pruned_forecasts(pruned, lock_path)
         frozen = freeze_exclude_newer_packages(pyproject_path, lock_path)
     pyproject_changed = bool(pruned or frozen)
 
@@ -2059,7 +2136,7 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
         upload_times=upload_times,
         exclude_newer=exclude_newer,
         reverted=reverted,
-        pruned_bypasses=sorted(pruned),
+        pruned_bypasses=pruned_records,
         frozen_bypasses=sorted(frozen),
         bypass_forecasts=compute_bypass_forecasts(pyproject_path, lock_path),
     )

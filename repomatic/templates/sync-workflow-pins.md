@@ -1,16 +1,13 @@
 ---
 args: [diff_table]
 title: Sync workflow pins
+docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-workflow-pins-updater
 footer: false
 ---
 
-### Description
-
-Bumps npm and PyPI version literals embedded in workflow YAML (`npm install pkg@x`, `uvx '<pkg>==x'`) to their latest releases that have cleared the stabilization cooldown. See the [`sync-workflow-pins` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-autofix-yaml-jobs) for details.
-
 \$diff_table
 
-### Configuration
+## Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 
