@@ -92,6 +92,15 @@
    :undoc-members:
 ```
 
+## `repomatic.dep_sources` module
+
+```{eval-rst}
+.. automodule:: repomatic.dep_sources
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.deps_graph` module
 
 ```{eval-rst}

@@ -314,6 +314,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic sync-bumpversion"
 
 [[cases]]
+cli_parameters = "sync-dep-sources --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-dep-sources"
+
+[[cases]]
 cli_parameters = "sync-deps --help"
 exit_code = 0
 strip_ansi = true

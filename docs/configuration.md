@@ -16,6 +16,7 @@ awesome-template.sync = false
 binaries.sync = false
 bumpversion.sync = false
 cache.max-age = 14
+dep-sources.sync = false
 dev-release.sync = false
 gitignore.sync = false
 labels.sync = false

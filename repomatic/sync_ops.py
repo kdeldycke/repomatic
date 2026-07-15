@@ -16,12 +16,12 @@
 
 """Registry of the cooldown-respecting dependency updaters, and their driver.
 
-The four `sync-*` dependency bumpers (`sync-uv-lock`, `sync-tool-versions`,
-`sync-action-pins`, `sync-workflow-pins`) share a shape: discover the latest
-eligible upstream version, gated by the `[tool.repomatic] minimum-release-age`
-cooldown (or uv's `exclude-newer` for the lock), then rewrite the pin. This
-module turns that shape into data: one {class}`SyncOperation` per bumper, in
-{data}`SYNC_OPERATIONS`.
+The five `sync-*` dependency bumpers (`sync-dep-sources`, `sync-uv-lock`,
+`sync-tool-versions`, `sync-action-pins`, `sync-workflow-pins`) share a shape:
+discover the latest eligible upstream version, gated by the
+`[tool.repomatic] minimum-release-age` cooldown (or uv's `exclude-newer` for
+the lock), then rewrite the pin. This module turns that shape into data: one
+{class}`SyncOperation` per bumper, in {data}`SYNC_OPERATIONS`.
 
 The registry is the single source of truth consumed three ways: the thin
 `sync-*` commands and the aggregate `sync-deps` command in {mod}`repomatic.cli`,
@@ -36,17 +36,19 @@ serially:
 
 - {attr}`SyncOperation.resolve` performs the network discovery and computes the
   new file contents in memory, returning a {class}`SyncPlan`. It does not touch
-  the repository, so the four resolves are safe to run in parallel.
-- {attr}`SyncOperation.apply` writes the planned contents. Three of the four
+  the repository, so the resolves are safe to run in parallel.
+- {attr}`SyncOperation.apply` writes the planned contents. Three of the five
   operations rewrite `.github/workflows/*.yaml` (action pins, workflow literals,
   and the actionlint matcher URL all live there), so applies must run serially.
 
-`sync-uv-lock` is the documented exception: its discovery *is* a mutation
-(`uv lock --upgrade` rewrites `uv.lock`), so {attr}`SyncOperation.resolve`
-writes during the parallel phase and {attr}`SyncOperation.apply` is a no-op.
-This is safe because its write domain (`uv.lock`, `pyproject.toml`'s
-`[tool.uv]`) is disjoint from every other operation's. A `--dry-run` resolve
-snapshots and restores those two files so the preview leaves no trace.
+`sync-uv-lock` and `sync-dep-sources` are the documented exceptions: their
+discovery *is* a mutation (`uv lock` rewrites `uv.lock`), so their
+{attr}`SyncOperation.resolve` writes during the parallel phase and their
+{attr}`SyncOperation.apply` is a no-op. Their shared write domain (`uv.lock`,
+`pyproject.toml`) is disjoint from every other operation's, and the two are
+serialized against each other through {data}`_UV_PROJECT_MUTEX`. A `--dry-run`
+resolve snapshots and restores the mutated files so the preview leaves no
+trace.
 
 The datasource adapters, version selection, and pure string rewriters live in
 {mod}`repomatic.version_sync` and {mod}`repomatic.uv`; this module composes them
@@ -58,6 +60,8 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
+import threading
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import date
@@ -67,6 +71,13 @@ from click_extra import Spinner, run_jobs
 
 from . import tool_runner
 from .checksums import update_registry_checksums
+from .dep_sources import (
+    ReleaseSwap,
+    apply_release_swaps,
+    find_ready_swaps,
+    format_swap_section,
+    tracked_git_overrides,
+)
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .init_project import _is_source_repo, init_config
 from .registry import BUNDLED_VERBATIM_TARGETS, DEFAULT_REPO, UPSTREAM_REPO_SLUGS
@@ -77,15 +88,22 @@ from .uv import (
     HeldBackPackage,
     build_comparison_urls,
     build_held_back,
+    compute_bypass_forecasts,
     compute_held_back_packages,
+    diff_lock_versions,
     fetch_release_notes,
     format_bypass_section,
     format_diff_table,
     format_exclude_newer_note,
     format_held_back_table,
     format_release_notes,
+    parse_lock_exclude_newer,
+    parse_lock_upload_times,
+    parse_lock_versions,
     pypi_name_urls,
     sync_uv_lock,
+    upsert_exclude_newer_packages,
+    uv_cmd,
 )
 from .version_sync import (
     MIN_AGE_HELD_BACK_NOTE,
@@ -114,7 +132,17 @@ if TYPE_CHECKING:
 DEPENDENCY_LABEL = "🔗 dependencies"
 """GitHub label applied to every dependency-update PR.
 
-Shared by all four bumpers so a single label filters the whole family.
+Shared by all five bumpers so a single label filters the whole family.
+"""
+
+_UV_PROJECT_MUTEX = threading.Lock()
+"""Serializes the two resolves that mutate the uv project files.
+
+`sync-uv-lock` and `sync-dep-sources` both rewrite `pyproject.toml` and run
+`uv lock` during their resolve phase, while `sync-deps` fans the resolves out
+concurrently. Interleaving two lock runs (or a snapshot/restore pair) on the
+same project corrupts both, so the two resolves take this mutex for their
+whole duration.
 """
 
 
@@ -287,6 +315,11 @@ class SyncPlan:
     bypass_forecasts: list[BypassForecast] = field(default_factory=list)
     """Active cooldown-bypass freezes with their expiry forecasts."""
 
+    # `sync-dep-sources` extras (resolve already wrote; these only inform
+    # rendering).
+    source_swaps: list[ReleaseSwap] = field(default_factory=list)
+    """Git-tracked dependencies swapped to their released versions."""
+
     @property
     def has_changes(self) -> bool:
         """Whether the operation found anything to update.
@@ -303,9 +336,10 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
 
     Unlike the version-sync trio, the discovery here is the mutation:
     `uv lock --upgrade` rewrites `uv.lock` in place. The new contents are left
-    on disk (the write domain is disjoint from every other operation), so
-    {func}`_apply_uv_lock` is a no-op. A `--dry-run` resolve snapshots `uv.lock`
-    and `pyproject.toml` up front and restores them in a `finally`.
+    on disk (the write domain is shared only with `sync-dep-sources`, guarded
+    by {data}`_UV_PROJECT_MUTEX`), so {func}`_apply_uv_lock` is a no-op. A
+    `--dry-run` resolve snapshots `uv.lock` and `pyproject.toml` up front and
+    restores them in a `finally`.
     """
     plan = SyncPlan(
         operation="sync-uv-lock",
@@ -316,56 +350,158 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
     plan.reference_date = rc.today
     lockfile = rc.lockfile
     pyproject_path = lockfile.parent / "pyproject.toml"
-    lock_before = lockfile.read_bytes() if lockfile.exists() else None
-    pyproject_before = pyproject_path.read_bytes() if pyproject_path.exists() else None
-    try:
-        # Sync repomatic's canonical [tool.uv] policy pins from the bundled
-        # template before re-locking, so a bumped exclude-newer feeds the
-        # resolution and a bumped required-version rides in the same change.
-        if pyproject_path.exists():
-            merged = init_config("uv", pyproject_path)
-            if merged is not None:
-                pyproject_path.write_text(merged, encoding="UTF-8")
-                plan.pins_synced = True
+    with _UV_PROJECT_MUTEX:
+        lock_before = lockfile.read_bytes() if lockfile.exists() else None
+        pyproject_before = (
+            pyproject_path.read_bytes() if pyproject_path.exists() else None
+        )
+        try:
+            # Sync repomatic's canonical [tool.uv] policy pins from the bundled
+            # template before re-locking, so a bumped exclude-newer feeds the
+            # resolution and a bumped required-version rides in the same change.
+            if pyproject_path.exists():
+                merged = init_config("uv", pyproject_path)
+                if merged is not None:
+                    pyproject_path.write_text(merged, encoding="UTF-8")
+                    plan.pins_synced = True
 
-        result = sync_uv_lock(lockfile)
-        plan.changes = result.changes
-        plan.dates = result.upload_times
-        plan.exclude_newer = result.exclude_newer
-        plan.reverted = result.reverted
-        plan.cooldown_note = format_exclude_newer_note(result.exclude_newer)
-        plan.name_urls = pypi_name_urls(result.changes)
-        plan.pruned_bypasses = result.pruned_bypasses
-        plan.frozen_bypasses = result.frozen_bypasses
-        plan.bypass_forecasts = result.bypass_forecasts
+            result = sync_uv_lock(lockfile)
+            plan.changes = result.changes
+            plan.dates = result.upload_times
+            plan.exclude_newer = result.exclude_newer
+            plan.reverted = result.reverted
+            plan.cooldown_note = format_exclude_newer_note(result.exclude_newer)
+            plan.name_urls = pypi_name_urls(result.changes)
+            plan.pruned_bypasses = result.pruned_bypasses
+            plan.frozen_bypasses = result.frozen_bypasses
+            plan.bypass_forecasts = result.bypass_forecasts
 
-        # The probe runs a second uv resolution, so skip it with nothing to
-        # report: the caller already gates `held_back` on a consumer being
-        # present (terminal table or file output). Bypass edits count as
-        # changes: a prune may leave newer releases cooldown-held, and this
-        # is the report that explains them.
-        if rc.held_back and plan.has_changes:
+            # The probe runs a second uv resolution, so skip it with nothing to
+            # report: the caller already gates `held_back` on a consumer being
+            # present (terminal table or file output). Bypass edits count as
+            # changes: a prune may leave newer releases cooldown-held, and this
+            # is the report that explains them.
+            if rc.held_back and plan.has_changes:
+                plan.held_back = compute_held_back_packages(lockfile)
+                plan.held_back_name_urls = pypi_name_urls([
+                    (pkg.name, "", "") for pkg in plan.held_back
+                ])
+
+            notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
+            if rc.release_notes and result.changes:
+                notes = fetch_release_notes(result.changes)
+                plan.notes_section = format_release_notes(notes)
+            plan.comparison_urls = build_comparison_urls(result.changes, notes)
+        finally:
+            if rc.dry_run:
+                if lock_before is not None:
+                    lockfile.write_bytes(lock_before)
+                if pyproject_before is not None:
+                    pyproject_path.write_bytes(pyproject_before)
+    return plan
+
+
+def _apply_uv_lock(plan: SyncPlan) -> None:
+    """No-op: {func}`_resolve_uv_lock` already wrote `uv.lock`."""
+
+
+def _resolve_dep_sources(rc: ResolveContext) -> SyncPlan:
+    """Swap git-tracked dependencies whose awaited release shipped.
+
+    Like `sync-uv-lock`, the discovery is the mutation: the `pyproject.toml`
+    rewrite and the `uv lock` run happen here, guarded by
+    {data}`_UV_PROJECT_MUTEX`, and {func}`_apply_dep_sources` is a no-op.
+    Every failure path restores the snapshots taken up front: a swap is
+    all-or-nothing, so a resolution conflict or a lock landing on the wrong
+    version degrades to "nothing to report" instead of a half-applied swap.
+    """
+    plan = SyncPlan(
+        operation="sync-dep-sources",
+        subject="Package",
+        heading="Updated packages",
+        held_back_note=EXCLUDE_NEWER_HELD_BACK_NOTE,
+    )
+    plan.reference_date = rc.today
+    lockfile = rc.lockfile
+    pyproject_path = lockfile.parent / "pyproject.toml"
+    if not pyproject_path.exists():
+        return plan
+
+    # The probe also runs under the mutex: the sibling `sync-uv-lock` resolve
+    # rewrites `pyproject.toml` (pin sync, prune, freeze) and reading a
+    # half-written file would corrupt the swap decision.
+    with _UV_PROJECT_MUTEX:
+        swaps = find_ready_swaps(pyproject_path)
+        if not swaps:
+            return plan
+
+        lock_before = lockfile.read_bytes() if lockfile.exists() else None
+        pyproject_before = pyproject_path.read_bytes()
+        before = parse_lock_versions(lockfile)
+
+        def restore() -> None:
+            pyproject_path.write_bytes(pyproject_before)
+            if lock_before is not None:
+                lockfile.write_bytes(lock_before)
+
+        try:
+            apply_release_swaps(pyproject_path, swaps)
+            upsert_exclude_newer_packages(
+                pyproject_path,
+                {swap.name: swap.freeze_cutoff for swap in swaps},
+            )
+            subprocess.run(uv_cmd("lock"), check=True, cwd=lockfile.parent)
+        except subprocess.CalledProcessError:
+            # A conflicting constraint elsewhere in the tree: not this run's
+            # call to untangle. Leave the project as found and report nothing.
+            restore()
+            logging.warning("Dependency source swap failed to resolve; skipped.")
+            return plan
+        except BaseException:
+            restore()
+            raise
+
+        after = parse_lock_versions(lockfile)
+        missed = [
+            swap.name for swap in swaps if after.get(swap.name) != swap.release
+        ]
+        if missed:
+            restore()
+            logging.warning(
+                f"Swap landed on unexpected versions for {', '.join(missed)};"
+                " restored the project untouched."
+            )
+            return plan
+
+        plan.source_swaps = swaps
+        plan.changes = diff_lock_versions(before, after)
+        plan.dates = parse_lock_upload_times(lockfile)
+        plan.exclude_newer = parse_lock_exclude_newer(lockfile)
+        plan.cooldown_note = format_exclude_newer_note(plan.exclude_newer)
+        plan.name_urls = pypi_name_urls(plan.changes)
+        # The fresh freezes are this run's news: they render as 📌 rows.
+        plan.frozen_bypasses = [swap.name for swap in swaps]
+        plan.bypass_forecasts = compute_bypass_forecasts(pyproject_path, lockfile)
+
+        if rc.held_back:
             plan.held_back = compute_held_back_packages(lockfile)
             plan.held_back_name_urls = pypi_name_urls([
                 (pkg.name, "", "") for pkg in plan.held_back
             ])
 
         notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
-        if rc.release_notes and result.changes:
-            notes = fetch_release_notes(result.changes)
+        if rc.release_notes and plan.changes:
+            notes = fetch_release_notes(plan.changes)
             plan.notes_section = format_release_notes(notes)
-        plan.comparison_urls = build_comparison_urls(result.changes, notes)
-    finally:
+        plan.comparison_urls = build_comparison_urls(plan.changes, notes)
+
         if rc.dry_run:
-            if lock_before is not None:
-                lockfile.write_bytes(lock_before)
-            if pyproject_before is not None:
-                pyproject_path.write_bytes(pyproject_before)
+            restore()
     return plan
 
 
-def _apply_uv_lock(plan: SyncPlan) -> None:
-    """No-op: {func}`_resolve_uv_lock` already wrote `uv.lock`."""
+def _apply_dep_sources(plan: SyncPlan) -> None:
+    """No-op: {func}`_resolve_dep_sources` already wrote the swap."""
 
 
 def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
@@ -744,6 +880,11 @@ def _apply_file_writes(plan: SyncPlan) -> None:
         path.write_text(content, encoding="UTF-8")
 
 
+def _dep_sources_applies() -> bool:
+    """`sync-dep-sources` runs wherever a git branch is tracked as a source."""
+    return bool(tracked_git_overrides(Path("pyproject.toml")))
+
+
 def _uv_lock_applies() -> bool:
     """`sync-uv-lock` runs wherever a `uv.lock` is present."""
     return Path("uv.lock").is_file()
@@ -768,11 +909,19 @@ def _workflow_files_present() -> bool:
 def render_plan_markdown(plan: SyncPlan) -> str:
     """Render a plan as the markdown PR-body section every updater shares.
 
-    Concatenates the diff table, any release notes, the held-back section,
-    and the uv cooldown-bypass section exactly as the individual `sync-*`
-    commands do, so `sync-deps` and the thin commands produce identical
-    output for the same plan.
+    Concatenates the source-swap section (when the plan carries one), the
+    diff table, any release notes, the held-back section, and the uv
+    cooldown-bypass section exactly as the individual `sync-*` commands do,
+    so `sync-deps` and the thin commands produce identical output for the
+    same plan.
     """
+    swap_section = format_swap_section(
+        plan.source_swaps,
+        name_urls=pypi_name_urls([
+            (swap.name, "", "") for swap in plan.source_swaps
+        ]),
+        reference_date=plan.reference_date,
+    )
     diff_table = format_diff_table(
         plan.changes,
         upload_times=plan.dates,
@@ -805,6 +954,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
     return "\n\n".join(
         section
         for section in (
+            swap_section,
             diff_table,
             plan.notes_section,
             held_back_section,
@@ -875,6 +1025,17 @@ class SyncOperation:
 
 SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
     SyncOperation(
+        name="sync-dep-sources",
+        config_flag="dep_sources_sync",
+        job_name="🔀 Sync dependency sources",
+        job_if="fromJSON(needs.metadata.outputs.metadata).is_python_project",
+        resolve=_resolve_dep_sources,
+        apply=_apply_dep_sources,
+        applies_here=_dep_sources_applies,
+        write_domain=("uv.lock", "pyproject.toml"),
+        ci_flags=("--no-table", "--release-notes"),
+    ),
+    SyncOperation(
         name="sync-uv-lock",
         config_flag="uv_lock_sync",
         job_name="⛓️ Sync uv.lock",
@@ -929,8 +1090,9 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
 )
 """The cooldown-respecting dependency updaters, in CI execution order.
 
-`sync-uv-lock` first (its lock churn gates other Python work), then the two
-workflow-file rewriters, then the upstream-only tool bump last.
+`sync-dep-sources` first (adopting a release changes what the routine re-lock
+even does), then `sync-uv-lock` (its lock churn gates other Python work), then
+the two workflow-file rewriters, then the upstream-only tool bump last.
 """
 
 OPERATIONS_BY_NAME: dict[str, SyncOperation] = {op.name: op for op in SYNC_OPERATIONS}
@@ -984,7 +1146,7 @@ def run_sync_operations(
     `DEBUG` verbosity the fan-out also collapses to sequential so per-operation
     log narration stays coherent, and a Ctrl+C drops queued resolves instead of
     waiting for them. The apply phase runs in {data}`SYNC_OPERATIONS` order
-    because three of the four rewrite the same workflow files. In `--dry-run` no
+    because three of the five rewrite the same workflow files. In `--dry-run` no
     apply runs. An operation whose resolve raises is logged and reported with a
     `None` plan so one failure never blocks the others.
 

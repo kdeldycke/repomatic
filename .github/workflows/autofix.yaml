@@ -536,7 +536,7 @@ jobs:
   sync-deps:
     name: 🔗 Sync dependencies
     # Consolidated dependency updater. One runner shares the checkout, the uv
-    # install, and repomatic's HTTP cache across all four bumpers, instead of a
+    # install, and repomatic's HTTP cache across all five bumpers, instead of a
     # separate job per bumper each paying that setup. Each bumper still opens its
     # own PR: the working tree is reset before each one so their diffs never
     # bleed, keeping review and revert independent. Mirrors the local
@@ -567,6 +567,37 @@ jobs:
           key: repomatic-http-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             repomatic-http-${{ runner.os }}-
+
+      # --- sync-dep-sources: adopt released dependencies (Python projects). ---
+      - if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+        name: Reset tree before sync-dep-sources
+        run: git checkout -- .
+      - id: sync-dep-sources
+        if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+        name: Sync dependency sources
+        run: >
+          uvx --no-progress --from . repomatic sync-dep-sources
+          --no-table --release-notes
+          --output "$GITHUB_OUTPUT" --output-format github-actions
+      - id: sync-dep-sources-meta
+        if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+        env:
+          REPOMATIC_DIFF_TABLE: ${{ steps.sync-dep-sources.outputs.diff_table }}
+        run: >
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
+          --template sync-dep-sources
+          --output "$GITHUB_OUTPUT"
+      - if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.REPOMATIC_PAT || github.token }}
+          assignees: ${{ github.actor }}
+          commit-message: ${{ steps.sync-dep-sources-meta.outputs.commit_message }}
+          title: ${{ steps.sync-dep-sources-meta.outputs.title }}
+          body: ${{ steps.sync-dep-sources-meta.outputs.body }}
+          labels: "🔗 dependencies"
+          branch: sync-dep-sources
+          delete-branch: true
 
       # --- sync-uv-lock: re-lock dependencies (Python projects). ---
       - if: fromJSON(needs.metadata.outputs.metadata).is_python_project

@@ -572,6 +572,18 @@ class Config:
     )
     """File path of the changelog, relative to the root of the repository."""
 
+    dep_sources_sync: bool = field(
+        default=True,
+        metadata={CONFIG_PATH_METADATA_KEY: "dep-sources.sync"},
+    )
+    """Whether the `sync-dep-sources` updater is enabled for this project.
+
+    Swaps a dependency tracked from a git branch back to its released version
+    once the release named by its `.dev` version floor ships on PyPI (see
+    {mod}`repomatic.dep_sources` for the managed idiom). Projects that manage
+    `[tool.uv.sources]` overrides by hand can set this to `false`.
+    """
+
     dependency_graph: DependencyGraphConfig = field(
         default_factory=DependencyGraphConfig,
         metadata={CONFIG_PATH_METADATA_KEY: "dependency-graph"},
@@ -860,6 +872,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "cache",
     "changelog_archive_location",
     "changelog_location",
+    "dep_sources_sync",
     "dependency_graph",
     "dev_release_sync",
     "docs",

@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - Add `[tool.repomatic] binaries.sync`: set to `false` to stop the release pipeline from pushing the binaries catalog and scan records to the default branch, while binaries still get scanned on VirusTotal.
+- Add `sync-dep-sources`, a fifth `sync-deps` updater: once the release named by a git-tracked dependency's `.dev` version floor ships on PyPI, it drops the `[tool.uv.sources]` override, tightens the floor, and freezes the adopted release through the cooldown. Disable with `[tool.repomatic] dep-sources.sync`.
 - The `Cooldown bypasses` PR section is now a single table: entries the run cleared or froze become `🧹 cleared:` and `📌 frozen:` rows instead of prose lines, and cleared rows keep the held version and expiry date.
 - The bypass table's expiry column is renamed `Held until`, and a freeze holding an unreleased version (git or path source) is labelled `🚧 unreleased:` with a *needs release* expiry instead of empty cells.
 - Diff tables label added and removed packages with `🆕 new:` and `🗑️ removed:` prefixes ahead of the version.

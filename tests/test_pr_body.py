@@ -252,7 +252,8 @@ def test_get_template_names():
     assert "yanked-admonition" in names
     assert "format-shell" in names
     assert "setup-guide-pypi-trusted-publisher" in names
-    assert len(names) == 46
+    assert "sync-dep-sources" in names
+    assert len(names) == 47
 
 
 def test_load_template_frontmatter():

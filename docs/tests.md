@@ -90,6 +90,15 @@
    :undoc-members:
 ```
 
+## `tests.test_dep_sources` module
+
+```{eval-rst}
+.. automodule:: tests.test_dep_sources
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_deps_graph` module
 
 ```{eval-rst}

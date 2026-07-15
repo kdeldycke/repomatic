@@ -577,6 +577,70 @@ def _bypass_entries(pyproject_path: Path) -> dict[str, str]:
     return {pkg: str(value) for pkg, value in pkg_table.items()}
 
 
+def upsert_exclude_newer_packages(
+    pyproject_path: Path,
+    entries: dict[str, str],
+) -> bool:
+    """Insert or replace `[tool.uv].exclude-newer-package` entries.
+
+    The write primitive shared by {func}`add_exclude_newer_packages` (which
+    computes freeze cutoffs from the lock and never overwrites) and
+    `sync-dep-sources` (which supplies exact cutoffs and must replace the
+    stale value a git-tracking era left behind).
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param entries: Package name to cutoff value (a freeze timestamp or a
+        relative span). Existing entries for the same names are overwritten.
+    :return: `True` if the file was updated, `False` if no changes were
+        needed.
+    """
+    content = pyproject_path.read_text(encoding="UTF-8")
+    doc = tomlrt.loads(content)
+
+    uv = doc.get("tool", {}).get("uv")
+    if uv is None:
+        logging.warning(
+            f"No [tool.uv] found in {pyproject_path}."
+            " Cannot persist cooldown exemptions."
+        )
+        return False
+
+    pkg_table = uv.get("exclude-newer-package")
+    if pkg_table is None and "exclude-newer" not in uv:
+        logging.warning(
+            "No [tool.uv] exclude-newer or exclude-newer-package found in"
+            f" {pyproject_path}. Cannot persist cooldown exemptions."
+        )
+        return False
+
+    # Merge existing entries with the new ones and rebuild the inline table
+    # to produce pyproject-fmt-compatible formatting.
+    all_entries = dict(pkg_table) if pkg_table is not None else {}
+    if all(all_entries.get(pkg) == value for pkg, value in entries.items()):
+        logging.debug("All exclude-newer-package entries already up to date.")
+        return False
+    all_entries.update(entries)
+    new_table = _build_inline_table(all_entries)
+    if pkg_table is not None:
+        uv["exclude-newer-package"] = new_table
+    else:
+        # Insert right after `exclude-newer` to match pyproject-fmt's
+        # ordering rule for `[tool.uv]`. Appending at the end would
+        # produce a file that pyproject-fmt rewrites on its next run,
+        # leaking the security fix into a follow-up format-pyproject PR.
+        uv["exclude-newer-package"] = new_table
+        order = [key for key in uv if key != "exclude-newer-package"]
+        order.insert(order.index("exclude-newer") + 1, "exclude-newer-package")
+        uv.sort(key=order.index)
+
+    pyproject_path.write_text(tomlrt.dumps(doc), encoding="UTF-8")
+    logging.info(
+        f"Upserted {', '.join(sorted(entries))} in exclude-newer-package"
+        f" in {pyproject_path}."
+    )
+    return True
+
+
 def add_exclude_newer_packages(
     pyproject_path: Path,
     packages: set[str],
@@ -603,59 +667,19 @@ def add_exclude_newer_packages(
     :return: `True` if the file was updated, `False` if no changes were
         needed.
     """
-    content = pyproject_path.read_text(encoding="UTF-8")
-    doc = tomlrt.loads(content)
-
-    uv = doc.get("tool", {}).get("uv")
-    if uv is None:
-        logging.warning(
-            f"No [tool.uv] found in {pyproject_path}."
-            " Cannot persist cooldown exemptions."
-        )
-        return False
-
-    # Determine which packages already have an entry.
-    pkg_table = uv.get("exclude-newer-package")
-    existing = set(pkg_table.keys()) if pkg_table is not None else set()
+    existing = set(_bypass_entries(pyproject_path))
     to_add = packages - existing
     if not to_add:
         logging.debug("All packages already in exclude-newer-package, nothing to add.")
         return False
 
-    if pkg_table is None and "exclude-newer" not in uv:
-        logging.warning(
-            "No [tool.uv] exclude-newer or exclude-newer-package found in"
-            f" {pyproject_path}. Cannot persist cooldown exemptions."
-        )
-        return False
-
-    # Merge existing entries with new ones and rebuild the inline table to
-    # produce pyproject-fmt-compatible formatting.
+    # Freeze at the locked version; fall back to a permanent span when the
+    # package has no PyPI upload time (git or path source).
     upload_times = parse_lock_upload_times(lock_path)
-    all_entries = dict(pkg_table) if pkg_table is not None else {}
-    for pkg in to_add:
-        # Freeze at the locked version; fall back to a permanent span when
-        # the package has no PyPI upload time (git or path source).
-        all_entries[pkg] = _freeze_cutoff(upload_times.get(pkg, "")) or "0 day"
-    new_table = _build_inline_table(all_entries)
-    if pkg_table is not None:
-        uv["exclude-newer-package"] = new_table
-    else:
-        # Insert right after `exclude-newer` to match pyproject-fmt's
-        # ordering rule for `[tool.uv]`. Appending at the end would
-        # produce a file that pyproject-fmt rewrites on its next run,
-        # leaking the security fix into a follow-up format-pyproject PR.
-        uv["exclude-newer-package"] = new_table
-        order = [key for key in uv if key != "exclude-newer-package"]
-        order.insert(order.index("exclude-newer") + 1, "exclude-newer-package")
-        uv.sort(key=order.index)
-
-    pyproject_path.write_text(tomlrt.dumps(doc), encoding="UTF-8")
-    logging.info(
-        f"Added {', '.join(sorted(to_add))} to exclude-newer-package"
-        f" in {pyproject_path}."
-    )
-    return True
+    entries = {
+        pkg: _freeze_cutoff(upload_times.get(pkg, "")) or "0 day" for pkg in to_add
+    }
+    return upsert_exclude_newer_packages(pyproject_path, entries)
 
 
 def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> set[str]:

@@ -164,10 +164,22 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 #### 🔗 Sync dependencies (`sync-deps`)
 
-One consolidated job runs all four dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all four updaters.
-Each updater still opens its own pull request on its own branch (`sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`, `sync-tool-versions`), all labelled `🔗 dependencies`.
+One consolidated job runs all five dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all five updaters.
+Each updater still opens its own pull request on its own branch (`sync-dep-sources`, `sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`, `sync-tool-versions`), all labelled `🔗 dependencies`.
 The working tree is reset (`git checkout -- .`) before each updater so their diffs never bleed together, keeping review and revert independent.
 To run all enabled updaters locally, or a named subset, use [`repomatic sync-deps`](cli.md#repomatic-sync-deps).
+
+##### 🔀 `sync-dep-sources` updater
+
+- Swaps a dependency tracked from a git branch back to its released version using [`repomatic sync-dep-sources`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/dep_sources.py)
+- Manages one idiom: a `[tool.uv.sources]` entry tracking a git **branch**, paired with a `.dev` version floor naming the awaited release (like `mango>=2.1.0.dev0`); path or workspace sources, `rev`/`tag` pins, and floor-less branch tracks are never touched
+- Once a stable, non-yanked release satisfying the floor ships on PyPI, one PR drops the source override, tightens the `.dev` floor to its base release, freezes the adopted release through the [`exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) cooldown (an `exclude-newer-package` entry the `sync-uv-lock` lifecycle prunes once it ages out), and re-locks
+- The swap is all-or-nothing: a resolution conflict, or a lock landing on an unexpected version, restores the project untouched and reports nothing
+- PR body leads with a `Source swaps` table (tracked branch, adopted release, ship date) above the usual updated-packages table and release notes
+- **Requires**:
+  - Python package with a `pyproject.toml` file
+- **Skipped if**:
+  - `dep-sources.sync = false` in `[tool.repomatic]`
 
 ##### ⛓️ `sync-uv-lock` updater
 
@@ -783,7 +795,7 @@ GitHub Actions are pinned to full commit SHAs, with the semver tag preserved as 
 
 #### Cooldowns
 
-All four updaters inside `sync-deps` share the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. This is the GitHub/PyPI/npm counterpart to uv's `--exclude-newer`, which guards the `sync-uv-lock` updater.
+Every updater inside `sync-deps` respects a cooldown. `sync-action-pins`, `sync-workflow-pins`, and `sync-tool-versions` share [`minimum-release-age`](configuration.md#minimum-release-age) (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. uv's `--exclude-newer` is its counterpart guarding `sync-uv-lock`, and `sync-dep-sources` adopts a fresh release through that same window with an explicit `exclude-newer-package` freeze.
 
 To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically: no manual bump required.
 

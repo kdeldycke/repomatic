@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import subprocess
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,10 +33,12 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from repomatic import dep_sources
 from repomatic.cli import repomatic
 from repomatic.config import Config
 from repomatic.github.pr_body import get_template_names
 from repomatic.init_project import get_data_content
+from repomatic.pypi import PyPIRelease
 from repomatic.registry import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
 from repomatic.sync_ops import (
     DEPENDENCY_LABEL,
@@ -45,6 +48,7 @@ from repomatic.sync_ops import (
     SyncOperation,
     SyncPlan,
     _resolve_action_pins,
+    _resolve_dep_sources,
     _resolve_tool_versions,
     _widest_changes,
     operation_order,
@@ -104,11 +108,13 @@ def test_label_is_shared() -> None:
 
 
 def test_write_domains_justify_serial_apply() -> None:
-    """Three updaters share the workflow files; `sync-uv-lock` is disjoint.
+    """Three updaters share the workflow files; the uv pair stays out of them.
 
     This is the invariant behind the serial apply phase: the workflow-file
-    rewriters cannot write concurrently, while `sync-uv-lock` (`uv.lock`,
-    `pyproject.toml`) is isolated and so resolves in parallel.
+    rewriters cannot write concurrently, while `sync-uv-lock` and
+    `sync-dep-sources` (`uv.lock`, `pyproject.toml`) never touch workflow
+    files and resolve in parallel with them, serialized only against each
+    other through the uv-project mutex.
     """
     by_name = {op.name: op for op in SYNC_OPERATIONS}
 
@@ -122,6 +128,7 @@ def test_write_domains_justify_serial_apply() -> None:
         "sync-tool-versions",
     }
     assert not touches_workflows(by_name["sync-uv-lock"])
+    assert not touches_workflows(by_name["sync-dep-sources"])
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
@@ -417,6 +424,194 @@ def test_bypass_only_plan_counts_as_changed_and_renders() -> None:
         "| [mango](https://pypi.org/project/mango/) | 🧹 cleared: `2.0.0` |"
         " 2026-07-01 (5 days ago) |"
     ) in body
+
+
+SWAP_PYPROJECT = """\
+[project]
+name = "basket"
+version = "1.0.0"
+dependencies = [
+  "cherry>=1.2",
+  "mango>=2.1.0.dev0",
+]
+
+[tool.uv]
+exclude-newer = "1 week"
+exclude-newer-package = { mango = "2026-01-05T00:00:00Z" }
+
+[tool.uv.sources]
+mango = { git = "https://github.com/acme/mango", branch = "main" }
+"""
+"""A project tracking `mango`'s main branch while awaiting its `2.1.0` release."""
+
+SWAP_PRE_LOCK = """\
+version = 1
+requires-python = ">=3.10"
+
+[options]
+exclude-newer = "0001-01-01T00:00:00Z"
+exclude-newer-span = "P1W"
+
+[[package]]
+name = "cherry"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://example.test/cherry.tar.gz", upload-time = "2026-06-01T10:00:00Z" }
+
+[[package]]
+name = "mango"
+version = "2.1.0.dev0"
+source = { git = "https://github.com/acme/mango?branch=main#abcdef12" }
+"""
+"""The lock before the swap: `mango` resolved from git, no upload time."""
+
+SWAP_POST_LOCK = """\
+version = 1
+requires-python = ">=3.10"
+
+[options]
+exclude-newer = "0001-01-01T00:00:00Z"
+exclude-newer-span = "P1W"
+
+[[package]]
+name = "cherry"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://example.test/cherry.tar.gz", upload-time = "2026-06-01T10:00:00Z" }
+
+[[package]]
+name = "mango"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://example.test/mango.tar.gz", upload-time = "2026-07-10T09:00:00Z" }
+"""
+"""The lock a successful `uv lock` produces after the swap."""
+
+
+def _swap_project(tmp_path: Path) -> Path:
+    """Materialize the swap-ready project and return its lock path."""
+    (tmp_path / "pyproject.toml").write_text(SWAP_PYPROJECT, encoding="UTF-8")
+    lockfile = tmp_path / "uv.lock"
+    lockfile.write_text(SWAP_PRE_LOCK, encoding="UTF-8")
+    return lockfile
+
+
+def _mock_mango_release(monkeypatch) -> None:
+    """Publish `mango` `2.1.0` on the stubbed index."""
+    monkeypatch.setattr(
+        dep_sources,
+        "get_release_dates",
+        lambda name: {"2.1.0": PyPIRelease("2026-07-10", False, "mango")}
+        if name == "mango"
+        else {},
+    )
+
+
+def _mock_uv_lock(monkeypatch, lock_content: str | Exception) -> None:
+    """Stub the `uv lock` subprocess with a canned outcome."""
+
+    def fake_run(args, check=False, cwd=None, **kwargs):
+        if isinstance(lock_content, Exception):
+            raise lock_content
+        Path(cwd, "uv.lock").write_text(lock_content, encoding="UTF-8")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr("repomatic.sync_ops.subprocess.run", fake_run)
+
+
+def test_resolve_dep_sources_swaps_and_freezes(tmp_path, monkeypatch) -> None:
+    """The happy path: override dropped, floor tightened, release frozen."""
+    lockfile = _swap_project(tmp_path)
+    _mock_mango_release(monkeypatch)
+    _mock_uv_lock(monkeypatch, SWAP_POST_LOCK)
+
+    rc = ResolveContext(
+        config=Config(), today=date(2026, 7, 15), held_back=False, lockfile=lockfile
+    )
+    plan = _resolve_dep_sources(rc)
+
+    assert plan.has_changes
+    assert [swap.release for swap in plan.source_swaps] == ["2.1.0"]
+    assert plan.changes == [("mango", "2.1.0.dev0", "2.1.0")]
+    assert plan.frozen_bypasses == ["mango"]
+    pyproject = (tmp_path / "pyproject.toml").read_text(encoding="UTF-8")
+    assert "mango = { git" not in pyproject
+    assert '"mango>=2.1.0"' in pyproject
+    # The stale freeze is replaced by a fresh cutoff with the one-day margin
+    # past the adopted release's upload date.
+    assert 'mango = "2026-07-12T00:00:00Z"' in pyproject
+    assert lockfile.read_text(encoding="UTF-8") == SWAP_POST_LOCK
+    # The report leads with the swap table and pins the fresh freeze.
+    body = render_plan_markdown(plan)
+    assert "## 🔀 Source swaps" in body
+    assert "| [mango](https://pypi.org/project/mango/) | `main` | `2.1.0` |" in body
+    assert "📌 frozen: `2.1.0`" in body
+
+
+def test_resolve_dep_sources_dry_run_restores(tmp_path, monkeypatch) -> None:
+    """A dry run reports the full swap but leaves the project untouched."""
+    lockfile = _swap_project(tmp_path)
+    _mock_mango_release(monkeypatch)
+    _mock_uv_lock(monkeypatch, SWAP_POST_LOCK)
+
+    rc = ResolveContext(
+        config=Config(),
+        today=date(2026, 7, 15),
+        held_back=False,
+        dry_run=True,
+        lockfile=lockfile,
+    )
+    plan = _resolve_dep_sources(rc)
+
+    assert plan.has_changes
+    assert plan.changes == [("mango", "2.1.0.dev0", "2.1.0")]
+    assert (tmp_path / "pyproject.toml").read_text(encoding="UTF-8") == SWAP_PYPROJECT
+    assert lockfile.read_text(encoding="UTF-8") == SWAP_PRE_LOCK
+
+
+@pytest.mark.parametrize(
+    "lock_outcome",
+    (
+        subprocess.CalledProcessError(1, ("uv", "lock")),
+        SWAP_PRE_LOCK,
+    ),
+    ids=("resolution-conflict", "unexpected-version"),
+)
+def test_resolve_dep_sources_is_all_or_nothing(
+    tmp_path, monkeypatch, lock_outcome: str | Exception
+) -> None:
+    """A failed or wrong-version lock restores the project untouched."""
+    lockfile = _swap_project(tmp_path)
+    _mock_mango_release(monkeypatch)
+    _mock_uv_lock(monkeypatch, lock_outcome)
+
+    rc = ResolveContext(
+        config=Config(), today=date(2026, 7, 15), held_back=False, lockfile=lockfile
+    )
+    plan = _resolve_dep_sources(rc)
+
+    assert not plan.has_changes
+    assert (tmp_path / "pyproject.toml").read_text(encoding="UTF-8") == SWAP_PYPROJECT
+    assert lockfile.read_text(encoding="UTF-8") == SWAP_PRE_LOCK
+
+
+def test_resolve_dep_sources_noop_before_release(tmp_path, monkeypatch) -> None:
+    """With no qualifying release, the resolve never touches the project."""
+    lockfile = _swap_project(tmp_path)
+    monkeypatch.setattr(dep_sources, "get_release_dates", lambda name: {})
+
+    def forbidden_run(*args, **kwargs):
+        raise AssertionError("uv lock must not run without a ready swap")
+
+    monkeypatch.setattr("repomatic.sync_ops.subprocess.run", forbidden_run)
+
+    rc = ResolveContext(
+        config=Config(), today=date(2026, 7, 15), held_back=False, lockfile=lockfile
+    )
+    plan = _resolve_dep_sources(rc)
+
+    assert not plan.has_changes
+    assert (tmp_path / "pyproject.toml").read_text(encoding="UTF-8") == SWAP_PYPROJECT
 
 
 @pytest.mark.parametrize("in_source_repo", (False, True))

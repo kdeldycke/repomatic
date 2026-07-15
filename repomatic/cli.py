@@ -2785,6 +2785,145 @@ def audit(
 
 
 @repomatic.command(
+    name="sync-dep-sources",
+    short_help="Swap git-tracked dependencies to their released versions",
+    section=_section_sync,
+)
+@option(
+    "--lockfile",
+    type=file_path(resolve_path=True),
+    default="uv.lock",
+    help="Path to the uv.lock file.",
+)
+@option(
+    "--table/--no-table",
+    default=True,
+    help="Print a summary table of updated packages.",
+)
+@option(
+    "--release-notes/--no-release-notes",
+    default=False,
+    help="Fetch release notes from GitHub (markdown, appended after the table).",
+)
+@option(
+    "--held-back/--no-held-back",
+    default=True,
+    help="Report newer releases withheld by the exclude-newer cooldown "
+    "(runs a second uv resolution).",
+)
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default=None,
+    help="Write a markdown report (table + release notes) to this file.",
+)
+@output_format_option
+@pass_context
+def sync_dep_sources(
+    ctx: Context,
+    lockfile: Path,
+    table: bool,
+    release_notes: bool,
+    held_back: bool,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Swap git-tracked dependencies back to their released versions.
+
+    \b
+    Manages one idiom: a [tool.uv.sources] entry tracking a git branch,
+    paired with a .dev version floor naming the awaited release (like
+    'mango>=2.1.0.dev0'). Once a stable release satisfying the floor ships
+    on PyPI, the swap:
+      - drops the [tool.uv.sources] override
+      - tightens the .dev floor to its base release
+      - freezes the adopted release through the exclude-newer cooldown
+        (an exclude-newer-package entry the ordinary sync-uv-lock lifecycle
+        prunes once it ages out)
+      - re-locks and verifies the adopted version landed
+
+    \b
+    Overrides outside the idiom (path or workspace sources, rev/tag pins,
+    floor-less branch tracks) are never touched. A resolution conflict or a
+    lock landing on an unexpected version restores the project untouched.
+
+    \b
+    Examples:
+        # Swap whatever is ready and show changes
+        repomatic sync-dep-sources
+
+    \b
+        # CI: write markdown report as a GitHub Actions step output
+        repomatic sync-dep-sources --no-table --release-notes \\
+            --output "$GITHUB_OUTPUT" --output-format github-actions
+    """
+    config = get_tool_config(ctx)
+    if not config.dep_sources_sync:
+        logging.info(
+            "[tool.repomatic] dep-sources.sync is disabled."
+            " Skipping dependency source sync."
+        )
+        ctx.exit(0)
+
+    op = OPERATIONS_BY_NAME["sync-dep-sources"]
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        # The held-back probe runs a second uv resolution, so gate it on a
+        # consumer being present (terminal table or file output).
+        held_back=held_back and (table or output is not None),
+        lockfile=lockfile,
+    )
+    plan = op.resolve(rc)
+
+    if not plan.has_changes:
+        echo("No awaited release shipped.")
+        ctx.exit(0)
+
+    op.apply(plan)
+
+    for swap in plan.source_swaps:
+        echo(
+            f"Swapped {swap.name} from git branch {swap.branch!r} to released"
+            f" {swap.release}, frozen until it clears the cooldown."
+        )
+    if plan.changes:
+        echo(f"{len(plan.changes)} package(s) updated.")
+
+    # Terminal output: structured table via click-extra.
+    if table:
+        if plan.exclude_newer:
+            echo(f"exclude-newer cutoff: {_format_upload_date(plan.exclude_newer)}")
+        _print_sync_table(
+            ctx,
+            plan.changes,
+            plan.dates,
+            subject="Package",
+            reference_date=rc.today,
+        )
+        if plan.held_back:
+            _print_held_back_table(ctx, plan.held_back)
+        if plan.bypass_forecasts:
+            _print_bypass_table(ctx, plan.bypass_forecasts)
+
+    # Release notes echoed to the terminal (already fetched during resolve).
+    if plan.notes_section:
+        echo("")
+        echo(plan.notes_section)
+
+    # File output: markdown report for CI or downstream tooling.
+    if output:
+        body = render_plan_markdown(plan)
+        if body:
+            if output_format == "github-actions":
+                content = format_multiline_output("diff_table", body)
+            else:
+                content = body
+            echo(content, file=prep_path(output))
+
+
+@repomatic.command(
     short_help="Re-lock dependencies and roll cooldown overrides forward",
     section=_section_sync,
 )

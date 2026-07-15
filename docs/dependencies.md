@@ -73,6 +73,8 @@ The `[tool.uv]` section may contain `exclude-newer-package` entries that exempt 
 
 To deliberately adopt a release that is still inside the cooldown (a feature migration to a just-published version, the counterpart to the security fix that `audit --fix` automates), add a freeze timestamp by hand: set it to the start of the UTC day after the target version shipped (the same convention the automatic freezes follow), so `uv lock` resolves up to and including that release. The hand-written entry is then managed like any other: `sync-uv-lock` prunes it automatically once the adopted version ages past `exclude-newer`, so it needs no later cleanup and will not linger as a stale pin.
 
+To run *unreleased* code while waiting for the next release, track the upstream branch with a `[tool.uv.sources]` git override and declare a `.dev` version floor naming the awaited release (like `mango>=2.1.0.dev0`). That pair is a managed idiom: the `sync-dep-sources` updater watches PyPI and, once a stable release satisfying the floor ships, opens a PR that drops the override, tightens the floor to the released version, and freezes the adoption through the cooldown, so the whole excursion ends without manual cleanup. While the wait lasts, the `Cooldown bypasses` table flags the package as `🚧 unreleased:` with a *needs release* expiry.
+
 For each `exclude-newer-package` entry, check:
 
 1. **Is the package still a dependency?** If removed from `[project].dependencies` and all `[dependency-groups]`, the entry is dead weight.
