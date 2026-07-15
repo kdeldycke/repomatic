@@ -240,6 +240,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - Regenerates Sphinx autodoc files using [`sphinx-apidoc`](https://github.com/sphinx-doc/sphinx), converting the generated RST stubs to [MyST markdown](https://myst-parser.readthedocs.io/) when the docs tree uses it
 - Runs `docs/docs_update.py` if present to generate dynamic content (tables, diagrams, Sphinx directives)
 - Refreshes self-updating directive blocks (like [`{matrix}` compatibility tables](https://kdeldycke.github.io/click-extra/sphinx.html#matrix-directives)) in `docs/` and `readme.md` with `click-extra refresh-directives`
+- Re-formats the `pyproject.toml` files with [`pyproject-fmt`](https://github.com/tox-dev/pyproject-fmt) afterwards, so a `docs/docs_update.py` rewriting some of their sections cannot make this job's pull request ping-pong with the `format-pyproject` job
 - **Requires**:
   - Python package with a `pyproject.toml` file
   - `docs` dependency group

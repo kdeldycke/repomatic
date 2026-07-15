@@ -797,6 +797,17 @@ jobs:
         # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, runs docs/docs_update.py, then
         # refreshes self-updating directive blocks with click-extra refresh-directives.
         run: uvx --no-progress --from . repomatic update-docs
+      - name: Run pyproject-fmt
+        # The project's docs.update-script may regenerate pyproject.toml sections (label rules,
+        # keywords). Reformat them so this job's PR is a pyproject-fmt fixpoint and cannot
+        # ping-pong with the format-pyproject job. Same exit-code handling as that job: xargs
+        # turns pyproject-fmt's reformat exit 1 into 123.
+        env:
+          PYPROJECT_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).pyproject_files }}
+        run: |
+          rc=0
+          echo "${PYPROJECT_FILES}" | xargs uvx --no-progress --from . repomatic run pyproject-fmt -- || rc=$?
+          [ "$rc" -eq 0 ] || [ "$rc" -eq 123 ] || exit "$rc"
       - id: pr-metadata
         run: >
           uvx --no-progress --from . repomatic pr-body --output-format github-actions

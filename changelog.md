@@ -22,6 +22,7 @@
 - `lint-changelog`'s PyPI and GitHub lookups now retry once on a truncated response body instead of crashing with `IncompleteRead`.
 - The `run typos` guidance now recommends `extend-ignore-re` guards for encoded hashes and intentional-typo examples, which the unattended `fix-typos` pull request would otherwise corrupt.
 - `sync-action-pins` no longer rewrites `uses:` pins inside files `repomatic init` deploys verbatim (the `publish-pypi` composite action), ending the pull-request ping-pong where it bumped a pin that the next `sync-repomatic` reset.
+- The `update-docs` job now re-formats `pyproject.toml` files with `pyproject-fmt` after running the project's update script, ending the pull-request ping-pong where `format-pyproject` reformatted the sections the update script had just regenerated.
 - Document the scan job contract and the release-lane direct-commit exception: why `scan-virustotal` records its results with a direct push to the default branch instead of a pull request.
 
 ## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
