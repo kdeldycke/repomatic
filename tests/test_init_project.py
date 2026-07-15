@@ -239,7 +239,7 @@ _TEMPLATE_SUPERSET_KEYS: dict[str, frozenset[str]] = {
     "mypy": frozenset(),
     "pytest": frozenset(),
     "ruff": frozenset(),
-    "typos": frozenset(),
+    "typos": frozenset({"extend-ignore-re"}),
 }
 
 
