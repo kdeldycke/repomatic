@@ -68,8 +68,8 @@ from click_extra import Spinner, run_jobs
 from . import tool_runner
 from .checksums import update_registry_checksums
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
-from .init_project import init_config
-from .registry import DEFAULT_REPO, UPSTREAM_REPO_SLUGS
+from .init_project import _is_source_repo, init_config
+from .registry import BUNDLED_VERBATIM_TARGETS, DEFAULT_REPO, UPSTREAM_REPO_SLUGS
 from .tool_runner import TOOL_REGISTRY
 from .uv import (
     EXCLUDE_NEWER_HELD_BACK_NOTE,
@@ -130,6 +130,29 @@ def workflow_and_action_files() -> list[Path]:
     ):
         files.extend(github_dir.glob(pattern))
     return sorted(set(files))
+
+
+def _pinnable_files() -> dict[Path, str]:
+    """Read the `.github/` workflow and action files whose pins are bumpable.
+
+    Downstream, drops the files `repomatic init` deploys verbatim
+    ({data}`~repomatic.registry.BUNDLED_VERBATIM_TARGETS`): their `uses:` pins are
+    owned by the bundled template, so a bump here is undone by the next
+    `sync-repomatic` and the two pull requests ping-pong. This is the per-file
+    counterpart to the per-slug {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`
+    skip in :func:`_resolve_action_pins`.
+
+    In the source repo the exclusion lifts: there the bundled template is a symlink
+    to the in-tree file, so init rewrites nothing and the pin is a normal
+    source-of-truth ref that upstream keeps bumping (see
+    {func}`~repomatic.init_project._is_source_repo`).
+    """
+    in_source_repo = _is_source_repo(Path.cwd())
+    return {
+        path: path.read_text(encoding="UTF-8")
+        for path in workflow_and_action_files()
+        if in_source_repo or path.as_posix() not in BUNDLED_VERBATIM_TARGETS
+    }
 
 
 def _sync_actionlint_matcher_url(version: str) -> None:
@@ -487,9 +510,7 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
         operation="sync-action-pins", subject="Action", heading="Updated actions"
     )
     plan.reference_date = today
-    file_data = {
-        path: path.read_text(encoding="UTF-8") for path in workflow_and_action_files()
-    }
+    file_data = _pinnable_files()
 
     # Highest currently-pinned version per slug, skipping repomatic-lineage refs
     # (those thin-caller pins are managed by `repomatic init`). The winning
@@ -620,9 +641,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         operation="sync-workflow-pins", subject="Package", heading="Updated packages"
     )
     plan.reference_date = today
-    file_data = {
-        path: path.read_text(encoding="UTF-8") for path in workflow_and_action_files()
-    }
+    file_data = _pinnable_files()
 
     # Highest currently-pinned version per (ecosystem, package).
     current: dict[tuple[str, str], str] = {}

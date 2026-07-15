@@ -1026,6 +1026,27 @@ SKILL_PHASE_ORDER: tuple[str, ...] = (
 ALL_COMPONENTS: dict[str, str] = {c.name: c.description for c in COMPONENTS}
 """All available init components."""
 
+BUNDLED_VERBATIM_TARGETS: frozenset[str] = frozenset(
+    entry.target
+    for component in COMPONENTS
+    if isinstance(component, BundledComponent)
+    for entry in component.files
+)
+"""Target paths `repomatic init` writes verbatim from a `repomatic/data/` template.
+
+Every {class}`BundledComponent` copies its bundled source byte-for-byte to the
+target, so downstream the file's content (including any SHA-pinned `uses:` ref) is
+owned by `repomatic init`. `sync-action-pins` and `sync-workflow-pins` skip these
+paths for the same reason they skip {data}`UPSTREAM_REPO_SLUGS`: a pin the next
+`sync-repomatic` overwrites turns the two pull requests into a ping-pong, the bump
+PR and the init-revert PR chasing each other. The skip lifts inside the source
+repo, where each bundled source is a symlink to its in-tree target and the pin is
+a normal source-of-truth ref (see `repomatic.sync_ops._pinnable_files`). Generated
+workflows ({class}`WorkflowComponent`) are deliberately absent: they carry only
+upstream-slug refs (already skipped) and may host downstream-authored extra jobs
+whose third-party pins the bumpers should keep current.
+"""
+
 REUSABLE_WORKFLOWS: tuple[str, ...] = tuple(
     f.file_id for f in _BY_NAME["workflows"].files if f.reusable
 )
