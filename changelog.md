@@ -8,41 +8,35 @@
 - **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives; its module moves to `repomatic.prepare_release`.
 - **Breaking:** the `version-check` command is renamed `check-version`.
 - **Breaking:** the vulnerability audit domain moves from `repomatic.uv` into the new `repomatic.vulnerable_deps` module, which also absorbs `repomatic.github.advisories`.
-- Add `cancel-runs`: cancels a branch's in-progress and queued workflow runs, replacing the bash block in `cancel-runs.yaml`; run listings now paginate past the first page.
-- **Breaking:** the PR-body helpers (`generate_pr_metadata_block`, `generate_refresh_tip`, `build_pr_body`) now take their CI context as arguments and `current_repo_url` is removed, ending the `pr_body` → `metadata` import cycle.
+- **Breaking:** `repomatic.sponsor` moves under `repomatic.github`.
+- **Breaking:** the PR-body helpers (`generate_pr_metadata_block`, `generate_refresh_tip`, `build_pr_body`) now take their CI context as arguments; `current_repo_url` is removed.
 - **Breaking:** `build_expected_body` moves from `repomatic.github.release_sync` to `repomatic.changelog`.
 - **Breaking:** the five `check_pat_*` probe functions are replaced by the `PAT_PERMISSION_PROBES` table and `probe_pat_permission`.
 - **Breaking:** the workflow generation API (`generate_thin_caller`, `generate_workflow_header`, `generate_workflows`) drops its legacy `source_paths` argument; pass a `PathsSpec` instead.
-- `Dialect`, `ArchiveFormat`, and `WorkflowFormat` now carry their dispatch as enum methods (`serialize`, `extract`, `write_workflow`).
-- Add a test suite for the notification-unsubscribe engine, which had no coverage.
-- The unsubscribe workflow's GraphQL phase now re-validates each item's staleness client-side instead of trusting the search index's day-granular `updated:<` filter, and reports the items it holds back.
-- Move `repomatic.sponsor` under `repomatic.github`, and share one GraphQL cursor paginator (`iter_graphql_nodes`) between the sponsors and unsubscribe lookups.
+- Add `cancel-runs`: cancels a branch's in-progress and queued workflow runs, replacing the bash block in `cancel-runs.yaml`; run listings now paginate past the first page.
+- Add `[tool.repomatic] binaries.sync`: set to `false` to stop the release pipeline from committing the binaries catalog and scan records to the default branch.
+- Add `sync-dep-sources`, a fifth `sync-deps` updater: once the release named by a git-tracked dependency's `.dev` floor ships on PyPI, it drops the `[tool.uv.sources]` override, tightens the floor, and freezes the adopted release through the cooldown. Disable with `[tool.repomatic] dep-sources.sync`.
 - Extract the setup guide, `.gitignore` generation, and Sphinx docs orchestration from the CLI module into new `repomatic.setup_guide`, `repomatic.gitignore`, and `repomatic.docs` modules.
-- Add `repomatic.http`, the JSON fetch shared by the PyPI, npm, and GitHub API clients; npm and GitHub tag lookups now retry once on a truncated response like PyPI lookups already did.
-- GitHub Releases API reads now resolve their token like every other GitHub access (`REPOMATIC_PAT` first), instead of skipping it and hitting the anonymous 60 requests/hour rate limit.
-- The release freeze and unfreeze steps now cover `.yml` workflow files alongside `.yaml`, so a downstream-authored `.yml` workflow can no longer ship with unfrozen refs.
-- Remove the dead `get_default_repo` and `list_open_issues` helpers and the unused `REQUIRED_PAT_PERMISSIONS` constant.
-- Rename cross-module internals to public names: `COMPONENTS_BY_NAME`, `is_source_repo`, `current_repo_url`, `format_released`, `format_upload_date`, `date_to_utc_cutoff`.
-- Add `[tool.repomatic] binaries.sync`: set to `false` to stop the release pipeline from pushing the binaries catalog and scan records to the default branch, while binaries still get scanned on VirusTotal.
-- Add `sync-dep-sources`, a fifth `sync-deps` updater: once the release named by a git-tracked dependency's `.dev` version floor ships on PyPI, it drops the `[tool.uv.sources]` override, tightens the floor, and freezes the adopted release through the cooldown. Disable with `[tool.repomatic] dep-sources.sync`.
-- The `Cooldown bypasses` PR section is now a single table: entries the run cleared or froze become `🧹 cleared:` and `📌 frozen:` rows instead of prose lines, and cleared rows keep the held version and expiry date.
-- The bypass table's expiry column is renamed `Held until`, and a freeze holding an unreleased version (git or path source) is labelled `🚧 unreleased:` with a *needs release* expiry instead of empty cells.
-- Diff tables label added and removed packages with `🆕 new:` and `🗑️ removed:` prefixes ahead of the version.
-- Generated PR and issue bodies now use `##` section headings instead of `###`, except `Release notes`, which is now a `###` subsection nested under the update table.
-- Upstream release bodies embedded in `Release notes` dropdowns get their markdown headings demoted below the per-version heading, so they no longer collide with the PR's own sections.
-- Remove the boilerplate `Description` section from generated PR bodies.
-- The `Workflow metadata` block is now a compact list instead of a table, led by a `Documentation` entry deep-linking the job's section of the workflows reference.
-- Drop the "Each becomes lockable on its eligible date" sentence from the held-back cooldown notes.
-- `update-deps-graph` now keeps only directly-declared dependencies inside the `--group` and `--extra` boxes; transitive dependencies render outside as plain ovals, like around the primary dependencies box.
-- With `--level`, an extra's transitive dependencies now count as depth 2 instead of 1.
+- `Dialect`, `ArchiveFormat`, and `WorkflowFormat` now carry their dispatch as enum methods (`serialize`, `extract`, `write_workflow`).
 - Consolidate the `repomatic.deps_graph` API around `Subgraph` and `SubgraphKind` types; the unused `parse_bom_ref` helper is removed.
-- The `unsubscribe.yaml` workflow now streams per-thread progress to the job log; runs were previously silent until the report landed in the step summary.
-- `sync-action-pins` and `sync-workflow-pins` PR bodies now report an action or package pinned at several versions as a single row spanning from the oldest pin, with the compare link and release-notes dropdown covering that widest range.
-- `lint-changelog`'s PyPI and GitHub lookups now retry once on a truncated response body instead of crashing with `IncompleteRead`.
-- The `run typos` guidance now recommends `extend-ignore-re` guards for encoded hashes and intentional-typo examples, which the unattended `fix-typos` pull request would otherwise corrupt.
-- `sync-action-pins` no longer rewrites `uses:` pins inside files `repomatic init` deploys verbatim (the `publish-pypi` composite action), ending the pull-request ping-pong where it bumped a pin that the next `sync-repomatic` reset.
-- The `update-docs` job now re-formats `pyproject.toml` files with `pyproject-fmt` after running the project's update script, ending the pull-request ping-pong where `format-pyproject` reformatted the sections the update script had just regenerated.
-- Document the scan job contract and the release-lane direct-commit exception: why `scan-virustotal` records its results with a direct push to the default branch instead of a pull request.
+- Rename cross-module internals to public names: `COMPONENTS_BY_NAME`, `is_source_repo`, `format_released`, `format_upload_date`, `date_to_utc_cutoff`.
+- Remove the dead `get_default_repo` and `list_open_issues` helpers and the unused `REQUIRED_PAT_PERMISSIONS` constant.
+- `update-deps-graph` now keeps only directly-declared dependencies inside the `--group` and `--extra` boxes, renders transitive dependencies as plain ovals, and counts an extra's transitives as depth 2 under `--level`.
+- The unsubscribe workflow's GraphQL phase now re-validates each item's staleness client-side and reports the items it holds back.
+- The `unsubscribe.yaml` workflow now streams per-thread progress to the job log.
+- Generated PR and issue bodies now use `##` section headings, with `Release notes` nested as a `###` subsection; release bodies embedded in dropdowns get their headings demoted below the per-version heading.
+- Generated PR bodies drop the boilerplate `Description` section, and the `Workflow metadata` block becomes a compact list led by a `Documentation` link to the job's section of the workflows reference.
+- The `Cooldown bypasses` PR section is now a single table: `🧹 cleared:`, `📌 frozen:`, and `🚧 unreleased:` rows with a `Held until` expiry column.
+- Diff tables label added and removed packages with `🆕 new:` and `🗑️ removed:` prefixes ahead of the version.
+- `sync-action-pins` and `sync-workflow-pins` PR bodies now report an action or package pinned at several versions as a single row spanning from the oldest pin.
+- GitHub Releases API reads now resolve their token like every other GitHub access (`REPOMATIC_PAT` first), instead of hitting the anonymous rate limit.
+- PyPI, npm, and GitHub API lookups now retry once on a truncated response instead of crashing with `IncompleteRead`.
+- The release freeze and unfreeze steps now cover `.yml` workflow files alongside `.yaml`.
+- `sync-action-pins` no longer rewrites `uses:` pins inside files `repomatic init` deploys verbatim, like the `publish-pypi` composite action.
+- The `update-docs` job now re-formats `pyproject.toml` files with `pyproject-fmt` after running the project's update script.
+- The `run typos` guidance now recommends `extend-ignore-re` guards for encoded hashes and intentional-typo examples.
+- Document the scan job contract and the release-lane direct-commit exception.
+- Add a test suite for the notification-unsubscribe engine.
 
 ## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
 

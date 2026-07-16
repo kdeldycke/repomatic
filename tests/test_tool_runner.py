@@ -1722,7 +1722,7 @@ def test_run_tool_mdformat_with_packages(mock_ci, mock_run, tmp_path, monkeypatc
 
 
 @patch("repomatic.tool_runner.subprocess.run")
-@patch("repomatic.metadata.Metadata")
+@patch("repomatic.tool_runner.Metadata")
 @patch("repomatic.tool_runner.is_github_ci", return_value=False)
 def test_run_tool_mypy_with_computed_params(
     mock_ci,
@@ -1751,7 +1751,7 @@ def test_run_tool_mypy_with_computed_params(
 
 
 @patch("repomatic.tool_runner.subprocess.run")
-@patch("repomatic.metadata.Metadata")
+@patch("repomatic.tool_runner.Metadata")
 @patch("repomatic.tool_runner.is_github_ci", return_value=False)
 def test_run_tool_mypy_without_computed_params(
     mock_ci,

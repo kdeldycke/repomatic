@@ -217,7 +217,7 @@ class PatPermissionResults:
     """Results of all PAT permission checks.
 
     Each field holds a `(passed, message)` tuple from the corresponding
-    `check_pat_*` function.
+    {data}`PAT_PERMISSION_PROBES` row.
     """
 
     contents: tuple[bool, str]

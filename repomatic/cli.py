@@ -233,6 +233,12 @@ sync_held_back_option = option(
     default=True,
     help="Report newer releases withheld by the minimum-release-age cooldown.",
 )
+lockfile_option = option(
+    "--lockfile",
+    type=file_path(resolve_path=True),
+    default="uv.lock",
+    help="Path to the uv.lock file.",
+)
 
 
 def is_stdout(filepath: Path) -> bool:
@@ -2162,12 +2168,7 @@ _audit_sort = SortByOption(*AUDIT_HEADER_DEFS, default="package")
     section=_section_lint,
     params=[_audit_sort],
 )
-@option(
-    "--lockfile",
-    type=file_path(resolve_path=True),
-    default="uv.lock",
-    help="Path to the uv.lock file.",
-)
+@lockfile_option
 @option(
     "--repo",
     "repo",
@@ -2331,12 +2332,7 @@ def audit(
     short_help="Swap git-tracked dependencies to their released versions",
     section=_section_sync,
 )
-@option(
-    "--lockfile",
-    type=file_path(resolve_path=True),
-    default="uv.lock",
-    help="Path to the uv.lock file.",
-)
+@lockfile_option
 @option(
     "--table/--no-table",
     default=True,
@@ -2433,48 +2429,21 @@ def sync_dep_sources(
     if plan.changes:
         echo(f"{len(plan.changes)} package(s) updated.")
 
-    # Terminal output: structured table via click-extra.
-    if table:
-        if plan.exclude_newer:
-            echo(f"exclude-newer cutoff: {format_upload_date(plan.exclude_newer)}")
-        _print_sync_table(
-            ctx,
-            plan.changes,
-            plan.dates,
-            subject="Package",
-            reference_date=rc.today,
-        )
-        if plan.held_back:
-            _print_held_back_table(ctx, plan.held_back)
-        if plan.bypass_forecasts:
-            _print_bypass_table(ctx, plan.bypass_forecasts)
-
-    # Release notes echoed to the terminal (already fetched during resolve).
-    if plan.notes_section:
-        echo("")
-        echo(plan.notes_section)
-
-    # File output: markdown report for CI or downstream tooling.
-    if output:
-        body = render_plan_markdown(plan)
-        if body:
-            if output_format == "github-actions":
-                content = format_multiline_output("diff_table", body)
-            else:
-                content = body
-            echo(content, file=prep_path(output))
+    _emit_lockfile_sync_report(
+        ctx,
+        plan,
+        reference_date=rc.today,
+        table=table,
+        output=output,
+        output_format=output_format,
+    )
 
 
 @repomatic.command(
     short_help="Re-lock dependencies and roll cooldown overrides forward",
     section=_section_sync,
 )
-@option(
-    "--lockfile",
-    type=file_path(resolve_path=True),
-    default="uv.lock",
-    help="Path to the uv.lock file.",
-)
+@lockfile_option
 @option(
     "--table/--no-table",
     default=True,
@@ -2590,6 +2559,31 @@ def sync_uv_lock_cmd(
             + ", ".join(plan.frozen_bypasses)
         )
 
+    _emit_lockfile_sync_report(
+        ctx,
+        plan,
+        reference_date=rc.today,
+        table=table,
+        output=output,
+        output_format=output_format,
+    )
+
+
+def _emit_lockfile_sync_report(
+    ctx: Context,
+    plan: SyncPlan,
+    *,
+    reference_date: date,
+    table: bool,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Emit the shared terminal table and markdown report for a lockfile sync.
+
+    Both sync-uv-lock and sync-dep-sources render the same package diff table,
+    held-back and bypass tables, terminal release notes, and optional markdown
+    file output from their resolved {class}`SyncPlan`.
+    """
     # Terminal output: structured table via click-extra.
     if table:
         if plan.exclude_newer:
@@ -2599,7 +2593,7 @@ def sync_uv_lock_cmd(
             plan.changes,
             plan.dates,
             subject="Package",
-            reference_date=rc.today,
+            reference_date=reference_date,
         )
         if plan.held_back:
             _print_held_back_table(ctx, plan.held_back)

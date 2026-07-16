@@ -306,7 +306,7 @@ def manage_setup_guide(
             ).strip()
             if owner_type == "Organization":
                 org_tip = (
-                    "> \U0001f4a1 **For organizations**: Consider using a"
+                    "> 💡 **For organizations**: Consider using a"
                     " [machine user account](https://docs.github.com/en/"
                     "get-started/learning-about-github/types-of-github-accounts"
                     "#personal-accounts) or a dedicated service account to own"

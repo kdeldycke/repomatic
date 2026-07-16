@@ -14,11 +14,11 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""uv lock file operations and vulnerability auditing.
+"""uv lock file operations.
 
 This module provides utilities for managing `uv.lock` files: parsing versions,
-computing diff tables, auditing for vulnerabilities, and fetching release notes
-from GitHub.
+computing diff tables, managing `exclude-newer-package` cooldown overrides, and
+fetching release notes from GitHub.
 """
 
 from __future__ import annotations

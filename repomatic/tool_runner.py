@@ -73,8 +73,10 @@ from extra_platforms import (
 from packaging.requirements import Requirement
 from packaging.version import Version
 
-from .cache import get_cached_binary, store_binary
+from . import __version__
+from .cache import get_cached_binary, store_binary, store_config
 from .config import load_repomatic_config
+from .metadata import Metadata
 from .uv import uv_cmd, uvx_cmd
 from .version_sync import exclude_newer_cutoff, min_release_age_days
 
@@ -82,8 +84,6 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
     from typing import Any, Literal
-
-    from .metadata import Metadata
 
 
 GENERATED_HEADER_TEMPLATE = (
@@ -103,8 +103,6 @@ def generated_header(command: str, comment_prefix: str = "# ") -> str:
     :param command: Full command path (e.g. `repomatic sync-mailmap`).
     :param comment_prefix: Comment prefix for the target format.
     """
-    from . import __version__
-
     line1 = GENERATED_HEADER_TEMPLATE.format(command=command, version=__version__)
     line2 = f"Timestamp: {datetime.now(tz=timezone.utc).isoformat()}"
     return f"{comment_prefix}{line1}\n{comment_prefix}{line2}\n"
@@ -1558,7 +1556,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
 
             typos scans the tree and, with repomatic's default `--write-changes`, fixes what it finds. It reads `[tool.typos]` natively; use `[tool.typos.default.extend-words]` to map project-specific terms to their intended spelling.
 
-            Because the `fix-typos` workflow job ships whatever typos rewrites as an unattended pull request, guard content where a "correction" is a corruption with `[tool.typos.default.extend-ignore-re]` patterns. The two known traps are encoded hashes, whose random letter runs typos happily respells (a Guix `(base32 "...")` source hash losing its value to an `and` to `and` fix), and intentional-typo examples that docs or tests exercise on purpose:
+            Because the `fix-typos` workflow job ships whatever typos rewrites as an unattended pull request, guard content where a "correction" is a corruption with `[tool.typos.default.extend-ignore-re]` patterns. The two known traps are encoded hashes, whose random letter runs typos happily respells (a Guix `(base32 "...")` source hash losing its value to an `an`-to-`and` fix), and intentional-typo examples that docs or tests exercise on purpose:
 
             ```toml
             [tool.typos.default]
@@ -1701,8 +1699,6 @@ def _store_config_to_cache(
         file returning `([flag, tmp_path], tmp_path)` if the cache is not
         writable.
     """
-    from .cache import store_config
-
     assert spec.config_flag is not None
     filename = _config_filename(spec)
     cached = store_config(spec.name, filename, content)
@@ -2446,8 +2442,6 @@ def run_tool(
 
         # Computed parameters derived from project metadata.
         if spec.computed_params:
-            from .metadata import Metadata
-
             cmd.extend(spec.computed_params(Metadata()))
 
         # Config args from resolution (cache path or empty).

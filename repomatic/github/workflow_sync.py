@@ -639,28 +639,28 @@ def generate_thin_caller(
 ) -> str:
     """Generate a thin caller workflow for a reusable canonical workflow.
 
-        The generated caller mirrors the canonical workflow's non-`workflow_call`
-        triggers verbatim and delegates to the upstream workflow via `uses:`.
-        `workflow_dispatch` is not injected: workflows that should expose manual
-        dispatch declare it in the canonical definition. Declared `workflow_call`
-        inputs and secrets are forwarded explicitly via `with:` and `secrets:`.
+    The generated caller mirrors the canonical workflow's non-`workflow_call`
+    triggers verbatim and delegates to the upstream workflow via `uses:`.
+    `workflow_dispatch` is not injected: workflows that should expose manual
+    dispatch declare it in the canonical definition. Declared `workflow_call`
+    inputs and secrets are forwarded explicitly via `with:` and `secrets:`.
 
-        Canonical `paths:` filters are adapted via *paths_spec* (see
-        {class}`PathsSpec`).
+    Canonical `paths:` filters are adapted via *paths_spec* (see
+    {class}`PathsSpec`).
 
-        When *commit_sha* is provided, the `uses:` reference is SHA-pinned
-        (`@sha # version`), secure-by-default from the first commit. The
-        `sync-action-pins` job bumps it once a newer release clears the cooldown.
+    When *commit_sha* is provided, the `uses:` reference is SHA-pinned
+    (`@sha # version`), secure-by-default from the first commit. The
+    `sync-action-pins` job bumps it once a newer release clears the cooldown.
 
-        :param filename: Canonical workflow filename (e.g., `release.yaml`).
-        :param repo: Upstream repository (default: `kdeldycke/repomatic`).
-        :param version: Version reference (default: `main`).
+    :param filename: Canonical workflow filename (e.g., `release.yaml`).
+    :param repo: Upstream repository (default: `kdeldycke/repomatic`).
+    :param version: Version reference (default: `main`).
     :param commit_sha: Full 40-character commit SHA for the version tag.
-            When provided, produces `@sha # version`. When `None`, produces
-            `@version`.
-        :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
-        :return: Complete YAML content for the thin caller workflow.
-        :raises ValueError: If the workflow does not support `workflow_call`.
+        When provided, produces `@sha # version`. When `None`, produces
+        `@version`.
+    :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
+    :return: Complete YAML content for the thin caller workflow.
+    :raises ValueError: If the workflow does not support `workflow_call`.
     """
     # release.yaml is a multi-job caller (build lane + publish-pypi + engine
     # lane), not a single thin delegation. Generate it by copying the canonical

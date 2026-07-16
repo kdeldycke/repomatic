@@ -2453,7 +2453,6 @@ class Metadata:
         content for the version. The template is the single place
         that defines the release body layout.
         """
-
         version = self.released_version
         if not version:
             version = self.current_version
@@ -2492,7 +2491,6 @@ class Metadata:
         has no version to release, in which case `create-release` falls back to
         the plain {attr}`release_notes`.
         """
-
         version = self.released_version
         if not version:
             version = self.current_version

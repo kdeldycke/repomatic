@@ -19,7 +19,7 @@ allowed-tools: Bash, Read, Grep, Glob, Skill, Agent
 
 You drive a release from a working tree to a ready-to-merge release PR: reconcile the tree to its **net state since the last tag**, validate it locally, commit and push, then babysit CI until the auto-generated release PR is green. You stop there: the human marks the draft release PR ready for review and performs the final "Rebase and merge".
 
-The release is push-driven: the `prepare-release` job in `changelog.yaml` runs `repomatic release-prep` on push to `main` to build the freeze and unfreeze commits and open the release PR. **Do not run `release-prep` yourself**: a local run previews a freeze that must not be committed (it marks the changelog "released", and on the canonical repo rewrites every workflow action ref). Your job is to make `main` clean enough that the auto-generated release PR is correct, then keep `main` green.
+The release is push-driven: the `prepare-release` job in `changelog.yaml` runs `repomatic prepare-release` on push to `main` to build the freeze and unfreeze commits and open the release PR. **Do not run `prepare-release` yourself**: a local run previews a freeze that must not be committed (it marks the changelog "released", and on the canonical repo rewrites every workflow action ref). Your job is to make `main` clean enough that the auto-generated release PR is correct, then keep `main` green.
 
 ### How this skill runs
 

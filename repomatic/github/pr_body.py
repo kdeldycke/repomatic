@@ -116,6 +116,29 @@ _GITHUB_URL_RE = re.compile(r"(https?://)(github\.com/)")
 """Matches `github.com` URLs for rewriting to `redirect.github.com`."""
 
 
+def _stash_fenced_blocks(text: str) -> tuple[str, list[str]]:
+    """Replace fenced code blocks with placeholders.
+
+    Fenced blocks are extracted first (they may contain inline backticks) so
+    later prose rewrites cannot touch code. Returns the substituted text and the
+    extracted blocks, restored later by {func}`_restore_fenced_blocks`.
+    """
+    fenced_blocks: list[str] = []
+
+    def stash(match: re.Match[str]) -> str:
+        fenced_blocks.append(match.group(0))
+        return f"\x00FENCED{len(fenced_blocks) - 1}\x00"
+
+    return _FENCED_CODE_BLOCK_RE.sub(stash, text), fenced_blocks
+
+
+def _restore_fenced_blocks(text: str, blocks: list[str]) -> str:
+    """Restore fenced code blocks stashed by {func}`_stash_fenced_blocks`."""
+    for i, block in enumerate(blocks):
+        text = text.replace(f"\x00FENCED{i}\x00", block)
+    return text
+
+
 def sanitize_markdown_mentions(text: str) -> str:
     """Neutralize `@mentions`, `#issue` refs, and GitHub URLs in markdown.
 
@@ -150,13 +173,7 @@ def sanitize_markdown_mentions(text: str) -> str:
 
     # Phase 1: Extract code blocks into placeholders.
     # Fenced blocks first (they may contain inline backticks).
-    fenced_blocks: list[str] = []
-
-    def _stash_fenced(match: re.Match[str]) -> str:
-        fenced_blocks.append(match.group(0))
-        return f"\x00FENCED{len(fenced_blocks) - 1}\x00"
-
-    result = _FENCED_CODE_BLOCK_RE.sub(_stash_fenced, text)
+    result, fenced_blocks = _stash_fenced_blocks(text)
 
     # Inline code spans second.
     inline_spans: list[str] = []
@@ -182,8 +199,7 @@ def sanitize_markdown_mentions(text: str) -> str:
     # Phase 3: Restore placeholders (reverse order of extraction).
     for i, span in enumerate(inline_spans):
         result = result.replace(f"\x00INLINE{i}\x00", span)
-    for i, block in enumerate(fenced_blocks):
-        result = result.replace(f"\x00FENCED{i}\x00", block)
+    result = _restore_fenced_blocks(result, fenced_blocks)
 
     return result
 
@@ -211,13 +227,7 @@ def demote_markdown_headings(text: str, floor: int) -> str:
     if not text:
         return text
 
-    fenced_blocks: list[str] = []
-
-    def _stash_fenced(match: re.Match[str]) -> str:
-        fenced_blocks.append(match.group(0))
-        return f"\x00FENCED{len(fenced_blocks) - 1}\x00"
-
-    result = _FENCED_CODE_BLOCK_RE.sub(_stash_fenced, text)
+    result, fenced_blocks = _stash_fenced_blocks(text)
 
     levels = [len(m.group(2)) for m in _ATX_HEADING_RE.finditer(result)]
     shift = floor - min(levels) if levels else 0
@@ -227,9 +237,7 @@ def demote_markdown_headings(text: str, floor: int) -> str:
             result,
         )
 
-    for i, block in enumerate(fenced_blocks):
-        result = result.replace(f"\x00FENCED{i}\x00", block)
-    return result
+    return _restore_fenced_blocks(result, fenced_blocks)
 
 
 def _unescape_dollars(text: str) -> str:
@@ -308,7 +316,6 @@ def load_template(name: str | Path) -> tuple[dict[str, object], str]:
         return _parse_frontmatter(name.read_text(encoding="UTF-8"))
 
     template_files = files("repomatic.templates")
-    # XXX: .md.noformat avoids mdformat mangling $-placeholder table hacks.
     for ext in (".md.noformat", ".md"):
         resource = template_files.joinpath(f"{name}{ext}")
         if resource.is_file():

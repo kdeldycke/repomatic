@@ -31,6 +31,7 @@ from click_extra import ClickException, echo
 
 from .metadata import Metadata
 from .rst_to_myst import convert_rst_files_in_directory
+from .uv import uv_cmd
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -40,9 +41,11 @@ if TYPE_CHECKING:
 def validate_docs_script_path(script: str, repo_root: Path) -> Path | None:
     """Validate and resolve a docs update script path.
 
-    Returns the resolved path if the script exists, or `None` if the
-    configured value is empty. Raises `ClickException` if the path
-    escapes the repository root or is not under the `docs/` directory.
+    :param script: Configured `docs.update-script` path, relative to the repo.
+    :param repo_root: Repository root the script path resolves against.
+    :return: The resolved path, or `None` when the configured value is empty.
+    :raises ClickException: If the path escapes the repository root or is not
+        a `.py` file under `docs/`.
     """
     if not script:
         return None
@@ -73,7 +76,7 @@ def _run_docs_tool(label: str, *args: str) -> None:
     :param label: Human-readable phase name for logs and errors.
     :param args: The command and its arguments, passed after `uv run --`.
     """
-    cmd = ["uv", "--no-progress", "run", "--frozen", "--group", "docs", "--", *args]
+    cmd = [*uv_cmd("run", frozen=True), "--group", "docs", "--", *args]
     logging.info(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, check=False)
     if result.returncode:
@@ -88,7 +91,7 @@ def update_docs(config: Config) -> None:
 
     1. Run `sphinx-apidoc` to generate RST stubs for all modules.
     2. If MyST-Parser is detected, convert the RST stubs to MyST markdown
-       with `{eval-rst}` blocks.
+       with ``{eval-rst}`` blocks.
     3. Run the project-specific `docs/docs_update.py` script (if present)
        to generate dynamic content.
     4. Refresh self-updating directive blocks (like `{matrix}` compatibility

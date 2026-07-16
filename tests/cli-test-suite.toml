@@ -176,6 +176,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic changelog"
 
 [[cases]]
+cli_parameters = "check-version --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic check-version"
+
+[[cases]]
 cli_parameters = "clean-unmodified-configs --help"
 exit_code = 0
 strip_ansi = true
@@ -408,12 +414,6 @@ cli_parameters = "verify-binary --help"
 exit_code = 0
 strip_ansi = true
 stdout_contains = "Usage: repomatic verify-binary"
-
-[[cases]]
-cli_parameters = "check-version --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic check-version"
 
 [[cases]]
 cli_parameters = "workflow --help"

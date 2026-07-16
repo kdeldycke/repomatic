@@ -436,7 +436,7 @@ def fix_vulnerable_deps(
         logging.info("No vulnerabilities found.")
         return False, ""
 
-    # Deduplicate packages: multiple advisories can target the same package.
+    # Step 2: Deduplicate packages, since multiple advisories can target one.
     fixable_packages = {v.name for v in vulns if v.fixed_version}
     if not fixable_packages:
         logging.warning(
@@ -444,9 +444,11 @@ def fix_vulnerable_deps(
         )
         return False, ""
 
+    fixable_sorted = sorted(fixable_packages)
+    fixable_list = ", ".join(fixable_sorted)
     logging.info(
         f"Found {len(vulns)} vulnerabilities across"
-        f" {len(fixable_packages)} fixable packages: {', '.join(sorted(fixable_packages))}."
+        f" {len(fixable_packages)} fixable packages: {fixable_list}."
     )
 
     # Step 3: Snapshot versions before upgrading.
@@ -455,14 +457,14 @@ def fix_vulnerable_deps(
     # Step 4: Upgrade all fixable packages in a single resolution pass.
     # Running one command avoids sequential re-resolution undoing earlier upgrades.
     cmd = [*uv_cmd("lock")]
-    for pkg in sorted(fixable_packages):
+    for pkg in fixable_sorted:
         cmd.extend([
             "--upgrade-package",
             pkg,
             "--exclude-newer-package",
             f"{pkg}=0 day",
         ])
-    logging.info(f"Upgrading: {', '.join(sorted(fixable_packages))}...")
+    logging.info(f"Upgrading: {fixable_list}...")
     subprocess.run(cmd, check=True, cwd=lock_path.parent)
 
     # Step 5: Compute version diff.
@@ -552,18 +554,14 @@ def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
         vuln = alert.get("security_vulnerability") or {}
         package = vuln.get("package") or {}
         advisory = alert.get("security_advisory") or {}
-        dependency = alert.get("dependency") or {}
         name = package.get("name", "")
         first_patched = (vuln.get("first_patched_version") or {}).get("identifier", "")
         if not name or not first_patched:
             continue
-        # Prefer the version uv resolved against (when known) over the alert
-        # metadata, which only carries the vulnerable range, not the actual
-        # locked version.
+        # Left empty here: the alert metadata carries only the vulnerable
+        # range, not the actual locked version. The caller backfills the
+        # resolved version from parse_lock_versions.
         current_version = ""
-        manifest_path = dependency.get("manifest_path", "")
-        if manifest_path.endswith("uv.lock"):
-            current_version = ""  # filled in by the caller from parse_lock_versions
         ghsa_id = advisory.get("ghsa_id", "")
         summary = advisory.get("summary", "")
         # Cross-referenced identifiers (CVE, GHSA) let the same advisory
