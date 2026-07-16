@@ -39,12 +39,18 @@ are not sent chasing PAT scopes during an upstream incident.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
 from subprocess import run
 
 from .status import status_annotation
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping, Sequence
+    from typing import Any
 
 _AUTH_FALLBACK_MARKERS = ("Bad credentials", "Requires authentication")
 """Stderr substrings that mean: the primary token's auth context was
@@ -182,3 +188,76 @@ def run_gh_command(args: list[str]) -> str:
         raise RuntimeError(stderr)
 
     return process.stdout
+
+
+def iter_graphql_nodes(
+    query: str,
+    connection_path: Sequence[str],
+    variables: Mapping[str, str | int | bool] | None = None,
+    *,
+    page_size_var: str = "",
+    page_size: int = 0,
+    max_nodes: int | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Iterate a GraphQL connection's nodes, following cursor pagination.
+
+    The shared `gh api graphql` pagination loop: run the query, walk the
+    response to the connection object, yield each node, then follow
+    `pageInfo.hasNextPage`/`endCursor` until the connection is exhausted.
+    The query must declare a `$cursor: String` variable and pass it as
+    `after: $cursor`, and its connection must select
+    `pageInfo { hasNextPage endCursor }`.
+
+    Null nodes (which GitHub's `search` connection can emit) are skipped.
+
+    :param query: The GraphQL query string.
+    :param connection_path: Keys from the response's `data` object down to
+        the connection (like `("search",)` or `("user",
+        "sponsorshipsAsMaintainer")`).
+    :param variables: Query variables. Strings are passed with `-f`; ints
+        and bools with `-F`, so they keep their GraphQL type.
+    :param page_size_var: When set, inject the page size into this query
+        variable on every request (the query then controls `first:` with
+        it). Leave empty for queries with a hard-coded page size.
+    :param page_size: Nodes requested per page; only used with
+        *page_size_var*. The last page shrinks to the *max_nodes*
+        remainder so the budget is never over-fetched.
+    :param max_nodes: Stop after yielding this many nodes. `None` means
+        every node in the connection.
+    :yields: Each node dict, in API order.
+    :raises RuntimeError: When a `gh` invocation fails
+        (see {func}`run_gh_command`).
+    """
+    cursor: str | None = None
+    yielded = 0
+
+    while max_nodes is None or yielded < max_nodes:
+        args = ["api", "graphql", "-f", f"query={query}"]
+        for var_name, value in (variables or {}).items():
+            flag = "-f" if isinstance(value, str) else "-F"
+            args.extend([flag, f"{var_name}={value}"])
+        if page_size_var:
+            size = page_size
+            if max_nodes is not None:
+                size = min(size, max_nodes - yielded)
+            args.extend(["-F", f"{page_size_var}={size}"])
+        if cursor:
+            args.extend(["-f", f"cursor={cursor}"])
+
+        response = json.loads(run_gh_command(args))
+        connection = response.get("data", {})
+        for key in connection_path:
+            connection = connection.get(key) or {}
+
+        for node in connection.get("nodes", []):
+            if not node:
+                continue
+            yield node
+            yielded += 1
+            if max_nodes is not None and yielded >= max_nodes:
+                return
+
+        page_info = connection.get("pageInfo", {})
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")

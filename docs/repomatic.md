@@ -272,15 +272,6 @@
    :undoc-members:
 ```
 
-## `repomatic.sponsor` module
-
-```{eval-rst}
-.. automodule:: repomatic.sponsor
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.sync_ops` module
 
 ```{eval-rst}

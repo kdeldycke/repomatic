@@ -27,18 +27,16 @@ When run in GitHub Actions, defaults are read from
 
 from __future__ import annotations
 
-import json
 import logging
 from functools import lru_cache
 
-from .github.actions import get_github_event
-from .github.gh import run_gh_command
-from .metadata import Metadata
+from ..metadata import Metadata
+from .actions import get_github_event
+from .gh import iter_graphql_nodes, run_gh_command
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from typing import Any
 
 
 def get_default_owner() -> str | None:
@@ -112,23 +110,6 @@ query($owner: String!, $cursor: String) {
 """
 
 
-def _run_graphql_query(query: str, owner: str, cursor: str | None = None) -> Any:
-    """Execute a GraphQL query using the gh CLI.
-
-    :param query: The GraphQL query string.
-    :param owner: The owner (user or org) to query.
-    :param cursor: Optional pagination cursor.
-    :return: Parsed JSON response from the API.
-    :raises RuntimeError: If the gh CLI command fails.
-    """
-    args = ["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}"]
-    if cursor:
-        args.extend(["-f", f"cursor={cursor}"])
-
-    output = run_gh_command(args)
-    return json.loads(output)
-
-
 def _iter_sponsors(owner: str, query: str, data_path: str) -> Iterator[str]:
     """Iterate over all sponsors using pagination.
 
@@ -137,23 +118,14 @@ def _iter_sponsors(owner: str, query: str, data_path: str) -> Iterator[str]:
     :param data_path: Path to the data in the response (e.g., `"user"`).
     :yields: Login names of sponsors.
     """
-    cursor = None
-
-    while True:
-        response = _run_graphql_query(query, owner, cursor)
-        data = response.get("data", {}).get(data_path, {})
-        sponsorships = data.get("sponsorshipsAsMaintainer", {})
-
-        for node in sponsorships.get("nodes", []):
-            entity = node.get("sponsorEntity", {})
-            login = entity.get("login")
-            if login:
-                yield login
-
-        page_info = sponsorships.get("pageInfo", {})
-        if not page_info.get("hasNextPage"):
-            break
-        cursor = page_info.get("endCursor")
+    for node in iter_graphql_nodes(
+        query,
+        (data_path, "sponsorshipsAsMaintainer"),
+        {"owner": owner},
+    ):
+        login = node.get("sponsorEntity", {}).get("login")
+        if login:
+            yield login
 
 
 @lru_cache(maxsize=32)

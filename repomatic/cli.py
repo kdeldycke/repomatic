@@ -119,6 +119,14 @@ from .github.releases import (
     get_releases_with_assets,
     owner_repo,
 )
+from .github.sponsor import (
+    add_sponsor_label,
+    get_default_author,
+    get_default_number,
+    get_default_owner,
+    is_pull_request,
+    is_sponsor,
+)
 from .github.unsubscribe import (
     render_report as _render_report,
     unsubscribe_threads as _unsubscribe_threads,
@@ -158,14 +166,6 @@ from .registry import (
 )
 from .release_prep import ReleasePrep
 from .setup_guide import manage_setup_guide
-from .sponsor import (
-    add_sponsor_label,
-    get_default_author,
-    get_default_number,
-    get_default_owner,
-    is_pull_request,
-    is_sponsor,
-)
 from .sync_ops import (
     OPERATIONS_BY_NAME,
     ResolveContext,

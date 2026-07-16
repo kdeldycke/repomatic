@@ -42,7 +42,7 @@ from enum import Enum
 
 import arrow
 
-from .gh import run_gh_command
+from .gh import iter_graphql_nodes, run_gh_command
 from .pr_body import render_template
 from .token import validate_classic_pat_scope
 
@@ -361,40 +361,14 @@ def _iter_closed_items(
     :yields: Dicts with `id`, `number`, `title`, `repository`,
         `updatedAt`, `url`, `viewerSubscription`.
     """
-    cursor = None
-    yielded = 0
-
-    while yielded < batch_size:
-        page_size = min(GRAPHQL_PAGE_SIZE, batch_size - yielded)
-        args = [
-            "api",
-            "graphql",
-            "-f",
-            f"query={THREADLESS_SEARCH_QUERY}",
-            "-f",
-            f"searchQuery={search_query}",
-            "-F",
-            f"pageSize={page_size}",
-        ]
-        if cursor:
-            args.extend(["-f", f"cursor={cursor}"])
-
-        output = run_gh_command(args)
-        data = json.loads(output)
-        search_data = data.get("data", {}).get("search", {})
-
-        for node in search_data.get("nodes", []):
-            if not node:
-                continue
-            yield node
-            yielded += 1
-            if yielded >= batch_size:
-                return
-
-        page_info = search_data.get("pageInfo", {})
-        if not page_info.get("hasNextPage"):
-            break
-        cursor = page_info.get("endCursor")
+    return iter_graphql_nodes(
+        THREADLESS_SEARCH_QUERY,
+        ("search",),
+        {"searchQuery": search_query},
+        page_size_var="pageSize",
+        page_size=GRAPHQL_PAGE_SIZE,
+        max_nodes=batch_size,
+    )
 
 
 def _graphql_unsubscribe(node_id: str) -> bool:

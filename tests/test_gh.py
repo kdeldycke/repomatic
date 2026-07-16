@@ -18,12 +18,13 @@
 
 from __future__ import annotations
 
+import json
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
 import pytest
 
-from repomatic.github.gh import run_gh_command
+from repomatic.github.gh import iter_graphql_nodes, run_gh_command
 
 
 @pytest.fixture(autouse=True)
@@ -403,3 +404,103 @@ def test_non_401_skips_transient_retry():
             run_gh_command(["issue", "list"])
         assert mock_run.call_count == 1
         mock_sleep.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# GraphQL cursor pagination
+# ---------------------------------------------------------------------------
+
+
+def _page(nodes, has_next=False, cursor=""):
+    """Build a one-connection GraphQL response body for the paginator."""
+    return json.dumps({
+        "data": {
+            "search": {
+                "nodes": nodes,
+                "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+            }
+        }
+    })
+
+
+def test_iter_graphql_nodes_single_page():
+    """A single page yields its nodes and stops without a cursor request."""
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
+        mock_gh.return_value = _page([{"id": "melon"}, {"id": "papaya"}])
+        nodes = list(iter_graphql_nodes("query", ("search",)))
+    assert nodes == [{"id": "melon"}, {"id": "papaya"}]
+    assert mock_gh.call_count == 1
+    assert not any("cursor=" in arg for arg in mock_gh.call_args.args[0])
+
+
+def test_iter_graphql_nodes_follows_cursor():
+    """Pagination follows `endCursor` until `hasNextPage` goes false."""
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
+        mock_gh.side_effect = [
+            _page([{"id": "melon"}], has_next=True, cursor="CUR1"),
+            _page([{"id": "papaya"}]),
+        ]
+        nodes = list(iter_graphql_nodes("query", ("search",)))
+    assert [node["id"] for node in nodes] == ["melon", "papaya"]
+    assert mock_gh.call_count == 2
+    second_args = mock_gh.call_args_list[1].args[0]
+    assert "cursor=CUR1" in second_args
+
+
+def test_iter_graphql_nodes_skips_null_nodes():
+    """Null nodes (as the `search` connection can emit) are dropped."""
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
+        mock_gh.return_value = _page([None, {"id": "melon"}, None])
+        nodes = list(iter_graphql_nodes("query", ("search",)))
+    assert nodes == [{"id": "melon"}]
+
+
+def test_iter_graphql_nodes_max_nodes_shrinks_last_page():
+    """The budget caps the yield count and shrinks the final page request."""
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
+        mock_gh.side_effect = [
+            _page([{"id": "melon"}, {"id": "papaya"}], has_next=True, cursor="CUR1"),
+            _page([{"id": "cherry"}], has_next=True, cursor="CUR2"),
+        ]
+        nodes = list(
+            iter_graphql_nodes(
+                "query",
+                ("search",),
+                page_size_var="pageSize",
+                page_size=2,
+                max_nodes=3,
+            )
+        )
+    assert [node["id"] for node in nodes] == ["melon", "papaya", "cherry"]
+    assert mock_gh.call_count == 2
+    first_args = mock_gh.call_args_list[0].args[0]
+    second_args = mock_gh.call_args_list[1].args[0]
+    assert "pageSize=2" in first_args
+    # Only one node left in the budget: the second request asks for one.
+    assert "pageSize=1" in second_args
+
+
+def test_iter_graphql_nodes_variable_flags():
+    """String variables pass with `-f`, ints and bools with `-F`."""
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
+        mock_gh.return_value = _page([])
+        list(
+            iter_graphql_nodes(
+                "query",
+                ("search",),
+                {"owner": "melon", "count": 5, "flag": True},
+            )
+        )
+    args = mock_gh.call_args.args[0]
+    assert args[args.index("owner=melon") - 1] == "-f"
+    assert args[args.index("count=5") - 1] == "-F"
+    assert args[args.index("flag=True") - 1] == "-F"
+
+
+def test_iter_graphql_nodes_missing_connection_yields_nothing():
+    """A response missing the connection path yields nothing and stops."""
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
+        mock_gh.return_value = json.dumps({"data": {"user": None}})
+        nodes = list(iter_graphql_nodes("query", ("user", "sponsorships")))
+    assert nodes == []
+    assert mock_gh.call_count == 1

@@ -99,6 +99,15 @@
    :undoc-members:
 ```
 
+## `repomatic.github.sponsor` module
+
+```{eval-rst}
+.. automodule:: repomatic.github.sponsor
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.github.status` module
 
 ```{eval-rst}

@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** the workflow generation API (`generate_thin_caller`, `generate_workflow_header`, `generate_workflows`) drops its legacy `source_paths` argument; pass a `PathsSpec` instead.
+- Move `repomatic.sponsor` under `repomatic.github`, and share one GraphQL cursor paginator (`iter_graphql_nodes`) between the sponsors and unsubscribe lookups.
 - Extract the setup guide, `.gitignore` generation, and Sphinx docs orchestration from the CLI module into new `repomatic.setup_guide`, `repomatic.gitignore`, and `repomatic.docs` modules.
 - Add `repomatic.http`, the JSON fetch shared by the PyPI, npm, and GitHub API clients; npm and GitHub tag lookups now retry once on a truncated response like PyPI lookups already did.
 - GitHub Releases API reads now resolve their token like every other GitHub access (`REPOMATIC_PAT` first), instead of skipping it and hitting the anonymous 60 requests/hour rate limit.
