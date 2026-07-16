@@ -2949,12 +2949,12 @@ def sync_deps(
     """Update project dependencies, the whole set or a named subset.
 
     \b
-    The single entry point for dependency updates. It drives sync-uv-lock,
-    sync-action-pins, sync-workflow-pins, and sync-tool-versions: their network
-    discovery runs concurrently (one shared HTTP cache, one spinner), then the
-    file rewrites apply serially because three of them touch the same workflow
-    files. Name one or more updaters to run just those; with none named, every
-    enabled updater runs.
+    The single entry point for dependency updates. It drives
+    sync-dep-sources, sync-uv-lock, sync-action-pins, sync-workflow-pins, and
+    sync-tool-versions: their network discovery runs concurrently (one shared
+    HTTP cache, one spinner), then the file rewrites apply serially because
+    three of them touch the same workflow files. Name one or more updaters to
+    run just those; with none named, every enabled updater runs.
 
     \b
     The [tool.repomatic] feature flags are always authoritative: a disabled

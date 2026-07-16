@@ -29,26 +29,26 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 
 `repomatic` has systematically eliminated 18 third-party actions since late 2025, replacing them with internal CLI commands, SHA-256-verified binary downloads, and runner built-in tools:
 
-| Removed action                           | Replacement                       | Strategy                |
-| :--------------------------------------- | :-------------------------------- | :---------------------- |
-| `calibreapp/image-actions`               | `repomatic format-images`         | Internal CLI            |
-| `crazy-max/ghaction-virustotal`          | `repomatic scan-virustotal`       | Internal CLI            |
-| `AndreasAugustin/actions-template-sync`  | `repomatic sync-awesome-template` | Internal CLI            |
-| `JasonEtco/is-sponsor-label-action`      | `repomatic sponsor-label`         | Internal CLI            |
-| `lycheeverse/lychee-action`              | `repomatic run lychee`            | Direct binary + SHA-256 |
-| `crate-ci/typos`                         | `repomatic run typos`             | Direct binary + SHA-256 |
-| `biomejs/setup-biome`                    | `repomatic run biome`             | Direct binary + SHA-256 |
-| `gitleaks/gitleaks-action`               | `repomatic run gitleaks`          | Direct binary + SHA-256 |
-| `julb/action-manage-label`               | `repomatic run labelmaker`        | Direct binary + SHA-256 |
-| `taiki-e/install-action`                 | Direct `curl` + checksum          | Direct binary + SHA-256 |
-| `softprops/action-gh-release`            | `gh release create`               | Runner built-in         |
-| `actions/github-script`                  | Bash + `gh` CLI                   | Runner built-in         |
-| `actions-rust-lang/setup-rust-toolchain` | Runner built-in Rust              | Runner built-in         |
-| `actions/setup-python`                   | `astral-sh/setup-uv`              | Consolidated            |
-| `peaceiris/actions-gh-pages`             | `actions/deploy-pages`            | First-party replacement |
-| `codecov/codecov-action`                 | `codecov-cli` via `uvx`           | Pinned CLI              |
-| `codecov/test-results-action`            | None (feature dropped)            | Removed entirely        |
-| `GitHubSecurityLab/actions-permissions`  | Explicit `permissions:` key       | Removed entirely        |
+| Removed action                           | Replacement                 | Strategy                |
+| :--------------------------------------- | :-------------------------- | :---------------------- |
+| `calibreapp/image-actions`               | `repomatic format-images`   | Internal CLI            |
+| `crazy-max/ghaction-virustotal`          | `repomatic scan-virustotal` | Internal CLI            |
+| `AndreasAugustin/actions-template-sync`  | `repomatic init`            | Internal CLI            |
+| `JasonEtco/is-sponsor-label-action`      | `repomatic sponsor-label`   | Internal CLI            |
+| `lycheeverse/lychee-action`              | `repomatic run lychee`      | Direct binary + SHA-256 |
+| `crate-ci/typos`                         | `repomatic run typos`       | Direct binary + SHA-256 |
+| `biomejs/setup-biome`                    | `repomatic run biome`       | Direct binary + SHA-256 |
+| `gitleaks/gitleaks-action`               | `repomatic run gitleaks`    | Direct binary + SHA-256 |
+| `julb/action-manage-label`               | `repomatic run labelmaker`  | Direct binary + SHA-256 |
+| `taiki-e/install-action`                 | Direct `curl` + checksum    | Direct binary + SHA-256 |
+| `softprops/action-gh-release`            | `gh release create`         | Runner built-in         |
+| `actions/github-script`                  | Bash + `gh` CLI             | Runner built-in         |
+| `actions-rust-lang/setup-rust-toolchain` | Runner built-in Rust        | Runner built-in         |
+| `actions/setup-python`                   | `astral-sh/setup-uv`        | Consolidated            |
+| `peaceiris/actions-gh-pages`             | `actions/deploy-pages`      | First-party replacement |
+| `codecov/codecov-action`                 | `codecov-cli` via `uvx`     | Pinned CLI              |
+| `codecov/test-results-action`            | None (feature dropped)      | Removed entirely        |
+| `GitHubSecurityLab/actions-permissions`  | Explicit `permissions:` key | Removed entirely        |
 
 The remaining third-party actions (4 of 14 total) are:
 

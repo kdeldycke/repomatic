@@ -124,10 +124,7 @@ def manage_setup_guide(
         failures = pat_results.failed()
         if failures:
             has_permission_failures = True
-            rows = []
-            for _field_name, message in failures:
-                rows.append(f"| {message} |")
-            table = "\n".join(rows)
+            table = "\n".join(f"| {message} |" for _field_name, message in failures)
             missing_permissions_section = (
                 "> [!WARNING]\n"
                 "> Your `REPOMATIC_PAT` secret is configured but missing"
@@ -298,11 +295,10 @@ def manage_setup_guide(
 
     # Detect if the repository owner is an organization.
     org_tip = ""
-    owner = repo_owner
-    if owner:
+    if repo_owner:
         try:
             owner_type = run_gh_command(
-                ["api", f"users/{owner}", "--jq", ".type"],
+                ["api", f"users/{repo_owner}", "--jq", ".type"],
             ).strip()
             if owner_type == "Organization":
                 org_tip = (
@@ -313,7 +309,7 @@ def manage_setup_guide(
                     " the PAT, rather than tying it to an individual's account."
                 )
         except RuntimeError:
-            logging.debug(f"Failed to detect owner type for {owner!r}.")
+            logging.debug(f"Failed to detect owner type for {repo_owner!r}.")
 
     # --- Assemble issue body ---
     # Step-skip markers: only include fork-pr approval step when the check is

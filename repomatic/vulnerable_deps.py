@@ -142,8 +142,9 @@ class VulnerablePackage:
     """Advisory databases that surfaced this entry.
 
     A set rather than a single value because the same advisory can be
-    reported by multiple sources after deduplication. Empty when the
-    advisory came from a code path that pre-dates source attribution.
+    reported by multiple sources after deduplication. Empty only for
+    entries built without source attribution (test fixtures); every
+    production code path records at least one source.
     """
 
     source_urls: dict[AdvisorySource, str] = field(default_factory=dict)

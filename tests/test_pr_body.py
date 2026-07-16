@@ -888,7 +888,7 @@ FRONTMATTER_KEY_ORDER = ["args", "title", "commit_message", "docs", "footer"]
     ids=[pair[1] for pair in _template_package_items()],
 )
 def test_frontmatter_key_ordering(filename, name):
-    """Frontmatter keys must follow the canonical order: args, title, commit_message, footer."""
+    """Frontmatter keys must follow the canonical order in `FRONTMATTER_KEY_ORDER`."""
     template_dir = files("repomatic.templates")
     raw = template_dir.joinpath(filename).read_text(encoding="UTF-8")
     if not raw.startswith("---"):

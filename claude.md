@@ -268,7 +268,7 @@ When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Rel
 
 ## Agent conventions
 
-This repository uses two Claude Code agents in `.claude/agents/`. Definitions stay lean: if a rule belongs in `CLAUDE.md`, put it there and reference it. Do not duplicate.
+This repository uses three Claude Code agents in `.claude/agents/`. Definitions stay lean: if a rule belongs in `CLAUDE.md`, put it there and reference it. Do not duplicate.
 
 **Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init agents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline or reference `claude.md` sections, not upstream `docs/` URLs or upstream-only paths. When mining session history, default to local `claude.md` updates; file an upstream proposal only when the pattern is generic across repos.
 

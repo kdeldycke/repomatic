@@ -21,7 +21,7 @@ GitHub issue. Sphinx linkcheck parsing detects broken auto-generated links
 (intersphinx, autodoc, type annotations) that Lychee cannot see because they
 only exist in the rendered HTML output.
 
-Issue lifecycle management is delegated to {mod}`~repomatic.issue`.
+Issue lifecycle management is delegated to {mod}`~repomatic.github.issue`.
 """
 
 from __future__ import annotations

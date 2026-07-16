@@ -155,10 +155,9 @@ def _requirement_arrays(doc: dict) -> Iterator[list]:
     deps = project.get("dependencies")
     if isinstance(deps, list):
         yield deps
-    for table_name in ("optional-dependencies",):
-        for extra in (project.get(table_name) or {}).values():
-            if isinstance(extra, list):
-                yield extra
+    for extra in (project.get("optional-dependencies") or {}).values():
+        if isinstance(extra, list):
+            yield extra
     for group in (doc.get("dependency-groups") or {}).values():
         if isinstance(group, list):
             yield group

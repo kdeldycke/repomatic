@@ -52,7 +52,7 @@ GITIGNORE_BASE_CATEGORIES: tuple[str, ...] = (
 """Base gitignore.io template categories included in every generated `.gitignore`.
 
 These cover common development environments, operating systems, and tools.
-Downstream projects can add more via `gitignore-extra-categories` in
+Downstream projects can add more via `gitignore.extra-categories` in
 `[tool.repomatic]`.
 """
 

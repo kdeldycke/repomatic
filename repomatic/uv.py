@@ -79,7 +79,6 @@ def uvx_cmd(exclude_newer: str | None = None) -> list[str]:
 
 
 RELEASE_NOTES_MAX_LENGTH = 2000
-
 """Maximum characters per package release body before truncation."""
 
 # ---------------------------------------------------------------------------

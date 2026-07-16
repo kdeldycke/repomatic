@@ -128,21 +128,16 @@ def test_fetch_dependabot_alerts_skips_entries_without_fix():
         assert fetch_dependabot_alerts("orchard/raspberry") == []
 
 
-def test_fetch_dependabot_alerts_returns_empty_on_api_error():
-    """Network/auth failures must not break the autofix workflow."""
-    with patch(
-        "repomatic.vulnerable_deps.run_gh_command",
-        side_effect=RuntimeError("HTTP 403"),
-    ):
-        assert fetch_dependabot_alerts("orchard/raspberry") == []
-
-
-def test_fetch_dependabot_alerts_handles_invalid_json():
-    """Garbage responses degrade to an empty list."""
-    with patch(
-        "repomatic.vulnerable_deps.run_gh_command",
-        return_value="<<not json>>",
-    ):
+@pytest.mark.parametrize(
+    "patch_kwargs",
+    [
+        pytest.param({"side_effect": RuntimeError("HTTP 403")}, id="api-error"),
+        pytest.param({"return_value": "<<not json>>"}, id="invalid-json"),
+    ],
+)
+def test_fetch_dependabot_alerts_degrades_to_empty(patch_kwargs):
+    """Network/auth failures and unparsable responses degrade to an empty list."""
+    with patch("repomatic.vulnerable_deps.run_gh_command", **patch_kwargs):
         assert fetch_dependabot_alerts("orchard/raspberry") == []
 
 

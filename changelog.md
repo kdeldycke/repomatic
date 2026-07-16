@@ -30,16 +30,16 @@
 - The `Cooldown bypasses` PR section is now a single table: `🧹 cleared:`, `📌 frozen:`, and `🚧 unreleased:` rows with a `Held until` expiry column.
 - Diff tables label added and removed packages with `🆕 new:` and `🗑️ removed:` prefixes ahead of the version.
 - `sync-action-pins` and `sync-workflow-pins` PR bodies now report an action or package pinned at several versions as a single row spanning from the oldest pin.
+- The `update-docs` job now re-formats `pyproject.toml` files with `pyproject-fmt` after running the project's update script.
 - GitHub Releases API reads now resolve their token like every other GitHub access (`REPOMATIC_PAT` first), instead of hitting the anonymous rate limit.
 - PyPI, npm, and GitHub API lookups now retry once on a truncated response instead of crashing with `IncompleteRead`.
 - The release freeze and unfreeze steps now cover `.yml` workflow files alongside `.yaml`.
 - The gitignore.io template download now times out after 10 seconds instead of hanging on a stalled connection.
+- Version bumps no longer overwrite the `cff-version:` schema field in `citation.cff` when it coincides with the package version.
 - `sync-action-pins` no longer rewrites `uses:` pins inside files `repomatic init` deploys verbatim, like the `publish-pypi` composite action.
-- The `update-docs` job now re-formats `pyproject.toml` files with `pyproject-fmt` after running the project's update script.
 - The `run typos` guidance now recommends `extend-ignore-re` guards for encoded hashes and intentional-typo examples.
 - Document the scan job contract and the release-lane direct-commit exception.
-- Add a test suite for the notification-unsubscribe engine.
-- Add unit tests for `repomatic.npm`, `repomatic.gitignore`, and `repomatic.docs`; the setup-guide tests now run offline.
+- Add test suites for the notification-unsubscribe engine and the `repomatic.npm`, `repomatic.gitignore`, and `repomatic.docs` modules; the setup-guide tests now run offline.
 
 ## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
 
