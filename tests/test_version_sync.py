@@ -402,13 +402,13 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
     assert "## 🔜 Held back by cooldown" in body
     assert "`3.0.0`" in body
     # Release notes for the adopted version only, not the held-back one.
-    assert "## Release notes" in body
+    assert "### Release notes" in body
     assert "release two notes" in body
     assert "release three notes" not in body
-    # Release notes sit between the update table and the held-back section.
+    # Release notes nest under the update table, above the held-back section.
     assert (
         body.index("## 🆙 Updated actions")
-        < body.index("## Release notes")
+        < body.index("### Release notes")
         < body.index("## 🔜 Held back by cooldown")
     )
 
@@ -604,7 +604,7 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
     assert "mango" in body
     # Notes were fetched for the PyPI literal only, never the npm one.
     assert captured["changes"] == [("mango", "1.0.0", "2.0.0")]
-    assert "## Release notes" in body
+    assert "### Release notes" in body
     assert "the notes" in body
 
 

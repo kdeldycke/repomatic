@@ -34,9 +34,10 @@ to avoid duplicating the attribution footer that already ships with the
 metadata block.
 ```
 
-Also provides {func}`sanitize_markdown_mentions` for neutralizing `@mentions`,
-`#issue` refs, and GitHub URLs in externally-sourced markdown before embedding
-it in PR or issue bodies.
+Also provides two helpers for embedding externally-sourced markdown in PR or
+issue bodies: {func}`sanitize_markdown_mentions` neutralizes `@mentions`,
+`#issue` refs, and GitHub URLs, and {func}`demote_markdown_headings` pushes
+the embedded content's headings below the embedding document's own sections.
 """
 
 from __future__ import annotations
@@ -78,6 +79,11 @@ and Renovate ([renovatebot/renovate#1083](https://github.com/renovatebot/renovat
 independently converged on this character to neutralize `@mentions` and
 `#issue` references in PR bodies without affecting visual rendering.
 """
+
+_ATX_HEADING_RE = re.compile(r"^( {0,3})(#{1,6})(?=\s|$)", re.MULTILINE)
+"""Matches ATX headings per CommonMark: up to 3 leading spaces, then 1-6 `#`
+followed by whitespace or end of line. Four-space indents are code blocks and
+`#word` without a space is prose, so neither matches."""
 
 _FENCED_CODE_BLOCK_RE = re.compile(
     r"^(`{3,}|~{3,})[^\n]*\n.*?\n\1\s*$",
@@ -179,6 +185,50 @@ def sanitize_markdown_mentions(text: str) -> str:
     for i, block in enumerate(fenced_blocks):
         result = result.replace(f"\x00FENCED{i}\x00", block)
 
+    return result
+
+
+def demote_markdown_headings(text: str, floor: int) -> str:
+    """Demote ATX headings so the shallowest one lands at level *floor*.
+
+    Externally-sourced markdown (upstream release notes) carries its own `#`
+    and `##` headings, which GitHub renders at full size even inside a
+    `<details>` block, so they compete with the embedding document's section
+    hierarchy. All headings are shifted deeper by the uniform offset that puts
+    the shallowest at *floor*, preserving the body's internal structure;
+    levels past `######` (h6, markdown's deepest) are clamped. Headings
+    already at or below *floor* are left alone: this function never promotes.
+
+    Fenced code blocks are shielded with the same placeholder extraction as
+    {func}`sanitize_markdown_mentions`, so `# comments` in shell samples
+    survive. Only ATX headings are rewritten: setext headings (underlined
+    with `===` or `---`), rare in release notes, pass through unchanged.
+
+    :param text: Raw markdown text from an external source.
+    :param floor: Target level (1-6) for the shallowest heading.
+    :return: Markdown with headings demoted.
+    """
+    if not text:
+        return text
+
+    fenced_blocks: list[str] = []
+
+    def _stash_fenced(match: re.Match[str]) -> str:
+        fenced_blocks.append(match.group(0))
+        return f"\x00FENCED{len(fenced_blocks) - 1}\x00"
+
+    result = _FENCED_CODE_BLOCK_RE.sub(_stash_fenced, text)
+
+    levels = [len(m.group(2)) for m in _ATX_HEADING_RE.finditer(result)]
+    shift = floor - min(levels) if levels else 0
+    if shift > 0:
+        result = _ATX_HEADING_RE.sub(
+            lambda m: m.group(1) + "#" * min(6, len(m.group(2)) + shift),
+            result,
+        )
+
+    for i, block in enumerate(fenced_blocks):
+        result = result.replace(f"\x00FENCED{i}\x00", block)
     return result
 
 

@@ -40,6 +40,7 @@ from repomatic.uv import (
     format_diff_table,
     format_exclude_newer_note,
     format_held_back_table,
+    format_release_notes,
     freeze_exclude_newer_packages,
     prune_stale_exclude_newer_packages,
     pypi_name_urls,
@@ -361,6 +362,32 @@ def test_format_held_back_table_is_parametrized_by_subject_and_links():
         [HeldBackPackage("x", "1", "2", "", "")], "n", subject="Tool"
     )
     assert "| x | `1` | `2` |" in plain
+
+
+def test_format_release_notes_nests_headings():
+    """The h3 section holds h4 version headings, with upstream bodies below.
+
+    The section heading is an h3 so it nests under the PR body's h2 update
+    table, and the embedded upstream body's own headings are demoted below
+    the h4 version heading instead of colliding with the PR's h2 sections.
+    """
+    notes = {
+        "papaya": (
+            "https://github.com/orchard/papaya",
+            [("v2.0.0", "## Flavor\n\nSweeter pulp.\n\n### Texture\n\nFirmer.")],
+        ),
+    }
+    section = format_release_notes(notes)
+    assert section.startswith("### Release notes\n")
+    assert "<summary><code>papaya</code></summary>" in section
+    assert (
+        "#### [`v2.0.0`](https://github.com/orchard/papaya/releases/tag/v2.0.0)"
+        in section
+    )
+    assert "##### Flavor" in section
+    assert "###### Texture" in section
+    assert "\n## Flavor" not in section
+    assert format_release_notes({}) == ""
 
 
 def _write_pyproject(tmp_path: Path, uv_lines: str) -> Path:

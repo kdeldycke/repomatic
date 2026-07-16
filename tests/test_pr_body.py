@@ -32,6 +32,7 @@ from repomatic.github.pr_body import (
     _unescape_dollars,
     _utf16_len,
     build_pr_body,
+    demote_markdown_headings,
     extract_workflow_filename,
     fit_issue_body,
     generate_pr_metadata_block,
@@ -80,6 +81,38 @@ GITHUB_ENV_VARS = {
 def test_extract_workflow_filename(workflow_ref, expected):
     """Extract workflow filename from various reference formats."""
     assert extract_workflow_filename(workflow_ref) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # The shallowest heading lands on the floor; deeper ones keep their
+        # relative depth.
+        ("## Harvest\n\n### Apples", "##### Harvest\n\n###### Apples"),
+        # An h1-led body shifts further down to reach the same floor.
+        ("# Orchard report", "##### Orchard report"),
+        # Levels pushed past h6 (markdown's deepest) are clamped.
+        ("## Harvest\n\n#### Apples", "##### Harvest\n\n###### Apples"),
+        # Headings already at or below the floor are never promoted.
+        ("##### Apples\n\n###### Pears", "##### Apples\n\n###### Pears"),
+        # Up to 3 leading spaces still form a heading and are preserved.
+        ("  ## Cellar", "  ##### Cellar"),
+        # Fenced code blocks pass through untouched.
+        (
+            "## Recipe\n\n```bash\n# a comment\n```",
+            "##### Recipe\n\n```bash\n# a comment\n```",
+        ),
+        # A 4-space indent is a code block; `#word` and `#123` are prose.
+        ("    # indented code", "    # indented code"),
+        ("#hashtag", "#hashtag"),
+        # No headings at all.
+        ("plain prose", "plain prose"),
+        ("", ""),
+    ],
+)
+def test_demote_markdown_headings(text, expected):
+    """Headings are uniformly demoted so the shallowest lands on the floor."""
+    assert demote_markdown_headings(text, floor=5) == expected
 
 
 @pytest.mark.parametrize(

@@ -28,7 +28,8 @@
 - The `Cooldown bypasses` PR section is now a single table: entries the run cleared or froze become `🧹 cleared:` and `📌 frozen:` rows instead of prose lines, and cleared rows keep the held version and expiry date.
 - The bypass table's expiry column is renamed `Held until`, and a freeze holding an unreleased version (git or path source) is labelled `🚧 unreleased:` with a *needs release* expiry instead of empty cells.
 - Diff tables label added and removed packages with `🆕 new:` and `🗑️ removed:` prefixes ahead of the version.
-- Generated PR and issue bodies now use `##` section headings instead of `###`.
+- Generated PR and issue bodies now use `##` section headings instead of `###`, except `Release notes`, which is now a `###` subsection nested under the update table.
+- Upstream release bodies embedded in `Release notes` dropdowns get their markdown headings demoted below the per-version heading, so they no longer collide with the PR's own sections.
 - Remove the boilerplate `Description` section from generated PR bodies.
 - The `Workflow metadata` block is now a compact list instead of a table, led by a `Documentation` entry deep-linking the job's section of the workflows reference.
 - Drop the "Each becomes lockable on its eligible date" sentence from the held-back cooldown notes.

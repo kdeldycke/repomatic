@@ -35,7 +35,7 @@ import tomlrt
 from packaging.version import InvalidVersion, Version
 from tomlrt import Table
 
-from .github.pr_body import sanitize_markdown_mentions
+from .github.pr_body import demote_markdown_headings, sanitize_markdown_mentions
 from .github.releases import get_github_release_body
 from .pypi import (
     get_changelog_url as get_pypi_changelog_url,
@@ -1501,9 +1501,11 @@ def format_release_notes(
 ) -> str:
     """Render release notes as collapsible `<details>` blocks.
 
-    A "Release notes" heading with one collapsible section per package. Long
-    release bodies are truncated to
-    {data}`RELEASE_NOTES_MAX_LENGTH` characters with a link to the full release.
+    A `### Release notes` heading (an h3, nesting the section under the PR
+    body's h2 update table) with one collapsible section per package, each
+    version introduced by an h4 tag heading. Long release bodies are
+    truncated to {data}`RELEASE_NOTES_MAX_LENGTH` characters with a link to
+    the full release.
 
     :param notes: A dict mapping package names to `(repo_url, versions)`
         tuples where `versions` is a list of `(tag, body)` pairs, as
@@ -1513,13 +1515,16 @@ def format_release_notes(
     """
     if not notes:
         return ""
-    lines = ["## Release notes", ""]
+    lines = ["### Release notes", ""]
     for name, (repo_url, versions) in sorted(notes.items()):
         lines.append("<details>")
         lines.append(f"<summary><code>{name}</code></summary>")
         lines.append("")
         for tag, body in versions:
-            body = sanitize_markdown_mentions(body)
+            # Upstream bodies bring their own h1/h2 sections: demote them
+            # below the h4 version heading so they never collide with the
+            # PR body's h2 hierarchy.
+            body = demote_markdown_headings(sanitize_markdown_mentions(body), 5)
             if tag:
                 release_url = f"{repo_url}/releases/tag/{tag}"
                 lines.append(f"#### [`{tag}`]({release_url})")
