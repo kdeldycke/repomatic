@@ -68,7 +68,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress 'repomatic==7.2.0' metadata
+          uvx --no-progress --from . repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           minor_bump_allowed major_bump_allowed release_commits_matrix
 
@@ -96,10 +96,10 @@ jobs:
       - name: Fix changelog dates and admonitions
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx --no-progress 'repomatic==7.2.0' lint-changelog --fix
+        run: uvx --no-progress --from . repomatic lint-changelog --fix
       - id: pr-metadata
         run: >
-          uvx --no-progress 'repomatic==7.2.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template fix-changelog
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -148,7 +148,7 @@ jobs:
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - name: ${{ matrix.part }} version bump
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
-        run: uvx --no-progress 'repomatic==7.2.0' run bump-my-version -- bump --verbose ${{ matrix.part }}
+        run: uvx --no-progress --from . repomatic run bump-my-version -- bump --verbose ${{ matrix.part }}
       - name: Sync uv.lock
         # Plain `uv lock` (not `--upgrade`, not `uv sync`) is deliberate: a version
         # bump must refresh only the project's own version entry, never drag
@@ -164,7 +164,7 @@ jobs:
       - id: pr-metadata
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
         run: >
-          uvx --no-progress 'repomatic==7.2.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template bump-version
           --part "${{ matrix.part }}"
           --output "$GITHUB_OUTPUT"
@@ -190,7 +190,7 @@ jobs:
         if: ${{ !fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)] }}
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uvx --no-progress 'repomatic==7.2.0' close-stale-bump-pr --part ${{ matrix.part }}
+        run: uvx --no-progress --from . repomatic close-stale-bump-pr --part ${{ matrix.part }}
 
   prepare-release:
     name: 🎬 Prepare release
@@ -207,17 +207,17 @@ jobs:
       # --- Freeze commit: freeze everything to the release version. ---
       - name: Strip dev suffix for release
         # Bump the "dev" part: .dev0 → release (omitted), producing a clean X.Y.Z version.
-        run: uvx --no-progress 'repomatic==7.2.0' run bump-my-version -- bump --verbose dev
+        run: uvx --no-progress --from . repomatic run bump-my-version -- bump --verbose dev
       - name: Extract version
         id: get_version
         run: >
           echo "current_version=$(
-          uvx --no-progress 'repomatic==7.2.0' run bump-my-version -- show current_version
+          uvx --no-progress --from . repomatic run bump-my-version -- show current_version
           )" | tee -a "$GITHUB_OUTPUT"
       - name: Prepare release
         # Updates changelog and citation dates, comparison URL, and removes warning.
         # Also hard-codes version in workflow URLs for kdeldycke/repomatic repository.
-        run: uvx --no-progress 'repomatic==7.2.0' prepare-release
+        run: uvx --no-progress --from . repomatic prepare-release
       - name: Prepare repository
         env:
           GIT_AUTHOR: ${{ github.actor }}
@@ -233,11 +233,11 @@ jobs:
       - name: Re-target main branch in workflows
         # This step is only used in the original repository to automate remote URL tagging.
         if: github.repository == 'kdeldycke/repomatic'
-        run: uvx --no-progress 'repomatic==7.2.0' prepare-release --post-release
+        run: uvx --no-progress --from . repomatic prepare-release --post-release
       - name: Add new changelog entry
-        run: uvx --no-progress 'repomatic==7.2.0' changelog ./changelog.md
+        run: uvx --no-progress --from . repomatic changelog ./changelog.md
       - name: Version bump
-        run: uvx --no-progress 'repomatic==7.2.0' run bump-my-version -- bump --verbose patch
+        run: uvx --no-progress --from . repomatic run bump-my-version -- bump --verbose patch
       - name: Sync uv.lock
         # Plain `uv lock`, not `--upgrade`: see the bump-version job above. A
         # release-time version bump refreshes only the project's version entry,
@@ -248,12 +248,12 @@ jobs:
           CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
         run: >
           git commit --all --message="[changelog] Post-release bump
-          v${CURRENT_VERSION} → v$(uvx --no-progress 'repomatic==7.2.0' run bump-my-version -- show current_version)"
+          v${CURRENT_VERSION} → v$(uvx --no-progress --from . repomatic run bump-my-version -- show current_version)"
       - id: pr-metadata
         env:
           CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
         run: >
-          uvx --no-progress 'repomatic==7.2.0' pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template prepare-release
           --version "${CURRENT_VERSION}"
           --output "$GITHUB_OUTPUT"
