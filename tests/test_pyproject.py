@@ -28,7 +28,7 @@ def test_get_project_name_from_cwd(tmp_path, monkeypatch):
 name = "my-package"
 version = "1.0.0"
 """
-    (tmp_path / "pyproject.toml").write_text(pyproject_content)
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert get_project_name() == "my-package"
@@ -42,7 +42,7 @@ def test_get_project_name_missing_pyproject(tmp_path, monkeypatch):
 
 def test_get_project_name_no_project_section(tmp_path, monkeypatch):
     """Test that get_project_name returns None when no [project] section."""
-    (tmp_path / "pyproject.toml").write_text("[tool.ruff]\n")
+    (tmp_path / "pyproject.toml").write_text("[tool.ruff]\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert get_project_name() is None
 

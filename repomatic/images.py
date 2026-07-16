@@ -117,6 +117,7 @@ def _optimize_png(path: Path) -> None:
         ["oxipng", "--opt", OXIPNG_OPT_LEVEL, "--strip", "safe", str(path)],
         capture_output=True,
         text=True,
+        encoding="UTF-8",
         check=True,
     )
 
@@ -127,6 +128,7 @@ def _optimize_jpeg(path: Path) -> None:
         ["jpegoptim", *JPEGOPTIM_FLAGS, str(path)],
         capture_output=True,
         text=True,
+        encoding="UTF-8",
         check=True,
     )
 

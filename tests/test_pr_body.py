@@ -823,9 +823,7 @@ def test_template_file_policy(filename, name):
 
     # PR body sections render as h2: no h3 heading (like the retired
     # per-template "### Description" boilerplate) may sneak back in.
-    assert "### " not in body, (
-        f"Template {name!r} body must use '##' section headings"
-    )
+    assert "### " not in body, f"Template {name!r} body must use '##' section headings"
 
     # Every CLI template deep-links its job's section of the workflows
     # reference (surfaced as the metadata block's Documentation entry, in
@@ -833,13 +831,11 @@ def test_template_file_policy(filename, name):
     # against the in-tree headings keeps a docs reword from orphaning it.
     docs = meta.get("docs")
     assert isinstance(docs, str) and docs.startswith(f"{WORKFLOWS_DOCS_URL}#"), (
-        f"Template {name!r} must declare a 'docs' deep link into"
-        f" {WORKFLOWS_DOCS_URL}"
+        f"Template {name!r} must declare a 'docs' deep link into {WORKFLOWS_DOCS_URL}"
     )
     anchor = docs.partition("#")[2]
     assert anchor in _workflows_heading_anchors(), (
-        f"Template {name!r} docs anchor {anchor!r} matches no"
-        " docs/workflows.md heading"
+        f"Template {name!r} docs anchor {anchor!r} matches no docs/workflows.md heading"
     )
 
 

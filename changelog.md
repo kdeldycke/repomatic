@@ -5,6 +5,13 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** the workflow generation API (`generate_thin_caller`, `generate_workflow_header`, `generate_workflows`) drops its legacy `source_paths` argument; pass a `PathsSpec` instead.
+- Extract the setup guide, `.gitignore` generation, and Sphinx docs orchestration from the CLI module into new `repomatic.setup_guide`, `repomatic.gitignore`, and `repomatic.docs` modules.
+- Add `repomatic.http`, the JSON fetch shared by the PyPI, npm, and GitHub API clients; npm and GitHub tag lookups now retry once on a truncated response like PyPI lookups already did.
+- GitHub Releases API reads now resolve their token like every other GitHub access (`REPOMATIC_PAT` first), instead of skipping it and hitting the anonymous 60 requests/hour rate limit.
+- The release freeze and unfreeze steps now cover `.yml` workflow files alongside `.yaml`, so a downstream-authored `.yml` workflow can no longer ship with unfrozen refs.
+- Remove the dead `get_default_repo` and `list_open_issues` helpers and the unused `REQUIRED_PAT_PERMISSIONS` constant.
+- Rename cross-module internals to public names: `COMPONENTS_BY_NAME`, `is_source_repo`, `current_repo_url`, `format_released`, `format_upload_date`, `date_to_utc_cutoff`.
 - Add `[tool.repomatic] binaries.sync`: set to `false` to stop the release pipeline from pushing the binaries catalog and scan records to the default branch, while binaries still get scanned on VirusTotal.
 - Add `sync-dep-sources`, a fifth `sync-deps` updater: once the release named by a git-tracked dependency's `.dev` version floor ships on PyPI, it drops the `[tool.uv.sources]` override, tightens the floor, and freezes the adopted release through the cooldown. Disable with `[tool.repomatic] dep-sources.sync`.
 - The `Cooldown bypasses` PR section is now a single table: entries the run cleared or froze become `🧹 cleared:` and `📌 frozen:` rows instead of prose lines, and cleared rows keep the held version and expiry date.

@@ -70,43 +70,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass, fields
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from .gh import run_gh_command
+from .gh import resolve_gh_token, run_gh_command
 from .status import status_annotation
-
-# Canonical list of fine-grained PAT permissions required by REPOMATIC_PAT.
-# Each tuple: (permission_name, access_level, reason).
-# This is the single source of truth — the setup guide template, pre-filled
-# token URL, and lint-repo capability checks must all agree with this list.
-REQUIRED_PAT_PERMISSIONS = (
-    (
-        "Contents",
-        "Read and Write",
-        "Tag pushes, release publishing, PR branch creation.",
-    ),
-    (
-        "Dependabot alerts",
-        "Read-only",
-        "fix-vulnerable-deps reads vulnerability alerts for security PRs.",
-    ),
-    ("Issues", "Read and Write", "Setup guide issue management."),
-    ("Metadata", "Read-only", "Required for all fine-grained token API operations."),
-    (
-        "Pull requests",
-        "Read and Write",
-        "All PR-creating jobs (sync-repomatic, fix-typos, sync-uv-lock, "
-        "sync-action-pins, prepare-release).",
-    ),
-    (
-        "Workflows",
-        "Read and Write",
-        "Push changes to .github/workflows/ files.",
-    ),
-)
 
 
 def _with_status_annotation(msg: str) -> str:
@@ -357,31 +326,13 @@ def validate_gh_token_env() -> None:
 
     :raises RuntimeError: If no variable is set.
     """
-    if not (
-        os.environ.get("REPOMATIC_PAT")
-        or os.environ.get("GH_TOKEN")
-        or os.environ.get("GITHUB_TOKEN")
-    ):
+    if not resolve_gh_token():
         msg = (
             "No GitHub token found. "
             "Set REPOMATIC_PAT, GH_TOKEN, or GITHUB_TOKEN. "
             "Create one at https://github.com/settings/tokens"
         )
         raise RuntimeError(msg)
-
-
-def _get_gh_token() -> str:
-    """Return the GitHub token from environment variables.
-
-    Lookup order: `REPOMATIC_PAT` > `GH_TOKEN` > `GITHUB_TOKEN`,
-    matching {func}`run_gh_command <repomatic.github.gh.run_gh_command>`.
-    """
-    return (
-        os.environ.get("REPOMATIC_PAT")
-        or os.environ.get("GH_TOKEN")
-        or os.environ.get("GITHUB_TOKEN")
-        or ""
-    )
 
 
 def validate_gh_api_access() -> tuple[int, dict[str, str], str]:
@@ -394,7 +345,7 @@ def validate_gh_api_access() -> tuple[int, dict[str, str], str]:
     :raises RuntimeError: If the API returns a 4xx/5xx status.
     """
     request = Request("https://api.github.com/rate_limit")
-    token = _get_gh_token()
+    token = resolve_gh_token()
     if token:
         request.add_header("Authorization", f"token {token}")
 

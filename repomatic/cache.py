@@ -55,6 +55,31 @@ from extra_platforms import is_macos, is_windows
 
 from .config import load_repomatic_config
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
+
+def _atomic_write(dest: Path, prefix: str, write: Callable[[Path], object]) -> None:
+    """Write *dest* atomically: temp file in the target directory, then rename.
+
+    The rename is atomic on POSIX (same-filesystem rename) and safe on Windows
+    (`Path.replace` overwrites atomically). *write* receives the temp path and
+    fills it (its return value is ignored, so `write_text`/`write_bytes` pass
+    straight through); partial writes are cleaned up on any failure.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=prefix, suffix=".tmp")
+    try:
+        os.close(fd)
+        write(Path(tmp))
+        Path(tmp).replace(dest)
+    except BaseException:
+        # Clean up partial writes on any failure.
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
 
 @dataclass(frozen=True)
 class CacheEntry:
@@ -235,17 +260,8 @@ def store_binary(
     :return: Path to the cached binary.
     """
     dest = cached_binary_path(name, version, platform_key, source.name)
-    dest.parent.mkdir(parents=True, exist_ok=True)
 
-    # Atomic write: temp file in same directory, then rename.
-    fd, tmp = tempfile.mkstemp(
-        dir=dest.parent,
-        prefix=f".{source.name}.",
-        suffix=".tmp",
-    )
-    try:
-        os.close(fd)
-        tmp_path = Path(tmp)
+    def fill(tmp_path: Path) -> None:
         shutil.copy2(source, tmp_path)
         tmp_path.chmod(0o755)
         # copy2 preserves the source mtime, which for a binary extracted from
@@ -254,12 +270,8 @@ def store_binary(
         # auto_purge() call below, before this store even returns. Stamp the
         # store time instead.
         os.utime(tmp_path)
-        tmp_path.replace(dest)
-    except BaseException:
-        # Clean up partial writes on any failure.
-        Path(tmp).unlink(missing_ok=True)
-        raise
 
+    _atomic_write(dest, f".{source.name}.", fill)
     logging.debug("Cached %s %s for %s at %s.", name, version, platform_key, dest)
     auto_purge()
     return dest
@@ -322,30 +334,14 @@ def clear_cache(
     if not bin_root.is_dir():
         return 0, 0
 
-    cutoff = time.time() - (max_age_days * 86400) if max_age_days is not None else None
-    files_deleted = 0
-    bytes_freed = 0
-
-    for entry in cache_info():
-        if tool is not None and entry.tool != tool:
-            continue
-        if cutoff is not None and entry.mtime >= cutoff:
-            continue
-        logging.debug("Purging cached binary: %s", entry.path)
-        try:
-            bytes_freed += entry.size
-            entry.path.unlink()
-            # Remove the .sha256 sidecar if present.
-            sidecar = entry.path.with_suffix(entry.path.suffix + ".sha256")
-            if sidecar.is_file():
-                sidecar.unlink()
-            files_deleted += 1
-        except OSError:
-            logging.debug("Failed to remove %s.", entry.path)
-
-    # Prune empty parent directories up to bin_root.
-    _prune_empty_dirs(bin_root)
-    return files_deleted, bytes_freed
+    return _purge(
+        cache_info(),
+        bin_root,
+        keep=lambda entry: (
+            (tool is not None and entry.tool != tool) or _is_fresh(entry, max_age_days)
+        ),
+        sidecars=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -405,20 +401,7 @@ def store_response(
     """
     dest = _http_dir() / namespace / f"{key}.json"
     try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(
-            dir=dest.parent,
-            prefix=".response.",
-            suffix=".tmp",
-        )
-        try:
-            os.close(fd)
-            tmp_path = Path(tmp)
-            tmp_path.write_bytes(data)
-            tmp_path.replace(dest)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        _atomic_write(dest, ".response.", lambda tmp_path: tmp_path.write_bytes(data))
     except OSError:
         logging.debug("Failed to cache HTTP response: %s/%s.", namespace, key)
         return None
@@ -478,25 +461,14 @@ def clear_http_cache(
     if not http_root.is_dir():
         return 0, 0
 
-    cutoff = time.time() - (max_age_days * 86400) if max_age_days is not None else None
-    files_deleted = 0
-    bytes_freed = 0
-
-    for entry in http_cache_info():
-        if namespace is not None and entry.namespace != namespace:
-            continue
-        if cutoff is not None and entry.mtime >= cutoff:
-            continue
-        logging.debug("Purging cached response: %s", entry.path)
-        try:
-            bytes_freed += entry.size
-            entry.path.unlink()
-            files_deleted += 1
-        except OSError:
-            logging.debug("Failed to remove %s.", entry.path)
-
-    _prune_empty_dirs(http_root)
-    return files_deleted, bytes_freed
+    return _purge(
+        http_cache_info(),
+        http_root,
+        keep=lambda entry: (
+            (namespace is not None and entry.namespace != namespace)
+            or _is_fresh(entry, max_age_days)
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -528,20 +500,11 @@ def store_config(
     """
     dest = _config_dir() / tool_name / filename
     try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(
-            dir=dest.parent,
-            prefix=f".{filename}.",
-            suffix=".tmp",
+        _atomic_write(
+            dest,
+            f".{filename}.",
+            lambda tmp_path: tmp_path.write_text(content, encoding="UTF-8"),
         )
-        try:
-            os.close(fd)
-            tmp_path = Path(tmp)
-            tmp_path.write_text(content, encoding="UTF-8")
-            tmp_path.replace(dest)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
     except OSError:
         logging.debug("Failed to cache config for %s.", tool_name)
         return None
@@ -592,21 +555,64 @@ def clear_config_cache(
     if not config_root.is_dir():
         return 0, 0
 
+    return _purge(
+        config_cache_info(),
+        config_root,
+        keep=lambda entry: tool is not None and entry.tool != tool,
+    )
+
+
+def _is_fresh(
+    entry: CacheEntry | HttpCacheEntry | ConfigCacheEntry,
+    max_age_days: int | None,
+) -> bool:
+    """Whether *entry* is younger than the age cutoff.
+
+    A `None` cutoff keeps nothing: age-unfiltered clears delete every entry
+    the caller's other filters matched.
+    """
+    if max_age_days is None:
+        return False
+    return entry.mtime >= time.time() - max_age_days * 86400
+
+
+def _purge(
+    entries: list[CacheEntry] | list[HttpCacheEntry] | list[ConfigCacheEntry],
+    root: Path,
+    *,
+    keep: Callable[[Any], bool],
+    sidecars: bool = False,
+) -> tuple[int, int]:
+    """Delete the cache *entries* not spared by the *keep* predicate.
+
+    Shared delete loop behind {func}`clear_cache`, {func}`clear_http_cache`,
+    and {func}`clear_config_cache`. Empty parent directories under *root* are
+    pruned afterwards.
+
+    :param entries: Candidate entries from one of the `*_cache_info()` listers.
+    :param root: The cache subtree the entries live in.
+    :param keep: Entries for which this returns `True` are left untouched.
+    :param sidecars: Also remove each entry's `.sha256` sidecar (binary cache).
+    :return: Tuple of (files_deleted, bytes_freed).
+    """
     files_deleted = 0
     bytes_freed = 0
-
-    for entry in config_cache_info():
-        if tool is not None and entry.tool != tool:
+    for entry in entries:
+        if keep(entry):
             continue
-        logging.debug("Purging cached config: %s", entry.path)
+        logging.debug("Purging cache entry: %s", entry.path)
         try:
             bytes_freed += entry.size
             entry.path.unlink()
+            if sidecars:
+                sidecar = entry.path.with_suffix(entry.path.suffix + ".sha256")
+                if sidecar.is_file():
+                    sidecar.unlink()
             files_deleted += 1
         except OSError:
             logging.debug("Failed to remove %s.", entry.path)
 
-    _prune_empty_dirs(config_root)
+    _prune_empty_dirs(root)
     return files_deleted, bytes_freed
 
 

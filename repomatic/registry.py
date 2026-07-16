@@ -38,6 +38,19 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
+def _config_enabled(config: object, config_key: str, config_default: bool) -> bool:
+    """Resolve a `[tool.repomatic]` gate against a `Config` object.
+
+    Returns `True` when *config_key* is empty (unconditionally enabled) or when
+    the corresponding config field is truthy. Shared by
+    {meth}`FileEntry.is_enabled` and {meth}`Component.is_enabled`.
+    """
+    if not config_key:
+        return True
+    field = config_key.replace("-", "_").replace(".", "_")
+    return getattr(config, field, config_default)
+
+
 class InitDefault(Enum):
     """How `init` treats the component when no explicit CLI args are given."""
 
@@ -137,15 +150,11 @@ class FileEntry:
     def is_enabled(self, config: object) -> bool:
         """Whether this entry is enabled by the given `Config` object.
 
-        Returns `True` when no `config_key` is set (unconditionally
-        enabled) or when the corresponding config field is truthy.
+        See {func}`_config_enabled` for the resolution rule.
 
         :param config: A {class}`~repomatic.config.Config` instance.
         """
-        if not self.config_key:
-            return True
-        field = self.config_key.replace("-", "_").replace(".", "_")
-        return getattr(config, field, self.config_default)
+        return _config_enabled(config, self.config_key, self.config_default)
 
     def __post_init__(self) -> None:
         """Derive `target` and `file_id` from `source` when omitted."""
@@ -197,15 +206,11 @@ class Component:
     def is_enabled(self, config: object) -> bool:
         """Whether this component is enabled by the given `Config` object.
 
-        Returns `True` when no `config_key` is set (unconditionally
-        enabled) or when the corresponding config field is truthy.
+        See {func}`_config_enabled` for the resolution rule.
 
         :param config: A {class}`~repomatic.config.Config` instance.
         """
-        if not self.config_key:
-            return True
-        field = self.config_key.replace("-", "_").replace(".", "_")
-        return getattr(config, field, self.config_default)
+        return _config_enabled(config, self.config_key, self.config_default)
 
 
 @dataclass(frozen=True)
@@ -736,7 +741,7 @@ Every component declares its kind, selection default, file entries, and
 behavioral flags. All derived constants are computed from this tuple.
 """
 
-_BY_NAME: dict[str, Component] = {c.name: c for c in COMPONENTS}
+COMPONENTS_BY_NAME: dict[str, Component] = {c.name: c for c in COMPONENTS}
 """Index for O(1) component lookup by name."""
 
 
@@ -1048,22 +1053,22 @@ whose third-party pins the bumpers should keep current.
 """
 
 REUSABLE_WORKFLOWS: tuple[str, ...] = tuple(
-    f.file_id for f in _BY_NAME["workflows"].files if f.reusable
+    f.file_id for f in COMPONENTS_BY_NAME["workflows"].files if f.reusable
 )
 """Workflow filenames that support `workflow_call` triggers."""
 
 NON_REUSABLE_WORKFLOWS: frozenset[str] = frozenset(
-    f.file_id for f in _BY_NAME["workflows"].files if not f.reusable
+    f.file_id for f in COMPONENTS_BY_NAME["workflows"].files if not f.reusable
 )
 """Workflows without `workflow_call` that cannot be used as thin callers."""
 
 ALL_WORKFLOW_FILES: tuple[str, ...] = tuple(
-    sorted(f.file_id for f in _BY_NAME["workflows"].files)
+    sorted(f.file_id for f in COMPONENTS_BY_NAME["workflows"].files)
 )
 """All workflow filenames (reusable and non-reusable)."""
 
 WORKFLOW_SOURCES: dict[str, str] = {
-    f.file_id: f.source for f in _BY_NAME["workflows"].files
+    f.file_id: f.source for f in COMPONENTS_BY_NAME["workflows"].files
 }
 """Maps each workflow's downstream file_id to its bundled source filename.
 
@@ -1099,7 +1104,7 @@ as a group instead of special-casing each by hand.
 """
 
 SKILL_PHASES: dict[str, str] = {
-    f.file_id: f.phase for f in _BY_NAME["skills"].files if f.phase
+    f.file_id: f.phase for f in COMPONENTS_BY_NAME["skills"].files if f.phase
 }
 """Maps skill names to lifecycle phases for display grouping."""
 
@@ -1121,7 +1126,7 @@ def valid_file_ids(component: str) -> frozenset[str]:
     Returns an empty set for components without file-level selection
     (e.g., changelog, tool configs).
     """
-    comp = _BY_NAME.get(component)
+    comp = COMPONENTS_BY_NAME.get(component)
     if comp is None:
         return frozenset()
     return frozenset(entry.file_id for entry in comp.files)
@@ -1133,7 +1138,7 @@ def excluded_rel_path(component: str, file_id: str) -> str | None:
     Returns `None` when the identifier cannot be resolved (e.g., for tool
     config components that have no file-level exclusion support).
     """
-    comp = _BY_NAME.get(component)
+    comp = COMPONENTS_BY_NAME.get(component)
     if comp is None:
         return None
     for entry in comp.files:

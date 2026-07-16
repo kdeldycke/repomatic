@@ -42,11 +42,14 @@ def test_tag_exists_true():
     with patch("repomatic.git_ops.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
         assert tag_exists("v1.0.0") is True
-        mock_run.assert_called_once_with(
-            ["git", "show-ref", "--tags", "v1.0.0", "--quiet"],
-            capture_output=True,
-            check=False,
-        )
+        mock_run.assert_called_once()
+        assert mock_run.call_args.args[0] == [
+            "git",
+            "show-ref",
+            "--tags",
+            "v1.0.0",
+            "--quiet",
+        ]
 
 
 def test_tag_exists_false():
@@ -61,12 +64,8 @@ def test_create_tag_head():
     with patch("repomatic.git_ops.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
         create_tag("v1.0.0")
-        mock_run.assert_called_once_with(
-            ["git", "tag", "v1.0.0"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        mock_run.assert_called_once()
+        assert mock_run.call_args.args[0] == ["git", "tag", "v1.0.0"]
 
 
 def test_create_tag_at_commit():
@@ -74,12 +73,8 @@ def test_create_tag_at_commit():
     with patch("repomatic.git_ops.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
         create_tag("v1.0.0", "abc123")
-        mock_run.assert_called_once_with(
-            ["git", "tag", "v1.0.0", "abc123"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        mock_run.assert_called_once()
+        assert mock_run.call_args.args[0] == ["git", "tag", "v1.0.0", "abc123"]
 
 
 def test_create_tag_failure():
@@ -95,12 +90,8 @@ def test_push_tag_default_remote():
     with patch("repomatic.git_ops.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
         push_tag("v1.0.0")
-        mock_run.assert_called_once_with(
-            ["git", "push", "origin", "v1.0.0"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        mock_run.assert_called_once()
+        assert mock_run.call_args.args[0] == ["git", "push", "origin", "v1.0.0"]
 
 
 def test_push_tag_custom_remote():
@@ -108,12 +99,8 @@ def test_push_tag_custom_remote():
     with patch("repomatic.git_ops.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
         push_tag("v1.0.0", remote="upstream")
-        mock_run.assert_called_once_with(
-            ["git", "push", "upstream", "v1.0.0"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        mock_run.assert_called_once()
+        assert mock_run.call_args.args[0] == ["git", "push", "upstream", "v1.0.0"]
 
 
 def test_push_tag_failure():

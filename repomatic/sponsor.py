@@ -51,16 +51,6 @@ def get_default_owner() -> str | None:
     return owner if owner else None
 
 
-def get_default_repo() -> str | None:
-    """Get the repository slug from CI context.
-
-    Delegates to {attr}`Metadata.repo_slug
-    <repomatic.metadata.Metadata.repo_slug>`.
-    """
-    slug = Metadata().repo_slug
-    return slug if slug else None
-
-
 def get_default_author() -> str | None:
     """Get the issue/PR author from the GitHub event payload."""
     event = get_github_event()

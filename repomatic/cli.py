@@ -26,7 +26,6 @@ import tempfile
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
-from urllib.request import Request, urlopen
 
 import tomlrt
 from click_extra import (
@@ -57,7 +56,6 @@ from click_extra import (
 )
 from extra_platforms import is_github_ci
 
-from . import __version__
 from .binaries_page import (
     BINARY_ASSET_SUFFIXES,
     render_binaries_csv,
@@ -92,6 +90,7 @@ from .deps_graph import (
     generate_dependency_graph,
     resolve_subgraph_selection,
 )
+from .docs import update_docs as _update_docs
 from .git_ops import commit_and_push_files, create_and_push_tag
 from .github import token as _token_mod, unsubscribe as _unsub_mod
 from .github.actions import format_multiline_output
@@ -99,12 +98,10 @@ from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
     sync_dev_release as _sync_dev_release,
 )
-from .github.gh import run_gh_command
-from .github.issue import manage_issue_lifecycle
 from .github.pr import close_open_prs_on_branch
 from .github.pr_body import (
-    _repo_url,
     build_pr_body,
+    current_repo_url,
     generate_pr_metadata_block,
     get_template_names,
     render_commit_message,
@@ -120,25 +117,23 @@ from .github.release_sync import (
 from .github.releases import (
     GitHubReleasesUnavailable,
     get_releases_with_assets,
+    owner_repo,
 )
 from .github.unsubscribe import (
     render_report as _render_report,
     unsubscribe_threads as _unsubscribe_threads,
 )
 from .github.workflow_sync import run_workflow_lint
+from .gitignore import build_gitignore
 from .images import (
     DEFAULT_MIN_SAVINGS_BYTES,
     DEFAULT_MIN_SAVINGS_PCT,
+    format_file_size,
     generate_markdown_summary,
     optimize_images,
 )
 from .init_project import export_content, run_init
 from .lint_repo import (
-    check_branch_ruleset_on_default,
-    check_fork_pr_approval_policy,
-    check_immutable_releases,
-    check_pages_deployment_source,
-    check_pypi_trusted_publisher,
     run_repo_lint,
 )
 from .mailmap import Mailmap
@@ -150,15 +145,11 @@ from .metadata import (
     is_version_bump_allowed,
     metadata_keys_reference,
 )
-from .pypi import (
-    PYPI_TRUSTED_PUBLISHER_WORKFLOW,
-    pypi_trusted_publisher_settings_url,
-)
 from .pyproject import get_project_name
 from .registry import (
-    _BY_NAME,
     ALL_COMPONENTS,
     COMPONENT_HELP_TABLE,
+    COMPONENTS_BY_NAME,
     DEFAULT_REPO,
     FILE_SELECTOR_COMPONENTS,
     SKILL_PHASE_ORDER,
@@ -166,6 +157,7 @@ from .registry import (
     valid_file_ids,
 )
 from .release_prep import ReleasePrep
+from .setup_guide import manage_setup_guide
 from .sponsor import (
     add_sponsor_label,
     get_default_author,
@@ -191,10 +183,10 @@ from .tool_runner import (
 )
 from .uv import (
     AdvisorySource,
-    _format_released,
-    _format_upload_date,
     collect_vulnerable_packages,
     fix_vulnerable_deps as _fix_vulnerable_deps,
+    format_released,
+    format_upload_date,
     format_vulnerability_table,
 )
 from .virustotal import (
@@ -1141,34 +1133,6 @@ def close_stale_bump_pr(part: str) -> None:
         logging.info(f"Closed {len(closed)} stale {part} bump PR(s): {closed}")
 
 
-GITIGNORE_BASE_CATEGORIES: tuple[str, ...] = (
-    "certificates",
-    "emacs",
-    "git",
-    "gpg",
-    "linux",
-    "macos",
-    "node",
-    "nohup",
-    "python",
-    "rust",
-    "ssh",
-    "vim",
-    "virtualenv",
-    "visualstudiocode",
-    "windows",
-)
-"""Base gitignore.io template categories included in every generated `.gitignore`.
-
-These cover common development environments, operating systems, and tools.
-Downstream projects can add more via `gitignore-extra-categories` in
-`[tool.repomatic]`.
-"""
-
-GITIGNORE_IO_URL = "https://www.toptal.com/developers/gitignore/api"
-"""gitignore.io API endpoint for fetching `.gitignore` templates."""
-
-
 @repomatic.command(
     short_help="Sync .gitignore from gitignore.io templates", section=_section_sync
 )
@@ -1208,21 +1172,7 @@ def sync_gitignore(ctx: Context, output_path: Path | None) -> None:
         )
         ctx.exit(0)
 
-    # Combine base and extra categories, preserving order and deduplicating.
-    all_categories = list(
-        dict.fromkeys((*GITIGNORE_BASE_CATEGORIES, *config.gitignore.extra_categories))
-    )
-
-    # Fetch from gitignore.io API.
-    url = f"{GITIGNORE_IO_URL}/{','.join(all_categories)}"
-    logging.info(f"Fetching {url}")
-    request = Request(url, headers={"User-Agent": f"repomatic/{__version__}"})
-    with urlopen(request) as response:
-        content = response.read().decode("UTF-8")
-
-    # Append extra content.
-    if config.gitignore.extra_content:
-        content += "\n" + config.gitignore.extra_content + "\n"
+    content = build_gitignore(config)
 
     # Resolve output path.
     if output_path is None:
@@ -1354,8 +1304,8 @@ def sync_dev_release(
         return
 
     # Parse owner/repo for gh CLI.
-    parts = repo_url.rstrip("/").split("/")
-    nwo = f"{parts[-2]}/{parts[-1]}" if len(parts) >= 2 else ""
+    parsed = owner_repo(repo_url)
+    nwo = "/".join(parsed) if parsed else ""
 
     if delete:
         if dry_run:
@@ -1833,32 +1783,6 @@ def deps_graph(
     echo(graph, file=prep_path(output))
 
 
-def _validate_docs_script_path(script: str, repo_root: Path) -> Path | None:
-    """Validate and resolve a docs update script path.
-
-    Returns the resolved path if the script exists, or `None` if the
-    configured value is empty. Raises `ClickException` if the path
-    escapes the repository root or is not under the `docs/` directory.
-    """
-    if not script:
-        return None
-    script_path = (repo_root / script).resolve()
-    # Must be under the repository root.
-    try:
-        script_path.relative_to(repo_root)
-    except ValueError:
-        raise ClickException(f"docs.update-script escapes repository root: {script}")
-    # Must be under docs/ and be a Python file.
-    docs_dir = (repo_root / "docs").resolve()
-    try:
-        script_path.relative_to(docs_dir)
-    except ValueError:
-        raise ClickException(f"docs.update-script must be under docs/: {script}")
-    if script_path.suffix != ".py":
-        raise ClickException(f"docs.update-script must be a .py file: {script}")
-    return script_path
-
-
 @repomatic.command(
     name="update-docs",
     short_help="Regenerate Sphinx API docs and dynamic content",
@@ -1880,121 +1804,7 @@ def update_docs() -> None:
 
     Configuration is read from `[tool.repomatic]` in `pyproject.toml`.
     """
-    from .metadata import Metadata
-    from .rst_to_myst import convert_rst_files_in_directory
-
-    config = get_tool_config()
-    repo_root = Path.cwd()
-    docs_dir = repo_root / "docs"
-
-    # Detect Sphinx capabilities from conf.py.
-    meta = Metadata()
-
-    if not meta.is_sphinx:
-        logging.info("No Sphinx configuration found. Nothing to do.")
-        return
-
-    # Phase 1: sphinx-apidoc.
-    if meta.active_autodoc:
-        apidoc_cmd = [
-            "uv",
-            "--no-progress",
-            "run",
-            "--frozen",
-            "--group",
-            "docs",
-            "--",
-            "sphinx-apidoc",
-            "--no-toc",
-            "--module-first",
-            "--output-dir",
-            str(docs_dir),
-            *config.docs.apidoc_extra_args,
-            ".",
-            *config.docs.apidoc_exclude,
-        ]
-        logging.info(f"Running: {' '.join(apidoc_cmd)}")
-        result = subprocess.run(apidoc_cmd, check=False)
-        if result.returncode:
-            raise ClickException(
-                f"sphinx-apidoc failed with exit code {result.returncode}"
-            )
-        echo("sphinx-apidoc completed.")
-    else:
-        logging.info("No active autodoc extensions. Skipping sphinx-apidoc.")
-
-    # Phase 2: RST → MyST conversion.
-    if meta.uses_myst and docs_dir.is_dir():
-        converted = convert_rst_files_in_directory(docs_dir)
-        if converted:
-            echo(f"Converted {len(converted)} RST file(s) to MyST markdown.")
-        else:
-            logging.info("No RST files to convert.")
-    elif not meta.uses_myst:
-        logging.info("MyST-Parser not detected. Skipping RST conversion.")
-
-    # Phase 3: docs update script.
-    script_path = _validate_docs_script_path(config.docs.update_script, repo_root)
-    if script_path and script_path.is_file():
-        script_cmd = [
-            "uv",
-            "--no-progress",
-            "run",
-            "--frozen",
-            "--group",
-            "docs",
-            "--",
-            "python",
-            str(script_path),
-        ]
-        logging.info(f"Running: {' '.join(script_cmd)}")
-        result = subprocess.run(script_cmd, check=False)
-        if result.returncode:
-            raise ClickException(
-                f"docs update script failed with exit code {result.returncode}"
-            )
-        echo(f"Docs update script completed: {script_path.name}")
-    elif script_path:
-        logging.info(f"Docs update script not found: {script_path}")
-    else:
-        logging.info("Docs update script disabled (empty path).")
-
-    # Phase 4: self-updating directive blocks. Both forms are refreshed: the
-    # `{matrix}` MyST fence (live-rendered by Sphinx) and the `<!-- matrix -->`
-    # comment region (whose embedded table renders on GitHub too). Only files
-    # already carrying a block are passed, so repositories without any stay
-    # clear of the sphinx extra that `refresh-directives` requires.
-    def has_directive_block(path: Path) -> bool:
-        text = path.read_text(encoding="UTF-8")
-        return "{matrix}" in text or "<!-- matrix" in text
-
-    candidates = sorted(docs_dir.rglob("*.md")) if docs_dir.is_dir() else []
-    readme_path = repo_root / "readme.md"
-    if readme_path.is_file():
-        candidates.append(readme_path)
-    directive_files = [path for path in candidates if has_directive_block(path)]
-    if directive_files:
-        refresh_cmd = [
-            "uv",
-            "--no-progress",
-            "run",
-            "--frozen",
-            "--group",
-            "docs",
-            "--",
-            "click-extra",
-            "refresh-directives",
-            *(str(path) for path in directive_files),
-        ]
-        logging.info(f"Running: {' '.join(refresh_cmd)}")
-        result = subprocess.run(refresh_cmd, check=False)
-        if result.returncode:
-            raise ClickException(
-                f"refresh-directives failed with exit code {result.returncode}"
-            )
-        echo("Directive-block refresh completed.")
-    else:
-        logging.info("No self-updating directive blocks found. Skipping refresh.")
+    _update_docs(get_tool_config())
 
 
 @repomatic.command(
@@ -2128,37 +1938,6 @@ def broken_links(
     )
 
 
-def _wrap_setup_step(title: str, content: str, *, passed: bool | None) -> str:
-    """Wrap a setup step in a collapsible `<details>` block with status emoji.
-
-    Incomplete steps (`passed=False`) render as open sections with a
-    warning emoji. Completed steps (`passed=True`) render collapsed
-    with a checkmark. Indeterminate steps (`passed=None`) render
-    collapsed with an info emoji when the check could not run.
-
-    :param title: Step heading shown in the `<summary>` line.
-    :param content: Markdown body of the step.
-    :param passed: Whether the step is verified complete. `None` means the
-        check could not run (e.g., insufficient token permissions).
-    :return: HTML `<details>` block string.
-    """
-    if passed is None:
-        emoji = "\u2139\ufe0f"
-        open_attr = ""
-    elif passed:
-        emoji = "\u2705"
-        open_attr = ""
-    else:
-        emoji = "\u274c"
-        open_attr = " open"
-    return (
-        f"<details{open_attr}>\n"
-        f"<summary>{emoji} <strong>{title}</strong></summary>\n\n"
-        f"{content}\n\n"
-        f"</details>"
-    )
-
-
 @repomatic.command(
     short_help="Manage setup guide issue lifecycle", section=_section_github
 )
@@ -2231,285 +2010,13 @@ def setup_guide(
         logging.info("[tool.repomatic] setup-guide is disabled. Skipping setup guide.")
         ctx.exit(0)
 
-    # Resolve repo identity for template variables.
-    md = Metadata()
-    repo_name = md.repo_name
-    repo_owner = md.repo_owner
-    repo_slug = md.repo_slug
-    repo_url = _repo_url()
-
-    # --- Per-step checks ---
-
-    # Token + permissions check.
-    missing_permissions_section = ""
-    has_permission_failures = False
-    dependabot_ok = False
-    if has_pat and repo:
-        pat_results = _token_mod.check_all_pat_permissions(repo)
-        failures = pat_results.failed()
-        if failures:
-            has_permission_failures = True
-            rows = []
-            for _field_name, message in failures:
-                rows.append(f"| {message} |")
-            table = "\n".join(rows)
-            missing_permissions_section = (
-                "> [!WARNING]\n"
-                "> Your `REPOMATIC_PAT` secret is configured but missing"
-                " some permissions.\n"
-                "> Update the token using the pre-filled link below.\n\n"
-                "| Permission issue |\n"
-                "| :-- |\n"
-                f"{table}\n"
-            )
-        # Vulnerability alerts are confirmed enabled when the Dependabot
-        # alerts permission check passes (HTTP 200 from the alerts API).
-        dependabot_ok = pat_results.vulnerability_alerts[0]
-
-    token_ok = has_pat and not has_permission_failures
-
-    # Branch ruleset check.
-    branch_ok = False
-    if has_pat and repo:
-        branch_ok, _ = check_branch_ruleset_on_default(repo)
-
-    # Immutable releases check.
-    has_changelog = Path(config.changelog_location).exists()
-    immutable_ok: bool | None = False
-    if has_pat and repo and has_changelog:
-        immutable_ok, _ = check_immutable_releases(repo)
-
-    # Fork PR approval policy check.
-    fork_pr_ok: bool | None = False
-    if has_pat and repo:
-        fork_pr_ok, _ = check_fork_pr_approval_policy(repo)
-
-    # PyPI Trusted Publisher check (only for projects that publish to PyPI).
-    # The probe does not need a PAT: it hits the public PyPI integrity API.
-    pypi_publisher_ok: bool | None = None
-    if repo and md.package_name:
-        pypi_publisher_ok, _ = check_pypi_trusted_publisher(repo, md.package_name)
-
-    # Pages deployment source check (Sphinx projects only).
-    pages_ok: bool | None = None
-    if md.is_sphinx and repo:
-        pages_ok, _ = check_pages_deployment_source(repo)
-
-    # --- Render each step as a collapsible section ---
-
-    step_token = _wrap_setup_step(
-        "Create and configure the token",
-        render_template(
-            "setup-guide-token",
-            repo_url=repo_url,
-            repo_name=repo_name,
-            repo_owner=repo_owner,
-            repo_slug=repo_slug,
-        ),
-        passed=token_ok,
+    manage_setup_guide(
+        config,
+        has_pat=has_pat,
+        has_notifications_pat=has_notifications_pat,
+        has_virustotal_key=has_virustotal_key,
+        repo=repo,
     )
-
-    step_dependabot = _wrap_setup_step(
-        "Configure Dependabot settings",
-        render_template(
-            "setup-guide-dependabot",
-            repo_url=repo_url,
-            repo_slug=repo_slug,
-        ),
-        passed=dependabot_ok,
-    )
-
-    immutable_releases_step = ""
-    if has_changelog:
-        immutable_releases_step = _wrap_setup_step(
-            "Enable immutable releases",
-            render_template("immutable-releases", repo_url=repo_url),
-            passed=immutable_ok,
-        )
-
-    step_branch_ruleset = _wrap_setup_step(
-        "Protect the main branch",
-        render_template("setup-guide-branch-ruleset", repo_url=repo_url),
-        passed=branch_ok,
-    )
-
-    step_fork_pr_approval = _wrap_setup_step(
-        "Require approval for fork PR workflows",
-        render_template(
-            "setup-guide-fork-pr-approval",
-            repo_url=repo_url,
-            repo_slug=repo_slug,
-        ),
-        passed=fork_pr_ok,
-    )
-
-    # PyPI Trusted Publisher step: only relevant for projects that publish to
-    # PyPI. Treat indeterminate (None: never released, or pre-OIDC release with
-    # no provenance) as incomplete so the step keeps prompting until a
-    # successful OIDC-attested upload is observed.
-    step_pypi_trusted_publisher = ""
-    if md.package_name:
-        package_name = md.package_name
-        step_pypi_trusted_publisher = _wrap_setup_step(
-            "Register the PyPI Trusted Publisher entry",
-            render_template(
-                "setup-guide-pypi-trusted-publisher",
-                package_name=package_name,
-                repo_owner=repo_owner,
-                repo_name=repo_name,
-                workflow_filename=PYPI_TRUSTED_PUBLISHER_WORKFLOW,
-                settings_url=pypi_trusted_publisher_settings_url(
-                    package_name,
-                    owner=repo_owner,
-                    repository=repo_name,
-                    workflow_filename=PYPI_TRUSTED_PUBLISHER_WORKFLOW,
-                ),
-            ),
-            passed=pypi_publisher_ok or False,
-        )
-
-    # Pages deployment source step: only relevant for Sphinx projects.
-    # Treat "not configured" (None) as incomplete so the step renders open.
-    step_pages_source = ""
-    if md.is_sphinx:
-        step_pages_source = _wrap_setup_step(
-            "Set GitHub Pages deployment source to GitHub Actions",
-            render_template(
-                "setup-guide-pages-source",
-                repo_url=repo_url,
-                repo_slug=repo_slug,
-            ),
-            passed=pages_ok or False,
-        )
-
-    # VirusTotal step: only relevant when Nuitka binary compilation is active.
-    nuitka_active = config.nuitka_enabled and bool(md.script_entries)
-    step_virustotal = ""
-    if nuitka_active:
-        step_virustotal = _wrap_setup_step(
-            "Configure VirusTotal scanning (optional)",
-            render_template(
-                "setup-guide-virustotal",
-                repo_url=repo_url,
-                repo_slug=repo_slug,
-            ),
-            passed=has_virustotal_key,
-        )
-
-    # Notifications PAT step: only relevant when the unsubscribe workflow is
-    # opted in via notification.unsubscribe. The workflow skips silently
-    # without the secret, so the guide is the only onboarding surface.
-    step_notifications_pat = ""
-    if config.notification_unsubscribe:
-        step_notifications_pat = _wrap_setup_step(
-            "Create and configure the notifications token",
-            render_template(
-                "setup-guide-notifications-pat",
-                repo_url=repo_url,
-                repo_slug=repo_slug,
-            ),
-            passed=has_notifications_pat,
-        )
-
-    step_verify = _wrap_setup_step(
-        "Verify the setup",
-        render_template(
-            "setup-guide-verify",
-            repo_url=repo_url,
-            repo_slug=repo_slug,
-        ),
-        passed=False,
-    )
-
-    # Detect if the repository owner is an organization.
-    org_tip = ""
-    owner = repo_owner
-    if owner:
-        try:
-            owner_type = run_gh_command(
-                ["api", f"users/{owner}", "--jq", ".type"],
-            ).strip()
-            if owner_type == "Organization":
-                org_tip = (
-                    "> \U0001f4a1 **For organizations**: Consider using a"
-                    " [machine user account](https://docs.github.com/en/"
-                    "get-started/learning-about-github/types-of-github-accounts"
-                    "#personal-accounts) or a dedicated service account to own"
-                    " the PAT, rather than tying it to an individual's account."
-                )
-        except RuntimeError:
-            logging.debug(f"Failed to detect owner type for {owner!r}.")
-
-    # --- Assemble issue body ---
-    # Step-skip markers: only include fork-pr approval step when the check is
-    # determinate. When skipped (None), the check could not run and we do not
-    # want to show a step the user cannot resolve.
-    if fork_pr_ok is None:
-        step_fork_pr_approval = ""
-
-    setup_body = render_template(
-        "setup-guide",
-        missing_permissions_section=missing_permissions_section,
-        step_token=step_token,
-        step_dependabot=step_dependabot,
-        immutable_releases_step=immutable_releases_step,
-        step_branch_ruleset=step_branch_ruleset,
-        step_fork_pr_approval=step_fork_pr_approval,
-        step_pypi_trusted_publisher=step_pypi_trusted_publisher,
-        step_pages_source=step_pages_source,
-        step_virustotal=step_virustotal,
-        step_notifications_pat=step_notifications_pat,
-        step_verify=step_verify,
-        org_tip=org_tip,
-        repo_url=repo_url,
-    )
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".md",
-        delete=False,
-        encoding="UTF-8",
-    ) as tmp:
-        tmp.write(setup_body)
-        setup_body_file = Path(tmp.name)
-
-    # Close issue only when all verifiable steps pass.
-    # Immutable releases and verify are excluded (no API to check).
-    # Fork PR approval is included only when determinate.
-    # Pages source: when is_sphinx, treat "not configured" (None) as a
-    # failure so the setup guide reopens with the Pages step.
-    vt_ok = not nuitka_active or has_virustotal_key
-    notifications_ok = not config.notification_unsubscribe or has_notifications_pat
-    fork_pr_gate = fork_pr_ok is not False
-    pages_gate = bool(pages_ok) if md.is_sphinx else pages_ok is not False
-    # Trusted Publisher: when the project publishes to PyPI, only close once
-    # provenance confirms the entry is wired. None (no published release yet,
-    # or pre-OIDC release) keeps the step open. When the project does not
-    # publish to PyPI (no package_name), the gate is a no-op.
-    pypi_publisher_gate = bool(pypi_publisher_ok) if md.package_name else True
-    needs_issue = not (
-        token_ok
-        and dependabot_ok
-        and branch_ok
-        and vt_ok
-        and notifications_ok
-        and fork_pr_gate
-        and pages_gate
-        and pypi_publisher_gate
-    )
-
-    try:
-        manage_issue_lifecycle(
-            has_issues=needs_issue,
-            body_file=setup_body_file,
-            labels=["🤖 ci"],
-            title="Repomatic setup guide",
-            no_issues_comment=(
-                "PAT configured, all permissions verified, repository settings"
-                " complete."
-            ),
-        )
-    finally:
-        setup_body_file.unlink(missing_ok=True)
 
 
 @repomatic.command(
@@ -2894,7 +2401,7 @@ def sync_dep_sources(
     # Terminal output: structured table via click-extra.
     if table:
         if plan.exclude_newer:
-            echo(f"exclude-newer cutoff: {_format_upload_date(plan.exclude_newer)}")
+            echo(f"exclude-newer cutoff: {format_upload_date(plan.exclude_newer)}")
         _print_sync_table(
             ctx,
             plan.changes,
@@ -3051,7 +2558,7 @@ def sync_uv_lock_cmd(
     # Terminal output: structured table via click-extra.
     if table:
         if plan.exclude_newer:
-            echo(f"exclude-newer cutoff: {_format_upload_date(plan.exclude_newer)}")
+            echo(f"exclude-newer cutoff: {format_upload_date(plan.exclude_newer)}")
         _print_sync_table(
             ctx,
             plan.changes,
@@ -3106,7 +2613,7 @@ def _print_sync_table(
     for name, old, new in changes:
         row: tuple[str, ...] = (name, old or "(new)", new or "(removed)")
         if show_released:
-            row = (*row, _format_released(dates.get(name, ""), reference_date))
+            row = (*row, format_released(dates.get(name, ""), reference_date))
         rows.append(row)
     ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
 
@@ -3708,7 +3215,7 @@ def list_skills() -> None:
     in a table grouped by phase: Setup, Development, Quality, and Release.
     """
     # Collect skill metadata from bundled files.
-    skills_comp = _BY_NAME["skills"]
+    skills_comp = COMPONENTS_BY_NAME["skills"]
     skills = []
     for entry in skills_comp.files:
         content = export_content(entry.source)
@@ -4106,7 +3613,7 @@ def show(ctx):
             "binary",
             bin_entry.tool,
             f"{bin_entry.version} ({bin_entry.platform})",
-            _format_size(bin_entry.size),
+            format_file_size(bin_entry.size),
             _format_age(bin_entry.mtime),
         ))
     for http_entry in http_entries:
@@ -4115,7 +3622,7 @@ def show(ctx):
             "http",
             http_entry.namespace,
             http_entry.key,
-            _format_size(http_entry.size),
+            format_file_size(http_entry.size),
             _format_age(http_entry.mtime),
         ))
     for cfg_entry in cfg_entries:
@@ -4124,13 +3631,13 @@ def show(ctx):
             "config",
             cfg_entry.tool,
             cfg_entry.filename,
-            _format_size(cfg_entry.size),
+            format_file_size(cfg_entry.size),
             _format_age(cfg_entry.mtime),
         ))
 
     ctx.print_table(rows, _table_headers(CACHE_LIST_HEADER_DEFS))
     total_count = len(bin_entries) + len(http_entries) + len(cfg_entries)
-    echo(f"\nTotal: {total_count} file(s), {_format_size(total_size)}")
+    echo(f"\nTotal: {total_count} file(s), {format_file_size(total_size)}")
 
 
 @cache.command(short_help="Remove cached entries")
@@ -4170,7 +3677,7 @@ def clean(ctx, tool, namespace, max_age):
     total_deleted = bin_deleted + http_deleted + cfg_deleted
     total_freed = bin_freed + http_freed + cfg_freed
     if total_deleted:
-        echo(f"Removed {total_deleted} file(s), freed {_format_size(total_freed)}.")
+        echo(f"Removed {total_deleted} file(s), freed {format_file_size(total_freed)}.")
     else:
         echo("Nothing to remove.")
 
@@ -4182,15 +3689,6 @@ def path():
     Useful for CI integration with actions/cache or similar tools.
     """
     echo(str(_cache_dir()))
-
-
-def _format_size(size_bytes: int) -> str:
-    """Format a byte count as a human-readable string."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
 @repomatic.command(short_help="Create and push a Git tag", section=_section_release)
@@ -4717,7 +4215,7 @@ def pr_body(
         "diff_table": os.getenv("REPOMATIC_DIFF_TABLE", ""),
         "part": part,
         "pr_ref": pr_ref,
-        "repo_url": _repo_url,  # Callable, will be invoked if needed.
+        "repo_url": current_repo_url,  # Callable, will be invoked if needed.
         "version": version if version is not None else _auto_version,
     }
     arg_sources.update(cli_extra_args)
@@ -4755,9 +4253,7 @@ def pr_body(
         if template:
             docs_name = template
         elif template_file:
-            docs_name = template_file.name.removesuffix(".noformat").removesuffix(
-                ".md"
-            )
+            docs_name = template_file.name.removesuffix(".noformat").removesuffix(".md")
     metadata_block = generate_pr_metadata_block(docs_url=docs_url, docs_name=docs_name)
     body = build_pr_body(prefix, metadata_block)
 

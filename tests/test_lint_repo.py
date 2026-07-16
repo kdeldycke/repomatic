@@ -47,6 +47,7 @@ from repomatic.lint_repo import (
 )
 from repomatic.metadata import Metadata
 from repomatic.pypi import TrustedPublisher
+from tests.conftest import all_pass_pat_results
 
 
 def test_successful_fetch():
@@ -338,7 +339,9 @@ def test_funding_file_exists(tmp_path, monkeypatch):
     """No warning when funding file already exists."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".github").mkdir()
-    (tmp_path / ".github" / "FUNDING.yml").write_text("github: owner\n")
+    (tmp_path / ".github" / "FUNDING.yml").write_text(
+        "github: owner\n", encoding="utf-8"
+    )
     warning, msg = check_funding_file("owner/repo")
     assert warning is None
     assert "found" in msg
@@ -348,7 +351,9 @@ def test_funding_file_exists_lowercase(tmp_path, monkeypatch):
     """Detect funding file regardless of case."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".github").mkdir()
-    (tmp_path / ".github" / "funding.yml").write_text("github: owner\n")
+    (tmp_path / ".github" / "funding.yml").write_text(
+        "github: owner\n", encoding="utf-8"
+    )
     warning, msg = check_funding_file("owner/repo")
     assert warning is None
     assert "found" in msg
@@ -658,20 +663,6 @@ def test_pat_checks_skipped_without_pat(capsys):
     assert "skipped (no REPOMATIC_PAT)" in captured.out
 
 
-def _all_pass_pat_results() -> PatPermissionResults:
-    """Build a PatPermissionResults where every check passes."""
-    return PatPermissionResults(
-        contents=(True, "Contents: token has access"),
-        issues=(True, "Issues: token has access"),
-        pull_requests=(True, "Pull requests: token has access"),
-        vulnerability_alerts=(
-            True,
-            "Dependabot alerts: token has access, alerts enabled",
-        ),
-        workflows=(True, "Workflows: token has access"),
-    )
-
-
 def _all_fail_pat_results() -> PatPermissionResults:
     """Build a PatPermissionResults where every check fails."""
     return PatPermissionResults(
@@ -692,7 +683,7 @@ def test_pat_checks_all_pass(capsys):
         patch("repomatic.lint_repo.run_gh_command", return_value=""),
         patch(
             "repomatic.lint_repo.check_all_pat_permissions",
-            return_value=_all_pass_pat_results(),
+            return_value=all_pass_pat_results(),
         ),
     ):
         exit_code = run_repo_lint(
@@ -862,7 +853,8 @@ def test_check_test_matrix_excludes_flags_stale(tmp_path, monkeypatch):
     pyproject_file.write_text(
         '[project]\nname = "p"\nversion = "1.0.0"\n\n'
         "[tool.repomatic.test-matrix]\n"
-        'exclude = [{os = "macos-15-intel"}]\n'
+        'exclude = [{os = "macos-15-intel"}]\n',
+        encoding="utf-8",
     )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
@@ -876,7 +868,8 @@ def test_check_test_matrix_excludes_clean(tmp_path, monkeypatch):
     pyproject_file.write_text(
         '[project]\nname = "p"\nversion = "1.0.0"\n\n'
         "[tool.repomatic.test-matrix]\n"
-        'exclude = [{os = "ubuntu-slim"}]\n'
+        'exclude = [{os = "ubuntu-slim"}]\n',
+        encoding="utf-8",
     )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 

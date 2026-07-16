@@ -428,6 +428,7 @@ expected: dict[str, Any] = {
         "repomatic/data/awesome_template/__init__.py",
         "repomatic/dep_sources.py",
         "repomatic/deps_graph.py",
+        "repomatic/docs.py",
         "repomatic/git_ops.py",
         "repomatic/github/__init__.py",
         "repomatic/github/actions.py",
@@ -444,6 +445,8 @@ expected: dict[str, Any] = {
         "repomatic/github/token.py",
         "repomatic/github/unsubscribe.py",
         "repomatic/github/workflow_sync.py",
+        "repomatic/gitignore.py",
+        "repomatic/http.py",
         "repomatic/images.py",
         "repomatic/init_project.py",
         "repomatic/lint_repo.py",
@@ -457,6 +460,7 @@ expected: dict[str, Any] = {
         "repomatic/registry.py",
         "repomatic/release_prep.py",
         "repomatic/rst_to_myst.py",
+        "repomatic/setup_guide.py",
         "repomatic/sponsor.py",
         "repomatic/sync_ops.py",
         "repomatic/templates/__init__.py",
@@ -500,6 +504,7 @@ expected: dict[str, Any] = {
         "tests/test_readme.py",
         "tests/test_release_prep.py",
         "tests/test_release_sync.py",
+        "tests/test_setup_guide.py",
         "tests/test_status.py",
         "tests/test_sync_labels.py",
         "tests/test_sync_ops.py",
@@ -1454,7 +1459,9 @@ def test_server_url_default(monkeypatch):
 def test_repomatic_config_defaults(tmp_path, monkeypatch):
     """Test that [tool.repomatic] config properties return sensible defaults."""
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
+    pyproject_file.write_text(
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
     assert metadata.config.gitignore.location == "./.gitignore"
@@ -1517,7 +1524,8 @@ test-matrix.include = [{ "click-version" = "released" }]
 test-matrix.full-include = [
   { "os" = "ubuntu-24.04-arm", "python-version" = "3.10", "click-version" = "8.3.1" },
 ]
-"""
+""",
+        encoding="utf-8",
     )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     emitted = Metadata().test_matrix.matrix()
@@ -1569,7 +1577,8 @@ test-matrix.include = [
 test-matrix.full-include = [
   { "os" = "ubuntu-24.04-arm", "python-version" = "3.14", "click-version" = "main" },
 ]
-"""
+""",
+        encoding="utf-8",
     )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     # `.include` is the flat job list, typed as tuple[dict[str, str], ...]; the
@@ -1759,7 +1768,7 @@ exclude = [
 ]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -1777,7 +1786,9 @@ exclude = [
 def test_coverage_cells_match_pr_matrix(tmp_path, monkeypatch):
     """coverage_cells lists the PR-matrix cells as `os|python-version` tokens."""
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
+    pyproject_file.write_text(
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -1801,7 +1812,9 @@ def test_coverage_cells_are_full_matrix_subset(tmp_path, monkeypatch):
     never in coverage_cells.
     """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
+    pyproject_file.write_text(
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -1831,7 +1844,7 @@ os = ["custom-runner"]
 click-version = ["released", "stable"]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -1860,7 +1873,7 @@ include = [
 ]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -1884,7 +1897,7 @@ version = "1.0.0"
 os = { "ubuntu-24.04-arm" = "ubuntu-24.04" }
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -1910,7 +1923,7 @@ version = "1.0.0"
 os = ["windows-11-arm"]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -1941,7 +1954,7 @@ unstable = [
 ]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -1983,7 +1996,9 @@ def test_single_runner_python_versions_are_stable_and_pinned(tmp_path, monkeypat
     cross-platform spread, and not an unstable probe.
     """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
+    pyproject_file.write_text(
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -2018,7 +2033,7 @@ exclude = [
 ]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
 
@@ -2033,7 +2048,9 @@ exclude = [
 def test_unstable_targets_default(tmp_path, monkeypatch):
     """Test that unstable_targets defaults to an empty set."""
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text('[project]\nname = "test-project"\nversion = "1.0.0"\n')
+    pyproject_file.write_text(
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    )
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     metadata = Metadata()
     assert metadata.unstable_targets == set()
@@ -2050,7 +2067,7 @@ version = "1.0.0"
 nuitka.unstable-targets = ["linux-arm64", "unknown-target"]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2070,7 +2087,7 @@ short = "my_pkg.__main__:main"
 long-name = "my_pkg.__main__:main"
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2092,7 +2109,7 @@ cli-b = "my_pkg.cli:main_b"
 cli-a-alias = "my_pkg.cli:main_a"
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2116,7 +2133,7 @@ long-name = "my_pkg.__main__:main"
 nuitka.entry-points = ["long-name"]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2138,7 +2155,7 @@ long-name = "my_pkg.__main__:main"
 nuitka.entry-points = ["short", "long-name"]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2159,7 +2176,7 @@ short = "my_pkg.__main__:main"
 nuitka.entry-points = ["nonexistent"]
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2179,7 +2196,7 @@ mdedup = "mail_deduplicate.cli:mdedup"
 mpm = "meta_package_manager.__main__:main"
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2211,7 +2228,7 @@ version = "1.0.0"
 "{name}" = "my_pkg.cli:main"
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2240,7 +2257,7 @@ version = "1.0.0"
 cli = "{value}"
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     metadata = Metadata()
@@ -2280,7 +2297,7 @@ version = "1.0.0"
 dependency-graph.output = "./custom/deps.mmd"
 nuitka.enabled = false
 """
-    (tmp_path / "pyproject.toml").write_text(pyproject_content)
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     config = load_repomatic_config()
@@ -2313,7 +2330,7 @@ version = "1.0.0"
 [tool.repomatic]
 nonexistent-option = true
 """
-    (tmp_path / "pyproject.toml").write_text(pyproject_content)
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     config = load_repomatic_config()

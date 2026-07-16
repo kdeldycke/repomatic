@@ -37,6 +37,26 @@ if TYPE_CHECKING:
     from .config import Config
 
 
+def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
+    """Parse `pyproject.toml` from *project_root*.
+
+    :param project_root: Directory holding `pyproject.toml`. Defaults to the
+        current working directory.
+    :return: Parsed contents, or an empty dict when the file is missing or
+        cannot be decoded.
+    """
+    if project_root is None:
+        project_root = Path()
+    pyproject_path = project_root / "pyproject.toml"
+    if not (pyproject_path.exists() and pyproject_path.is_file()):
+        return {}
+    try:
+        data: dict[str, Any] = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+    except tomlrt.TOMLParseError:
+        return {}
+    return data
+
+
 def derive_source_paths(
     pyproject_data: dict[str, Any] | None = None,
 ) -> list[str]:
@@ -53,10 +73,7 @@ def derive_source_paths(
         list if no project name is defined.
     """
     if pyproject_data is None:
-        pyproject_path = Path() / "pyproject.toml"
-        if not (pyproject_path.exists() and pyproject_path.is_file()):
-            return []
-        pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+        pyproject_data = read_pyproject_toml()
 
     name = pyproject_data.get("project", {}).get("name")
     if not name:
@@ -92,34 +109,11 @@ def get_project_name(
     :param pyproject_data: Pre-parsed dict. If `None`, reads from CWD.
     """
     if pyproject_data is None:
-        pyproject_path = Path() / "pyproject.toml"
-        if not (pyproject_path.exists() and pyproject_path.is_file()):
-            return None
-        pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+        pyproject_data = read_pyproject_toml()
     name: str | None = pyproject_data.get("project", {}).get("name")
     if name:
         logging.debug(f"Project name from pyproject.toml: {name}")
     return name
-
-
-def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
-    """Parse `pyproject.toml` from *project_root*.
-
-    :param project_root: Directory holding `pyproject.toml`. Defaults to the
-        current working directory.
-    :return: Parsed contents, or an empty dict when the file is missing or
-        cannot be decoded.
-    """
-    if project_root is None:
-        project_root = Path()
-    pyproject_path = project_root / "pyproject.toml"
-    if not (pyproject_path.exists() and pyproject_path.is_file()):
-        return {}
-    try:
-        data: dict[str, Any] = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
-    except tomlrt.TOMLParseError:
-        return {}
-    return data
 
 
 def is_python_project(

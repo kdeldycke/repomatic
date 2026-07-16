@@ -14,13 +14,20 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Shared pytest fixtures."""
+"""Shared pytest fixtures and cross-file test helpers."""
 
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
 
+from repomatic.github.token import PatPermissionResults
 from repomatic.metadata import Metadata
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 
 @pytest.fixture(autouse=True)
@@ -33,3 +40,37 @@ def _reset_metadata():
     Metadata.reset()
     yield
     Metadata.reset()
+
+
+class FakeResponse:
+    """Minimal `urlopen` response double: a byte body behind a context manager.
+
+    Stands in for the object `repomatic.http.get_json` reads, so network tests
+    patch `repomatic.http.urlopen` with `return_value=FakeResponse(...)`.
+    """
+
+    def __init__(self, data: bytes) -> None:
+        self._data = BytesIO(data)
+
+    def read(self) -> bytes:
+        return self._data.read()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+
+def all_pass_pat_results() -> PatPermissionResults:
+    """Build a PatPermissionResults where every check passes."""
+    return PatPermissionResults(
+        contents=(True, "Contents: token has access"),
+        issues=(True, "Issues: token has access"),
+        pull_requests=(True, "Pull requests: token has access"),
+        vulnerability_alerts=(
+            True,
+            "Dependabot alerts: token has access, alerts enabled",
+        ),
+        workflows=(True, "Workflows: token has access"),
+    )

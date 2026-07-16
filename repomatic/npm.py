@@ -25,11 +25,10 @@ from __future__ import annotations
 
 import json
 import logging
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 from .cache import get_cached_response, store_response
 from .config import load_repomatic_config
+from .http import FetchError, get_json
 
 NPM_REGISTRY_URL = "https://registry.npmjs.org/{package}"
 """npm registry metadata URL for a package."""
@@ -54,14 +53,12 @@ def _fetch_json(package: str) -> dict | None:
             pass
 
     url = NPM_REGISTRY_URL.format(package=package)
-    request = Request(url, headers={"Accept": "application/json"})
     try:
-        with urlopen(request, timeout=10) as response:
-            raw = response.read()
-            result: dict[str, object] = json.loads(raw)
-    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        fetched, raw = get_json(url)
+    except FetchError as exc:
         logging.debug(f"npm lookup failed for {package}: {exc}")
         return None
+    result: dict = fetched
 
     if ttl > 0:
         store_response("npm", package, raw)

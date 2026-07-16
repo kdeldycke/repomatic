@@ -313,7 +313,7 @@ def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
     # Pre-create the executable the (mocked) install would produce.
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("")
+    (bin_dir / "awesome-lint").write_text("", encoding="utf-8")
 
     bin_path = _install_npm(spec, tmp_path, cooldown_days=8)
 
@@ -333,7 +333,7 @@ def test_install_npm_zero_cooldown_omits_flag(mock_which, mock_run, tmp_path):
     mock_run.return_value = MagicMock(returncode=0)
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("")
+    (bin_dir / "awesome-lint").write_text("", encoding="utf-8")
 
     _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
 
@@ -376,7 +376,7 @@ def test_install_npm_warns_when_npm_too_old(mock_which, mock_run, tmp_path, capl
     ]
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("")
+    (bin_dir / "awesome-lint").write_text("", encoding="utf-8")
 
     with caplog.at_level(logging.WARNING):
         _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=8)
@@ -1148,7 +1148,7 @@ def test_run_tool_ruff_reads_pyproject_natively(
     """ruff gets no --config flag when [tool.ruff] exists in pyproject.toml."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n'
+        '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n', encoding="utf-8"
     )
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -1246,7 +1246,7 @@ def test_resolve_config_reads_pyproject_falls_through_to_bundled(tmp_path, monke
 def test_resolve_config_native_file_wins(tmp_path, monkeypatch):
     """Native config file takes precedence over everything else."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".yamllint.yaml").write_text("rules: {}")
+    (tmp_path / ".yamllint.yaml").write_text("rules: {}", encoding="utf-8")
 
     spec = TOOL_REGISTRY["yamllint"]
     args, tmp = resolve_config(
@@ -1509,7 +1509,7 @@ def test_resolve_config_empty_tool_config_is_not_match(tmp_path, monkeypatch):
 def test_resolve_config_source_native_file(tmp_path, monkeypatch):
     """Reports native config file when it exists."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "zizmor.yaml").write_text("rules: {}")
+    (tmp_path / "zizmor.yaml").write_text("rules: {}", encoding="utf-8")
 
     result = resolve_config_source(TOOL_REGISTRY["zizmor"])
     assert result == "zizmor.yaml"
@@ -1527,7 +1527,7 @@ def test_resolve_config_source_pyproject_section(tmp_path, monkeypatch):
     """Reports [tool.X] when pyproject.toml has the section."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.yamllint]\nrules = {line-length = {max = 80}}\n"
+        "[tool.yamllint]\nrules = {line-length = {max = 80}}\n", encoding="utf-8"
     )
 
     result = resolve_config_source(TOOL_REGISTRY["yamllint"])
@@ -1546,7 +1546,7 @@ def test_resolve_config_source_reads_pyproject_native(tmp_path, monkeypatch):
     """Reports [tool.X] for reads_pyproject tool when pyproject section exists."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n'
+        '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n', encoding="utf-8"
     )
 
     result = resolve_config_source(TOOL_REGISTRY["ruff"])
@@ -1625,7 +1625,7 @@ def test_run_tool_native_config_no_extra_flags(
 ):
     """Tool with native config file gets no config flags from repomatic."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "zizmor.yaml").write_text("rules: {}")
+    (tmp_path / "zizmor.yaml").write_text("rules: {}", encoding="utf-8")
     mock_run.return_value = MagicMock(returncode=0)
 
     run_tool("zizmor", extra_args=(".",))
@@ -1648,7 +1648,8 @@ def test_run_tool_pyproject_section_cached_config(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.zizmor]\n[tool.zizmor.rules.artipacked]\ndisable = true\n"
+        "[tool.zizmor]\n[tool.zizmor.rules.artipacked]\ndisable = true\n",
+        encoding="utf-8",
     )
     mock_run.return_value = MagicMock(returncode=0)
 

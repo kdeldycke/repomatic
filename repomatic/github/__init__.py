@@ -14,9 +14,6 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""GitHub integration package.
-
-Submodules provide GitHub Actions utilities (`actions`), a `gh` CLI
-wrapper (`gh`), and helpers for issues, matrices, PR bodies, tokens,
-unsubscribing, and workflow syncing.
-"""
+"""GitHub integration package: API clients, `gh` CLI wrapper, and helpers
+for every GitHub surface repomatic touches (releases, issues, PRs, tokens,
+workflows). See each submodule's docstring for its scope."""

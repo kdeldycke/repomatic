@@ -501,9 +501,11 @@ def _mock_mango_release(monkeypatch) -> None:
     monkeypatch.setattr(
         dep_sources,
         "get_release_dates",
-        lambda name: {"2.1.0": PyPIRelease("2026-07-10", False, "mango")}
-        if name == "mango"
-        else {},
+        lambda name: (
+            {"2.1.0": PyPIRelease("2026-07-10", False, "mango")}
+            if name == "mango"
+            else {}
+        ),
     )
 
 
@@ -641,7 +643,7 @@ def test_resolve_action_pins_and_init_owned_files(
         f"jobs:\n  test:\n    steps:\n      - uses: {pin}\n", encoding="UTF-8"
     )
     if in_source_repo:
-        # A minimal package tree flips `_is_source_repo` on.
+        # A minimal package tree flips `is_source_repo` on.
         (tmp_path / "repomatic/data").mkdir(parents=True)
         (tmp_path / "repomatic/__init__.py").write_text("", encoding="UTF-8")
 

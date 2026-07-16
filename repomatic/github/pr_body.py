@@ -474,7 +474,7 @@ def generate_pr_metadata_block(docs_url: str = "", docs_name: str = "") -> str:
     )
 
 
-def _repo_url() -> str | None:
+def current_repo_url() -> str | None:
     """Build repository URL from CI context.
 
     Delegates to {attr}`Metadata.repo_url <repomatic.metadata.Metadata.repo_url>`.

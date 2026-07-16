@@ -214,7 +214,7 @@ def test_apply_release_swaps_rewrites_pyproject(tmp_path):
     assert 'papaya = { git = "https://github.com/acme/papaya", rev' in content
     assert "[tool.uv.sources]" in content
     # Floors tightened in both tables, extras and markers preserved.
-    assert '"mango[fresh]>=2.1.0; python_version >= \'3.10\'"' in content
+    assert "\"mango[fresh]>=2.1.0; python_version >= '3.10'\"" in content
     assert '"mango>=2.1.0"' in content
     assert ".dev0" not in content
     # Untouched bystanders.
@@ -266,12 +266,11 @@ def test_format_swap_section():
     assert "## 🔀 Source swaps" in section
     assert "| Package | Tracked branch | Adopted | Released |" in section
     assert (
-        "| [mango](https://pypi.org/project/mango/) | `main` | `2.1.0` |"
-        " 2026-07-10 |"
+        "| [mango](https://pypi.org/project/mango/) | `main` | `2.1.0` | 2026-07-10 |"
     ) in section
     # Empty input yields nothing; an unmapped name renders plain.
     assert format_swap_section([]) == ""
-    section = format_swap_section(
-        [ReleaseSwap("mango", "mango", "main", "2.1.0.dev0", "2.1.0", "2026-07-10")]
-    )
+    section = format_swap_section([
+        ReleaseSwap("mango", "mango", "main", "2.1.0.dev0", "2.1.0", "2026-07-10")
+    ])
     assert "| mango |" in section

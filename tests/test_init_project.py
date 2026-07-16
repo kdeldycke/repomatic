@@ -44,10 +44,10 @@ from repomatic.init_project import (
     run_init,
 )
 from repomatic.registry import (
-    _BY_NAME,
     ALL_COMPONENTS,
     ALL_WORKFLOW_FILES,
     COMPONENTS,
+    COMPONENTS_BY_NAME,
     RELEASE_ENGINE_WORKFLOWS,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
@@ -67,7 +67,9 @@ from repomatic.registry import (
 from repomatic.tool_runner import TOOL_REGISTRY
 
 # Convenience set for tests that check opt-in workflow membership.
-_OPT_IN_IDS = frozenset(f.file_id for f in _BY_NAME["workflows"].files if f.config_key)
+_OPT_IN_IDS = frozenset(
+    f.file_id for f in COMPONENTS_BY_NAME["workflows"].files if f.config_key
+)
 
 
 # --- Bundled data and export tests ---
@@ -157,7 +159,7 @@ def test_init_help_lists_all_components() -> None:
 def test_supported_config_types() -> None:
     """Verify that expected config types are registered as ToolConfigComponent."""
     for name in ("mypy", "ruff", "pytest", "bumpversion", "typos"):
-        assert isinstance(_BY_NAME[name], ToolConfigComponent)
+        assert isinstance(COMPONENTS_BY_NAME[name], ToolConfigComponent)
 
 
 def test_config_type_has_required_fields() -> None:
@@ -176,7 +178,7 @@ def test_config_type_has_required_fields() -> None:
 )
 def test_returns_non_empty_string(config_type: str) -> None:
     """Verify that export_content returns a non-empty string."""
-    comp = _BY_NAME[config_type]
+    comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
     content = export_content(comp.source_file)
     assert isinstance(content, str)
@@ -189,7 +191,7 @@ def test_returns_non_empty_string(config_type: str) -> None:
 )
 def test_returns_valid_toml(config_type: str) -> None:
     """Verify that the returned content is valid TOML."""
-    comp = _BY_NAME[config_type]
+    comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
     content = export_content(comp.source_file)
     parsed = tomlrt.loads(content)
@@ -202,7 +204,7 @@ def test_returns_valid_toml(config_type: str) -> None:
 )
 def test_native_format_no_tool_prefix(config_type: str) -> None:
     """Verify that native format does not have [tool.X] prefix."""
-    comp = _BY_NAME[config_type]
+    comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
     content = export_content(comp.source_file)
     parsed = tomlrt.loads(content)
@@ -267,7 +269,7 @@ def test_template_matches_own_pyproject(config_type: str) -> None:
     Scope-specific configs (e.g., lychee for awesome repos) are excluded
     because their templates are intentionally different from repomatic's own.
     """
-    comp = _BY_NAME[config_type]
+    comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
     template = tomlrt.loads(export_content(comp.source_file))
 
@@ -525,7 +527,7 @@ def test_init_config_lychee_preserves_other_sections() -> None:
 
 def test_uv_component_uses_overlay_ongoing() -> None:
     """The uv tool config is an ongoing overlay, not a full-section rebuild."""
-    comp = _BY_NAME["uv"]
+    comp = COMPONENTS_BY_NAME["uv"]
     assert isinstance(comp, ToolConfigComponent)
     assert comp.tool_section == "tool.uv"
     assert comp.sync_mode == SyncMode.ONGOING
@@ -787,7 +789,7 @@ def test_init_creates_all_default_files(
     config_file_count = sum(
         len(c.files) for c in COMPONENTS if isinstance(c, BundledComponent)
     )
-    opt_in_count = sum(1 for f in _BY_NAME["workflows"].files if f.config_key)
+    opt_in_count = sum(1 for f in COMPONENTS_BY_NAME["workflows"].files if f.config_key)
     default_workflows = len(REUSABLE_WORKFLOWS) - opt_in_count
     expected_count = default_workflows + config_file_count + 1
     assert len(result.created) == expected_count
@@ -1067,7 +1069,7 @@ def test_skills_consistency():
     fs_skills = {p.parent.name for p in skills_dir.glob("*/SKILL.md")}
 
     # Collect skills registered in the component registry.
-    component_skills = {entry.file_id for entry in _BY_NAME["skills"].files}
+    component_skills = {entry.file_id for entry in COMPONENTS_BY_NAME["skills"].files}
 
     # Collect skills registered in SKILL_PHASES.
     phase_skills = set(SKILL_PHASES)
@@ -1449,7 +1451,7 @@ def test_ongoing_sync_template_survives_pyproject_fmt(
     suffices. Skipped when pyproject-fmt cannot be fetched (offline local dev);
     CI is the enforcement point.
     """
-    comp = _BY_NAME[config_type]
+    comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
 
     pyproject = tmp_path / "pyproject.toml"
@@ -1564,7 +1566,7 @@ def test_preserves_local_array_entries(tmp_path: Path) -> None:
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(content, encoding="UTF-8")
 
-    bv = _BY_NAME["bumpversion"]
+    bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
     result = _update_tool_config(content, bv, pyproject)
 
@@ -1593,7 +1595,7 @@ def test_ongoing_sync_idempotent_with_local_entries(tmp_path: Path) -> None:
         'search = "example.com/main/"\n'
         'replace = "example.com/v{new_version}/"\n'
     )
-    bv_comp = _BY_NAME["bumpversion"]
+    bv_comp = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv_comp, ToolConfigComponent)
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(content, encoding="UTF-8")
@@ -1686,7 +1688,7 @@ def test_local_entries_preserved_via_update(tmp_path: Path) -> None:
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(content, encoding="UTF-8")
 
-    bv = _BY_NAME["bumpversion"]
+    bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
     result = _update_tool_config(content, bv, pyproject)
 
@@ -1737,7 +1739,7 @@ def test_local_entry_comments_preserved(tmp_path: Path) -> None:
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(content, encoding="UTF-8")
 
-    bv = _BY_NAME["bumpversion"]
+    bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
     result = _update_tool_config(content, bv, pyproject)
 
@@ -1868,9 +1870,13 @@ def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     created_set = set(result.created)
     # Agents, labels, and skills are excluded by default.
     assert "labels.toml" not in created_set
-    for _, rel_path in ((e.source, e.target) for e in _BY_NAME["agents"].files):
+    for _, rel_path in (
+        (e.source, e.target) for e in COMPONENTS_BY_NAME["agents"].files
+    ):
         assert rel_path not in created_set
-    for _, rel_path in ((e.source, e.target) for e in _BY_NAME["skills"].files):
+    for _, rel_path in (
+        (e.source, e.target) for e in COMPONENTS_BY_NAME["skills"].files
+    ):
         assert rel_path not in created_set
 
     # Other default components should still be created.
@@ -1897,7 +1903,9 @@ def test_init_respects_exclude_components(
     created_set = set(result.created)
     # Labels and skill files should not be created.
     assert "labels.toml" not in created_set
-    for _, rel_path in ((e.source, e.target) for e in _BY_NAME["skills"].files):
+    for _, rel_path in (
+        (e.source, e.target) for e in COMPONENTS_BY_NAME["skills"].files
+    ):
         assert rel_path not in created_set
 
     # Other default components should still be created.
@@ -3269,9 +3277,13 @@ def test_init_include_overrides_default_exclusions(
     created_set = set(result.created)
     # Labels included via include; agents, skills still excluded by default.
     assert "labels.toml" in created_set
-    for _, rel_path in ((e.source, e.target) for e in _BY_NAME["agents"].files):
+    for _, rel_path in (
+        (e.source, e.target) for e in COMPONENTS_BY_NAME["agents"].files
+    ):
         assert rel_path not in created_set
-    for _, rel_path in ((e.source, e.target) for e in _BY_NAME["skills"].files):
+    for _, rel_path in (
+        (e.source, e.target) for e in COMPONENTS_BY_NAME["skills"].files
+    ):
         assert rel_path not in created_set
     assert result.excluded == ["agents", "skills"]
 
@@ -3294,7 +3306,9 @@ def test_init_exclude_additive_to_defaults(
     created_set = set(result.created)
     # Default exclusions (labels, skills) still apply.
     assert "labels.toml" not in created_set
-    for _, rel_path in ((e.source, e.target) for e in _BY_NAME["skills"].files):
+    for _, rel_path in (
+        (e.source, e.target) for e in COMPONENTS_BY_NAME["skills"].files
+    ):
         assert rel_path not in created_set
     # User exclude is additive.
     assert ".github/workflows/debug.yaml" not in created_set
@@ -3372,7 +3386,7 @@ def test_no_data_file_claimed_by_multiple_components() -> None:
     assert not duplicates, f"Duplicate file mappings: {duplicates}"
 
 
-def testvalid_file_ids_cover_all_multi_file_components() -> None:
+def test_valid_file_ids_cover_all_multi_file_components() -> None:
     """Components with multiple files must report valid file identifiers."""
     for component in ("workflows", "labels", "skills"):
         ids = valid_file_ids(component)
@@ -3404,7 +3418,7 @@ def test_tool_components_have_no_file_ids() -> None:
 
 def test_workflow_files_target_workflow_dir() -> None:
     """All workflow file entries must target .github/workflows/."""
-    for entry in _BY_NAME["workflows"].files:
+    for entry in COMPONENTS_BY_NAME["workflows"].files:
         assert entry.target.startswith(".github/workflows/"), (
             f"Workflow entry {entry.file_id!r} targets {entry.target!r},"
             " expected .github/workflows/ prefix"
@@ -3413,7 +3427,7 @@ def test_workflow_files_target_workflow_dir() -> None:
 
 def test_workflow_sources_are_yaml() -> None:
     """All workflow source files must be .yaml."""
-    for entry in _BY_NAME["workflows"].files:
+    for entry in COMPONENTS_BY_NAME["workflows"].files:
         assert entry.source.endswith(".yaml"), (
             f"Workflow entry {entry.file_id!r} source {entry.source!r}"
             " is not a .yaml file"
@@ -3422,7 +3436,7 @@ def test_workflow_sources_are_yaml() -> None:
 
 def test_skill_files_target_skill_dir() -> None:
     """All skill file entries must target .claude/skills/{id}/SKILL.md."""
-    for entry in _BY_NAME["skills"].files:
+    for entry in COMPONENTS_BY_NAME["skills"].files:
         assert entry.target.startswith(".claude/skills/"), (
             f"Skill entry {entry.file_id!r} targets {entry.target!r},"
             " expected .claude/skills/ prefix"
@@ -3435,7 +3449,7 @@ def test_skill_files_target_skill_dir() -> None:
 
 def test_skill_sources_follow_naming_convention() -> None:
     """Skill source files must be named skill-{id}.md."""
-    for entry in _BY_NAME["skills"].files:
+    for entry in COMPONENTS_BY_NAME["skills"].files:
         expected_source = f"skill-{entry.file_id}.md"
         assert entry.source == expected_source, (
             f"Skill {entry.file_id!r}: source is {entry.source!r},"
@@ -3445,7 +3459,7 @@ def test_skill_sources_follow_naming_convention() -> None:
 
 def test_skill_file_id_matches_target_dir() -> None:
     """Skill file_id must match the directory name in the target path."""
-    for entry in _BY_NAME["skills"].files:
+    for entry in COMPONENTS_BY_NAME["skills"].files:
         parts = entry.target.split("/")
         # .claude/skills/{id}/SKILL.md → parts[2] is the id.
         assert parts[2] == entry.file_id, (
@@ -3763,7 +3777,7 @@ def test_init_bare_overrides_qualified(tmp_path: Path):
         components=("skills", "skills/repomatic-topics"),
     )
     # All skills created: explicit component request bypasses scope.
-    total_skills = len(_BY_NAME["skills"].files)
+    total_skills = len(COMPONENTS_BY_NAME["skills"].files)
     assert len(result.created) == total_skills
 
 

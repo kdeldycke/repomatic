@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 from http.client import IncompleteRead
-from io import BytesIO
 from unittest.mock import patch
 from urllib.error import URLError
 
@@ -33,24 +32,7 @@ from repomatic.github.releases import (
     fetch_github_release_notes,
     get_github_releases,
 )
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from typing_extensions import Self
-
-
-class _FakeResponse:
-    def __init__(self, data: bytes) -> None:
-        self._data = BytesIO(data)
-
-    def read(self) -> bytes:
-        return self._data.read()
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        pass
+from tests.conftest import FakeResponse
 
 
 def _release_payload(version: str, date: str = "2026-01-01") -> dict:
@@ -82,9 +64,9 @@ def test_get_github_releases_single_page(monkeypatch):
         _release_payload("1.0.0", "2025-12-01"),
     ]).encode()
 
-    responses = iter([_FakeResponse(body), _FakeResponse(b"[]")])
+    responses = iter([FakeResponse(body), FakeResponse(b"[]")])
     with patch(
-        "repomatic.github.releases.urlopen",
+        "repomatic.http.urlopen",
         side_effect=lambda *a, **kw: next(responses),
     ):
         result = get_github_releases("https://github.com/user/repo")
@@ -103,12 +85,12 @@ def test_get_github_releases_multi_page_pagination(monkeypatch):
     page_3 = b"[]"
 
     responses = iter([
-        _FakeResponse(page_1),
-        _FakeResponse(page_2),
-        _FakeResponse(page_3),
+        FakeResponse(page_1),
+        FakeResponse(page_2),
+        FakeResponse(page_3),
     ])
     with patch(
-        "repomatic.github.releases.urlopen",
+        "repomatic.http.urlopen",
         side_effect=lambda *a, **kw: next(responses),
     ):
         result = get_github_releases("https://github.com/user/repo")
@@ -120,8 +102,8 @@ def test_get_github_releases_empty_repo(monkeypatch):
     """A repo with no releases returns an empty dict (not an exception)."""
     _bypass_cache(monkeypatch)
     with patch(
-        "repomatic.github.releases.urlopen",
-        return_value=_FakeResponse(b"[]"),
+        "repomatic.http.urlopen",
+        return_value=FakeResponse(b"[]"),
     ):
         result = get_github_releases("https://github.com/user/repo")
 
@@ -138,7 +120,7 @@ def test_get_github_releases_raises_on_url_error(monkeypatch):
     _bypass_cache(monkeypatch)
     with (
         patch(
-            "repomatic.github.releases.urlopen",
+            "repomatic.http.urlopen",
             side_effect=URLError("502 Bad Gateway"),
         ),
         pytest.raises(GitHubReleasesUnavailable) as exc_info,
@@ -152,11 +134,11 @@ def test_get_github_releases_retries_incomplete_read(monkeypatch):
     _bypass_cache(monkeypatch)
     page_1 = json.dumps([_release_payload("1.0.0", "2026-01-01")]).encode()
     with patch(
-        "repomatic.github.releases.urlopen",
+        "repomatic.http.urlopen",
         side_effect=[
             IncompleteRead(b""),
-            _FakeResponse(page_1),
-            _FakeResponse(b"[]"),
+            FakeResponse(page_1),
+            FakeResponse(b"[]"),
         ],
     ):
         result = get_github_releases("https://github.com/user/repo")
@@ -168,7 +150,7 @@ def test_get_github_releases_raises_on_persistent_incomplete_read(monkeypatch):
     _bypass_cache(monkeypatch)
     with (
         patch(
-            "repomatic.github.releases.urlopen",
+            "repomatic.http.urlopen",
             side_effect=IncompleteRead(b""),
         ),
         pytest.raises(GitHubReleasesUnavailable) as exc_info,
@@ -188,7 +170,7 @@ def test_get_github_releases_raises_on_partial_pagination(monkeypatch):
     _bypass_cache(monkeypatch)
     page_1 = json.dumps([_release_payload("3.0.0", "2026-03-01")]).encode()
 
-    responses = iter([_FakeResponse(page_1)])
+    responses = iter([FakeResponse(page_1)])
     fail_after_first = [False]
 
     def fake_urlopen(*args, **kwargs):
@@ -198,7 +180,7 @@ def test_get_github_releases_raises_on_partial_pagination(monkeypatch):
         return next(responses)
 
     with (
-        patch("repomatic.github.releases.urlopen", side_effect=fake_urlopen),
+        patch("repomatic.http.urlopen", side_effect=fake_urlopen),
         pytest.raises(GitHubReleasesUnavailable) as exc_info,
     ):
         get_github_releases("https://github.com/user/repo")
@@ -210,7 +192,7 @@ def test_get_github_releases_raises_on_timeout(monkeypatch):
     _bypass_cache(monkeypatch)
     with (
         patch(
-            "repomatic.github.releases.urlopen",
+            "repomatic.http.urlopen",
             side_effect=TimeoutError("read timed out"),
         ),
         pytest.raises(GitHubReleasesUnavailable),
@@ -223,8 +205,8 @@ def test_get_github_releases_raises_on_invalid_json(monkeypatch):
     _bypass_cache(monkeypatch)
     with (
         patch(
-            "repomatic.github.releases.urlopen",
-            return_value=_FakeResponse(b"not json"),
+            "repomatic.http.urlopen",
+            return_value=FakeResponse(b"not json"),
         ),
         pytest.raises(GitHubReleasesUnavailable),
     ):

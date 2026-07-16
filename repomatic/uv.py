@@ -34,6 +34,7 @@ from pathlib import Path
 
 import arrow
 import tomlrt
+from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 from tomlrt import Table
 
@@ -504,7 +505,7 @@ def _bare_date(value: str) -> date | None:
         return None
 
 
-def _date_to_utc_cutoff(day: date) -> str:
+def date_to_utc_cutoff(day: date) -> str:
     """Render an `exclude-newer-package` cutoff date as an explicit UTC instant.
 
     ```{warning}
@@ -543,7 +544,7 @@ def _freeze_cutoff(upload_str: str) -> str | None:
     published later.
 
     The cutoff is the day after the upload, rendered as an explicit UTC
-    timestamp via {func}`_date_to_utc_cutoff` rather than a bare `YYYY-MM-DD`
+    timestamp via {func}`date_to_utc_cutoff` rather than a bare `YYYY-MM-DD`
     date. A bare date is re-expanded in the locking machine's local timezone,
     making `uv.lock` ping-pong between locks run locally and in CI; the
     timestamp is stored verbatim. The day-plus margin keeps the held version
@@ -557,7 +558,7 @@ def _freeze_cutoff(upload_str: str) -> str | None:
     upload_dt = _parse_iso_datetime(upload_str)
     if upload_dt is None:
         return None
-    return _date_to_utc_cutoff((upload_dt + timedelta(days=1)).date())
+    return date_to_utc_cutoff((upload_dt + timedelta(days=1)).date())
 
 
 def _bypass_entries(pyproject_path: Path) -> dict[str, str]:
@@ -695,7 +696,7 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> set[
     rejoins normal resolution.
 
     Also migrates any legacy bare `YYYY-MM-DD` fixed entry to the equivalent
-    explicit UTC timestamp (see {func}`_date_to_utc_cutoff`), so uv stops
+    explicit UTC timestamp (see {func}`date_to_utc_cutoff`), so uv stops
     re-expanding it per locking-machine timezone. Entries already carrying a
     full timestamp are left untouched (idempotent). Packages with no upload
     time in the lock (git or path sources) keep their span: they have no PyPI
@@ -739,7 +740,7 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> set[
         # pass idempotent.
         bare = _bare_date(text)
         if bare is not None:
-            pinned = _date_to_utc_cutoff(bare)
+            pinned = date_to_utc_cutoff(bare)
             frozen[pkg] = pinned
             rewritten.add(pkg)
             logging.info(f"Pinning {pkg} cooldown date {text} to {pinned}.")
@@ -1013,7 +1014,7 @@ def parse_lock_specifiers(
 # ---------------------------------------------------------------------------
 
 
-def _format_upload_date(iso_datetime: str) -> str:
+def format_upload_date(iso_datetime: str) -> str:
     """Format an ISO 8601 datetime as a human-readable date string.
 
     :param iso_datetime: An ISO 8601 datetime string (e.g.,
@@ -1027,7 +1028,7 @@ def _format_upload_date(iso_datetime: str) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-def _format_released(raw_upload: str, reference: date | None) -> str:
+def format_released(raw_upload: str, reference: date | None) -> str:
     """Format an upload time as a date, optionally with a relative hint.
 
     :param raw_upload: ISO 8601 upload-time string, or empty.
@@ -1040,7 +1041,7 @@ def _format_released(raw_upload: str, reference: date | None) -> str:
         return ""
     dt = _parse_iso_datetime(raw_upload)
     if dt is None:
-        return _format_upload_date(raw_upload)
+        return format_upload_date(raw_upload)
     iso = dt.strftime("%Y-%m-%d")
     if reference is None:
         return iso
@@ -1093,7 +1094,7 @@ def format_exclude_newer_note(exclude_newer: str) -> str:
     """
     if not exclude_newer:
         return ""
-    cutoff = _format_upload_date(exclude_newer)
+    cutoff = format_upload_date(exclude_newer)
     return (
         "Resolved with [`exclude-newer`]"
         "(https://docs.astral.sh/uv/reference/settings/#exclude-newer)"
@@ -1170,7 +1171,7 @@ def format_diff_table(
             change = f"🗑️ removed: `{old}`"
         if show_uploaded:
             raw_time = upload_times.get(name, "")  # type: ignore[union-attr]
-            uploaded = _format_released(raw_time, reference_date)
+            uploaded = format_released(raw_time, reference_date)
             lines.append(f"| {link} | {change} | {uploaded} |")
         else:
             lines.append(f"| {link} | {change} |")
@@ -1303,7 +1304,7 @@ def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
         except InvalidVersion:
             continue
         raw_upload = uploads.get(name, "")
-        released = _format_released(raw_upload, now.date())
+        released = format_released(raw_upload, now.date())
         eligible = ""
         if raw_upload and span is not None:
             upload_dt = _parse_iso_datetime(raw_upload)
@@ -1351,7 +1352,7 @@ def build_held_back(
     :param today: Reference date for the relative countdown.
     :return: A populated {class}`HeldBackPackage`.
     """
-    released = _format_released(available_date, today)
+    released = format_released(available_date, today)
     eligible = ""
     upload_dt = _parse_iso_datetime(available_date)
     if upload_dt is not None:
@@ -1774,17 +1775,6 @@ def build_comparison_urls(
 # ---------------------------------------------------------------------------
 
 
-def _canonical_name(name: str) -> str:
-    """Return a PEP 503-normalized package name for comparison.
-
-    Lowercases and collapses runs of `[-_.]` into a single `-`. Used to
-    bridge the case/separator gap between the GitHub Advisory Database
-    (which preserves a package's display name like `GitPython`) and
-    `uv.lock` (which stores the canonical lowercase form).
-    """
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
 def _uv_version() -> Version:
     """Return the version of the `uv` binary on `PATH`.
 
@@ -1888,11 +1878,11 @@ def collect_vulnerable_packages(
         # still resolve to the locked version.
         if ghsa:
             locked = parse_lock_versions(lock_path)
-            locked_canonical = {_canonical_name(k): v for k, v in locked.items()}
+            locked_canonical = {canonicalize_name(k): v for k, v in locked.items()}
             for v in ghsa:
                 if v.current_version:
                     continue
-                pkg_canonical = _canonical_name(v.name)
+                pkg_canonical = canonicalize_name(v.name)
                 if pkg_canonical in locked_canonical:
                     v.current_version = locked_canonical[pkg_canonical]
             collected.extend(ghsa)
@@ -1906,7 +1896,7 @@ def collect_vulnerable_packages(
     for v in collected:
         ids = {v.advisory_id, *v.aliases}
         ids.discard("")
-        bucket = groups.setdefault(_canonical_name(v.name), [])
+        bucket = groups.setdefault(canonicalize_name(v.name), [])
         for existing, existing_ids in bucket:
             if ids & existing_ids:
                 existing_ids |= ids
@@ -2094,7 +2084,7 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     endless `sync-uv-lock` ping-pong of empty PRs. Since the job exists only
     to move dependency *versions* forward, a run that moves none has nothing
     to contribute and is discarded. This mirrors the timezone-pinning fix in
-    {func}`_date_to_utc_cutoff`.
+    {func}`date_to_utc_cutoff`.
     ```
 
     :param lock_path: Path to the `uv.lock` file.

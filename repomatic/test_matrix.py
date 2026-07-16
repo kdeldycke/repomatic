@@ -24,7 +24,9 @@ and easier to update when runner images or Python releases change.
 
 from __future__ import annotations
 
-from typing import Final
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing import Final
 
 TEST_RUNNERS_FULL = (
     "ubuntu-24.04-arm",

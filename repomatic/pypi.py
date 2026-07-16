@@ -24,14 +24,12 @@ from __future__ import annotations
 
 import json
 import logging
-from http.client import IncompleteRead
 from typing import NamedTuple
-from urllib.error import URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
 from .cache import get_cached_response, store_response
 from .config import load_repomatic_config
+from .http import FetchError, get_json
 
 PYPI_API_URL = "https://pypi.org/pypi/{package}/json"
 """PyPI JSON API URL for fetching all release metadata for a package."""
@@ -133,6 +131,21 @@ _SOURCE_URL_KEYS = (
 )
 
 
+def _get_json(url: str, log_context: str) -> tuple[dict, bytes] | None:
+    """GET *url* as JSON, logging any failure as a soft miss.
+
+    :param url: The URL to fetch.
+    :param log_context: Human-readable label for the debug log on failure.
+    :return: `(parsed, raw_bytes)`, or `None` on any failure (HTTP error,
+        network error, timeout, JSON parse error).
+    """
+    try:
+        return get_json(url)
+    except FetchError as exc:
+        logging.debug(f"{log_context}: {exc}")
+        return None
+
+
 def _fetch_json(package: str) -> dict | None:
     """Fetch the full JSON metadata for a PyPI package.
 
@@ -169,21 +182,10 @@ def _fetch_json(package: str) -> dict | None:
             pass
 
     url = PYPI_API_URL.format(package=package)
-    request = Request(url, headers={"Accept": "application/json"})
-    for retry in (True, False):
-        try:
-            with urlopen(request, timeout=10) as response:
-                raw = response.read()
-                result: dict[str, object] = json.loads(raw)
-            break
-        except (URLError, TimeoutError, json.JSONDecodeError, IncompleteRead) as exc:
-            # A truncated body is transient (a flaky connection or an
-            # interfering proxy), so it earns one retry; the other failure
-            # modes fail straight away.
-            if retry and isinstance(exc, IncompleteRead):
-                continue
-            logging.debug(f"PyPI lookup failed for {package}: {exc}")
-            return None
+    fetched = _get_json(url, f"PyPI lookup failed for {package}")
+    if fetched is None:
+        return None
+    result, raw = fetched
 
     if ttl > 0:
         store_response("pypi", package, raw)
@@ -341,23 +343,10 @@ def get_trusted_publishers(
     url = PYPI_PROVENANCE_URL.format(
         package=package, version=version, filename=filename
     )
-    request = Request(url, headers={"Accept": "application/json"})
-    for retry in (True, False):
-        try:
-            with urlopen(request, timeout=10) as response:
-                raw = response.read()
-                data: dict[str, object] = json.loads(raw)
-            break
-        except (URLError, TimeoutError, json.JSONDecodeError, IncompleteRead) as exc:
-            # A truncated body is transient (a flaky connection or an
-            # interfering proxy), so it earns one retry; the other failure
-            # modes fail straight away.
-            if retry and isinstance(exc, IncompleteRead):
-                continue
-            logging.debug(
-                f"PyPI provenance lookup failed for {package} {version}: {exc}"
-            )
-            return None
+    fetched = _get_json(url, f"PyPI provenance lookup failed for {package} {version}")
+    if fetched is None:
+        return None
+    data, _raw = fetched
 
     raw_bundles = data.get("attestation_bundles")
     bundles = raw_bundles if isinstance(raw_bundles, list) else []

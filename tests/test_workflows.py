@@ -36,12 +36,6 @@ from repomatic.registry import (
     WORKFLOW_SOURCES,
 )
 
-# Self-referential URL base for this repository.
-SELF_REF_URL_BASE = "https://raw.githubusercontent.com/kdeldycke/repomatic"
-
-# Branch used in self-referential URLs during development.
-SELF_REF_BRANCH = "main"
-
 # Common prefix for all changelog-related commits.
 CHANGELOG_COMMIT_PREFIX = "[changelog]"
 
@@ -711,9 +705,6 @@ def test_runner_uses_ubuntu_slim_by_default(
 
 # Path to the bundled data directory.
 DATA_DIR = REPO_ROOT / "repomatic" / "data"
-
-# Path to the composite actions directory.
-ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
 
 # Workflows excluded from the bundled-data-symlink requirement. Two kinds:
 # repomatic-internal workflows (patching files only in this repo) and release

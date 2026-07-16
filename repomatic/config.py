@@ -25,16 +25,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from textwrap import dedent
 
-import tomlrt
 from click_extra import (
     CONFIG_PATH_METADATA_KEY,
     NORMALIZE_KEYS_METADATA_KEY,
     make_schema_callable,
     schema_field_infos,
 )
+
+from .pyproject import read_pyproject_toml
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -482,6 +482,17 @@ class Config:
     Each field has a docstring explaining its purpose.
     """
 
+    abandoned_versions: list[str] = field(default_factory=list)
+    """Versions documented in the changelog but never published.
+
+    A version reached only its `[changelog] Release vX.Y.Z` freeze and was then
+    skipped per `CLAUDE.md` § Skip and move forward (botched build, broken
+    artifact, bad metadata) without rewriting history. List those versions here
+    so `lint-changelog` reports them as skipped (an info log line) instead of
+    flagging them every run as `⚠ X.Y.Z: not found on PyPI`. Applies to both
+    PyPI lookups and the git-tag fallback.
+    """
+
     action_pins_sync: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "action-pins.sync"},
@@ -491,6 +502,17 @@ class Config:
     Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the
     latest release passing the `minimum-release-age` cooldown. Projects that
     pin actions by hand can set this to `false`.
+    """
+
+    agents_location: str = field(
+        default="./.claude/agents/",
+        metadata={CONFIG_PATH_METADATA_KEY: "agents.location"},
+    )
+    """Directory prefix for Claude Code agent files, relative to the repository root.
+
+    Agent files are written as `{agents_location}/{agent-id}.md`.
+    Useful for repositories where `.claude/` is not at the root (like
+    dotfiles repos that store configs under a subdirectory).
     """
 
     awesome_template_sync: bool = field(
@@ -653,6 +675,17 @@ class Config:
     to overwrite it can set this to `false`.
     """
 
+    manpages_asset_name: str = field(
+        default="",
+        metadata={CONFIG_PATH_METADATA_KEY: "manpages.asset-name"},
+    )
+    """Filename stem (without the `.tar.gz` extension) for the man-page tarball
+    uploaded to the GitHub release.
+
+    Defaults to `<package-name>-manpages` when left empty and `manpages.script`
+    is set. Has no effect when `manpages.script` is empty.
+    """
+
     manpages_script: str = field(
         default="",
         metadata={CONFIG_PATH_METADATA_KEY: "manpages.script"},
@@ -664,17 +697,6 @@ class Config:
     (preferred for projects whose console-script entry point dispatches through
     a wrapper), an entry-point name, a `.py` file path, or a plain importable
     module name. Leave empty to disable release-attached man pages.
-    """
-
-    manpages_asset_name: str = field(
-        default="",
-        metadata={CONFIG_PATH_METADATA_KEY: "manpages.asset-name"},
-    )
-    """Filename stem (without the `.tar.gz` extension) for the man-page tarball
-    uploaded to the GitHub release.
-
-    Defaults to `<package-name>-manpages` when left empty and `manpages.script`
-    is set. Has no effect when `manpages.script` is empty.
     """
 
     minimum_release_age: str = field(
@@ -763,33 +785,11 @@ class Config:
     release metadata from all names and generate correct PyPI URLs.
     """
 
-    abandoned_versions: list[str] = field(default_factory=list)
-    """Versions documented in the changelog but never published.
-
-    A version reached only its `[changelog] Release vX.Y.Z` freeze and was then
-    skipped per `CLAUDE.md` § Skip and move forward (botched build, broken
-    artifact, bad metadata) without rewriting history. List those versions here
-    so `lint-changelog` reports them as skipped (an info log line) instead of
-    flagging them every run as `⚠ X.Y.Z: not found on PyPI`. Applies to both
-    PyPI lookups and the git-tag fallback.
-    """
-
     setup_guide: bool = True
     """Whether the setup guide issue is enabled for this project.
 
     Projects that do not need `REPOMATIC_PAT` or manage their
     own PAT setup can set this to `false` to suppress the setup guide issue.
-    """
-
-    agents_location: str = field(
-        default="./.claude/agents/",
-        metadata={CONFIG_PATH_METADATA_KEY: "agents.location"},
-    )
-    """Directory prefix for Claude Code agent files, relative to the repository root.
-
-    Agent files are written as `{agents_location}/{agent-id}.md`.
-    Useful for repositories where `.claude/` is not at the root (like
-    dotfiles repos that store configs under a subdirectory).
     """
 
     skills_location: str = field(
@@ -995,11 +995,7 @@ def load_repomatic_config(
         reads and parses `pyproject.toml` from the current working directory.
     """
     if pyproject_data is None:
-        pyproject_path = Path() / "pyproject.toml"
-        if pyproject_path.exists() and pyproject_path.is_file():
-            pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
-        else:
-            pyproject_data = {}
+        pyproject_data = read_pyproject_toml()
 
     tool_section = pyproject_data.get("tool", {})
     user_config: dict[str, Any] = tool_section.get("repomatic", {})

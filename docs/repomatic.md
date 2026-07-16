@@ -110,10 +110,37 @@
    :undoc-members:
 ```
 
+## `repomatic.docs` module
+
+```{eval-rst}
+.. automodule:: repomatic.docs
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.git_ops` module
 
 ```{eval-rst}
 .. automodule:: repomatic.git_ops
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.gitignore` module
+
+```{eval-rst}
+.. automodule:: repomatic.gitignore
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.http` module
+
+```{eval-rst}
+.. automodule:: repomatic.http
    :members:
    :show-inheritance:
    :undoc-members:
@@ -231,6 +258,15 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.rst_to_myst
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.setup_guide` module
+
+```{eval-rst}
+.. automodule:: repomatic.setup_guide
    :members:
    :show-inheritance:
    :undoc-members:

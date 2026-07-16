@@ -48,6 +48,10 @@ from .github.releases import (
 from .npm import get_release_dates as npm_release_dates
 from .pypi import get_release_dates as pypi_release_dates
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 MINIMUM_RELEASE_AGE_URL = (
     "https://kdeldycke.github.io/repomatic/configuration.html#minimum-release-age"
 )
@@ -237,6 +241,39 @@ def format_cooldown_note(age_label: str, cutoff: date) -> str:
     )
 
 
+def _best_candidate(
+    candidates: list[Candidate],
+    *,
+    allow_prerelease: bool,
+    keep: Callable[[Candidate, date], bool],
+) -> Candidate | None:
+    """Return the highest-versioned candidate passing the *keep* predicate.
+
+    Shared sweep for {func}`select_latest` and {func}`select_held_back`:
+    candidates with an unparsable date or version are skipped, prereleases obey
+    *allow_prerelease*, then *keep* (receiving the candidate and its parsed
+    release date) decides eligibility and the highest PEP 440 version wins.
+    """
+    best: Candidate | None = None
+    best_version: Version | None = None
+    for candidate in candidates:
+        try:
+            released = date.fromisoformat(candidate.date)
+        except ValueError:
+            continue
+        try:
+            parsed = Version(candidate.version)
+        except InvalidVersion:
+            continue
+        if parsed.is_prerelease and not allow_prerelease:
+            continue
+        if not keep(candidate, released):
+            continue
+        if best_version is None or parsed > best_version:
+            best, best_version = candidate, parsed
+    return best
+
+
 def select_latest(
     candidates: list[Candidate],
     min_age: timedelta,
@@ -257,24 +294,11 @@ def select_latest(
     :return: The winning {class}`Candidate`, or `None` when none qualify.
     """
     cutoff = today - min_age
-    best: Candidate | None = None
-    best_version: Version | None = None
-    for candidate in candidates:
-        try:
-            released = date.fromisoformat(candidate.date)
-        except ValueError:
-            continue
-        if released > cutoff:
-            continue
-        try:
-            parsed = Version(candidate.version)
-        except InvalidVersion:
-            continue
-        if parsed.is_prerelease and not allow_prerelease:
-            continue
-        if best_version is None or parsed > best_version:
-            best, best_version = candidate, parsed
-    return best
+    return _best_candidate(
+        candidates,
+        allow_prerelease=allow_prerelease,
+        keep=lambda _candidate, released: released <= cutoff,
+    )
 
 
 def select_held_back(
@@ -304,27 +328,14 @@ def select_held_back(
         inside the cooldown.
     """
     cutoff = today - min_age
-    best: Candidate | None = None
-    best_version: Version | None = None
-    for candidate in candidates:
-        try:
-            released = date.fromisoformat(candidate.date)
-        except ValueError:
-            continue
+    return _best_candidate(
+        candidates,
+        allow_prerelease=allow_prerelease,
         # Outside the cooldown: select_latest would already have adopted it.
-        if released <= cutoff:
-            continue
-        try:
-            parsed = Version(candidate.version)
-        except InvalidVersion:
-            continue
-        if parsed.is_prerelease and not allow_prerelease:
-            continue
-        if not is_newer(candidate.version, pinned):
-            continue
-        if best_version is None or parsed > best_version:
-            best, best_version = candidate, parsed
-    return best
+        keep=lambda candidate, released: (
+            released > cutoff and is_newer(candidate.version, pinned)
+        ),
+    )
 
 
 def github_candidates(repo_url: str, tag_pattern: str | None = None) -> list[Candidate]:

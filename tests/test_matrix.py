@@ -714,7 +714,7 @@ def test_solve_empty_matrix():
 
 @pytest.mark.parametrize(
     "excludes",
-    (
+    list(
         permutations(
             (
                 # The order of these 3 includes directives can be shuffled as the
@@ -754,7 +754,7 @@ def test_solve_excludes(excludes):
 
 @pytest.mark.parametrize(
     "excludes",
-    (
+    list(
         permutations(
             (
                 # The order of these 2 excludes directives can be shuffled as the

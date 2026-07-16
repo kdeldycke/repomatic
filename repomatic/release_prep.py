@@ -127,6 +127,19 @@ class ReleasePrep:
 
         return self._update_file(self.citation_path, content, original)
 
+    def _workflow_files(self) -> list[Path]:
+        """Enumerate the workflow files under {attr}`workflow_dir`.
+
+        Covers both YAML extensions: `repomatic init` writes `.yaml`, but
+        downstream-authored workflows may use `.yml`, and a file skipped here
+        would ship with unfrozen (mutable) refs in the release.
+        """
+        return sorted(
+            path
+            for pattern in ("*.yaml", "*.yml")
+            for path in self.workflow_dir.glob(pattern)
+        )
+
     @cached_property
     def composite_action_names(self) -> list[str]:
         """Discover composite action directories under `.github/actions/`.
@@ -178,7 +191,7 @@ class ReleasePrep:
             for name in self.composite_action_names
         ]
 
-        for yaml_file in self.workflow_dir.glob("*.yaml"):
+        for yaml_file in self._workflow_files():
             original = yaml_file.read_text(encoding="UTF-8")
             content = original.replace(url_search, url_replace)
             for action_search, action_replace in action_pairs:
@@ -319,7 +332,7 @@ class ReleasePrep:
         search = "--from . repomatic"
         yaml_replace = f"'repomatic=={version}'"
 
-        for workflow_file in self.workflow_dir.glob("*.yaml"):
+        for workflow_file in self._workflow_files():
             original = workflow_file.read_text(encoding="UTF-8")
             content = self._replace_skip_comments(original, search, yaml_replace)
             if self._update_file(workflow_file, content, original):
@@ -348,7 +361,7 @@ class ReleasePrep:
         yaml_pattern = re.compile(r"'repomatic==[\d.]+'")
         replace = "--from . repomatic"
 
-        for workflow_file in self.workflow_dir.glob("*.yaml"):
+        for workflow_file in self._workflow_files():
             original = workflow_file.read_text(encoding="UTF-8")
             content = self._sub_skip_comments(original, yaml_pattern, replace)
             if self._update_file(workflow_file, content, original):
@@ -388,7 +401,7 @@ class ReleasePrep:
             for name in self.composite_action_names
         ]
 
-        for yaml_file in self.workflow_dir.glob("*.yaml"):
+        for yaml_file in self._workflow_files():
             original = yaml_file.read_text(encoding="UTF-8")
             content = original.replace(url_search, url_replace)
             for action_search, action_replace in action_pairs:

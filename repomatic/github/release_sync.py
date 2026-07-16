@@ -31,7 +31,7 @@ from pathlib import Path
 from ..changelog import Changelog
 from .gh import run_gh_command
 from .pr_body import render_template
-from .releases import GitHubReleasesUnavailable, get_github_releases
+from .releases import GitHubReleasesUnavailable, get_github_releases, owner_repo
 
 
 class SyncAction(Enum):
@@ -159,8 +159,8 @@ def sync_github_releases(
         return result
 
     # Parse owner/repo for gh CLI.
-    parts = repo_url.rstrip("/").split("/")
-    nwo = f"{parts[-2]}/{parts[-1]}" if len(parts) >= 2 else ""
+    parsed = owner_repo(repo_url)
+    nwo = "/".join(parsed) if parsed else ""
 
     # Iterate over released versions in the changelog.
     for version, _date in changelog.extract_all_releases():

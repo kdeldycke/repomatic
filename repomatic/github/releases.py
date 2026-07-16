@@ -27,17 +27,19 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
-from http.client import IncompleteRead
 from typing import NamedTuple
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 from packaging.version import InvalidVersion, Version
 
 from ..cache import get_cached_response, store_response
 from ..config import load_repomatic_config
+from ..http import FetchError, get_json
+from .gh import resolve_gh_token
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 GITHUB_API_RELEASES_URL = "https://api.github.com/repos/{owner}/{repo}/releases"
 """GitHub API URL for fetching all releases for a repository."""
@@ -56,7 +58,7 @@ GITHUB_API_RELEASE_BY_TAG_URL = (
 """GitHub API URL for fetching a single release by tag name."""
 
 
-def _owner_repo(repo_url: str) -> tuple[str, str] | None:
+def owner_repo(repo_url: str) -> tuple[str, str] | None:
     """Extract `(owner, repo)` from a GitHub repository URL.
 
     :param repo_url: Repository URL (e.g. `https://github.com/user/repo`).
@@ -68,17 +70,20 @@ def _owner_repo(repo_url: str) -> tuple[str, str] | None:
     return parts[-2], parts[-1]
 
 
-def _api_request(url: str) -> Request:
-    """Build a GitHub API request, authenticated when a token is present.
+def _api_headers() -> dict[str, str]:
+    """Build GitHub API request headers, authenticated when a token is present.
 
-    `GITHUB_TOKEN` or `GH_TOKEN` raises the rate limit from 60 to 1000
-    requests/hour, which matters when iterating every tool and action in CI.
+    A token raises the rate limit from 60 to at least 1,000 requests/hour,
+    which matters when iterating every tool and action in CI. Resolution
+    follows the canonical {func}`~repomatic.github.gh.resolve_gh_token`
+    order, so a repo carrying only `REPOMATIC_PAT` gets authenticated reads
+    here too, not just through the `gh` CLI.
     """
     headers = {"Accept": "application/vnd.github+json"}
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    token = resolve_gh_token()
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return Request(url, headers=headers)
+    return headers
 
 
 def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
@@ -97,26 +102,8 @@ def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
             + f"?per_page=100&page={page}"
         )
         try:
-            with urlopen(_api_request(url), timeout=10) as response:
-                data = json.loads(response.read())
-        except IncompleteRead:
-            # A truncated body is transient (a flaky connection or an
-            # interfering proxy), so the page earns one retry before the
-            # lookup is declared unavailable.
-            try:
-                with urlopen(_api_request(url), timeout=10) as response:
-                    data = json.loads(response.read())
-            except (
-                URLError,
-                TimeoutError,
-                json.JSONDecodeError,
-                IncompleteRead,
-            ) as exc:
-                raise GitHubReleasesUnavailable(
-                    f"GitHub releases lookup failed for {owner}/{repo} "
-                    f"on page {page}: {exc}"
-                ) from exc
-        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+            data, _raw = get_json(url, headers=_api_headers())
+        except FetchError as exc:
             # A failed page fetch can corrupt the result in two ways: a total
             # failure on page 1 returns `{}` (indistinguishable from "repo has
             # no releases"), and a mid-pagination failure returns a silently
@@ -215,6 +202,65 @@ class ReleaseWithAssets(NamedTuple):
     """
 
 
+def _cached_release_map(
+    namespace: str,
+    repo_url: str,
+    key_for: Callable[[str], str | None],
+) -> dict[str, GitHubRelease]:
+    """Fetch a repository's releases as a keyed map, through the HTTP cache.
+
+    The shared body of {func}`get_github_releases` and
+    {func}`get_release_tags`: check the *namespace* cache, fetch every release
+    page on a miss, key each dated release by `key_for(tag)` (releases mapped
+    to `None` are dropped), and cache a non-empty result.
+
+    :param namespace: HTTP-cache namespace to read and write.
+    :param repo_url: Repository URL.
+    :param key_for: Maps a raw tag name to the result key, or `None` to skip
+        that release.
+    :return: Dict mapping keys to {class}`GitHubRelease` tuples. Empty when
+        the repository has no releases or *repo_url* does not parse to an
+        `owner/repo` pair.
+    :raises GitHubReleasesUnavailable: When any page fetch fails or returns
+        unparsable JSON.
+    """
+    parsed = owner_repo(repo_url)
+    if parsed is None:
+        return {}
+    owner, repo = parsed
+
+    cache_key = f"{owner}/{repo}"
+    ttl = load_repomatic_config().cache.github_releases_ttl
+    cached = get_cached_response(namespace, cache_key, ttl)
+    if cached is not None:
+        try:
+            data = json.loads(cached)
+            return {
+                key: GitHubRelease(date=r["date"], body=r["body"])
+                for key, r in data.items()
+            }
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+
+    result: dict[str, GitHubRelease] = {}
+    for release in _fetch_release_pages(owner, repo):
+        key = key_for(release.get("tag_name", ""))
+        if key is None:
+            continue
+        date = _release_date(release)
+        if date:
+            result[key] = GitHubRelease(date=date, body=release.get("body", ""))
+
+    # Cache non-empty results.
+    if result and ttl > 0:
+        serialized = {
+            key: {"date": r.date, "body": r.body} for key, r in result.items()
+        }
+        store_response(namespace, cache_key, json.dumps(serialized).encode())
+
+    return result
+
+
 def get_github_releases(repo_url: str) -> dict[str, GitHubRelease]:
     """Get versions and dates for all GitHub releases.
 
@@ -233,43 +279,11 @@ def get_github_releases(repo_url: str) -> dict[str, GitHubRelease]:
         function means "the repo has no releases"; a raised exception
         means "we don't know."
     """
-    parsed = _owner_repo(repo_url)
-    if parsed is None:
-        return {}
-    owner, repo = parsed
-
-    # Check cache.
-    cache_key = f"{owner}/{repo}"
-    ttl = load_repomatic_config().cache.github_releases_ttl
-    cached = get_cached_response("github-releases", cache_key, ttl)
-    if cached is not None:
-        try:
-            data = json.loads(cached)
-            return {
-                v: GitHubRelease(date=r["date"], body=r["body"])
-                for v, r in data.items()
-            }
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    result: dict[str, GitHubRelease] = {}
-    for release in _fetch_release_pages(owner, repo):
-        tag = release.get("tag_name", "")
-        if tag.startswith("v"):
-            date = _release_date(release)
-            if date:
-                result[tag[1:]] = GitHubRelease(date=date, body=release.get("body", ""))
-
-    # Cache non-empty results.
-    if result and ttl > 0:
-        serialized = {v: {"date": r.date, "body": r.body} for v, r in result.items()}
-        store_response(
-            "github-releases",
-            cache_key,
-            json.dumps(serialized).encode(),
-        )
-
-    return result
+    return _cached_release_map(
+        "github-releases",
+        repo_url,
+        lambda tag: tag[1:] if tag.startswith("v") else None,
+    )
 
 
 def get_release_tags(repo_url: str) -> dict[str, GitHubRelease]:
@@ -288,40 +302,11 @@ def get_release_tags(repo_url: str) -> dict[str, GitHubRelease]:
     :raises GitHubReleasesUnavailable: When any page fetch fails or returns
         unparsable JSON.
     """
-    parsed = _owner_repo(repo_url)
-    if parsed is None:
-        return {}
-    owner, repo = parsed
-
-    cache_key = f"{owner}/{repo}"
-    ttl = load_repomatic_config().cache.github_releases_ttl
-    cached = get_cached_response("github-release-tags", cache_key, ttl)
-    if cached is not None:
-        try:
-            data = json.loads(cached)
-            return {
-                t: GitHubRelease(date=r["date"], body=r["body"])
-                for t, r in data.items()
-            }
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    result: dict[str, GitHubRelease] = {}
-    for release in _fetch_release_pages(owner, repo):
-        tag = release.get("tag_name", "")
-        date = _release_date(release)
-        if tag and date:
-            result[tag] = GitHubRelease(date=date, body=release.get("body", ""))
-
-    if result and ttl > 0:
-        serialized = {t: {"date": r.date, "body": r.body} for t, r in result.items()}
-        store_response(
-            "github-release-tags",
-            cache_key,
-            json.dumps(serialized).encode(),
-        )
-
-    return result
+    return _cached_release_map(
+        "github-release-tags",
+        repo_url,
+        lambda tag: tag or None,
+    )
 
 
 def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
@@ -340,7 +325,7 @@ def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
     :raises GitHubReleasesUnavailable: When any page fetch fails or returns
         unparsable JSON.
     """
-    parsed = _owner_repo(repo_url)
+    parsed = owner_repo(repo_url)
     if parsed is None:
         return []
     owner, repo = parsed
@@ -383,18 +368,18 @@ def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:
     :return: The commit SHA, or `None` when the tag cannot be resolved
         (network error, missing tag, or unexpected payload).
     """
-    parsed = _owner_repo(repo_url)
+    parsed = owner_repo(repo_url)
     if parsed is None:
         return None
     owner, repo = parsed
 
     ref_url = GITHUB_API_TAG_REF_URL.format(owner=owner, repo=repo, tag=tag)
     try:
-        with urlopen(_api_request(ref_url), timeout=10) as response:
-            obj = json.loads(response.read()).get("object", {})
-    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        data, _raw = get_json(ref_url, headers=_api_headers())
+    except FetchError as exc:
         logging.debug(f"Tag ref lookup failed for {owner}/{repo}@{tag}: {exc}")
         return None
+    obj = data.get("object", {})
 
     sha = obj.get("sha", "")
     # Lightweight tag: the ref already points at the commit.
@@ -404,12 +389,11 @@ def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:
     # Annotated tag: dereference the tag object to its target commit.
     tag_url = GITHUB_API_TAG_OBJECT_URL.format(owner=owner, repo=repo, sha=sha)
     try:
-        with urlopen(_api_request(tag_url), timeout=10) as response:
-            target = json.loads(response.read()).get("object", {})
-    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        data, _raw = get_json(tag_url, headers=_api_headers())
+    except FetchError as exc:
         logging.debug(f"Annotated tag deref failed for {owner}/{repo}@{tag}: {exc}")
         return None
-    return target.get("sha") or None
+    return data.get("object", {}).get("sha") or None
 
 
 def extract_version(tag: str, tag_pattern: str | None) -> str | None:
@@ -438,7 +422,7 @@ def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:
         `body` is the release notes markdown. Both are empty strings if no
         release is found.
     """
-    parsed = _owner_repo(repo_url)
+    parsed = owner_repo(repo_url)
     if not parsed:
         return "", ""
     owner, repo = parsed
@@ -457,19 +441,17 @@ def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:
     for tag in (f"v{version}", version):
         url = GITHUB_API_RELEASE_BY_TAG_URL.format(owner=owner, repo=repo, tag=tag)
         try:
-            with urlopen(_api_request(url), timeout=10) as response:
-                data = json.loads(response.read())
-        except (URLError, TimeoutError, json.JSONDecodeError):
+            data, _raw = get_json(url, headers=_api_headers())
+        except FetchError:
             continue
-        else:
-            body = data.get("body", "")
-            if ttl > 0:
-                store_response(
-                    "github-release",
-                    cache_key,
-                    json.dumps({"tag": tag, "body": body}).encode(),
-                )
-            return tag, body
+        body = data.get("body", "")
+        if ttl > 0:
+            store_response(
+                "github-release",
+                cache_key,
+                json.dumps({"tag": tag, "body": body}).encode(),
+            )
+        return tag, body
     logging.debug(f"No GitHub release found for {repo_url} version {version}.")
     return "", ""
 

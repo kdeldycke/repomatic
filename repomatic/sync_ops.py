@@ -79,7 +79,7 @@ from .dep_sources import (
     tracked_git_overrides,
 )
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
-from .init_project import _is_source_repo, init_config
+from .init_project import init_config, is_source_repo
 from .registry import BUNDLED_VERBATIM_TARGETS, DEFAULT_REPO, UPSTREAM_REPO_SLUGS
 from .tool_runner import TOOL_REGISTRY
 from .uv import (
@@ -126,8 +126,10 @@ from .version_sync import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
+    from datetime import timedelta
 
     from .config import Config
+    from .version_sync import Candidate
 
 DEPENDENCY_LABEL = "🔗 dependencies"
 """GitHub label applied to every dependency-update PR.
@@ -173,9 +175,9 @@ def _pinnable_files() -> dict[Path, str]:
     In the source repo the exclusion lifts: there the bundled template is a symlink
     to the in-tree file, so init rewrites nothing and the pin is a normal
     source-of-truth ref that upstream keeps bumping (see
-    {func}`~repomatic.init_project._is_source_repo`).
+    {func}`~repomatic.init_project.is_source_repo`).
     """
-    in_source_repo = _is_source_repo(Path.cwd())
+    in_source_repo = is_source_repo(Path.cwd())
     return {
         path: path.read_text(encoding="UTF-8")
         for path in workflow_and_action_files()
@@ -330,6 +332,58 @@ class SyncPlan:
         """
         return bool(self.changes or self.pruned_bypasses or self.frozen_bypasses)
 
+    def note_cooldown(self, age_label: str, min_age: timedelta, today: date) -> None:
+        """Record the cooldown cutoff and its rendered diff-table note.
+
+        No-op fields (a `None` cutoff, an empty note) when the cooldown is
+        disabled (`0 days` or unparsable).
+        """
+        self.cutoff = today - min_age if min_age else None
+        self.cooldown_note = (
+            format_cooldown_note(age_label, self.cutoff)
+            if self.cutoff is not None
+            else ""
+        )
+
+
+def _track_held_back(
+    plan: SyncPlan,
+    rc: ResolveContext,
+    name: str,
+    url: str,
+    candidates: list[Candidate],
+    latest: Candidate | None,
+    pinned: str,
+    min_age: timedelta,
+) -> None:
+    """Record on *plan* the release withheld from *name* only by the cooldown.
+
+    Held-back covers every scanned item, even ones not bumped this run, so the
+    section shows the full cooldown pipeline. The probe compares against the
+    version this run settles on: *latest* when it beats *pinned*, else
+    *pinned*. Skipped when the caller opted out (`rc.held_back` off).
+    """
+    if not rc.held_back:
+        return
+    final_version = (
+        latest.version
+        if latest is not None and is_newer(latest.version, pinned)
+        else pinned
+    )
+    withheld = select_held_back(candidates, final_version, min_age, rc.today)
+    if withheld is not None:
+        plan.held_back.append(
+            build_held_back(
+                name,
+                final_version,
+                withheld.version,
+                withheld.date,
+                min_age,
+                rc.today,
+            )
+        )
+        plan.held_back_name_urls[name] = url
+
 
 def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
     """Re-lock dependencies and roll cooldown overrides forward.
@@ -462,9 +516,7 @@ def _resolve_dep_sources(rc: ResolveContext) -> SyncPlan:
             raise
 
         after = parse_lock_versions(lockfile)
-        missed = [
-            swap.name for swap in swaps if after.get(swap.name) != swap.release
-        ]
+        missed = [swap.name for swap in swaps if after.get(swap.name) != swap.release]
         if missed:
             restore()
             logging.warning(
@@ -517,7 +569,6 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
 
     changes: list[tuple[str, str, str]] = []
     overrides: dict[str, str] = {}
-    held_back_pkgs: list[HeldBackPackage] = []
     for name, spec in sorted(TOOL_REGISTRY.items()):
         if spec.binary is not None:
             if not spec.source_url:
@@ -528,27 +579,16 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         else:
             candidates = pypi_candidates(spec.pypi_name)
         latest = select_latest(candidates, min_age, today)
-        # Held-back covers every scanned tool, even ones not bumped this run, so
-        # the section shows the full cooldown pipeline (parity with sync-uv-lock).
-        final_version = (
-            latest.version
-            if latest is not None and is_newer(latest.version, spec.version)
-            else spec.version
+        _track_held_back(
+            plan,
+            rc,
+            name,
+            spec.datasource_url,
+            candidates,
+            latest,
+            spec.version,
+            min_age,
         )
-        if rc.held_back:
-            withheld = select_held_back(candidates, final_version, min_age, today)
-            if withheld is not None:
-                held_back_pkgs.append(
-                    build_held_back(
-                        name,
-                        final_version,
-                        withheld.version,
-                        withheld.date,
-                        min_age,
-                        today,
-                    )
-                )
-                plan.held_back_name_urls[name] = spec.datasource_url
         if latest is None or not is_newer(latest.version, spec.version):
             continue
         content = set_tool_version(content, name, latest.version)
@@ -557,13 +597,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         overrides[name] = latest.version
 
     plan.changes = changes
-    plan.held_back = held_back_pkgs
-    plan.cutoff = today - min_age if min_age else None
-    plan.cooldown_note = (
-        format_cooldown_note(rc.config.minimum_release_age, plan.cutoff)
-        if plan.cutoff is not None
-        else ""
-    )
+    plan.note_cooldown(rc.config.minimum_release_age, min_age, today)
     if not changes:
         return plan
 
@@ -673,31 +707,13 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
                     current_pins[pin.slug] = (pin.sha, pin.ref)
 
     resolved: dict[str, tuple[str, str]] = {}
-    held_back_pkgs: list[HeldBackPackage] = []
     for slug, current_version in sorted(current.items()):
         repo_url = f"https://github.com/{slug}"
         candidates = github_candidates(repo_url)
         latest = select_latest(candidates, min_age, today)
-        # Held-back covers every scanned action, even ones not bumped this run.
-        final_version = (
-            latest.version
-            if latest is not None and is_newer(latest.version, current_version)
-            else current_version
+        _track_held_back(
+            plan, rc, slug, repo_url, candidates, latest, current_version, min_age
         )
-        if rc.held_back:
-            withheld = select_held_back(candidates, final_version, min_age, today)
-            if withheld is not None:
-                held_back_pkgs.append(
-                    build_held_back(
-                        slug,
-                        final_version,
-                        withheld.version,
-                        withheld.date,
-                        min_age,
-                        today,
-                    )
-                )
-                plan.held_back_name_urls[slug] = repo_url
         if latest is None or not is_newer(latest.version, current_version):
             # No release beats the highest pin, but stragglers pinned at older
             # versions still converge onto it: otherwise the repo-wide maximum
@@ -707,12 +723,12 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
             # carries the SHA, so no tag resolution is needed.
             if slug in mixed:
                 resolved[slug] = current_pins[slug]
-                date = next(
+                pinned_date = next(
                     (c.date for c in candidates if c.version == current_version),
                     "",
                 )
-                if date:
-                    plan.dates[slug] = date
+                if pinned_date:
+                    plan.dates[slug] = pinned_date
             continue
         new_sha = resolve_tag_to_sha(repo_url, latest.ref)
         if not new_sha:
@@ -728,13 +744,7 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
             plan.file_writes[path] = new_content
             changes.extend(file_changes)
     plan.changes = _widest_changes(changes)
-    plan.held_back = held_back_pkgs
-    plan.cutoff = today - min_age if min_age else None
-    plan.cooldown_note = (
-        format_cooldown_note(rc.config.minimum_release_age, plan.cutoff)
-        if plan.cutoff is not None
-        else ""
-    )
+    plan.note_cooldown(rc.config.minimum_release_age, min_age, today)
     plan.name_urls = {
         slug: f"https://github.com/{slug}" for slug, _old, _new in plan.changes
     }
@@ -797,7 +807,6 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
                 lockstep_version = version
 
     resolved: dict[tuple[str, str], str] = {}
-    held_back_pkgs: list[HeldBackPackage] = []
     for (ecosystem, package), current_version in sorted(current.items()):
         if (
             ecosystem == "pypi"
@@ -822,26 +831,16 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             if ecosystem == "npm"
             else f"https://pypi.org/project/{package}/"
         )
-        # Held-back covers every scanned literal, even ones not bumped this run.
-        final_version = (
-            latest.version
-            if latest is not None and is_newer(latest.version, current_version)
-            else current_version
+        _track_held_back(
+            plan,
+            rc,
+            package,
+            package_url,
+            candidates,
+            latest,
+            current_version,
+            min_age,
         )
-        if rc.held_back:
-            withheld = select_held_back(candidates, final_version, min_age, today)
-            if withheld is not None:
-                held_back_pkgs.append(
-                    build_held_back(
-                        package,
-                        final_version,
-                        withheld.version,
-                        withheld.date,
-                        min_age,
-                        today,
-                    )
-                )
-                plan.held_back_name_urls[package] = package_url
         if latest is None or not is_newer(latest.version, current_version):
             continue
         resolved[(ecosystem, package)] = latest.version
@@ -855,13 +854,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             plan.file_writes[path] = new_content
             changes.extend(file_changes)
     plan.changes = _widest_changes(changes)
-    plan.held_back = held_back_pkgs
-    plan.cutoff = today - min_age if min_age else None
-    plan.cooldown_note = (
-        format_cooldown_note(rc.config.minimum_release_age, plan.cutoff)
-        if plan.cutoff is not None
-        else ""
-    )
+    plan.note_cooldown(rc.config.minimum_release_age, min_age, today)
     if rc.release_notes:
         # Only PyPI literals resolve to a source repo, reusing sync-uv-lock's
         # path: PyPI `project_urls` to GitHub releases, with a changelog-link
@@ -917,9 +910,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
     """
     swap_section = format_swap_section(
         plan.source_swaps,
-        name_urls=pypi_name_urls([
-            (swap.name, "", "") for swap in plan.source_swaps
-        ]),
+        name_urls=pypi_name_urls([(swap.name, "", "") for swap in plan.source_swaps]),
         reference_date=plan.reference_date,
     )
     diff_table = format_diff_table(

@@ -557,9 +557,7 @@ def test_format_bypass_section_renders_unified_table():
 
 def test_format_bypass_section_labels_unreleased_hold():
     """An unreleased hold is labelled, with an italicized expiry marker."""
-    section = format_bypass_section(
-        [BypassForecast("papaya", "1.0.0.dev0", BYPASS_NEEDS_RELEASE)]
-    )
-    assert (
-        f"| 🚧 unreleased: `1.0.0.dev0` | *{BYPASS_NEEDS_RELEASE}* |"
-    ) in section
+    section = format_bypass_section([
+        BypassForecast("papaya", "1.0.0.dev0", BYPASS_NEEDS_RELEASE)
+    ])
+    assert (f"| 🚧 unreleased: `1.0.0.dev0` | *{BYPASS_NEEDS_RELEASE}* |") in section

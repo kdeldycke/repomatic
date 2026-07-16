@@ -32,7 +32,6 @@ from repomatic.github.workflow_sync import (
     WorkflowFormat,
     WorkflowTriggerInfo,
     _adapt_trigger_paths,
-    _coerce_paths_spec,
     _split_yaml_quote,
     _substitute_source_paths,
     check_has_workflow_dispatch,
@@ -1614,7 +1613,9 @@ def test_thin_caller_release_with_source_paths() -> None:
     release.yaml only has ``push`` (no ``paths:``) and ``workflow_call``,
     so ``source_paths`` has no effect.
     """
-    content = generate_thin_caller("release.yaml", source_paths=["extra_platforms"])
+    content = generate_thin_caller(
+        "release.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
+    )
     data = yaml.safe_load(content)
     triggers = data.get(True) or data.get("on") or {}
     push_config = triggers.get("push", {})
@@ -1629,7 +1630,9 @@ def test_thin_caller_changelog_with_source_paths() -> None:
     changelog.yaml has no upstream source glob, so source_paths has no effect
     beyond keeping all paths intact.
     """
-    content = generate_thin_caller("changelog.yaml", source_paths=["extra_platforms"])
+    content = generate_thin_caller(
+        "changelog.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
+    )
     data = yaml.safe_load(content)
     triggers = data.get(True) or data.get("on") or {}
     push_config = triggers.get("push", {})
@@ -1639,29 +1642,14 @@ def test_thin_caller_changelog_with_source_paths() -> None:
 
 def test_thin_caller_lint_no_paths_with_source_paths() -> None:
     """Verify workflows without paths don't gain paths from source_paths."""
-    content = generate_thin_caller("lint.yaml", source_paths=["extra_platforms"])
+    content = generate_thin_caller(
+        "lint.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
+    )
     data = yaml.safe_load(content)
     triggers = data.get(True) or data.get("on") or {}
     push_config = triggers.get("push", {})
     # lint.yaml has no paths filter in canonical, so none in thin caller.
     assert "paths" not in push_config
-
-
-@pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
-def test_thin_caller_no_source_paths_drops_upstream_only(filename: str) -> None:
-    """Without source_paths, thin callers drop upstream entries but keep universal ones."""
-    content = generate_thin_caller(filename, source_paths=None)
-    data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
-    for trigger_name, trigger_config in triggers.items():
-        if not isinstance(trigger_config, dict):
-            continue
-        for key in ("paths", "paths-ignore"):
-            for path in trigger_config.get(key, []) or []:
-                assert not path.startswith("repomatic/"), (
-                    f"{filename}: trigger '{trigger_name}' kept upstream path"
-                    f" '{path}' in {key}."
-                )
 
 
 # ---------------------------------------------------------------------------
@@ -1671,7 +1659,9 @@ def test_thin_caller_no_source_paths_drops_upstream_only(filename: str) -> None:
 
 def test_header_with_source_paths_substitutes() -> None:
     """Verify header generation replaces upstream source paths."""
-    header = generate_workflow_header("tests.yaml", source_paths=["my_pkg"])
+    header = generate_workflow_header(
+        "tests.yaml", paths_spec=PathsSpec(source_paths=["my_pkg"])
+    )
     assert "my_pkg/**" in header
     assert UPSTREAM_SOURCE_GLOB not in header
 
@@ -1831,29 +1821,6 @@ def test_split_yaml_quote(scalar: str, expected: tuple[str, str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _coerce_paths_spec
-# ---------------------------------------------------------------------------
-
-
-def test_coerce_paths_spec_none_uses_legacy_arg() -> None:
-    """When spec is None, legacy source_paths is wrapped in a fresh spec."""
-    result = _coerce_paths_spec(None, ["my_pkg"])
-    assert result.source_paths == ["my_pkg"]
-    assert result.extra_paths == []
-    assert result.ignore_paths == []
-    assert result.workflow_paths == {}
-
-
-def test_coerce_paths_spec_explicit_supersedes_legacy_arg() -> None:
-    """When spec is provided, legacy source_paths is ignored."""
-    spec = PathsSpec(source_paths=["from_spec"], extra_paths=["extra.sh"])
-    result = _coerce_paths_spec(spec, ["legacy"])
-    assert result is spec
-    assert result.source_paths == ["from_spec"]
-    assert result.extra_paths == ["extra.sh"]
-
-
-# ---------------------------------------------------------------------------
 # Thin caller with full paths_spec
 # ---------------------------------------------------------------------------
 
@@ -1888,22 +1855,6 @@ def test_thin_caller_paths_spec_per_workflow_override_replaces_wholesale() -> No
     data = yaml.safe_load(content)
     triggers = data.get(True) or data.get("on") or {}
     assert triggers["push"]["paths"] == ["only.sh", "just-this.toml"]
-
-
-def test_thin_caller_paths_spec_supersedes_legacy_source_paths_arg() -> None:
-    """When both kwargs are passed, paths_spec wins over source_paths.
-
-    `extra_paths` makes the spec observable in the generated thin caller.
-    """
-    spec = PathsSpec(extra_paths=["from-spec.txt"])
-    content = generate_thin_caller(
-        "docs.yaml",
-        source_paths=["from_legacy"],
-        paths_spec=spec,
-    )
-    assert "from-spec.txt" in content
-    # Legacy source_paths arg ignored.
-    assert "from_legacy/**" not in content
 
 
 # ---------------------------------------------------------------------------
@@ -1991,8 +1942,8 @@ def test_header_preserves_canonical_quote_style() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_generate_workflows_paths_spec_supersedes_source_paths(tmp_path: Path) -> None:
-    """`generate_workflows` honors `paths_spec` over the legacy source_paths arg."""
+def test_generate_workflows_honors_paths_spec(tmp_path: Path) -> None:
+    """`generate_workflows` applies the given `paths_spec` to header syncs."""
     spec = PathsSpec(
         source_paths=["from_spec"],
         extra_paths=["repo-specific.sh"],
@@ -2004,7 +1955,6 @@ def test_generate_workflows_paths_spec_supersedes_source_paths(tmp_path: Path) -
         repo=DEFAULT_REPO,
         output_dir=tmp_path,
         overwrite=True,
-        source_paths=["from_legacy"],
         paths_spec=spec,
     )
     # `tests.yaml` is non-reusable so the function attempts a header-only sync
@@ -2022,11 +1972,9 @@ def test_generate_workflows_paths_spec_supersedes_source_paths(tmp_path: Path) -
         repo=DEFAULT_REPO,
         output_dir=tmp_path,
         overwrite=True,
-        source_paths=["from_legacy"],
         paths_spec=spec,
     )
     assert exit_code == 0
     written = (tmp_path / "tests.yaml").read_text(encoding="UTF-8")
     assert "from_spec/**" in written
-    assert "from_legacy/**" not in written
     assert "repo-specific.sh" in written

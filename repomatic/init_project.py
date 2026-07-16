@@ -55,10 +55,11 @@ import yaml
 
 from . import __version__
 from .config import Config, load_repomatic_config
+from .metadata import Metadata
 from .pyproject import is_python_project, resolve_source_paths
 from .registry import (
-    _BY_NAME,
     COMPONENTS,
+    COMPONENTS_BY_NAME,
     DEFAULT_REPO,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
@@ -423,7 +424,7 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
         needed.
     :raises ValueError: If the config type is not supported.
     """
-    comp = _BY_NAME.get(config_type)
+    comp = COMPONENTS_BY_NAME.get(config_type)
     if not isinstance(comp, ToolConfigComponent):
         supported = ", ".join(
             c.name for c in COMPONENTS if isinstance(c, ToolConfigComponent)
@@ -577,8 +578,6 @@ def run_init(
 
     # Auto-include awesome-template for awesome-* repositories.
     if not repo_slug:
-        from .metadata import Metadata
-
         repo_slug = Metadata().repo_slug
     is_awesome = bool(repo_slug and repo_slug.split("/")[-1].startswith("awesome-"))
     is_python = is_python_project(output_dir)
@@ -637,7 +636,7 @@ def run_init(
         # Expand component-level exclusions into file-level entries so
         # detection below is a single unified pass.
         for excl_name in actually_excluded:
-            excl_comp = _BY_NAME.get(excl_name)
+            excl_comp = COMPONENTS_BY_NAME.get(excl_name)
             if excl_comp and excl_comp.files:
                 ids = {e.file_id for e in excl_comp.files}
                 excluded_files.setdefault(excl_name, set()).update(ids)
@@ -661,7 +660,7 @@ def run_init(
     #
     # 3. User config (`[tool.repomatic] exclude`/`include`).
     #    Already applied above, before this loop.
-    is_source = _is_source_repo(output_dir)
+    is_source = is_source_repo(output_dir)
     scope_excluded_targets: list[str] = []
 
     for reg_comp in COMPONENTS:
@@ -863,7 +862,7 @@ def _init_workflows(
         return
 
     # Exclude config-gated workflows whose toggle is off.
-    for entry in _BY_NAME["workflows"].files:
+    for entry in COMPONENTS_BY_NAME["workflows"].files:
         if entry.file_id in workflows and not entry.is_enabled(config):
             workflows = tuple(w for w in workflows if w != entry.file_id)
 
@@ -909,7 +908,7 @@ def _init_workflows(
 
     # Sync headers for non-reusable workflows that already exist on disk.
     non_reusable = sorted(
-        f.file_id for f in _BY_NAME["workflows"].files if not f.reusable
+        f.file_id for f in COMPONENTS_BY_NAME["workflows"].files if not f.reusable
     )
     for filename in non_reusable:
         if include is not None and filename not in include:
@@ -938,7 +937,7 @@ def _init_workflows(
         logging.info(f"Synced header: {rel}")
 
 
-def _is_source_repo(output_dir: Path) -> bool:
+def is_source_repo(output_dir: Path) -> bool:
     """Detect whether `output_dir` is the repomatic source repository root.
 
     Returns `True` when `output_dir` contains the `repomatic` Python
@@ -1274,7 +1273,7 @@ def _init_config_files(
     :param config: Repomatic config for path overrides (like `skills.location`
         or `agents.location`).
     """
-    comp = _BY_NAME[component_name]
+    comp = COMPONENTS_BY_NAME[component_name]
     for entry in comp.files:
         if include_ids is not None and entry.file_id not in include_ids:
             continue
@@ -1507,7 +1506,7 @@ def _init_tool_configs(
         return
     rel = pyproject_path.relative_to(output_dir).as_posix()
     for config_type in tool_configs:
-        tc = _BY_NAME[config_type]
+        tc = COMPONENTS_BY_NAME[config_type]
         assert isinstance(tc, ToolConfigComponent)
         section = tc.tool_section
         had_section = re.search(

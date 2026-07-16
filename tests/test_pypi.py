@@ -22,7 +22,6 @@ import json
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from http.client import IncompleteRead
-from io import BytesIO
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
@@ -36,24 +35,7 @@ from repomatic.pypi import (
     get_trusted_publishers,
     pypi_trusted_publisher_settings_url,
 )
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from typing_extensions import Self
-
-
-class _FakeResponse:
-    def __init__(self, data: bytes) -> None:
-        self._data = BytesIO(data)
-
-    def read(self) -> bytes:
-        return self._data.read()
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        pass
+from tests.conftest import FakeResponse
 
 
 def _patch_pypi_json(
@@ -169,8 +151,8 @@ def test_get_trusted_publishers_match():
     }
     body = json.dumps(payload).encode()
     with patch(
-        "repomatic.pypi.urlopen",
-        return_value=_FakeResponse(body),
+        "repomatic.http.urlopen",
+        return_value=FakeResponse(body),
     ):
         result = get_trusted_publishers(
             "cherries", "1.2.3", "cherries-1.2.3-py3-none-any.whl"
@@ -189,8 +171,8 @@ def test_get_trusted_publishers_empty_bundles():
     """Return an empty list when provenance exists but lists no bundles."""
     body = json.dumps({"version": 1, "attestation_bundles": []}).encode()
     with patch(
-        "repomatic.pypi.urlopen",
-        return_value=_FakeResponse(body),
+        "repomatic.http.urlopen",
+        return_value=FakeResponse(body),
     ):
         assert (
             get_trusted_publishers(
@@ -203,7 +185,7 @@ def test_get_trusted_publishers_empty_bundles():
 def test_get_trusted_publishers_network_failure():
     """Return None on URL or network errors."""
     with patch(
-        "repomatic.pypi.urlopen",
+        "repomatic.http.urlopen",
         side_effect=URLError("not found"),
     ):
         assert (
@@ -217,8 +199,8 @@ def test_get_trusted_publishers_network_failure():
 def test_get_trusted_publishers_invalid_json():
     """Return None when the response body cannot be parsed."""
     with patch(
-        "repomatic.pypi.urlopen",
-        return_value=_FakeResponse(b"not json"),
+        "repomatic.http.urlopen",
+        return_value=FakeResponse(b"not json"),
     ):
         assert (
             get_trusted_publishers(
@@ -232,8 +214,8 @@ def test_get_trusted_publishers_retries_incomplete_read():
     """A truncated provenance body gets one retry before giving up."""
     body = json.dumps({"version": 1, "attestation_bundles": []}).encode()
     with patch(
-        "repomatic.pypi.urlopen",
-        side_effect=[IncompleteRead(b""), _FakeResponse(body)],
+        "repomatic.http.urlopen",
+        side_effect=[IncompleteRead(b""), FakeResponse(body)],
     ):
         assert (
             get_trusted_publishers(
@@ -249,8 +231,8 @@ def test_fetch_json_retries_incomplete_read(monkeypatch):
     monkeypatch.setattr("repomatic.pypi.store_response", lambda *args: None)
     body = json.dumps({"releases": {}}).encode()
     with patch(
-        "repomatic.pypi.urlopen",
-        side_effect=[IncompleteRead(b""), _FakeResponse(body)],
+        "repomatic.http.urlopen",
+        side_effect=[IncompleteRead(b""), FakeResponse(body)],
     ):
         assert _fetch_json("cherries") == {"releases": {}}
 
@@ -260,7 +242,7 @@ def test_fetch_json_persistent_incomplete_read(monkeypatch):
     monkeypatch.setattr("repomatic.pypi.get_cached_response", lambda *args: None)
     monkeypatch.setattr("repomatic.pypi.store_response", lambda *args: None)
     with patch(
-        "repomatic.pypi.urlopen",
+        "repomatic.http.urlopen",
         side_effect=[IncompleteRead(b""), IncompleteRead(b"")],
     ):
         assert _fetch_json("cherries") is None
@@ -284,8 +266,8 @@ def test_get_trusted_publishers_skips_malformed_entries():
     }
     body = json.dumps(payload).encode()
     with patch(
-        "repomatic.pypi.urlopen",
-        return_value=_FakeResponse(body),
+        "repomatic.http.urlopen",
+        return_value=FakeResponse(body),
     ):
         result = get_trusted_publishers(
             "cherries", "1.2.3", "cherries-1.2.3-py3-none-any.whl"

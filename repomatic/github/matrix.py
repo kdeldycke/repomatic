@@ -14,6 +14,9 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+"""GitHub Actions job-matrix model: variations, includes, excludes, and their
+expansion into the JSON payload workflow `strategy.matrix` keys consume."""
+
 from __future__ import annotations
 
 import itertools

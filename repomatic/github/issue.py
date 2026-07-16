@@ -78,22 +78,6 @@ def list_issues(title: str = "") -> list[dict[str, Any]]:
     return issues
 
 
-def list_open_issues(title: str = "") -> list[dict[str, Any]]:
-    """List open issues, optionally filtered by title.
-
-    Convenience wrapper around {func}`list_issues` that filters to open issues
-    only and strips the `state` field for backward compatibility.
-
-    :param title: If provided, only return issues whose title matches exactly.
-    :return: List of issue dicts with `number`, `title`, and `createdAt`.
-    """
-    return [
-        {k: v for k, v in issue.items() if k != "state"}
-        for issue in list_issues(title)
-        if issue["state"] == "OPEN"
-    ]
-
-
 def close_issue(number: int, comment: str) -> None:
     """Close an issue with a comment.
 

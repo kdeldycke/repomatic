@@ -58,7 +58,7 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from .pypi import get_release_dates
-from .uv import _date_to_utc_cutoff, _format_released
+from .uv import date_to_utc_cutoff, format_released
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -113,7 +113,7 @@ class ReleaseSwap:
         newer.
         """
         day_after = date.fromisoformat(self.released) + timedelta(days=1)
-        return _date_to_utc_cutoff(day_after)
+        return date_to_utc_cutoff(day_after)
 
 
 def tracked_git_overrides(pyproject_path: Path) -> dict[str, str]:
@@ -373,8 +373,6 @@ def format_swap_section(
             if swap.name in name_urls
             else swap.name
         )
-        released = _format_released(swap.released, reference_date)
-        lines.append(
-            f"| {link} | `{swap.branch}` | `{swap.release}` | {released} |"
-        )
+        released = format_released(swap.released, reference_date)
+        lines.append(f"| {link} | `{swap.branch}` | `{swap.release}` | {released} |")
     return "\n".join(lines)

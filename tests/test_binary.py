@@ -248,7 +248,7 @@ my-cli = "my_package.__main__:main"
 nuitka.enabled = false
 """
     pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content)
+    pyproject_file.write_text(pyproject_content, encoding="utf-8")
 
     # Override the pyproject path to point to our temporary file.
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)

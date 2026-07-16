@@ -488,7 +488,7 @@ def test_prune_empty_dirs(tmp_path):
 def test_prune_empty_dirs_preserves_nonempty(tmp_path):
     """Preserves directories that contain files."""
     (tmp_path / "a").mkdir()
-    (tmp_path / "a" / "file.txt").write_text("keep")
+    (tmp_path / "a" / "file.txt").write_text("keep", encoding="utf-8")
     (tmp_path / "a" / "b").mkdir()
     _prune_empty_dirs(tmp_path)
     assert (tmp_path / "a").exists()

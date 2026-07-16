@@ -29,7 +29,7 @@ from pathlib import Path
 
 import yaml
 
-from .github.actions import AnnotationLevel, emit_annotation
+from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import run_gh_command
 from .github.token import check_all_pat_permissions
 from .metadata import Metadata, stale_axis_values
@@ -41,11 +41,6 @@ from .pypi import (
 )
 from .registry import DEFAULT_REPO
 from .version_sync import find_upstream_ref_versions
-
-# A 40-zero Git SHA that can never resolve to a real commit. Used by
-# `check_pat_stale_statuses_permission` to probe the `statuses:write`
-# permission without ever creating a commit status.
-NULL_SHA = "0" * 40
 
 
 def get_repo_metadata(repo: str) -> dict[str, str | None]:

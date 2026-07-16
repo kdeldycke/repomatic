@@ -242,12 +242,7 @@ def get_repo_slug_from_remote(remote: str = "origin") -> str | None:
     remote is not set, not a GitHub URL, or git is unavailable.
     """
     try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", remote],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        result = _git("remote", "get-url", remote, check=False)
     except FileNotFoundError:
         return None
     if result.returncode:
@@ -321,12 +316,7 @@ def get_tag_date(tag: str) -> str | None:
     :return: Date string in `YYYY-MM-DD` format, or `None` if the
         tag does not exist.
     """
-    result = subprocess.run(
-        ["git", "tag", "-l", "--format=%(creatordate:short)", tag],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = _git("tag", "-l", "--format=%(creatordate:short)", tag, check=False)
     date = result.stdout.strip()
     if not date:
         return None
@@ -342,16 +332,11 @@ def get_all_version_tags() -> dict[str, str]:
     :return: Dict mapping version strings (without `v` prefix) to
         dates in `YYYY-MM-DD` format.
     """
-    result = subprocess.run(
-        [
-            "git",
-            "tag",
-            "-l",
-            "v[0-9]*.[0-9]*.[0-9]*",
-            "--format=%(refname:short) %(creatordate:short)",
-        ],
-        capture_output=True,
-        text=True,
+    result = _git(
+        "tag",
+        "-l",
+        "v[0-9]*.[0-9]*.[0-9]*",
+        "--format=%(refname:short) %(creatordate:short)",
         check=False,
     )
     tags: dict[str, str] = {}
@@ -372,12 +357,7 @@ def tag_exists(tag: str) -> bool:
     :param tag: The tag name to check.
     :return: True if the tag exists, False otherwise.
     """
-    result = subprocess.run(
-        ["git", "show-ref", "--tags", tag, "--quiet"],
-        capture_output=True,
-        check=False,
-    )
-    return result.returncode == 0
+    return _git("show-ref", "--tags", tag, "--quiet", check=False).returncode == 0
 
 
 def create_tag(tag: str, commit: str | None = None) -> None:
@@ -387,11 +367,11 @@ def create_tag(tag: str, commit: str | None = None) -> None:
     :param commit: The commit to tag. Defaults to HEAD.
     :raises subprocess.CalledProcessError: If tag creation fails.
     """
-    cmd = ["git", "tag", tag]
+    args = ["tag", tag]
     if commit:
-        cmd.append(commit)
-    logging.debug(f"Creating tag: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+        args.append(commit)
+    logging.debug(f"Creating tag: git {' '.join(args)}")
+    _git(*args)
 
 
 def push_tag(tag: str, remote: str = "origin") -> None:
@@ -401,9 +381,8 @@ def push_tag(tag: str, remote: str = "origin") -> None:
     :param remote: The remote name. Defaults to "origin".
     :raises subprocess.CalledProcessError: If push fails.
     """
-    cmd = ["git", "push", remote, tag]
-    logging.debug(f"Pushing tag: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    logging.debug(f"Pushing tag: git push {remote} {tag}")
+    _git("push", remote, tag)
 
 
 def commit_and_push_files(

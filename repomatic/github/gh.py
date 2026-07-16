@@ -78,6 +78,21 @@ def _matched_auth_marker(stderr: str) -> str | None:
     return next((m for m in _AUTH_FALLBACK_MARKERS if m in stderr), None)
 
 
+def resolve_gh_token() -> str:
+    """Return the GitHub token from environment variables.
+
+    The canonical lookup order for every GitHub API access in the package:
+    `REPOMATIC_PAT` > `GH_TOKEN` > `GITHUB_TOKEN`. Empty string when no
+    variable is set.
+    """
+    return (
+        os.environ.get("REPOMATIC_PAT")
+        or os.environ.get("GH_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+        or ""
+    )
+
+
 def run_gh_command(args: list[str]) -> str:
     """Run a `gh` CLI command and return stdout.
 
@@ -104,8 +119,10 @@ def run_gh_command(args: list[str]) -> str:
     logging.debug(f"Running: {' '.join(cmd)}")
 
     # Build the env override for the gh subprocess.  REPOMATIC_PAT takes
-    # priority; otherwise promote GITHUB_TOKEN to GH_TOKEN so the gh CLI
-    # finds a token in GitHub Actions (where GH_TOKEN is not set by default).
+    # priority (the canonical {func}`resolve_gh_token` order); otherwise
+    # promote GITHUB_TOKEN to GH_TOKEN so the gh CLI finds a token in GitHub
+    # Actions (where GH_TOKEN is not set by default). No override when
+    # GH_TOKEN is already set natively.
     pat = os.environ.get("REPOMATIC_PAT")
     gh_token = os.environ.get("GH_TOKEN")
     github_token = os.environ.get("GITHUB_TOKEN")

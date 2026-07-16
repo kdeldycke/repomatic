@@ -409,20 +409,6 @@ class PathsSpec:
     workflow_paths: dict[str, list[str]] = field(default_factory=dict)
 
 
-def _coerce_paths_spec(
-    spec: PathsSpec | None,
-    source_paths: list[str] | None,
-) -> PathsSpec:
-    """Build a {class}`PathsSpec` from the legacy *source_paths* arg.
-
-    When *spec* is `None`, returns a fresh spec carrying *source_paths*.
-    When *spec* is provided, *source_paths* is ignored.
-    """
-    if spec is not None:
-        return spec
-    return PathsSpec(source_paths=source_paths)
-
-
 def _apply_paths_spec(
     paths: list[str],
     filename: str,
@@ -531,37 +517,33 @@ def generate_thin_caller(
     filename: str,
     repo: str = DEFAULT_REPO,
     version: str = DEFAULT_VERSION,
-    source_paths: list[str] | None = None,
     commit_sha: str | None = None,
     paths_spec: PathsSpec | None = None,
 ) -> str:
     """Generate a thin caller workflow for a reusable canonical workflow.
 
-    The generated caller mirrors the canonical workflow's non-`workflow_call`
-    triggers verbatim and delegates to the upstream workflow via `uses:`.
-    `workflow_dispatch` is not injected: workflows that should expose manual
-    dispatch declare it in the canonical definition. Declared `workflow_call`
-    inputs and secrets are forwarded explicitly via `with:` and `secrets:`.
+        The generated caller mirrors the canonical workflow's non-`workflow_call`
+        triggers verbatim and delegates to the upstream workflow via `uses:`.
+        `workflow_dispatch` is not injected: workflows that should expose manual
+        dispatch declare it in the canonical definition. Declared `workflow_call`
+        inputs and secrets are forwarded explicitly via `with:` and `secrets:`.
 
-    Canonical `paths:` filters are adapted via *paths_spec* (see
-    {class}`PathsSpec`). The legacy *source_paths* kwarg builds a spec
-    automatically when *paths_spec* is `None`.
+        Canonical `paths:` filters are adapted via *paths_spec* (see
+        {class}`PathsSpec`).
 
-    When *commit_sha* is provided, the `uses:` reference is SHA-pinned
-    (`@sha # version`), secure-by-default from the first commit. The
-    `sync-action-pins` job bumps it once a newer release clears the cooldown.
+        When *commit_sha* is provided, the `uses:` reference is SHA-pinned
+        (`@sha # version`), secure-by-default from the first commit. The
+        `sync-action-pins` job bumps it once a newer release clears the cooldown.
 
-    :param filename: Canonical workflow filename (e.g., `release.yaml`).
-    :param repo: Upstream repository (default: `kdeldycke/repomatic`).
-    :param version: Version reference (default: `main`).
-    :param source_paths: Backward-compat shortcut; ignored when *paths_spec*
-        is provided.
+        :param filename: Canonical workflow filename (e.g., `release.yaml`).
+        :param repo: Upstream repository (default: `kdeldycke/repomatic`).
+        :param version: Version reference (default: `main`).
     :param commit_sha: Full 40-character commit SHA for the version tag.
-        When provided, produces `@sha # version`. When `None`, produces
-        `@version`.
-    :param paths_spec: Full paths-adaptation spec; supersedes *source_paths*.
-    :return: Complete YAML content for the thin caller workflow.
-    :raises ValueError: If the workflow does not support `workflow_call`.
+            When provided, produces `@sha # version`. When `None`, produces
+            `@version`.
+        :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
+        :return: Complete YAML content for the thin caller workflow.
+        :raises ValueError: If the workflow does not support `workflow_call`.
     """
     # release.yaml is a multi-job caller (build lane + publish-pypi + engine
     # lane), not a single thin delegation. Generate it by copying the canonical
@@ -571,7 +553,7 @@ def generate_thin_caller(
             repo=repo, version=version, commit_sha=commit_sha
         )
 
-    spec = _coerce_paths_spec(paths_spec, source_paths)
+    spec = paths_spec if paths_spec is not None else PathsSpec()
     # The reusable to read and reference: `filename` itself for every thin
     # caller. (WORKFLOW_SOURCES still maps release.yaml to the engine for
     # reference, but release.yaml is generated above, not here.)
@@ -1317,7 +1299,6 @@ Inline comments inside the entry block would terminate the match early.
 
 def generate_workflow_header(
     filename: str,
-    source_paths: list[str] | None = None,
     paths_spec: PathsSpec | None = None,
 ) -> str:
     """Return the raw header of a canonical workflow.
@@ -1326,22 +1307,20 @@ def generate_workflow_header(
     triggers, `concurrency`, and any comments.
 
     Each `paths:` block in the header is rewritten using *paths_spec*:
-    upstream source references substituted via *source_paths*, optional
-    extras appended, ignored entries stripped, or replaced wholesale via
-    a per-workflow override (see {class}`PathsSpec`). When the resulting
+    upstream source references substituted, optional extras appended,
+    ignored entries stripped, or replaced wholesale via a per-workflow
+    override (see {class}`PathsSpec`). When the resulting
     list is empty, the entire `paths:` block is removed. Comments outside
     the rewritten blocks are preserved verbatim; comments inside an
     entry block are not supported.
 
     :param filename: Canonical workflow filename (e.g., `tests.yaml`).
-    :param source_paths: Backward-compat shortcut; ignored when *paths_spec*
-        is provided.
-    :param paths_spec: Full paths-adaptation spec; supersedes *source_paths*.
+    :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
     :return: Raw header text.
     :raises FileNotFoundError: If the workflow file is not bundled.
     :raises ValueError: If no `jobs:` line is found.
     """
-    spec = _coerce_paths_spec(paths_spec, source_paths)
+    spec = paths_spec if paths_spec is not None else PathsSpec()
     content = get_data_content(filename)
     header = _extract_raw_header(content)
 
@@ -1474,7 +1453,6 @@ def generate_workflows(
     repo: str,
     output_dir: Path,
     overwrite: bool,
-    source_paths: list[str] | None = None,
     commit_sha: str | None = None,
     paths_spec: PathsSpec | None = None,
 ) -> int:
@@ -1488,14 +1466,12 @@ def generate_workflows(
     :param repo: Upstream repository.
     :param output_dir: Directory to write files to.
     :param overwrite: Whether to overwrite existing files.
-    :param source_paths: Backward-compat shortcut; ignored when *paths_spec*
-        is provided.
     :param commit_sha: Full 40-character commit SHA for SHA-pinned
         `uses:` references. Passed through to {func}`generate_thin_caller`.
-    :param paths_spec: Full paths-adaptation spec; supersedes *source_paths*.
+    :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
     :return: Exit code (0 for success, 1 for errors).
     """
-    spec = _coerce_paths_spec(paths_spec, source_paths)
+    spec = paths_spec if paths_spec is not None else PathsSpec()
     # Default to all reusable workflows for thin-caller, non-reusable for
     # header-only, all for other modes.
     names_defaulted = not names
