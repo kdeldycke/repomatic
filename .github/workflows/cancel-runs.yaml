@@ -27,29 +27,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          BRANCH: ${{ github.event.pull_request.head.ref }}
-          CURRENT_RUN_ID: ${{ github.run_id }}
-        run: |
-          # shellcheck disable=SC2153
-          branch="${BRANCH}"
-          # shellcheck disable=SC2153
-          current_run_id="${CURRENT_RUN_ID}"
-          cancelled=0
-
-          for status in in_progress queued; do
-            while read -r run_id; do
-              [ -z "$run_id" ] && continue
-              if [ "$run_id" != "$current_run_id" ]; then
-                echo "Cancelling run #${run_id} (status: ${status})"
-                gh api --method POST \
-                  "repos/{owner}/{repo}/actions/runs/${run_id}/cancel" \
-                  || true
-                cancelled=$((cancelled + 1))
-              fi
-            done < <(
-              gh api "repos/{owner}/{repo}/actions/runs?branch=${branch}&status=${status}" \
-                --jq '.workflow_runs[].id'
-            )
-          done
-
-          echo "Cancelled ${cancelled} run(s) for branch '${branch}'."
+        # See repomatic/github/actions.py for the cancellation logic.
+        run: >
+          uvx --no-progress --from . repomatic cancel-runs
+          --branch '${{ github.event.pull_request.head.ref }}'
+          --current-run-id '${{ github.run_id }}'

@@ -217,7 +217,7 @@ jobs:
       - name: Prepare release
         # Updates changelog and citation dates, comparison URL, and removes warning.
         # Also hard-codes version in workflow URLs for kdeldycke/repomatic repository.
-        run: uvx --no-progress --from . repomatic release-prep
+        run: uvx --no-progress --from . repomatic prepare-release
       - name: Prepare repository
         env:
           GIT_AUTHOR: ${{ github.actor }}
@@ -233,7 +233,7 @@ jobs:
       - name: Re-target main branch in workflows
         # This step is only used in the original repository to automate remote URL tagging.
         if: github.repository == 'kdeldycke/repomatic'
-        run: uvx --no-progress --from . repomatic release-prep --post-release
+        run: uvx --no-progress --from . repomatic prepare-release --post-release
       - name: Add new changelog entry
         run: uvx --no-progress --from . repomatic changelog ./changelog.md
       - name: Version bump

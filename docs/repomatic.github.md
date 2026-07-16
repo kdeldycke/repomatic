@@ -18,15 +18,6 @@
    :undoc-members:
 ```
 
-## `repomatic.github.advisories` module
-
-```{eval-rst}
-.. automodule:: repomatic.github.advisories
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.github.dev_release` module
 
 ```{eval-rst}

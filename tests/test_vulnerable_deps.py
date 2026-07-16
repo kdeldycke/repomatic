@@ -24,13 +24,13 @@ from unittest.mock import patch
 
 import pytest
 
-from repomatic.github.advisories import fetch_dependabot_alerts
-from repomatic.uv import (
+from repomatic.vulnerable_deps import (
     AdvisorySource,
     VulnerablePackage,
     _run_uv_audit,
     _uv_version,
     collect_vulnerable_packages,
+    fetch_dependabot_alerts,
     format_vulnerability_table,
     parse_uv_audit_json,
 )
@@ -82,7 +82,7 @@ ALERTS_FIXTURE = [
 def test_fetch_dependabot_alerts_parses_each_entry():
     """Each alert maps to one VulnerablePackage tagged with GHSA source."""
     with patch(
-        "repomatic.github.advisories.run_gh_command",
+        "repomatic.vulnerable_deps.run_gh_command",
         return_value=json.dumps(ALERTS_FIXTURE),
     ):
         result = fetch_dependabot_alerts("orchard/raspberry")
@@ -108,7 +108,7 @@ def test_fetch_dependabot_alerts_skips_entries_without_fix():
         },
     ]
     with patch(
-        "repomatic.github.advisories.run_gh_command",
+        "repomatic.vulnerable_deps.run_gh_command",
         return_value=json.dumps(no_fix),
     ):
         assert fetch_dependabot_alerts("orchard/raspberry") == []
@@ -117,7 +117,7 @@ def test_fetch_dependabot_alerts_skips_entries_without_fix():
 def test_fetch_dependabot_alerts_returns_empty_on_api_error():
     """Network/auth failures must not break the autofix workflow."""
     with patch(
-        "repomatic.github.advisories.run_gh_command",
+        "repomatic.vulnerable_deps.run_gh_command",
         side_effect=RuntimeError("HTTP 403"),
     ):
         assert fetch_dependabot_alerts("orchard/raspberry") == []
@@ -126,7 +126,7 @@ def test_fetch_dependabot_alerts_returns_empty_on_api_error():
 def test_fetch_dependabot_alerts_handles_invalid_json():
     """Garbage responses degrade to an empty list."""
     with patch(
-        "repomatic.github.advisories.run_gh_command",
+        "repomatic.vulnerable_deps.run_gh_command",
         return_value="<<not json>>",
     ):
         assert fetch_dependabot_alerts("orchard/raspberry") == []
@@ -155,9 +155,9 @@ def test_collect_unions_uv_audit_and_ghsa(lock_with_raspberry):
         sources={AdvisorySource.UV_AUDIT},
     )
     with (
-        patch("repomatic.uv._run_uv_audit", return_value=[audit_only]),
+        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[audit_only]),
         patch(
-            "repomatic.github.advisories.run_gh_command",
+            "repomatic.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE),
         ),
     ):
@@ -188,9 +188,9 @@ def test_collect_dedupes_when_advisory_id_matches(lock_with_raspberry):
         sources={AdvisorySource.UV_AUDIT},
     )
     with (
-        patch("repomatic.uv._run_uv_audit", return_value=[same_advisory_audit]),
+        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[same_advisory_audit]),
         patch(
-            "repomatic.github.advisories.run_gh_command",
+            "repomatic.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE[:1]),
         ),
     ):
@@ -212,8 +212,8 @@ def test_collect_dedupes_when_advisory_id_matches(lock_with_raspberry):
 def test_collect_skips_ghsa_when_repo_missing(lock_with_raspberry):
     """No repo argument means the GHSA source is skipped entirely."""
     with (
-        patch("repomatic.uv._run_uv_audit", return_value=[]),
-        patch("repomatic.github.advisories.run_gh_command") as gh,
+        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[]),
+        patch("repomatic.vulnerable_deps.run_gh_command") as gh,
     ):
         result = collect_vulnerable_packages(lock_with_raspberry, repo=None)
 
@@ -224,9 +224,9 @@ def test_collect_skips_ghsa_when_repo_missing(lock_with_raspberry):
 def test_collect_respects_sources_filter(lock_with_raspberry):
     """Only the explicitly requested sources are queried."""
     with (
-        patch("repomatic.uv._run_uv_audit") as audit,
+        patch("repomatic.vulnerable_deps._run_uv_audit") as audit,
         patch(
-            "repomatic.github.advisories.run_gh_command",
+            "repomatic.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE),
         ),
     ):
@@ -258,9 +258,9 @@ def test_collect_backfills_current_version_across_case_difference(tmp_path):
         },
     ]
     with (
-        patch("repomatic.uv._run_uv_audit", return_value=[]),
+        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[]),
         patch(
-            "repomatic.github.advisories.run_gh_command",
+            "repomatic.vulnerable_deps.run_gh_command",
             return_value=json.dumps(alert),
         ),
     ):
@@ -330,9 +330,9 @@ def test_collect_keeps_distinct_per_source_urls(lock_with_raspberry):
         },
     )
     with (
-        patch("repomatic.uv._run_uv_audit", return_value=[audit]),
+        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[audit]),
         patch(
-            "repomatic.github.advisories.run_gh_command",
+            "repomatic.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE[:1]),
         ),
     ):
@@ -424,9 +424,9 @@ def test_collect_dedupes_across_sources_via_alias(lock_with_raspberry):
         sources={AdvisorySource.UV_AUDIT},
     )
     with (
-        patch("repomatic.uv._run_uv_audit", return_value=[audit]),
+        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[audit]),
         patch(
-            "repomatic.github.advisories.run_gh_command",
+            "repomatic.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE[:1]),  # GHSA-fruit-1111-aaaa
         ),
     ):

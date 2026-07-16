@@ -60,6 +60,8 @@ from functools import lru_cache
 from pathlib import Path
 from random import randint
 
+from .gh import run_gh_command
+
 if sys.version_info >= (3, 11):
     from enum import StrEnum
 else:
@@ -207,3 +209,48 @@ def get_github_event() -> dict[str, Any]:
     return json.loads(  # type: ignore[no-any-return]
         event_file.read_text(encoding="utf-8")
     )
+
+
+def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
+    """Cancel the in-progress and queued workflow runs of *branch*.
+
+    Backs the `cancel-runs` command, fired when a pull request closes:
+    GitHub's `concurrency` mechanism only cancels a run when a *new* run
+    enters the same group, and closing a PR fires no such run, so the
+    branch's live runs would otherwise burn CI minutes to completion.
+
+    Every listed run except *current_run_id* (the cancelling run itself) is
+    cancelled. A run that fails to cancel (already finished, insufficient
+    token scope) is logged and skipped so one straggler never aborts the
+    sweep. The repository is resolved by the `gh` CLI from `GH_REPO` or the
+    checkout, matching every other `gh api` call.
+
+    :param branch: Head branch whose runs to cancel.
+    :param current_run_id: Run ID to spare (the caller's own run).
+    :return: Number of runs cancelled.
+    """
+    cancelled = 0
+    for status in ("in_progress", "queued"):
+        listing = run_gh_command([
+            "api",
+            "--paginate",
+            f"repos/{{owner}}/{{repo}}/actions/runs?branch={branch}&status={status}",
+            "--jq",
+            ".workflow_runs[].id",
+        ])
+        for run_id in listing.split():
+            if run_id == current_run_id:
+                continue
+            logging.info(f"Cancelling run {run_id} (status: {status}).")
+            try:
+                run_gh_command([
+                    "api",
+                    "--method",
+                    "POST",
+                    f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/cancel",
+                ])
+            except RuntimeError as exc:
+                logging.warning(f"Failed to cancel run {run_id}: {exc}")
+                continue
+            cancelled += 1
+    return cancelled

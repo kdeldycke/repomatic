@@ -218,6 +218,15 @@
    :undoc-members:
 ```
 
+## `repomatic.prepare_release` module
+
+```{eval-rst}
+.. automodule:: repomatic.prepare_release
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.pypi` module
 
 ```{eval-rst}
@@ -240,15 +249,6 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.registry
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.release_prep` module
-
-```{eval-rst}
-.. automodule:: repomatic.release_prep
    :members:
    :show-inheritance:
    :undoc-members:
@@ -330,6 +330,15 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.virustotal
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.vulnerable_deps` module
+
+```{eval-rst}
+.. automodule:: repomatic.vulnerable_deps
    :members:
    :show-inheritance:
    :undoc-members:

@@ -16,7 +16,7 @@ The following documentation artifacts must stay in sync with the code in this re
 
 - **CLI parameters** in `docs/cli.md`: rendered live at build time from Click via the `{click:tree}` directive.
 - **Configuration table** in `docs/configuration.md`: rendered live at build time from the `Config` dataclass via the `{click:config}` directive.
-- **Binary download URLs** in `docs/install.md`: version-pinned, ratcheted forward to the new release by `release-prep`'s `freeze_install_download_urls`. The `Specific version` install tab example is a separate, manually-bumped pin: update it by hand to the last released version during the docs reconciliation pass.
+- **Binary download URLs** in `docs/install.md`: version-pinned, ratcheted forward to the new release by `prepare-release`'s `freeze_install_download_urls`. The `Specific version` install tab example is a separate, manually-bumped pin: update it by hand to the last released version during the docs reconciliation pass.
 
 ## Tool runner: flags vs config
 

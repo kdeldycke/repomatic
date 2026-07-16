@@ -31,10 +31,8 @@ from repomatic.cli import repomatic
 from repomatic.config import Config
 from repomatic.uv import (
     BYPASS_NEEDS_RELEASE,
-    AdvisorySource,
     BypassForecast,
     HeldBackPackage,
-    VulnerablePackage,
     build_held_back,
     compute_bypass_forecasts,
     compute_pruned_forecasts,
@@ -45,6 +43,10 @@ from repomatic.uv import (
     freeze_exclude_newer_packages,
     prune_stale_exclude_newer_packages,
     pypi_name_urls,
+)
+from repomatic.vulnerable_deps import (
+    AdvisorySource,
+    VulnerablePackage,
 )
 
 

@@ -17,7 +17,7 @@
 """Cross-module integrity tests for platform target keys.
 
 ``BINARY_ARCH_MAPPINGS``, ``NUITKA_BUILD_TARGETS``, and the binary filename regex
-in ``release_prep`` all encode the same set of platform targets for repomatic's own
+in ``prepare_release`` all encode the same set of platform targets for repomatic's own
 binary builds. These tests enforce that they stay in sync.
 """
 
@@ -54,7 +54,7 @@ def test_all_constants_share_same_keys():
 
 @pytest.mark.parametrize("target", sorted(VALID_BUILD_KEYS))
 def test_binary_filename_regex_matches_all_targets(target):
-    """The release-prep regex must match a filename for every known target."""
+    """The prepare-release regex must match a filename for every known target."""
     extension = NUITKA_BUILD_TARGETS[target]["extension"]
     filename = f"repomatic-1.2.3-{target}.{extension}"
     match = BINARY_FILENAME_RE.match(filename)

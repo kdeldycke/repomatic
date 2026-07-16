@@ -93,7 +93,7 @@ from .deps_graph import (
 from .docs import update_docs as _update_docs
 from .git_ops import commit_and_push_files, create_and_push_tag
 from .github import token as _token_mod, unsubscribe as _unsub_mod
-from .github.actions import format_multiline_output
+from .github.actions import cancel_superseded_runs, format_multiline_output
 from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
     sync_dev_release as _sync_dev_release,
@@ -153,6 +153,7 @@ from .metadata import (
     is_version_bump_allowed,
     metadata_keys_reference,
 )
+from .prepare_release import ReleasePrep
 from .pyproject import get_project_name
 from .registry import (
     ALL_COMPONENTS,
@@ -164,7 +165,6 @@ from .registry import (
     SKILL_PHASES,
     valid_file_ids,
 )
-from .release_prep import ReleasePrep
 from .setup_guide import manage_setup_guide
 from .sync_ops import (
     OPERATIONS_BY_NAME,
@@ -182,12 +182,8 @@ from .tool_runner import (
     run_tool,
 )
 from .uv import (
-    AdvisorySource,
-    collect_vulnerable_packages,
-    fix_vulnerable_deps as _fix_vulnerable_deps,
     format_released,
     format_upload_date,
-    format_vulnerability_table,
 )
 from .virustotal import (
     load_scan_records,
@@ -196,6 +192,12 @@ from .virustotal import (
     records_from_results,
     scan_files,
     upsert_scan_records,
+)
+from .vulnerable_deps import (
+    AdvisorySource,
+    collect_vulnerable_packages,
+    fix_vulnerable_deps as _fix_vulnerable_deps,
+    format_vulnerability_table,
 )
 
 TYPE_CHECKING = False
@@ -995,7 +997,7 @@ def changelog(ctx, source, changelog_path):
     help="Run post-release steps (retarget workflow URLs to default branch).",
 )
 @pass_context
-def release_prep(
+def prepare_release(
     ctx,
     changelog_path,
     citation_path,
@@ -1026,9 +1028,9 @@ def release_prep(
     \b
     Examples:
         # Prepare release (changelog + citation)
-        repomatic release-prep
+        repomatic prepare-release
         # Post-release: retarget workflows to main branch
-        repomatic release-prep --post-release
+        repomatic prepare-release --post-release
     """
     # Auto-detect --update-workflows from CI context.
     if update_workflows is None:
@@ -1073,7 +1075,7 @@ def release_prep(
     required=True,
     help="The version part to check for bump eligibility.",
 )
-def version_check(part: str) -> None:
+def check_version(part: str) -> None:
     """Check if a version bump is allowed for the specified part.
 
     Compares the current version from pyproject.toml against the latest Git
@@ -1082,8 +1084,8 @@ def version_check(part: str) -> None:
 
     \b
     Examples:
-        repomatic version-check --part minor
-        repomatic version-check --part major
+        repomatic check-version --part minor
+        repomatic check-version --part major
     """
     allowed = is_version_bump_allowed(part)  # type: ignore[arg-type]
     echo("true" if allowed else "false")
@@ -2071,6 +2073,39 @@ def unsubscribe_threads(months: int, batch_size: int, dry_run: bool) -> None:
     """
     result = _unsubscribe_threads(months, batch_size, dry_run)
     echo(_render_report(result))
+
+
+@repomatic.command(
+    name="cancel-runs",
+    short_help="Cancel in-progress workflow runs for a branch",
+    section=_section_github,
+)
+@option(
+    "--branch",
+    required=True,
+    help="Head branch whose in-progress and queued runs to cancel.",
+)
+@option(
+    "--current-run-id",
+    default="",
+    envvar="GITHUB_RUN_ID",
+    help="Run ID to spare (the cancelling run itself). Defaults to $GITHUB_RUN_ID.",
+)
+def cancel_runs(branch: str, current_run_id: str) -> None:
+    """Cancel the in-progress and queued workflow runs of a branch.
+
+    Fired when a pull request closes: GitHub does not cancel PR-triggered
+    runs on close, so the branch's live runs would burn CI minutes to
+    completion. The repository is resolved by the gh CLI from GH_REPO or
+    the current checkout.
+
+    \b
+    Examples:
+        # From the cancel-runs workflow, sparing its own run
+        repomatic cancel-runs --branch "$BRANCH"
+    """
+    cancelled = cancel_superseded_runs(branch, current_run_id)
+    echo(f"Cancelled {cancelled} run(s) for branch {branch!r}.")
 
 
 @repomatic.command(

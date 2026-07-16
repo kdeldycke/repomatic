@@ -102,7 +102,7 @@ of this code *and* adding a new dependency — more complexity, not less.
 Related modules
 ^^^^^^^^^^^^^^^
 
-- `release_prep.py` orchestrates the full release preparation
+- `prepare_release.py` orchestrates the full release preparation
   across changelog, citation, and workflow files, delegating
   changelog operations to this module.
 - `metadata.py` handles version bump eligibility checks and

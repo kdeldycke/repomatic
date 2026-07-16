@@ -22,7 +22,7 @@ from textwrap import dedent
 
 import pytest
 
-from repomatic.release_prep import ReleasePrep
+from repomatic.prepare_release import ReleasePrep
 
 
 @pytest.fixture

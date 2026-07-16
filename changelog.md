@@ -5,6 +5,10 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives; its module moves to `repomatic.prepare_release`.
+- **Breaking:** the `version-check` command is renamed `check-version`.
+- **Breaking:** the vulnerability audit domain moves from `repomatic.uv` into the new `repomatic.vulnerable_deps` module, which also absorbs `repomatic.github.advisories`.
+- Add `cancel-runs`: cancels a branch's in-progress and queued workflow runs, replacing the bash block in `cancel-runs.yaml`; run listings now paginate past the first page.
 - **Breaking:** the PR-body helpers (`generate_pr_metadata_block`, `generate_refresh_tip`, `build_pr_body`) now take their CI context as arguments and `current_repo_url` is removed, ending the `pr_body` → `metadata` import cycle.
 - **Breaking:** `build_expected_body` moves from `repomatic.github.release_sync` to `repomatic.changelog`.
 - **Breaking:** the five `check_pat_*` probe functions are replaced by the `PAT_PERMISSION_PROBES` table and `probe_pat_permission`.

@@ -18,10 +18,10 @@
    :undoc-members:
 ```
 
-## `tests.test_advisories` module
+## `tests.test_actions` module
 
 ```{eval-rst}
-.. automodule:: tests.test_advisories
+.. automodule:: tests.test_actions
    :members:
    :show-inheritance:
    :undoc-members:
@@ -261,6 +261,15 @@
    :undoc-members:
 ```
 
+## `tests.test_prepare_release` module
+
+```{eval-rst}
+.. automodule:: tests.test_prepare_release
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_pypi` module
 
 ```{eval-rst}
@@ -283,15 +292,6 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_readme
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `tests.test_release_prep` module
-
-```{eval-rst}
-.. automodule:: tests.test_release_prep
    :members:
    :show-inheritance:
    :undoc-members:
@@ -382,6 +382,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_virustotal
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_vulnerable_deps` module
+
+```{eval-rst}
+.. automodule:: tests.test_vulnerable_deps
    :members:
    :show-inheritance:
    :undoc-members:
