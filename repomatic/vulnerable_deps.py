@@ -259,7 +259,6 @@ def format_vulnerability_table(vulns: list[VulnerablePackage]) -> str:
     return "\n".join(lines)
 
 
-
 def _uv_version() -> Version:
     """Return the version of the `uv` binary on `PATH`.
 

@@ -188,7 +188,10 @@ def test_collect_dedupes_when_advisory_id_matches(lock_with_raspberry):
         sources={AdvisorySource.UV_AUDIT},
     )
     with (
-        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[same_advisory_audit]),
+        patch(
+            "repomatic.vulnerable_deps._run_uv_audit",
+            return_value=[same_advisory_audit],
+        ),
         patch(
             "repomatic.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE[:1]),

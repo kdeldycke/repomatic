@@ -490,7 +490,8 @@ def test_pat_permission_probe_fail_403(probe):
 def test_pat_vulnerability_alerts_permission_404():
     """A 404 is reported as 'alerts not enabled', not as a missing permission."""
     vuln_probe = next(
-        probe for probe in PAT_PERMISSION_PROBES
+        probe
+        for probe in PAT_PERMISSION_PROBES
         if probe.field == "vulnerability_alerts"
     )
     with (

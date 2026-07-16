@@ -293,7 +293,6 @@ class Changelog:
         if not self.current_version:
             return self.content.rstrip()
 
-
         elements = self.decompose_version(self.current_version)
 
         # Idempotent: skip if an unreleased section already exists.
@@ -348,7 +347,6 @@ class Changelog:
 
         if not self.current_version:
             return False
-
 
         elements = self.decompose_version(self.current_version)
         if not elements.version:
@@ -484,7 +482,6 @@ class Changelog:
             if Version(v) < parsed:
                 lower_version = v
                 break
-
 
         compare_base = f"v{lower_version}" if lower_version else "v0.0.0"
         elements = VersionElements(
@@ -1124,7 +1121,6 @@ def lint_changelog_dates(
     # decomposing and re-rendering an already-correct section is a
     # no-op.
     if fix:
-
         for version, _date in releases:
             elements = changelog.decompose_version(version)
 

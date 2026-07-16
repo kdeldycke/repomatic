@@ -169,8 +169,7 @@ def test_generate_metadata_block_docs_entry(monkeypatch):
     ) in block
     # Without a label the raw URL renders as an autolink.
     unlabelled = generate_pr_metadata_block(
-        Metadata(),
-        docs_url="https://example.test/workflows.html#pack-fruit"
+        Metadata(), docs_url="https://example.test/workflows.html#pack-fruit"
     )
     assert (
         "- **Documentation**: <https://example.test/workflows.html#pack-fruit>"

@@ -228,7 +228,6 @@ class WorkflowFormat(StrEnum):
         return True
 
 
-
 DEFAULT_VERSION: Final[str] = "main" if ".dev" in __version__ else f"v{__version__}"
 """Default version reference for upstream workflows.
 
