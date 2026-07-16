@@ -16,10 +16,12 @@
 
 """Generate PR body with workflow metadata for auto-created pull requests.
 
-Uses {class}`~repomatic.metadata.Metadata` for CI context to produce a
-collapsible `<details>` block containing a metadata table. Template prefixes
-are loaded from markdown files in `repomatic/templates/`, optionally with
-YAML frontmatter for templates that require arguments.
+Callers inject a {class}`~repomatic.metadata.Metadata` instance for CI
+context to produce a collapsible `<details>` block containing a metadata
+table (the injection keeps this module import-cycle-free: `Metadata` pulls
+in half the package). Template prefixes are loaded from markdown files in
+`repomatic/templates/`, optionally with YAML frontmatter for templates that
+require arguments.
 
 ```{note}
 {func}`load_template` and the `render_*` helpers also accept a
@@ -45,7 +47,10 @@ from pathlib import Path
 from string import Template
 
 from .. import __version__
-from ..metadata import Metadata
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from ..metadata import Metadata
 
 GITHUB_BODY_MAX_CHARS = 65536
 """GitHub's maximum PR and issue body size, in UTF-16 code units.
@@ -428,13 +433,16 @@ def extract_workflow_filename(workflow_ref: str | None) -> str:
     return path_part.rsplit("/", 1)[-1] if "/" in path_part else path_part
 
 
-def generate_pr_metadata_block(docs_url: str = "", docs_name: str = "") -> str:
+def generate_pr_metadata_block(
+    md: Metadata, docs_url: str = "", docs_name: str = ""
+) -> str:
     """Generate a collapsible metadata block from CI context.
 
-    Uses {class}`~repomatic.metadata.Metadata` to read `GITHUB_*`
-    environment variables and returns a markdown `<details>` block
-    listing the workflow metadata fields.
+    Reads the `GITHUB_*` environment context from *md* and returns a
+    markdown `<details>` block listing the workflow metadata fields.
 
+    :param md: The {class}`~repomatic.metadata.Metadata` instance to read
+        CI context from.
     :param docs_url: Optional deep link to the job's section of the hosted
         workflows reference, rendered as the leading `Documentation` entry.
         Comes from the PR template's `docs:` frontmatter field (see
@@ -443,8 +451,6 @@ def generate_pr_metadata_block(docs_url: str = "", docs_name: str = "") -> str:
         (operation) name. Without it the raw URL renders as an autolink.
     :return: A markdown string with the metadata block.
     """
-    md = Metadata()
-
     sha = md.sha or ""
     actor = md.event_actor or ""
     triggering_actor = md.triggering_actor
@@ -474,24 +480,17 @@ def generate_pr_metadata_block(docs_url: str = "", docs_name: str = "") -> str:
     )
 
 
-def current_repo_url() -> str | None:
-    """Build repository URL from CI context.
-
-    Delegates to {attr}`Metadata.repo_url <repomatic.metadata.Metadata.repo_url>`.
-    """
-    return Metadata().repo_url
-
-
-def generate_refresh_tip() -> str:
+def generate_refresh_tip(md: Metadata) -> str:
     """Generate a tip admonition inviting users to refresh the PR manually.
 
-    Uses {class}`~repomatic.metadata.Metadata` for the repository URL and
-    `GITHUB_WORKFLOW_REF` to build the workflow dispatch URL.
+    Reads the repository URL and `GITHUB_WORKFLOW_REF` from *md* to build
+    the workflow dispatch URL.
 
+    :param md: The {class}`~repomatic.metadata.Metadata` instance to read
+        CI context from.
     :return: A GitHub-flavored markdown `[!TIP]` blockquote, or an empty
         string if the workflow reference is unavailable.
     """
-    md = Metadata()
     workflow_file = extract_workflow_filename(md.workflow_ref)
     if not workflow_file:
         return ""
@@ -532,11 +531,12 @@ def _trim_to_budget(text: str, budget: int) -> str:
     return "\n".join(kept).rstrip()
 
 
-def build_pr_body(prefix: str, metadata_block: str) -> str:
+def build_pr_body(prefix: str, metadata_block: str, refresh_tip: str = "") -> str:
     """Concatenate prefix, refresh tip, and metadata block into a PR body.
 
     The `metadata_block` already includes the attribution footer (appended
-    automatically by {func}`render_template`).
+    automatically by {func}`render_template`); the *refresh_tip* comes
+    pre-rendered from {func}`generate_refresh_tip` (empty to omit it).
 
     Bodies over {data}`GITHUB_BODY_MAX_CHARS` have their prefix trimmed to
     fit, replacing the dropped lines with a caution admonition, so the refresh
@@ -546,14 +546,14 @@ def build_pr_body(prefix: str, metadata_block: str) -> str:
     :param prefix: Content to prepend before the metadata block. Can be empty.
     :param metadata_block: The collapsible metadata block from
         {func}`generate_pr_metadata_block`, with footer.
+    :param refresh_tip: Pre-rendered refresh-tip admonition, or empty.
     :return: The complete PR body string.
     """
     parts: list[str] = []
     if prefix:
         parts.append(prefix)
-    tip = generate_refresh_tip()
-    if tip:
-        parts.append(tip)
+    if refresh_tip:
+        parts.append(refresh_tip)
     parts.append(metadata_block)
     body = "\n\n\n".join(parts)
     if not prefix or _utf16_len(body) <= GITHUB_BODY_MAX_CHARS:

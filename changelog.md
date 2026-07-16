@@ -5,7 +5,13 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** the PR-body helpers (`generate_pr_metadata_block`, `generate_refresh_tip`, `build_pr_body`) now take their CI context as arguments and `current_repo_url` is removed, ending the `pr_body` → `metadata` import cycle.
+- **Breaking:** `build_expected_body` moves from `repomatic.github.release_sync` to `repomatic.changelog`.
+- **Breaking:** the five `check_pat_*` probe functions are replaced by the `PAT_PERMISSION_PROBES` table and `probe_pat_permission`.
 - **Breaking:** the workflow generation API (`generate_thin_caller`, `generate_workflow_header`, `generate_workflows`) drops its legacy `source_paths` argument; pass a `PathsSpec` instead.
+- `Dialect`, `ArchiveFormat`, and `WorkflowFormat` now carry their dispatch as enum methods (`serialize`, `extract`, `write_workflow`).
+- Add a test suite for the notification-unsubscribe engine, which had no coverage.
+- The unsubscribe workflow's GraphQL phase now re-validates each item's staleness client-side instead of trusting the search index's day-granular `updated:<` filter, and reports the items it holds back.
 - Move `repomatic.sponsor` under `repomatic.github`, and share one GraphQL cursor paginator (`iter_graphql_nodes`) between the sponsors and unsubscribe lookups.
 - Extract the setup guide, `.gitignore` generation, and Sphinx docs orchestration from the CLI module into new `repomatic.setup_guide`, `repomatic.gitignore`, and `repomatic.docs` modules.
 - Add `repomatic.http`, the JSON fetch shared by the PyPI, npm, and GitHub API clients; npm and GitHub tag lookups now retry once on a truncated response like PyPI lookups already did.

@@ -45,9 +45,8 @@ import json
 import logging
 from pathlib import Path
 
-from ..changelog import Changelog
+from ..changelog import Changelog, build_expected_body
 from .gh import run_gh_command
-from .release_sync import build_expected_body
 
 DEV_ASSET_PATTERNS = ("*.bin", "*.exe", "*.whl", "*.tar.gz")
 """Glob patterns for dev release assets.

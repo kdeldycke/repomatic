@@ -143,6 +143,7 @@ class Phase2Result:
     cutoff: datetime | None = None
     graphql_failed: int = 0
     graphql_not_subscribed: int = 0
+    graphql_skipped_recent: int = 0
     graphql_total: int = 0
     graphql_unsubscribed: int = 0
     rows: list[DetailRow] = field(default_factory=list)
@@ -254,7 +255,11 @@ def _fetch_notification_threads(
             logging.warning(f"Skipping malformed notification line: {line!r}")
 
     total = len(threads)
-    # Reverse to process oldest first, then truncate.
+    # The REST notifications list is documented to sort by most recently
+    # updated first, so a reverse yields oldest-first processing. Combined
+    # with the batch-size truncation this is best-effort: the render_report
+    # backlog warning covers the case where the oldest threads stay out of
+    # reach because the API sorts by notification update, not issue activity.
     threads.reverse()
     return total, threads[:batch_size]
 
@@ -533,6 +538,10 @@ def render_report(result: UnsubscribeResult) -> str:
             f"| \U0001f4e6 Batch size | {p2.batch_size} |",
             f"| \u2705 Still subscribed | {subscribed_count} |",
             f"| \u23ed\ufe0f Not subscribed | {p2.graphql_not_subscribed} |",
+            (
+                f"| \U0001f7e1 Active since cutoff |"
+                f" {p2.graphql_skipped_recent} |"
+            ),
         ])
 
         p2_detail_table = _render_detail_table(p2.rows)
@@ -713,6 +722,15 @@ def unsubscribe_threads(
                 gql_updated_at = arrow.get(gql_updated_str).datetime
             except (ValueError, TypeError):
                 pass
+
+            # Re-validate staleness client-side, mirroring phase 1: the
+            # search query's `updated:<` filter is day-granular and served
+            # by GitHub's search index, which can lag. Trusting it alone
+            # could unsubscribe an item phase 1's stricter check would
+            # keep. An unparsable timestamp is not a green light either.
+            if gql_updated_at is None or gql_updated_at >= cutoff:
+                p2.graphql_skipped_recent += 1
+                continue
 
             gql_url = item.get("url", "")
             title = item.get("title", "")

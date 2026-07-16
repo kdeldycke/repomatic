@@ -71,6 +71,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, fields
+from typing import NamedTuple
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -114,139 +115,101 @@ def _classify_pat_error(stderr: str, missing_permission_msg: str) -> str:
     return _with_status_annotation(msg)
 
 
-def check_pat_contents_permission(repo: str) -> tuple[bool, str]:
-    """Check that the token has contents permission.
+class PatProbe(NamedTuple):
+    """One fine-grained PAT permission probe.
 
-    Tests read access via ``GET /repos/{owner}/{repo}/contents/.github``.
+    A read-only API call whose `HTTP 403` unambiguously identifies the
+    missing fine-grained permission. Rows live in
+    {data}`PAT_PERMISSION_PROBES`.
+    """
+
+    field: str
+    """The {class}`PatPermissionResults` field receiving this probe's result."""
+
+    permission: str
+    """Fine-grained permission label, as GitHub's PAT form spells it."""
+
+    endpoint: str
+    """Read-only probe endpoint, with a `{repo}` placeholder."""
+
+    success: str
+    """Message reported when the probe returns a 2xx."""
+
+    not_found: str = ""
+    """Message template (with `{repo}`) when the probe 404s.
+
+    Empty for probes whose 404 carries no special meaning: those fall
+    through to the generic failure classification.
+    """
+
+
+PAT_PERMISSION_PROBES: tuple[PatProbe, ...] = (
+    PatProbe(
+        "contents",
+        "Contents: Read and Write",
+        "repos/{repo}/contents/.github",
+        "Contents: token has access",
+    ),
+    PatProbe(
+        "issues",
+        "Issues: Read and Write",
+        "repos/{repo}/issues?per_page=1&state=all",
+        "Issues: token has access",
+    ),
+    PatProbe(
+        "pull_requests",
+        "Pull requests: Read and Write",
+        "repos/{repo}/pulls?per_page=1&state=all",
+        "Pull requests: token has access",
+    ),
+    # The Dependabot alerts listing endpoint correctly maps to the
+    # `vulnerability_alerts` permission scope; the older
+    # `GET /repos/{repo}/vulnerability-alerts` endpoint requires the
+    # `Administration: read` permission instead. A 200 also proves alerts
+    # are enabled; a 404 means they are not (distinct from a missing
+    # permission), hence the dedicated `not_found` message.
+    PatProbe(
+        "vulnerability_alerts",
+        "Dependabot alerts: Read-only",
+        "repos/{repo}/dependabot/alerts?per_page=1",
+        "Dependabot alerts: token has access, alerts enabled",
+        not_found=(
+            "Vulnerability alerts are not enabled on the repository. "
+            "Enable them: gh api repos/{repo}/vulnerability-alerts"
+            " --method PUT"
+        ),
+    ),
+    # Fine-grained PATs with the Workflows permission get `actions:read`
+    # access; without it this endpoint returns 403.
+    PatProbe(
+        "workflows",
+        "Workflows: Read and Write",
+        "repos/{repo}/actions/workflows?per_page=1",
+        "Workflows: token has access",
+    ),
+)
+"""The PAT permission probes, one per {class}`PatPermissionResults` field."""
+
+
+def probe_pat_permission(repo: str, probe: PatProbe) -> tuple[bool, str]:
+    """Run one PAT permission probe against *repo*.
 
     :param repo: Repository in 'owner/repo' format.
+    :param probe: The {class}`PatProbe` row to execute.
     :return: Tuple of (passed, message).
     """
     try:
-        run_gh_command([
-            "api",
-            f"repos/{repo}/contents/.github",
-            "--silent",
-        ])
-    except RuntimeError as exc:
-        return False, _classify_pat_error(
-            str(exc),
-            "Token lacks 'Contents: Read and Write' permission. "
-            "Update the PAT to include this permission.",
-        )
-    return True, "Contents: token has access"
-
-
-def check_pat_issues_permission(repo: str) -> tuple[bool, str]:
-    """Check that the token has issues permission.
-
-    Tests read access via ``GET /repos/{owner}/{repo}/issues``.
-
-    :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed, message).
-    """
-    try:
-        run_gh_command([
-            "api",
-            f"repos/{repo}/issues?per_page=1&state=all",
-            "--silent",
-        ])
-    except RuntimeError as exc:
-        return False, _classify_pat_error(
-            str(exc),
-            "Token lacks 'Issues: Read and Write' permission. "
-            "Update the PAT to include this permission.",
-        )
-    return True, "Issues: token has access"
-
-
-def check_pat_pull_requests_permission(repo: str) -> tuple[bool, str]:
-    """Check that the token has pull requests permission.
-
-    Tests read access via ``GET /repos/{owner}/{repo}/pulls``.
-
-    :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed, message).
-    """
-    try:
-        run_gh_command([
-            "api",
-            f"repos/{repo}/pulls?per_page=1&state=all",
-            "--silent",
-        ])
-    except RuntimeError as exc:
-        return False, _classify_pat_error(
-            str(exc),
-            "Token lacks 'Pull requests: Read and Write' permission. "
-            "Update the PAT to include this permission.",
-        )
-    return True, "Pull requests: token has access"
-
-
-def check_pat_vulnerability_alerts_permission(repo: str) -> tuple[bool, str]:
-    """Check that the token has Dependabot alerts permission and alerts are enabled.
-
-    Tests access via ``GET /repos/{owner}/{repo}/dependabot/alerts?per_page=1``.
-    Returns 200 when the token has the `vulnerability_alerts` permission and
-    alerts are enabled. Fails on 403 (token lacks the permission) or 404
-    (alerts not enabled).
-
-    ```{note}
-
-    The older ``GET /repos/{owner}/{repo}/vulnerability-alerts`` endpoint
-    requires the `Administration: read` fine-grained token permission,
-    not `Dependabot alerts`. The Dependabot alerts listing endpoint used
-    here correctly maps to the `vulnerability_alerts` permission scope.
-    ```
-
-    :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed, message).
-    """
-    try:
-        run_gh_command([
-            "api",
-            f"repos/{repo}/dependabot/alerts?per_page=1",
-            "--silent",
-        ])
+        run_gh_command(["api", probe.endpoint.format(repo=repo), "--silent"])
     except RuntimeError as exc:
         stderr = str(exc)
-        if "HTTP 404" in stderr:
-            return False, _with_status_annotation(
-                "Vulnerability alerts are not enabled on the repository. "
-                f"Enable them: gh api repos/{repo}/vulnerability-alerts"
-                " --method PUT"
-            )
+        if probe.not_found and "HTTP 404" in stderr:
+            return False, _with_status_annotation(probe.not_found.format(repo=repo))
         return False, _classify_pat_error(
             stderr,
-            "Token lacks 'Dependabot alerts: Read-only' permission. "
+            f"Token lacks {probe.permission!r} permission. "
             "Update the PAT to include this permission.",
         )
-    return True, "Dependabot alerts: token has access, alerts enabled"
-
-
-def check_pat_workflows_permission(repo: str) -> tuple[bool, str]:
-    """Check that the token has workflows permission.
-
-    Tests access via ``GET /repos/{owner}/{repo}/actions/workflows``.
-    Fine-grained PATs with the **Workflows** permission get `actions:read`
-    access. Without it, this endpoint returns 403.
-
-    :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed, message).
-    """
-    try:
-        run_gh_command([
-            "api",
-            f"repos/{repo}/actions/workflows?per_page=1",
-            "--silent",
-        ])
-    except RuntimeError as exc:
-        return False, _classify_pat_error(
-            str(exc),
-            "Token lacks 'Workflows: Read and Write' permission. "
-            "Update the PAT to include this permission.",
-        )
-    return True, "Workflows: token has access"
+    return True, probe.success
 
 
 @dataclass
@@ -258,19 +221,19 @@ class PatPermissionResults:
     """
 
     contents: tuple[bool, str]
-    """Result of {func}`check_pat_contents_permission`."""
+    """Result of the `contents` {data}`PAT_PERMISSION_PROBES` row."""
 
     issues: tuple[bool, str]
-    """Result of {func}`check_pat_issues_permission`."""
+    """Result of the `issues` {data}`PAT_PERMISSION_PROBES` row."""
 
     pull_requests: tuple[bool, str]
-    """Result of {func}`check_pat_pull_requests_permission`."""
+    """Result of the `pull_requests` {data}`PAT_PERMISSION_PROBES` row."""
 
     vulnerability_alerts: tuple[bool, str]
-    """Result of {func}`check_pat_vulnerability_alerts_permission`."""
+    """Result of the `vulnerability_alerts` {data}`PAT_PERMISSION_PROBES` row."""
 
     workflows: tuple[bool, str]
-    """Result of {func}`check_pat_workflows_permission`."""
+    """Result of the `workflows` {data}`PAT_PERMISSION_PROBES` row."""
 
     def all_passed(self) -> bool:
         """Return `True` when every executed check passed."""
@@ -309,13 +272,10 @@ def check_all_pat_permissions(repo: str) -> PatPermissionResults:
     :param repo: Repository in 'owner/repo' format.
     :return: {class}`PatPermissionResults` with all check outcomes.
     """
-    return PatPermissionResults(
-        contents=check_pat_contents_permission(repo),
-        issues=check_pat_issues_permission(repo),
-        pull_requests=check_pat_pull_requests_permission(repo),
-        vulnerability_alerts=check_pat_vulnerability_alerts_permission(repo),
-        workflows=check_pat_workflows_permission(repo),
-    )
+    return PatPermissionResults(**{
+        probe.field: probe_pat_permission(repo, probe)
+        for probe in PAT_PERMISSION_PROBES
+    })
 
 
 def validate_gh_token_env() -> None:

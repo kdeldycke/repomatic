@@ -101,8 +101,8 @@ from .github.dev_release import (
 from .github.pr import close_open_prs_on_branch
 from .github.pr_body import (
     build_pr_body,
-    current_repo_url,
     generate_pr_metadata_block,
+    generate_refresh_tip,
     get_template_names,
     render_commit_message,
     render_template,
@@ -4215,7 +4215,8 @@ def pr_body(
         "diff_table": os.getenv("REPOMATIC_DIFF_TABLE", ""),
         "part": part,
         "pr_ref": pr_ref,
-        "repo_url": current_repo_url,  # Callable, will be invoked if needed.
+        # Callable, will be invoked if needed.
+        "repo_url": lambda: Metadata().repo_url,
         "version": version if version is not None else _auto_version,
     }
     arg_sources.update(cli_extra_args)
@@ -4254,8 +4255,11 @@ def pr_body(
             docs_name = template
         elif template_file:
             docs_name = template_file.name.removesuffix(".noformat").removesuffix(".md")
-    metadata_block = generate_pr_metadata_block(docs_url=docs_url, docs_name=docs_name)
-    body = build_pr_body(prefix, metadata_block)
+    md = Metadata()
+    metadata_block = generate_pr_metadata_block(
+        md, docs_url=docs_url, docs_name=docs_name
+    )
+    body = build_pr_body(prefix, metadata_block, refresh_tip=generate_refresh_tip(md))
 
     if output_format == "github-actions":
         parts = [format_multiline_output("body", body)]

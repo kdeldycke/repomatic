@@ -20,13 +20,12 @@ from unittest.mock import patch
 
 import pytest
 
-from repomatic.changelog import Changelog
+from repomatic.changelog import Changelog, build_expected_body
 from repomatic.github.release_sync import (
     SyncAction,
     SyncResult,
     SyncRow,
     _normalize_body,
-    build_expected_body,
     render_sync_report,
     sync_github_releases,
 )

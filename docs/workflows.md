@@ -340,25 +340,15 @@ docs = [
   - `docs` dependency group
   - Sphinx configuration file at `docs/conf.py`
 
-#### 🔗 Sphinx linkcheck (`check-sphinx-links`)
-
-- Runs Sphinx's built-in [`linkcheck`](https://www.sphinx-doc.org/en/master/usage/builders/index.html#sphinx.builders.linkcheck.CheckExternalLinksBuilder) builder to detect broken auto-generated links (intersphinx, autodoc, type annotations) that Lychee cannot see
-- Creates/updates issues for broken documentation links found
-- **Requires**:
-  - Python package with a `pyproject.toml` file
-  - `docs` dependency group
-  - Sphinx configuration file at `docs/conf.py`
-- **Skipped for**:
-  - Pull requests
-  - `prepare-release` branch
-  - Post-release version bump commits
-
 #### 💔 Check broken links (`check-broken-links`)
 
-- Checks for broken links in documentation using [`lychee`](https://github.com/lycheeverse/lychee)
-- Creates/updates issues for broken links found
+- Checks for broken links in documentation with two complementary scanners, then files a single combined issue via `repomatic broken-links`:
+  - [`lychee`](https://github.com/lycheeverse/lychee) scans every documentation file for dead external URLs
+  - Sphinx's built-in [`linkcheck`](https://www.sphinx-doc.org/en/master/usage/builders/index.html#sphinx.builders.linkcheck.CheckExternalLinksBuilder) builder additionally catches broken auto-generated links (intersphinx, autodoc, type annotations) that Lychee cannot see; this step only runs for Sphinx projects
+- Creates/updates one issue covering the findings of both scanners
 - **Requires**:
   - Documentation files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx,rst,tex}`) in the repository
+  - For the Sphinx linkcheck step: a `docs` dependency group and a Sphinx configuration file at `docs/conf.py`
 - **Skipped for**:
   - All PRs (only runs on push to main)
   - `prepare-release` branch

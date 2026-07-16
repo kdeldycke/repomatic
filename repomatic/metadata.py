@@ -328,6 +328,7 @@ from .binary import (
 from .changelog import (
     GITHUB_RELEASE_URL,
     Changelog,
+    build_expected_body,
     build_release_admonition,
 )
 from .git_ops import (
@@ -391,6 +392,55 @@ class Dialect(StrEnum):
     github = "github"
     github_json = "github-json"
     json = "json"
+
+    def serialize(self, metadata: dict[str, Any]) -> str:
+        """Render *metadata* in this dialect.
+
+        :param metadata: Raw key-to-value mapping from {meth}`Metadata.dump`.
+        :return: The serialized payload.
+        """
+        if self is Dialect.github:
+            content = ""
+            for env_name, value in metadata.items():
+                env_value = Metadata.format_github_value(value)
+
+                # Use heredoc format for multiline values or fields with
+                # special chars.
+                use_heredoc = (
+                    len(env_value.splitlines()) > 1 or env_name in HEREDOC_FIELDS
+                )
+                if not use_heredoc:
+                    content += f"{env_name}={env_value}\n"
+                else:
+                    # Use a random unique delimiter to encode multiline value.
+                    delimiter = generate_delimiter()
+                    content += f"{env_name}<<{delimiter}\n{env_value}\n{delimiter}\n"
+            return content
+
+        if self is Dialect.github_json:
+            # Bundle all metadata into a single `metadata` output key as JSON.
+            # Downstream jobs access values via
+            # `fromJSON(needs.metadata.outputs.metadata).key`,
+            # eliminating the need for per-key `outputs:` declarations.
+            #
+            # Pre-format list/tuple values via format_github_value(). GitHub
+            # Actions stringifies JSON arrays as "Array" when interpolated in
+            # ${{ }} expressions, so workflows that splice lists into `run:`
+            # or `env:` contexts would receive the literal word "Array".
+            # Matrix objects are excluded: they serialize to JSON objects via
+            # JSONMetadata and are consumed directly in `strategy: matrix:`
+            # blocks, which accept expression objects without string coercion.
+            formatted = {}
+            for k, v in metadata.items():
+                if isinstance(v, (list, tuple)):
+                    formatted[k] = Metadata.format_github_value(v)
+                else:
+                    formatted[k] = v
+            json_str = json.dumps(formatted, cls=JSONMetadata, separators=(",", ":"))
+            return f"metadata={json_str}\n"
+
+        assert self is Dialect.json
+        return json.dumps(metadata, cls=JSONMetadata, indent=2)
 
 
 _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
@@ -2403,9 +2453,6 @@ class Metadata:
         content for the version. The template is the single place
         that defines the release body layout.
         """
-        # Lazy import to avoid circular dependency:
-        # release_sync → pr_body → metadata.
-        from .github.release_sync import build_expected_body
 
         version = self.released_version
         if not version:
@@ -2445,9 +2492,6 @@ class Metadata:
         has no version to release, in which case `create-release` falls back to
         the plain {attr}`release_notes`.
         """
-        # Lazy import to avoid circular dependency:
-        # release_sync → pr_body → metadata.
-        from .github.release_sync import build_expected_body
 
         version = self.released_version
         if not version:
@@ -2629,45 +2673,7 @@ class Metadata:
         logging.debug(f"Raw metadata: {metadata!r}")
         logging.debug(f"Format metadata into {dialect} format.")
 
-        content = ""
-        if dialect == Dialect.github:
-            for env_name, value in metadata.items():
-                env_value = self.format_github_value(value)
-
-                # Use heredoc format for multiline values or fields with special chars.
-                use_heredoc = (
-                    len(env_value.splitlines()) > 1 or env_name in HEREDOC_FIELDS
-                )
-                if not use_heredoc:
-                    content += f"{env_name}={env_value}\n"
-                else:
-                    # Use a random unique delimiter to encode multiline value.
-                    delimiter = generate_delimiter()
-                    content += f"{env_name}<<{delimiter}\n{env_value}\n{delimiter}\n"
-        elif dialect == Dialect.github_json:
-            # Bundle all metadata into a single `metadata` output key as JSON.
-            # Downstream jobs access values via
-            # `fromJSON(needs.metadata.outputs.metadata).key`,
-            # eliminating the need for per-key `outputs:` declarations.
-            #
-            # Pre-format list/tuple values via format_github_value(). GitHub
-            # Actions stringifies JSON arrays as "Array" when interpolated in
-            # ${{ }} expressions, so workflows that splice lists into `run:`
-            # or `env:` contexts would receive the literal word "Array".
-            # Matrix objects are excluded: they serialize to JSON objects via
-            # JSONMetadata and are consumed directly in `strategy: matrix:`
-            # blocks, which accept expression objects without string coercion.
-            formatted = {}
-            for k, v in metadata.items():
-                if isinstance(v, (list, tuple)):
-                    formatted[k] = self.format_github_value(v)
-                else:
-                    formatted[k] = v
-            json_str = json.dumps(formatted, cls=JSONMetadata, separators=(",", ":"))
-            content = f"metadata={json_str}\n"
-        else:
-            assert dialect == Dialect.json
-            content = json.dumps(metadata, cls=JSONMetadata, indent=2)
+        content = dialect.serialize(metadata)
 
         logging.debug(f"Formatted metadata:\n{content}")
 

@@ -43,6 +43,7 @@ from repomatic.github.pr_body import (
     render_title,
     template_args,
 )
+from repomatic.metadata import Metadata
 
 # Full set of GITHUB_* environment variables for testing.
 GITHUB_ENV_VARS = {
@@ -116,7 +117,7 @@ def test_generate_metadata_block_all_vars(monkeypatch):
     for key, value in GITHUB_ENV_VARS.items():
         monkeypatch.setenv(key, value)
 
-    block = generate_pr_metadata_block()
+    block = generate_pr_metadata_block(Metadata())
 
     assert "<details>" in block
     assert "<summary><code>Workflow metadata</code></summary>" in block
@@ -145,7 +146,7 @@ def test_generate_metadata_block_rerun(monkeypatch):
         monkeypatch.setenv(key, value)
     monkeypatch.setenv("GITHUB_TRIGGERING_ACTOR", "admin-user")
 
-    block = generate_pr_metadata_block()
+    block = generate_pr_metadata_block(Metadata())
 
     assert "- **Re-run by**: @admin-user" in block
 
@@ -156,6 +157,7 @@ def test_generate_metadata_block_docs_entry(monkeypatch):
         monkeypatch.setenv(key, value)
 
     block = generate_pr_metadata_block(
+        Metadata(),
         docs_url="https://example.test/workflows.html#pack-fruit",
         docs_name="pack-fruit",
     )
@@ -167,6 +169,7 @@ def test_generate_metadata_block_docs_entry(monkeypatch):
     ) in block
     # Without a label the raw URL renders as an autolink.
     unlabelled = generate_pr_metadata_block(
+        Metadata(),
         docs_url="https://example.test/workflows.html#pack-fruit"
     )
     assert (
@@ -180,7 +183,7 @@ def test_generate_metadata_block_minimal_vars(monkeypatch):
     for key in GITHUB_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
 
-    block = generate_pr_metadata_block()
+    block = generate_pr_metadata_block(Metadata())
 
     # Should still produce a valid details block without crashing.
     assert "<details>" in block
@@ -193,7 +196,7 @@ def test_generate_refresh_tip_with_workflow_ref(monkeypatch):
     for key, value in GITHUB_ENV_VARS.items():
         monkeypatch.setenv(key, value)
 
-    tip = generate_refresh_tip()
+    tip = generate_refresh_tip(Metadata())
 
     assert "> [!IMPORTANT]" in tip
     assert "Run workflow" in tip
@@ -205,7 +208,7 @@ def test_generate_refresh_tip_without_workflow_ref(monkeypatch):
     for key in GITHUB_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
 
-    assert generate_refresh_tip() == ""
+    assert generate_refresh_tip(Metadata()) == ""
 
 
 def test_get_template_names():
@@ -550,7 +553,7 @@ FAKE_FOOTER = (
     "***\n\n"
     "Generated with [repomatic](https://github.com/kdeldycke/repomatic)"
 )
-"""Simulates ``generate_pr_metadata_block()`` output for unit tests."""
+"""Simulates ``generate_pr_metadata_block(Metadata())`` output for unit tests."""
 
 
 def test_build_pr_body_with_prefix(monkeypatch):
@@ -570,7 +573,9 @@ def test_build_pr_body_with_tip(monkeypatch):
     for key, value in GITHUB_ENV_VARS.items():
         monkeypatch.setenv(key, value)
 
-    result = build_pr_body("Description.", FAKE_FOOTER)
+    result = build_pr_body(
+        "Description.", FAKE_FOOTER, refresh_tip=generate_refresh_tip(Metadata())
+    )
 
     assert result.startswith("Description.")
     assert "> [!IMPORTANT]" in result
@@ -606,7 +611,9 @@ def test_build_pr_body_trims_oversized_prefix(monkeypatch):
     # length, matching real dependency tables (🆙 heading, 🆕/🗑️ labels).
     row = "| [papaya](https://pypi.org/project/papaya/) | `1.0` → `2.0` 🆙 |"
     prefix = "\n".join([row] * 3000)
-    result = build_pr_body(prefix, FAKE_FOOTER)
+    result = build_pr_body(
+        prefix, FAKE_FOOTER, refresh_tip=generate_refresh_tip(Metadata())
+    )
 
     assert _utf16_len(result) <= GITHUB_BODY_MAX_CHARS
     assert result.endswith(FAKE_FOOTER)

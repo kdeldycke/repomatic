@@ -826,10 +826,8 @@ def test_install_binary_missing_platform():
         _install_binary(spec, Path("/tmp"))
 
 
-def test_install_binary_cache_hit(tmp_path, monkeypatch):
+def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
     """_install_binary returns cached path when cache hit and sidecar matches."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
 
     # Pre-populate the cache with a fake binary and its .sha256 sidecar.
     fake_binary = b"cached-binary-content"
@@ -864,10 +862,8 @@ def test_install_binary_cache_hit(tmp_path, monkeypatch):
     assert result == cache_path
 
 
-def test_install_binary_cache_miss_stores(tmp_path, monkeypatch):
+def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
     """_install_binary stores the binary in cache after download on miss."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
 
     fake_binary = b"downloaded-binary"
     checksum = hashlib.sha256(fake_binary).hexdigest()
@@ -911,10 +907,8 @@ def test_install_binary_cache_miss_stores(tmp_path, monkeypatch):
     )
 
 
-def test_install_binary_no_cache_flag(tmp_path, monkeypatch):
+def test_install_binary_no_cache_flag(tmp_path, monkeypatch, cache_env):
     """_install_binary with no_cache=True bypasses cache entirely."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
 
     spec = ToolSpec(
         name="testtool",
@@ -948,10 +942,8 @@ def test_install_binary_no_cache_flag(tmp_path, monkeypatch):
     assert result == extracted
 
 
-def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch):
+def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch, cache_env):
     """_install_binary re-downloads when cached binary fails sidecar check."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
 
     # Put a tampered binary in the cache with a sidecar for the original.
     from repomatic.cache import cached_binary_path
@@ -998,10 +990,8 @@ def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch):
     assert new_cached.read_bytes() == b"real-binary"
 
 
-def test_install_binary_cache_store_fallback(tmp_path, monkeypatch):
+def test_install_binary_cache_store_fallback(tmp_path, monkeypatch, cache_env):
     """_install_binary falls back to temp path when cached file is missing."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
 
     fake_binary = b"downloaded-binary"
     checksum = hashlib.sha256(fake_binary).hexdigest()
@@ -1021,7 +1011,7 @@ def test_install_binary_cache_store_fallback(tmp_path, monkeypatch):
 
     def fake_store(*args, **kwargs):
         """Return a cache path that doesn't exist on disk."""
-        return tmp_path / "cache" / "bin" / "ghost" / "binary"
+        return cache_env / "bin" / "ghost" / "binary"
 
     with (
         patch("repomatic.tool_runner.current_platform", return_value=UBUNTU),
@@ -1224,10 +1214,9 @@ def test_resolve_config_reads_pyproject_with_section():
     assert tmp is None
 
 
-def test_resolve_config_reads_pyproject_falls_through_to_bundled(tmp_path, monkeypatch):
+def test_resolve_config_reads_pyproject_falls_through_to_bundled(tmp_path, monkeypatch, cache_env):
     """Tools with reads_pyproject=True use bundled default when no config exists."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
     spec = ToolSpec(
         name="testool",
         version="1.0.0",
@@ -1256,10 +1245,9 @@ def test_resolve_config_native_file_wins(tmp_path, monkeypatch):
     assert tmp is None
 
 
-def test_resolve_config_pyproject_section(tmp_path, monkeypatch):
+def test_resolve_config_pyproject_section(tmp_path, monkeypatch, cache_env):
     """[tool.X] in pyproject.toml produces a cached config file."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = TOOL_REGISTRY["yamllint"]
     tool_config = {"rules": {"line-length": {"max": 80}}}
@@ -1280,10 +1268,9 @@ def test_resolve_config_pyproject_section(tmp_path, monkeypatch):
     assert tmp is None
 
 
-def test_resolve_config_toml_translation(tmp_path, monkeypatch):
+def test_resolve_config_toml_translation(tmp_path, monkeypatch, cache_env):
     """[tool.X] with native_format='toml' produces a valid TOML cached file."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = ToolSpec(
         name="lychee",
@@ -1303,10 +1290,9 @@ def test_resolve_config_toml_translation(tmp_path, monkeypatch):
     assert tmp is None
 
 
-def test_resolve_config_toml_nested_tables(tmp_path, monkeypatch):
+def test_resolve_config_toml_nested_tables(tmp_path, monkeypatch, cache_env):
     """Nested dicts in [tool.X] produce TOML table sections."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = ToolSpec(
         name="lychee",
@@ -1333,7 +1319,6 @@ def test_resolve_config_toml_preserves_pyproject_comments(tmp_path, monkeypatch)
     prefix.
     """
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
 
     (tmp_path / "pyproject.toml").write_text(
         "[tool.gitleaks]\n"
@@ -1399,10 +1384,9 @@ def test_reroot_section_inline_expands_without_raising():
     assert "b = 2" in out
 
 
-def test_resolve_config_json_translation(tmp_path, monkeypatch):
+def test_resolve_config_json_translation(tmp_path, monkeypatch, cache_env):
     """[tool.X] with native_format='json' produces a valid JSON cached file."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = ToolSpec(
         name="biome",
@@ -1459,10 +1443,9 @@ def test_resolve_config_no_config_flag_no_native_files_raises(tmp_path, monkeypa
         resolve_config(spec, tool_config={"key": "value"})
 
 
-def test_resolve_config_bundled_default(tmp_path, monkeypatch):
+def test_resolve_config_bundled_default(tmp_path, monkeypatch, cache_env):
     """Bundled default is cached and passed via --config flag."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = TOOL_REGISTRY["yamllint"]
     args, tmp = resolve_config(spec, tool_config={})
@@ -1488,10 +1471,9 @@ def test_resolve_config_bare_invocation(tmp_path, monkeypatch):
     assert tmp is None
 
 
-def test_resolve_config_empty_tool_config_is_not_match(tmp_path, monkeypatch):
+def test_resolve_config_empty_tool_config_is_not_match(tmp_path, monkeypatch, cache_env):
     """An empty [tool.X] dict does not count as a config match."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = TOOL_REGISTRY["zizmor"]
     args, tmp = resolve_config(spec, tool_config={})
@@ -1643,10 +1625,10 @@ def test_run_tool_pyproject_section_cached_config(
     mock_run,
     tmp_path,
     monkeypatch,
+    cache_env,
 ):
     """[tool.X] translation writes config to cache and passes via --config."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path / "cache"))
     (tmp_path / "pyproject.toml").write_text(
         "[tool.zizmor]\n[tool.zizmor.rules.artipacked]\ndisable = true\n",
         encoding="utf-8",

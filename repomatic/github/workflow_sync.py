@@ -110,6 +110,124 @@ class WorkflowFormat(StrEnum):
     regenerated content.
     """
 
+    def default_names(self) -> tuple[str, ...]:
+        """The workflow set a bare `create` or `sync` targets in this format.
+
+        Thin callers cover every reusable workflow, header-only syncs cover
+        the non-reusable ones, and the copy modes cover everything.
+        """
+        if self is WorkflowFormat.THIN_CALLER:
+            return REUSABLE_WORKFLOWS
+        if self is WorkflowFormat.HEADER_ONLY:
+            return tuple(sorted(NON_REUSABLE_WORKFLOWS))
+        return ALL_WORKFLOW_FILES
+
+    def write_workflow(
+        self,
+        filename: str,
+        target: Path,
+        *,
+        repo: str,
+        version: str,
+        spec: PathsSpec,
+        commit_sha: str | None,
+    ) -> bool:
+        """Write *target* in this format from the canonical *filename*.
+
+        Benign skips (a non-reusable workflow in thin-caller mode, a missing
+        downstream file in header-only mode) log a warning and count as
+        success; failures log an error.
+
+        :param filename: Canonical workflow filename (e.g. `tests.yaml`).
+        :param target: Destination path to write.
+        :param repo: Upstream repository for thin-caller `uses:` refs.
+        :param version: Version reference for thin-caller `uses:` refs.
+        :param spec: Paths-adaptation spec for thin callers and headers.
+        :param commit_sha: Full commit SHA for SHA-pinned `uses:` refs.
+        :return: `False` when the file could not be written, `True` otherwise.
+        """
+        if self is WorkflowFormat.THIN_CALLER:
+            if filename in NON_REUSABLE_WORKFLOWS:
+                logging.warning(
+                    f"Skipping {filename}: no workflow_call trigger"
+                    " (not reusable). Use full-copy or symlink mode instead."
+                )
+                return True
+
+            try:
+                content = generate_thin_caller(
+                    filename,
+                    repo,
+                    version,
+                    paths_spec=spec,
+                    commit_sha=commit_sha,
+                )
+            except ValueError as e:
+                logging.error(str(e))
+                return False
+
+            # Preserve extra downstream jobs from the existing file.
+            if target.exists():
+                extra = extract_extra_jobs(target.read_text(encoding="UTF-8"), repo)
+                if extra:
+                    content += extra
+
+            target.write_text(content, encoding="UTF-8")
+            logging.info(f"Generated thin caller: {target}")
+            return True
+
+        if self is WorkflowFormat.HEADER_ONLY:
+            if not target.exists():
+                logging.warning(f"{target} does not exist. Skipping header-only sync.")
+                return True
+
+            try:
+                canonical_header = generate_workflow_header(filename, paths_spec=spec)
+            except (ValueError, FileNotFoundError) as e:
+                logging.error(f"Failed to extract header for {filename}: {e}")
+                return False
+
+            existing = target.read_text(encoding="UTF-8")
+            jobs_match = re.search(r"^jobs:", existing, re.MULTILINE)
+            if jobs_match is None:
+                logging.error(f"{target} has no 'jobs:' line to preserve.")
+                return False
+
+            content = canonical_header + existing[jobs_match.start() :]
+            target.write_text(content, encoding="UTF-8")
+            logging.info(f"Synced header: {target}")
+            return True
+
+        if self is WorkflowFormat.FULL_COPY:
+            try:
+                content = export_content(filename)
+            except (ValueError, FileNotFoundError) as e:
+                logging.error(f"Failed to export {filename}: {e}")
+                return False
+
+            target.write_text(content, encoding="UTF-8")
+            logging.info(f"Exported full copy: {target}")
+            return True
+
+        assert self is WorkflowFormat.SYMLINK
+        try:
+            data_files = files("repomatic.data")
+            with as_file(data_files.joinpath(filename)) as source:
+                if not source.exists():
+                    logging.error(f"Bundled file not found: {filename}")
+                    return False
+                source_resolved = source.resolve()
+
+            if target.exists() or target.is_symlink():
+                target.unlink()
+            target.symlink_to(source_resolved)
+            logging.info(f"Created symlink: {target} -> {source_resolved}")
+        except OSError as e:
+            logging.error(f"Failed to create symlink for {filename}: {e}")
+            return False
+        return True
+
+
 
 DEFAULT_VERSION: Final[str] = "main" if ".dev" in __version__ else f"v{__version__}"
 """Default version reference for upstream workflows.
@@ -1472,16 +1590,9 @@ def generate_workflows(
     :return: Exit code (0 for success, 1 for errors).
     """
     spec = paths_spec if paths_spec is not None else PathsSpec()
-    # Default to all reusable workflows for thin-caller, non-reusable for
-    # header-only, all for other modes.
     names_defaulted = not names
     if not names:
-        if output_format == WorkflowFormat.THIN_CALLER:
-            names = REUSABLE_WORKFLOWS
-        elif output_format == WorkflowFormat.HEADER_ONLY:
-            names = tuple(sorted(NON_REUSABLE_WORKFLOWS))
-        else:
-            names = ALL_WORKFLOW_FILES
+        names = output_format.default_names()
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1500,87 +1611,14 @@ def generate_workflows(
             errors += 1
             continue
 
-        if output_format == WorkflowFormat.THIN_CALLER:
-            if filename in NON_REUSABLE_WORKFLOWS:
-                logging.warning(
-                    f"Skipping {filename}: no workflow_call trigger"
-                    " (not reusable). Use full-copy or symlink mode instead."
-                )
-                continue
-
-            try:
-                content = generate_thin_caller(
-                    filename,
-                    repo,
-                    version,
-                    paths_spec=spec,
-                    commit_sha=commit_sha,
-                )
-            except ValueError as e:
-                logging.error(str(e))
-                errors += 1
-                continue
-
-            # Preserve extra downstream jobs from the existing file.
-            if target.exists():
-                extra = extract_extra_jobs(target.read_text(encoding="UTF-8"), repo)
-                if extra:
-                    content += extra
-
-            target.write_text(content, encoding="UTF-8")
-            logging.info(f"Generated thin caller: {target}")
-
-        elif output_format == WorkflowFormat.HEADER_ONLY:
-            if not target.exists():
-                logging.warning(f"{target} does not exist. Skipping header-only sync.")
-                continue
-
-            try:
-                canonical_header = generate_workflow_header(filename, paths_spec=spec)
-            except (ValueError, FileNotFoundError) as e:
-                logging.error(f"Failed to extract header for {filename}: {e}")
-                errors += 1
-                continue
-
-            existing = target.read_text(encoding="UTF-8")
-            jobs_match = re.search(r"^jobs:", existing, re.MULTILINE)
-            if jobs_match is None:
-                logging.error(f"{target} has no 'jobs:' line to preserve.")
-                errors += 1
-                continue
-
-            content = canonical_header + existing[jobs_match.start() :]
-            target.write_text(content, encoding="UTF-8")
-            logging.info(f"Synced header: {target}")
-
-        elif output_format == WorkflowFormat.FULL_COPY:
-            try:
-                content = export_content(filename)
-            except (ValueError, FileNotFoundError) as e:
-                logging.error(f"Failed to export {filename}: {e}")
-                errors += 1
-                continue
-
-            target.write_text(content, encoding="UTF-8")
-            logging.info(f"Exported full copy: {target}")
-
-        elif output_format == WorkflowFormat.SYMLINK:
-            try:
-                data_files = files("repomatic.data")
-                with as_file(data_files.joinpath(filename)) as source:
-                    if not source.exists():
-                        logging.error(f"Bundled file not found: {filename}")
-                        errors += 1
-                        continue
-                    source_resolved = source.resolve()
-
-                if target.exists() or target.is_symlink():
-                    target.unlink()
-                target.symlink_to(source_resolved)
-                logging.info(f"Created symlink: {target} -> {source_resolved}")
-            except OSError as e:
-                logging.error(f"Failed to create symlink for {filename}: {e}")
-                errors += 1
-                continue
+        if not output_format.write_workflow(
+            filename,
+            target,
+            repo=repo,
+            version=version,
+            spec=spec,
+            commit_sha=commit_sha,
+        ):
+            errors += 1
 
     return 1 if errors else 0

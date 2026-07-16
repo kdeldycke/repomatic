@@ -130,6 +130,34 @@ class ArchiveFormat(Enum):
         msg = f"{self.value} is not a tar archive"
         raise ValueError(msg)
 
+    def extract(
+        self,
+        archive_path: Path,
+        spec: BinarySpec,
+        dest_dir: Path,
+        executable: str,
+    ) -> Path:
+        """Extract *executable* from *archive_path* in this format.
+
+        A `RAW` download is the executable itself and is renamed into place;
+        the archive formats delegate to their extractors.
+
+        :param archive_path: Path to the downloaded archive file.
+        :param spec: Binary specification with executable path info.
+        :param dest_dir: Directory to extract into.
+        :param executable: Executable filename to extract.
+        :return: Path to the extracted executable.
+        :raises FileNotFoundError: If the executable is not in the archive.
+        """
+        if self is ArchiveFormat.RAW:
+            dest = dest_dir / executable
+            archive_path.rename(dest)
+            dest.chmod(0o755)
+            return dest
+        if self is ArchiveFormat.ZIP:
+            return _extract_from_zip(archive_path, spec, dest_dir, executable)
+        return _extract_from_tar(archive_path, self, spec, dest_dir, executable)
+
 
 class NativeFormat(Enum):
     """Target format for `[tool.X]` translation."""
@@ -1980,17 +2008,7 @@ def _extract_binary(
         msg = "archive_format is required when spec.archive_format is a dict"
         raise TypeError(msg)
     executable = spec.archive_executable or tool_name
-
-    if fmt == ArchiveFormat.RAW:
-        dest = dest_dir / executable
-        archive_path.rename(dest)
-        dest.chmod(0o755)
-        return dest
-
-    if fmt == ArchiveFormat.ZIP:
-        return _extract_from_zip(archive_path, spec, dest_dir, executable)
-
-    return _extract_from_tar(archive_path, fmt, spec, dest_dir, executable)
+    return fmt.extract(archive_path, spec, dest_dir, executable)
 
 
 def _extract_from_tar(

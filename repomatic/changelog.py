@@ -124,6 +124,7 @@ from packaging.version import Version
 
 from .git_ops import get_all_version_tags, get_tag_date
 from .github.actions import AnnotationLevel, emit_annotation
+from .github.pr_body import render_template
 from .github.releases import (
     GitHubRelease,
     GitHubReleasesUnavailable,
@@ -292,8 +293,6 @@ class Changelog:
         if not self.current_version:
             return self.content.rstrip()
 
-        # Lazy import to avoid circular dependency: pr_body → metadata → changelog.
-        from .github.pr_body import render_template
 
         elements = self.decompose_version(self.current_version)
 
@@ -350,8 +349,6 @@ class Changelog:
         if not self.current_version:
             return False
 
-        # Lazy import to avoid circular dependency: pr_body → metadata → changelog.
-        from .github.pr_body import render_template
 
         elements = self.decompose_version(self.current_version)
         if not elements.version:
@@ -488,8 +485,6 @@ class Changelog:
                 lower_version = v
                 break
 
-        # Lazy import to avoid circular dependency: pr_body → metadata → changelog.
-        from .github.pr_body import render_template
 
         compare_base = f"v{lower_version}" if lower_version else "v0.0.0"
         elements = VersionElements(
@@ -687,8 +682,6 @@ def build_release_admonition(
         links.append(f"[{GITHUB_LABEL}]({github_url})")
     if not links:
         return ""
-    # Lazy import to avoid circular dependency: pr_body → metadata → changelog.
-    from .github.pr_body import render_template
 
     platforms = " and ".join(links)
     verb = FIRST_AVAILABLE_VERB if first_on_all else AVAILABLE_VERB
@@ -718,8 +711,6 @@ def build_unavailable_admonition(
         names.append(GITHUB_LABEL)
     if not names:
         return ""
-    # Lazy import to avoid circular dependency: pr_body → metadata → changelog.
-    from .github.pr_body import render_template
 
     platforms = " and ".join(names)
     return render_template(
@@ -1133,8 +1124,6 @@ def lint_changelog_dates(
     # decomposing and re-rendering an already-correct section is a
     # no-op.
     if fix:
-        # Lazy import to avoid circular dependency: pr_body → metadata → changelog.
-        from .github.pr_body import render_template
 
         for version, _date in releases:
             elements = changelog.decompose_version(version)
@@ -1235,3 +1224,48 @@ def lint_changelog_dates(
     if fix and modified:
         return 0
     return 1 if has_mismatch else 0
+
+
+def build_expected_body(
+    changelog: Changelog,
+    version: str,
+    *,
+    admonition_override: str | None = None,
+) -> str:
+    """Build the expected release body from the changelog.
+
+    Decomposes the changelog section into discrete elements and renders
+    them through the `github-releases` template. This allows the
+    GitHub release body to include a different subset of elements than
+    the `release-notes` template used for `changelog.md` entries.
+
+    :param changelog: Parsed changelog instance.
+    :param version: Version string (e.g. `1.2.3`).
+    :param admonition_override: If provided, replaces the
+        `availability_admonition` from the changelog. Used by
+        `release_notes_with_admonition` to inject a pre-computed
+        admonition at release time.
+    :return: The rendered release body, or empty string if the
+        version has no changelog section.
+    """
+    elements = changelog.decompose_version(version)
+    if (
+        not elements.changes
+        and not elements.availability_admonition
+        and not elements.development_warning
+        and not elements.editorial_admonition
+        and not elements.yanked_admonition
+    ):
+        return ""
+
+    if admonition_override is not None:
+        elements.availability_admonition = admonition_override
+    # Extract tag range from compare URL (e.g. "v1.1.0...v2.0.0").
+    tag_range = (
+        elements.compare_url.rsplit("/compare/", 1)[-1] if elements.compare_url else ""
+    )
+    return render_template(
+        "github-releases",
+        **asdict(elements),
+        tag_range=tag_range,
+    )

@@ -74,3 +74,15 @@ def all_pass_pat_results() -> PatPermissionResults:
         ),
         workflows=(True, "Workflows: token has access"),
     )
+
+
+@pytest.fixture
+def cache_env(monkeypatch, tmp_path):
+    """Point the repomatic cache at a per-test directory, auto-purge disabled.
+
+    Returns the cache root path so tests can assert on its contents.
+    """
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(cache_dir))
+    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
+    return cache_dir

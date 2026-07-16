@@ -35,6 +35,7 @@ import logging
 from operator import itemgetter
 from pathlib import Path
 
+from ..metadata import Metadata
 from .gh import run_gh_command
 from .pr_body import fit_issue_body, generate_pr_metadata_block
 
@@ -256,7 +257,7 @@ def manage_issue_lifecycle(
     )
 
     # Generate workflow metadata block for issue comments.
-    metadata_block = generate_pr_metadata_block()
+    metadata_block = generate_pr_metadata_block(Metadata())
 
     # Close duplicate/obsolete open issues.
     for issue_number in issues_to_close:

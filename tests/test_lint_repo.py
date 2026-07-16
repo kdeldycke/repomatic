@@ -24,12 +24,9 @@ from unittest.mock import patch
 import pytest
 
 from repomatic.github.token import (
+    PAT_PERMISSION_PROBES,
     PatPermissionResults,
-    check_pat_contents_permission,
-    check_pat_issues_permission,
-    check_pat_pull_requests_permission,
-    check_pat_vulnerability_alerts_permission,
-    check_pat_workflows_permission,
+    probe_pat_permission,
 )
 from repomatic.lint_repo import (
     check_description_matches,
@@ -464,127 +461,47 @@ def test_stale_drafts_multiple():
 # --- PAT capability check unit tests ---
 
 
-def test_pat_contents_permission_pass():
-    """Pass when contents API call succeeds."""
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.return_value = "[]"
-        passed, msg = check_pat_contents_permission("owner/repo")
-        assert passed is True
-        assert "Contents" in msg
-
-
-def test_pat_contents_permission_fail():
-    """Fail when contents API call raises with HTTP 403."""
-    with (
-        patch("repomatic.github.token.run_gh_command") as mock_gh,
-        patch("repomatic.github.token.status_annotation", return_value=""),
-    ):
-        mock_gh.side_effect = RuntimeError("HTTP 403: Forbidden")
-        passed, msg = check_pat_contents_permission("owner/repo")
-        assert passed is False
-        assert "Contents" in msg
-        assert "Update the PAT" in msg
-
-
-def test_pat_issues_permission_pass():
-    """Pass when issues API call succeeds."""
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.return_value = "[]"
-        passed, msg = check_pat_issues_permission("owner/repo")
-        assert passed is True
-        assert "Issues" in msg
-
-
-def test_pat_issues_permission_fail():
-    """Fail when issues API call raises with HTTP 403."""
-    with (
-        patch("repomatic.github.token.run_gh_command") as mock_gh,
-        patch("repomatic.github.token.status_annotation", return_value=""),
-    ):
-        mock_gh.side_effect = RuntimeError("HTTP 403: Forbidden")
-        passed, msg = check_pat_issues_permission("owner/repo")
-        assert passed is False
-        assert "Issues" in msg
-        assert "Update the PAT" in msg
-
-
-def test_pat_pull_requests_permission_pass():
-    """Pass when pulls API call succeeds."""
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.return_value = "[]"
-        passed, msg = check_pat_pull_requests_permission("owner/repo")
-        assert passed is True
-        assert "Pull requests" in msg
-
-
-def test_pat_pull_requests_permission_fail():
-    """Fail when pulls API call raises with HTTP 403."""
-    with (
-        patch("repomatic.github.token.run_gh_command") as mock_gh,
-        patch("repomatic.github.token.status_annotation", return_value=""),
-    ):
-        mock_gh.side_effect = RuntimeError("HTTP 403: Forbidden")
-        passed, msg = check_pat_pull_requests_permission("owner/repo")
-        assert passed is False
-        assert "Pull requests" in msg
-        assert "Update the PAT" in msg
-
-
-def test_pat_vulnerability_alerts_permission_pass():
-    """Pass when vulnerability-alerts API call succeeds."""
+@pytest.mark.parametrize("probe", PAT_PERMISSION_PROBES, ids=lambda p: p.field)
+def test_pat_permission_probe_pass(probe):
+    """Pass with the probe's success message when the API call succeeds."""
     with patch("repomatic.github.token.run_gh_command") as mock_gh:
         mock_gh.return_value = ""
-        passed, msg = check_pat_vulnerability_alerts_permission("owner/repo")
+        passed, msg = probe_pat_permission("owner/repo", probe)
         assert passed is True
-        assert "Dependabot alerts" in msg
+        assert msg == probe.success
+        probed_endpoint = mock_gh.call_args.args[0][1]
+        assert probed_endpoint == probe.endpoint.format(repo="owner/repo")
 
 
-def test_pat_vulnerability_alerts_permission_fail():
-    """Fail when vulnerability-alerts API call raises with HTTP 403."""
+@pytest.mark.parametrize("probe", PAT_PERMISSION_PROBES, ids=lambda p: p.field)
+def test_pat_permission_probe_fail_403(probe):
+    """Fail with the missing-permission message when the API call 403s."""
     with (
         patch("repomatic.github.token.run_gh_command") as mock_gh,
         patch("repomatic.github.token.status_annotation", return_value=""),
     ):
         mock_gh.side_effect = RuntimeError("HTTP 403: Forbidden")
-        passed, msg = check_pat_vulnerability_alerts_permission("owner/repo")
+        passed, msg = probe_pat_permission("owner/repo", probe)
         assert passed is False
-        assert "Dependabot alerts" in msg
+        assert probe.permission in msg
         assert "Update the PAT" in msg
 
 
 def test_pat_vulnerability_alerts_permission_404():
     """A 404 is reported as 'alerts not enabled', not as a missing permission."""
+    vuln_probe = next(
+        probe for probe in PAT_PERMISSION_PROBES
+        if probe.field == "vulnerability_alerts"
+    )
     with (
         patch("repomatic.github.token.run_gh_command") as mock_gh,
         patch("repomatic.github.token.status_annotation", return_value=""),
     ):
         mock_gh.side_effect = RuntimeError("HTTP 404: Not Found")
-        passed, msg = check_pat_vulnerability_alerts_permission("owner/repo")
+        passed, msg = probe_pat_permission("owner/repo", vuln_probe)
         assert passed is False
         assert "not enabled" in msg
         assert "--method PUT" in msg
-
-
-def test_pat_workflows_permission_pass():
-    """Pass when workflows API call succeeds."""
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.return_value = ""
-        passed, msg = check_pat_workflows_permission("owner/repo")
-        assert passed is True
-        assert "Workflows" in msg
-
-
-def test_pat_workflows_permission_fail():
-    """Fail when workflows API call raises with HTTP 403."""
-    with (
-        patch("repomatic.github.token.run_gh_command") as mock_gh,
-        patch("repomatic.github.token.status_annotation", return_value=""),
-    ):
-        mock_gh.side_effect = RuntimeError("HTTP 403: Forbidden")
-        passed, msg = check_pat_workflows_permission("owner/repo")
-        assert passed is False
-        assert "Workflows" in msg
-        assert "Update the PAT" in msg
 
 
 def test_pat_check_non_403_surfaces_raw_error():
@@ -594,7 +511,7 @@ def test_pat_check_non_403_surfaces_raw_error():
         patch("repomatic.github.token.status_annotation", return_value=""),
     ):
         mock_gh.side_effect = RuntimeError("HTTP 401: Requires authentication")
-        passed, msg = check_pat_contents_permission("owner/repo")
+        passed, msg = probe_pat_permission("owner/repo", PAT_PERMISSION_PROBES[0])
         assert passed is False
         assert "GitHub API call failed" in msg
         assert "401" in msg
@@ -612,7 +529,7 @@ def test_pat_check_annotates_with_github_status_incident():
         ),
     ):
         mock_gh.side_effect = RuntimeError("HTTP 401: Requires authentication")
-        passed, msg = check_pat_contents_permission("owner/repo")
+        passed, msg = probe_pat_permission("owner/repo", PAT_PERMISSION_PROBES[0])
         assert passed is False
         assert "active incident" in msg
         assert "githubstatus.com" in msg

@@ -33,7 +33,7 @@ from pathlib import Path
 from .github import token
 from .github.gh import run_gh_command
 from .github.issue import manage_issue_lifecycle
-from .github.pr_body import current_repo_url, render_template
+from .github.pr_body import render_template
 from .lint_repo import (
     check_branch_ruleset_on_default,
     check_fork_pr_approval_policy,
@@ -111,7 +111,7 @@ def manage_setup_guide(
     repo_name = md.repo_name
     repo_owner = md.repo_owner
     repo_slug = md.repo_slug
-    repo_url = current_repo_url()
+    repo_url = md.repo_url
 
     # --- Per-step checks ---
 
