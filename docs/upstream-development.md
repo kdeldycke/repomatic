@@ -6,11 +6,11 @@ This page collects rules that apply only when working inside the `kdeldycke/repo
 
 The following documentation artifacts must stay in sync with the code in this repository. When changing any of these, update the others:
 
-- **Version references in `docs/install.md`**: The `--version` examples and example workflow `@vX.Y.Z` reference must reflect the latest released version.
+- **Example workflow ref in `docs/workflows.md`**: The `uses: kdeldycke/repomatic/.github/workflows/*.yaml@vX.Y.Z` reference in the example-usage section must reflect the latest released tag; bump it by hand during the docs reconciliation pass (the `docs/install.md` version pins are covered under the auto-generated docs below).
 - **Workflow job descriptions in `docs/workflows.md`**: Each `.github/workflows/*.yaml` workflow section must document all jobs by their actual job ID, with accurate descriptions of what they do, their requirements, and skip conditions.
-- **PAT permissions**: `REQUIRED_PAT_PERMISSIONS` in `repomatic/github/token.py` is the single source of truth. When changing permissions, update all consumers: the constant and module docstring, the permission table and pre-filled URL in `repomatic/templates/setup-guide.md`, PAT check functions in `repomatic/lint_repo.py`, the `lint-repo` CLI docstring in `repomatic/cli.py`, and the `lint-repo` job description in `docs/workflows.md`.
+- **PAT permissions**: `PAT_PERMISSION_PROBES` in `repomatic/github/token.py` is the single source of truth, one `PatProbe` row per fine-grained permission, run by `check_all_pat_permissions` for both `lint-repo` and `setup-guide` (so a new probe row reaches every consumer automatically). When changing permissions, update: the probe table and module docstring, the permission table and pre-filled URL in `repomatic/templates/setup-guide.md`, the `lint-repo` CLI docstring in `repomatic/cli.py`, and the `lint-repo` job description in `docs/workflows.md`.
 - **Repository configuration expectations**: The `lint-repo` job enforces repo settings described in the setup guide. When adding new setup steps, add a corresponding check to `run_repo_lint()` in `repomatic/lint_repo.py`. If the check cannot be automated, document the limitation in a comment.
-- **PAT permission review**: When adding or removing workflow jobs that use `REPOMATIC_PAT`, review `REQUIRED_PAT_PERMISSIONS` to verify the permission set is still minimal and complete. Check `secrets.REPOMATIC_PAT` references across all workflow files to audit actual usage.
+- **PAT permission review**: When adding or removing workflow jobs that use `REPOMATIC_PAT`, review `PAT_PERMISSION_PROBES` to verify the permission set is still minimal and complete. Check `secrets.REPOMATIC_PAT` references across all workflow files to audit actual usage.
 
 **Auto-generated docs (no manual sync needed):**
 

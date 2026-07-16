@@ -104,18 +104,25 @@ The push is engineered for a busy default branch: `git-commit-push` is idempoten
 
 PR body templates in `repomatic/templates/` are the downstream user's primary window into what an automated operation did and why. Each template should help users understand, verify, and customize the operation.
 
-**Required elements:**
+**Frontmatter:**
 
-1. **Description.** What the job does, linking to the tool's homepage and the job documentation in `docs/workflows.md`.
-2. **Bundled defaults link.** When the operation uses a bundled default config from `repomatic/data/`, link to it so users can inspect the exact settings applied. Use the `blob/main` URL (e.g., `https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/ruff.toml`).
-3. **Customization tip.** A `> [!TIP]` block pointing users to the tool's own configuration documentation, mentioning the `[tool.X]` `pyproject.toml` section and/or native config file as the way to override defaults. Link to the tool's configuration reference (not just the homepage).
+1. **`title`.** The PR title, and the commit-message fallback.
+2. **`docs`.** A deep link to the job's section of the hosted workflows reference. `repomatic pr-body` surfaces it as the leading `Documentation` entry of the collapsible `Workflow metadata` block, so the body carries no standalone description section.
+3. **`footer: false`.** The metadata block already appends the attribution footer once; every template opts out of a second copy.
 
-**Example** (format job with bundled default):
+**Body elements** (include what applies, with `##` section headings):
+
+1. **Configuration section.** For operations driven by `[tool.repomatic]`, a `## Configuration` section listing the relevant options as bullets deep-linking into the hosted [configuration reference](https://kdeldycke.github.io/repomatic/configuration.html). Sync and update templates lead with it, after their `$diff_table` when they take one.
+2. **Customization tip.** For format and fix operations, a `> [!TIP]` block naming the `[tool.X]` `pyproject.toml` section and/or native config file as the way to override defaults, linked to the tool's own configuration reference.
+
+**Example** (format job):
 
 ```markdown
-Auto-formats X files with [tool](https://example.com). When no `[tool.X]`
-section or `x.toml` is present, [repomatic's bundled defaults](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/x.toml)
-are applied at runtime. See the [`format-x` job documentation](...) for details.
+---
+title: Format X
+docs: https://kdeldycke.github.io/repomatic/workflows.html#format-x-format-x
+footer: false
+---
 
 > [!TIP]
 > Customize formatting rules via [`[tool.X]`](https://example.com/configuration/)

@@ -27,8 +27,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          # Pass the head ref through an env var: interpolating it directly into the run script
+          # would be a code-injection vector (branch names are attacker-controlled).
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
         # See repomatic/github/actions.py for the cancellation logic.
         run: >
           uvx --no-progress --from . repomatic cancel-runs
-          --branch '${{ github.event.pull_request.head.ref }}'
+          --branch "$PR_BRANCH"
           --current-run-id '${{ github.run_id }}'

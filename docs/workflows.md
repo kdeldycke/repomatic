@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.0.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.1.0
 ```
 
 > [!IMPORTANT]
@@ -274,7 +274,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 #### ✂️ Cancel PR runs (`cancel-runs`)
 
-- Cancels all in-progress and queued workflow runs for a PR's branch when the PR is closed
+- Cancels all in-progress and queued workflow runs for a PR's branch when the PR is closed using [`repomatic cancel-runs`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/github/actions.py)
 - Prevents wasted CI resources from long-running jobs (e.g. Nuitka binary builds) that continue after a PR is closed
 - GitHub Actions does not natively cancel runs on PR close — the `concurrency` mechanism only triggers cancellation when a *new* run enters the same group
 

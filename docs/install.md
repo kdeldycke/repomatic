@@ -35,7 +35,7 @@ invoke(repomatic, args=['--help'])
 
 ````{tab-item} Specific version
 ```shell-session
-$ uvx -- repomatic==7.0.0 --help
+$ uvx -- repomatic==7.1.0 --help
 ```
 ````
 
