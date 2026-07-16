@@ -153,7 +153,7 @@ from .metadata import (
     is_version_bump_allowed,
     metadata_keys_reference,
 )
-from .prepare_release import ReleasePrep
+from .prepare_release import PrepareRelease
 from .pyproject import get_project_name
 from .registry import (
     ALL_COMPONENTS,
@@ -1050,7 +1050,7 @@ def prepare_release(
 
     if changelog_path is None:
         changelog_path = Path(Config.changelog_location).resolve()
-    prep = ReleasePrep(
+    prep = PrepareRelease(
         changelog_path=changelog_path,
         citation_path=citation_path if citation_path.exists() else None,
         workflow_dir=workflow_dir,

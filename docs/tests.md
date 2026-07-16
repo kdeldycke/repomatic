@@ -117,6 +117,15 @@
    :undoc-members:
 ```
 
+## `tests.test_docs` module
+
+```{eval-rst}
+.. automodule:: tests.test_docs
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_gh` module
 
 ```{eval-rst}
@@ -139,6 +148,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_github_releases
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_gitignore` module
+
+```{eval-rst}
+.. automodule:: tests.test_gitignore
    :members:
    :show-inheritance:
    :undoc-members:
@@ -229,6 +247,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_myst_docstrings
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_npm` module
+
+```{eval-rst}
+.. automodule:: tests.test_npm
    :members:
    :show-inheritance:
    :undoc-members:

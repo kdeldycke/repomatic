@@ -381,7 +381,7 @@ docs = [
   - `prepare-release` branch
   - Bot-created PRs
 
-#### 💝 Tag sponsors (`sponsor-labeller`)
+#### 💝 Tag sponsors (`sponsor-label`)
 
 - Adds a `💖 sponsors` label to issues and PRs from sponsors using the GitHub GraphQL API
 - **Skipped for**:

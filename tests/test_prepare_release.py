@@ -22,7 +22,7 @@ from textwrap import dedent
 
 import pytest
 
-from repomatic.prepare_release import ReleasePrep
+from repomatic.prepare_release import PrepareRelease
 
 
 @pytest.fixture
@@ -202,7 +202,7 @@ def test_current_version_from_pyproject(
     """Test that current version is read from pyproject.toml."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep()
+    prep = PrepareRelease()
 
     assert prep.current_version == "1.2.3"
 
@@ -216,7 +216,7 @@ def test_freeze_action_reference(
     """Test that composite action references are frozen to versioned tag."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(workflow_dir=temp_workflows_with_actions)
+    prep = PrepareRelease(workflow_dir=temp_workflows_with_actions)
     count = prep.freeze_workflow_urls()
 
     assert count == 1
@@ -243,7 +243,7 @@ def test_composite_action_names_enumerates_actions_dir(tmp_path: Path) -> None:
             encoding="UTF-8",
         )
 
-    prep = ReleasePrep(workflow_dir=workflow_dir)
+    prep = PrepareRelease(workflow_dir=workflow_dir)
     assert prep.composite_action_names == ["alpha", "bravo", "charlie"]
 
 
@@ -251,7 +251,7 @@ def test_composite_action_names_empty_when_no_actions_dir(tmp_path: Path) -> Non
     """`composite_action_names` returns an empty list when actions/ is absent."""
     workflow_dir = tmp_path / ".github" / "workflows"
     workflow_dir.mkdir(parents=True)
-    prep = ReleasePrep(workflow_dir=workflow_dir)
+    prep = PrepareRelease(workflow_dir=workflow_dir)
     assert prep.composite_action_names == []
 
 
@@ -290,7 +290,7 @@ def test_freeze_unfreeze_round_trip_per_action(
         encoding="UTF-8",
     )
 
-    prep = ReleasePrep(workflow_dir=workflow_dir)
+    prep = PrepareRelease(workflow_dir=workflow_dir)
     prep.freeze_workflow_urls()
     frozen = workflow_file.read_text(encoding="UTF-8")
     for name in action_names:
@@ -317,7 +317,7 @@ def test_freeze_cli_version(
     """Test that ``--from . repomatic`` is frozen to a PyPI version."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(workflow_dir=temp_workflows_with_cli)
+    prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
     count = prep.freeze_cli_version("1.0.0")
 
     assert count == 2
@@ -336,7 +336,7 @@ def test_freeze_workflow_urls(
     """Test that workflow URLs are frozen to versioned tag."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(workflow_dir=temp_workflows)
+    prep = PrepareRelease(workflow_dir=temp_workflows)
     count = prep.freeze_workflow_urls()
 
     assert count == 2
@@ -356,7 +356,7 @@ def test_post_release(
     monkeypatch.chdir(tmp_path)
 
     # First freeze for release.
-    prep = ReleasePrep(workflow_dir=temp_workflows)
+    prep = PrepareRelease(workflow_dir=temp_workflows)
     prep.freeze_workflow_urls()
 
     # Then run post-release.
@@ -378,7 +378,7 @@ def test_post_release_unfreezes_cli(
     monkeypatch.chdir(tmp_path)
 
     # First freeze CLI.
-    prep = ReleasePrep(workflow_dir=temp_workflows_with_cli)
+    prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
     prep.freeze_cli_version("1.0.0")
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
@@ -406,7 +406,7 @@ def test_prepare_release_full(
     """Test full release preparation with all options."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(
+    prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
         workflow_dir=temp_workflows,
@@ -445,7 +445,7 @@ def test_prepare_release_freezes_cli(
     """Test that prepare_release freezes CLI invocations to current version."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(
+    prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
         workflow_dir=temp_workflows_with_cli,
@@ -468,7 +468,7 @@ def test_prepare_release_without_workflows(
     """Test release preparation without workflow updates."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(
+    prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
     )
@@ -483,7 +483,7 @@ def test_release_date_format(tmp_path: Path, temp_pyproject: Path, monkeypatch) 
     """Test that release date is in correct format."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep()
+    prep = PrepareRelease()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     assert prep.release_date == today
@@ -495,7 +495,7 @@ def test_set_citation_release_date(
     """Test that release date is set in citation file."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(citation_path=temp_citation)
+    prep = PrepareRelease(citation_path=temp_citation)
     result = prep.set_citation_release_date()
 
     assert result is True
@@ -510,7 +510,7 @@ def test_set_citation_release_date_missing_file(
     """Test that missing citation file is handled gracefully."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(citation_path=tmp_path / "nonexistent.cff")
+    prep = PrepareRelease(citation_path=tmp_path / "nonexistent.cff")
     result = prep.set_citation_release_date()
 
     assert result is False
@@ -526,7 +526,7 @@ def test_unfreeze_action_reference(
     monkeypatch.chdir(tmp_path)
 
     # First freeze the version.
-    prep = ReleasePrep(workflow_dir=temp_workflows_with_actions)
+    prep = PrepareRelease(workflow_dir=temp_workflows_with_actions)
     prep.freeze_workflow_urls()
 
     # Verify version is frozen.
@@ -554,7 +554,7 @@ def test_unfreeze_cli_version(
     monkeypatch.chdir(tmp_path)
 
     # First freeze CLI.
-    prep = ReleasePrep(workflow_dir=temp_workflows_with_cli)
+    prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
     prep.freeze_cli_version("1.0.0")
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
@@ -581,7 +581,7 @@ def test_unfreeze_workflow_urls(
     monkeypatch.chdir(tmp_path)
 
     # First freeze the version.
-    prep = ReleasePrep(workflow_dir=temp_workflows)
+    prep = PrepareRelease(workflow_dir=temp_workflows)
     prep.freeze_workflow_urls()
 
     # Then unfreeze to main.
@@ -650,7 +650,7 @@ def test_freeze_install_download_urls(
     """Test that initial ``/releases/latest/download/`` URLs are frozen."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(install_path=temp_install)
+    prep = PrepareRelease(install_path=temp_install)
     result = prep.freeze_install_download_urls("1.2.3")
 
     assert result is True
@@ -674,7 +674,7 @@ def test_freeze_install_download_urls_already_frozen(
     """Test that previously frozen URLs are re-frozen to new version."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(install_path=temp_install_frozen)
+    prep = PrepareRelease(install_path=temp_install_frozen)
     result = prep.freeze_install_download_urls("1.2.3")
 
     assert result is True
@@ -695,7 +695,7 @@ def test_freeze_install_download_urls_updates_link_text(
     """Test that display text in markdown links is also updated."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(install_path=temp_install)
+    prep = PrepareRelease(install_path=temp_install)
     prep.freeze_install_download_urls("1.2.3")
 
     content = temp_install.read_text(encoding="UTF-8")
@@ -715,7 +715,7 @@ def test_freeze_install_missing_file(
     """Test that a missing install guide is handled gracefully."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(install_path=tmp_path / "nonexistent.md")
+    prep = PrepareRelease(install_path=tmp_path / "nonexistent.md")
     result = prep.freeze_install_download_urls("1.2.3")
 
     assert result is False
@@ -733,7 +733,7 @@ def test_prepare_release_freezes_install(
     """Test that ``prepare_release(update_workflows=True)`` freezes install URLs."""
     monkeypatch.chdir(tmp_path)
 
-    prep = ReleasePrep(
+    prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
         workflow_dir=temp_workflows,

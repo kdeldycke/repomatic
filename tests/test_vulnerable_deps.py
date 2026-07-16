@@ -24,6 +24,7 @@ from unittest.mock import patch
 
 import pytest
 
+from repomatic.config import VulnerableDepsConfig
 from repomatic.vulnerable_deps import (
     AdvisorySource,
     VulnerablePackage,
@@ -77,6 +78,19 @@ ALERTS_FIXTURE = [
         },
     },
 ]
+
+
+def test_config_default_sources_mirror_advisory_source_enum():
+    """`VulnerableDepsConfig.sources` default must list every `AdvisorySource`.
+
+    The default is spelled out as a literal in {mod}`repomatic.config` rather
+    than derived from {class}`AdvisorySource`, because the module boundary
+    forbids the derivation: `config` is a low-level module that
+    `vulnerable_deps` imports, so `config` cannot import the enum back without
+    a circular dependency. This test is the enforcement that keeps the literal
+    in step with the enum's members and their declaration order.
+    """
+    assert VulnerableDepsConfig().sources == [source.value for source in AdvisorySource]
 
 
 def test_fetch_dependabot_alerts_parses_each_entry():

@@ -124,20 +124,13 @@ def run_gh_command(args: list[str]) -> str:
     cmd = ["gh", *args]
     logging.debug(f"Running: {' '.join(cmd)}")
 
-    # Build the env override for the gh subprocess.  REPOMATIC_PAT takes
-    # priority (the canonical {func}`resolve_gh_token` order); otherwise
-    # promote GITHUB_TOKEN to GH_TOKEN so the gh CLI finds a token in GitHub
-    # Actions (where GH_TOKEN is not set by default). No override when
-    # GH_TOKEN is already set natively.
-    pat = os.environ.get("REPOMATIC_PAT")
-    gh_token = os.environ.get("GH_TOKEN")
+    # Build the env override for the gh subprocess. The gh CLI only reads
+    # GH_TOKEN natively, so the canonical {func}`resolve_gh_token` winner is
+    # injected as GH_TOKEN (a value-preserving no-op when GH_TOKEN itself
+    # wins). No override when no token is set at all.
     github_token = os.environ.get("GITHUB_TOKEN")
-    if pat:
-        env = {**os.environ, "GH_TOKEN": pat}
-    elif not gh_token and github_token:
-        env = {**os.environ, "GH_TOKEN": github_token}
-    else:
-        env = None
+    primary = resolve_gh_token()
+    env = {**os.environ, "GH_TOKEN": primary} if primary else None
     process = run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
 
     # Bounded same-token retry on a 401 marker, before the cross-token
@@ -163,7 +156,6 @@ def run_gh_command(args: list[str]) -> str:
         # available and different.  Both "Bad credentials" (expired PAT)
         # and "Requires authentication" (GitHub auth incident, scope quirk)
         # are recoverable when a second credential is on hand.
-        primary = pat or gh_token
         auth_marker = _matched_auth_marker(stderr)
         if auth_marker and github_token and github_token != primary:
             logging.warning(

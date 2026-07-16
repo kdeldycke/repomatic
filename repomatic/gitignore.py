@@ -78,7 +78,9 @@ def build_gitignore(config: Config) -> str:
     url = f"{GITIGNORE_IO_URL}/{','.join(all_categories)}"
     logging.info(f"Fetching {url}")
     request = Request(url, headers={"User-Agent": f"repomatic/{__version__}"})
-    with urlopen(request) as response:
+    # Same socket timeout as repomatic.http's JSON fetches: a stalled
+    # gitignore.io connection must fail the sync, not hang it.
+    with urlopen(request, timeout=10) as response:
         content: str = response.read().decode("UTF-8")
 
     if config.gitignore.extra_content:

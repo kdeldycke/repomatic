@@ -701,6 +701,92 @@ def test_runner_uses_ubuntu_slim_by_default(
     pytest.fail(f"{workflow_name} ({job_name}): Unknown runner '{runs_on}'")
 
 
+# --- uv provisioning tests ---
+
+
+def iter_jobs_with_steps():
+    """Yield `(workflow_name, job_name, steps)` for every job that has steps.
+
+    Reusable-workflow calls (`uses:` jobs) carry no `steps`, so they are
+    skipped: they inherit no toolchain and provision none.
+    """
+    for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
+        workflow = load_workflow(workflow_path.name)
+        for job_name, job in workflow.get("jobs", {}).items():
+            steps = job.get("steps")
+            if steps:
+                yield workflow_path.name, job_name, steps
+
+
+# A `uv`/`uvx` command in a step's run script. The word-boundary match also
+# catches the word inside prose or a path (e.g. a `# uv.lock` comment), so it
+# is confirmed against command position below to avoid a false positive.
+UV_WORD = re.compile(r"\buvx?\b")
+
+# `uv`/`uvx` in command position: at the start of a (logical) line or right
+# after a shell operator that begins a new command, followed by whitespace and
+# an argument. This ignores `uv` appearing in a comment or a filename.
+UV_COMMAND = re.compile(r"(?:^|[\n;&|(]|&&|\|\||`|\$\()[ \t]*(?:uvx|uv)[ \t]")
+
+
+def _job_invokes_uv(steps: list[dict[str, Any]]) -> bool:
+    """Return whether any step's `run` script invokes `uv` or `uvx`."""
+    for step in steps:
+        run = step.get("run")
+        if run and UV_WORD.search(run) and UV_COMMAND.search(run):
+            return True
+    return False
+
+
+def _job_provisions_uv(steps: list[dict[str, Any]]) -> bool:
+    """Return whether a step provisions uv via `astral-sh/setup-uv`."""
+    return any(
+        str(step.get("uses", "")).startswith("astral-sh/setup-uv@") for step in steps
+    )
+
+
+# Every (workflow, job) whose steps invoke uv or uvx. Enumerated once so the
+# parametrized test both covers each job and fails loudly if the matcher ever
+# regresses to matching nothing (guarded by the discovery test below).
+UV_INVOKING_JOBS = [
+    (workflow_name, job_name)
+    for workflow_name, job_name, steps in iter_jobs_with_steps()
+    if _job_invokes_uv(steps)
+]
+
+
+def test_uv_invoking_jobs_discovered() -> None:
+    """The uv-invocation matcher must find jobs (guards against a dead regex)."""
+    assert UV_INVOKING_JOBS, (
+        "No uv-invoking jobs discovered. The UV_COMMAND matcher likely "
+        "regressed: every workflow runs uv somewhere."
+    )
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name"),
+    UV_INVOKING_JOBS,
+    ids=[f"{workflow}:{job}" for workflow, job in UV_INVOKING_JOBS],
+)
+def test_uv_invoking_job_provisions_setup_uv(workflow_name: str, job_name: str) -> None:
+    """Every job that runs `uv`/`uvx` must provision uv via `astral-sh/setup-uv`.
+
+    GitHub Actions jobs share no state: each runs on a fresh runner and
+    inherits nothing from the jobs before it, so a job that shells out to uv
+    must install uv itself. This cycle's `cancel-runs.yaml` rewrite from a bash
+    body to a `repomatic` CLI call dropped the job's `setup-uv` step, and every
+    PR-close run failed with `uvx: command not found`. This test locks the
+    invariant across all workflows so a uv-invoking job can never ship without
+    its own uv provisioning again.
+    """
+    steps = load_workflow(workflow_name)["jobs"][job_name]["steps"]
+    assert _job_provisions_uv(steps), (
+        f"{workflow_name} ({job_name}): runs uv/uvx but has no "
+        "`astral-sh/setup-uv@` step to provision it. Jobs inherit no toolchain, "
+        "so each must provision its own uv."
+    )
+
+
 # --- Bundled data symlink consistency tests ---
 
 # Path to the bundled data directory.

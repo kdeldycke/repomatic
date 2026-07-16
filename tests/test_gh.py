@@ -101,8 +101,10 @@ def test_gh_token_used_when_no_repomatic_pat():
     ):
         mock_run.return_value = _make_result(stdout="ok\n")
         assert run_gh_command(["issue", "list"]) == "ok\n"
-        # No explicit env override: gh picks up GH_TOKEN natively.
-        assert mock_run.call_args.kwargs.get("env") is None
+        # The canonical resolve_gh_token() winner is injected explicitly,
+        # value-identical to the native GH_TOKEN.
+        env_used = mock_run.call_args.kwargs["env"]
+        assert env_used["GH_TOKEN"] == "gh-tok"
 
 
 def test_github_token_promoted_to_gh_token():
@@ -133,7 +135,9 @@ def test_empty_repomatic_pat_ignored():
     ):
         mock_run.return_value = _make_result(stdout="ok\n")
         run_gh_command(["issue", "list"])
-        assert mock_run.call_args.kwargs.get("env") is None
+        # The empty PAT loses to GH_TOKEN, whose value is injected explicitly.
+        env_used = mock_run.call_args.kwargs["env"]
+        assert env_used["GH_TOKEN"] == "gh-tok"
 
 
 # -- Fallback on 401 Bad Credentials ------------------------------------------

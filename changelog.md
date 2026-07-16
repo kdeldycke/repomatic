@@ -5,7 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives; its module moves to `repomatic.prepare_release`.
+- **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives; its module moves to `repomatic.prepare_release` and its class becomes `PrepareRelease`.
 - **Breaking:** the `version-check` command is renamed `check-version`.
 - **Breaking:** the vulnerability audit domain moves from `repomatic.uv` into the new `repomatic.vulnerable_deps` module, which also absorbs `repomatic.github.advisories`.
 - **Breaking:** `repomatic.sponsor` moves under `repomatic.github`.
@@ -20,6 +20,7 @@
 - `Dialect`, `ArchiveFormat`, and `WorkflowFormat` now carry their dispatch as enum methods (`serialize`, `extract`, `write_workflow`).
 - Consolidate the `repomatic.deps_graph` API around `Subgraph` and `SubgraphKind` types; the unused `parse_bom_ref` helper is removed.
 - Rename cross-module internals to public names: `COMPONENTS_BY_NAME`, `is_source_repo`, `format_released`, `format_upload_date`, `date_to_utc_cutoff`.
+- The `sponsor-labeller` job in `labels.yaml` is renamed `sponsor-label`, matching the CLI command it runs.
 - Remove the dead `get_default_repo` and `list_open_issues` helpers and the unused `REQUIRED_PAT_PERMISSIONS` constant.
 - `update-deps-graph` now keeps only directly-declared dependencies inside the `--group` and `--extra` boxes, renders transitive dependencies as plain ovals, and counts an extra's transitives as depth 2 under `--level`.
 - The unsubscribe workflow's GraphQL phase now re-validates each item's staleness client-side and reports the items it holds back.
@@ -32,11 +33,13 @@
 - GitHub Releases API reads now resolve their token like every other GitHub access (`REPOMATIC_PAT` first), instead of hitting the anonymous rate limit.
 - PyPI, npm, and GitHub API lookups now retry once on a truncated response instead of crashing with `IncompleteRead`.
 - The release freeze and unfreeze steps now cover `.yml` workflow files alongside `.yaml`.
+- The gitignore.io template download now times out after 10 seconds instead of hanging on a stalled connection.
 - `sync-action-pins` no longer rewrites `uses:` pins inside files `repomatic init` deploys verbatim, like the `publish-pypi` composite action.
 - The `update-docs` job now re-formats `pyproject.toml` files with `pyproject-fmt` after running the project's update script.
 - The `run typos` guidance now recommends `extend-ignore-re` guards for encoded hashes and intentional-typo examples.
 - Document the scan job contract and the release-lane direct-commit exception.
 - Add a test suite for the notification-unsubscribe engine.
+- Add unit tests for `repomatic.npm`, `repomatic.gitignore`, and `repomatic.docs`; the setup-guide tests now run offline.
 
 ## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
 

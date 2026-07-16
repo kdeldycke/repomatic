@@ -57,7 +57,7 @@ from .config import Config
 from .metadata import Metadata
 
 
-class ReleasePrep:
+class PrepareRelease:
     """Prepare files for a release by updating dates, URLs, and removing warnings."""
 
     def __init__(
