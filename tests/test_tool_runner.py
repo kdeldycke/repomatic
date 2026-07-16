@@ -1214,7 +1214,9 @@ def test_resolve_config_reads_pyproject_with_section():
     assert tmp is None
 
 
-def test_resolve_config_reads_pyproject_falls_through_to_bundled(tmp_path, monkeypatch, cache_env):
+def test_resolve_config_reads_pyproject_falls_through_to_bundled(
+    tmp_path, monkeypatch, cache_env
+):
     """Tools with reads_pyproject=True use bundled default when no config exists."""
     monkeypatch.chdir(tmp_path)
     spec = ToolSpec(
@@ -1471,7 +1473,9 @@ def test_resolve_config_bare_invocation(tmp_path, monkeypatch):
     assert tmp is None
 
 
-def test_resolve_config_empty_tool_config_is_not_match(tmp_path, monkeypatch, cache_env):
+def test_resolve_config_empty_tool_config_is_not_match(
+    tmp_path, monkeypatch, cache_env
+):
     """An empty [tool.X] dict does not count as a config match."""
     monkeypatch.chdir(tmp_path)
 

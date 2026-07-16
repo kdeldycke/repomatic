@@ -538,10 +538,7 @@ def render_report(result: UnsubscribeResult) -> str:
             f"| \U0001f4e6 Batch size | {p2.batch_size} |",
             f"| \u2705 Still subscribed | {subscribed_count} |",
             f"| \u23ed\ufe0f Not subscribed | {p2.graphql_not_subscribed} |",
-            (
-                f"| \U0001f7e1 Active since cutoff |"
-                f" {p2.graphql_skipped_recent} |"
-            ),
+            (f"| \U0001f7e1 Active since cutoff | {p2.graphql_skipped_recent} |"),
         ])
 
         p2_detail_table = _render_detail_table(p2.rows)
