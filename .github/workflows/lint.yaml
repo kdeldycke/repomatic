@@ -210,7 +210,7 @@ jobs:
         # tree) with npm's min-release-age cooldown, which needs npm 11.10.0+;
         # older npm ignores it, so provision a new-enough npm the way setup-uv
         # provisions uv. sync-workflow-pins bumps this pin like any npm literal.
-        run: npm install npm@11.18.0 --global # zizmor: ignore[adhoc-packages]
+        run: npm install npm@12.0.0 --global # zizmor: ignore[adhoc-packages]
       - name: Run awesome-lint
         run: uvx --no-progress --from . repomatic run awesome-lint
 
