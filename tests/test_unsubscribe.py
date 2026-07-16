@@ -462,7 +462,7 @@ def test_fetch_notification_threads_reverses_and_truncates():
 
 
 def test_fetch_notification_threads_skips_malformed_lines():
-    """Blank and unparseable lines are dropped without failing the fetch."""
+    """Blank and unparsable lines are dropped without failing the fetch."""
     lines = [
         json.dumps({"id": "t0", "subject_url": "u0"}),
         "not-json{",
@@ -722,7 +722,7 @@ def test_phase1_dry_run_records_candidate_without_mutations():
     ],
 )
 def test_phase1_skip_scenarios(detail, counter):
-    """Open, recent, unknown-state, and unparseable threads are each skipped."""
+    """Open, recent, unknown-state, and unparsable threads are each skipped."""
     url = "https://api.github.com/repos/fruits/apple/issues/1"
     run = _dispatch_gh(notifications=_thread_line("t1", url), details={url: detail})
     with (
