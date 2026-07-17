@@ -1177,14 +1177,14 @@ def format_held_back_table(
     :param name_urls: Optional mapping of names to a URL the name links to
         (PyPI, GitHub, npm). Names absent from the mapping render plain.
     :param subject: Header for the first column (e.g. `Action`, `Tool`).
-    :return: A markdown string with a `## 🔜 Held back by cooldown` heading
+    :return: A markdown string with a `## ⏸️ Held back by cooldown` heading
         and table, or an empty string when *held_back* is empty.
     """
     if not held_back:
         return ""
     name_urls = name_urls or {}
     lines = [
-        "## 🔜 Held back by cooldown",
+        "## ⏸️ Held back by cooldown",
         "",
         note,
         "",

@@ -4,7 +4,7 @@ docs: https://kdeldycke.github.io/repomatic/workflows.html#update-dependency-gra
 footer: false
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 

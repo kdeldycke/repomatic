@@ -10,7 +10,7 @@ footer: false
 > [!NOTE]
 > If checks fail on this PR, the project relies on branch commits newer than the adopted release: bump the dependency's `.dev` version floor past it (the next run then retracts this swap automatically) instead of merging.
 
-## Configuration
+## ⚙️ Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 

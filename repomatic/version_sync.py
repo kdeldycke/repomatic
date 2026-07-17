@@ -314,7 +314,7 @@ def select_held_back(
     The counterpart to {func}`select_latest`: among candidates strictly newer
     than *pinned*, keep those still inside the cooldown window (published more
     recently than *min_age*) and return the highest. These are the releases a
-    later run adopts once they age out, surfaced in the `## 🔜 Held back by
+    later run adopts once they age out, surfaced in the `## ⏸️ Held back by
     cooldown` PR section. No extra network call is needed: the candidates are
     already in hand from the {func}`select_latest` sweep.
 

@@ -351,7 +351,7 @@ def test_format_held_back_table_is_parametrized_by_subject_and_links():
         name_urls={"actions/checkout": "https://github.com/actions/checkout"},
         subject="Action",
     )
-    assert "## 🔜 Held back by cooldown" in table
+    assert "## ⏸️ Held back by cooldown" in table
     assert "CUSTOM COOLDOWN NOTE" in table
     assert "| Action | Locked | Available | Released | Eligible |" in table
     assert "[actions/checkout](https://github.com/actions/checkout)" in table

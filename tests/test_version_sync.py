@@ -399,7 +399,7 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
     # The relative cooldown cutoff line (the uv exclude-newer counterpart).
     assert "minimum-release-age" in body
     # The held-back section surfaces the in-cooldown v3.0.0.
-    assert "## 🔜 Held back by cooldown" in body
+    assert "## ⏸️ Held back by cooldown" in body
     assert "`3.0.0`" in body
     # Release notes for the adopted version only, not the held-back one.
     assert "### Release notes" in body
@@ -409,7 +409,7 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
     assert (
         body.index("## 🆙 Updated actions")
         < body.index("### Release notes")
-        < body.index("## 🔜 Held back by cooldown")
+        < body.index("## ⏸️ Held back by cooldown")
     )
 
 

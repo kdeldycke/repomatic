@@ -7,7 +7,7 @@ footer: false
 
 \$diff_table
 
-## Configuration
+## ⚙️ Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 

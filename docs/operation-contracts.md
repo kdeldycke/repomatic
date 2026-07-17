@@ -112,7 +112,7 @@ PR body templates in `repomatic/templates/` are the downstream user's primary wi
 
 **Body elements** (include what applies, with `##` section headings):
 
-1. **Configuration section.** For operations driven by `[tool.repomatic]`, a `## Configuration` section listing the relevant options as bullets deep-linking into the hosted [configuration reference](https://kdeldycke.github.io/repomatic/configuration.html). Sync and update templates lead with it, after their `$diff_table` when they take one.
+1. **Configuration section.** For operations driven by `[tool.repomatic]`, a `## ⚙️ Configuration` section listing the relevant options as bullets deep-linking into the hosted [configuration reference](https://kdeldycke.github.io/repomatic/configuration.html). Sync and update templates lead with it, after their `$diff_table` when they take one.
 2. **Customization tip.** For format and fix operations, a `> [!TIP]` block naming the `[tool.X]` `pyproject.toml` section and/or native config file as the way to override defaults, linked to the tool's own configuration reference.
 
 **Example** (format job):

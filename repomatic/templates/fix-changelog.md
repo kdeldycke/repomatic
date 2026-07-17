@@ -4,7 +4,7 @@ docs: https://kdeldycke.github.io/repomatic/workflows.html#fix-changelog-fix-cha
 footer: false
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
 

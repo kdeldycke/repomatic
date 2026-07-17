@@ -459,7 +459,7 @@ def test_render_sync_gitignore():
     """Sync gitignore template surfaces its config options."""
     result = render_template("sync-gitignore")
 
-    assert "## Configuration" in result
+    assert "## ⚙️ Configuration" in result
     assert "gitignore.extra-categories" in result
     assert "gitignore.extra-content" in result
     assert "gitignore.location" in result
@@ -511,7 +511,7 @@ def test_render_sync_bumpversion():
     """Sync bumpversion template surfaces its config options."""
     result = render_template("sync-bumpversion")
 
-    assert "## Configuration" in result
+    assert "## ⚙️ Configuration" in result
     assert "bumpversion.sync" in result
     assert "[tool.repomatic]" in result
 
@@ -520,7 +520,7 @@ def test_render_update_deps_graph():
     """Update deps graph template surfaces its config options."""
     result = render_template("update-deps-graph")
 
-    assert "## Configuration" in result
+    assert "## ⚙️ Configuration" in result
     assert "dependency-graph.output" in result
     assert "[tool.repomatic]" in result
 
@@ -529,7 +529,7 @@ def test_render_update_docs():
     """Update docs template surfaces its config options."""
     result = render_template("update-docs")
 
-    assert "## Configuration" in result
+    assert "## ⚙️ Configuration" in result
     assert "docs.apidoc-exclude" in result
     assert "docs.update-script" in result
     assert "[tool.repomatic]" in result
@@ -539,13 +539,13 @@ def test_render_sync_mailmap():
     """Sync mailmap template surfaces its config options."""
     result = render_template("sync-mailmap")
 
-    assert "## Configuration" in result
+    assert "## ⚙️ Configuration" in result
     assert "mailmap.sync" in result
     assert "[tool.repomatic]" in result
 
 
 # Config-option references in PR body templates, written as
-# ``- [`key`](…/configuration.html#anchor)`` bullets under "## Configuration".
+# ``- [`key`](…/configuration.html#anchor)`` bullets under "## ⚙️ Configuration".
 CONFIG_OPTION_BULLET = re.compile(
     r"- \[`(?P<key>[^`]+)`\]"
     r"\(https://kdeldycke\.github\.io/repomatic/configuration\.html#(?P<anchor>[^)]+)\)"
