@@ -631,8 +631,8 @@ class Config:
     exclude: list[str] = field(default_factory=list)
     """Additional components and files to exclude from repomatic operations.
 
-    Additive to the default exclusions (`labels`, `skills`). Bare names
-    exclude an entire component (e.g., `"workflows"`). Qualified
+    Additive to the default exclusions (`agents`, `labels`, `skills`). Bare
+    names exclude an entire component (e.g., `"workflows"`). Qualified
     `component/identifier` entries exclude a specific file within a component
     (e.g., `"workflows/debug.yaml"`, `"skills/repomatic-audit"`,
     `"labels/labeller-content-based.yaml"`).
@@ -650,9 +650,9 @@ class Config:
     include: list[str] = field(default_factory=list)
     """Components and files to force-include, overriding default exclusions.
 
-    Use this to opt into components that are excluded by default (`labels`,
-    `skills`). Each entry is subtracted from the effective exclude set
-    (defaults + user `exclude`) and bypasses `RepoScope` filtering, so
+    Use this to opt into components that are excluded by default (`agents`,
+    `labels`, `skills`). Each entry is subtracted from the effective exclude
+    set (defaults + user `exclude`) and bypasses `RepoScope` filtering, so
     scope-restricted components (like awesome-only skills or Python-only
     `publish-pypi-action`) are included regardless of repository type.
     Qualified entries (`component/file`) implicitly select the parent
