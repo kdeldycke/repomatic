@@ -810,8 +810,13 @@ def _template_package_items(
     """
     items = []
     for item in files("repomatic.templates").iterdir():
+        # Only packaged template files count: skip directories and hidden or
+        # dunder entries, since local tool droppings (like a `.DS_Store` file
+        # or a `.claude/` directory) land in the same source directory.
+        if not item.is_file():
+            continue
         filename = getattr(item, "name", str(item))
-        if filename.startswith("__"):
+        if filename.startswith((".", "__")):
             continue
         # .md.noformat files are renamed .md files hidden from mdformat.
         if filename.endswith(".md.noformat"):

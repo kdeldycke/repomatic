@@ -10,6 +10,9 @@
 - Teach the `repomatic-ship` and `babysit-ci` skills that the Nuitka binary matrix only exists on projects enabling `[tool.repomatic] nuitka.enabled`, and how to verify binary-less releases.
 - Fix the `repomatic-ship` local-gate instructions for arg-needing tools: `run biome` needs `-- check --write .` for a real pass and over-formats beyond CI's autofix scope.
 - Fix the `exclude` and `include` configuration reference to list `agents` among the default-excluded components.
+- Exclude `once`-marked tests from every test-matrix cell and run them in a dedicated single-runner `once-tests` job with its own coverage upload.
+- Run the CLI self-test suite through `python -m` in addition to the console script.
+- Skip directories and hidden files when validating packaged PR templates, so local tool droppings no longer fail the suite.
 
 ## [`7.2.0` (2026-07-16)](https://github.com/kdeldycke/repomatic/compare/v7.1.0...v7.2.0)
 
