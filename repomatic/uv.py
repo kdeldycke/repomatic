@@ -908,6 +908,7 @@ def format_diff_table(
     name_urls: dict[str, str] | None = None,
     heading: str = "Updated packages",
     subject: str = "Package",
+    released_overrides: dict[str, str] | None = None,
 ) -> str:
     """Format version changes as a markdown table with heading.
 
@@ -917,10 +918,13 @@ def format_diff_table(
 
     When `upload_times` is provided, a "Released" column is added so
     reviewers can visually verify that all updated packages respect the
-    cooldown. When `cooldown_note` is provided, that pre-rendered sentence
-    (the absolute `exclude-newer` cutoff for uv, or the relative
-    `minimum-release-age` cutoff for the version-sync updaters) is shown
-    above the table.
+    cooldown. A row whose version was decided outside that cooldown check
+    (the upstream toolkit's lockstep-aligned pin) marks itself through
+    `released_overrides` instead of showing a date, so the exemption reads
+    as deliberate rather than as missing data. When `cooldown_note` is
+    provided, that pre-rendered sentence (the absolute `exclude-newer`
+    cutoff for uv, or the relative `minimum-release-age` cutoff for the
+    version-sync updaters) is shown above the table.
 
     :param changes: List of `(name, old_version, new_version)` tuples
         as returned by {func}`diff_lock_versions`.
@@ -939,13 +943,21 @@ def format_diff_table(
         {func}`pypi_name_urls` for PyPI-sourced changes.
     :param heading: Noun after `## 🆙 ` (e.g. `Updated tools`).
     :param subject: Header for the first (name) column (e.g. `Tool`, `Action`).
+    :param released_overrides: Optional mapping of names to literal markdown
+        replacing their "Released" cell. An override on a changed name also
+        forces the column on, even without `upload_times`; entries for
+        unchanged names are ignored.
     :return: A markdown string with a `## 🆙 {heading}` heading and table,
         or an empty string if there are no changes.
     """
     if not changes:
         return ""
     name_urls = name_urls or {}
-    show_uploaded = bool(upload_times)
+    released_overrides = released_overrides or {}
+    changed_names = {name for name, _old, _new in changes}
+    show_uploaded = bool(upload_times) or bool(
+        changed_names & released_overrides.keys()
+    )
     lines = [f"## 🆙 {heading}", ""]
     if cooldown_note:
         lines.append(cooldown_note)
@@ -967,8 +979,11 @@ def format_diff_table(
         else:
             change = f"🗑️ removed: `{old}`"
         if show_uploaded:
-            raw_time = upload_times.get(name, "")  # type: ignore[union-attr]
-            uploaded = format_released(raw_time, reference_date)
+            if name in released_overrides:
+                uploaded = released_overrides[name]
+            else:
+                raw_time = upload_times.get(name, "") if upload_times else ""
+                uploaded = format_released(raw_time, reference_date)
             lines.append(f"| {link} | {change} | {uploaded} |")
         else:
             lines.append(f"| {link} | {change} |")

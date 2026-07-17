@@ -209,6 +209,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 - Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
 - Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; npm installs and `uvx` pins are handled here)
+- The upstream toolkit's own pin (like `uvx 'repomatic==x.y.z'`) is exempt from the cooldown: the repomatic `uses:` refs are its source of truth (kept current by `repomatic init`'s thin-caller regeneration), and the `lint-repo` job fails on any drift between them, so the pin aligns to those refs in lockstep. Its PR table row shows a `⛓️ lockstep` marker in the `Released` column instead of a PyPI upload date, since no cooldown-checked release listing was consulted
 - PR body lists each updated pin with old and new versions
 - **Requires**:
   - Workflow files (`.github/workflows/**/*.yaml`) in the repository

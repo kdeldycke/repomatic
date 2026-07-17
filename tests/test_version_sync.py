@@ -650,6 +650,7 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
             )
         assert result.exit_code == 0, result.output
         content = workflow.read_text(encoding="UTF-8")
+        body = Path("out.md").read_text(encoding="UTF-8")
 
     # The upstream pin aligned to the ref version, not to PyPI's fresh 9.0.0.
     assert "repomatic==7.0.0" in content
@@ -657,6 +658,15 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
     assert "mango==1.0.0" in content
     # The refs themselves are never rewritten by this updater.
     assert "lint.yaml@36523e5a56f287e814210042ca7b852147a95498 # v7.0.0" in content
+    # No PyPI release listing was consulted for the pin, so its "Released"
+    # cell marks the exemption instead of showing an upload date.
+    assert (
+        "| [repomatic](https://pypi.org/project/repomatic/)"
+        " | `6.31.0` → `7.0.0`"
+        " | [⛓️ lockstep with `uses:` refs]"
+        "(https://kdeldycke.github.io/repomatic/workflows.html"
+        "#sync-workflow-pins-updater) |"
+    ) in body
 
 
 def test_sync_workflow_pins_upstream_pin_cooldown_without_refs():

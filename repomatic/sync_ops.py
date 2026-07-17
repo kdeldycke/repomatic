@@ -78,6 +78,7 @@ from .dep_sources import (
     format_swap_section,
     tracked_git_overrides,
 )
+from .github.pr_body import template_docs_url
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .init_project import init_config, is_source_repo
 from .registry import BUNDLED_VERBATIM_TARGETS, DEFAULT_REPO, UPSTREAM_REPO_SLUGS
@@ -256,6 +257,14 @@ class SyncPlan:
 
     dates: dict[str, str] = field(default_factory=dict)
     """Name to release/upload date (`YYYY-MM-DD` or ISO 8601) for the table."""
+
+    released_overrides: dict[str, str] = field(default_factory=dict)
+    """Name to literal markdown replacing its "Released" table cell.
+
+    Marks rows whose version was decided outside the cooldown-checked release
+    listing (the upstream toolkit's lockstep-aligned pin), so the table shows
+    the exemption instead of a blank cell.
+    """
 
     name_urls: dict[str, str] = field(default_factory=dict)
     """Name to the URL its table cell links to (PyPI, GitHub, npm)."""
@@ -818,9 +827,15 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             # package realigns, even a straggler file lagging behind an
             # already-aligned one; equal pins rewrite to themselves, which
             # records no change. No held-back entry either: the pin tracks
-            # the refs, not PyPI.
+            # the refs, not PyPI, which also means no PyPI upload date is
+            # fetched: the "Released" cell marks the exemption instead.
             resolved[(ecosystem, package)] = lockstep_version
             plan.name_urls[package] = f"https://pypi.org/project/{package}/"
+            docs_url = template_docs_url("sync-workflow-pins")
+            marker = "⛓️ lockstep with `uses:` refs"
+            plan.released_overrides[package] = (
+                f"[{marker}]({docs_url})" if docs_url else marker
+            )
             continue
         candidates = (
             npm_candidates(package) if ecosystem == "npm" else pypi_candidates(package)
@@ -922,6 +937,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
         name_urls=plan.name_urls,
         heading=plan.heading,
         subject=plan.subject,
+        released_overrides=plan.released_overrides,
     )
     held_back_section = format_held_back_table(
         plan.held_back,

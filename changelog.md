@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - Add a ⚙️ emoji to the `Configuration` section heading of PR bodies, and swap the `Held back by cooldown` section's 🔜 emoji for ⏸️.
+- Mark the upstream toolkit's lockstep-aligned pin with a `⛓️ lockstep` docs link in the `sync-workflow-pins` PR table, instead of an empty `Released` cell.
 - Teach the `repomatic-ship` and `babysit-ci` skills that the Nuitka binary matrix only exists on projects enabling `[tool.repomatic] nuitka.enabled`, and how to verify binary-less releases.
 - Fix the `repomatic-ship` local-gate instructions for arg-needing tools: `run biome` needs `-- check --write .` for a real pass and over-formats beyond CI's autofix scope.
 

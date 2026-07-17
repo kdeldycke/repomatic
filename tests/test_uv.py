@@ -294,6 +294,36 @@ def test_format_diff_table_shows_cooldown_note_above_table():
     assert "MY NOTE" not in format_diff_table([("ruff", "0.1.0", "0.2.0")])
 
 
+def test_format_diff_table_released_overrides():
+    """An override replaces the date cell and marks the row as an exception."""
+    # The override wins over a date for its row; other rows keep their dates.
+    table = format_diff_table(
+        [("mango", "1.0.0", "2.0.0"), ("papaya", "3.0.0", "4.0.0")],
+        upload_times={"mango": "2026-06-20", "papaya": "2026-06-21"},
+        released_overrides={"papaya": "⛓️ EXEMPT"},
+    )
+    assert "| mango | `1.0.0` → `2.0.0` | 2026-06-20 |" in table
+    assert "| papaya | `3.0.0` → `4.0.0` | ⛓️ EXEMPT |" in table
+
+    # An override on a changed row forces the column on without any dates,
+    # and rows without a date or override render an empty cell.
+    table = format_diff_table(
+        [("mango", "1.0.0", "2.0.0"), ("papaya", "3.0.0", "4.0.0")],
+        released_overrides={"papaya": "⛓️ EXEMPT"},
+    )
+    assert "| Package | Change | Released |" in table
+    assert "| mango | `1.0.0` → `2.0.0` |  |" in table
+    assert "| papaya | `3.0.0` → `4.0.0` | ⛓️ EXEMPT |" in table
+
+    # An override naming no changed row is ignored and leaves the column off.
+    table = format_diff_table(
+        [("mango", "1.0.0", "2.0.0")],
+        released_overrides={"papaya": "⛓️ EXEMPT"},
+    )
+    assert "| Package | Change |" in table
+    assert "Released" not in table
+
+
 def test_format_diff_table_call_sites_pass_reference_date():
     """Every PR-report call site opts into the humanized `Released` delta.
 
