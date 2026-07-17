@@ -121,6 +121,12 @@ jobs:
           fromJSON(needs.metadata.outputs.metadata).is_python_project
           && fromJSON(needs.metadata.outputs.metadata).is_sphinx
         # Do not use -W: we parse output.json directly instead of relying on exit codes.
+        # GitHub throttles anonymous crawls to ~1 request/minute, enough to blow the
+        # "ubuntu-slim" job budget on link-heavy repos (the runner kills the whole job,
+        # bypassing continue-on-error). Exposing the token lets a repo's conf.py
+        # authenticate its github.com checks via linkcheck_request_headers.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: >
           uv --no-progress run --frozen --all-extras --group docs --
           sphinx-build -b linkcheck ./docs ./docs/_linkcheck

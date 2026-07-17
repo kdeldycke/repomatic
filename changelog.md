@@ -15,6 +15,11 @@
 - Exclude `once`-marked tests from every test-matrix cell and run them in a dedicated single-runner `once-tests` job with its own coverage upload.
 - Run the CLI self-test suite through `python -m` in addition to the console script.
 - Skip directories and hidden files when validating packaged PR templates, so local tool droppings no longer fail the suite.
+- Disable ruff's `unsafe-fixes` in the bundled defaults, so `--fix` and the autofix workflow only apply semantics-preserving fixes.
+- Expose `GITHUB_TOKEN` to the Sphinx linkcheck step of the docs workflow, so a repo's `conf.py` can authenticate its github.com checks via `linkcheck_request_headers`.
+- Space out the Windows exiftool install with step-level retries, absorbing Chocolatey community-feed outages that punch through choco's own `--retry-count`.
+- Point the changelog over-length warning and the `repomatic-changelog` skill at the canonical entry-length guideline URL, which downstream `CLAUDE.md` copies lack.
+- Teach the `repomatic-ship` local gate `shfmt`'s args form and a `--version` checksum-only smoke for tools with no matching files in the repo.
 
 ## [`7.2.0` (2026-07-16)](https://github.com/kdeldycke/repomatic/compare/v7.1.0...v7.2.0)
 

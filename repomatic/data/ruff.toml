@@ -5,7 +5,12 @@
 # the [tool.ruff] prefix is added automatically.
 preview = true
 fix = true
-unsafe-fixes = true
+# Unsafe fixes rewrite semantics, not just style, and the autofix workflow
+# commits them unreviewed. Archetype: LOG001's unsafe fix turned a deliberate
+# direct `logging.Logger(name, level)` instantiation into `getLogger(name,
+# level)`, an invalid call that would also flip the logger into the shared
+# registry. See: https://docs.astral.sh/ruff/linter/#fix-safety
+unsafe-fixes = false
 show-fixes = true
 # Enable formatting of Python code blocks in Markdown files.
 # https://docs.astral.sh/ruff/formatter/#markdown-code-formatting

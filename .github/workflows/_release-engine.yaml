@@ -154,8 +154,18 @@ jobs:
       - name: Install exiftool - Windows
         if: runner.os == 'Windows'
         shell: pwsh
+        # choco's --retry-count retries back-to-back, too fast to outlive a community-feed
+        # outage (406/504 responses): space three step-level attempts a minute apart.
         run: |
-          choco install exiftool --no-progress --yes --retry-count=3
+          $attempts = 3
+          foreach ($try in 1..$attempts) {
+            choco install exiftool --no-progress --yes --retry-count=3
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($try -lt $attempts) {
+              Write-Warning "choco install exiftool failed (attempt ${try}/${attempts}), retrying in 60 seconds."
+              Start-Sleep -Seconds 60
+            }
+          }
           if (-not (Get-Command exiftool -ErrorAction SilentlyContinue)) {
             Write-Error "exiftool not found on PATH after choco install"
             exit 1

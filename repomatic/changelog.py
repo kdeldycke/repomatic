@@ -762,7 +762,8 @@ def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
     """Warn about over-long bullets in the unreleased section, non-fatally.
 
     A changelog entry is a release note, not a commit message: one short
-    sentence stating what changed (see `CLAUDE.md` § Changelog entry length).
+    sentence stating what changed. Canonical guideline:
+    https://github.com/kdeldycke/repomatic/blob/main/claude.md#changelog-entry-length
     Each unreleased bullet longer than `threshold` words emits a
     {data}`logging.WARNING` and a GitHub Actions warning annotation, without
     affecting the lint exit code.
@@ -792,7 +793,9 @@ def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
                     f"Changelog entry {index} for {version} runs {words} words, "
                     f"over the {threshold}-word guideline. A changelog entry is "
                     f"a release note, not a commit message: keep it to one short "
-                    f"sentence (see CLAUDE.md, Changelog entry length).",
+                    f"sentence, per the canonical guideline "
+                    f"https://github.com/kdeldycke/repomatic/blob/main/claude.md"
+                    f"#changelog-entry-length",
                 )
 
 
