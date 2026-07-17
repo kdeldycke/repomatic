@@ -6,6 +6,9 @@
 > This version is **not released yet** and is under active development.
 
 - Add a ⚙️ emoji to the `Configuration` section heading of PR bodies, and swap the `Held back by cooldown` section's 🔜 emoji for ⏸️.
+- Teach the `repomatic-ship` and `babysit-ci` skills that the Nuitka binary matrix only exists on projects enabling `[tool.repomatic] nuitka.enabled`, and how to verify binary-less releases.
+- Fix the `repomatic-ship` local-gate instructions for arg-needing tools: `run biome` needs `-- check --write .` for a real pass and over-formats beyond CI's autofix scope.
+
 ## [`7.2.0` (2026-07-16)](https://github.com/kdeldycke/repomatic/compare/v7.1.0...v7.2.0)
 
 - **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives; its module moves to `repomatic.prepare_release` and its class becomes `PrepareRelease`.
