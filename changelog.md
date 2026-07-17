@@ -9,6 +9,8 @@
 - Mark the upstream toolkit's lockstep-aligned pin with a `⛓️ lockstep` docs link in the `sync-workflow-pins` PR table, instead of an empty `Released` cell.
 - Teach the `repomatic-ship` and `babysit-ci` skills that the Nuitka binary matrix only exists on projects enabling `[tool.repomatic] nuitka.enabled`, and how to verify binary-less releases.
 - Fix the `repomatic-ship` local-gate instructions for arg-needing tools: `run biome` needs `-- check --write .` for a real pass and over-formats beyond CI's autofix scope.
+- Fix the `repomatic-ship` docs-pass freeze-scope claim: what the freeze rewrites varies by repo, so version samples are audited against the last freeze commit's file list, `readme.md` included.
+- Extend the `repomatic-ship` platform-gated-test review to inputs those tests consume, like docs prose feeding an `unless_linux` conformance test.
 - Fix the `exclude` and `include` configuration reference to list `agents` among the default-excluded components.
 - Exclude `once`-marked tests from every test-matrix cell and run them in a dedicated single-runner `once-tests` job with its own coverage upload.
 - Run the CLI self-test suite through `python -m` in addition to the console script.
