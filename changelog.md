@@ -24,6 +24,9 @@
 
 ## [`7.2.0` (2026-07-16)](https://github.com/kdeldycke/repomatic/compare/v7.1.0...v7.2.0)
 
+> [!NOTE]
+> `7.2.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.2.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.2.0).
+
 - **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives; its module moves to `repomatic.prepare_release` and its class becomes `PrepareRelease`.
 - **Breaking:** the `version-check` command is renamed `check-version`.
 - **Breaking:** the vulnerability audit domain moves from `repomatic.uv` into the new `repomatic.vulnerable_deps` module, which also absorbs `repomatic.github.advisories`.
