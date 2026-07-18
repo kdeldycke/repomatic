@@ -96,7 +96,7 @@ jobs:
         # repomatic.init_project._serialize_file_rules emits v5+ schema
         # (`any:`/`all:` wrappers, `changed-files` matcher dicts, `head-branch`,
         # `base-branch`). Do not downgrade below v5.0.0.
-        uses: actions/labeler@f27b608878404679385c85cfa523b85ccb86e213 # v6.1.0
+        uses: actions/labeler@b8dd2d9be0f68b860e7dae5dae7d772984eacd6d # v6.2.0
         with:
           configuration-path: ".github/labeller-file-based.yaml"
 
