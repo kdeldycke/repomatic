@@ -456,6 +456,12 @@ jobs:
           merge-multiple: true
       - name: Upload binaries and attestation bundles to release
         # Exclude Python packages (.tar.gz, .whl) already uploaded by create-release.
+        # Each versioned binary is also uploaded under a versionless alias
+        # (name-<version>-<target>.<ext> duplicated as name-<target>.<ext>), so the
+        # stable releases/latest/download URLs always resolve. Aliases are
+        # byte-identical copies: artifact attestations verify them unchanged
+        # (digest-based), and the catalog recorder collapses them onto their
+        # versioned sibling (see repomatic/binaries_page.py).
         if: needs.compile-binaries.result != 'skipped'
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -464,6 +470,11 @@ jobs:
         run: |
           shopt -s nullglob extglob
           files=(./compile-assets/!(*.tar.gz|*.whl))
+          for binary in ./compile-assets/*-"${CURRENT_VERSION}"-*.@(bin|exe); do
+            versionless="${binary/-"${CURRENT_VERSION}"-/-}"
+            cp "${binary}" "${versionless}"
+            files+=("${versionless}")
+          done
           if [[ ${#files[@]} -gt 0 ]]; then
             gh release upload "v${CURRENT_VERSION}" \
               "${files[@]}" \
@@ -510,14 +521,17 @@ jobs:
         with:
           enable-cache: false
       - name: Download release binaries
+        # Versioned patterns leave out the versionless alias copies, which
+        # share their digest with a versioned sibling and would only submit
+        # duplicate scans.
         env:
           GH_TOKEN: ${{ github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
         run: >
           gh release download "v${CURRENT_VERSION}"
           --repo "${{ github.repository }}"
-          --pattern "*.bin"
-          --pattern "*.exe"
+          --pattern "*-${CURRENT_VERSION}-*.bin"
+          --pattern "*-${CURRENT_VERSION}-*.exe"
           --dir ./binaries
       - name: Upload to VirusTotal and record detections
         env:

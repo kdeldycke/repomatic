@@ -107,6 +107,35 @@ def test_csv_skips_non_binary_assets():
     assert "tar.gz" not in content
 
 
+def test_csv_collapses_versionless_aliases():
+    """A versionless alias collapses onto its versioned digest sibling.
+
+    Assets without a recorded digest predate the aliases and are kept even
+    when byte-identical.
+    """
+    releases = [
+        _release(
+            "v1.0.0",
+            (
+                _asset("papaya-1.0.0-linux-x64.bin", sha256="aa" * 32),
+                _asset("papaya-linux-x64.bin", sha256="aa" * 32),
+                _asset("papaya-1.0.0-windows-x64.exe", sha256="bb" * 32),
+                _asset("papaya-windows-x64.exe", sha256="bb" * 32),
+                _asset("papaya-1.0.0-macos-arm64.bin"),
+                _asset("papaya-macos-arm64.bin"),
+            ),
+        ),
+    ]
+    content = render_binaries_csv(REPO, releases, [])
+    assert "papaya-1.0.0-linux-x64.bin" in content
+    assert "papaya-linux-x64.bin" not in content
+    assert "papaya-1.0.0-windows-x64.exe" in content
+    assert "papaya-windows-x64.exe" not in content
+    # 4 rows survive: 2 versioned digest canonicals, plus both digest-less
+    # macos names.
+    assert content.count("\n") == 5
+
+
 def test_csv_rows_newest_version_first():
     """Rows are ordered by descending version, not API order."""
     releases = [
