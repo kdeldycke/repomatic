@@ -94,9 +94,9 @@ def update_docs(config: Config) -> None:
        with ``{eval-rst}`` blocks.
     3. Run the project-specific `docs/docs_update.py` script (if present)
        to generate dynamic content.
-    4. Refresh self-updating directive blocks (like `{matrix}` compatibility
-       tables) found in `docs/` pages and `readme.md`, via
-       `click-extra refresh-directives`.
+    4. Refresh self-updating blocks (`{matrix}` compatibility tables and
+       `python:render` `:mirror:` regions) found in `docs/` pages and
+       `readme.md`, via `click-extra refresh-directives`.
 
     :param config: The resolved `[tool.repomatic]` configuration.
     """
@@ -147,14 +147,21 @@ def update_docs(config: Config) -> None:
     else:
         logging.info("Docs update script disabled (empty path).")
 
-    # Phase 4: self-updating directive blocks. Both forms are refreshed: the
-    # `{matrix}` MyST fence (live-rendered by Sphinx) and the `<!-- matrix -->`
-    # comment region (whose embedded table renders on GitHub too). Only files
-    # already carrying a block are passed, so repositories without any stay
-    # clear of the sphinx extra that `refresh-directives` requires.
+    # Phase 4: self-updating blocks. Every form is refreshed: the `{matrix}`
+    # MyST fence (live-rendered by Sphinx), the `<!-- matrix -->` comment
+    # region (whose embedded table renders on GitHub too), and the
+    # `python:render` `:mirror:` region (`<!-- mirror -->`, whose generator
+    # Python is executed by the refresh). Only files already carrying a block
+    # are passed, so repositories without any stay clear of the sphinx extra
+    # that `refresh-directives` requires.
     def has_directive_block(path: Path) -> bool:
         text = path.read_text(encoding="UTF-8")
-        return "{matrix}" in text or "<!-- matrix" in text
+        return (
+            "{matrix}" in text
+            or "<!-- matrix" in text
+            or ":mirror:" in text
+            or "<!-- mirror" in text
+        )
 
     candidates = sorted(docs_dir.rglob("*.md")) if docs_dir.is_dir() else []
     readme_path = repo_root / "readme.md"

@@ -392,8 +392,8 @@ wheels = [
 
 [[package]]
 name = "click-extra"
-version = "8.3.0"
-source = { registry = "https://pypi.org/simple" }
+version = "8.5.0.dev0"
+source = { git = "https://github.com/kdeldycke/click-extra?branch=main#4cbf7c28ebf1fee0b2257b0eb868281b7aeaa3ae" }
 dependencies = [
     { name = "boltons" },
     { name = "click" },
@@ -404,10 +404,6 @@ dependencies = [
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "wcmatch" },
     { name = "wcwidth" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/2c/114e90d1703ccfb25c14dc0f2a44f2296c3d924cb91948a36c92c1f77e11/click_extra-8.3.0.tar.gz", hash = "sha256:f95cdec794dbb7f1f191f82a60be4ae3175e79c3f26ed4d3079f4b06d9542301", size = 335861, upload-time = "2026-07-08T05:33:13.684Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/19/73cc96f8db1a4216b0b44acba6bd39d94d24a1e22426127a47b4d53e44df/click_extra-8.3.0-py3-none-any.whl", hash = "sha256:5ed238baefc20b17f09ce95959a340fb80417e4c8303d4d7c8a26a04241ef3c2", size = 362627, upload-time = "2026-07-08T05:33:12.165Z" },
 ]
 
 [package.optional-dependencies]
@@ -1448,7 +1444,7 @@ requires-dist = [
     { name = "arrow", specifier = ">=1.3" },
     { name = "backports-strenum", marker = "python_full_version < '3.11'", specifier = ">=1" },
     { name = "boltons", specifier = ">=25" },
-    { name = "click-extra", specifier = ">=8.3" },
+    { name = "click-extra", git = "https://github.com/kdeldycke/click-extra?branch=main" },
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=17" },
     { name = "py-walk", specifier = ">=0.3.1" },
@@ -1461,7 +1457,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 docs = [
-    { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'" },
+    { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'", git = "https://github.com/kdeldycke/click-extra?branch=main" },
     { name = "furo", marker = "python_full_version >= '3.14'", specifier = ">=2025.9.25" },
     { name = "myst-parser", marker = "python_full_version >= '3.14'", specifier = ">=5.1" },
     { name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=8" },

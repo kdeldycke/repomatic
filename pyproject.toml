@@ -84,10 +84,14 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 8.3 adds the `click:config` Sphinx directive and the
-  # `schema_field_infos()` introspection API that `configuration.md` and
-  # `show-config` are built on.
-  "click-extra>=8.3",
+  # click-extra 8.5 (unreleased) ships the `python:render` `:mirror:` regions
+  # and extends `refresh-directives` to refresh them (update_mirror_blocks),
+  # with the fence-aware scanner that stops `update-docs` phase 4 from
+  # rewriting examples nested in code fences. Resolved from git main via the
+  # [tool.uv] sources entry until 8.5.0 reaches PyPI: then drop that source
+  # and relax this floor to `>=8.5`. (8.3 brought the `click:config` directive
+  # and `schema_field_infos()` that `configuration.md` and `show-config` use.)
+  "click-extra>=8.5.0.dev0",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.
@@ -207,6 +211,14 @@ exclude-newer = "1 week"
 # pinned to git main (no PyPI release to freeze), so it keeps a permanent
 # "0 day" span.
 exclude-newer-package = { repomatic = "0 day" }
+# click-extra is consumed from the public repo's main branch until the 8.5.0
+# release ships the `:mirror:` refresh machinery (see the runtime dependency
+# comment). Remove this source and relax the version floor once 8.5.0 is on
+# PyPI: sources never reach the published wheel metadata, so a repomatic
+# release cut while this is in place would depend on a click-extra version
+# PyPI cannot serve yet. Re-lock (`uv lock --upgrade-package click-extra`) to
+# advance the pinned commit when click-extra main moves.
+sources.click-extra = { git = "https://github.com/kdeldycke/click-extra", branch = "main" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
