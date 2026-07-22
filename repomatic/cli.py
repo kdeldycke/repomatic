@@ -29,7 +29,6 @@ from pathlib import Path
 
 import tomlrt
 from click_extra import (
-    DEFAULT_JOBS,
     UNPROCESSED,
     Choice,
     ClickException,
@@ -336,13 +335,7 @@ def _require_token(module, attr):
 # names (e.g., "setup-guide" is both a config key and a subcommand). Config
 # access goes exclusively through config_schema + get_tool_config().
 @group(config_schema=Config, schema_strict=False, included_params=())
-# Resolve the default job count eagerly (an integer instead of the "auto"
-# keyword) so JobCount.convert() never emits its sequential-execution warning
-# for a value the user never set: on 1-CPU hosts (ubuntu-slim CI runners, docs
-# builders) that warning fires on every bare invocation and leaks into the
-# merged output captured by `{click:run}` doc renders and CliRunner tests.
-# show_default restores the machine-independent "auto" label in help screens.
-@jobs_option(default=DEFAULT_JOBS, show_default="auto")
+@jobs_option()
 def repomatic():
     pass
 

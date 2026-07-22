@@ -169,7 +169,7 @@ Anti-pattern: any `render`-family block that takes more than a second or two to 
 :show-source:
 :emphasize-lines: 7
 :emphasize-result-lines: 2
-result = invoke(cli, args=["--show-params"])
+result = invoke(cli, args=["--params"])
 ```
 ````
 
