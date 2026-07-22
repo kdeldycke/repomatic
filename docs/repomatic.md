@@ -200,15 +200,6 @@
    :undoc-members:
 ```
 
-## `repomatic.myst_docstrings` module
-
-```{eval-rst}
-.. automodule:: repomatic.myst_docstrings
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.npm` module
 
 ```{eval-rst}

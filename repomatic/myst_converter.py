@@ -16,9 +16,9 @@
 """Convert reST docstrings to MyST in Python source files.
 
 Transforms reST markup in docstrings and `#:` comment blocks to MyST
-markdown.  The companion Sphinx extension {mod}`repomatic.myst_docstrings`
-converts the MyST back to reST at build time, so `sphinx.ext.autodoc`
-still works.
+markdown.  The companion Sphinx extension
+{mod}`click_extra.sphinx.myst_docstrings` converts the MyST back to reST at
+build time, so `sphinx.ext.autodoc` still works.
 
 Conversions applied (in order):
 

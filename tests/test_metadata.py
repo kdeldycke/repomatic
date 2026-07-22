@@ -453,7 +453,6 @@ expected: dict[str, Any] = {
         "repomatic/mailmap.py",
         "repomatic/metadata.py",
         "repomatic/myst_converter.py",
-        "repomatic/myst_docstrings.py",
         "repomatic/npm.py",
         "repomatic/prepare_release.py",
         "repomatic/pypi.py",
@@ -497,7 +496,6 @@ expected: dict[str, Any] = {
         "tests/test_mailmap.py",
         "tests/test_matrix.py",
         "tests/test_metadata.py",
-        "tests/test_myst_docstrings.py",
         "tests/test_npm.py",
         "tests/test_platform_keys.py",
         "tests/test_pr.py",
@@ -616,7 +614,6 @@ expected: dict[str, Any] = {
         "docs/index.md",
         "docs/install.md",
         "docs/license.md",
-        "docs/myst-docstrings.md",
         "docs/operation-contracts.md",
         "docs/repomatic.data.awesome_template.md",
         "docs/repomatic.data.md",
@@ -718,7 +715,6 @@ expected: dict[str, Any] = {
         "docs/index.md",
         "docs/install.md",
         "docs/license.md",
-        "docs/myst-docstrings.md",
         "docs/operation-contracts.md",
         "docs/repomatic.data.awesome_template.md",
         "docs/repomatic.data.md",
@@ -2340,7 +2336,9 @@ nonexistent-option = true
 
     config = load_repomatic_config()
     assert isinstance(config, Config)
-    assert "Unknown [tool.repomatic] option: nonexistent-option" in caplog.text
+    # The warning comes from click-extra's schema layer (warn_unknown), which
+    # names keys in their normalized snake_case form.
+    assert "Unknown configuration option(s): nonexistent_option" in caplog.text
 
 
 def test_config_reference():

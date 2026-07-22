@@ -727,15 +727,6 @@ init_project.help = init_project.help.format(
 )
 
 
-def _table_headers(header_defs: tuple[tuple[str, str], ...]) -> tuple[str, ...]:
-    """Return the column labels from `(label, column_id)` header definitions.
-
-    `ctx.print_table` takes `(table_data, headers)`; the column IDs drive
-    `--sort-by` through the matching `SortByOption`, not the rendered header row.
-    """
-    return tuple(label for label, _ in header_defs)
-
-
 _metadata_sort = SortByOption(*METADATA_KEYS_HEADER_DEFS, default="key")
 
 
@@ -786,9 +777,7 @@ def metadata(ctx, format, overwrite, output, list_keys, keys):
             current_version is_python_project
     """
     if list_keys:
-        ctx.print_table(
-            metadata_keys_reference(), _table_headers(METADATA_KEYS_HEADER_DEFS)
-        )
+        ctx.print_table(metadata_keys_reference(), METADATA_KEYS_HEADER_DEFS)
         ctx.exit(0)
 
     # Validate requested keys.
@@ -866,7 +855,7 @@ def show_config(ctx):
         (option, escape_type_for_gfm_table(ftype), default, desc)
         for option, ftype, default, desc in config_reference()
     ]
-    ctx.print_table(rows, _table_headers(CONFIG_REFERENCE_HEADER_DEFS))
+    ctx.print_table(rows, CONFIG_REFERENCE_HEADER_DEFS)
 
 
 TEST_MATRIX_STATE_DISPLAY = {
@@ -917,7 +906,7 @@ def show_test_matrix(ctx, emoji, matrix_name):
             (row[0], *(TEST_MATRIX_STATE_DISPLAY.get(cell, cell) for cell in row[1:]))
             for row in rows
         )
-    ctx.find_root().print_table(rows, headers)
+    ctx.print_table(rows, headers)
 
 
 @repomatic.command(
@@ -1818,9 +1807,9 @@ def convert_to_myst(directory: str | None) -> None:
     """Convert reST docstrings to MyST markdown in Python source files.
 
     Transforms reST markup in docstrings and `#:` comment blocks to MyST.
-    The companion Sphinx extension `repomatic.myst_docstrings` converts
-    the MyST back to reST at build time, so `sphinx.ext.autodoc` still
-    works.
+    The companion Sphinx extension `click_extra.sphinx.myst_docstrings`
+    converts the MyST back to reST at build time, so `sphinx.ext.autodoc`
+    still works.
 
     If DIRECTORY is not specified, auto-detects the source package directory
     from the project's script entry points in `pyproject.toml`.
@@ -2305,9 +2294,7 @@ def audit(
         )
         for v in vulns
     ]
-    ctx.print_table(  # type: ignore[attr-defined]
-        rows, _table_headers(AUDIT_HEADER_DEFS)
-    )
+    ctx.print_table(rows, AUDIT_HEADER_DEFS)
 
     if output:
         markdown = format_vulnerability_table(vulns)
@@ -2637,7 +2624,7 @@ def _print_sync_table(
         if show_released:
             row = (*row, format_released(dates.get(name, ""), reference_date))
         rows.append(row)
-    ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
+    ctx.print_table(rows, headers)
 
 
 def _print_held_back_table(
@@ -2664,7 +2651,7 @@ def _print_held_back_table(
         )
         for pkg in held_back
     ]
-    ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
+    ctx.print_table(rows, headers)
 
 
 def _print_bypass_table(ctx: Context, forecasts: list[BypassForecast]) -> None:
@@ -2680,7 +2667,7 @@ def _print_bypass_table(ctx: Context, forecasts: list[BypassForecast]) -> None:
         (forecast.name, forecast.held_version, forecast.expires)
         for forecast in forecasts
     ]
-    ctx.find_root().print_table(rows, headers)  # type: ignore[attr-defined]
+    ctx.print_table(rows, headers)
 
 
 def _emit_version_sync_report(
@@ -3564,7 +3551,7 @@ def run_cmd(
             (spec.name, spec.version, resolve_config_source(spec))
             for spec in TOOL_REGISTRY.values()
         ]
-        ctx.print_table(rows, _table_headers(TOOL_LIST_HEADER_DEFS))
+        ctx.print_table(rows, TOOL_LIST_HEADER_DEFS)
         ctx.exit(0)
 
     if tool_name is None:
@@ -3657,7 +3644,7 @@ def show(ctx):
             _format_age(cfg_entry.mtime),
         ))
 
-    ctx.print_table(rows, _table_headers(CACHE_LIST_HEADER_DEFS))
+    ctx.print_table(rows, CACHE_LIST_HEADER_DEFS)
     total_count = len(bin_entries) + len(http_entries) + len(cfg_entries)
     echo(f"\nTotal: {total_count} file(s), {format_file_size(total_size)}")
 

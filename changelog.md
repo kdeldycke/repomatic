@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** Move the `repomatic.myst_docstrings` Sphinx extension upstream to `click_extra.sphinx.myst_docstrings`. Update `conf.py` extensions to the new module path; `click-extra[sphinx]` in the docs group already provides it. The `convert-to-myst` migration command stays in `repomatic`, documented on the CLI reference; the `myst-docstrings` docs page moves to click-extra.
+- Warn on unknown `[tool.repomatic]` keys through click-extra's schema layer, covering nested tables too; the warning now names keys in snake_case.
 - Upload each release binary under a versionless alias too, so the stable `releases/latest/download` URLs keep resolving across releases. The binaries catalog collapses aliases onto their versioned sibling, and the VirusTotal scan only submits the versioned copies.
 - Add a ⚙️ emoji to the `Configuration` section heading of PR bodies, and swap the `Held back by cooldown` section's 🔜 emoji for ⏸️.
 - Mark the upstream toolkit's lockstep-aligned pin with a `⛓️ lockstep` docs link in the `sync-workflow-pins` PR table, instead of an empty `Released` cell.

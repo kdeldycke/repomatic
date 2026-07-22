@@ -19,7 +19,6 @@ test-matrix
 security
 skills
 agents
-myst-docstrings
 benchmark
 ```
 

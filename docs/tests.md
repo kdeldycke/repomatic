@@ -243,15 +243,6 @@
    :undoc-members:
 ```
 
-## `tests.test_myst_docstrings` module
-
-```{eval-rst}
-.. automodule:: tests.test_myst_docstrings
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `tests.test_npm` module
 
 ```{eval-rst}

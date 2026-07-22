@@ -23,7 +23,6 @@ Defines the `Config` dataclass, its TOML serialization helpers, and the
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from textwrap import dedent
 
@@ -1000,18 +999,10 @@ def load_repomatic_config(
     tool_section = pyproject_data.get("tool", {})
     user_config: dict[str, Any] = tool_section.get("repomatic", {})
 
-    # Warn about unknown top-level keys before loading. Collect all known
-    # TOML key prefixes (e.g., "test-matrix", "nuitka", "workflow") so we
-    # can flag unrecognized entries without crashing.
-    known_keys = {info.key.split(".")[0] for info in schema_field_infos(Config)}
-    for key in user_config:
-        if key.replace("_", "-") not in known_keys:
-            logging.warning(
-                "Unknown [tool.repomatic] option: %s (ignored).",
-                key,
-            )
-
-    schema_callable = make_schema_callable(Config, strict=False)
+    # The [tool.repomatic] section is schema-only (the CLI group runs with
+    # included_params=()), so warn_unknown flags any key the schema does not
+    # know as a typo, nested tables included.
+    schema_callable = make_schema_callable(Config, strict=False, warn_unknown=True)
     assert schema_callable is not None
     config: Config = schema_callable(user_config)
     return config
