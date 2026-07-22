@@ -185,7 +185,8 @@ _APIDOC_SKIP = frozenset({"__init__", "__main__"})
 def test_every_module_has_a_docs_automodule(page: str) -> None:
     """Every module appears in its sphinx-apidoc doc page.
 
-    These pages are write-once: ``rst_to_myst`` preserves an existing ``.md``,
+    These pages are write-once: ``click_extra.rst_to_myst`` preserves an
+    existing ``.md``,
     so a module added after a page was last generated silently goes undocumented
     (Sphinx then warns "document isn't included in any toctree"). The
     ``update-docs`` drift test cannot catch this, since the generator never

@@ -27,10 +27,9 @@ import logging
 import subprocess
 from pathlib import Path
 
-from click_extra import ClickException, echo
+from click_extra import ClickException, convert_rst_files_in_directory, echo
 
 from .metadata import Metadata
-from .rst_to_myst import convert_rst_files_in_directory
 from .uv import uv_cmd
 
 TYPE_CHECKING = False

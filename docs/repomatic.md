@@ -191,15 +191,6 @@
    :undoc-members:
 ```
 
-## `repomatic.myst_converter` module
-
-```{eval-rst}
-.. automodule:: repomatic.myst_converter
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.npm` module
 
 ```{eval-rst}
@@ -240,15 +231,6 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.registry
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.rst_to_myst` module
-
-```{eval-rst}
-.. automodule:: repomatic.rst_to_myst
    :members:
    :show-inheritance:
    :undoc-members:

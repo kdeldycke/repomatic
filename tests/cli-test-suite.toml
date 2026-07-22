@@ -194,12 +194,6 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic close-stale-bump-pr"
 
 [[cases]]
-cli_parameters = "convert-to-myst --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic convert-to-myst"
-
-[[cases]]
 cli_parameters = "format-images --help"
 exit_code = 0
 strip_ansi = true

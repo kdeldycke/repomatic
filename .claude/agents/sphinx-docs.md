@@ -211,7 +211,7 @@ Conversion lifecycle:
 
 - Authors write **MyST** in `*.py` docstrings (`` {role}`target` ``, `[text](url)`, single-backtick inline code, ```` ```{directive} ```` admonitions).
 - The `click_extra.sphinx.myst_docstrings` Sphinx extension hooks `autodoc-process-docstring` at priority 400 and converts MyST to reST at build time, before `sphinx_autodoc_typehints` runs. So the rendered HTML is the same as if the docstrings were always reST, while the source files stay editable in MyST.
-- Run `uv run repomatic convert-to-myst` (or `repomatic convert-to-myst path/to/pkg/`) to migrate an existing reST codebase. The converter is idempotent — already-MyST docstrings are a no-op.
+- Run `uvx click-extra convert-to-myst` (or `click-extra convert-to-myst path/to/pkg/`) to migrate an existing reST codebase. The converter is idempotent — already-MyST docstrings are a no-op.
 
 Extension load order (the rule, with the rationale):
 
@@ -532,7 +532,7 @@ Primary toctree (user-facing), in this order:
 06. `workflows` — Only when the project publishes reusable workflows.
 07. `security` — Threat model, supported versions, reporting channel. Should also live as `.github/SECURITY.md` for GitHub's security tab.
 08. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
-09. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), and the `convert-to-myst` migration command is covered by the CLI reference.
+09. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
 
 Development toctree, in this order:
 

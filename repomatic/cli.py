@@ -1798,60 +1798,6 @@ def update_docs() -> None:
 
 
 @repomatic.command(
-    name="convert-to-myst",
-    short_help="Convert reST docstrings to MyST in Python files",
-    section=_section_setup,
-)
-@argument("directory", required=False, default=None)
-def convert_to_myst(directory: str | None) -> None:
-    """Convert reST docstrings to MyST markdown in Python source files.
-
-    Transforms reST markup in docstrings and `#:` comment blocks to MyST.
-    The companion Sphinx extension `click_extra.sphinx.myst_docstrings`
-    converts the MyST back to reST at build time, so `sphinx.ext.autodoc`
-    still works.
-
-    If DIRECTORY is not specified, auto-detects the source package directory
-    from the project's script entry points in `pyproject.toml`.
-
-    Safe to re-run: already-converted MyST syntax does not match the reST
-    patterns, so the conversion is idempotent.
-    """
-    from .metadata import Metadata
-    from .myst_converter import convert_directory
-
-    if directory:
-        root = Path(directory)
-    else:
-        # Auto-detect source directory from project metadata.
-        meta = Metadata()
-        source_dirs: set[str] = set()
-        for _cli_id, module_id, _callable_id in meta.script_entries:
-            source_dirs.add(module_id.split(".")[0])
-
-        if not source_dirs:
-            raise ClickException(
-                "Cannot auto-detect source directory. "
-                "Specify a directory argument or add script entry points "
-                "to pyproject.toml."
-            )
-        if len(source_dirs) > 1:
-            raise ClickException(
-                f"Multiple source packages detected: {sorted(source_dirs)}. "
-                "Specify a directory argument."
-            )
-        root = Path(source_dirs.pop())
-
-    if not root.is_dir():
-        raise ClickException(f"Not a directory: {root}")
-
-    changed = convert_directory(root)
-    for filepath in changed:
-        echo(f"  Converted: {filepath}")
-    echo(f"\n{len(changed)} file(s) converted.")
-
-
-@repomatic.command(
     short_help="Manage broken links issue lifecycle", section=_section_github
 )
 @option(
