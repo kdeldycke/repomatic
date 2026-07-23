@@ -1399,7 +1399,7 @@ wheels = [
 
 [[package]]
 name = "repomatic"
-version = "7.3.0.dev0"
+version = "7.3.1.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "arrow" },
@@ -1449,7 +1449,7 @@ requires-dist = [
     { name = "arrow", specifier = ">=1.3" },
     { name = "backports-strenum", marker = "python_full_version < '3.11'", specifier = ">=1" },
     { name = "boltons", specifier = ">=25" },
-    { name = "click-extra", specifier = ">=8.5.0" },
+    { name = "click-extra", specifier = ">=8.5" },
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=17" },
     { name = "py-walk", specifier = ">=0.3.1" },
