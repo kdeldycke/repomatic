@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.3.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.2.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.3.0` (2026-07-23)](https://github.com/kdeldycke/repomatic/compare/v7.2.0...v7.3.0)
 
 - **Breaking:** Move the MyST docstring toolchain upstream to click-extra, now floored at `8.5`: the `repomatic.myst_docstrings` Sphinx extension becomes `click_extra.sphinx.myst_docstrings` (point `conf.py` at the new module path), and the `convert-to-myst` command becomes `click-extra convert-to-myst`.
 - Warn on unknown `[tool.repomatic]` keys through click-extra's schema layer, covering nested tables too; the warning now names keys in snake_case.
