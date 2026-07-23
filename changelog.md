@@ -5,24 +5,22 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** Move the whole MyST docstring toolchain upstream to click-extra: the `repomatic.myst_docstrings` Sphinx extension becomes `click_extra.sphinx.myst_docstrings` (update `conf.py` extensions to the new module path; `click-extra[sphinx]` in the docs group already provides it), the `convert-to-myst` command becomes `click-extra convert-to-myst`, and the `myst-docstrings` docs page moves to click-extra's documentation.
+- **Breaking:** Move the MyST docstring toolchain upstream to click-extra, now floored at `8.5`: the `repomatic.myst_docstrings` Sphinx extension becomes `click_extra.sphinx.myst_docstrings` (point `conf.py` at the new module path), and the `convert-to-myst` command becomes `click-extra convert-to-myst`.
 - Warn on unknown `[tool.repomatic]` keys through click-extra's schema layer, covering nested tables too; the warning now names keys in snake_case.
-- Upload each release binary under a versionless alias too, so the stable `releases/latest/download` URLs keep resolving across releases. The binaries catalog collapses aliases onto their versioned sibling, and the VirusTotal scan only submits the versioned copies.
-- Add a ⚙️ emoji to the `Configuration` section heading of PR bodies, and swap the `Held back by cooldown` section's 🔜 emoji for ⏸️.
+- Upload each release binary under a versionless alias, so the stable `releases/latest/download` URLs keep resolving across releases.
 - Mark the upstream toolkit's lockstep-aligned pin with a `⛓️ lockstep` docs link in the `sync-workflow-pins` PR table, instead of an empty `Released` cell.
-- Teach the `repomatic-ship` and `babysit-ci` skills that the Nuitka binary matrix only exists on projects enabling `[tool.repomatic] nuitka.enabled`, and how to verify binary-less releases.
-- Fix the `repomatic-ship` local-gate instructions for arg-needing tools: `run biome` needs `-- check --write .` for a real pass and over-formats beyond CI's autofix scope.
-- Fix the `repomatic-ship` docs-pass freeze-scope claim: what the freeze rewrites varies by repo, so version samples are audited against the last freeze commit's file list, `readme.md` included.
-- Extend the `repomatic-ship` platform-gated-test review to inputs those tests consume, like docs prose feeding an `unless_linux` conformance test.
-- Fix the `exclude` and `include` configuration reference to list `agents` among the default-excluded components.
-- Exclude `once`-marked tests from every test-matrix cell and run them in a dedicated single-runner `once-tests` job with its own coverage upload.
-- Run the CLI self-test suite through `python -m` in addition to the console script.
-- Skip directories and hidden files when validating packaged PR templates, so local tool droppings no longer fail the suite.
+- Add a ⚙️ emoji to the `Configuration` section heading of PR bodies, and swap the `Held back by cooldown` section's 🔜 emoji for ⏸️.
 - Disable ruff's `unsafe-fixes` in the bundled defaults, so `--fix` and the autofix workflow only apply semantics-preserving fixes.
 - Expose `GITHUB_TOKEN` to the Sphinx linkcheck step of the docs workflow, so a repo's `conf.py` can authenticate its github.com checks via `linkcheck_request_headers`.
 - Space out the Windows exiftool install with step-level retries, absorbing Chocolatey community-feed outages that punch through choco's own `--retry-count`.
+- Fix the `exclude` and `include` configuration reference to list `agents` among the default-excluded components.
+- Skip directories and hidden files when validating packaged PR templates, so local tool droppings no longer fail the suite.
+- Exclude `once`-marked tests from every test-matrix cell and run them in a dedicated single-runner `once-tests` job with its own coverage upload.
+- Run the CLI self-test suite through `python -m` in addition to the console script.
+- Teach the `repomatic-ship` and `babysit-ci` skills that the Nuitka binary matrix only exists on projects enabling `[tool.repomatic] nuitka.enabled`, and how to verify binary-less releases.
+- Fix the `repomatic-ship` local-gate tool recipes: pass `biome` and `shfmt` their args forms, and smoke checksum-pinned tools with no matching files via `--version` only.
+- Broaden the `repomatic-ship` review scopes: version samples are audited against the last freeze commit's file list, and platform-gated tests are reviewed with the inputs they consume.
 - Point the changelog over-length warning and the `repomatic-changelog` skill at the canonical entry-length guideline URL, which downstream `CLAUDE.md` copies lack.
-- Teach the `repomatic-ship` local gate `shfmt`'s args form and a `--version` checksum-only smoke for tools with no matching files in the repo.
 
 ## [`7.2.0` (2026-07-16)](https://github.com/kdeldycke/repomatic/compare/v7.1.0...v7.2.0)
 

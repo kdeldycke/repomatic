@@ -328,7 +328,7 @@ def test_has_fix_settings() -> None:
     parsed = tomlrt.loads(content)
 
     assert parsed.get("fix") is True
-    assert parsed.get("unsafe-fixes") is True
+    assert parsed.get("unsafe-fixes") is False
     assert parsed.get("show-fixes") is True
 
 

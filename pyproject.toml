@@ -93,7 +93,7 @@ dependencies = [
   # myst_docstrings` extension `docs/conf.py` loads (absorbed from
   # `repomatic.myst_docstrings`). (8.3 brought the `click:config` directive
   # and `schema_field_infos()` that `configuration.md` and `show-config` use.)
-  "click-extra>=8.5.0",
+  "click-extra>=8.5",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.
@@ -249,7 +249,8 @@ windows-icon-from-ico = "docs/assets/icon.ico"
 [tool.ruff]
 preview = true
 fix = true
-unsafe-fixes = true
+# Disabled for the reasons documented in the bundled repomatic/data/ruff.toml.
+unsafe-fixes = false
 show-fixes = true
 # Enable reformatting of code snippets in docstrings.
 # https://docs.astral.sh/ruff/formatter/#docstring-formatting

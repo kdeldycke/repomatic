@@ -180,7 +180,7 @@ def _binary_assets(release: ReleaseWithAssets) -> list[ReleaseAsset]:
     for asset in binaries:
         if asset.sha256:
             digest_groups.setdefault(asset.sha256, []).append(asset)
-    aliases = set()
+    aliases: set[str] = set()
     for group in digest_groups.values():
         canonical = max(group, key=lambda asset: (len(asset.name), asset.name))
         aliases.update(asset.name for asset in group if asset.name != canonical.name)
