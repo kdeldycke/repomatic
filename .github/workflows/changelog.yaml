@@ -29,7 +29,9 @@ name: 🆙 Changelog & versions
   # This avoids race conditions where changelog workflow checks for tags before they're pushed.
   workflow_run:
     workflows:
-      - "Build & release"
+      # Must match the release workflow's `name:` exactly (emoji included):
+      # GitHub silently ignores the trigger when the name has no match.
+      - "🚀 Build & release"
     types:
       - completed
     branches:
@@ -77,7 +79,7 @@ jobs:
     needs:
       - metadata
     # Skip during release cycle (push event with release commits).
-    # The workflow_run event after "Build & release" completes handles
+    # The workflow_run event after "🚀 Build & release" completes handles
     # the post-release case, when the GitHub release is published and
     # visible to the public API.
     if: >-

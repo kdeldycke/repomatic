@@ -343,11 +343,18 @@ addopts = [
   "--cov",
   "--cov-report=term",
   "--numprocesses=auto",
+  # Import test modules via importlib instead of prepending their root dir to
+  # sys.path. Avoids "import file mismatch" collection errors when an installed
+  # copy of the package coexists with the source tree, as in distro builds.
+  "--import-mode=importlib",
 ]
 # https://docs.pytest.org/en/latest/customize.html#pyproject-toml
 markers = [
   "once: Tests that only need to run once, not across the full CI matrix.",
 ]
+# Restrict collection to the test suite, so pytest never descends into the
+# package or an installed copy of it in dual-copy builds.
+testpaths = [ "tests" ]
 # Make sure tests that are expected to fail do not resurrect and start working all of a sudden.
 xfail_strict = true
 

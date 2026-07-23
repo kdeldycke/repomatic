@@ -81,7 +81,7 @@ WORKFLOWS_WITH_UNIQUE_GROUPS = frozenset((
 # with always-cancellable cancel-in-progress. This prevents cross-event
 # cancellation without needing conditional cancel-in-progress.
 WORKFLOWS_WITH_EVENT_SCOPED_GROUPS = frozenset((
-    # workflow_run events from "Build & release" cancel push-triggered runs
+    # workflow_run events from "🚀 Build & release" cancel push-triggered runs
     # without event_name in the group.
     "changelog.yaml",
 ))
@@ -483,6 +483,28 @@ def test_version_increments_runs_on_expected_events() -> None:
         "metadata job should run on workflow_dispatch events"
     )
     assert "workflow_run" in condition, "metadata job should run on workflow_run events"
+
+
+def test_workflow_run_references_match_workflow_names() -> None:
+    """Every `workflow_run` trigger must watch an existing workflow name.
+
+    GitHub matches the `workflows:` filter against the exact `name:` of the
+    watched workflow, and silently drops the trigger when nothing matches. A
+    rename is enough to kill it: adding emojis to workflow names in 2026-02
+    left `changelog.yaml` watching the old `Build & release` name, so its
+    post-release re-trigger never fired again.
+    """
+    workflow_names = {
+        load_workflow(path.name).get("name") for path in WORKFLOWS_DIR.glob("*.yaml")
+    }
+    for path in WORKFLOWS_DIR.glob("*.yaml"):
+        triggers = load_workflow(path.name).get("on", {})
+        watch_list = (triggers.get("workflow_run") or {}).get("workflows") or []
+        for watched in watch_list:
+            assert watched in workflow_names, (
+                f"{path.name} watches {watched!r}, which matches no workflow "
+                f"name: {sorted(str(name) for name in workflow_names)}"
+            )
 
 
 # changelog.yaml jobs that evaluate `is_version_bump_allowed` and therefore
