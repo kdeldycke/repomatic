@@ -62,4 +62,4 @@ jobs:
     steps:
       - uses: crazy-max/ghaction-dump-context@4d9eeaf15dd59aa4346919ea84a84ccf514b4db8 # v3.1.0
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-      - run: uvx --no-progress 'extra-platforms==13.1.0'
+      - run: uvx --no-progress 'extra-platforms==13.2.0'
