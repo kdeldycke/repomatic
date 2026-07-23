@@ -20,6 +20,7 @@
 - Teach the `repomatic-ship` and `babysit-ci` skills that the Nuitka binary matrix only exists on projects enabling `[tool.repomatic] nuitka.enabled`, and how to verify binary-less releases.
 - Fix the `repomatic-ship` local-gate tool recipes: pass `biome` and `shfmt` their args forms, and smoke checksum-pinned tools with no matching files via `--version` only.
 - Broaden the `repomatic-ship` review scopes: version samples are audited against the last freeze commit's file list, and platform-gated tests are reviewed with the inputs they consume.
+- Require the `repomatic-ship` sweep agents to message their final reports to the orchestrator, with one chase on a silent idle.
 - Point the changelog over-length warning and the `repomatic-changelog` skill at the canonical entry-length guideline URL, which downstream `CLAUDE.md` copies lack.
 
 ## [`7.2.0` (2026-07-16)](https://github.com/kdeldycke/repomatic/compare/v7.1.0...v7.2.0)
