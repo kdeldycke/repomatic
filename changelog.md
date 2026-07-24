@@ -11,6 +11,9 @@
 
 ## [`7.3.0` (2026-07-23)](https://github.com/kdeldycke/repomatic/compare/v7.2.0...v7.3.0)
 
+> [!NOTE]
+> `7.3.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.3.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.3.0).
+
 - **Breaking:** Move the MyST docstring toolchain upstream to click-extra, now floored at `8.5`: the `repomatic.myst_docstrings` Sphinx extension becomes `click_extra.sphinx.myst_docstrings` (point `conf.py` at the new module path), and the `convert-to-myst` command becomes `click-extra convert-to-myst`.
 - Warn on unknown `[tool.repomatic]` keys through click-extra's schema layer, covering nested tables too; the warning now names keys in snake_case.
 - Upload each release binary under a versionless alias, so the stable `releases/latest/download` URLs keep resolving across releases.
