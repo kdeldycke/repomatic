@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - Run pytest with `--import-mode=importlib` and restrict test collection to `tests/`.
+- Restructure the `repomatic-ship` skill: rules shared by every spawned agent move to a single section, and accumulated incident notes compress into their operative rules.
 - Fix the post-release re-trigger of `changelog.yaml`: its `workflow_run` filter still watched the pre-emoji `Build & release` workflow name and never fired.
 
 ## [`7.3.0` (2026-07-23)](https://github.com/kdeldycke/repomatic/compare/v7.2.0...v7.3.0)
