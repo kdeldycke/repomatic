@@ -737,6 +737,71 @@ def test_lint_changelog_dates_archive_suppresses_orphans(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "prerelease",
+    ("2.0.0.dev0", "2.0.0a1", "2.0.0b2", "2.0.0rc3"),
+)
+def test_lint_changelog_dates_ignores_prerelease_orphans(
+    tmp_path, monkeypatch, prerelease
+):
+    """A published pre-release is never treated as a missing changelog entry.
+
+    The changelog documents only final releases. A pre-release
+    (dev/alpha/beta/rc) present as a git tag, PyPI upload, or GitHub release
+    must not be flagged as an orphan. The former bug inserted a spurious
+    ``## X.Y.Z.dev0`` section (placed *below* its final release, since a
+    pre-release sorts lower) and rewrote the final release's comparison-URL
+    base to point at it (`v1.0.0...v2.0.0` became `v2.0.0.dev0...v2.0.0`).
+    """
+    path = tmp_path / "changelog.md"
+    path.write_text(
+        "# Changelog\n\n"
+        "## [`2.0.0` (2026-02-01)]"
+        "(https://github.com/user/repo/compare/v1.0.0...v2.0.0)\n\n"
+        "- Latest.\n\n"
+        "## [`1.0.0` (2025-12-01)]"
+        "(https://github.com/user/repo/compare/v0.9.0...v1.0.0)\n\n"
+        "- First.\n",
+        encoding="UTF-8",
+    )
+
+    # The pre-release is published on every external source but absent from
+    # the changelog. Each source alone must be enough to exercise the filter.
+    monkeypatch.setattr(
+        "repomatic.changelog.get_pypi_release_dates",
+        _pypi_mock({
+            "2.0.0": ("2026-02-01", False),
+            prerelease: ("2026-01-25", False),
+            "1.0.0": ("2025-12-01", False),
+        }),
+    )
+    monkeypatch.setattr(
+        "repomatic.changelog.get_project_name",
+        lambda: "my-package",
+    )
+    monkeypatch.setattr(
+        "repomatic.changelog.get_github_releases",
+        _github_mock(["2.0.0", prerelease, "1.0.0"]),
+    )
+    _patch_tags(
+        monkeypatch,
+        {"2.0.0": "2026-02-01", prerelease: "2026-01-25", "1.0.0": "2025-12-01"},
+    )
+
+    # The pre-release is not an orphan, so no mismatch is reported.
+    assert lint_changelog_dates(path) == 0
+
+    # Under --fix the pre-release is never materialized: no heading is
+    # inserted, and the final release keeps its original comparison base.
+    assert lint_changelog_dates(path, fix=True) == 0
+    content = path.read_text(encoding="UTF-8")
+    headings = Changelog(content).extract_all_version_headings()
+    assert headings == {"2.0.0", "1.0.0"}
+    assert prerelease not in headings
+    assert "compare/v1.0.0...v2.0.0" in content
+    assert prerelease not in content
+
+
+@pytest.mark.parametrize(
     ("changes", "expected_count"),
     (
         ("", 0),

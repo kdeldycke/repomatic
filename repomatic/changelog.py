@@ -959,7 +959,16 @@ def lint_changelog_dates(
         archive_headings = Changelog(
             archive_path.read_text(encoding="UTF-8")
         ).extract_all_version_headings()
-    all_known = set(pypi_data) | set(github_releases) | set(tag_versions)
+    # The changelog documents only final releases. Exclude pre-releases
+    # (dev/alpha/beta/rc) so a published `X.Y.Z.dev0` tag, PyPI upload, or
+    # GitHub prerelease is never mistaken for a missing changelog entry: an
+    # orphan insertion would both drop a spurious pre-release section and
+    # rewrite the adjacent release's comparison-URL base to point at it.
+    all_known = {
+        v
+        for v in (set(pypi_data) | set(github_releases) | set(tag_versions))
+        if not Version(v).is_prerelease
+    }
     orphans = all_known - changelog_headings - archive_headings
     if orphans:
         for orphan in sorted(orphans, key=Version):
