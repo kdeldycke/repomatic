@@ -46,6 +46,7 @@ from extra_platforms import (
 
 from repomatic.tool_runner import (
     _DIRECTIVE_YAML_OPTIONS_RE,
+    _ESCAPED_COLON_FENCE_RE,
     CHECKSUMS,
     TOOL_REGISTRY,
     VERSIONS,
@@ -56,11 +57,12 @@ from repomatic.tool_runner import (
     _build_install_args,
     _download_and_verify,
     _extract_binary,
-    _fix_myst_directive_options,
+    _fix_myst_directives,
     _install_binary,
     _install_npm,
     _npm_supports_cooldown,
     _reroot_section,
+    _unescape_colon_fence,
     _yaml_block_to_field_list,
     binary_tool_context,
     find_unmodified_configs,
@@ -1969,7 +1971,7 @@ def test_find_unmodified_configs_alternative_filename(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# MyST directive options post-processing
+# MyST directive post-processing
 # ---------------------------------------------------------------------------
 
 
@@ -2033,7 +2035,7 @@ def test_directive_yaml_options_regex_no_false_positives(content):
     assert _DIRECTIVE_YAML_OPTIONS_RE.sub(_yaml_block_to_field_list, content) == content
 
 
-def test_fix_myst_directive_options_in_place(tmp_path):
+def test_fix_myst_directives_in_place(tmp_path):
     """Post-processor rewrites files in-place and skips unchanged files."""
     affected = tmp_path / "affected.md"
     affected.write_text(
@@ -2045,7 +2047,7 @@ def test_fix_myst_directive_options_in_place(tmp_path):
     original = "# Plain markdown\n\nNo directives here.\n"
     untouched.write_text(original, encoding="utf-8")
 
-    _fix_myst_directive_options([str(affected), str(untouched), "/nonexistent/path"])
+    _fix_myst_directives([str(affected), str(untouched), "/nonexistent/path"])
 
     assert affected.read_text(encoding="utf-8") == (
         "# Title\n\n```{py:module} mymod\n:no-typesetting:\n```\n"
@@ -2053,7 +2055,7 @@ def test_fix_myst_directive_options_in_place(tmp_path):
     assert untouched.read_text(encoding="utf-8") == original
 
 
-def test_fix_myst_directive_options_multiple_directives(tmp_path):
+def test_fix_myst_directives_multiple_directives(tmp_path):
     """Multiple directive blocks in the same file are all fixed."""
     md = tmp_path / "multi.md"
     md.write_text(
@@ -2074,7 +2076,7 @@ def test_fix_myst_directive_options_multiple_directives(tmp_path):
         encoding="utf-8",
     )
 
-    _fix_myst_directive_options([str(md)])
+    _fix_myst_directives([str(md)])
 
     assert md.read_text(encoding="utf-8") == (
         "```{py:module} mod_a\n"
@@ -2087,6 +2089,83 @@ def test_fix_myst_directive_options_multiple_directives(tmp_path):
         "```{py:module} mod_b\n"
         ":no-typesetting:\n"
         "```\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        pytest.param(
+            "\\:::\\{admonition} Coming from `pacapt`?\n\\:class: tip\nBody.\n\\:::\n",
+            ":::{admonition} Coming from `pacapt`?\n:class: tip\nBody.\n:::\n",
+            id="title-and-class",
+        ),
+        pytest.param(
+            "\\:::\\{note}\nBody.\n\\:::\n",
+            ":::{note}\nBody.\n:::\n",
+            id="note-no-title",
+        ),
+        pytest.param(
+            "\\:::\\{admonition} T\n\\:class: tip\n\\:name: ref\nBody.\n\\:::\n",
+            ":::{admonition} T\n:class: tip\n:name: ref\nBody.\n:::\n",
+            id="multiple-options",
+        ),
+        pytest.param(
+            "\\::::\\{admonition} Outer\n\\:::\\{tip} Inner\nx\n\\:::\n\\::::\n",
+            "::::{admonition} Outer\n:::{tip} Inner\nx\n:::\n::::\n",
+            id="nested-fences",
+        ),
+    ],
+)
+def test_escaped_colon_fence_regex(before, after):
+    """Escaped colon-fence directives are un-escaped, nesting included."""
+    assert _ESCAPED_COLON_FENCE_RE.sub(_unescape_colon_fence, before) == after
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(":::{note}\nBody.\n:::\n", id="unescaped-colon-fence"),
+        pytest.param("Term\n: definition\n", id="deflist-single-colon"),
+        pytest.param("A line with \\:-) smiley.\n", id="stray-escaped-colon"),
+        pytest.param("```python\nx = 1\n```\n", id="plain-code-fence"),
+    ],
+)
+def test_escaped_colon_fence_regex_no_false_positives(content):
+    """Unescaped fences, deflist syntax and stray escapes are left untouched."""
+    assert _ESCAPED_COLON_FENCE_RE.sub(_unescape_colon_fence, content) == content
+
+
+def test_fix_myst_directives_colon_fence_in_place(tmp_path):
+    """Both fixups run together: YAML options and escaped colon fences."""
+    md = tmp_path / "both.md"
+    md.write_text(
+        "```{python:render}\n"
+        "---\n"
+        "mirror:\n"
+        "---\n"
+        "print(table())\n"
+        "```\n"
+        "\n"
+        "\\:::\\{admonition} Coming from `pacapt`?\n"
+        "\\:class: tip\n"
+        "Body.\n"
+        "\\:::\n",
+        encoding="utf-8",
+    )
+
+    _fix_myst_directives([str(md)])
+
+    assert md.read_text(encoding="utf-8") == (
+        "```{python:render}\n"
+        ":mirror:\n"
+        "print(table())\n"
+        "```\n"
+        "\n"
+        ":::{admonition} Coming from `pacapt`?\n"
+        ":class: tip\n"
+        "Body.\n"
+        ":::\n"
     )
 
 

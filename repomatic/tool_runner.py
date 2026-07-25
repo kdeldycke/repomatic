@@ -729,11 +729,49 @@ def _yaml_block_to_field_list(match: re.Match[str]) -> str:
     return directive_line + field_lines
 
 
-def _fix_myst_directive_options(extra_args: Sequence[str]) -> None:
-    """Rewrite YAML-block directive options back to field-list syntax.
+_ESCAPED_COLON_FENCE_RE = re.compile(
+    r"^\\(:{3,})\\\{[^}]+\}.*"  # Opener: escaped ::: run, escaped {name}, title.
+    r"(?:\n(?:.*\n)*?)?"  # Inner option and body lines.
+    r"^\\\1[ \t]*$",  # Closer: the matching escaped ::: run.
+    re.MULTILINE,
+)
+r"""Match a colon-fence directive whose delimiters mdformat has escaped.
 
-    Operates in-place on every file in *extra_args* that exists on disk.
-    Files without matching patterns are left untouched.
+```{note}
+Workaround for
+[executablebooks/mdformat-myst#13](https://github.com/executablebooks/mdformat-myst/issues/13):
+`mdformat-myst` does not treat `:::{name}` colon fences as directives, so
+`mdformat-deflist` escapes their leading colons and `mdformat-myst` escapes the
+opening brace, leaving an uneditable `\:::\{name}` / `\:option:` / `\:::` block.
+Remove when upstream ships colon-fence support, via either
+[executablebooks/mdformat-myst#36](https://github.com/executablebooks/mdformat-myst/pull/36)
+or
+[executablebooks/mdformat-myst#48](https://github.com/executablebooks/mdformat-myst/pull/48).
+```
+"""
+
+
+def _unescape_colon_fence(match: re.Match[str]) -> str:
+    """Strip mdformat's backslash escaping from a colon-fence directive block.
+
+    Handles nested fences: every fence and option line in the matched block is
+    un-escaped, not just the outermost opener.
+    """
+    block = match.group(0)
+    # Drop the leading-colon escape on every fence and option line.
+    block = re.sub(r"^\\:", ":", block, flags=re.MULTILINE)
+    # Drop the brace escape on directive openers: :::\{name} -> :::{name}.
+    return re.sub(r"^(:{3,})\\\{", r"\1{", block, flags=re.MULTILINE)
+
+
+def _fix_myst_directives(extra_args: Sequence[str]) -> None:
+    """Undo mdformat's MyST-hostile directive rewrites, in place.
+
+    Two fixups run on every file in *extra_args* that exists on disk: YAML-block
+    directive options are restored to field-list syntax (see
+    {data}`_DIRECTIVE_YAML_OPTIONS_RE`), and escaped colon-fence directives are
+    un-escaped (see {data}`_ESCAPED_COLON_FENCE_RE`). Files without matching
+    patterns are left untouched.
     """
     for arg in extra_args:
         path = Path(arg)
@@ -741,9 +779,10 @@ def _fix_myst_directive_options(extra_args: Sequence[str]) -> None:
             continue
         content = path.read_text(encoding="utf-8")
         fixed = _DIRECTIVE_YAML_OPTIONS_RE.sub(_yaml_block_to_field_list, content)
+        fixed = _ESCAPED_COLON_FENCE_RE.sub(_unescape_colon_fence, fixed)
         if fixed != content:
             path.write_text(fixed, encoding="utf-8")
-            logging.debug("Fixed MyST directive options in %s", path)
+            logging.debug("Fixed MyST directives in %s", path)
 
 
 # ---------------------------------------------------------------------------
@@ -1318,7 +1357,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "mdformat-web==0.2.0",
             "ruff==0.15.5",
         ),
-        post_process=_fix_myst_directive_options,
+        post_process=_fix_myst_directives,
         check_flags=("--check",),
         docs_notes=cleandoc(r"""
             **Try it:**
