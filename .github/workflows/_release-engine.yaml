@@ -587,6 +587,16 @@ jobs:
       && github.ref == 'refs/heads/main'
       && !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
       && fromJSON(needs.metadata.outputs.metadata).current_version
+    # Serialise this job across overlapping release runs: the dev pre-release is a
+    # single mutable GitHub resource this job deletes, recreates and uploads to. The
+    # run-level concurrency in release.yaml cancels a superseded run mid-sync, which
+    # can leave the pre-release half-rewritten and fail the next run's sync. A
+    # dedicated per-repository group that never cancels in progress lets each sync
+    # finish cleanly before the next starts; GitHub keeps only the latest queued one,
+    # so the pre-release still converges to the newest build.
+    concurrency:
+      group: sync-dev-release-${{ github.repository }}
+      cancel-in-progress: false
     runs-on: ubuntu-slim
     permissions:
       contents: write

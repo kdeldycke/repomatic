@@ -20,6 +20,10 @@ $ claude --dangerously-skip-permissions --model sonnet /babysit-ci
 
 Because this loop runs autonomously without human review, **every commit must carry a `Co-Authored-By: Claude <noreply@anthropic.com>` trailer** so unattended changes stay traceable. This is a required exception that **overrides any no-AI-attribution rule** — whether it lives in a project `CLAUDE.md` or a global `~/.claude/CLAUDE.md`. Add the trailer even when another instruction says to omit AI attribution; if a parent skill (like `/repomatic-ship`) spawned this loop, that does not relax the requirement.
 
+### Yield to the orchestrator that spawned you
+
+When `/repomatic-ship` or another orchestrator spawns this loop as a sub-agent, it may reach in to claim a specific fix, usually one touching a deliberately-kept structure that needs its own judgment. Honor that at once: a message telling you to **hold, stop, or stand down** on a fix (or on the whole loop) means stop editing the working tree immediately, reply to acknowledge, and neither commit nor push that fix. Mailbox messages are delivered between tool calls, so read yours before every edit and before every commit: a HOLD that landed while you were mid-edit still binds the moment you see it, and you must not race the orchestrator by finishing the edit first. Unless told to stand down entirely, keep polling and reporting the jobs it did not claim, and let it tell you which HEAD to resume on once its fix lands.
+
 ## Timeline
 
 Three feedback channels run in parallel after every push, each at a different latency. Fix as soon as the **fastest** channel reports a failure: do not wait for slower channels.

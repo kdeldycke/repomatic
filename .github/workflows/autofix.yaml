@@ -92,8 +92,13 @@ jobs:
       # XXX Ruff is planning to support linting and formatting in one unified command at one point.
       #     See: https://github.com/astral-sh/ruff/issues/8232
       - name: Run Ruff
+        # `check` uses `--exit-zero` so an unfixable finding (a rule whose only fix is
+        # unsafe, like `FLY002`) cannot abort this `set -e` step before `format` runs:
+        # that would strand the pending reformatting and skip the pull request below.
+        # Linting gates in the lint workflow; here `check` only applies its safe fixes,
+        # and the GitHub annotation still surfaces whatever it could not fix.
         run: |
-          uvx --no-progress --from . repomatic run ruff -- check --output-format github
+          uvx --no-progress --from . repomatic run ruff -- check --output-format github --exit-zero
           uvx --no-progress --from . repomatic run ruff -- format --output-format github
       - id: pr-metadata
         run: >
