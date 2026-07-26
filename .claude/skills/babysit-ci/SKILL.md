@@ -130,6 +130,8 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    Fetch each failed job's log (`gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs`) and fix everything in one batch: different sources surface different issues, and batching avoids burning another full CI round. Analyze following the [error triage discipline](#error-triage-discipline): stable-job `FAILED`/`AssertionError` lines only.
 
+   `gh run view --log-failed` writes its log cache under `~/.cache/gh`, which the harness sandbox denies: the resulting `failed to get run log: creating cache entry ... operation not permitted` masquerades as a `gh` bug. Disable the sandbox for that read, exactly like the signing calls in step 7.
+
 5. **Fix the root cause** using the combined picture from CI logs and local results. Fix the codebase, not the tests, unless the tests are genuinely wrong. Address mypy and ruff failures together (see [§ mypy/ruff fix oscillation](#mypy-ruff-fix-oscillation)).
 
    If the root cause is in a third-party dependency, check whether a change *this cycle* exposed it before treating it as upstream: `git log <last-release-tag>..HEAD` for a runner/image swap, a dependency bump, or a config change that put the dependency in a context it cannot satisfy (a Rust-built package forced to compile from an sdist on an architecture with no published wheel, say). When a cycle change is the trigger, revert or adjust *that* change; only a failure independent of everything the cycle touched warrants `/file-bug-report` for an upstream report.

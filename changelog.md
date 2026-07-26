@@ -7,8 +7,11 @@
 
 - Run pytest with `--import-mode=importlib` and restrict test collection to `tests/`.
 - Restructure the `repomatic-ship` skill: rules shared by every spawned agent move to a single section, and accumulated incident notes compress into their operative rules.
+- Harden the `repomatic-ship` release checks: dispatch `release.yaml` past a content-skipped binary matrix, revert formatter moves whole, read the freeze scope from the regenerated release PR on tooling-migration cycles, and verify `{click:run}` blocks against the live CLI.
+- Note in the `repomatic-ship` and `babysit-ci` skills that CI log fetches write under `~/.cache/gh` and need the sandbox off.
 - Fix the post-release re-trigger of `changelog.yaml`: its `workflow_run` filter still watched the pre-emoji `Build & release` workflow name and never fired.
 - Fix `lint-changelog --fix` treating a published pre-release (`X.Y.Z.dev0`, `rc`, `alpha`, `beta`) as a missing changelog entry, which inserted a spurious section and rewrote the adjacent release's comparison URL to point at it.
+- Skip the bare `uvx <script>` invocation of the package-install smoke job when the CLI script is not named after its package: `uvx` resolves the bare name as a PyPI package that such repos never publish.
 - Refresh the bundled pytest defaults to the canonical configuration: `importlib` import mode, `tests/`-restricted collection, the registered `once` marker, parallel runs via `pytest-xdist`, and `--cov-report=xml` left to the test workflow's command line.
 - Mark the `validate-arch` job of `tests.yaml` as canonical-repository-only: runner-image architecture alignment is a property of GitHub's shared images, so downstream repos drop the job (and its `build_targets` metadata field) when adapting the workflow.
 
