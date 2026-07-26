@@ -10,6 +10,7 @@
 - Fix the post-release re-trigger of `changelog.yaml`: its `workflow_run` filter still watched the pre-emoji `Build & release` workflow name and never fired.
 - Fix `lint-changelog --fix` treating a published pre-release (`X.Y.Z.dev0`, `rc`, `alpha`, `beta`) as a missing changelog entry, which inserted a spurious section and rewrote the adjacent release's comparison URL to point at it.
 - Refresh the bundled pytest defaults to the canonical configuration: `importlib` import mode, `tests/`-restricted collection, the registered `once` marker, parallel runs via `pytest-xdist`, and `--cov-report=xml` left to the test workflow's command line.
+- Mark the `validate-arch` job of `tests.yaml` as canonical-repository-only: runner-image architecture alignment is a property of GitHub's shared images, so downstream repos drop the job (and its `build_targets` metadata field) when adapting the workflow.
 
 ## [`7.3.0` (2026-07-23)](https://github.com/kdeldycke/repomatic/compare/v7.2.0...v7.3.0)
 

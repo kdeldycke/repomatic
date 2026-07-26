@@ -308,6 +308,11 @@ jobs:
     # Check architecture matches the one expected from the runner image. This is to ensure that the OS does not rely on
     # emulation to run the build. See:
     # https://docs.astral.sh/uv/concepts/python-versions/#transparent-x86_64-emulation-on-aarch64
+    #
+    # Canonical-repo-only: the runner images are GitHub's, shared by every
+    # project, so this alignment check holds ecosystem-wide. Downstream repos
+    # drop this job (and the `build_targets` metadata field feeding it) when
+    # adapting this workflow.
     name: 🖥️ Validate ${{ matrix.os }} / ${{ matrix.arch }}
     needs:
       - metadata
