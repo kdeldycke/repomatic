@@ -403,7 +403,8 @@ def test_has_addopts() -> None:
         "--durations=10",
         "--cov-branch",
         "--cov-report=term",
-        "--cov-report=xml",
+        "--numprocesses=auto",
+        "--import-mode=importlib",
     ],
 )
 def test_has_expected_addopts(expected_opt: str) -> None:
@@ -412,6 +413,20 @@ def test_has_expected_addopts(expected_opt: str) -> None:
     parsed = tomlrt.loads(content)
     addopts = parsed["addopts"]
     assert expected_opt in addopts
+
+
+def test_has_once_marker() -> None:
+    """Verify that the once marker consumed by the test workflow is registered."""
+    content = export_content("pytest.toml")
+    parsed = tomlrt.loads(content)
+    assert any(marker.startswith("once:") for marker in parsed["markers"])
+
+
+def test_restricts_collection_to_tests() -> None:
+    """Verify that collection is restricted to the test suite directory."""
+    content = export_content("pytest.toml")
+    parsed = tomlrt.loads(content)
+    assert parsed["testpaths"] == ["tests"]
 
 
 def test_has_xfail_strict() -> None:
