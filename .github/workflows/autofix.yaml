@@ -802,14 +802,21 @@ jobs:
         # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, runs docs/docs_update.py, then
         # refreshes self-updating directive blocks with click-extra refresh-directives.
         run: uvx --no-progress --from . repomatic update-docs
-      - name: Run pyproject-fmt
+      - name: Format regenerated pyproject.toml
         # The project's docs.update-script may regenerate pyproject.toml sections (label rules,
-        # keywords). Reformat them so this job's PR is a pyproject-fmt fixpoint and cannot
-        # ping-pong with the format-pyproject job. Same exit-code handling as that job: xargs
-        # turns pyproject-fmt's reformat exit 1 into 123.
+        # keywords). Reformat them only when update-docs actually changed pyproject.toml, so this
+        # job's PR stays a pyproject-fmt fixpoint without ping-ponging with format-pyproject. Guard
+        # against the empty case: with no doc change, an unconditional reformat would open an
+        # update-docs PR carrying only pre-existing formatting drift, a byte-for-byte duplicate of
+        # the format-pyproject PR (which owns that drift). Same exit-code handling as that job:
+        # xargs turns pyproject-fmt's reformat exit 1 into 123.
         env:
           PYPROJECT_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).pyproject_files }}
         run: |
+          if echo "${PYPROJECT_FILES}" | xargs git diff --quiet --; then
+            echo "update-docs left pyproject.toml unchanged; leaving any formatting drift to format-pyproject."
+            exit 0
+          fi
           rc=0
           echo "${PYPROJECT_FILES}" | xargs uvx --no-progress --from . repomatic run pyproject-fmt -- || rc=$?
           [ "$rc" -eq 0 ] || [ "$rc" -eq 123 ] || exit "$rc"
