@@ -629,6 +629,8 @@ def test_lint_changelog_dates_warns_missing_pypi(tmp_path, monkeypatch, caplog):
         assert lint_changelog_dates(path) == 0
 
     assert "1.1.0: not found on PyPI" in caplog.text
+    # The warning names its remedy so the maintainer knows how to silence it.
+    assert "abandoned-versions" in caplog.text
 
 
 def test_lint_changelog_dates_skips_pre_pypi(tmp_path, monkeypatch, caplog):

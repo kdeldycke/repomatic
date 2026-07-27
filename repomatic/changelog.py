@@ -1013,6 +1013,11 @@ def lint_changelog_dates(
 
     date_corrections: dict[str, str] = {}
     abandoned = frozenset(abandoned_versions)
+    # Point maintainers at the remedy: a version that is intentionally absent
+    # from the reference source is declared once in config, not re-flagged.
+    abandoned_hint = (
+        "list under [tool.repomatic] abandoned-versions if intentionally unpublished"
+    )
 
     for version, changelog_date in releases:
         if use_pypi:
@@ -1027,10 +1032,10 @@ def lint_changelog_dates(
                         f"  {version}: predates PyPI (first: {first_pypi_version})"
                     )
                     continue
-                logging.warning(f"⚠ {version}: not found on PyPI")
+                logging.warning(f"⚠ {version}: not found on PyPI ({abandoned_hint})")
                 emit_annotation(
                     AnnotationLevel.WARNING,
-                    f"Version {version} not found on PyPI",
+                    f"Version {version} not found on PyPI ({abandoned_hint})",
                 )
                 continue
             ref_date = release.date
@@ -1042,10 +1047,12 @@ def lint_changelog_dates(
                 if version in abandoned:
                     logging.info(f"  {version}: abandoned (skipped per config)")
                     continue
-                logging.warning(f"⚠ {version}: not found on {source}")
+                logging.warning(
+                    f"⚠ {version}: not found on {source} ({abandoned_hint})"
+                )
                 emit_annotation(
                     AnnotationLevel.WARNING,
-                    f"Version {version} not found on {source}",
+                    f"Version {version} not found on {source} ({abandoned_hint})",
                 )
                 continue
             ref_date = tag_date

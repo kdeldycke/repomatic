@@ -9,6 +9,8 @@
 - Restructure the `repomatic-ship` skill: rules shared by every spawned agent move to a single section, and accumulated incident notes compress into their operative rules.
 - Harden the `repomatic-ship` release checks: dispatch `release.yaml` past a content-skipped binary matrix, revert formatter moves whole, read the freeze scope from the regenerated release PR on tooling-migration cycles, and verify `{click:run}` blocks against the live CLI.
 - Note in the `repomatic-ship` and `babysit-ci` skills that CI log fetches write under `~/.cache/gh` and need the sandbox off.
+- Direct the `repomatic-ship` docs pass to advance version samples lagging the released tag up to it: grep the tree to find stale ones instead of deferring the bump or trusting a sub-agent's list.
+- Point the `lint-changelog` `not found on PyPI` warning at its remedy: list intentionally-unpublished releases under `[tool.repomatic] abandoned-versions`.
 - Fix the post-release re-trigger of `changelog.yaml`: its `workflow_run` filter still watched the pre-emoji `Build & release` workflow name and never fired.
 - Fix `lint-changelog --fix` treating a published pre-release (`X.Y.Z.dev0`, `rc`, `alpha`, `beta`) as a missing changelog entry, which inserted a spurious section and rewrote the adjacent release's comparison URL to point at it.
 - Fix the `update-docs` autofix job opening a duplicate of the `format-pyproject` pull request: it now reformats `pyproject.toml` only when `update-docs` changed it, instead of on every run.
