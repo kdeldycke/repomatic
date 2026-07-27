@@ -1173,6 +1173,11 @@ def _serialize_file_rules(rules: list[dict[str, Any]]) -> str:
     labeller convention. Entries without a `label` or without any matcher are
     skipped with a warning, since the labeller would either crash or apply
     the label to every PR.
+
+    Keep the globs precise: a file rule should match paths owned by exactly one
+    label. A glob broad enough to catch unrelated changes mislabels every PR
+    touching them, and the labeller is only a convenience for the maintainer's
+    first pass, never a substitute for manual classification (see `claude.md`).
     """
     grouped: dict[str, list[dict[str, Any]]] = {}
     for rule in rules:
@@ -1194,12 +1199,20 @@ def _serialize_file_rules(rules: list[dict[str, Any]]) -> str:
 
 
 def _serialize_content_rules(rules: list[dict[str, Any]]) -> str:
-    """Serialize structured content-rules to `github/issue-labeler` YAML.
+    r"""Serialize structured content-rules to `github/issue-labeler` YAML.
 
     Each rule entry contributes its `patterns` list under its `label`.
     Repeating the same `label` across entries concatenates the patterns.
     Entries without a `label` or without `patterns` are skipped with a
     warning.
+
+    `github/issue-labeler` AND-joins a label's patterns (every one must match)
+    and matches each as an unanchored, case-sensitive regex. A downstream rule
+    that means "any of these keywords" must therefore supply a *single* anchored,
+    case-insensitive alternation (`/\bfoo\b|\bbar\b/i`), not a list of bare words.
+    Encode a rule only for terms that unambiguously name the subject and that the
+    project never prints in its own output; see the labeller principle in
+    `claude.md`.
     """
     grouped: dict[str, list[str]] = {}
     for rule in rules:

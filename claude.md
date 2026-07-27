@@ -325,6 +325,15 @@ The `repomatic` ecosystem has a **mechanical layer** (CLI commands and CI workfl
 
 The `repomatic` CLI and its `[tool.repomatic]` configuration are the project's primary interfaces; everything else (workflows, templates, labels) is a delivery mechanism. Implement features in the CLI first; workflows call the CLI, not the reverse. Documentation leads with the CLI and its configuration.
 
+### Labeller rules are precision-first conveniences
+
+The issue and PR labeller (content keyword rules, file glob rules) pre-labels a freshly filed issue or PR to save the maintainer a first pass. It never replaces their review and classification, and nothing downstream treats its labels as complete or authoritative. Tune it for **precision, not recall**: a missing label costs one manual click; a wrong label is noise on every item that trips it. Encode a rule only when the signal is unambiguous, and none when it is not.
+
+- **Content rules** match issue/PR prose: key them off terms that unambiguously name the subject (a distro, language, ecosystem or brand) and that the tool never prints in its own output. Never key off a token the tool emits for *every* item it handles, like an ID, sub-command or status-table entry a CLI lists for all its back-ends: a user who pastes such a trace makes every one of those labels fire at once.
+- **File rules** match a PR's changed paths: key them off a path owned by exactly one label. A glob broad enough to catch unrelated changes is worse than none.
+
+Mind the bundled actions' matching semantics. `github/issue-labeler` treats each pattern as an unanchored, case-sensitive regex and **AND-joins** a label's pattern list (every pattern must match). So anchor keywords with `\b`, emit them case-insensitively in the `/regex/i` form, and OR-join a label's keywords into a **single alternation** (`/\bfoo\b|\bbar\b/i`): a multi-item list reads as "all of these", not "any". `actions/labeler` instead OR's repeated groups for the same label, which is what you want for file globs.
+
 ### Linting and formatting
 
 [Linting](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-lint-yaml-jobs) and [formatting](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-autofix-yaml-jobs) are automated via GitHub workflows. Developers needn't run them manually; pushing triggers the workflows, which catch issues and handle the nitpicking.
