@@ -168,7 +168,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
 ### Early exit
 
-Once all fast platforms (Linux, Windows) have completed with zero stable failures and only slow runners (macOS) remain queued or in progress, declare success and stop the loop: macOS runners are resource-constrained, and platform-independent fixes gain no diagnostic value from waiting.
+Once all fast platforms (Linux, Windows) have completed with zero stable failures and only slow runners (macOS) remain queued or in progress, declare success and stop the loop: macOS runners are resource-constrained, and platform-independent fixes gain no diagnostic value from waiting. **Announce this exit; never end on a silent idle.** Report that the fast channels are green and name what stays unverified — the `release.yaml` binary-matrix run ID and any still-queued (macOS or congestion-delayed) cells — so a spawning orchestrator, which sees an idle sub-agent as indistinguishable from a dead one, takes over that binary check instead of assuming the whole matrix passed.
 
 ## Stable vs. unstable
 

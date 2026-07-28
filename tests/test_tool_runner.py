@@ -291,6 +291,24 @@ def test_build_install_args_cooldown(name, spec):
         assert "--exclude-newer" not in _build_install_args(spec)
 
 
+@pytest.mark.parametrize(
+    ("name", "spec"),
+    [(n, s) for n, s in TOOL_REGISTRY.items() if s.binary is None],
+)
+def test_uvx_tool_pins_registry_version(name, spec):
+    """Every uvx-installed tool pins its `TOOL_REGISTRY` version in the command.
+
+    Locks the invariant that keeps the per-tool command tests drift-proof: a
+    version bump in `TOOL_REGISTRY` must flow into the `name==version` pin with
+    no hand-edited literal. A hard-coded `name==X.Y.Z` in an individual test
+    silently goes stale on the next bump (a missed `pyproject-fmt` literal once
+    reddened every Tests cell), so version-pinning is asserted here once,
+    generically, against the shared builder rather than restated per tool.
+    """
+    pin = f"{spec.package or spec.name}=={spec.version}"
+    assert pin in _build_install_args(spec), f"{name}: missing registry pin {pin!r}"
+
+
 def test_datasource_url_by_backend():
     """datasource_url points at npmjs for npm tools, GitHub/PyPI otherwise."""
     assert (
@@ -1579,7 +1597,7 @@ def test_run_tool_yamllint_bundled_default(mock_ci, mock_run, tmp_path, monkeypa
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "uvx"
     assert "--no-progress" in cmd
-    assert "yamllint==1.38.0" in " ".join(cmd)
+    assert f"yamllint=={TOOL_REGISTRY['yamllint'].version}" in " ".join(cmd)
     assert "--config-file" in cmd
     # default_flags are always present.
     assert "--strict" in cmd
@@ -1674,7 +1692,7 @@ def test_run_tool_autopep8_default_flags(mock_ci, mock_run, tmp_path, monkeypatc
 
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "uvx"
-    assert "autopep8==2.3.2" in " ".join(cmd)
+    assert f"autopep8=={TOOL_REGISTRY['autopep8'].version}" in " ".join(cmd)
     assert "--recursive" in cmd
     assert "--in-place" in cmd
     assert "--max-line-length" in cmd
@@ -1713,7 +1731,7 @@ def test_run_tool_mdformat_with_packages(mock_ci, mock_run, tmp_path, monkeypatc
 
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "uvx"
-    assert "mdformat==1.0.0" in " ".join(cmd)
+    assert f"mdformat=={TOOL_REGISTRY['mdformat'].version}" in " ".join(cmd)
     assert "--number" not in cmd
     assert "--strict-front-matter" in cmd
     assert "readme.md" in cmd
