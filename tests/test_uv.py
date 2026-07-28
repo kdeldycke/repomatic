@@ -526,6 +526,35 @@ def test_freeze_exclude_newer_packages_keeps_span_without_upload_time(tmp_path):
     assert pyproject.read_text(encoding="UTF-8") == before
 
 
+def test_freeze_exclude_newer_packages_window_absorbs_same_day_patch(tmp_path):
+    """A freeze holds a day-granular window, not a single version.
+
+    The cutoff rounds up to the second UTC midnight after the held version's
+    upload, so a patch released later the same day (or on the next calendar
+    day) stays inside the window and is adopted on the next lock. This is the
+    accepted trade-off documented on `_freeze_cutoff`: pinning the cutoff to
+    the exact upload instant is the only way to reject a same-day patch, so
+    locking the window width here makes any such tightening a conscious change.
+    """
+    pyproject = _write_pyproject(
+        tmp_path,
+        'exclude-newer = "1 week"\nexclude-newer-package = { mango = "0 day" }\n',
+    )
+    # Held version shipped mid-afternoon; a patch could land hours later, same day.
+    lock = _write_lock(tmp_path, ("mango", "2.0.0", "2026-07-27T15:58:06Z"))
+    freeze_exclude_newer_packages(pyproject, lock)
+    assert (
+        'exclude-newer-package = { mango = "2026-07-29T00:00:00Z" }'
+        in pyproject.read_text(encoding="UTF-8")
+    )
+    # A same-day patch and a next-day release both fall before the cutoff, so uv
+    # resolves up to them; a release two days on is excluded (window is bounded).
+    cutoff = datetime(2026, 7, 29, tzinfo=timezone.utc)
+    assert datetime(2026, 7, 27, 20, 15, tzinfo=timezone.utc) < cutoff
+    assert datetime(2026, 7, 28, 23, 0, tzinfo=timezone.utc) < cutoff
+    assert datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc) >= cutoff
+
+
 def test_compute_bypass_forecasts_reports_freezes_only(tmp_path):
     """Fixed-timestamp freezes get an expiry; spans and dropped deps do not."""
     pyproject = _write_pyproject(

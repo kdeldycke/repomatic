@@ -331,21 +331,38 @@ def date_to_utc_cutoff(day: date) -> str:
 
 
 def _freeze_cutoff(upload_str: str) -> str | None:
-    """Freeze cutoff that holds a package at its currently-locked version.
+    """Freeze cutoff that holds a package within a day of its locked version.
 
     A cooldown bypass must *hold* the locked version, not track the latest
     release (which is what a `"0 day"` span does: it disables the cooldown,
     so `uv lock --upgrade` keeps pulling newer releases and the entry never
-    ages out). Returns an `exclude-newer-package` cutoff just past the locked
-    version's upload time so uv keeps that version and rejects anything
-    published later.
+    ages out). Returns an `exclude-newer-package` cutoff a little past the
+    locked version's upload time so uv keeps that version and rejects
+    releases published after the window.
 
-    The cutoff is the day after the upload, rendered as an explicit UTC
-    timestamp via {func}`date_to_utc_cutoff` rather than a bare `YYYY-MM-DD`
-    date. A bare date is re-expanded in the locking machine's local timezone,
-    making `uv.lock` ping-pong between locks run locally and in CI; the
-    timestamp is stored verbatim. The day-plus margin keeps the held version
-    safely inside the window.
+    The cutoff rounds up to a whole-day UTC boundary through
+    {func}`date_to_utc_cutoff`: the second UTC midnight after the upload, so
+    a version uploaded on `2026-07-01` freezes at `2026-07-03T00:00:00Z`.
+    Rounding to a full UTC timestamp (rather than a bare `YYYY-MM-DD` date,
+    which uv re-expands per locking-machine timezone) stops `uv.lock` from
+    ping-ponging between local and CI locks. Rounding *up* by a day keeps the
+    held version comfortably inside its own window: uv's cutoff is exclusive
+    ("uploaded prior to") and PyPI upload times carry sub-second precision,
+    so a cutoff pinned right at the upload instant risks landing before it and
+    excluding the very version meant to be held.
+
+    ```{note}
+    The margin makes the freeze hold a **window**, not a single version: a
+    release published later the same day, or anywhere on the following
+    calendar day, falls before the cutoff and is adopted on the next
+    `uv lock --upgrade`. This is deliberate and accepted: the absorbed
+    release is a strictly newer build of a package just chosen to bypass the
+    global cooldown, so taking its immediate follow-up is low-risk, and the
+    dependency floor still sets the minimum acceptable version. Holding
+    *exactly* the locked version would mean pinning the cutoff to the upload
+    instant plus an epsilon, trading this safety margin for the precision
+    fragility above.
+    ```
 
     :param upload_str: The locked version's `upload-time` from `uv.lock`.
     :return: A `YYYY-MM-DDT00:00:00Z` cutoff timestamp, or `None` when
@@ -447,13 +464,14 @@ def add_exclude_newer_packages(
     """Add packages to `[tool.uv].exclude-newer-package` in `pyproject.toml`.
 
     Persists for each package the `_freeze_cutoff` of its currently-locked
-    version (just after that version shipped) so that subsequent
-    `uv lock --upgrade` runs (e.g. from the `sync-uv-lock` job) hold the
-    package at that version instead of tracking newer releases, until it
-    ages past the `exclude-newer` cooldown and
-    {func}`prune_stale_exclude_newer_packages` drops the entry. Packages
-    with no upload time in the lock (git or path sources) fall back to a
-    permanent `"0 day"` span.
+    version (a whole-day boundary just past that version's upload) so that
+    subsequent `uv lock --upgrade` runs (the `sync-uv-lock` job) hold the
+    package within that freeze window instead of tracking the latest release,
+    until it ages past the `exclude-newer` cooldown and
+    {func}`prune_stale_exclude_newer_packages` drops the entry. See
+    {func}`_freeze_cutoff` for the window's width and its same-day-patch
+    caveat. Packages with no upload time in the lock (git or path sources)
+    fall back to a permanent `"0 day"` span.
 
     Skips packages that already have an entry. Returns `True` if the file
     was modified.
@@ -488,9 +506,9 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> set[
     package keeps moving and {func}`prune_stale_exclude_newer_packages`
     never sees its locked version age out. Rewriting the span as the
     `_freeze_cutoff` of the locked version instead *holds* the
-    package: newer releases are excluded until the held version ages past
-    the global cooldown, at which point the entry is pruned and the package
-    rejoins normal resolution.
+    package: releases past the freeze window are excluded until the held
+    version ages past the global cooldown, at which point the entry is pruned
+    and the package rejoins normal resolution.
 
     Also migrates any legacy bare `YYYY-MM-DD` fixed entry to the equivalent
     explicit UTC timestamp (see {func}`date_to_utc_cutoff`), so uv stops
