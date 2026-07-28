@@ -1668,5 +1668,65 @@
 		"suspicious": 0,
 		"tag": "v7.3.0",
 		"undetected": 54
+	},
+	{
+		"filename": "repomatic-7.3.1-linux-arm64.bin",
+		"harmless": 0,
+		"malicious": 0,
+		"scanned": "2026-07-28",
+		"sha256": "1e03884470ff9ae454273f1cb33cd78f8086d91953ccfd27fc1190f9d009ae1e",
+		"suspicious": 0,
+		"tag": "v7.3.1",
+		"undetected": 62
+	},
+	{
+		"filename": "repomatic-7.3.1-linux-x64.bin",
+		"harmless": 0,
+		"malicious": 0,
+		"scanned": "2026-07-28",
+		"sha256": "1047e4489e374224e90308b907a2b7c03b0cc19e3d071f7fe359ac292f2c5f84",
+		"suspicious": 0,
+		"tag": "v7.3.1",
+		"undetected": 63
+	},
+	{
+		"filename": "repomatic-7.3.1-macos-arm64.bin",
+		"harmless": 0,
+		"malicious": 1,
+		"scanned": "2026-07-28",
+		"sha256": "02b99e89d92a276053c1ae34cd334664bf1f1f939b3e581d35e9c13a38597e97",
+		"suspicious": 0,
+		"tag": "v7.3.1",
+		"undetected": 61
+	},
+	{
+		"filename": "repomatic-7.3.1-macos-x64.bin",
+		"harmless": 0,
+		"malicious": 1,
+		"scanned": "2026-07-28",
+		"sha256": "0e3b20a021c856fffcdb60271077d4d1583824d2deaf8d7cacbe0b1c4e9943b5",
+		"suspicious": 0,
+		"tag": "v7.3.1",
+		"undetected": 60
+	},
+	{
+		"filename": "repomatic-7.3.1-windows-arm64.exe",
+		"harmless": 0,
+		"malicious": 2,
+		"scanned": "2026-07-28",
+		"sha256": "b76ca73cf5f0da847b0fd78f9a5c95f6fa26429f4c32265a6bd83d9bdc09086f",
+		"suspicious": 0,
+		"tag": "v7.3.1",
+		"undetected": 65
+	},
+	{
+		"filename": "repomatic-7.3.1-windows-x64.exe",
+		"harmless": 0,
+		"malicious": 22,
+		"scanned": "2026-07-28",
+		"sha256": "c22336a704f6f470f89b237f1c590e4a7725233eac126520bead39c5c94a86f9",
+		"suspicious": 0,
+		"tag": "v7.3.1",
+		"undetected": 46
 	}
 ]
