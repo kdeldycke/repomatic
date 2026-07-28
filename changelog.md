@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.3.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.3.1...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 
 - Refresh the bundled pytest defaults to the canonical configuration: `importlib` import mode, `tests/`-restricted collection, the `once` marker, parallel runs via `pytest-xdist`, and `--cov-report=xml` left to the test workflow's command line.
