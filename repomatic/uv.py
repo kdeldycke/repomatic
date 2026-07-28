@@ -469,7 +469,7 @@ def add_exclude_newer_packages(
     package within that freeze window instead of tracking the latest release,
     until it ages past the `exclude-newer` cooldown and
     {func}`prune_stale_exclude_newer_packages` drops the entry. See
-    {func}`_freeze_cutoff` for the window's width and its same-day-patch
+    `_freeze_cutoff` for the window's width and its same-day-patch
     caveat. Packages with no upload time in the lock (git or path sources)
     fall back to a permanent `"0 day"` span.
 

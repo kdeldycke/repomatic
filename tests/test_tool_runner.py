@@ -1695,7 +1695,7 @@ def test_run_tool_pyproject_fmt(mock_ci, mock_run, tmp_path, monkeypatch):
 
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "uvx"
-    assert "pyproject-fmt==2.25.2" in " ".join(cmd)
+    assert f"pyproject-fmt=={TOOL_REGISTRY['pyproject-fmt'].version}" in " ".join(cmd)
     assert "pyproject.toml" in cmd
     # No forced formatting preference: pyproject-fmt uses its own defaults.
     assert "--expand-tables" not in cmd
