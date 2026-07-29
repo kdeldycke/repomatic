@@ -15,6 +15,9 @@
 
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 
+> [!NOTE]
+> `7.3.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.3.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.3.1).
+
 - Refresh the bundled pytest defaults to the canonical configuration: `importlib` import mode, `tests/`-restricted collection, the `once` marker, parallel runs via `pytest-xdist`, and `--cov-report=xml` left to the test workflow's command line.
 - Mark the `validate-arch` job of `tests.yaml` as canonical-repository-only: downstream repos drop the job and its `build_targets` metadata field when adapting the workflow.
 - Point the `lint-changelog` `not found on PyPI` warning at its remedy: list intentionally-unpublished releases under `[tool.repomatic] abandoned-versions`.
