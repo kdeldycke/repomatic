@@ -11,6 +11,7 @@
 - Pin `MACOSX_DEPLOYMENT_TARGET` on macOS builds to `11.0` (Apple silicon) and `10.15` (Intel): compiled objects and processed dylibs previously inherited the build runner's macOS version, so published binaries required macOS 26.
 - Keep `tkinter` and its Tcl/Tk stack out of compiled binaries via the new `[tool.repomatic]` `nuitka.nofollow-imports` setting (default `["tkinter"]`, set to `[]` to opt back in): a guarded probe in `boltons.ecoutils` was dragging Tcl/Tk 9 into every CLI binary.
 - Enforce each binary's OS floor at build time: `verify-binary` now parses ELF, Mach-O and PE headers natively (via `pyelftools` and the standard library), checks the measured glibc and macOS floors of the binary and its `*.dist` tree against the declared per-target floors, and no longer needs exiftool nor its three per-OS install steps.
+- Accept `sur` (macOS Big Sur, Homebrew's `big_sur` bottle tag) as a valid word in the bundled typos configuration, so `fix-typos` stops correcting it to `sure`.
 - Document the minimum OS requirement of each binary target, and the distributions it opens execution to, in a new [Minimum OS requirements](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements) section that downstream binaries pages link to.
 
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
