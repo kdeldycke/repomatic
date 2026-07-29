@@ -16,7 +16,7 @@ Binaries are dynamically linked against the C runtime of the environment they ar
 | --------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `linux-x64`     | glibc `2.28`         | RHEL, AlmaLinux and Rocky Linux 8 and later, Debian 10, Ubuntu 20.04, openSUSE Leap 15.3 and SLES 15 SP3, Fedora 29, Amazon Linux 2023, and anything newer |
 | `linux-arm64`   | glibc `2.28`         | The same distributions, on 64-bit ARM                                                                                                                      |
-| `macos-arm64`   | macOS 11 Big Sur     | Every Apple-silicon Mac                                                                                                                                    |
+| `macos-arm64`   | macOS 11 Big Sure     | Every Apple-silicon Mac                                                                                                                                    |
 | `macos-x64`     | macOS 10.15 Catalina | Intel Macs                                                                                                                                                 |
 | `windows-x64`   | Windows 10           | The floor of CPython itself on x64                                                                                                                         |
 | `windows-arm64` | Windows 11           | ARM PCs                                                                                                                                                    |
