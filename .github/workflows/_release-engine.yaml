@@ -98,7 +98,15 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Setup venv
-        run: uv --no-progress venv --python 3.14
+        # --managed-python forces uv's own python-build-standalone interpreter,
+        # whose deployment floors are the ones we declare and verify (macOS
+        # 10.15 on x64 and 11.0 on arm64, glibc below 2.28). Left to its
+        # default preference, uv favors a matching system interpreter:
+        # Homebrew's python on macOS runners is compiled for the runner's own
+        # macOS version and drags every bundled library's floor up to it, and
+        # /opt/python inside manylinux containers ships no libpython for
+        # Nuitka to link against.
+        run: uv --no-progress --managed-python venv --python 3.14
       - name: Sync optional-dependencies for Nuitka build
         # Install the [project.optional-dependencies] extras listed in
         # [tool.repomatic] nuitka.extras into the build venv, so Nuitka can

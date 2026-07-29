@@ -5,12 +5,13 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Compile Linux binaries inside `manylinux_2_28` containers and run their self-tests there, lowering the published glibc floor from the runner's `2.38` to `2.28` (RHEL 8, Debian 10, Ubuntu 20.04 and later).
+- Lower the macOS binary floors to `11.0` (Apple silicon) and `10.15` (Intel), embedding uv's python-build-standalone interpreter and pinning the deployment target: binaries previously required the build runner's own macOS version.
+- Keep `tkinter` and its Tcl/Tk stack out of compiled binaries via the new `[tool.repomatic]` `nuitka.nofollow-imports` setting (default `["tkinter"]`, set to `[]` to bundle it).
+- Enforce each binary's OS floor at build time: `verify-binary` parses ELF, Mach-O and PE headers natively and no longer needs exiftool.
 - Direct the `babysit-ci` skill to announce its early exit and name the still-unverified `release.yaml` binary run, instead of stopping on a silent idle.
 - Direct the `repomatic-ship` docs pass to align every description of a convention when correcting one, not just the flagged instance.
-- Compile Linux binaries inside digest-pinned `manylinux_2_28` containers, lowering their glibc floor from the runner's `2.38` to `2.28` so they run on RHEL 8, Debian 10, Ubuntu 20.04 LTS, openSUSE Leap 15.3 and later. The binary self-test job runs in the same container, proving the floor at runtime.
-- Pin `MACOSX_DEPLOYMENT_TARGET` on macOS builds to `11.0` (Apple silicon) and `10.15` (Intel): compiled objects and processed dylibs previously inherited the build runner's macOS version, so published binaries required macOS 26.
-- Keep `tkinter` and its Tcl/Tk stack out of compiled binaries via the new `[tool.repomatic]` `nuitka.nofollow-imports` setting (default `["tkinter"]`, set to `[]` to opt back in): a guarded probe in `boltons.ecoutils` was dragging Tcl/Tk 9 into every CLI binary.
-- Enforce each binary's OS floor at build time: `verify-binary` now parses ELF, Mach-O and PE headers natively (via `pyelftools` and the standard library), checks the measured glibc and macOS floors of the binary and its `*.dist` tree against the declared per-target floors, and no longer needs exiftool nor its three per-OS install steps.
+- Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
 - Accept `sur` (macOS Big Sur, Homebrew's `big_sur` bottle tag) as a valid word in the bundled typos configuration, so `fix-typos` stops correcting it to `sure`.
 - Document the minimum OS requirement of each binary target, and the distributions it opens execution to, in a new [Minimum OS requirements](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements) section that downstream binaries pages link to.
 

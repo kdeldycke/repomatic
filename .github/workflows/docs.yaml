@@ -97,7 +97,11 @@ jobs:
       && (fromJSON(needs.metadata.outputs.metadata).doc_files
         || (fromJSON(needs.metadata.outputs.metadata).is_python_project
           && fromJSON(needs.metadata.outputs.metadata).is_sphinx))
-    runs-on: ubuntu-slim
+    # Not ubuntu-slim: its 15-minute job cap kills the whole crawl, whose
+    # runtime is dominated by remote servers' throttling and grows with every
+    # release (each adds a dozen URLs to the binaries page). Measured runs
+    # already peaked past the cap.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
