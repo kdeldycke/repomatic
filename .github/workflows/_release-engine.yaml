@@ -106,7 +106,15 @@ jobs:
         # macOS version and drags every bundled library's floor up to it, and
         # /opt/python inside manylinux containers ships no libpython for
         # Nuitka to link against.
-        run: uv --no-progress --managed-python venv --python 3.14
+        # Windows keeps the runner's system CPython: uv ships no managed
+        # windows-aarch64 interpreter, so forcing managed python on the arm64
+        # runner cross-resolves to x86_64 and Nuitka emits an x64 binary
+        # (caught by verify-binary). The system CPython is the canonical
+        # Windows build, matching the documented floor.
+        run: >
+          uv --no-progress
+          ${{ matrix.platform_id != 'windows' && '--managed-python' || '' }}
+          venv --python 3.14
       - name: Sync optional-dependencies for Nuitka build
         # Install the [project.optional-dependencies] extras listed in
         # [tool.repomatic] nuitka.extras into the build venv, so Nuitka can
