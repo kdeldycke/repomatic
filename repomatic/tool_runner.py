@@ -1420,6 +1420,13 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         module="nuitka",
         native_format=NativeFormat.FLAGS,
         default_flags=("--mode=onefile", "--assume-yes-for-downloads"),
+        # Modules listed in [tool.repomatic] nuitka.nofollow-imports are kept
+        # out of the binary ("tkinter" by default, else boltons.ecoutils'
+        # guarded probe drags the whole Tcl/Tk stack into every CLI).
+        computed_params=lambda metadata: [
+            f"--nofollow-import-to={module}"
+            for module in metadata.config.nuitka_nofollow_imports
+        ],
         docs_notes=cleandoc(r"""
             **Try it:**
 
@@ -1436,6 +1443,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
 
             repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka does not read `[tool.nuitka]` natively yet ([Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)); repomatic's bridge fills the gap until it does.
+
+            Binaries skip `tkinter` by default, via the `nuitka.nofollow-imports` setting of [`[tool.repomatic]`](configuration.md): set it to `[]` to bundle Tcl/Tk in a GUI project.
             """),
     ),
     "pyproject-fmt": ToolSpec(

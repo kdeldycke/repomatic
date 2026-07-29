@@ -1813,6 +1813,41 @@ def test_run_tool_nuitka_uses_module_invocation(
     assert "repomatic" in cmd
 
 
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_nuitka_nofollow_imports_default(
+    mock_ci, mock_run, tmp_path, monkeypatch
+):
+    """nuitka excludes tkinter by default via nuitka.nofollow-imports."""
+    monkeypatch.chdir(tmp_path)
+    mock_run.return_value = MagicMock(returncode=0)
+
+    run_tool("nuitka", extra_args=("repomatic",))
+
+    cmd = mock_run.call_args[0][0]
+    assert "--nofollow-import-to=tkinter" in cmd
+
+
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_nuitka_nofollow_imports_override(
+    mock_ci, mock_run, tmp_path, monkeypatch
+):
+    """An explicit nuitka.nofollow-imports replaces the tkinter default."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.repomatic]\nnuitka.nofollow-imports = ["test.*"]\n',
+        encoding="utf-8",
+    )
+    mock_run.return_value = MagicMock(returncode=0)
+
+    run_tool("nuitka", extra_args=("repomatic",))
+
+    cmd = mock_run.call_args[0][0]
+    assert "--nofollow-import-to=test.*" in cmd
+    assert "--nofollow-import-to=tkinter" not in cmd
+
+
 # ---------------------------------------------------------------------------
 # run_tool --output directory creation
 # ---------------------------------------------------------------------------

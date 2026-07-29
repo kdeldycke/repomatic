@@ -534,6 +534,8 @@ flowchart TD
 #### ✅ Compile binaries (`compile-binaries`)
 
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x64`/`arm64`
+- Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
+- Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)
 - On release pushes, each binary generates an attestation and uploads itself to the GitHub release as its build completes
 - **Requires**:
   - Python package with [CLI entry points](https://docs.astral.sh/uv/concepts/projects/config/#entry-points) defined in `pyproject.toml`
@@ -549,6 +551,7 @@ flowchart TD
 #### ✅ Test binaries (`test-binaries`)
 
 - Runs test suites against compiled binaries using [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html)
+- Linux targets run inside the same `manylinux_2_28` container as the compile job, proving the glibc `2.28` floor at runtime
 - **Requires**:
   - Compiled binaries from `compile-binaries` job
   - Test suite file (configured via `[tool.click-extra.test-suite]`; default `./tests/cli-test-suite.toml`)

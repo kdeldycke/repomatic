@@ -16,9 +16,9 @@
 
 """Cross-module integrity tests for platform target keys.
 
-``BINARY_ARCH_MAPPINGS``, ``NUITKA_BUILD_TARGETS``, and the binary filename regex
-in ``prepare_release`` all encode the same set of platform targets for repomatic's own
-binary builds. These tests enforce that they stay in sync.
+``NUITKA_BUILD_TARGETS`` and the binary filename regex in ``prepare_release``
+both encode the same set of platform targets for repomatic's own binary
+builds. These tests enforce that they stay in sync.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import re
 
 import pytest
 
-from repomatic.binary import BINARY_ARCH_MAPPINGS, NUITKA_BUILD_TARGETS
+from repomatic.binary import NUITKA_BUILD_TARGETS
 
 # The regex from ReleasePrep.freeze_install_download_urls, extracted here so the
 # test breaks loudly if the pattern is changed without updating this file.
@@ -38,18 +38,6 @@ BINARY_FILENAME_RE = re.compile(
 
 VALID_BUILD_KEYS = frozenset(NUITKA_BUILD_TARGETS)
 """Canonical set of repomatic's own binary build targets."""
-
-
-def test_all_constants_share_same_keys():
-    """Build-target constants must define the exact same set of keys."""
-    binary_keys = set(BINARY_ARCH_MAPPINGS)
-    nuitka_keys = set(NUITKA_BUILD_TARGETS)
-
-    assert binary_keys == nuitka_keys, (
-        "BINARY_ARCH_MAPPINGS vs NUITKA_BUILD_TARGETS mismatch: "
-        f"only in binary={binary_keys - nuitka_keys}, "
-        f"only in nuitka={nuitka_keys - binary_keys}"
-    )
 
 
 @pytest.mark.parametrize("target", sorted(VALID_BUILD_KEYS))

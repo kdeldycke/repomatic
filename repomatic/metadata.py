@@ -89,42 +89,50 @@ build_targets=[
         "os": "ubuntu-24.04-arm",
         "platform_id": "linux",
         "arch": "arm64",
-        "extension": "bin"
+        "extension": "bin",
+        "container": "quay.io/pypa/manylinux_2_28_aarch64@sha256:...",
+        "glibc_floor": "2.28"
     },
     {
         "target": "linux-x64",
         "os": "ubuntu-24.04",
         "platform_id": "linux",
         "arch": "x64",
-        "extension": "bin"
+        "extension": "bin",
+        "container": "quay.io/pypa/manylinux_2_28_x86_64@sha256:...",
+        "glibc_floor": "2.28"
     },
     {
         "target": "macos-arm64",
         "os": "macos-26",
         "platform_id": "macos",
         "arch": "arm64",
-        "extension": "bin"
+        "extension": "bin",
+        "min_os": "11.0"
     },
     {
         "target": "macos-x64",
         "os": "macos-26-intel",
         "platform_id": "macos",
         "arch": "x64",
-        "extension": "bin"
+        "extension": "bin",
+        "min_os": "10.15"
     },
     {
         "target": "windows-arm64",
         "os": "windows-11-arm",
         "platform_id": "windows",
         "arch": "arm64",
-        "extension": "exe"
+        "extension": "exe",
+        "min_os": "11"
     },
     {
         "target": "windows-x64",
         "os": "windows-2025",
         "platform_id": "windows",
         "arch": "x64",
-        "extension": "exe"
+        "extension": "exe",
+        "min_os": "10"
     }
 ]
 nuitka_matrix={
@@ -147,42 +155,50 @@ nuitka_matrix={
             "os": "ubuntu-24.04-arm",
             "platform_id": "linux",
             "arch": "arm64",
-            "extension": "bin"
+            "extension": "bin",
+            "container": "quay.io/pypa/manylinux_2_28_aarch64@sha256:...",
+            "glibc_floor": "2.28"
         },
         {
             "target": "linux-x64",
             "os": "ubuntu-24.04",
             "platform_id": "linux",
             "arch": "x64",
-            "extension": "bin"
+            "extension": "bin",
+            "container": "quay.io/pypa/manylinux_2_28_x86_64@sha256:...",
+            "glibc_floor": "2.28"
         },
         {
             "target": "macos-arm64",
             "os": "macos-26",
             "platform_id": "macos",
             "arch": "arm64",
-            "extension": "bin"
+            "extension": "bin",
+            "min_os": "11.0"
         },
         {
             "target": "macos-x64",
             "os": "macos-26-intel",
             "platform_id": "macos",
             "arch": "x64",
-            "extension": "bin"
+            "extension": "bin",
+            "min_os": "10.15"
         },
         {
             "target": "windows-arm64",
             "os": "windows-11-arm",
             "platform_id": "windows",
             "arch": "arm64",
-            "extension": "exe"
+            "extension": "exe",
+            "min_os": "11"
         },
         {
             "target": "windows-x64",
             "os": "windows-2025",
             "platform_id": "windows",
             "arch": "x64",
-            "extension": "exe"
+            "extension": "exe",
+            "min_os": "10"
         },
         {
             "entry_point": "mpm",
@@ -2038,6 +2054,8 @@ class Metadata:
                     "platform_id": "linux",
                     "arch": "arm64",
                     "extension": "bin",
+                    "container": "quay.io/pypa/manylinux_2_28_aarch64@sha256:...",
+                    "glibc_floor": "2.28",
                 },
                 {
                     "target": "linux-x64",
@@ -2045,6 +2063,8 @@ class Metadata:
                     "platform_id": "linux",
                     "arch": "x64",
                     "extension": "bin",
+                    "container": "quay.io/pypa/manylinux_2_28_x86_64@sha256:...",
+                    "glibc_floor": "2.28",
                 },
                 {
                     "target": "macos-arm64",
@@ -2052,6 +2072,7 @@ class Metadata:
                     "platform_id": "macos",
                     "arch": "arm64",
                     "extension": "bin",
+                    "min_os": "11.0",
                 },
                 {
                     "target": "macos-x64",
@@ -2059,6 +2080,7 @@ class Metadata:
                     "platform_id": "macos",
                     "arch": "x64",
                     "extension": "bin",
+                    "min_os": "10.15",
                 },
                 {
                     "target": "windows-arm64",
@@ -2066,6 +2088,7 @@ class Metadata:
                     "platform_id": "windows",
                     "arch": "arm64",
                     "extension": "exe",
+                    "min_os": "11",
                 },
                 {
                     "target": "windows-x64",
@@ -2073,6 +2096,7 @@ class Metadata:
                     "platform_id": "windows",
                     "arch": "x64",
                     "extension": "exe",
+                    "min_os": "10",
                 },
                 {
                     "entry_point": "mpm",

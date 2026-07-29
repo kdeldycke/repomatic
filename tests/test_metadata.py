@@ -796,6 +796,7 @@ expected: dict[str, Any] = {
     "manpages_asset_name": "",
     "nuitka_enabled": True,
     "nuitka_extras": [],
+    "nuitka_nofollow_imports": StringList(["tkinter"]),
     "package_name": "repomatic",
     "cli_scripts": StringList(["repomatic"]),
     "project_description": "🏭 Automate repository maintenance, releases, and CI/CD workflows",
@@ -852,6 +853,11 @@ expected: dict[str, Any] = {
             "platform_id": "linux",
             "arch": "arm64",
             "extension": "bin",
+            "container": (
+                "quay.io/pypa/manylinux_2_28_aarch64@sha256:"
+                "e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80"
+            ),
+            "glibc_floor": "2.28",
         },
         {
             "target": "linux-x64",
@@ -859,6 +865,11 @@ expected: dict[str, Any] = {
             "platform_id": "linux",
             "arch": "x64",
             "extension": "bin",
+            "container": (
+                "quay.io/pypa/manylinux_2_28_x86_64@sha256:"
+                "fdb9a9c223b215604dc7b6f7e8fff4b39bfea5fbaa7777a2e5544a60dfa437f8"
+            ),
+            "glibc_floor": "2.28",
         },
         {
             "target": "macos-arm64",
@@ -866,6 +877,7 @@ expected: dict[str, Any] = {
             "platform_id": "macos",
             "arch": "arm64",
             "extension": "bin",
+            "min_os": "11.0",
         },
         {
             "target": "macos-x64",
@@ -873,6 +885,7 @@ expected: dict[str, Any] = {
             "platform_id": "macos",
             "arch": "x64",
             "extension": "bin",
+            "min_os": "10.15",
         },
         {
             "target": "windows-arm64",
@@ -880,6 +893,7 @@ expected: dict[str, Any] = {
             "platform_id": "windows",
             "arch": "arm64",
             "extension": "exe",
+            "min_os": "11",
         },
         {
             "target": "windows-x64",
@@ -887,6 +901,7 @@ expected: dict[str, Any] = {
             "platform_id": "windows",
             "arch": "x64",
             "extension": "exe",
+            "min_os": "10",
         },
     ],
     "nuitka_matrix": {
@@ -911,6 +926,11 @@ expected: dict[str, Any] = {
                 "platform_id": "linux",
                 "arch": "arm64",
                 "extension": "bin",
+                "container": (
+                    "quay.io/pypa/manylinux_2_28_aarch64@sha256:"
+                    "e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80"
+                ),
+                "glibc_floor": "2.28",
             },
             {
                 "target": "linux-x64",
@@ -918,6 +938,11 @@ expected: dict[str, Any] = {
                 "platform_id": "linux",
                 "arch": "x64",
                 "extension": "bin",
+                "container": (
+                    "quay.io/pypa/manylinux_2_28_x86_64@sha256:"
+                    "fdb9a9c223b215604dc7b6f7e8fff4b39bfea5fbaa7777a2e5544a60dfa437f8"
+                ),
+                "glibc_floor": "2.28",
             },
             {
                 "target": "macos-arm64",
@@ -925,6 +950,7 @@ expected: dict[str, Any] = {
                 "platform_id": "macos",
                 "arch": "arm64",
                 "extension": "bin",
+                "min_os": "11.0",
             },
             {
                 "target": "macos-x64",
@@ -932,6 +958,7 @@ expected: dict[str, Any] = {
                 "platform_id": "macos",
                 "arch": "x64",
                 "extension": "bin",
+                "min_os": "10.15",
             },
             {
                 "target": "windows-arm64",
@@ -939,6 +966,7 @@ expected: dict[str, Any] = {
                 "platform_id": "windows",
                 "arch": "arm64",
                 "extension": "exe",
+                "min_os": "11",
             },
             {
                 "target": "windows-x64",
@@ -946,6 +974,7 @@ expected: dict[str, Any] = {
                 "platform_id": "windows",
                 "arch": "x64",
                 "extension": "exe",
+                "min_os": "10",
             },
             # Entry point info (fixed, one per entry point). The --python-flag=-m
             # workaround for __main__.py packages rides here, per entry point;

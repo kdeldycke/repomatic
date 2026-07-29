@@ -105,6 +105,11 @@ dependencies = [
   # XXX Replace py-walk with wcmatch once the latter supports gitignore files:
   # https://github.com/facelessuser/wcmatch/issues/226
   "py-walk>=0.3.1",
+  # pyelftools parses the ELF headers of compiled binaries, so verify-binary can
+  # check architectures and glibc floors natively, inside manylinux containers,
+  # without installing exiftool. 0.33 is the first release to declare
+  # requires-python (>= 3.10, matching ours); earlier ones carry no guard.
+  "pyelftools>=0.33",
   # pyproject-metadata 0.9 added PEP 639 (license expressions) and PEP 685 (extras
   # normalization); our StandardMetadata.from_pyproject() call benefits from these.
   "pyproject-metadata>=0.9",

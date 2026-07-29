@@ -81,6 +81,11 @@ jobs:
       # whole run. See the publish-pypi job and docs/workflows.md.
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_matrix || fromJSON('{"include":[]}') }}
     runs-on: ${{ matrix.os }}
+    # Linux targets compile inside a manylinux_2_28 container (glibc 2.28), so
+    # binaries carry a stable glibc floor instead of inheriting the runner
+    # image's. macOS and Windows entries have no container key: the empty
+    # expression makes the job run directly on the VM.
+    container: ${{ matrix.container }}
     # We keep going when a job flagged as not stable fails.
     continue-on-error: ${{ matrix.state == 'unstable' }}
     permissions:
@@ -127,6 +132,11 @@ jobs:
           NUITKA_PYTHON_FLAGS: ${{ matrix.nuitka_python_flags }}
           BIN_NAME: ${{ matrix.bin_name }}
           MODULE_PATH: ${{ matrix.module_path }}
+          # Pin the macOS floor: without it, compiled objects and processed
+          # dylibs inherit the build runner's own macOS version as their
+          # minimum. Empty (and inert) on the other platforms.
+          MACOSX_DEPLOYMENT_TARGET: >-
+            ${{ matrix.platform_id == 'macos' && matrix.min_os || '' }}
         shell: bash
         run: |
           # NUITKA_PYTHON_FLAGS holds the entry point's --python-flag (if any),
@@ -145,32 +155,13 @@ jobs:
         run: |
           echo "Nuitka build failed, skipping the rest of the steps."
           exit 1
-      - name: Install exiftool - Linux
-        if: runner.os == 'Linux'
-        run: sudo apt --quiet --yes install exiftool
-      - name: Install exiftool - macOS
-        if: runner.os == 'macOS'
-        run: brew install exiftool
-      - name: Install exiftool - Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        # choco's --retry-count retries back-to-back, too fast to outlive a community-feed
-        # outage (406/504 responses): space three step-level attempts a minute apart.
-        run: |
-          $attempts = 3
-          foreach ($try in 1..$attempts) {
-            choco install exiftool --no-progress --yes --retry-count=3
-            if ($LASTEXITCODE -eq 0) { break }
-            if ($try -lt $attempts) {
-              Write-Warning "choco install exiftool failed (attempt ${try}/${attempts}), retrying in 60 seconds."
-              Start-Sleep -Seconds 60
-            }
-          }
-          if (-not (Get-Command exiftool -ErrorAction SilentlyContinue)) {
-            Write-Error "exiftool not found on PATH after choco install"
-            exit 1
-          }
-      - name: Verify binary architecture
+      - name: Verify binary architecture and OS floor
+        # verify-binary parses the executable headers natively (no exiftool):
+        # architecture on every platform, plus the glibc / macOS floor of the
+        # binary and its *.dist tree, matched against the declared target
+        # floors. A floor bump (from a runner, container or toolchain update)
+        # fails the build here instead of shipping a binary that silently
+        # dropped older distros.
         env:
           TARGET: ${{ matrix.target }}
           BIN_NAME: ${{ matrix.bin_name }}
@@ -194,6 +185,19 @@ jobs:
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-path: ${{ matrix.bin_name }}
+      - name: Install gh in container
+        # The manylinux container has no gh CLI preinstalled (the runner VM
+        # does), and the attestation check below shells out to it. Same gate
+        # as that check, so PR builds skip the install.
+        if: >-
+          matrix.container
+          && github.ref == 'refs/heads/main'
+          && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+        run: |
+          curl --fail --silent --show-error --location \
+            --output /etc/yum.repos.d/gh-cli.repo \
+            https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install --assumeyes gh
       - name: Verify binary attestation
         if: >-
           github.ref == 'refs/heads/main'
@@ -234,6 +238,10 @@ jobs:
       # whole run. See the publish-pypi job and docs/workflows.md.
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_matrix || fromJSON('{"include":[]}') }}
     runs-on: ${{ matrix.os }}
+    # Same container as the compile job: running the binary self-test suite
+    # on glibc 2.28 proves the published Linux floor at runtime, not just in
+    # the ELF headers.
+    container: ${{ matrix.container }}
     # We keep going when a job flagged as not stable fails.
     continue-on-error: ${{ matrix.state == 'unstable' }}
     steps:

@@ -63,8 +63,9 @@ from .binaries_page import (
     update_binaries_page,
 )
 from .binary import (
-    BINARY_ARCH_MAPPINGS,
+    NUITKA_BUILD_TARGETS,
     verify_binary_arch,
+    verify_binary_floor,
 )
 from .broken_links import manage_combined_broken_links_issue
 from .cache import (
@@ -2043,11 +2044,11 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
 
 
 @repomatic.command(
-    short_help="Verify binary architecture using exiftool", section=_section_lint
+    short_help="Verify binary architecture and OS floor", section=_section_lint
 )
 @option(
     "--target",
-    type=Choice(sorted(BINARY_ARCH_MAPPINGS.keys()), case_sensitive=False),
+    type=Choice(sorted(NUITKA_BUILD_TARGETS), case_sensitive=False),
     required=True,
     help="Target platform.",
 )
@@ -2058,13 +2059,22 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
     required=True,
     help="Path to the binary file to verify.",
 )
-def verify_binary(target: str, binary_path: Path) -> None:
-    """Verify that a compiled binary matches the expected architecture.
+@option(
+    "--dist-dir",
+    "dist_dirs",
+    type=dir_path(exists=True, resolve_path=True),
+    multiple=True,
+    help="Nuitka dist directory to include in the OS floor scan. Repeatable. "
+    "Defaults to every *.dist directory in the working directory.",
+)
+def verify_binary(target: str, binary_path: Path, dist_dirs: tuple[Path, ...]) -> None:
+    """Verify a compiled binary's architecture and minimum-OS floor.
 
-    Uses exiftool to inspect the binary and validates that its architecture
-    matches what is expected for the specified target platform.
-
-    Requires exiftool to be installed and available in PATH.
+    Parses the executable headers natively (ELF, Mach-O, PE), with no
+    external tool: the architecture is checked on every platform, then the
+    glibc floor on Linux and the deployment target on macOS are measured
+    over the binary plus the Nuitka dist directories whose content its
+    onefile payload repacks.
 
     \b
     Examples:
@@ -2077,6 +2087,9 @@ def verify_binary(target: str, binary_path: Path) -> None:
     """
     verify_binary_arch(target, binary_path)
     echo(f"Binary architecture verified for {target}: {binary_path}")
+    scan_dirs = list(dist_dirs) or sorted(Path.cwd().glob("*.dist"))
+    verify_binary_floor(target, binary_path, scan_dirs)
+    echo(f"OS floor verified for {target}.")
 
 
 AUDIT_HEADER_DEFS: tuple[tuple[str, str], ...] = (

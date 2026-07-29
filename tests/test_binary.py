@@ -18,6 +18,9 @@
 
 from __future__ import annotations
 
+import struct
+import sys
+from pathlib import Path
 from string import ascii_lowercase, digits
 from unittest.mock import patch
 
@@ -25,15 +28,67 @@ import pytest
 from extra_platforms import ALL_IDS
 
 from repomatic.binary import (
-    BINARY_ARCH_MAPPINGS,
+    ELF_MACHINES,
+    MACHO_CPU_TYPES,
     NUITKA_BUILD_TARGETS,
+    PE_MACHINES,
     SKIP_BINARY_BUILD_BRANCHES,
     VERSION_BUMP_BRANCHES,
-    run_exiftool,
+    _binary_format,
+    _elf_info,
+    _macho_info,
+    _pe_machine,
+    _version_key,
     verify_binary_arch,
+    verify_binary_floor,
 )
 from repomatic.github.actions import WorkflowEvent
 from repomatic.metadata import Metadata
+
+EM_AARCH64 = 183
+EM_X86_64 = 62
+
+
+def make_elf(machine: int) -> bytes:
+    """Craft a minimal 64-bit little-endian ELF header with no sections."""
+    ident = b"\x7fELF" + bytes([2, 1, 1, 0]) + bytes(8)
+    return ident + struct.pack(
+        "<HHIQQQIHHHHHH", 2, machine, 1, 0, 0, 0, 0, 64, 56, 0, 64, 0, 0
+    )
+
+
+def pack_macho_version(version: str) -> int:
+    """Pack a `major.minor` string into a Mach-O version integer."""
+    major, _, minor = version.partition(".")
+    return (int(major) << 16) | (int(minor or 0) << 8)
+
+
+def make_macho(cpu_type: int, min_os: str = "11.0") -> bytes:
+    """Craft a minimal 64-bit Mach-O header with one LC_BUILD_VERSION command."""
+    build_version = struct.pack(
+        "<IIIIII", 0x32, 24, 1, pack_macho_version(min_os), 0, 0
+    )
+    header = struct.pack(
+        "<IIIIIIII", 0xFEEDFACF, cpu_type, 0, 2, 1, len(build_version), 0, 0
+    )
+    return header + build_version
+
+
+def make_fat(slices: list[bytes]) -> bytes:
+    """Wrap Mach-O slices into a universal (fat) container."""
+    header = struct.pack(">II", 0xCAFEBABE, len(slices))
+    offset = 8 + 20 * len(slices)
+    entries = b""
+    for chunk in slices:
+        entries += struct.pack(">iiIII", 0, 0, offset, len(chunk), 0)
+        offset += len(chunk)
+    return header + entries + b"".join(slices)
+
+
+def make_pe(machine: int) -> bytes:
+    """Craft a minimal PE header exposing only the COFF machine type."""
+    dos_header = b"MZ" + bytes(58) + struct.pack("<I", 64)
+    return dos_header + b"PE\0\0" + struct.pack("<H", machine) + bytes(18)
 
 
 @pytest.mark.parametrize(
@@ -49,36 +104,33 @@ from repomatic.metadata import Metadata
 )
 def test_all_targets_present(target):
     """All expected targets are in the mapping."""
-    assert target in BINARY_ARCH_MAPPINGS
+    assert target in NUITKA_BUILD_TARGETS
+
+
+def test_version_key_ordering():
+    """Dotted versions compare numerically, not lexically."""
+    assert _version_key("2.28") < _version_key("2.34")
+    assert _version_key("2.4") < _version_key("2.38")
+    assert _version_key("10.15") < _version_key("11.0")
+    assert max(["2.4", "2.38", "2.17"], key=_version_key) == "2.38"
 
 
 @pytest.mark.parametrize(
-    ("target", "expected_field", "expected_substring"),
+    ("payload", "expected"),
     [
-        ("linux-arm64", "CPUType", "Arm 64-bits"),
-        ("linux-x64", "CPUType", "AMD x86-64"),
-        ("macos-arm64", "CPUType", "ARM 64-bit"),
-        ("macos-x64", "CPUType", "x86 64-bit"),
-        ("windows-arm64", "MachineType", "ARM64"),
-        ("windows-x64", "MachineType", "AMD64"),
+        (make_elf(EM_X86_64), "elf"),
+        (make_macho(0x0100000C), "macho"),
+        (make_fat([make_macho(0x01000007)]), "macho"),
+        (make_pe(0x8664), "pe"),
+        (b"plain text", None),
+        (b"", None),
     ],
 )
-def test_mapping_values(target, expected_field, expected_substring):
-    """Each target maps to correct field and substring."""
-    field, substring = BINARY_ARCH_MAPPINGS[target]
-    assert field == expected_field
-    assert substring == expected_substring
-
-
-def test_run_exiftool_missing_command(tmp_path):
-    """run_exiftool raises FileNotFoundError when exiftool is not on PATH."""
-    binary = tmp_path / "test.bin"
-    binary.touch()
-    with (
-        patch("repomatic.binary.shutil.which", return_value=None),
-        pytest.raises(FileNotFoundError, match="not found on PATH"),
-    ):
-        run_exiftool(binary)
+def test_binary_format_detection(tmp_path, payload, expected):
+    """Executable formats are recognized from their magic bytes."""
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(payload)
+    assert _binary_format(sample) == expected
 
 
 def test_unknown_target(tmp_path):
@@ -90,61 +142,149 @@ def test_unknown_target(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("target", "field", "value"),
+    ("target", "payload"),
     [
-        ("linux-arm64", "CPUType", "Arm 64-bits (Armv8/AArch64)"),
-        ("linux-x64", "CPUType", "AMD x86-64"),
-        ("macos-arm64", "CPUType", "ARM 64-bit"),
-        ("macos-x64", "CPUType", "x86 64-bit"),
-        ("windows-arm64", "MachineType", "ARM64 little endian"),
-        ("windows-x64", "MachineType", "AMD AMD64"),
+        ("linux-arm64", make_elf(EM_AARCH64)),
+        ("linux-x64", make_elf(EM_X86_64)),
+        ("macos-arm64", make_macho(MACHO_CPU_TYPES["arm64"])),
+        ("macos-x64", make_fat([make_macho(MACHO_CPU_TYPES["x64"])])),
+        ("windows-arm64", make_pe(PE_MACHINES["arm64"])),
+        ("windows-x64", make_pe(PE_MACHINES["x64"])),
     ],
 )
-def test_matching_arch(tmp_path, target, field, value):
+def test_matching_arch(tmp_path, target, payload):
     """Binary with matching architecture passes verification."""
     binary = tmp_path / "test.bin"
-    binary.touch()
-
-    mock_output = [{field: value}]
-    with patch("repomatic.binary.run_exiftool", return_value=mock_output[0]):
-        # Should not raise.
-        verify_binary_arch(target, binary)
+    binary.write_bytes(payload)
+    # Should not raise.
+    verify_binary_arch(target, binary)
 
 
 @pytest.mark.parametrize(
-    ("target", "field", "wrong_value"),
+    ("target", "payload"),
     [
-        ("linux-arm64", "CPUType", "AMD x86-64"),
-        ("linux-x64", "CPUType", "Arm 64-bits"),
-        ("macos-arm64", "CPUType", "x86 64-bit"),
-        ("windows-x64", "MachineType", "ARM64"),
+        # Wrong architecture, right format.
+        ("linux-arm64", make_elf(EM_X86_64)),
+        ("macos-arm64", make_macho(MACHO_CPU_TYPES["x64"])),
+        ("windows-x64", make_pe(PE_MACHINES["arm64"])),
+        # Wrong executable format entirely.
+        ("linux-x64", make_pe(PE_MACHINES["x64"])),
+        ("windows-x64", make_elf(EM_X86_64)),
+        # Not an executable at all.
+        ("linux-x64", b""),
     ],
 )
-def test_mismatched_arch(tmp_path, target, field, wrong_value):
-    """Binary with mismatched architecture raises AssertionError."""
+def test_mismatched_arch(tmp_path, target, payload):
+    """Binary with mismatched architecture or format raises AssertionError."""
     binary = tmp_path / "test.bin"
-    binary.touch()
-
-    mock_output = {field: wrong_value}
-    with (
-        patch("repomatic.binary.run_exiftool", return_value=mock_output),
-        pytest.raises(AssertionError, match="Binary architecture mismatch"),
-    ):
+    binary.write_bytes(payload)
+    with pytest.raises(AssertionError, match="Binary architecture mismatch"):
         verify_binary_arch(target, binary)
 
 
-def test_missing_field(tmp_path):
-    """Missing exiftool field raises AssertionError."""
+def test_elf_info_without_verneed(tmp_path):
+    """A sectionless ELF reports its machine and no glibc requirement."""
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(make_elf(EM_X86_64))
+    assert _elf_info(sample) == ("EM_X86_64", None)
+
+
+def test_macho_info_fat_slices(tmp_path):
+    """CPU types accumulate and the floor maxes across fat slices."""
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(
+        make_fat([
+            make_macho(MACHO_CPU_TYPES["arm64"], "12.4"),
+            make_macho(MACHO_CPU_TYPES["x64"], "10.15"),
+        ])
+    )
+    cpu_types, floor = _macho_info(sample)
+    assert cpu_types == set(MACHO_CPU_TYPES.values())
+    assert floor == "12.4"
+
+
+def test_pe_machine_parsing(tmp_path):
+    """The COFF machine field is read from PE headers, None elsewhere."""
+    sample = tmp_path / "sample.exe"
+    sample.write_bytes(make_pe(PE_MACHINES["arm64"]))
+    assert _pe_machine(sample) == PE_MACHINES["arm64"]
+    sample.write_bytes(b"MZ not a real PE")
+    assert _pe_machine(sample) is None
+
+
+def test_running_interpreter_parses():
+    """The parsers agree with the running interpreter's own executable."""
+    executable = Path(sys.executable)
+    if sys.platform.startswith("linux"):
+        machine, floor = _elf_info(executable)
+        assert machine in ELF_MACHINES.values()
+        assert floor is None or _version_key(floor) >= (2,)
+    elif sys.platform == "darwin":
+        cpu_types, floor = _macho_info(executable)
+        assert cpu_types & set(MACHO_CPU_TYPES.values())
+        assert floor is not None
+    elif sys.platform == "win32":
+        assert _pe_machine(executable) in PE_MACHINES.values()
+
+
+def test_floor_within_bounds_macos(tmp_path):
+    """Files at or below the declared macOS floor pass verification."""
+    binary = tmp_path / "test.bin"
+    binary.write_bytes(make_macho(MACHO_CPU_TYPES["arm64"], "11.0"))
+    dist = tmp_path / "app.dist"
+    dist.mkdir()
+    (dist / "lib.dylib").write_bytes(make_macho(MACHO_CPU_TYPES["arm64"], "10.9"))
+    # Should not raise.
+    verify_binary_floor("macos-arm64", binary, [dist])
+
+
+def test_floor_exceeded_macos(tmp_path):
+    """A dist file above the declared macOS floor fails verification."""
+    binary = tmp_path / "test.bin"
+    binary.write_bytes(make_macho(MACHO_CPU_TYPES["arm64"], "11.0"))
+    dist = tmp_path / "app.dist"
+    dist.mkdir()
+    (dist / "lib.dylib").write_bytes(make_macho(MACHO_CPU_TYPES["arm64"], "26.0"))
+    with pytest.raises(AssertionError, match="OS floor exceeded") as excinfo:
+        verify_binary_floor("macos-arm64", binary, [dist])
+    assert "26.0" in str(excinfo.value)
+    assert "lib.dylib" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("measured", "passes"),
+    [
+        ("2.17", True),
+        ("2.28", True),
+        ("2.39", False),
+    ],
+)
+def test_floor_linux(tmp_path, measured, passes):
+    """Linux floors compare the measured glibc requirement to glibc_floor."""
+    binary = tmp_path / "test.bin"
+    binary.write_bytes(make_elf(EM_X86_64))
+    with patch("repomatic.binary._elf_info", return_value=("EM_X86_64", measured)):
+        if passes:
+            verify_binary_floor("linux-x64", binary)
+        else:
+            with pytest.raises(AssertionError, match="OS floor exceeded"):
+                verify_binary_floor("linux-x64", binary)
+
+
+def test_floor_windows_is_documentation_only(tmp_path):
+    """Windows targets have no enforceable floor and always pass."""
+    binary = tmp_path / "test.exe"
+    binary.write_bytes(make_pe(PE_MACHINES["x64"]))
+    # Should not raise, and must not even look at the headers.
+    verify_binary_floor("windows-x64", binary)
+
+
+def test_floor_unknown_target(tmp_path):
+    """Unknown target raises ValueError."""
     binary = tmp_path / "test.bin"
     binary.touch()
-
-    # Return empty metadata.
-    mock_output: dict[str, str] = {}
-    with (
-        patch("repomatic.binary.run_exiftool", return_value=mock_output),
-        pytest.raises(AssertionError, match="Binary architecture mismatch"),
-    ):
-        verify_binary_arch("linux-arm64", binary)
+    with pytest.raises(ValueError, match="Unknown target"):
+        verify_binary_floor("unknown-platform", binary)
 
 
 @pytest.mark.parametrize("target_id, target_data", NUITKA_BUILD_TARGETS.items())
@@ -152,22 +292,30 @@ def test_nuitka_targets(target_id: str, target_data: dict[str, str]) -> None:
     assert isinstance(target_id, str)
     assert isinstance(target_data, dict)
 
-    assert set(target_data) == {
-        "os",
-        "platform_id",
-        "arch",
-        "extension",
-    }, f"Unexpected keys in target data for {target_id}"
+    expected_keys = {"os", "platform_id", "arch", "extension"}
+    if target_data["platform_id"] == "linux":
+        expected_keys |= {"container", "glibc_floor"}
+    else:
+        expected_keys |= {"min_os"}
+    assert set(target_data) == expected_keys, (
+        f"Unexpected keys in target data for {target_id}"
+    )
 
-    assert isinstance(target_data["os"], str)
-    assert isinstance(target_data["platform_id"], str)
-    assert isinstance(target_data["arch"], str)
-    assert isinstance(target_data["extension"], str)
+    for value in target_data.values():
+        assert isinstance(value, str)
 
     assert set(target_data["os"]).issubset(ascii_lowercase + digits + "-.")
     assert target_data["platform_id"] in ALL_IDS
     assert target_data["arch"] in {"arm64", "x64"}
     assert set(target_data["extension"]).issubset(ascii_lowercase)
+
+    if "container" in target_data:
+        assert target_data["container"].startswith("quay.io/pypa/manylinux_2_28_")
+        assert "@sha256:" in target_data["container"]
+    if "glibc_floor" in target_data:
+        assert _version_key(target_data["glibc_floor"]) >= (2,)
+    if "min_os" in target_data:
+        assert _version_key(target_data["min_os"]) >= (10,)
 
     assert target_id == target_data["platform_id"] + "-" + target_data["arch"]
     assert set(target_id).issubset(ascii_lowercase + digits + "-")

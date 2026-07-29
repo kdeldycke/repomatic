@@ -44,6 +44,7 @@ labels.extra-files = ["https://example.com/my-labels.toml"]
 
 nuitka.enabled = false
 nuitka.entry-points = ["mpm"]
+nuitka.nofollow-imports = []
 nuitka.unstable-targets = ["linux-arm64", "windows-arm64"]
 
 workflow.sync = false

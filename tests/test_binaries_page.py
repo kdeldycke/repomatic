@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from repomatic.binaries_page import (
@@ -29,10 +31,13 @@ from repomatic.binaries_page import (
     update_binaries_csv,
     update_binaries_page,
 )
+from repomatic.binary import NUITKA_BUILD_TARGETS
 from repomatic.github.releases import ReleaseAsset, ReleaseWithAssets
 from repomatic.virustotal import DetectionStats, ScanRecord
 
 REPO = "owner/papaya"
+
+REPO_ROOT = Path(__file__).parent.parent
 
 
 def _asset(name: str, size: int = 1048576, sha256: str = "") -> ReleaseAsset:
@@ -303,6 +308,7 @@ def test_update_binaries_page_creates_from_template(tmp_path):
     assert text.startswith("---\norphan: true\n---\n")
     assert "# Binaries" in text
     assert f"https://github.com/{REPO}/actions/workflows/release.yaml" in text
+    assert "binaries.html#minimum-os-requirements" in text
     assert "GitHub account is required" in text
     assert "```{csv-table}\n:file: assets/binaries.csv" in text
     assert ":class: sphinx-datatable" in text
@@ -348,3 +354,20 @@ def test_update_binaries_page_refuses_markerless_file(tmp_path):
     page.write_text("# Not ours\n", encoding="utf-8")
     with pytest.raises(ValueError, match="markers"):
         update_binaries_page(page, "chart", REPO)
+
+
+def test_docs_floor_table_matches_build_targets():
+    """The Minimum OS requirements table in docs/binaries.md reflects the
+    floors declared in NUITKA_BUILD_TARGETS, which verify-binary enforces.
+    """
+    text = (REPO_ROOT / "docs" / "binaries.md").read_text(encoding="utf-8")
+    assert "## Minimum OS requirements" in text
+
+    for target, target_data in NUITKA_BUILD_TARGETS.items():
+        assert f"`{target}`" in text, f"target {target} missing from the table"
+        if target_data["platform_id"] == "linux":
+            assert f"glibc `{target_data['glibc_floor']}`" in text
+        elif target_data["platform_id"] == "macos":
+            assert f"macOS {target_data['min_os'].removesuffix('.0')}" in text
+        else:
+            assert f"Windows {target_data['min_os']}" in text

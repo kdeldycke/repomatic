@@ -765,6 +765,21 @@ class Config:
     `[tool.nuitka]` for imports guarded behind `try/except`).
     """
 
+    nuitka_nofollow_imports: list[str] = field(
+        default_factory=lambda: ["tkinter"],
+        metadata={CONFIG_PATH_METADATA_KEY: "nuitka.nofollow-imports"},
+    )
+    """Module names Nuitka must not follow into the compiled binary.
+
+    Each name is forwarded as a `--nofollow-import-to` flag by `repomatic run
+    nuitka`. Defaults to `["tkinter"]`: `boltons.ecoutils` (in the dependency
+    tree of every click-extra CLI) probes tkinter inside a guarded `try`/
+    `except` import, which otherwise drags the whole Tcl/Tk stack into every
+    binary. Excluded modules raise `ImportError` when imported at run time,
+    which guarded imports absorb. GUI projects that really ship tkinter can
+    set this to `[]`.
+    """
+
     nuitka_unstable_targets: list[str] = field(
         default_factory=list,
         metadata={CONFIG_PATH_METADATA_KEY: "nuitka.unstable-targets"},

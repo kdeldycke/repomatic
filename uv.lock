@@ -1227,6 +1227,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyelftools"
+version = "0.33"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a3/11/767522582afab1b884d277de0e6e011640cb9d7292a38694b4b1a1df1ae8/pyelftools-0.33.tar.gz", hash = "sha256:660d82dcbeb8e83d1702bd97f223f761625da06111c0cc988eac6b8ab0c1b61f", size = 15068655, upload-time = "2026-05-29T12:56:22.553Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/2a/f9697576603dae937727827505a6126a066affb227034e77e6f9068910da/pyelftools-0.33-py3-none-any.whl", hash = "sha256:f215ad5f47d3f1373a21496a6c9e0707c622840d0622f23ff7ce08678b020036", size = 201178, upload-time = "2026-05-29T12:56:20.587Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.20.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1409,6 +1418,7 @@ dependencies = [
     { name = "extra-platforms" },
     { name = "packaging" },
     { name = "py-walk" },
+    { name = "pyelftools" },
     { name = "pyproject-metadata" },
     { name = "pyyaml" },
     { name = "tomlrt" },
@@ -1453,6 +1463,7 @@ requires-dist = [
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=17" },
     { name = "py-walk", specifier = ">=0.3.1" },
+    { name = "pyelftools", specifier = ">=0.33" },
     { name = "pyproject-metadata", specifier = ">=0.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "tomlrt", specifier = ">=1.7.6" },

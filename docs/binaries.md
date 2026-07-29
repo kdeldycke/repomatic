@@ -8,6 +8,21 @@ All standalone executables published by this repository, one row per binary, new
 
 Compiled Python binaries are regularly flagged by heuristic antivirus engines, so every release is submitted to [VirusTotal](https://www.virustotal.com/): this seeds vendor databases with the new signatures and keeps false positives in check. The VirusTotal cell tracks those false positives: a green check marks binaries no engine flags, and flagged binaries show the share of engine verdicts flagging them, snapshotted minutes after publication and before false-positive reports get processed. The live analysis behind the link supersedes it.
 
+## Minimum OS requirements
+
+Binaries are dynamically linked against the C runtime of the environment they are compiled in, so each target carries a minimum OS requirement. Linux builds run inside `manylinux_2_28` containers and macOS builds pin their deployment target, which keeps these floors stable across runner image upgrades. Every build measures the floors it actually links against (with `repomatic verify-binary`) and fails if they exceed the values below:
+
+| Target          | Floor                | Opens execution to                                                                                                                                         |
+| --------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `linux-x64`     | glibc `2.28`         | RHEL, AlmaLinux and Rocky Linux 8 and later, Debian 10, Ubuntu 20.04, openSUSE Leap 15.3 and SLES 15 SP3, Fedora 29, Amazon Linux 2023, and anything newer |
+| `linux-arm64`   | glibc `2.28`         | The same distributions, on 64-bit ARM                                                                                                                      |
+| `macos-arm64`   | macOS 11 Big Sur     | Every Apple-silicon Mac                                                                                                                                    |
+| `macos-x64`     | macOS 10.15 Catalina | Intel Macs                                                                                                                                                 |
+| `windows-x64`   | Windows 10           | The floor of CPython itself on x64                                                                                                                         |
+| `windows-arm64` | Windows 11           | ARM PCs                                                                                                                                                    |
+
+Systems below these floors (CentOS and RHEL 7 with glibc `2.17`, Ubuntu 18.04 with `2.27`, Amazon Linux 2 with `2.26`) and musl-based distributions like Alpine are not covered by the pre-built binaries. Install the package with [`uv`](https://docs.astral.sh/uv/) instead: `uv tool install <package>` works down to glibc `2.17`, on musl, and without any system Python.
+
 ## Development builds
 
 Fresh binaries are compiled from every push to the default branch by the [release workflow](https://github.com/kdeldycke/repomatic/actions/workflows/release.yaml). To try the latest development build: open the most recent successful run and download the artifact matching your platform (a GitHub account is required, and the binary comes wrapped in a zip). The same builds are also attached to a rolling dev pre-release, a draft only visible to repository maintainers.
