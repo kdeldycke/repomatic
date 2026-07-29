@@ -2368,6 +2368,28 @@ nonexistent-option = true
     assert "Unknown configuration option(s): nonexistent_option" in caplog.text
 
 
+def test_load_repomatic_config_warns_unknown_keys_once(tmp_path, monkeypatch, caplog):
+    """Re-loading the same project reports its unknown keys only once.
+
+    Every helper needing a setting re-loads the config, so without the
+    per-project dedup a single stale key floods each invocation's output.
+    """
+    pyproject_content = """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[tool.repomatic]
+nonexistent-option = true
+"""
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    load_repomatic_config()
+    load_repomatic_config()
+    assert caplog.text.count("Unknown configuration option(s)") == 1
+
+
 def test_config_reference():
     """Config reference table covers all Config fields with descriptions."""
     rows = config_reference()

@@ -291,8 +291,9 @@ def _run_uv_audit(lock_path: Path) -> list[VulnerablePackage]:
         directory).
     :return: A list of {class}`VulnerablePackage` entries detected by
         `uv audit`. Empty when no vulnerabilities are found.
-    :raises RuntimeError: when `uv` is older than the minimum, or its JSON
-        output is unparsable.
+    :raises RuntimeError: when `uv` is older than the minimum, when it exits
+        without emitting JSON (its stderr is surfaced as the cause), or when
+        its JSON output is unparsable.
     """
     version = _uv_version()
     if version < MIN_UV_AUDIT_JSON_VERSION:
@@ -315,6 +316,17 @@ def _run_uv_audit(lock_path: Path) -> list[VulnerablePackage]:
         check=False,
         cwd=lock_path.parent,
     )
+    # An empty stdout means uv died before emitting JSON (a `required-version`
+    # mismatch, an unknown flag), not that the audit found nothing: its stderr
+    # carries the actual cause, which the JSON parser cannot see. The exit
+    # code cannot discriminate here since `uv audit` also exits non-zero when
+    # it does find vulnerabilities.
+    if not result.stdout.strip():
+        stderr = result.stderr.strip()
+        raise RuntimeError(
+            "`uv audit --output-format json` produced no output"
+            + (f":\n{stderr}" if stderr else " and no stderr.")
+        )
     return parse_uv_audit_json(result.stdout)
 
 

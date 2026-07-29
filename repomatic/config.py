@@ -24,6 +24,7 @@ Defines the `Config` dataclass, its TOML serialization helpers, and the
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from textwrap import dedent
 
 from click_extra import (
@@ -996,6 +997,15 @@ def config_reference() -> list[tuple[str, str, str, str]]:
     ]
 
 
+_UNKNOWN_KEYS_WARNED: set[Path] = set()
+"""Projects whose unknown `[tool.repomatic]` keys were already reported.
+
+Every helper needing a setting (cache TTLs, tool cooldowns) re-loads the
+config, so a single stale key would otherwise be re-warned on each call,
+drowning one actionable line in a dozen duplicates per invocation.
+"""
+
+
 def load_repomatic_config(
     pyproject_data: dict[str, Any] | None = None,
 ) -> Config:
@@ -1008,8 +1018,14 @@ def load_repomatic_config(
     :param pyproject_data: Pre-parsed `pyproject.toml` dict. If `None`,
         reads and parses `pyproject.toml` from the current working directory.
     """
+    warn_unknown = True
     if pyproject_data is None:
         pyproject_data = read_pyproject_toml()
+        # Warn about unknown keys once per project and process: the cwd read
+        # makes the resolved pyproject.toml path the project's identity.
+        pyproject_path = Path("pyproject.toml").resolve()
+        warn_unknown = pyproject_path not in _UNKNOWN_KEYS_WARNED
+        _UNKNOWN_KEYS_WARNED.add(pyproject_path)
 
     tool_section = pyproject_data.get("tool", {})
     user_config: dict[str, Any] = tool_section.get("repomatic", {})
@@ -1017,7 +1033,9 @@ def load_repomatic_config(
     # The [tool.repomatic] section is schema-only (the CLI group runs with
     # included_params=()), so warn_unknown flags any key the schema does not
     # know as a typo, nested tables included.
-    schema_callable = make_schema_callable(Config, strict=False, warn_unknown=True)
+    schema_callable = make_schema_callable(
+        Config, strict=False, warn_unknown=warn_unknown
+    )
     assert schema_callable is not None
     config: Config = schema_callable(user_config)
     return config

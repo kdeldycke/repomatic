@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Grep, Glob, Skill, Agent
 ## Context
 
 !`grep -m1 'version' pyproject.toml 2>/dev/null`
-!`head -8 changelog.md 2>/dev/null`
+!`awk '/^## \[/{n++} n==2{exit} {print}' changelog.md 2>/dev/null`
 !`git tag --sort=-v:refname | head -3 2>/dev/null`
 !`git log --oneline -25 2>/dev/null`
 !`git status --short 2>/dev/null`
@@ -131,7 +131,7 @@ Spawn a **foreground `Agent` on the `sonnet` model** to run `/babysit-ci` to com
 
 - **The loop condition, verbatim**: "re-poll after each push; do not return after a push without re-polling". The turn ends only when every monitored workflow on the latest `main` HEAD has `conclusion: success` (or `skipped` for benign reasons), or on a real blocker it cannot resolve. Terser phrasings get misread as "report after first fix", and the agent returns while the slow jobs still build, doubling wall-clock when you re-spawn it.
 - **The poll cadence**: every poll loop sleeps at least 45-60 seconds between iterations, with the `sleep` inside the loop command. Zero-delay spins exhaust the shared REST quota (5,000 requests/hour) in minutes, and the exhaustion resurfaces as PAT-permission-shaped workflow failures and `prepare-release` hangs (see babysit's § GitHub API rate-limit exhaustion).
-- **Poll in-process; never detach a monitor**: the poll loop must block inside the agent's turn (a foreground loop or `gh run watch`), never a `run_in_background` poller the agent idles on awaiting notification. Babysit itself forbids detached monitors, but a spawn prompt with an "as a background task" aside overrides that, and the agent follows the prompt: a failure landing in the idle window then goes unhandled.
+- **Poll in-process; never detach a monitor**: the poll loop must block inside the agent's turn (a foreground loop or `gh run watch`), never a `run_in_background` Bash poller or a `Monitor`-tool stream the agent idles on awaiting notification. Name the `Monitor` tool in the prohibition: an agent told only "no background poller" does not classify `Monitor` as one, reaches for it, and idles mid-watch. Babysit itself forbids detached monitors, but a spawn prompt with an "as a background task" aside overrides that, and the agent follows the prompt: a failure landing in the idle window then goes unhandled.
 - **Interim status pings**: a message at startup (local gate result, which runs it watches) and on every state change (fix pushed, workflow landed, re-run triggered), not only at the end. A silent babysitter is indistinguishable from a dead one.
 
 **Treat its return as a claim, not proof.** Even with the verbatim prompt it can stop early (the long Nuitka wait is where it gives up). Re-poll `gh run list --branch main` yourself and read each monitored workflow's conclusion; anything still `queued`/`in_progress` or non-green means it stopped early: take over the loop inline rather than re-spawning it into the same idle. On takeover:

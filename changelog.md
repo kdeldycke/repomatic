@@ -11,7 +11,11 @@
 - Enforce each binary's OS floor at build time: `verify-binary` parses ELF, Mach-O and PE headers natively and no longer needs exiftool.
 - Direct the `babysit-ci` skill to announce its early exit and name the still-unverified `release.yaml` binary run, instead of stopping on a silent idle.
 - Direct the `repomatic-ship` docs pass to align every description of a convention when correcting one, not just the flagged instance.
+- Name the `Monitor` tool among the detached pollers the `repomatic-ship` babysitter prompt forbids, closing the idle-mid-watch loophole.
+- Show `repomatic-ship` the whole unreleased changelog section at invocation instead of the first eight lines.
 - Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
+- Warn about unknown `[tool.repomatic]` keys once per project and process, instead of on every configuration re-load.
+- Surface `uv audit`'s stderr when it exits without emitting JSON, replacing the bare `produced no output` error.
 - Accept `sur` (macOS Big Sur, Homebrew's `big_sur` bottle tag) as a valid word in the bundled typos configuration, so `fix-typos` stops correcting it to `sure`.
 - Document the minimum OS requirement of each binary target, and the distributions it opens execution to, in a new [Minimum OS requirements](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements) section that downstream binaries pages link to.
 
