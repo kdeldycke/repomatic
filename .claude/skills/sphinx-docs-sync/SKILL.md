@@ -1,6 +1,6 @@
 ---
 name: sphinx-docs-sync
-description: Two-way comparison and synchronization of Sphinx documentation across sibling projects. Discovers discrepancies in conf.py, install.md, index.md toctree, pyproject.toml docs dependencies, extra-deps sections, readme badges, and static assets. Use when you want to align documentation structure, catch stale dependencies, or push improvements across your Sphinx-enabled repositories.
+description: Two-way comparison and synchronization of Sphinx documentation against the upstream `kdeldycke/repomatic` reference (the default in downstream repos) or across sibling projects. Discovers discrepancies in conf.py, install.md, index.md toctree, pyproject.toml docs dependencies, extra-deps sections, readme badges, and static assets. Use when you want to align documentation structure, catch stale dependencies, or push improvements across your Sphinx-enabled repositories.
 model: sonnet
 disable-model-invocation: true
 allowed-tools: Bash, Read, Grep, Glob, Agent
@@ -9,23 +9,29 @@ argument-hint: '[path-or-github-url ...]'
 
 ## Context
 
+!`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
 !`[ -d docs ] && echo "docs/ exists" || echo "No docs/ directory"`
 !`[ -f docs/conf.py ] && head -5 docs/conf.py || echo "No docs/conf.py"`
 !`ls ../*/docs/conf.py 2>/dev/null | head -20 || echo "No sibling projects with docs/conf.py"`
 
 ## Instructions
 
-You audit Sphinx documentation consistency across sibling projects. Find discrepancies in both directions: improvements this project can borrow from siblings, and improvements this project can push to siblings.
+You audit Sphinx documentation consistency against a reference: the upstream `kdeldycke/repomatic` canonical docs when run in a downstream repo, or sibling projects when run inside the canonical repo (see § Discover projects for how the reference is chosen). Find discrepancies in both directions: improvements this project can borrow from the reference, and improvements it can push back.
 
 **This skill is the procedure layer; the rule layer is `.claude/agents/sphinx-docs.md`.** It carries the canonical conventions: `{click:run}` directives, recipes for `configuration.md`/`cli.md`/`install.md`, the standard page roster, `conf.py` hygiene, MyST/admonition rules, high-frequency lapses. When a discrepancy maps to a rule, cite the agent section so the user reads the rationale alongside the proposed change. When you find a pattern not yet codified, propose adding it to the agent rather than fixing it in each repo independently.
 
 ### Discover projects
 
-If `$ARGUMENTS` are provided, each argument is a local directory path or a GitHub repository URL (`https://github.com/owner/repo` or `owner/repo`). For GitHub URLs, clone into a tmpdir with `gh repo clone`. Otherwise, scan the parent directory of the cwd for projects with a `docs/conf.py`.
+If `$ARGUMENTS` are provided, each argument is a local directory path or a GitHub repository URL (`https://github.com/owner/repo` or `owner/repo`). For GitHub URLs, clone into a tmpdir with `gh repo clone`.
 
-Filter out forks: check `git remote get-url origin` and skip projects whose upstream repo name doesn't match the directory name (a local `click/` pointing to a fork of `pallets/click`). Focus on the user's own projects.
+When no `$ARGUMENTS` are given, the default reference depends on which repo you are in (the `## Context` block reports `CANONICAL_REPO` or `DOWNSTREAM`):
 
-List the discovered projects and confirm with the user before proceeding.
+- **`DOWNSTREAM`**: compare this project's `docs/` against the canonical `kdeldycke/repomatic` reference, cloned into a tmpdir with `gh repo clone kdeldycke/repomatic`. This is the "align me with the source of truth" default, mirroring how `/repomatic-audit` treats workflows and configs.
+- **`CANONICAL_REPO`** (you are inside `kdeldycke/repomatic`): comparing against `kdeldycke/repomatic` would diff the repo against itself, so scan the parent directory of the cwd for sibling projects with a `docs/conf.py` and push conventions outward to them instead.
+
+When scanning siblings, filter out forks: check `git remote get-url origin` and skip projects whose upstream repo name doesn't match the directory name (a local `click/` pointing to a fork of `pallets/click`). Focus on the user's own projects.
+
+List the discovered projects (or the chosen reference) and confirm with the user before proceeding.
 
 ### Collect documentation inventory
 
