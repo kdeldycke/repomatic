@@ -1,4 +1,4 @@
-# {octicon}`tools` Upstream development
+# {octicon}`gear` Upstream development
 
 This page collects rules that apply only when working inside the `kdeldycke/repomatic` source repository itself. Repos that *use* the `repomatic` CLI through reusable workflows do not need to follow these rules.
 

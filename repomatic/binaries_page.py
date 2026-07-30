@@ -96,10 +96,16 @@ warning tint; from one engine in ten upward, the release deserves a
 false-positive submission round (see the `/av-false-positive` skill).
 """
 
-PAGE_END_MARKER = "<!-- binaries-end -->"
+LEGACY_PAGE_END_MARKER = "<!-- binaries-end -->"
+"""Pre-rename closing marker, migrated to {data}`PAGE_END_MARKER` on first touch."""
+
+LEGACY_PAGE_START_MARKER = "<!-- binaries-start -->"
+"""Pre-rename opening marker, migrated to {data}`PAGE_START_MARKER` on first touch."""
+
+PAGE_END_MARKER = "<!-- binaries-chart-end -->"
 """Closing marker of the generated chart region in the binaries page."""
 
-PAGE_START_MARKER = "<!-- binaries-start -->"
+PAGE_START_MARKER = "<!-- binaries-chart-start -->"
 """Opening marker of the generated chart region in the binaries page."""
 
 PAGE_TEMPLATE = """\
@@ -119,9 +125,9 @@ Compiled Python binaries are regularly flagged by heuristic antivirus engines, s
 
 Fresh binaries are compiled from every push to the default branch by the [release workflow]({repo_url}/actions/workflows/release.yaml). To try the latest development build: open the most recent successful run and download the artifact matching your platform (a GitHub account is required, and the binary comes wrapped in a zip). The same builds are also attached to a rolling dev pre-release, a draft only visible to repository maintainers.
 
-<!-- binaries-start -->
+<!-- binaries-chart-start -->
 
-<!-- binaries-end -->
+<!-- binaries-chart-end -->
 
 ## Catalog
 
@@ -430,7 +436,9 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
     A missing page is created (with parent directories) from
     {data}`PAGE_TEMPLATE`. On an existing page only the region between
     {data}`PAGE_START_MARKER` and {data}`PAGE_END_MARKER` is replaced,
-    leaving all surrounding prose untouched.
+    leaving all surrounding prose untouched. Pages carrying the pre-rename
+    {data}`LEGACY_PAGE_START_MARKER` / {data}`LEGACY_PAGE_END_MARKER` pair
+    are migrated to the current markers in the same pass.
 
     :param page_path: Path to the Markdown page.
     :param chart_section: Rendered chart from {func}`render_chart_section`,
@@ -445,12 +453,15 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
     original = None
     if page_path.exists():
         original = page_path.read_text(encoding="UTF-8")
-        if PAGE_START_MARKER not in original or PAGE_END_MARKER not in original:
+        # Migrate pages generated before the marker rename.
+        text = original.replace(LEGACY_PAGE_START_MARKER, PAGE_START_MARKER).replace(
+            LEGACY_PAGE_END_MARKER, PAGE_END_MARKER
+        )
+        if PAGE_START_MARKER not in text or PAGE_END_MARKER not in text:
             raise ValueError(
                 f"{page_path} lacks the {PAGE_START_MARKER} / {PAGE_END_MARKER} "
                 "markers, refusing to overwrite it."
             )
-        text = original
     else:
         text = PAGE_TEMPLATE.replace("{repo_url}", f"https://github.com/{repo_slug}")
 

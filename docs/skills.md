@@ -1,4 +1,4 @@
-# {octicon}`dependabot` Claude Code skills
+# {octicon}`mortar-board` Claude Code skills
 
 This repository includes [Claude Code skills](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/skills) that bring `repomatic` workflows into Claude Code as slash commands. Downstream repositories can install them with:
 

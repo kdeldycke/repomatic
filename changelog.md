@@ -21,6 +21,8 @@
 - Accept `sur` (macOS Big Sur, Homebrew's `big_sur` bottle tag) as a valid word in the bundled typos configuration, so `fix-typos` stops correcting it to `sure`.
 - Extend the bundled lychee configuration with generic excludes: GitHub issue-comment fragments, release binary downloads, and DOI-to-Zenodo redirects.
 - Document the minimum OS requirement of each binary target, and the distributions it opens execution to, in a new [Minimum OS requirements](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements) section that downstream binaries pages link to.
+- Rename the binaries page chart markers to `binaries-chart-start`/`binaries-chart-end`; pages carrying the old bare markers are migrated on their next refresh.
+- Fix the click-extra `{matrix}` directive link on the installation page, and realign page octicons with the `sphinx-docs` agent's extended icon registry.
 
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 

@@ -1,4 +1,4 @@
-# {octicon}`person` Claude Code agents
+# {octicon}`dependabot` Claude Code agents
 
 This repository includes [Claude Code subagents](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/sub-agents) that run quality assurance checks against the repository. Unlike skills (which are user-invoked slash commands), agents are auto-invoked by Claude based on their `description:` frontmatter when the current task matches their role.
 
