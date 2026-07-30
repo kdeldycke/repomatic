@@ -40,6 +40,8 @@ invoke({cli}, args=["sub-command", "--help"])
 ```
 ````
 
+`mdformat` collapses the blank line between `:hide-source:` and the body on every pass, logging a cosmetic "Invalid YAML in MyST directive options" warning as it goes. The collapsed form parses identically, so don't fight the reformatter over it.
+
 Pattern to copy (single-block document):
 
 ````markdown
@@ -476,6 +478,11 @@ Mechanical safeguards:
 - A canary test asserting the `{click:config}` block is present in the page. Option coverage is by construction; only the directive's removal needs guarding.
 - Sphinx fails the build if the CLI module won't import or no `config_schema` is wired.
 
+Two scoping notes:
+
+- `{click:config}` documents the `config_schema` dataclass only. Config surface handled outside the schema — extension-point dicts, validator-backed sub-keys like click-extra's `[tool.<cli>.themes.<name>]` tables — renders nowhere; give it hand-written sections next to the directive so the page stays the complete reference.
+- When the schema is thin (a handful of options), skip the standalone `configuration.md`: fold the `{click:config}` block into `cli.md` as a closing `## Configuration` section. click-extra does this (4 options, and a separate `configuration.md` would sit one keystroke from its `config.md` feature page). Rendering the same schema on several pages is safe: the generated anchors are per-page heading ids, not global labels (click-extra renders it on `cli.md` and again as `sphinx.md`'s directive demo).
+
 ### `cli.md`: CLI reference rendered live
 
 The whole reference is one directive walking the live command tree at build time:
@@ -543,7 +550,7 @@ Sync rules:
 - Re-check the Repology page on every release. New distros get a new tab; dropped distros get the tab removed.
 - The Python compatibility matrix is auto-generated; never hand-edit it.
 - Version-number references in download URLs must use `releases/latest/download/...`, not pinned tags. Hand-pinned versions in install.md were a long-running source of doc drift.
-- The Try it tab-set's `Specific version` tab does carry a pinned version as an example — that's intentional (it teaches the syntax). Bump it on each release as part of `prepare-release`.
+- The Try it tab-set's `Specific version` tab does carry a pinned version as an example — that's intentional (it teaches the syntax). From repomatic `v7.4.0` on, the prepare-release freeze step bumps it automatically (`freeze_install_cli_version` rewrites `{package}@X.Y.Z` and `{package}==X.Y.Z` pins in `docs/install.md`); hand-bumping is only needed on repos pinned to older release engines.
 
 ## Standard page roster
 
@@ -598,7 +605,7 @@ Page-shape rules that apply across the roster:
   | `cli.md`                  | `command-palette`      |
   | `code-of-conduct.md`      | `code-of-conduct`      |
   | `colorize.md`             | `paintbrush`           |
-  | `commands.md`             | `command-palette`      |
+  | `commands.md`             | `apps`                 |
   | `config.md`               | `sliders`              |
   | `configuration.md`        | `sliders`              |
   | `context.md`              | `database`             |
@@ -714,7 +721,7 @@ Linkcheck and intersphinx:
   | Client-side fragments | `github.com/.../runner-images#...`, `github.com/.../README#...`                             | `# Fragment anchors rendered client-side.` (prefer `linkcheck_anchors_ignore_for_url` when possible). |
   | CI flakiness          | `gnu.org`, `midnightbsd.org`                                                                | `# Intermittently unreachable from CI.`                                                               |
 
-- `intersphinx_mapping` should cover every external project the docs cross-reference. Use `{role}` cross-refs in prose instead of bare URLs so a project move shows up as a build error, not a silent 404 in the rendered HTML.
+- `intersphinx_mapping` should cover every external project the docs cross-reference. Use `{role}` cross-refs in prose instead of bare URLs so a project move shows up as a build error, not a silent 404 in the rendered HTML. Before adding a mapping, probe the inventory with `curl -sI {base-url}/objects.inv`: a 429/403 carrying `cf-mitigated: challenge` (Cloudflare's bot gate, seen on cloup's Read the Docs) means Sphinx's fetcher can never retrieve it and the mapping would break every CI build. Blanket the unreachable project's refs in `nitpick_ignore_regex` with a dated comment instead.
 
 Strictness flags:
 
@@ -802,6 +809,7 @@ Watch for these every pass:
 - Auto-region markers using bare `<!-- start -->` / `<!-- end -->` instead of named `<!-- {feature}-{kind}-start -->`. Migrate on first touch; the regenerator must be updated in the same commit.
 - Two pages on the same project using different octicons for the same concept (e.g., one page uses `book` for documentation, another uses `pencil`). Pick from the canonical registry in § Standard page roster › Title octicons; if none fit, add to the table.
 - `{click:run}` block whose `result.output` is missing ANSI codes despite the example being about colored output. `runner.invoke(color=True)` controls Click's TTY emulation, but click-extra's `--color/--no-color` callback re-evaluates from the env-var family (`NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, …) and overrides the runner's flag. The reliable fix is to pass `env={"FORCE_COLOR": "1"}` to the invocation: `result = invoke(cli, args=[...], env={"FORCE_COLOR": "1"})`. Symptom in the rendered HTML: a code block with `<span class="gp">$ </span>` for the prompt and plain unstyled text for everything else, no `-Ansi-*` classes anywhere in the output region.
+- A `{click:run}` block invoking `--version`. Under the directive runner, click-extra's version option resolves the owning package by frame inspection, walks into Sphinx's own frames, and prints Sphinx's version wearing the CLI's name ("Click Extra, version 9.1.0" while the package sat at `8.7.0.dev0`). Keep version examples as command-only `shell-session` blocks; `--help` renders are unaffected because help text does no package detection.
 - Sphinx auto-anchor slugs strip leading digits. `## 256-color palette swatch` → `#color-palette-swatch`, `## 24-bit true color` → `#bit-true-color`. Plan link targets accordingly: when writing `[text](#anchor)` cross-refs, derive the anchor from the heading minus any leading digits, or add an explicit `(canonical-anchor)=` directly above the heading.
 - Hand-typed expected output paired with a static `code-block` source. Even when the captured value was correct on the day it was written, library updates (Pygments token names, CLI option additions, formatter CSS reorderings) silently drift the real output away from the documented one. Convert to `{python:run :show-source:}` (or `{click:run :show-source:}`) so the result block is captured live at build time. The pattern with the highest drift risk: a `print(...)` source block followed by a hand-typed result block of the same shape. Replace both with one dynamic block.
 - `assert` lines bound to `result` that hand-type the expected output verbatim. The block does dual-duty as docs + regression test, but the hand-typed assertion drifts in lock-step with whatever it's checking. Prefer substring or prefix assertions over exact-match for anything longer than a single line, and reserve `==` for `--version`-shaped one-shot strings (see § Anchor docs with assertions).
