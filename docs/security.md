@@ -1,4 +1,4 @@
-# {octicon}`shield-check` Security
+# {octicon}`shield-lock` Security
 
 ## Supply chain security
 

@@ -9,7 +9,6 @@ hide-toc: true
 :maxdepth: 2
 :hidden:
 install
-binaries
 cli
 configuration
 dependencies
@@ -34,6 +33,7 @@ upstream-development
 operation-contracts
 API <repomatic>
 tests
+binaries
 genindex
 modindex
 changelog

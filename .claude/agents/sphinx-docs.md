@@ -328,7 +328,7 @@ click_extra_enable_exec_directives = True
 Choices that are project-specific:
 
 - **`click_extra.sphinx.myst_docstrings`** — only when the project authors docstrings in MyST. Skip on projects still on reST (some sibling repos run `click_extra.sphinx` without the MyST docstring extension).
-- **`sphinx_click` vs `click_extra.sphinx`** — `click_extra.sphinx` provides the `{click:run}`/`{click:source}` directives this lineage uses for live CLI rendering. `sphinx_click` provides the `.. click::` autodoc-style directive for sub-command tree generation. They serve different output shapes and can coexist (e.g., `meta-package-manager` uses both: `sphinx_click` for the auto-generated tree, `click_extra.sphinx` for invocation rendering). Default to `click_extra.sphinx` only; add `sphinx_click` when the project needs an auto-generated command tree.
+- **`sphinx_click` vs `click_extra.sphinx`** — `click_extra.sphinx` provides the `{click:run}`/`{click:source}` directives this lineage uses for live CLI rendering, plus `{click:tree}` for whole-command-tree generation (see § Recipes › `cli.md`). `sphinx_click`'s `.. click::` autodoc-style directive produces a similar tree by a different route. Prefer `{click:tree}`: `meta-package-manager` dropped `sphinx_click` for it (its `extensions` no longer lists `sphinx_click`, and `docs/cli-parameters.md` renders the tree with `{click:tree} mpm`), so default to `click_extra.sphinx` only and reach for `sphinx_click` only if a project needs its specific `.. click::` output.
 - **`sphinxcontrib.mermaid`** — pair with `myst_fence_as_directive = ["mermaid"]` so authors write ```` ```mermaid ```` (without curly braces) and the directive still fires. Reference comment for `conf.py`: `# Allow plain mermaid fences (without curly braces), see <https://github.com/mgaitan/sphinxcontrib-mermaid/issues/99#issuecomment-2339587001>`. Keep `mermaid_d3_zoom = True` so dependency-graph diagrams remain navigable.
 - **`sphinxcontrib.jquery` + `sphinx_datatables`** — only for projects shipping the binaries catalog (a `binaries.md` page rendering `assets/binaries.csv` as a searchable, sortable `sphinx-datatable`). jQuery must be listed explicitly: sphinx-datatables only activates it from a `html-page-context` callback, too late for the `jquery.js` static file to be registered and copied, leaving `$` undefined at runtime. Pair with the shared `datatables_options` raw-JS block (empty `order` preserving the CSV's newest-first rows, 25-row pages, a relative-time hint appended to the Released column at display time) that click-extra and repomatic both carry verbatim.
 - **`sphinx_issues`** — **don't adopt**. The extension's `:issue:`/`:pr:`/`:user:`/`:commit:` roles only render inside Sphinx, so the same source files (changelogs, docstrings, comments) display as raw `` :issue:`1234` `` text everywhere else: GitHub's markdown viewer in the repo browser, IDE previews, `pip show`, the PyPI long-description page, downstream tooling reading the changelog. Replace these roles with explicit GitHub URLs that work in every renderer and keep the changelog identically readable on GitHub and on the docs site. See § Migrating off `sphinx_issues`.
@@ -561,16 +561,15 @@ A Sphinx site for a CLI/library project should converge on a predictable page se
 Primary toctree (user-facing), in this order:
 
 1. `install` — § Recipes › `install.md`. Always first.
-2. `binaries` — Standalone-executables catalog written by the repomatic binaries pipeline. Only for projects compiling Nuitka binaries.
-3. `cli` — § Recipes › `cli.md`. CLIs only.
-4. `configuration` — § Recipes › `configuration.md`. Projects with `[tool.X]` schema.
-5. `dependencies` — Dependency policy page (version-specifier rules, floor-comment conventions, audit procedures). The project's own dependency graph does not get a page of its own: it lives in `install.md`'s `## Dependencies` section (see § Recipes › `install.md`, step 8).
-6. `tool-runner` — Only when the project ships a `repomatic run`-style tool runner.
-7. `workflows` — Only when the project publishes reusable workflows.
-8. `test-matrix` — Only when the project documents its CI test-matrix composition.
-9. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
-10. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
-11. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
+2. `cli` — § Recipes › `cli.md`. CLIs only.
+3. `configuration` — § Recipes › `configuration.md`. Projects with `[tool.X]` schema.
+4. `dependencies` — Dependency policy page (version-specifier rules, floor-comment conventions, audit procedures). The project's own dependency graph does not get a page of its own: it lives in `install.md`'s `## Dependencies` section (see § Recipes › `install.md`, step 8).
+5. `tool-runner` — Only when the project ships a `repomatic run`-style tool runner.
+6. `workflows` — Only when the project publishes reusable workflows.
+7. `test-matrix` — Only when the project documents its CI test-matrix composition.
+8. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
+9. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
+10. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
 
 Development toctree, in this order:
 
@@ -578,13 +577,14 @@ Development toctree, in this order:
 2. `upstream-development` — Project-internal release process. Mark `(upstream maintainers only)` in the page heading so readers know this is not for consumers.
 3. `operation-contracts` — Optional, for projects with formal automated-operation contracts.
 4. `API <{package}>`, `tests` — Autodoc API pages: the `API <...>` entry aliases the package's root autodoc page, `tests` covers the test-suite package. Both keep plain octicon-free headings (see Title octicons below).
-5. `genindex`, `modindex` — Sphinx-generated index and module index.
-6. `changelog` — Reference the root changelog via `{include} ../changelog.md` so the file stays single-sourced.
-7. `changelog-archive` — Only when `[tool.repomatic] changelog.archive-location` points into `docs/`.
-8. `todolist` — `sphinx.ext.todo` output. Drop this entry when the project has no TODOs.
-9. `code-of-conduct`, `license` — `{include}` from root files; never duplicate the text.
-10. `GitHub repository <https://...>` — External link as the last entry.
-11. `Funding <https://github.com/sponsors/...>` — External link if the project accepts funding.
+5. `binaries` — Standalone-executables catalog written by the repomatic binaries pipeline. Only for projects compiling Nuitka binaries; a maintainer-facing reference, so it belongs here rather than in the primary toctree (end users reach the same downloads through `install.md`'s `## Executables` section).
+6. `genindex`, `modindex` — Sphinx-generated index and module index.
+7. `changelog` — Reference the root changelog via `{include} ../changelog.md` so the file stays single-sourced.
+8. `changelog-archive` — Only when `[tool.repomatic] changelog.archive-location` points into `docs/`.
+9. `todolist` — `sphinx.ext.todo` output. Drop this entry when the project has no TODOs.
+10. `code-of-conduct`, `license` — `{include}` from root files; never duplicate the text.
+11. `GitHub repository <https://...>` — External link as the last entry.
+12. `Funding <https://github.com/sponsors/...>` — External link if the project accepts funding.
 
 Page-shape rules that apply across the roster:
 
@@ -594,6 +594,8 @@ Page-shape rules that apply across the roster:
 
   | Page                      | Octicon                |
   | :------------------------ | :--------------------- |
+  | `add-new-manager.md`      | `diff-added`           |
+  | `add-packaging-channel.md`| `git-merge`            |
   | `agents.md`               | `dependabot`           |
   | `architectures.md`        | `cpu`                  |
   | `benchmark.md`            | `trophy`               |
@@ -615,7 +617,7 @@ Page-shape rules that apply across the roster:
   | `detection.md`            | `pulse`                |
   | `envvar.md`               | `pin`                  |
   | `execution.md`            | `play`                 |
-  | `falsehoods.md`           | `unverified`           |
+  | `falsehoods.md`           | `copilot-warning`      |
   | `groups.md`               | `apps`                 |
   | `history.md`              | `log`                  |
   | `install.md`              | `download`             |
@@ -632,7 +634,7 @@ Page-shape rules that apply across the roster:
   | `pytest.md`               | `meter`                |
   | `releasing.md`            | `rocket`               |
   | `screenshots.md`          | `device-camera`        |
-  | `security.md`             | `shield-check`         |
+  | `security.md`             | `shield-lock`          |
   | `shells.md`               | `chevron-right`        |
   | `skills.md`               | `mortar-board`         |
   | `sphinx.md`               | `book`                 |
@@ -659,7 +661,7 @@ Page-shape rules that apply across the roster:
   | `workflows.md`            | `workflow`             |
   | `wrap.md`                 | `terminal`             |
 
-  When introducing a page that's not in the table, pick the closest [GitHub Octicon](https://primer.style/foundations/icons) and add the entry here so the next repo follows suit. Icons must be unique within a repo — two pages sharing an icon defeats the visual-anchor purpose. Across repos, reuse is acceptable when the concepts are related (`sliders` for anything configuration-shaped, `chevron-right` for anything shell-shaped); at fleet scale some reuse is inevitable. Auto-generated API pages (`<package>.md`, `tests.md`, and other autodoc module pages) keep plain octicon-free headings, with the package name in backticked form (like `` # `click_extra` package ``): their sidebar icons come from the `custom.css` toctree workaround instead.
+  When introducing a page that's not in the table, pick the closest [GitHub Octicon](https://primer.style/foundations/icons) and add the entry here so the next repo follows suit. Icons must be unique within a repo — two pages sharing an icon defeats the visual-anchor purpose. A generated, homogeneous page catalog is exempt: meta-package-manager's `docs/managers/<id>.md` stubs (one per supported manager) all share a single category icon (`package`) as a group marker and sit under their own `{toctree}`, not competing for sidebar anchoring, so the uniqueness rule governs the hand-authored roster, not such catalogs. Across repos, reuse is acceptable when the concepts are related (`sliders` for anything configuration-shaped, `chevron-right` for anything shell-shaped); at fleet scale some reuse is inevitable. Auto-generated API pages (`<package>.md`, `tests.md`, and other autodoc module pages) keep plain octicon-free headings, with the package name in backticked form (like `` # `click_extra` package ``): their sidebar icons come from the `custom.css` toctree workaround instead.
 
 - **Sentence case in titles.** "Repository conventions", not "Repository Conventions" (per `CLAUDE.md` § Code style).
 
