@@ -24,6 +24,7 @@
 - Rename the binaries page chart markers to `binaries-chart-start`/`binaries-chart-end`; pages carrying the old bare markers are migrated on their next refresh.
 - Fix the click-extra `{matrix}` directive link on the installation page, and realign page octicons with the `sphinx-docs` agent's extended icon registry.
 - Document how to verify a downloaded binary's build-provenance attestation with `gh attestation verify` on the installation page.
+- Add `update-docs --check` to report out-of-date self-updating content and exit non-zero without writing, for CI drift detection. The docs update script must accept its own `--check` flag to participate.
 
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 

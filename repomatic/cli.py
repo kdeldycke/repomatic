@@ -1779,7 +1779,14 @@ def deps_graph(
     short_help="Regenerate Sphinx API docs and dynamic content",
     section=_section_setup,
 )
-def update_docs() -> None:
+@option(
+    "--check",
+    is_flag=True,
+    default=False,
+    help="Report out-of-date self-updating content and exit non-zero, without "
+    "writing anything. For CI drift detection.",
+)
+def update_docs(check: bool) -> None:
     """Regenerate Sphinx autodoc stubs and run the project's update script.
 
     Orchestrates four phases:
@@ -1793,9 +1800,13 @@ def update_docs() -> None:
        `python:render` `:mirror:` regions) found in `docs/` pages and
        `readme.md`, via `click-extra refresh-directives`.
 
+    With ``--check``, phases 1-2 are skipped and phases 3-4 run in their own
+    check modes to report drift without writing (the update script must accept
+    a ``--check`` flag to participate).
+
     Configuration is read from `[tool.repomatic]` in `pyproject.toml`.
     """
-    _update_docs(get_tool_config())
+    _update_docs(get_tool_config(), check=check)
 
 
 @repomatic.command(

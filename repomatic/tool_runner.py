@@ -1406,6 +1406,14 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
 
             mypy runs inside the project virtualenv (via `uv run`) so it can import your dependencies. repomatic derives `--python-version` from `requires-python`, so the check matches your lowest supported interpreter.
+
+            `uv run` provisions only the default dependency groups, so a module that imports a dep declared solely in a non-default group (`docs`, `typing`, …) sees it as missing and mypy reports `import-not-found`. Either move the stub/dependency somewhere mypy resolves, or silence it with an override:
+
+            ```toml
+            [[tool.mypy.overrides]]
+            module = "the_docs_only_package.*"
+            ignore_missing_imports = true
+            ```
             """),
     ),
     "nuitka": ToolSpec(

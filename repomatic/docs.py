@@ -65,7 +65,7 @@ def validate_docs_script_path(script: str, repo_root: Path) -> Path | None:
     return script_path
 
 
-def _run_docs_tool(label: str, *args: str) -> None:
+def _run_docs_tool(label: str, *args: str, check: bool = False) -> int:
     """Run a tool from the `docs` dependency group through uv.
 
     Shared invocation shape for every `update-docs` phase: the command runs
@@ -74,16 +74,23 @@ def _run_docs_tool(label: str, *args: str) -> None:
 
     :param label: Human-readable phase name for logs and errors.
     :param args: The command and its arguments, passed after `uv run --`.
+    :param check: In drift-detection mode a non-zero exit means "out of date"
+        rather than "failed", so the code is returned instead of raised and the
+        caller aggregates drift across phases.
+    :return: The command's exit code.
     """
     cmd = [*uv_cmd("run", frozen=True), "--group", "docs", "--", *args]
     logging.info(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, check=False)
+    if check:
+        return result.returncode
     if result.returncode:
         raise ClickException(f"{label} failed with exit code {result.returncode}")
     echo(f"{label} completed.")
+    return result.returncode
 
 
-def update_docs(config: Config) -> None:
+def update_docs(config: Config, *, check: bool = False) -> None:
     """Regenerate Sphinx autodoc stubs and run the project's update script.
 
     Orchestrates four phases:
@@ -98,6 +105,13 @@ def update_docs(config: Config) -> None:
        `readme.md`, via `click-extra refresh-directives`.
 
     :param config: The resolved `[tool.repomatic]` configuration.
+    :param check: Report out-of-date content without writing, for CI drift
+        detection. Phases 1–2 regenerate files and have no dry-run mode, so
+        they are skipped; the self-updating phases run in their own check modes
+        (`docs_update.py --check` and `refresh-directives --check`) and any
+        drift raises a `ClickException`. The update script must accept a
+        ``--check`` flag to participate: a script that ignores it will still
+        write.
     """
     repo_root = Path.cwd()
     docs_dir = repo_root / "docs"
@@ -109,38 +123,47 @@ def update_docs(config: Config) -> None:
         logging.info("No Sphinx configuration found. Nothing to do.")
         return
 
-    # Phase 1: sphinx-apidoc.
-    if meta.active_autodoc:
-        _run_docs_tool(
-            "sphinx-apidoc",
-            "sphinx-apidoc",
-            "--no-toc",
-            "--module-first",
-            "--output-dir",
-            str(docs_dir),
-            *config.docs.apidoc_extra_args,
-            ".",
-            *config.docs.apidoc_exclude,
-        )
-    else:
-        logging.info("No active autodoc extensions. Skipping sphinx-apidoc.")
+    # Names of the self-updating phases found out of date, collected in check
+    # mode and reported at the end.
+    drift: list[str] = []
 
-    # Phase 2: RST → MyST conversion.
-    if meta.uses_myst and docs_dir.is_dir():
-        converted = convert_rst_files_in_directory(docs_dir)
-        if converted:
-            echo(f"Converted {len(converted)} RST file(s) to MyST markdown.")
+    # Phases 1-2 write files and have no dry-run mode, so they are skipped when
+    # only checking for drift.
+    if not check:
+        # Phase 1: sphinx-apidoc.
+        if meta.active_autodoc:
+            _run_docs_tool(
+                "sphinx-apidoc",
+                "sphinx-apidoc",
+                "--no-toc",
+                "--module-first",
+                "--output-dir",
+                str(docs_dir),
+                *config.docs.apidoc_extra_args,
+                ".",
+                *config.docs.apidoc_exclude,
+            )
         else:
-            logging.info("No RST files to convert.")
-    elif not meta.uses_myst:
-        logging.info("MyST-Parser not detected. Skipping RST conversion.")
+            logging.info("No active autodoc extensions. Skipping sphinx-apidoc.")
+
+        # Phase 2: RST → MyST conversion.
+        if meta.uses_myst and docs_dir.is_dir():
+            converted = convert_rst_files_in_directory(docs_dir)
+            if converted:
+                echo(f"Converted {len(converted)} RST file(s) to MyST markdown.")
+            else:
+                logging.info("No RST files to convert.")
+        elif not meta.uses_myst:
+            logging.info("MyST-Parser not detected. Skipping RST conversion.")
 
     # Phase 3: docs update script.
     script_path = validate_docs_script_path(config.docs.update_script, repo_root)
     if script_path and script_path.is_file():
-        _run_docs_tool(
-            f"Docs update script ({script_path.name})", "python", str(script_path)
-        )
+        label = f"Docs update script ({script_path.name})"
+        script_args = [str(script_path), *(["--check"] if check else [])]
+        code = _run_docs_tool(label, "python", *script_args, check=check)
+        if check and code:
+            drift.append(label)
     elif script_path:
         logging.info(f"Docs update script not found: {script_path}")
     else:
@@ -168,11 +191,23 @@ def update_docs(config: Config) -> None:
         candidates.append(readme_path)
     directive_files = [path for path in candidates if has_directive_block(path)]
     if directive_files:
-        _run_docs_tool(
-            "Directive-block refresh",
+        refresh_args = [
             "click-extra",
             "refresh-directives",
+            *(["--check"] if check else []),
             *(str(path) for path in directive_files),
-        )
+        ]
+        code = _run_docs_tool("Directive-block refresh", *refresh_args, check=check)
+        if check and code:
+            drift.append("self-updating directive blocks")
     else:
         logging.info("No self-updating directive blocks found. Skipping refresh.")
+
+    if check:
+        if drift:
+            raise ClickException(
+                "Documentation is out of date ("
+                + ", ".join(drift)
+                + "). Run `repomatic update-docs`."
+            )
+        echo("Documentation is up to date.")

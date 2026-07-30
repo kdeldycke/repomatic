@@ -139,3 +139,46 @@ def test_update_docs_skips_apidoc_without_active_autodoc(tmp_path, monkeypatch):
         update_docs(_docs_config())
 
     mock_tool.assert_not_called()
+
+
+def test_update_docs_check_skips_writes_and_propagates(tmp_path, monkeypatch):
+    """`check=True` skips the write phases and runs the rest in check mode."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "docs_update.py").write_text("", encoding="utf-8")
+    (docs / "page.md").write_text("<!-- mirror -->\n\n<!-- mirror-end -->\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    meta = SimpleNamespace(is_sphinx=True, active_autodoc=True, uses_myst=True)
+    with (
+        patch("repomatic.docs.Metadata", return_value=meta),
+        patch(
+            "repomatic.docs.convert_rst_files_in_directory", return_value=[]
+        ) as mock_convert,
+        patch("repomatic.docs._run_docs_tool", return_value=0) as mock_tool,
+    ):
+        update_docs(_docs_config("docs/docs_update.py"), check=True)
+
+    # Phases 1-2 (which write) are skipped: no RST conversion, no apidoc.
+    mock_convert.assert_not_called()
+    labels = [call.args[0] for call in mock_tool.call_args_list]
+    assert "sphinx-apidoc" not in labels
+    # Phases 3-4 run in check mode, each forwarding the --check flag.
+    assert mock_tool.call_count == 2
+    for call in mock_tool.call_args_list:
+        assert call.kwargs.get("check") is True
+        assert "--check" in call.args
+
+
+def test_update_docs_check_raises_on_drift(tmp_path, monkeypatch):
+    """A non-zero exit from a check phase raises with an "out of date" message."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "docs_update.py").write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    meta = SimpleNamespace(is_sphinx=True, active_autodoc=False, uses_myst=False)
+    with (
+        patch("repomatic.docs.Metadata", return_value=meta),
+        patch("repomatic.docs._run_docs_tool", return_value=1),
+        pytest.raises(ClickException, match="out of date"),
+    ):
+        update_docs(_docs_config("docs/docs_update.py"), check=True)
