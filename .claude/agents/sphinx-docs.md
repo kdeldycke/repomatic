@@ -328,6 +328,7 @@ Choices that are project-specific:
 - **`click_extra.sphinx.myst_docstrings`** — only when the project authors docstrings in MyST. Skip on projects still on reST (some sibling repos run `click_extra.sphinx` without the MyST docstring extension).
 - **`sphinx_click` vs `click_extra.sphinx`** — `click_extra.sphinx` provides the `{click:run}`/`{click:source}` directives this lineage uses for live CLI rendering. `sphinx_click` provides the `.. click::` autodoc-style directive for sub-command tree generation. They serve different output shapes and can coexist (e.g., `meta-package-manager` uses both: `sphinx_click` for the auto-generated tree, `click_extra.sphinx` for invocation rendering). Default to `click_extra.sphinx` only; add `sphinx_click` when the project needs an auto-generated command tree.
 - **`sphinxcontrib.mermaid`** — pair with `myst_fence_as_directive = ["mermaid"]` so authors write ```` ```mermaid ```` (without curly braces) and the directive still fires. Reference comment for `conf.py`: `# Allow plain mermaid fences (without curly braces), see <https://github.com/mgaitan/sphinxcontrib-mermaid/issues/99#issuecomment-2339587001>`. Keep `mermaid_d3_zoom = True` so dependency-graph diagrams remain navigable.
+- **`sphinxcontrib.jquery` + `sphinx_datatables`** — only for projects shipping the binaries catalog (a `binaries.md` page rendering `assets/binaries.csv` as a searchable, sortable `sphinx-datatable`). jQuery must be listed explicitly: sphinx-datatables only activates it from a `html-page-context` callback, too late for the `jquery.js` static file to be registered and copied, leaving `$` undefined at runtime. Pair with the shared `datatables_options` raw-JS block (empty `order` preserving the CSV's newest-first rows, 25-row pages, a relative-time hint appended to the Released column at display time) that click-extra and repomatic both carry verbatim.
 - **`sphinx_issues`** — **don't adopt**. The extension's `:issue:`/`:pr:`/`:user:`/`:commit:` roles only render inside Sphinx, so the same source files (changelogs, docstrings, comments) display as raw `` :issue:`1234` `` text everywhere else: GitHub's markdown viewer in the repo browser, IDE previews, `pip show`, the PyPI long-description page, downstream tooling reading the changelog. Replace these roles with explicit GitHub URLs that work in every renderer and keep the changelog identically readable on GitHub and on the docs site. See § Migrating off `sphinx_issues`.
 
 Standard `myst_enable_extensions`, alphabetized (omit only when the project demonstrably doesn't use the syntax):
@@ -340,6 +341,7 @@ Standard `myst_enable_extensions`, alphabetized (omit only when the project demo
 - `replacements` — typographic replacements (`(c)` → ©, etc.).
 - `smartquotes` — curly quotes.
 - `strikethrough` — `~~text~~`. Triggers `myst.strikethrough` warnings when building non-HTML; suppress those (see § `suppress_warnings` governance) rather than dropping the extension.
+- `substitution` — `{{ name }}` substitutions fed from `myst_substitutions`. Enable only when the project injects Python-computed content into pages (click-extra feeds its `--params` column-registry table this way).
 - `tasklist` — GitHub-style `- [ ]` checkboxes.
 
 ## Migrating off `sphinx_issues`
@@ -491,6 +493,21 @@ Mechanical safeguards:
 - A canary test asserting the `{click:tree}` block is present in the page. Per-command coverage is by construction; Sphinx fails the build if the CLI won't import.
 - Don't add `assert` statements inside directive bodies. Reserve assertions for hand-written examples in other doc pages.
 
+### Man pages emitted from the live command tree
+
+Projects that ship a CLI can emit roff man pages from the same command tree on every HTML build, via `click_extra.sphinx`'s man-page hook (a no-op until configured):
+
+```python
+# Emit roff man pages for the project's own CLI into <outdir>/man/ on every
+# HTML build. See click-extra's click_extra/sphinx/manpages.py.
+click_extra_manpages = [{"script": "<package>.cli:<cli>", "prog_name": "<cli>"}]
+
+# Resolve `:manpage:` references to the emitted HTML siblings.
+manpages_url = "man/{page}.{section}.html"
+```
+
+Mirror the same script target in `[tool.repomatic] manpages.script` so the release pipeline attaches a `<package>-manpages.tar.gz` asset to every GitHub release: the tarball and the docs site then stay in lockstep. When docs pages link to the emitted pages through `:manpage:` roles, add `r"man/.+\.html"` to `linkcheck_ignore` with a comment: the linkcheck builder skips the emit step, so the HTML siblings only exist in the html build output.
+
 ### `install.md`: installation page that stays accurate
 
 Hand-written, but with a strict structure that downstream projects should mirror:
@@ -499,7 +516,7 @@ Hand-written, but with a strict structure that downstream projects should mirror
 
 2. **Quick start** section: the minimum command to bootstrap a project (typically a `uvx` one-liner) followed by a single sentence on what happens next. No setup detail, no exception lists — those belong in a separate getting-started page.
 
-3. **Try it** tab-set with three tabs: `Latest release`, `Specific version`, `Development version`. The Latest release tab pairs the `uvx` command with a `{click:run}` block rendering live `--help` so visitors can preview the CLI without opening a terminal. The other two tabs stay as `shell-session` because they're about how to invoke `uvx`, not what the help looks like.
+3. **Try it** tab-set with three tabs: `Latest release`, `Specific version`, `Development version`. The Latest release tab pairs the `uvx` command with a `{click:run}` block rendering live `--help` so visitors can preview the CLI without opening a terminal. The other two tabs stay as `shell-session` because they're about how to invoke `uvx`, not what the help looks like. An optional fourth `Local version` tab (`uvx --from file:///path/to/checkout -- <cli>`) helps maintainers exercise a working tree; it stays `shell-session` too.
 
 4. **Install methods** tab-set with one tab per package manager that actually distributes the package. Order: `uv`, `pip`, `pipx`, then everything else alphabetized (Arch Linux, Homebrew, Nix, etc.). Each tab leads with a one-sentence pointer to the upstream installer's docs and shows a single install command. Per `CLAUDE.md` § Prefer `uv` over `pip`, `uv tool install` (or `uv pip install`) is the primary command; alternative installers may appear as secondary options but never replace `uv` as the default. If a project ships extras, render them as a `{list-table}` only when there are 3 or more — for 1-2 extras, an inline `uv pip install pkg[extra]` line is clearer.
 
@@ -515,7 +532,7 @@ Hand-written, but with a strict structure that downstream projects should mirror
 
 5. **Python compatibility matrix** — a `<!-- matrix python -->` / `<!-- matrix-end -->` comment-marker region whose embedded table is regenerated by `click-extra refresh-directives` (the fourth `repomatic update-docs` phase runs it automatically), so it refreshes on every release without manual intervention. click-extra's matrix machinery owns the generation logic: per-tag Python support from classifiers with `requires-python`/Poetry/`setup.py` fallbacks, release-date capping, and range grouping. Keep the marker form (not the live `{matrix}` fence) so the table also renders when browsing the file on GitHub. Rendering conventions the reader relies on: `✅` / `❌` glyph cells, consecutive same-support tags grouped into one row labelled `` `4.25.x` → `6.15.x` ``, newest ranges on top. Tags with no Python declaration at all are out of scope; note the cutoff in a sentence beneath the table rather than padding with blank rows.
 
-6. **Executables** table linking to GitHub Release binaries for each platform/architecture. Always points at `releases/latest/download/...` — never bake in version numbers that need bumping every release.
+6. **Executables** table linking to GitHub Release binaries for each platform/architecture. Always points at `releases/latest/download/...` — never bake in version numbers that need bumping every release. The release pipeline uploads unversioned alias assets (`<package>-linux-arm64.bin`) alongside the version-stamped ones precisely so these evergreen URLs resolve.
 
 7. **Release verification** section showing `gh attestation verify` against the package's own repo, with the `--signer-repo` flag if the release workflow runs as a reusable workflow from another repo. Mirror exactly: a stale flag here breaks reader trust.
 
@@ -537,26 +554,30 @@ A Sphinx site for a CLI/library project should converge on a predictable page se
 Primary toctree (user-facing), in this order:
 
 1. `install` — § Recipes › `install.md`. Always first.
-2. `cli` — § Recipes › `cli.md`. CLIs only.
-3. `configuration` — § Recipes › `configuration.md`. Projects with `[tool.X]` schema.
-4. `dependencies` — Dependency policy page (version-specifier rules, floor-comment conventions, audit procedures). The project's own dependency graph does not get a page of its own: it lives in `install.md`'s `## Dependencies` section (see § Recipes › `install.md`, step 8).
-5. `tool-runner` — Only when the project ships a `repomatic run`-style tool runner.
-6. `workflows` — Only when the project publishes reusable workflows.
-7. `security` — Threat model, supported versions, reporting channel. Should also live as `.github/SECURITY.md` for GitHub's security tab.
-8. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
-9. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
+2. `binaries` — Standalone-executables catalog written by the repomatic binaries pipeline. Only for projects compiling Nuitka binaries.
+3. `cli` — § Recipes › `cli.md`. CLIs only.
+4. `configuration` — § Recipes › `configuration.md`. Projects with `[tool.X]` schema.
+5. `dependencies` — Dependency policy page (version-specifier rules, floor-comment conventions, audit procedures). The project's own dependency graph does not get a page of its own: it lives in `install.md`'s `## Dependencies` section (see § Recipes › `install.md`, step 8).
+6. `tool-runner` — Only when the project ships a `repomatic run`-style tool runner.
+7. `workflows` — Only when the project publishes reusable workflows.
+8. `test-matrix` — Only when the project documents its CI test-matrix composition.
+9. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
+10. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
+11. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
 
 Development toctree, in this order:
 
 1. `contributing` — Setup, dev loop, code-style pointers (or `{include} ../contributing.md` if the root file already exists).
 2. `upstream-development` — Project-internal release process. Mark `(upstream maintainers only)` in the page heading so readers know this is not for consumers.
 3. `operation-contracts` — Optional, for projects with formal automated-operation contracts.
-4. `genindex`, `modindex` — Sphinx-generated index and module index.
-5. `changelog` — Reference the root changelog via `{include} ../changelog.md` so the file stays single-sourced.
-6. `todolist` — `sphinx.ext.todo` output. Drop this entry when the project has no TODOs.
-7. `code-of-conduct`, `license` — `{include}` from root files; never duplicate the text.
-8. `GitHub repository <https://...>` — External link as the last entry.
-9. `Funding <https://github.com/sponsors/...>` — External link if the project accepts funding.
+4. `API <{package}>`, `tests` — Autodoc API pages: the `API <...>` entry aliases the package's root autodoc page, `tests` covers the test-suite package. Both keep plain octicon-free headings (see Title octicons below).
+5. `genindex`, `modindex` — Sphinx-generated index and module index.
+6. `changelog` — Reference the root changelog via `{include} ../changelog.md` so the file stays single-sourced.
+7. `changelog-archive` — Only when `[tool.repomatic] changelog.archive-location` points into `docs/`.
+8. `todolist` — `sphinx.ext.todo` output. Drop this entry when the project has no TODOs.
+9. `code-of-conduct`, `license` — `{include}` from root files; never duplicate the text.
+10. `GitHub repository <https://...>` — External link as the last entry.
+11. `Funding <https://github.com/sponsors/...>` — External link if the project accepts funding.
 
 Page-shape rules that apply across the roster:
 
@@ -570,39 +591,68 @@ Page-shape rules that apply across the roster:
   | `architectures.md`        | `cpu`                  |
   | `benchmark.md`            | `trophy`               |
   | `binaries.md`             | `desktop-download`     |
+  | `carapace.md`             | `chevron-right`        |
   | `changelog-archive.md`    | `history`              |
   | `changelog.md`            | `diff`                 |
   | `ci.md`                   | `container`            |
   | `cli.md`                  | `command-palette`      |
   | `code-of-conduct.md`      | `code-of-conduct`      |
+  | `colorize.md`             | `paintbrush`           |
+  | `commands.md`             | `command-palette`      |
+  | `config.md`               | `sliders`              |
   | `configuration.md`        | `sliders`              |
+  | `context.md`              | `database`             |
   | `contributing.md`         | `git-pull-request`     |
+  | `decorators.md`           | `mention`              |
   | `dependencies.md`         | `package-dependencies` |
   | `detection.md`            | `pulse`                |
+  | `envvar.md`               | `pin`                  |
+  | `execution.md`            | `play`                 |
   | `falsehoods.md`           | `unverified`           |
   | `groups.md`               | `apps`                 |
   | `history.md`              | `log`                  |
   | `install.md`              | `download`             |
   | `license.md`              | `law`                  |
+  | `logging.md`              | `log`                  |
+  | `man-page.md`             | `repo`                 |
+  | `mkdocs.md`               | `markdown`             |
+  | `myst-docstrings.md`      | `pencil`               |
   | `operation-contracts.md`  | `tasklist`             |
   | `packaging.md`            | `package-dependents`   |
+  | `parameters.md`           | `tasklist`             |
   | `platforms.md`            | `codespaces`           |
+  | `pygments.md`             | `file-code`            |
   | `pytest.md`               | `meter`                |
   | `releasing.md`            | `rocket`               |
+  | `screenshots.md`          | `device-camera`        |
   | `security.md`             | `shield-check`         |
   | `shells.md`               | `chevron-right`        |
   | `skills.md`               | `mortar-board`         |
   | `sphinx.md`               | `book`                 |
+  | `spinner.md`              | `sync`                 |
+  | `styling.md`              | `typography`           |
+  | `table.md`                | `table`                |
+  | `telemetry.md`            | `broadcast`            |
   | `terminals.md`            | `terminal`             |
   | `test-matrix.md`          | `pivot-column`         |
+  | `test-suite.md`           | `beaker`               |
+  | `testing.md`              | `shield-check`         |
+  | `theme.md`                | `sun`                  |
   | `todolist.md`             | `checklist`            |
   | `tool-runner.md`          | `tools`                |
   | `trait.md`                | `tag`                  |
+  | `tree.md`                 | `workflow`             |
+  | `tutorial.md`             | `mortar-board`         |
+  | `typer.md`                | `git-compare`          |
+  | `types.md`                | `file-binary`          |
   | `upstream-development.md` | `gear`                 |
+  | `upstream.md`             | `cross-reference`      |
   | `usecase.md`              | `light-bulb`           |
+  | `version.md`              | `iterations`           |
   | `workflows.md`            | `workflow`             |
+  | `wrap.md`                 | `terminal`             |
 
-  When introducing a page that's not in the table, pick the closest [GitHub Octicon](https://primer.style/foundations/icons) and add the entry here so the next repo follows suit. Auto-generated API pages (`<package>.md`, `tests.md`, and other autodoc module pages) keep plain headings: their sidebar icons come from the `custom.css` toctree workaround instead.
+  When introducing a page that's not in the table, pick the closest [GitHub Octicon](https://primer.style/foundations/icons) and add the entry here so the next repo follows suit. Icons must be unique within a repo — two pages sharing an icon defeats the visual-anchor purpose. Across repos, reuse is acceptable when the concepts are related (`sliders` for anything configuration-shaped, `chevron-right` for anything shell-shaped); at fleet scale some reuse is inevitable. Auto-generated API pages (`<package>.md`, `tests.md`, and other autodoc module pages) keep plain octicon-free headings, with the package name in backticked form (like `` # `click_extra` package ``): their sidebar icons come from the `custom.css` toctree workaround instead.
 
 - **Sentence case in titles.** "Repository conventions", not "Repository Conventions" (per `CLAUDE.md` § Code style).
 
@@ -653,6 +703,8 @@ Linkcheck and intersphinx:
 
 - `linkcheck_anchors_ignore_for_url` (Sphinx ≥ 7.1) silences anchor checks on a per-host basis instead of a per-anchor basis. Use it for hosts whose entire anchor set is JS-rendered (e.g., `r"https://github\.com/"`) instead of a stack of individual anchor patterns. Fewer entries to maintain, fewer false positives when the host adds new fragment shapes.
 
+- `linkcheck_retries = 3` absorbs hosts that intermittently time out for the linkcheck bot. Prefer it over adding a flaky-but-valid host to `linkcheck_ignore`: retries keep the link checked, an ignore blinds the build to it.
+
 - `linkcheck_ignore` is for hosts that 403 bots or have flaky availability. Each entry needs a one-line comment naming the host and reason. Re-test on every release; remove patterns that have started working again. Categorize entries so the comment style matches the cause:
 
   | Category              | Examples                                                                                    | Comment style                                                                                         |
@@ -691,7 +743,7 @@ Strictness flags:
 Theme assets and OpenGraph:
 
 - `html_logo = "assets/logo-square.svg"` and `html_favicon = "assets/favicon.svg"` are the canonical paths. Both files live under `docs/assets/` and ship as SVG so the Furo theme's dark-mode swap works without a separate asset bundle. The `/brand-assets` skill is the canonical producer of these files: it manages the SVG sources (favicon, square logo, banner, social banner), exports light/dark PNG variants, and wires the new files into `docs/conf.py`. When `html_logo`/`html_favicon` are missing or out of date, run `/brand-assets` instead of editing the assets by hand.
-- `ogp_image = "assets/banner-social-light.png"` — set when the project has a banner asset for social previews. Without `ogp_image`, `sphinxext.opengraph` falls back to the favicon, which scales poorly. The PNG is exported from `assets/banner-social.svg` by the `/brand-assets` skill (which also produces the dark variant for dark-mode social cards on platforms that support them).
+- `ogp_image = "assets/banner-social-light.png"` — set when the project has a banner asset for social previews. Without `ogp_image`, `sphinxext.opengraph` falls back to the favicon, which scales poorly. Always pair it with `ogp_site_url = f"https://{github_user}.github.io/{project_id}/"`: the image path is resolved against the site URL, not the page, and without one the raw HTML carries a relative `og:image` that social crawlers cannot follow (verified on repomatic's own built pages). The PNG is exported from `assets/banner-social.svg` by the `/brand-assets` skill (which also produces the dark variant for dark-mode social cards on platforms that support them).
 - The Furo `announcement` banner template across this lineage references the same `github_user` constant defined at the top of `conf.py`. Rebuilding the announcement string locally inside `html_theme_options` avoids a per-theme override layer.
 
 Pruning checklist before merging any `conf.py` change:

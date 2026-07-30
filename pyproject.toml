@@ -487,4 +487,9 @@ abandoned-versions = [
 ]
 changelog.archive-location = "./docs/changelog-archive.md"
 exclude = [ "workflows" ]
+# Render the Click command tree as roff `.1` files and attach a
+# `repomatic-manpages.tar.gz` asset to every GitHub release. The script target
+# mirrors `click_extra_manpages` in `docs/conf.py`, so the release tarball and
+# the HTML docs site stay in lockstep.
+manpages.script = "repomatic.cli:repomatic"
 pypi-package-history = [ "gha-utils", "repokit" ]

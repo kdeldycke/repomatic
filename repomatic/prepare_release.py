@@ -26,6 +26,7 @@ A release cycle produces exactly two commits that **must** be merged via
    - Freezes workflow action references: `@main` → `@vX.Y.Z`.
    - Freezes CLI invocations: `--from . repomatic` → `'repomatic==X.Y.Z'`.
    - Freezes the install guide's binary download URLs to versioned release paths.
+   - Pins the install guide's versioned CLI examples to the release.
    - Sets the release date in `citation.cff`.
 
 2. **Unfreeze commit** (`[changelog] Post-release bump vX.Y.Z → vX.Y.(Z+1)`):
@@ -92,6 +93,15 @@ class PrepareRelease:
             )
         logging.info(f"Current version: {version}")
         return version
+
+    @cached_property
+    def package_name(self) -> str | None:
+        """Canonical PyPI package name, used to spot pinned install examples.
+
+        Delegates discovery to {attr}`.Metadata.package_name`, which reads
+        `pyproject.toml`.
+        """
+        return Metadata().package_name
 
     @cached_property
     def release_date(self) -> str:
@@ -308,6 +318,48 @@ class PrepareRelease:
 
         return self._update_file(self.install_path, content, original)
 
+    def freeze_install_cli_version(self, version: str) -> bool:
+        """Pin the install guide's versioned CLI examples to the release.
+
+        This is part of the **freeze** step: the install guide's `Specific
+        version` tab demonstrates a pinned invocation (`uvx {package}@X.Y.Z`
+        or a `{package}==X.Y.Z` requirement), which must always showcase the
+        latest release. Without this pass the pinned example silently rots
+        (click-extra's install guide sat on a 14-releases-old pin).
+
+        ```{note}
+        Like {meth}`freeze_install_download_urls`, this ratchets forward with
+        no unfreeze: after a release the examples keep demonstrating that
+        release, which is what readers should copy until the next one ships.
+        ```
+
+        :param version: The release version to pin the examples to.
+        :return: True if the file was modified.
+        """
+        if not self.install_path.exists():
+            logging.debug(f"Install guide not found: {self.install_path}")
+            return False
+        if not self.package_name:
+            logging.warning(
+                "No package name found in pyproject.toml: "
+                "skipping install guide CLI version pinning.",
+            )
+            return False
+
+        original = self.install_path.read_text(encoding="UTF-8")
+
+        # Match `{package}@X.Y.Z` (uvx pin) and `{package}==X.Y.Z` (PEP 508
+        # pin), leaving `@main`, git refs, and other packages' pins untouched.
+        # The leading boundary keeps distro-prefixed names (python-{package})
+        # out of scope; the optional `.devN` tail absorbs development pins.
+        pattern = re.compile(
+            rf"(?<![\w-])({re.escape(self.package_name)}(?:@|==))"
+            rf"\d+(?:\.\d+)*(?:\.dev\d+)?",
+        )
+        content = pattern.sub(rf"\g<1>{version}", original)
+
+        return self._update_file(self.install_path, content, original)
+
     def freeze_cli_version(self, version: str) -> int:
         """Replace local source CLI invocations with a frozen PyPI version.
 
@@ -429,6 +481,11 @@ class PrepareRelease:
             self.modified_files.append(self.changelog_path)
 
         self.set_citation_release_date()
+
+        # Unconditional: every downstream repo following the install-page
+        # recipe carries a pinned CLI example, not just repos that dogfood
+        # repomatic's own workflows.
+        self.freeze_install_cli_version(self.current_version)
 
         if update_workflows:
             self.freeze_workflow_urls()

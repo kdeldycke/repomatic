@@ -23,15 +23,15 @@ project = " ".join(word.title() for word in project_id.split("-"))
 # Addons.
 extensions = [
     "sphinx.ext.autodoc",
-    "sphinx.ext.todo",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.intersphinx",
+    "sphinx.ext.todo",
     "sphinx.ext.viewcode",
     # Adds a copy button to code blocks.
     "sphinx_copybutton",
     "sphinx_design",
     "sphinxext.opengraph",
     "myst_parser",
-    "sphinx.ext.autosectionlabel",
     # myst_docstrings hooks autodoc-process-docstring at priority 400 (vs default
     # 500) so it always runs before sphinx_autodoc_typehints. Listing it first
     # makes the intent explicit; the extension enforces this at load time.
@@ -165,6 +165,21 @@ datatables_options = r"""
 # and the live blocks render empty.
 click_extra_enable_exec_directives = True
 
+# Emit roff man pages for repomatic's own CLI into <outdir>/man/ on every
+# HTML build. See click-extra's click_extra/sphinx/manpages.py. The same
+# script target is mirrored in `[tool.repomatic] manpages.script` so the
+# release tarball and the HTML docs site stay in lockstep.
+click_extra_manpages = [
+    {
+        "script": "repomatic.cli:repomatic",
+        "prog_name": "repomatic",
+    },
+]
+
+# Resolve `:manpage:`repomatic(1)`` (and every subcommand page) to the HTML
+# siblings the hook above emits.
+manpages_url = "man/{page}.{section}.html"
+
 exclude_patterns = ["_build", "_linkcheck", "html", "Thumbs.db", ".DS_Store"]
 
 nitpicky = True
@@ -265,6 +280,10 @@ linkcheck_ignore = [
 
 # OpenGraph / social previews.
 ogp_image = "assets/banner-social-light.png"
+# ogp_image is relative to ogp_site_url, not to the page. Without a site URL,
+# sphinxext.opengraph emits the image path as-is, which social crawlers can't
+# resolve since they only ever see the raw HTML.
+ogp_site_url = f"https://{github_user}.github.io/{project_id}/"
 
 # Footer content.
 html_last_updated_fmt = "%Y-%m-%d"

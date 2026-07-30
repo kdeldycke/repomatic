@@ -25,6 +25,9 @@
 - Fix the click-extra `{matrix}` directive link on the installation page, and realign page octicons with the `sphinx-docs` agent's extended icon registry.
 - Document how to verify a downloaded binary's build-provenance attestation with `gh attestation verify` on the installation page.
 - Add `update-docs --check` to report out-of-date self-updating content and exit non-zero without writing, for CI drift detection. The docs update script must accept its own `--check` flag to participate.
+- Emit man pages for repomatic's own CLI on docs builds and attach a `repomatic-manpages.tar.gz` asset to each release.
+- Pin the install guide's versioned CLI examples (`pkg@X.Y.Z`, `pkg==X.Y.Z`) to the release in the prepare-release freeze step.
+- Emit an absolute `og:image` URL for social previews: `ogp_site_url` now backs `ogp_image` in the docs configuration.
 
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 

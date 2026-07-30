@@ -746,3 +746,120 @@ def test_prepare_release_freezes_install(
     assert "/releases/latest/download/" not in content
     assert "/releases/download/v1.2.3/" in content
     assert "repomatic-1.2.3-linux-arm64.bin" in content
+
+
+# --- Install guide CLI version pin freeze tests ---
+
+
+@pytest.fixture
+def temp_install_pinned(tmp_path: Path) -> Path:
+    """Create a temporary install guide with pinned CLI version examples."""
+    install_md = tmp_path / "install.md"
+    install_md.write_text(
+        dedent("""\
+            # My Project
+
+            ## Try it
+
+            ```shell-session
+            $ uvx test-project@1.2.2
+            ```
+
+            ```shell-session
+            $ uvx -- test-project==1.2.2 --help
+            ```
+
+            A distro package is available as `python-test-project==0.9` too.
+            Development runs use `uvx --from git+https://example.com/repo -- test-project`.
+            """),
+        encoding="UTF-8",
+    )
+    return install_md
+
+
+def test_freeze_install_cli_version(
+    tmp_path: Path,
+    temp_install_pinned: Path,
+    temp_pyproject: Path,
+    monkeypatch,
+) -> None:
+    """Test that pinned `@` and `==` CLI examples are bumped to the release."""
+    monkeypatch.chdir(tmp_path)
+
+    prep = PrepareRelease(install_path=temp_install_pinned)
+    result = prep.freeze_install_cli_version("1.2.3")
+
+    assert result is True
+    content = temp_install_pinned.read_text(encoding="UTF-8")
+    assert "test-project@1.2.3" in content
+    assert "test-project==1.2.3" in content
+    assert "1.2.2" not in content
+
+
+def test_freeze_install_cli_version_leaves_other_pins(
+    tmp_path: Path,
+    temp_install_pinned: Path,
+    temp_pyproject: Path,
+    monkeypatch,
+) -> None:
+    """Test that prefixed package names and git refs are left untouched."""
+    monkeypatch.chdir(tmp_path)
+
+    prep = PrepareRelease(install_path=temp_install_pinned)
+    prep.freeze_install_cli_version("1.2.3")
+
+    content = temp_install_pinned.read_text(encoding="UTF-8")
+    assert "python-test-project==0.9" in content
+    assert "git+https://example.com/repo -- test-project" in content
+
+
+def test_freeze_install_cli_version_idempotent(
+    tmp_path: Path,
+    temp_install_pinned: Path,
+    temp_pyproject: Path,
+    monkeypatch,
+) -> None:
+    """Test that re-freezing to the same version is a no-op."""
+    monkeypatch.chdir(tmp_path)
+
+    prep = PrepareRelease(install_path=temp_install_pinned)
+    assert prep.freeze_install_cli_version("1.2.3") is True
+    assert prep.freeze_install_cli_version("1.2.3") is False
+
+
+def test_freeze_install_cli_version_missing_file(
+    tmp_path: Path,
+    temp_pyproject: Path,
+    monkeypatch,
+) -> None:
+    """Test that a missing install guide is handled gracefully."""
+    monkeypatch.chdir(tmp_path)
+
+    prep = PrepareRelease(install_path=tmp_path / "nonexistent.md")
+    result = prep.freeze_install_cli_version("1.2.3")
+
+    assert result is False
+
+
+def test_prepare_release_pins_install_cli(
+    tmp_path: Path,
+    temp_changelog: Path,
+    temp_citation: Path,
+    temp_install_pinned: Path,
+    temp_pyproject: Path,
+    monkeypatch,
+) -> None:
+    """Test that ``prepare_release()`` pins CLI examples without workflows."""
+    monkeypatch.chdir(tmp_path)
+
+    prep = PrepareRelease(
+        changelog_path=temp_changelog,
+        citation_path=temp_citation,
+        install_path=temp_install_pinned,
+    )
+    modified = prep.prepare_release()
+
+    assert temp_install_pinned in modified
+    content = temp_install_pinned.read_text(encoding="UTF-8")
+    assert "test-project@1.2.3" in content
+    assert "test-project==1.2.3" in content
