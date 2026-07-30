@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "uv_build"
-requires = [ "uv-build>=0.9,<0.12" ]
+requires = [ "uv-build>=0.9,<0.13" ]
 
 [project]
 # Docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
@@ -203,7 +203,7 @@ typing = [
 # re-locks (see repomatic.uv.sync_uv_lock), this stops uv.lock from
 # ping-ponging between machines that re-spell equivalent markers differently.
 # Bump the ceiling once a new uv minor has regenerated the lock.
-required-version = ">=0.11.23,<0.12"
+required-version = ">=0.12,<0.13"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
 # Cooldown period: 7-day buffer before using newly released packages.

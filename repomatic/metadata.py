@@ -1174,8 +1174,9 @@ class Metadata:
             return None
         try:
             return diff_names(start, end)
-        except subprocess.CalledProcessError:
-            logging.warning("Failed to get changed files from git diff.")
+        except subprocess.CalledProcessError as ex:
+            detail = ex.stderr.strip() if ex.stderr else ex
+            logging.warning(f"Failed to get changed files from git diff: {detail}")
             return None
 
     @cached_property
@@ -1407,27 +1408,36 @@ class Metadata:
             )
             start = None
 
-        # Sanity check: make sure both ends of the range exist in the repository.
-        # Even though `start..end` excludes `start` from the result, git still
-        # needs `start` present locally to resolve the range and walk history.
-        for commit_id in (start, end):
-            if not commit_id:
-                continue
+        # Every branch below shells out to git, so mirror `changed_files`: a git
+        # failure (a compiled binary run over a checkout git rejects as "dubious
+        # ownership", a shallow clone that cannot be deepened) degrades to "range
+        # unknown" instead of crashing the whole `metadata` command.
+        try:
+            # Sanity check: make sure both ends of the range exist in the repository.
+            # Even though `start..end` excludes `start` from the result, git still
+            # needs `start` present locally to resolve the range and walk history.
+            for commit_id in (start, end):
+                if not commit_id:
+                    continue
 
-            if not self.git_deepen(commit_id):
-                logging.warning(
-                    "Skipping metadata extraction of the range of new commits."
-                )
-                return None
+                if not self.git_deepen(commit_id):
+                    logging.warning(
+                        "Skipping metadata extraction of the range of new commits."
+                    )
+                    return None
 
-        if not start:
-            logging.warning("No start commit found. Only one commit in range.")
-            assert end
-            return (get_commit(end),)
+            if not start:
+                logging.warning("No start commit found. Only one commit in range.")
+                assert end
+                return (get_commit(end),)
 
-        # The `start..end` range already excludes `start`, so every returned
-        # commit is a new one, in chronological order (oldest first).
-        return list_commits(start, end)
+            # The `start..end` range already excludes `start`, so every returned
+            # commit is a new one, in chronological order (oldest first).
+            return list_commits(start, end)
+        except subprocess.CalledProcessError as ex:
+            detail = ex.stderr.strip() if ex.stderr else ex
+            logging.warning(f"git failed while resolving new commits: {detail}")
+            return None
 
     @cached_property
     def new_commits_matrix(self) -> Matrix | None:

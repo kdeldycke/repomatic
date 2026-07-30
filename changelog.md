@@ -15,7 +15,9 @@
 - Show `repomatic-ship` the whole unreleased changelog section at invocation instead of the first eight lines.
 - Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
 - Warn about unknown `[tool.repomatic]` keys once per project and process, instead of on every configuration re-load.
+- Pin uv to the `0.12` series: `required-version` moves to `>=0.12,<0.13`.
 - Surface `uv audit`'s stderr when it exits without emitting JSON, replacing the bare `produced no output` error.
+- Keep `metadata` from crashing when git refuses the repository (dubious ownership, unresolvable range): it now logs git's stderr and continues.
 - Accept `sur` (macOS Big Sur, Homebrew's `big_sur` bottle tag) as a valid word in the bundled typos configuration, so `fix-typos` stops correcting it to `sure`.
 - Extend the bundled lychee configuration with generic excludes: GitHub issue-comment fragments, release binary downloads, and DOI-to-Zenodo redirects.
 - Document the minimum OS requirement of each binary target, and the distributions it opens execution to, in a new [Minimum OS requirements](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements) section that downstream binaries pages link to.

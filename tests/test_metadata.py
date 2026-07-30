@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+import subprocess
 from dataclasses import MISSING, fields as dc_fields
 from typing import Any
 
@@ -1321,6 +1323,45 @@ def test_null_sha_constant():
     assert NULL_SHA == "0" * 40
     # Verify it's truthy (important for the fix: we can't just check `if not sha`).
     assert bool(NULL_SHA) is True
+
+
+def test_new_commits_degrades_when_git_rejects_checkout(monkeypatch, caplog):
+    """A git failure degrades new_commits to None with git's stderr surfaced,
+    instead of crashing the whole `metadata` command.
+
+    Reproduces the compiled-binary self-test running inside a manylinux container
+    over a checkout git refuses as "dubious ownership".
+    """
+    monkeypatch.setattr(Metadata, "commit_range", ("a" * 40, "b" * 40))
+
+    def reject(self, commit_id, **kwargs):
+        raise subprocess.CalledProcessError(
+            128,
+            ["git", "rev-list", "--count", "HEAD"],
+            stderr="fatal: detected dubious ownership in repository",
+        )
+
+    monkeypatch.setattr(Metadata, "git_deepen", reject)
+    with caplog.at_level(logging.WARNING):
+        assert Metadata().new_commits is None
+    assert "dubious ownership" in caplog.text
+
+
+def test_changed_files_surfaces_git_stderr(monkeypatch, caplog):
+    """A `git diff` failure degrades changed_files to None and logs git's stderr."""
+    monkeypatch.setattr(Metadata, "commit_range", ("a" * 40, "b" * 40))
+
+    def reject(start, end):
+        raise subprocess.CalledProcessError(
+            128,
+            ["git", "diff", "--name-only"],
+            stderr="fatal: detected dubious ownership in repository",
+        )
+
+    monkeypatch.setattr("repomatic.metadata.diff_names", reject)
+    with caplog.at_level(logging.WARNING):
+        assert Metadata().changed_files is None
+    assert "dubious ownership" in caplog.text
 
 
 def test_is_bot_false_by_default(monkeypatch):

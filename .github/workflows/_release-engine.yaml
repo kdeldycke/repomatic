@@ -284,6 +284,14 @@ jobs:
           # pipes to cp1252, whose bytes (an em dash in help text) crash the harness's strict-UTF-8
           # reader thread. Mirrors the "Force UTF-8 encoding on Windows" step in tests.yaml.
           PYTHONIOENCODING: utf8
+          # The Linux self-test runs in the manylinux container as root over a runner-owned
+          # checkout, so the binary's `git` subprocess hits "dubious ownership" (exit 128) and
+          # crashes `metadata`. actions/checkout marks the repo safe only under a throwaway HOME,
+          # not the container's persistent /github/home, so pass safe.directory through the
+          # environment: git honors it regardless of HOME, and it is a no-op off-container.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: safe.directory
+          GIT_CONFIG_VALUE_0: "*"
         shell: bash
         # The binary self-test reads ./tests/cli-test-suite.toml (the click-extra 8.1
         # default), parsed with the built-in tomllib, so no optional extra is needed.

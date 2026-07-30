@@ -9,6 +9,6 @@
 
 # Pin uv to a single minor series so every contributor and CI runner resolves
 # uv.lock with the same resolver (astral-sh/setup-uv reads this automatically).
-required-version = ">=0.11.23,<0.12"
+required-version = ">=0.12,<0.13"
 # Cooldown buffer before adopting newly released packages.
 exclude-newer = "1 week"
