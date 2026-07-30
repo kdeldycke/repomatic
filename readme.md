@@ -86,7 +86,3 @@ Check these projects to get real-life examples of usage and inspiration:
 - ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/extra-platforms?label=%E2%AD%90&style=flat-square) [Extra Platforms](https://github.com/kdeldycke/extra-platforms) - Detect platforms and group them by family.
 
 Send a PR to add your project if you use repomatic.
-
-## Development
-
-See `claude.md` for development commands, code style, testing guidelines, and design principles.

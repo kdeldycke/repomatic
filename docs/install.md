@@ -128,6 +128,18 @@ That way you have a chance to try it out without installing Python or `uv`. Or e
 
 Binaries of all past releases, with their VirusTotal analyses, are cataloged on the [binaries page](binaries.md).
 
+## Release verification
+
+Every binary is signed with a [build provenance attestation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations) at release time. After downloading one, verify it with the [`gh` CLI](https://cli.github.com):
+
+```shell-session
+$ gh attestation verify repomatic-linux-x64.bin --repo kdeldycke/repomatic --signer-repo kdeldycke/repomatic
+```
+
+`--signer-repo kdeldycke/repomatic` is required because the release runs from the reusable `_release-engine.yaml` workflow whose signing identity is `kdeldycke/repomatic`. Downstream projects that build binaries through the same reusable workflow verify with their own `--repo` but keep `--signer-repo kdeldycke/repomatic`.
+
+The PyPI distributions carry their own [PEP 740](https://peps.python.org/pep-0740/) attestations, visible and verifiable on the [PyPI project page](https://pypi.org/project/repomatic/).
+
 ## Dependencies
 
 This is a graph of the Python package's dependencies. Boxes hold the directly-declared dependencies (main set and each development group), drawn as hexagons; transitive dependencies render outside the boxes as ovals:
