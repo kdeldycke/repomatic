@@ -15,6 +15,7 @@
 - Show `repomatic-ship` the whole unreleased changelog section at invocation instead of the first eight lines.
 - Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
 - Warn about unknown `[tool.repomatic]` keys once per project and process, instead of on every configuration re-load.
+- Show `sync-deps` progress as a `✓`/`✘` line per operation, with a running tally and a timed summary.
 - Pin uv to the `0.12` series: `required-version` moves to `>=0.12,<0.13`.
 - Surface `uv audit`'s stderr when it exits without emitting JSON, replacing the bare `produced no output` error.
 - Keep `metadata` from crashing when git refuses the repository (dubious ownership, unresolvable range): it now logs git's stderr and continues.
@@ -23,6 +24,7 @@
 - Document the minimum OS requirement of each binary target, and the distributions it opens execution to, in a new [Minimum OS requirements](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements) section that downstream binaries pages link to.
 - Rename the binaries page chart markers to `binaries-chart-start`/`binaries-chart-end`; pages carrying the old bare markers are migrated on their next refresh.
 - Fix the click-extra `{matrix}` directive link on the installation page, and realign page octicons with the `sphinx-docs` agent's extended icon registry.
+- Order the installation docs' Python-compatibility table newest-first, so the latest release and Python version read from the upper-left.
 - Document how to verify a downloaded binary's build-provenance attestation with `gh attestation verify` on the installation page.
 - Add `update-docs --check` to report out-of-date self-updating content and exit non-zero without writing, for CI drift detection. The docs update script must accept its own `--check` flag to participate.
 - Emit man pages for repomatic's own CLI on docs builds and attach a `repomatic-manpages.tar.gz` asset to each release.

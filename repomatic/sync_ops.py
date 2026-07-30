@@ -62,12 +62,12 @@ import logging
 import re
 import subprocess
 import threading
-from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from click_extra import Spinner, run_jobs
+import click
+from click_extra import OperationTrail, resolve_jobs, run_jobs
 
 from . import tool_runner
 from .checksums import update_registry_checksums
@@ -1152,37 +1152,62 @@ def run_sync_operations(
     option and sequential when no CLI context is active (as in tests). At
     `DEBUG` verbosity the fan-out also collapses to sequential so per-operation
     log narration stays coherent, and a Ctrl+C drops queued resolves instead of
-    waiting for them. The apply phase runs in {data}`SYNC_OPERATIONS` order
-    because three of the five rewrite the same workflow files. In `--dry-run` no
-    apply runs. An operation whose resolve raises is logged and reported with a
-    `None` plan so one failure never blocks the others.
+    waiting for them. When labelled, an {class}`click_extra.OperationTrail`
+    reports each resolve as a `✓`/`✘` line and closes with a timed summary, its
+    rendering tracking the resolved worker count. The apply phase runs in
+    {data}`SYNC_OPERATIONS` order because three of the five rewrite the same
+    workflow files. In `--dry-run` no apply runs. An operation whose resolve
+    raises is logged and reported with a `None` plan so one failure never blocks
+    the others.
 
     :param operations: The operations to run (already filtered by the caller).
     :param rc: Shared resolve inputs.
-    :param spinner_label: When set and attached to a TTY, animate a spinner for
-        the resolve phase (silent off a TTY, so CI and tests show nothing).
+    :param spinner_label: Present-tense label for the resolve trail (like
+        `"Resolving dependency updates"`). When set and attached to a TTY, the
+        trail shows a `✓`/`✘` line per operation and a running tally; unset
+        (programmatic and test calls) forces it silent, so CI and tests show
+        nothing.
     :return: Each operation paired with its plan (or `None` if its resolve
         failed), in {data}`SYNC_OPERATIONS` order.
     """
     if not operations:
         return []
 
-    def resolve_safely(op: SyncOperation) -> SyncPlan | None:
+    # Resolve the fan-out width once, up front, so the trail's rendering mode
+    # (an aggregate spinner when concurrent, echoed lines when serial) matches
+    # the width run_jobs actually fans out to below.
+    ctx = click.get_current_context(silent=True)
+    jobs = resolve_jobs(ctx, len(operations), serial_at_debug=True)
+
+    # A trail is opt-in: without a label (programmatic and test calls) it stays
+    # forced-silent, so only the CLI's `spinner_label` lights it up.
+    trail = OperationTrail(
+        label=spinner_label or "",
+        total=len(operations),
+        jobs=jobs,
+        enabled=None if spinner_label else False,
+    )
+
+    def resolve_and_mark(op: SyncOperation) -> SyncPlan | None:
         try:
-            return op.resolve(rc)
+            plan = op.resolve(rc)
         except Exception:
             logging.exception(f"{op.name} failed to resolve.")
-            return None
+            plan = None
+        trail.mark(plan is not None, op.name)
+        return plan
 
-    progress = Spinner(spinner_label) if spinner_label else nullcontext()
-    with progress:
+    with trail:
         plans = {
             op.name: plan
             for op, plan in zip(
-                operations,
-                run_jobs(resolve_safely, operations, serial_at_debug=True),
+                operations, run_jobs(resolve_and_mark, operations, jobs=jobs)
             )
         }
+        trail.finish(
+            trail.ok_count == len(operations),
+            f"Resolved {trail.ok_count}/{len(operations)} operations",
+        )
 
     if not rc.dry_run:
         for op in operations:

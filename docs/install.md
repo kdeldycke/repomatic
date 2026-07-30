@@ -103,14 +103,14 @@ The table below shows which Python versions each `repomatic` release range suppo
 
 <!-- matrix python -->
 
-| `repomatic`         | Released   | `3.8` | `3.9` | `3.10` | `3.11` | `3.12` | `3.13` | `3.14` |
-| :------------------ | :--------- | :---: | :---: | :----: | :----: | :----: | :----: | :----: |
-| `4.25.x` → `7.x`    | 2025-12-05 |  ❌   |  ❌   |   ✅   |   ✅   |   ✅   |   ✅   |   ✅   |
-| `4.20.x` → `4.24.x` | 2025-10-10 |  ❌   |  ❌   |   ❌   |   ✅   |   ✅   |   ✅   |   ✅   |
-| `4.15.x` → `4.19.x` | 2025-03-05 |  ❌   |  ❌   |   ❌   |   ✅   |   ✅   |   ✅   |   ❌   |
-| `4.7.x` → `4.14.x`  | 2024-11-03 |  ❌   |  ❌   |   ✅   |   ✅   |   ✅   |   ✅   |   ❌   |
-| `4.4.x` → `4.6.x`   | 2024-07-27 |  ❌   |  ✅   |   ✅   |   ✅   |   ✅   |   ❌   |   ❌   |
-| `4.0.x` → `4.3.x`   | 2024-06-29 |  ✅   |  ✅   |   ✅   |   ✅   |   ✅   |   ❌   |   ❌   |
+| `repomatic`         | Released   | `3.14` | `3.13` | `3.12` | `3.11` | `3.10` | `3.9` | `3.8` |
+| :------------------ | :--------- | :----: | :----: | :----: | :----: | :----: | :---: | :---: |
+| `4.25.x` → `7.x`    | 2025-12-05 |   ✅   |   ✅   |   ✅   |   ✅   |   ✅   |  ❌   |  ❌   |
+| `4.20.x` → `4.24.x` | 2025-10-10 |   ✅   |   ✅   |   ✅   |   ✅   |   ❌   |  ❌   |  ❌   |
+| `4.15.x` → `4.19.x` | 2025-03-05 |   ❌   |   ✅   |   ✅   |   ✅   |   ❌   |  ❌   |  ❌   |
+| `4.7.x` → `4.14.x`  | 2024-11-03 |   ❌   |   ✅   |   ✅   |   ✅   |   ✅   |  ❌   |  ❌   |
+| `4.4.x` → `4.6.x`   | 2024-07-27 |   ❌   |   ❌   |   ✅   |   ✅   |   ✅   |  ✅   |  ❌   |
+| `4.0.x` → `4.3.x`   | 2024-06-29 |   ❌   |   ❌   |   ✅   |   ✅   |   ✅   |  ✅   |  ✅   |
 
 <!-- matrix-end -->
 
@@ -118,10 +118,10 @@ The table below shows which Python versions each `repomatic` release range suppo
 
 To ease deployment, standalone executables of `repomatic`'s latest version are available as direct downloads for several platforms and architectures:
 
-| Platform    | `arm64`                                                                                                                                           | `x86_64`                                                                                                                                      |
-| :---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux**   | [Download `repomatic-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-linux-arm64.bin) | [Download `repomatic-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-linux-x64.bin) |
-| **macOS**   | [Download `repomatic-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-macos-arm64.bin) | [Download `repomatic-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-macos-x64.bin) |
+| Platform    | `arm64`                                                                                                                               | `x86_64`                                                                                                                          |
+| :---------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Linux**   | [Download `repomatic-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-linux-arm64.bin)     | [Download `repomatic-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-linux-x64.bin)     |
+| **macOS**   | [Download `repomatic-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-macos-arm64.bin)     | [Download `repomatic-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-macos-x64.bin)     |
 | **Windows** | [Download `repomatic-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-windows-arm64.exe) | [Download `repomatic-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-windows-x64.exe) |
 
 That way you have a chance to try it out without installing Python or `uv`. Or embed it in your CI/CD pipelines running on minimal images. Or run it on old platforms without worrying about dependency hell.
