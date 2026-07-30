@@ -15,7 +15,7 @@
 - Show `repomatic-ship` the whole unreleased changelog section at invocation instead of the first eight lines.
 - Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
 - Warn about unknown `[tool.repomatic]` keys once per project and process, instead of on every configuration re-load.
-- Show `sync-deps` progress as a `✓`/`✘` line per operation, with a running tally and a timed summary.
+- Report `sync-deps` and `update-checksums` progress as a `✓`/`✘` trail with a running tally and a timed summary.
 - Pin uv to the `0.12` series: `required-version` moves to `>=0.12,<0.13`.
 - Surface `uv audit`'s stderr when it exits without emitting JSON, replacing the bare `produced no output` error.
 - Keep `metadata` from crashing when git refuses the repository (dubious ownership, unresolvable range): it now logs git's stderr and continues.

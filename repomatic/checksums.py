@@ -29,11 +29,11 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from click_extra import progressbar, run_jobs
+import click
+from click_extra import OperationTrail, resolve_jobs, run_jobs
 
 from .tool_runner import TOOL_REGISTRY, PlatformKey, ToolSpec
 
@@ -97,21 +97,29 @@ def update_registry_checksums(
         logging.info(f"Verifying registry checksum for {spec.name} ({platform_key})")
         return _download_sha256(url)
 
+    # Size the fan-out once, up front, so the trail's rendering mode matches
+    # the width run_jobs fans out to below.
+    ctx = click.get_current_context(silent=True)
+    jobs = resolve_jobs(ctx, len(entries), serial_at_debug=True)
+
     # run_jobs yields digests in submission order, so the rewrite loop below
-    # stays deterministic while the downloads overlap.
-    with progressbar(
-        zip(entries, run_jobs(entry_sha256, entries, serial_at_debug=True)),
-        length=len(entries),
-        label="Verifying checksums",
-        file=sys.stderr,
-    ) as items:
-        for (spec, platform_key, url, old_hash), new_hash in items:
+    # stays deterministic while the downloads overlap. A download that raises
+    # still aborts the batch (no partial rewrite), leaving the trail's completed
+    # rows on screen.
+    with OperationTrail(
+        label="Verifying", unit="checksums", total=len(entries), jobs=jobs
+    ) as trail:
+        for (spec, platform_key, url, old_hash), new_hash in zip(
+            entries, run_jobs(entry_sha256, entries, jobs=jobs)
+        ):
+            trail.mark(True, f"{spec.name} ({platform_key})")
             if old_hash != new_hash:
                 content = content.replace(old_hash, new_hash)
                 updated.append((url, old_hash, new_hash))
                 logging.info(f"Updated checksum: {old_hash} -> {new_hash}")
             else:
                 logging.info("Checksum unchanged.")
+        trail.finish(True, f"Verified {trail.ok_count}/{len(entries)} checksums")
 
     # Reconcile each tool's VERSIONS stamp with its target version (idempotent).
     # The key pattern only matches the quoted-string values in `VERSIONS`, never
