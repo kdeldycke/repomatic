@@ -282,13 +282,14 @@ def test_get_template_names():
     assert "unsubscribe-phase1" in names
     assert "unsubscribe-phase2" in names
     assert "setup-guide-fork-pr-approval" in names
+    assert "setup-guide-sha-pinning-required" in names
     assert "setup-guide-notifications-pat" in names
     assert "setup-guide-virustotal" in names
     assert "yanked-admonition" in names
     assert "format-shell" in names
     assert "setup-guide-pypi-trusted-publisher" in names
     assert "sync-dep-sources" in names
-    assert len(names) == 47
+    assert len(names) == 48
 
 
 def test_load_template_frontmatter():
@@ -751,6 +752,7 @@ PROGRAMMATIC_TEMPLATES = frozenset({
     "setup-guide-notifications-pat",
     "setup-guide-pages-source",
     "setup-guide-pypi-trusted-publisher",
+    "setup-guide-sha-pinning-required",
     "setup-guide-token",
     "setup-guide-verify",
     "setup-guide-virustotal",

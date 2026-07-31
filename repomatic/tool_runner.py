@@ -690,6 +690,19 @@ def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
     (via {func}`_npm_supports_cooldown`); the `lint-awesome` job provisions a
     new-enough npm so CI enforces it.
 
+    ```{note}
+    `--ignore-scripts` skips `preinstall`/`install`/`postinstall` scripts for
+    the package and its whole transitive tree: the install-time-script vector
+    behind most npm supply-chain worms. Safe here because `_install_npm` only
+    ever installs a repomatic-pinned, cooldown-gated tool (unlike a
+    general-purpose installer taking arbitrary package names, where a
+    postinstall step can be load-bearing); see the sibling `meta-package-manager`
+    project's `NPM` manager for that broader case, which cannot assume the same.
+    The other flags match that project's npm `pre_args` for consistency,
+    including `--no-audit` (disables sending the resolved dependency tree to
+    the registry's audit endpoint on every install, not just log noise).
+    ```
+
     :param dest: Directory to install into (`dest/node_modules/.bin/<exe>`).
     :param cooldown_days: `minimum-release-age` in whole days; `0` omits the gate.
     :return: Path to the installed executable.
@@ -705,9 +718,11 @@ def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
     cmd = [
         npm,
         "install",
+        "--ignore-scripts",
+        "--no-progress",
+        "--no-update-notifier",
         "--no-fund",
         "--no-audit",
-        "--no-progress",
         "--prefix",
         str(dest),
         package_pin,

@@ -40,6 +40,7 @@ from .lint_repo import (
     check_immutable_releases,
     check_pages_deployment_source,
     check_pypi_trusted_publisher,
+    check_sha_pinning_required,
 )
 from .metadata import Metadata
 from .pypi import (
@@ -156,6 +157,11 @@ def manage_setup_guide(
     if has_pat and repo:
         fork_pr_ok = check_fork_pr_approval_policy(repo).passed
 
+    # SHA pinning required policy check.
+    sha_pinning_ok: bool | None = False
+    if has_pat and repo:
+        sha_pinning_ok = check_sha_pinning_required(repo).passed
+
     # PyPI Trusted Publisher check (only for projects that publish to PyPI).
     # The probe does not need a PAT: it hits the public PyPI integrity API.
     pypi_publisher_ok: bool | None = None
@@ -213,6 +219,16 @@ def manage_setup_guide(
             repo_slug=repo_slug,
         ),
         passed=fork_pr_ok,
+    )
+
+    step_sha_pinning_required = _wrap_setup_step(
+        "Require SHA pinning for GitHub Actions",
+        render_template(
+            "setup-guide-sha-pinning-required",
+            repo_url=repo_url,
+            repo_slug=repo_slug,
+        ),
+        passed=sha_pinning_ok,
     )
 
     # PyPI Trusted Publisher step: only relevant for projects that publish to
@@ -312,11 +328,13 @@ def manage_setup_guide(
             logging.debug(f"Failed to detect owner type for {repo_owner!r}.")
 
     # --- Assemble issue body ---
-    # Step-skip markers: only include fork-pr approval step when the check is
-    # determinate. When skipped (None), the check could not run and we do not
-    # want to show a step the user cannot resolve.
+    # Step-skip markers: only include fork-pr approval / SHA-pinning steps
+    # when the check is determinate. When skipped (None), the check could
+    # not run and we do not want to show a step the user cannot resolve.
     if fork_pr_ok is None:
         step_fork_pr_approval = ""
+    if sha_pinning_ok is None:
+        step_sha_pinning_required = ""
 
     setup_body = render_template(
         "setup-guide",
@@ -326,6 +344,7 @@ def manage_setup_guide(
         immutable_releases_step=immutable_releases_step,
         step_branch_ruleset=step_branch_ruleset,
         step_fork_pr_approval=step_fork_pr_approval,
+        step_sha_pinning_required=step_sha_pinning_required,
         step_pypi_trusted_publisher=step_pypi_trusted_publisher,
         step_pages_source=step_pages_source,
         step_virustotal=step_virustotal,

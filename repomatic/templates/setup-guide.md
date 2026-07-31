@@ -1,5 +1,5 @@
 ---
-args: [missing_permissions_section, step_token, step_dependabot, immutable_releases_step, step_branch_ruleset, step_fork_pr_approval, step_pypi_trusted_publisher, step_pages_source, step_virustotal, step_notifications_pat, step_verify, org_tip, repo_url]
+args: [missing_permissions_section, step_token, step_dependabot, immutable_releases_step, step_branch_ruleset, step_fork_pr_approval, step_sha_pinning_required, step_pypi_trusted_publisher, step_pages_source, step_virustotal, step_notifications_pat, step_verify, org_tip, repo_url]
 ---
 
 \$missing_permissions_section
@@ -13,6 +13,8 @@ args: [missing_permissions_section, step_token, step_dependabot, immutable_relea
 \$step_branch_ruleset
 
 \$step_fork_pr_approval
+
+\$step_sha_pinning_required
 
 \$step_pypi_trusted_publisher
 

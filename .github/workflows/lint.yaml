@@ -72,7 +72,7 @@ jobs:
           --format github-json --output "$GITHUB_OUTPUT"
           is_bot is_python_project python_files
           yaml_changed zsh_changed zsh_files
-          workflows_changed
+          workflows_changed npm_min_release_age_days
 
   lint-repo:
     name: 🏠 Lint repo
@@ -206,11 +206,21 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Provision npm for the min-release-age cooldown
-        # `repomatic run awesome-lint` installs awesome-lint (and its transitive
-        # tree) with npm's min-release-age cooldown, which needs npm 11.10.0+;
-        # older npm ignores it, so provision a new-enough npm the way setup-uv
-        # provisions uv. sync-workflow-pins bumps this pin like any npm literal.
-        run: npm install npm@12.0.1 --global # zizmor: ignore[adhoc-packages]
+        # `repomatic run awesome-lint` installs awesome-lint with npm's
+        # min-release-age cooldown, which needs npm 11.10.0+; older npm ignores
+        # it, so provision a new-enough npm the way setup-uv provisions uv.
+        # sync-workflow-pins bumps this pin like any npm literal, so `npm@X.Y.Z`
+        # must stay right after `install` (its regex misses it otherwise) and the
+        # flags trail. The flag set mirrors `_install_npm` (tool_runner.py).
+        # Cooldown flows through an env var (npm's own `npm_config_min-release-age`
+        # has a shell-hostile hyphen) sourced from the metadata job; enforcing it
+        # here is belt-and-suspenders, ready if npm ever live-resolves the tree.
+        env:
+          NPM_MIN_RELEASE_AGE: ${{ fromJSON(needs.metadata.outputs.metadata).npm_min_release_age_days }}
+        run: > # zizmor: ignore[adhoc-packages]
+          npm install npm@12.0.1 --global --ignore-scripts --no-progress
+          --no-update-notifier --no-fund --no-audit
+          --min-release-age="$NPM_MIN_RELEASE_AGE"
       - name: Run awesome-lint
         run: uvx --no-progress --from . repomatic run awesome-lint
 

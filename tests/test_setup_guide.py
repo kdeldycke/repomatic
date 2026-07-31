@@ -69,6 +69,7 @@ def _offline_setup_guide(
     branch_ok: CheckResult | None = None,
     immutable_ok: CheckResult | None = None,
     fork_pr_ok: CheckResult | None = None,
+    sha_pinning_ok: CheckResult | None = None,
     pypi_ok: CheckResult | None = None,
     pages_ok: CheckResult | None = None,
     owner_type: str = "User",
@@ -86,6 +87,7 @@ def _offline_setup_guide(
     :param branch_ok: Return of the branch-ruleset check.
     :param immutable_ok: Return of the immutable-releases check.
     :param fork_pr_ok: Return of the fork-PR approval-policy check.
+    :param sha_pinning_ok: Return of the SHA-pinning-required check.
     :param pypi_ok: Return of the PyPI Trusted Publisher check.
     :param pages_ok: Return of the Pages deployment-source check.
     :param owner_type: `.type` the org-detection `gh api users/…` call returns.
@@ -98,6 +100,8 @@ def _offline_setup_guide(
         immutable_ok = CheckResult(True, "Immutable releases enabled.")
     if fork_pr_ok is None:
         fork_pr_ok = CheckResult(True, "Fork PR approval is required.")
+    if sha_pinning_ok is None:
+        sha_pinning_ok = CheckResult(True, "SHA pinning required: enabled.")
     if pypi_ok is None:
         pypi_ok = CheckResult(True, "Trusted publisher is configured.")
     if pages_ok is None:
@@ -128,6 +132,12 @@ def _offline_setup_guide(
             patch(
                 "repomatic.setup_guide.check_fork_pr_approval_policy",
                 return_value=fork_pr_ok,
+            )
+        )
+        enter(
+            patch(
+                "repomatic.setup_guide.check_sha_pinning_required",
+                return_value=sha_pinning_ok,
             )
         )
         enter(

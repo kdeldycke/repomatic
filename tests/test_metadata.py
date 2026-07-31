@@ -666,6 +666,7 @@ expected: dict[str, Any] = {
         "repomatic/templates/setup-guide-notifications-pat.md",
         "repomatic/templates/setup-guide-pages-source.md",
         "repomatic/templates/setup-guide-pypi-trusted-publisher.md",
+        "repomatic/templates/setup-guide-sha-pinning-required.md",
         "repomatic/templates/setup-guide-token.md",
         "repomatic/templates/setup-guide-verify.md",
         "repomatic/templates/setup-guide-virustotal.md",
@@ -767,6 +768,7 @@ expected: dict[str, Any] = {
         "repomatic/templates/setup-guide-notifications-pat.md",
         "repomatic/templates/setup-guide-pages-source.md",
         "repomatic/templates/setup-guide-pypi-trusted-publisher.md",
+        "repomatic/templates/setup-guide-sha-pinning-required.md",
         "repomatic/templates/setup-guide-token.md",
         "repomatic/templates/setup-guide-verify.md",
         "repomatic/templates/setup-guide-virustotal.md",
@@ -1092,6 +1094,8 @@ expected: dict[str, Any] = {
     # These can be True or False depending on the current development cycle state.
     "minor_bump_allowed": AnyBool(),
     "major_bump_allowed": AnyBool(),
+    # `minimum-release-age` default "8 days", rendered as whole days for npm.
+    "npm_min_release_age_days": 8,
 }
 
 

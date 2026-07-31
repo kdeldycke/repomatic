@@ -387,6 +387,7 @@ from .matrix_axes import (
 )
 from .pypi import PYPI_PROJECT_URL
 from .pyproject import is_python_project as _is_python_project
+from .version_sync import min_release_age_days
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -497,6 +498,7 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "coverage_cells": "Matrix cells eligible for Codecov coverage upload.",
     "minor_bump_allowed": "Minor version bump is allowed by commit history.",
     "major_bump_allowed": "Major version bump is allowed by commit history.",
+    "npm_min_release_age_days": "npm min-release-age cooldown, in whole days.",
 }
 """One-liner descriptions for each metadata key produced by {meth}`Metadata.dump`."""
 
@@ -2671,6 +2673,9 @@ class Metadata:
             "coverage_cells": lambda: self.coverage_cells,
             "minor_bump_allowed": lambda: self.minor_bump_allowed,
             "major_bump_allowed": lambda: self.major_bump_allowed,
+            "npm_min_release_age_days": lambda: min_release_age_days(
+                self.config.minimum_release_age
+            ),
         }
 
         # Add config from [tool.repomatic] in pyproject.toml.

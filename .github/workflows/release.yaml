@@ -26,6 +26,8 @@ name: 🚀 Build & release
     branches:
       - main
 
+permissions: {}
+
 concurrency:
   # Declared on this push-triggered entry, not the reusable _release-engine.yaml it
   # calls: GitHub decides run cancellation from the entry workflow's group, and a

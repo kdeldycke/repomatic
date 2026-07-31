@@ -524,6 +524,61 @@ def check_fork_pr_approval_policy(repo: str) -> CheckResult:
     )
 
 
+def check_sha_pinning_required(repo: str) -> CheckResult:
+    """Check that GitHub Actions must be pinned to a full-length commit SHA.
+
+    GitHub has a per-repository policy, `sha_pinning_required`, that makes
+    the platform itself refuse to run any workflow referencing an action by a
+    mutable tag or branch instead of a commit SHA. repomatic already pins
+    every action it generates and checks unpinned refs with `zizmor`
+    (`check_inline_pins_match_upstream` and the `lint-zizmor` job), but a
+    `zizmor` finding can be silenced inline (`# zizmor: ignore[...]`), so a
+    hand-edited workflow could still slip a mutable tag past review. This
+    repo-level setting is the platform-enforced backstop.
+
+    Queries ``GET /repos/{repo}/actions/permissions`` and returns `False`
+    when `sha_pinning_required` is absent or `false`.
+
+    ```{note}
+
+    This endpoint requires the `Actions: read` permission. When the
+    `REPOMATIC_PAT` lacks it (or the API call fails for any other
+    reason), the check returns `None` to signal that the result is
+    indeterminate rather than negative.
+    ```
+
+    :param repo: Repository in 'owner/repo' format.
+    :return: A `CheckResult`. `passed` is `None` when the check could not run
+        (API inaccessible or unparsable).
+    """
+    try:
+        output = run_gh_command(["api", f"repos/{repo}/actions/permissions"])
+    except RuntimeError:
+        return CheckResult(
+            None, "SHA pinning required check: skipped (could not query API)."
+        )
+
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        return CheckResult(
+            None, "SHA pinning required check: skipped (invalid JSON from API)."
+        )
+
+    if data.get("sha_pinning_required"):
+        return CheckResult(True, "SHA pinning required: enabled.")
+
+    msg = (
+        "SHA pinning is not required for GitHub Actions in this repository."
+        " Enable it under"
+        f" https://github.com/{repo}/settings/actions"
+        " (Actions permissions → Require actions to be pinned to a"
+        " full-length commit SHA) so GitHub rejects any unpinned action"
+        " reference, not just the ones zizmor happens to catch."
+    )
+    return CheckResult(False, msg)
+
+
 def check_tag_protection_rules(repo: str) -> CheckResult:
     """Check that no tag rulesets could block the `create-tag` workflow job.
 
@@ -1119,6 +1174,10 @@ def run_repo_lint(
     # Check 9: Fork PR approval policy strict enough (warning).
     if repo:
         _report_result(check_fork_pr_approval_policy(repo))
+
+    # Check 9a: SHA pinning required for Actions (warning).
+    if repo:
+        _report_result(check_sha_pinning_required(repo))
 
     # Check 9b: PyPI Trusted Publisher entry registered (warning).
     if repo and package_name:

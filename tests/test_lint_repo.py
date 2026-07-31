@@ -35,6 +35,7 @@ from repomatic.lint_repo import (
     check_package_name_vs_repo,
     check_pat_stale_statuses_permission,
     check_pypi_trusted_publisher,
+    check_sha_pinning_required,
     check_stale_draft_releases,
     check_test_matrix_excludes,
     check_topics_subset_of_keywords,
@@ -454,6 +455,53 @@ def test_stale_drafts_multiple():
         assert result.passed is False
         assert "v6.1.2" in result.message
         assert "v6.2.0-rc1" in result.message
+
+
+# --- SHA pinning required check unit tests ---
+
+
+def test_sha_pinning_required_enabled():
+    """Pass when the repository requires SHA pinning for Actions."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.return_value = json.dumps({
+            "enabled": True,
+            "allowed_actions": "all",
+            "sha_pinning_required": True,
+        })
+        result = check_sha_pinning_required("owner/repo")
+        assert result.passed is True
+        assert "enabled" in result.message
+
+
+def test_sha_pinning_required_disabled():
+    """Warn with a fix link when SHA pinning is not required."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.return_value = json.dumps({
+            "enabled": True,
+            "allowed_actions": "all",
+            "sha_pinning_required": False,
+        })
+        result = check_sha_pinning_required("owner/repo")
+        assert result.passed is False
+        assert "owner/repo/settings/actions" in result.message
+
+
+def test_sha_pinning_required_api_failure():
+    """Skip gracefully when the API call fails."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.side_effect = RuntimeError("gh command failed")
+        result = check_sha_pinning_required("owner/repo")
+        assert result.passed is None
+        assert "skipped" in result.message
+
+
+def test_sha_pinning_required_json_parse_error():
+    """Skip gracefully when the API returns unparsable JSON."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.return_value = "not json"
+        result = check_sha_pinning_required("owner/repo")
+        assert result.passed is None
+        assert "skipped" in result.message
 
 
 # --- PAT capability check unit tests ---

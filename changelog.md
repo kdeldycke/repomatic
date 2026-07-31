@@ -37,6 +37,9 @@
 - Emit an absolute `og:image` URL for social previews: `ogp_site_url` now backs `ogp_image` in the docs configuration.
 - Teach the `sphinx-docs` agent the `{click:run}` `--version` trap, the thin-schema combined CLI page, Cloudflare-blocked intersphinx probes, and mdformat's seed-block collapse.
 - Add release-asset, self-healing-marker, and linkcheck re-test guards to the `sphinx-docs-sync` skill's audit procedure.
+- Add a `check_sha_pinning_required` lint check and setup-guide step for GitHub's `sha_pinning_required` Actions setting, the platform-enforced backstop for action SHA pinning.
+- Add the missing top-level `permissions: {}` to the canonical `release.yaml`, clearing the one workflow `check_workflow_permissions` already flagged.
+- Block install-time scripts and apply the `minimum-release-age` cooldown on every npm install of `awesome-lint`, hardening both the runtime and CI-provisioning paths against supply-chain attacks.
 
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 

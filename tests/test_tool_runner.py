@@ -345,6 +345,11 @@ def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
     assert f"awesome-lint@{spec.version}" in cmd
     assert "--prefix" in cmd and str(tmp_path) in cmd
     assert "--min-release-age=8" in cmd
+    # Install-time scripts are blocked (the npm supply-chain worm vector); the
+    # other flags mirror meta-package-manager's npm `pre_args`.
+    assert "--ignore-scripts" in cmd
+    assert "--no-audit" in cmd
+    assert "--no-update-notifier" in cmd
     assert bin_path == bin_dir / "awesome-lint"
 
 
