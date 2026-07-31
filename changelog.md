@@ -22,6 +22,7 @@
 - Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
 - Extend the bundled lychee configuration with generic excludes: GitHub issue-comment fragments, release binary downloads, and DOI-to-Zenodo redirects.
 - Declare least-privilege permissions on the canonical `release.yaml`, clearing the workflow `check_workflow_permissions` lint.
+- Extend the `check_workflow_permissions` lint to flag a reusable-workflow call inheriting an empty top-level `permissions: {}` without its own grants: the misconfiguration that aborts a run at startup.
 - Block install-time scripts and apply the `minimum-release-age` cooldown on every npm install of `awesome-lint`, hardening both the runtime and CI-provisioning paths against supply-chain attacks.
 - Surface `uv audit`'s stderr when it exits without emitting JSON, replacing the bare `produced no output` error.
 - Keep `metadata` from crashing when git refuses the repository (dubious ownership, unresolvable range): it now logs git's stderr and continues.
@@ -36,6 +37,7 @@
 - Direct the `babysit-ci` skill to announce its early exit and name the still-unverified `release.yaml` binary run, instead of stopping on a silent idle.
 - Harden the `repomatic-ship` skill: forbid detached `Monitor` polling, read the whole unreleased changelog section at invocation, and align every convention description its docs pass corrects.
 - Extend the `sphinx-docs` agent and `sphinx-docs-sync` skill: the `{click:run}` `--version` trap, thin-schema combined CLI page, Cloudflare-blocked intersphinx probes, mdformat seed-block collapse, plus release-asset, self-healing-marker, and linkcheck audit guards.
+- Note in the `repomatic-ship` skill that changelog released sections are immutable, and that a workflow cache-key line-length fix cannot lift `hashFiles()` into a workflow-level `env:`.
 
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 

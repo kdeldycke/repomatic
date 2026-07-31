@@ -40,6 +40,7 @@ from repomatic.lint_repo import (
     check_test_matrix_excludes,
     check_topics_subset_of_keywords,
     check_website_for_sphinx,
+    check_workflow_permissions,
     get_repo_metadata,
     run_repo_lint,
 )
@@ -384,6 +385,64 @@ def test_funding_skipped_no_sponsors(tmp_path, monkeypatch):
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
         assert "no GitHub Sponsors" in msg
+
+
+@pytest.mark.parametrize(
+    ("workflow", "expect_fail", "needle"),
+    [
+        pytest.param(
+            "on: push\n"
+            "permissions: {}\n"
+            "jobs:\n"
+            "  build:\n"
+            "    uses: ./.github/workflows/_build.yaml\n",
+            True,
+            "`build`",
+            id="starved-reusable-call",
+        ),
+        pytest.param(
+            "on: push\n"
+            "permissions: {}\n"
+            "jobs:\n"
+            "  build:\n"
+            "    uses: ./.github/workflows/_build.yaml\n"
+            "    permissions:\n"
+            "      contents: write\n",
+            False,
+            None,
+            id="granted-reusable-call",
+        ),
+        pytest.param(
+            "on: push\njobs:\n  build:\n    uses: ./.github/workflows/_build.yaml\n",
+            False,
+            None,
+            id="reusable-call-repo-default",
+        ),
+        pytest.param(
+            "on: push\n"
+            "jobs:\n"
+            "  build:\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    steps:\n"
+            "      - run: echo apricot\n",
+            True,
+            "top-level `permissions`",
+            id="custom-steps-missing-key",
+        ),
+    ],
+)
+def test_workflow_permissions(tmp_path, monkeypatch, workflow, expect_fail, needle):
+    """Flag starved reusable calls and custom-step workflows missing the key."""
+    monkeypatch.chdir(tmp_path)
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yaml").write_text(workflow, encoding="utf-8")
+    failures = [r for r in check_workflow_permissions() if r.passed is False]
+    if expect_fail:
+        assert failures
+        assert any(needle in r.message for r in failures)
+    else:
+        assert not failures
 
 
 def test_funding_api_failure(tmp_path, monkeypatch):

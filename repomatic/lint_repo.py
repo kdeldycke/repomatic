@@ -905,12 +905,27 @@ def check_stale_gh_pages_branch(repo: str) -> CheckResult:
 
 
 def check_workflow_permissions() -> list[CheckResult]:
-    """Check that workflows with custom jobs declare ``permissions: {}``.
+    """Check workflow ``permissions`` declarations for least privilege.
 
-    Thin-caller workflows (all jobs use `uses:` to call a reusable workflow)
-    inherit permissions from the called workflow and do not need a top-level
-    `permissions` key. Workflows that define their own `steps:` should
-    declare ``permissions: {}`` to follow the principle of least privilege.
+    Two failure modes are flagged:
+
+    1. A workflow that defines its own ``steps:`` should carry a top-level
+       ``permissions`` key (``permissions: {}`` for least privilege) so its
+       jobs default to no scopes rather than the repository default.
+    2. A job that calls a reusable workflow (a job-level ``uses:``) hands its
+       own permissions *down*, and the reusable workflow's jobs are capped by
+       them: they cannot escalate beyond what the caller grants. So under a
+       top-level ``permissions: {}``, a reusable-call job with no
+       ``permissions:`` block of its own passes ``{}`` to the called workflow,
+       and GitHub aborts the run at startup the moment a nested job requests a
+       scope the caller never granted. Such a job must name the union of the
+       scopes its reusable workflow needs (mirror the reusable workflow's own
+       top-level ``{}`` plus per-job grants).
+
+    A thin caller with *no* top-level ``permissions`` key is fine: its jobs
+    inherit the repository default, which the reusable workflow's own
+    ``permissions:`` blocks then cap. The failure is specifically an empty
+    top-level ``permissions: {}`` starving an unqualified reusable call.
 
     :return: A list of `CheckResult`.
     """
@@ -933,22 +948,51 @@ def check_workflow_permissions() -> list[CheckResult]:
         if not isinstance(data, dict) or "jobs" not in data:
             continue
 
-        # Determine if this is a thin-caller workflow (all jobs use reusable
-        # workflows via "uses:" with no "steps:").
         jobs = data.get("jobs", {})
         has_custom_steps = any(
             "steps" in job for job in jobs.values() if isinstance(job, dict)
         )
-        if not has_custom_steps:
+        # Reusable-workflow-calling jobs (a job-level `uses:`) that would
+        # inherit an empty top-level `permissions: {}` because they declare no
+        # `permissions:` of their own. `data.get("permissions") == {}` matches
+        # only the empty mapping, not an absent key (which yields the repo
+        # default) nor a populated one.
+        starved_calls = (
+            sorted(
+                name
+                for name, job in jobs.items()
+                if isinstance(job, dict)
+                and job.get("uses")
+                and "permissions" not in job
+            )
+            if data.get("permissions") == {}
+            else []
+        )
+
+        # Only workflows subject to one of the two checks are reported on.
+        if not has_custom_steps and not starved_calls:
             continue
 
-        if "permissions" not in data:
-            msg = (
+        failures: list[str] = []
+        if has_custom_steps and "permissions" not in data:
+            failures.append(
                 f"Workflow {wf_path.name} defines custom job steps but has no"
-                " top-level `permissions` key. Add `permissions: {{}}` for"
-                " least-privilege security."
+                f" top-level `permissions` key. Add `permissions: {{}}` for"
+                f" least-privilege security."
             )
-            results.append(CheckResult(False, msg))
+        if starved_calls:
+            joined = ", ".join(f"`{name}`" for name in starved_calls)
+            failures.append(
+                f"Workflow {wf_path.name}: {joined} call a reusable workflow"
+                f" under a top-level `permissions: {{}}` without their own"
+                f" `permissions:` block, so GitHub rejects the run at startup"
+                f" once a nested job requests a scope the caller never granted."
+                f" Grant each job the union of the scopes its reusable workflow"
+                f" needs."
+            )
+
+        if failures:
+            results.extend(CheckResult(False, msg) for msg in failures)
         else:
             results.append(
                 CheckResult(True, f"Workflow {wf_path.name}: permissions declared.")
