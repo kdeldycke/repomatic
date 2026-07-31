@@ -21,7 +21,7 @@
 - Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
 - Warn about unknown `[tool.repomatic]` keys once per project and process, instead of on every configuration re-load.
 - Report `sync-deps` and `update-checksums` progress as a `✓`/`✘` trail with a running tally and a timed summary.
-- Pin uv to the `0.12` series: `required-version` moves to `>=0.12,<0.13`.
+- Loosen the uv `required-version` pin to a lower bound (`>=0.12`), dropping the per-minor upper cap so uv can update across minors without a manual bump.
 - Surface `uv audit`'s stderr when it exits without emitting JSON, replacing the bare `produced no output` error.
 - Keep `metadata` from crashing when git refuses the repository (dubious ownership, unresolvable range): it now logs git's stderr and continues.
 - Accept `sur` (macOS Big Sur, Homebrew's `big_sur` bottle tag) as a valid word in the bundled typos configuration, so `fix-typos` stops correcting it to `sure`.

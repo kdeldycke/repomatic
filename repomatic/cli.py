@@ -2410,7 +2410,7 @@ def sync_uv_lock_cmd(
     Wraps uv lock --upgrade and:
       - syncs the repomatic-owned [tool.uv] policy pins (required-version,
         exclude-newer) in pyproject.toml from the bundled template, so every
-        machine resolves the lockfile with the same uv
+        machine resolves the lockfile against the same uv floor and cooldown
       - prunes exclude-newer-package entries from pyproject.toml whose held
         version has aged past the exclude-newer cutoff, then freezes the
         survivors at their locked version (a fixed date) so the upgrade

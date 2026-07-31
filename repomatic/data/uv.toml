@@ -7,8 +7,9 @@
 # (sources, exclude-newer-package, build-backend, dependency-groups) is left
 # untouched. See claude.md for the rationale behind both pins.
 
-# Pin uv to a single minor series so every contributor and CI runner resolves
-# uv.lock with the same resolver (astral-sh/setup-uv reads this automatically).
-required-version = ">=0.12,<0.13"
+# Floor uv at the minimum resolver relied on, with no upper bound: setup-uv
+# installs the newest uv satisfying it, and sync-uv-lock absorbs cross-minor
+# marker churn (astral-sh/setup-uv reads this automatically).
+required-version = ">=0.12"
 # Cooldown buffer before adopting newly released packages.
 exclude-newer = "1 week"

@@ -1,6 +1,13 @@
 [build-system]
 build-backend = "uv_build"
-requires = [ "uv-build>=0.9,<0.13" ]
+# uv-build is intentionally left uncapped. uv warns on build that the sdist
+# could break on a future breaking uv-build release, but repomatic is pure
+# Python with none of the packaging edge cases that warning guards against (no
+# compiled extensions, no GPU/CUDA targets). Flexibility is preferred here:
+# repomatic runs across the ecosystem, where uv versions drift between projects,
+# and a hard ceiling risks a chicken-and-egg deadlock when one project's uv
+# moves ahead of repomatic's next release.
+requires = [ "uv-build>=0.12" ]
 
 [project]
 # Docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
@@ -196,16 +203,21 @@ typing = [
 ]
 
 [tool.uv]
-# Pin uv to the 0.11 series so every contributor and CI runner resolves
-# uv.lock with the same resolver. astral-sh/setup-uv reads this automatically
-# (its `version` input defaults to the pyproject value), and uv enforces it on
-# every local invocation. Together with sync-uv-lock discarding cosmetic-only
-# re-locks (see repomatic.uv.sync_uv_lock), this stops uv.lock from
-# ping-ponging between machines that re-spell equivalent markers differently.
-# Bump the ceiling once a new uv minor has regenerated the lock.
-required-version = ">=0.12,<0.13"
+# Floor uv at the minimum resolver repomatic relies on, with no upper bound.
+# astral-sh/setup-uv reads this automatically (its `version` input defaults to
+# the pyproject value) and installs the newest uv satisfying it, so CI and
+# contributors move forward without a manual ceiling bump each minor (a hard
+# upper cap breaks every machine the day the next uv minor lands, since uv
+# self-updates). uv.lock stays stable across minors because sync-uv-lock
+# discards a re-lock that only re-spells equivalent markers (see
+# repomatic.uv.sync_uv_lock).
+required-version = ">=0.12"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
+# TEMPORARY: resolve click-extra from git main until 8.7.1 ships to PyPI with the
+# click_extra.blocks module. Drop this override once 8.7.1 is released; the
+# click-extra>=8.7.1 dependency above then resolves from PyPI on its own.
+sources.click-extra = { git = "https://github.com/kdeldycke/click-extra.git", branch = "main" }
 # Cooldown period: 7-day buffer before using newly released packages.
 # Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to
 # uv.lock for relative spans, so re-resolving never produces churn.
@@ -217,15 +229,9 @@ exclude-newer = "1 week"
 # `exclude-newer`, returning the package to the normal cooldown. repomatic is
 # pinned to git main (no PyPI release to freeze), so it keeps a permanent
 # "0 day" span.
-exclude-newer-package = { "click-extra" = "2026-07-31T00:00:00Z", "extra-platforms" = "2026-07-28T00:00:00Z", repomatic = "0 day" }
+exclude-newer-package = { click-extra = "2026-07-31T00:00:00Z", extra-platforms = "2026-07-28T00:00:00Z", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
-
-# TEMPORARY: resolve click-extra from git main until 8.7.1 ships to PyPI with the
-# click_extra.blocks module. Drop this override once 8.7.1 is released; the
-# click-extra>=8.7.1 dependency above then resolves from PyPI on its own.
-[tool.uv.sources]
-click-extra = { git = "https://github.com/kdeldycke/click-extra.git", branch = "main" }
 
 # Nuitka binary build options. repomatic translates this section to CLI flags
 # at build time via `repomatic run nuitka` (Nuitka itself only reads it when
