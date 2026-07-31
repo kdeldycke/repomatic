@@ -260,7 +260,7 @@ def resolve_subgraph_selection(
 ) -> tuple[str, ...] | None:
     """Resolve which groups or extras the graph should render.
 
-    Mirrors one selection axis of the `update-deps-graph` command: explicit
+    Mirrors one selection axis of the `update-dep-graph` command: explicit
     CLI values win over the `[tool.repomatic] dependency-graph` defaults;
     `--only-*` replaces the explicit selection; `--all-*` expands to every
     name declared in `pyproject.toml`; `--no-*` prunes last.

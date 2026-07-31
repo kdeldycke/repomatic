@@ -748,7 +748,7 @@ jobs:
           branch: sync-tool-versions
           delete-branch: true
 
-  update-deps-graph:
+  update-dep-graph:
     name: 🕸️ Update dependency graph
     needs:
       - metadata
@@ -765,11 +765,11 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Generate graph
         # Package name and output path are auto-detected from pyproject.toml.
-        run: uvx --no-progress --from . repomatic update-deps-graph
+        run: uvx --no-progress --from . repomatic update-dep-graph
       - id: pr-metadata
         run: >
           uvx --no-progress --from . repomatic pr-body --output-format github-actions
-          --template update-deps-graph
+          --template update-dep-graph
           --output "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
@@ -779,7 +779,7 @@ jobs:
           title: ${{ steps.pr-metadata.outputs.title }}
           body: ${{ steps.pr-metadata.outputs.body }}
           labels: "📚 documentation"
-          branch: update-deps-graph
+          branch: update-dep-graph
           delete-branch: true
 
   update-docs:

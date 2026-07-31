@@ -99,7 +99,7 @@ Five separate packaging and install tools have been absorbed into `uv`, which no
 
 `uv` also consolidated command-line usage that previously required separate tools: `pip install` became `uv pip install` / `uv sync`, `pipx` became `uvx`, and `actions/setup-python` was replaced by `astral-sh/setup-uv` (counted in the [action minimization table](#third-party-action-minimization) above).
 
-Two other Python packages were eliminated outside the ruff/uv consolidations: `pipdeptree` (replaced by an internal `deps-graph` implementation) and `gitignore-parser` (replaced by `py-walk`).
+Two other Python packages were eliminated outside the ruff/uv consolidations: `pipdeptree` (replaced by an internal `dep-graph` implementation) and `gitignore-parser` (replaced by `py-walk`).
 
 ## Permissions and token
 

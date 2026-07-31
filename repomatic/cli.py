@@ -83,14 +83,14 @@ from .config import (
     config_reference,
     escape_type_for_gfm_table,
 )
-from .dep_report import (
-    format_released,
-    format_upload_date,
-)
-from .deps_graph import (
+from .dep_graph import (
     SubgraphKind,
     generate_dependency_graph,
     resolve_subgraph_selection,
+)
+from .dep_report import (
+    format_released,
+    format_upload_date,
 )
 from .docs import update_docs as _update_docs
 from .git_ops import commit_and_push_files, create_and_push_tag
@@ -1561,7 +1561,7 @@ def sponsor_label(
 
 
 @repomatic.command(
-    name="update-deps-graph",
+    name="update-dep-graph",
     short_help="Generate dependency graph from uv lockfile",
     section=_section_setup,
 )
@@ -1652,7 +1652,7 @@ def sponsor_label(
     default=None,
     help="Output file path. Defaults to [tool.repomatic] config or stdout.",
 )
-def deps_graph(
+def dep_graph(
     package: str | None,
     groups: tuple[str, ...],
     all_groups: bool,
@@ -1675,43 +1675,43 @@ def deps_graph(
     \b
     Examples:
         # Generate Mermaid graph
-        repomatic update-deps-graph
+        repomatic update-dep-graph
 
     \b
         # Include test dependencies
-        repomatic update-deps-graph --group test
+        repomatic update-dep-graph --group test
 
     \b
         # Include all groups and extras
-        repomatic update-deps-graph --all-groups --all-extras
+        repomatic update-dep-graph --all-groups --all-extras
 
     \b
         # Include all groups except typing
-        repomatic update-deps-graph --all-groups --no-group typing
+        repomatic update-dep-graph --all-groups --no-group typing
 
     \b
         # Include all extras except one
-        repomatic update-deps-graph --all-extras --no-extra json5
+        repomatic update-dep-graph --all-extras --no-extra json5
 
     \b
         # Show only test group dependencies (no main deps)
-        repomatic update-deps-graph --only-group test
+        repomatic update-dep-graph --only-group test
 
     \b
         # Show only a specific extra's dependencies
-        repomatic update-deps-graph --only-extra xml
+        repomatic update-dep-graph --only-extra xml
 
     \b
         # Focus on a specific package
-        repomatic update-deps-graph --package click-extra
+        repomatic update-dep-graph --package click-extra
 
     \b
         # Limit graph depth to 2 levels
-        repomatic update-deps-graph --level 2
+        repomatic update-dep-graph --level 2
 
     \b
         # Save to file
-        repomatic update-deps-graph --output docs/dependency-graph.md
+        repomatic update-dep-graph --output docs/dependency-graph.md
     """
     config = get_tool_config()
 

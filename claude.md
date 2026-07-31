@@ -203,7 +203,7 @@ CLI commands, workflow job IDs, PR branch names, and PR body template names must
 | Prefix     | Semantics                                         | Source of truth      | Idempotent? | Examples                                          |
 | :--------- | :------------------------------------------------ | :------------------- | :---------- | :------------------------------------------------ |
 | `sync-X`   | Regenerate from a canonical or external source.   | Template, API, repo  | Yes         | `sync-gitignore`, `sync-mailmap`, `sync-uv-lock`  |
-| `update-X` | Compute from project state.                       | Lockfile, git log    | Yes         | `update-deps-graph`, `update-checksums`           |
+| `update-X` | Compute from project state.                       | Lockfile, git log    | Yes         | `update-dep-graph`, `update-checksums`            |
 | `format-X` | Rewrite to enforce canonical style.               | Formatter rules      | Yes         | `format-json`, `format-markdown`, `format-python` |
 | `fix-X`    | Correct content (auto-fix).                       | Linter/checker rules | Yes         | `fix-typos`                                       |
 | `lint-X`   | Check content without modifying it.               | Linter rules         | Yes         | `lint-changelog`                                  |
@@ -214,8 +214,9 @@ CLI commands, workflow job IDs, PR branch names, and PR body template names must
 1. **Pick the verb that matches the data source.** External template/API/canonical reference: `sync`. Local project state (lockfiles, git history, source): `update`. Reformatting: `format`.
 2. **Name the specific tool or file, not a generic category** (`sync-zizmor`, not `sync-linter-configs`). A second tool in a category gets its own operation.
 3. **All four dimensions must agree.** A file-modifying operation uses one `verb-noun` for CLI command, workflow job ID, PR branch, and PR body template (`sync-gitignore` everywhere). Read-only operations (`lint-*`) use only the CLI command and job ID. One exception: release-lane recording (`scan-virustotal` and the `sync-binaries` catalog it commits) has no PR branch or template because it pushes directly to the default branch, disableable via `[tool.repomatic] binaries.sync`; see [§ Release-lane direct commits](https://kdeldycke.github.io/repomatic/operation-contracts.html#release-lane-direct-commits).
-4. **Function names follow the CLI name** (`sync_gitignore` for `sync-gitignore`). On collision with an imported module, use the Click `name=` parameter (`@repomatic.command(name="update-deps-graph")` on `deps_graph`) or append `_cmd` (`sync_uv_lock_cmd`).
+4. **Function names follow the CLI name** (`sync_gitignore` for `sync-gitignore`). On collision with an imported module, use the Click `name=` parameter (`@repomatic.command(name="update-dep-graph")` on `dep_graph`) or append `_cmd` (`sync_uv_lock_cmd`).
 5. **A read-only command may expose mutation via `--fix`.** When a query command (like `audit`) gains a `--fix` autofix mode, the autofix operation keeps its own `fix-X` job ID, PR branch, and template and invokes `<command> --fix` (`fix-vulnerable-deps` runs `audit --fix`). That command name is then exempt from rule 3: it is a general-purpose query command (like `metadata`), not the operation's namesake.
+6. **`dep` when attributive, `deps` when the object.** A "dep" prefix modifying another noun stays singular, following English compound-noun convention (`dep-graph`, `dep-sources`, `dep_report.py`); "deps" appears only where the dependencies are themselves the object of the verb (`sync-deps`, `vulnerable-deps`).
 
 ### Automated operation contracts
 

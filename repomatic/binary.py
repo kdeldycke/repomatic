@@ -196,7 +196,7 @@ SKIP_BINARY_BUILD_BRANCHES: Final[frozenset[str]] = frozenset((
     "format-shell",
     "sync-gitignore",
     "sync-mailmap",
-    "update-deps-graph",
+    "update-dep-graph",
 ))
 """Autofix branches whose changes cannot affect compiled binaries.
 

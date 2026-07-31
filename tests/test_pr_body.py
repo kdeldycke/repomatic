@@ -255,7 +255,7 @@ def test_get_template_names():
     assert "format-pyproject" in names
     assert "format-python" in names
     assert "sync-bumpversion" in names
-    assert "update-deps-graph" in names
+    assert "update-dep-graph" in names
     assert "update-docs" in names
     assert "sync-gitignore" in names
     assert "sync-mailmap" in names
@@ -516,9 +516,9 @@ def test_render_sync_bumpversion():
     assert "[tool.repomatic]" in result
 
 
-def test_render_update_deps_graph():
+def test_render_update_dep_graph():
     """Update deps graph template surfaces its config options."""
-    result = render_template("update-deps-graph")
+    result = render_template("update-dep-graph")
 
     assert "## ⚙️ Configuration" in result
     assert "dependency-graph.output" in result

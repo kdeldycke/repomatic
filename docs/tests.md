@@ -90,19 +90,19 @@
    :undoc-members:
 ```
 
-## `tests.test_dep_sources` module
+## `tests.test_dep_graph` module
 
 ```{eval-rst}
-.. automodule:: tests.test_dep_sources
+.. automodule:: tests.test_dep_graph
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `tests.test_deps_graph` module
+## `tests.test_dep_sources` module
 
 ```{eval-rst}
-.. automodule:: tests.test_deps_graph
+.. automodule:: tests.test_dep_sources
    :members:
    :show-inheritance:
    :undoc-members:

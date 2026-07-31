@@ -230,9 +230,9 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - **Skipped if**:
   - `tool-versions.sync = false` in `[tool.repomatic]`
 
-#### 🕸️ Update dependency graph (`update-deps-graph`)
+#### 🕸️ Update dependency graph (`update-dep-graph`)
 
-- Generates a Mermaid dependency graph of the Python project using [`repomatic update-deps-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps_graph.py)
+- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/dep_graph.py)
 - **Requires**:
   - Python package with a `uv.lock` file
 
@@ -546,7 +546,7 @@ flowchart TD
   - `format-images` (image formatting)
   - `sync-gitignore` (`.gitignore` sync)
   - `sync-mailmap` (`.mailmap` sync)
-  - `update-deps-graph` (dependency graph docs)
+  - `update-dep-graph` (dependency graph docs)
 
 #### ✅ Test binaries (`test-binaries`)
 

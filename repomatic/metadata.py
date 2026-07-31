@@ -2676,7 +2676,7 @@ class Metadata:
         # Add config from [tool.repomatic] in pyproject.toml.
         # Convert kebab-case config keys to snake_case metadata keys.
         # Exclude nuitka internal config (dedicated properties with validation logic)
-        # and subcommand config fields (read directly by deps-graph).
+        # and subcommand config fields (read directly by dep-graph).
         for name in _metadata_config_fields():
             # `partial` binds ``name`` eagerly, dodging the late-binding pitfall.
             factories[name] = partial(getattr, self.config, name)

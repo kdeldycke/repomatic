@@ -7,6 +7,7 @@
 
 - **Breaking:** Regroup the internal module layout: the tool catalog moves to `tool_registry.py`, dependency-report rendering to `dep_report.py`, label management to `labels.py`, bundled-data access to `bundle.py`, and CI matrix axes to `matrix_axes.py` (formerly `test_matrix.py`). Python import paths change; the CLI surface does not.
 - Key the CI tool-binary caches on `tool_registry.py` instead of the whole runner module, so engine-only changes stop invalidating cached tools.
+- **Breaking:** Rename `update-deps-graph` to `update-dep-graph` across the CLI command, autofix job, PR branch, and body template, aligning with the `dependency-graph` config key. Close any open `update-deps-graph` pull request; the next run reopens it on the new branch.
 - **Breaking:** `repomatic init` component selectors are now case-sensitive, validated by the same code path as the `exclude` and `include` configuration entries.
 - Compile Linux binaries inside `manylinux_2_28` containers and run their self-tests there, lowering the published glibc floor from the runner's `2.38` to `2.28` (RHEL 8, Debian 10, Ubuntu 20.04 and later).
 - Lower the macOS binary floors to `11.0` (Apple silicon) and `10.15` (Intel), embedding uv's python-build-standalone interpreter and pinning the deployment target: binaries previously required the build runner's own macOS version.

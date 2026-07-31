@@ -31,7 +31,7 @@ Every `update-*` operation computes derived artifacts from project state (lockfi
 
 **Optional properties:**
 
-- **CLI command.** A CLI wrapper is only required when the update runs custom repomatic Python logic (e.g., `update-deps-graph`). Updates that invoke external tools or standalone scripts (e.g., `sphinx-apidoc`) may call them directly from the workflow without a `repomatic update-*` wrapper.
+- **CLI command.** A CLI wrapper is only required when the update runs custom repomatic Python logic (e.g., `update-dep-graph`). Updates that invoke external tools or standalone scripts (e.g., `sphinx-apidoc`) may call them directly from the workflow without a `repomatic update-*` wrapper.
 - **Config toggle.** Add a `*_update: bool = True` toggle only when the generated output involves files the user may want to manage independently. If added, follow the sync toggle pattern (Config field, `SUBCOMMAND_CONFIG_FIELDS`, tests).
 - **Config parameters.** Output paths, filtering options, or depth limits belong as Config fields (e.g., `dependency-graph.output`, `dependency-graph.level`). These configure behavior without enabling/disabling the operation.
 

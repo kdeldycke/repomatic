@@ -392,10 +392,10 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic update-checksums"
 
 [[cases]]
-cli_parameters = "update-deps-graph --help"
+cli_parameters = "update-dep-graph --help"
 exit_code = 0
 strip_ansi = true
-stdout_contains = "Usage: repomatic update-deps-graph"
+stdout_contains = "Usage: repomatic update-dep-graph"
 
 [[cases]]
 cli_parameters = "update-docs --help"

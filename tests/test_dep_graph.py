@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.deps_graph import (
+from repomatic.dep_graph import (
     Subgraph,
     SubgraphKind,
     _compute_node_degrees,

@@ -99,14 +99,14 @@ class DependencyGraphConfig:
     all_extras: bool = True
     """Whether to include all optional extras in the graph.
 
-    When `True`, the `update-deps-graph` command behaves as if
+    When `True`, the `update-dep-graph` command behaves as if
     `--all-extras` was passed.
     """
 
     all_groups: bool = True
     """Whether to include all dependency groups in the graph.
 
-    When `True`, the `update-deps-graph` command behaves as if
+    When `True`, the `update-dep-graph` command behaves as if
     `--all-groups` was passed. Projects that want to exclude development
     dependency groups (docs, test, typing) from their published graph can
     set this to `false`.
@@ -911,7 +911,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
 """Config fields consumed directly by subcommands, not needed as metadata outputs.
 
 These fields are read directly from `[tool.repomatic]` in `pyproject.toml` by
-their respective subcommands (e.g. `deps-graph`), so they no longer need to be
+their respective subcommands (e.g. `dep-graph`), so they no longer need to be
 passed through workflow metadata outputs.
 """
 
