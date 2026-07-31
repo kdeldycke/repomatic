@@ -219,11 +219,6 @@ typing = [
 required-version = ">=0.12"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
-# TEMPORARY: resolve click-extra from git main until 8.8.0 ships to PyPI with the
-# utilities repomatic now delegates to (see the click-extra>=8.8.0 rationale
-# above). Drop this override once 8.8.0 is released; the dependency then resolves
-# from PyPI on its own.
-sources.click-extra = { git = "https://github.com/kdeldycke/click-extra.git", branch = "main" }
 # Cooldown period: 7-day buffer before using newly released packages.
 # Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to
 # uv.lock for relative spans, so re-resolving never produces churn.
@@ -235,7 +230,7 @@ exclude-newer = "1 week"
 # `exclude-newer`, returning the package to the normal cooldown. repomatic is
 # pinned to git main (no PyPI release to freeze), so it keeps a permanent
 # "0 day" span.
-exclude-newer-package = { click-extra = "2026-07-31T00:00:00Z", extra-platforms = "2026-07-28T00:00:00Z", repomatic = "0 day" }
+exclude-newer-package = { click-extra = "2026-08-02T00:00:00Z", extra-platforms = "2026-07-28T00:00:00Z", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 
