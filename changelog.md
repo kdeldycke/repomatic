@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.4.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.4.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.4.0` (2026-07-31)](https://github.com/kdeldycke/repomatic/compare/v7.3.1...v7.4.0)
 
 - **Breaking:** Regroup the internal module layout: the tool catalog to `tool_registry.py`, dep-report rendering to `dep_report.py`, labels to `labels.py`, bundled data to `bundle.py`, matrix axes to `matrix_axes.py` (formerly `test_matrix.py`), PR helpers to `github/issue.py`. Import paths change; the CLI surface does not.
