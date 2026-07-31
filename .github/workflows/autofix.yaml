@@ -221,9 +221,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
-          key: repomatic-bin-${{ runner.os }}-${{ runner.arch }}-shfmt-${{ hashFiles('repomatic/tool_registry.py') }}
+          key: repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-${{ hashFiles('repomatic/tool_registry.py') }}
           restore-keys: |
-            repomatic-bin-${{ runner.os }}-${{ runner.arch }}-shfmt-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-
       - name: Format shell scripts
         env:
           SHELL_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).shfmt_files }}
@@ -259,9 +259,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
-          key: repomatic-bin-${{ runner.os }}-${{ runner.arch }}-biome-${{ hashFiles('repomatic/tool_registry.py') }}
+          key: repomatic-${{ runner.os }}-${{ runner.arch }}-biome-${{ hashFiles('repomatic/tool_registry.py') }}
           restore-keys: |
-            repomatic-bin-${{ runner.os }}-${{ runner.arch }}-biome-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-biome-
       - name: Format JSON
         # Allow comments and trailing commas for JSONC files.
         # Biome auto-detects well-known JSONC files (tsconfig.json, etc.).
@@ -302,9 +302,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
-          key: repomatic-bin-${{ runner.os }}-${{ runner.arch }}-typos-${{ hashFiles('repomatic/tool_registry.py') }}
+          key: repomatic-${{ runner.os }}-${{ runner.arch }}-typos-${{ hashFiles('repomatic/tool_registry.py') }}
           restore-keys: |
-            repomatic-bin-${{ runner.os }}-${{ runner.arch }}-typos-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-typos-
       - name: Fix typos
         run: uvx --no-progress --from . repomatic run typos
       - id: pr-metadata

@@ -53,6 +53,12 @@ jobs:
     # Local reusable call: repomatic builds with its own current fast lane
     # rather than a published ref.
     uses: ./.github/workflows/_release-build.yaml
+    # The top-level `{}` grants a reusable-call job nothing, so name the union of
+    # the scopes its nested jobs request: detect-squash-merge needs issues:write,
+    # build-package needs id-token:write (OIDC build provenance).
+    permissions:
+      id-token: write
+      issues: write
 
   publish-pypi:
     name: 🐍 Publish to PyPI (${{ matrix.short_sha }})
@@ -92,6 +98,14 @@ jobs:
     # sync-dev-release can download the run-scoped wheel the build lane uploaded.
     uses: ./.github/workflows/_release-engine.yaml
     needs: build
+    # Union of the engine jobs' scopes (the top-level `{}` grants nothing on its
+    # own): compile-binaries needs id-token + attestations (plus contents:read),
+    # and create-tag / create-release / manpages / publish-release /
+    # scan-virustotal / sync-dev-release need contents:write.
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
     secrets:
       REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
       VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}

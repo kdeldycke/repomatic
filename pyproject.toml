@@ -105,7 +105,7 @@ dependencies = [
   # `click_extra.sphinx.myst_docstrings` (8.5, absorbed from
   # `repomatic.myst_docstrings`) is loaded by `docs/conf.py`; `click:config`
   # and `schema_field_infos()` (8.3) back `configuration.md` and `show-config`.
-  "click-extra>=8.8.0",
+  "click-extra>=8.8",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.

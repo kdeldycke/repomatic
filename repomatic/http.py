@@ -119,7 +119,7 @@ def get_cached_json(
 ) -> Any | None:
     """GET *url* as JSON through the raw-response cache.
 
-    A fresh cached body under `{namespace}/{key}` short-circuits the network;
+    A fresh cached body under `namespace`/`key` short-circuits the network;
     otherwise the response is fetched, cached verbatim (when *ttl* is
     positive), and returned parsed. The caller keeps the caching policy: it
     picks the namespace, the cache key, and the TTL.

@@ -358,8 +358,7 @@ def test_update_binaries_page_migrates_legacy_markers(
     """Pages carrying any superseded open marker are migrated in place."""
     page = tmp_path / "binaries.md"
     page.write_text(
-        f"# Intro\n\n{legacy_open}\n\nold chart\n\n"
-        f"{close_marker}\n\nTrailing prose.\n",
+        f"# Intro\n\n{legacy_open}\n\nold chart\n\n{close_marker}\n\nTrailing prose.\n",
         encoding="utf-8",
     )
     assert update_binaries_page(page, "new chart", REPO) is True

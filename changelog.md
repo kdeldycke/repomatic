@@ -5,41 +5,37 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** Regroup the internal module layout: the tool catalog moves to `tool_registry.py`, dependency-report rendering to `dep_report.py`, label management to `labels.py`, bundled-data access to `bundle.py`, CI matrix axes to `matrix_axes.py` (formerly `test_matrix.py`), and the pull-request helpers into `github/issue.py`. Python import paths change; the CLI surface does not.
-- Unify the `lint-repo` checks on one tri-state result protocol: skipped checks now print `ℹ` instead of a misleading `✓`.
-- Key the CI tool-binary caches on `tool_registry.py` instead of the whole runner module, so engine-only changes stop invalidating cached tools.
+- **Breaking:** Regroup the internal module layout: the tool catalog to `tool_registry.py`, dep-report rendering to `dep_report.py`, labels to `labels.py`, bundled data to `bundle.py`, matrix axes to `matrix_axes.py` (formerly `test_matrix.py`), PR helpers to `github/issue.py`. Import paths change; the CLI surface does not.
 - **Breaking:** Rename `update-deps-graph` to `update-dep-graph` across the CLI command, autofix job, PR branch, and body template, aligning with the `dependency-graph` config key. Close any open `update-deps-graph` pull request; the next run reopens it on the new branch.
 - **Breaking:** `repomatic init` component selectors are now case-sensitive, validated by the same code path as the `exclude` and `include` configuration entries.
-- Compile Linux binaries inside `manylinux_2_28` containers and run their self-tests there, lowering the published glibc floor from the runner's `2.38` to `2.28` (RHEL 8, Debian 10, Ubuntu 20.04 and later).
-- Lower the macOS binary floors to `11.0` (Apple silicon) and `10.15` (Intel), embedding uv's python-build-standalone interpreter and pinning the deployment target: binaries previously required the build runner's own macOS version.
-- Keep `tkinter` and its Tcl/Tk stack out of compiled binaries via the new `[tool.repomatic]` `nuitka.nofollow-imports` setting (default `["tkinter"]`, set to `[]` to bundle it).
+- Lower the compiled-binary OS floors: Linux glibc `2.28`, built and self-tested in `manylinux_2_28` containers (RHEL 8, Debian 10, Ubuntu 20.04 and later), and macOS `11.0` (Apple silicon) / `10.15` (Intel) via uv's embedded python-build-standalone interpreter.
 - Enforce each binary's OS floor at build time: `verify-binary` parses ELF, Mach-O and PE headers natively and no longer needs exiftool.
-- Direct the `babysit-ci` skill to announce its early exit and name the still-unverified `release.yaml` binary run, instead of stopping on a silent idle.
-- Direct the `repomatic-ship` docs pass to align every description of a convention when correcting one, not just the flagged instance.
-- Name the `Monitor` tool among the detached pollers the `repomatic-ship` babysitter prompt forbids, closing the idle-mid-watch loophole.
-- Show `repomatic-ship` the whole unreleased changelog section at invocation instead of the first eight lines.
-- Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
-- Warn about unknown `[tool.repomatic]` keys once per project and process, instead of on every configuration re-load.
+- Keep `tkinter` and its Tcl/Tk stack out of compiled binaries via the new `[tool.repomatic]` `nuitka.nofollow-imports` setting (default `["tkinter"]`, set to `[]` to bundle it).
+- Emit man pages for repomatic's own CLI on docs builds and attach a `repomatic-manpages.tar.gz` asset to each release.
+- Add `update-docs --check` to report out-of-date self-updating content and exit non-zero without writing, for CI drift detection. The docs update script must accept its own `--check` flag to participate.
+- Add a `check_sha_pinning_required` lint check and setup-guide step for GitHub's `sha_pinning_required` Actions setting, the platform-enforced backstop for action SHA pinning.
+- Unify the `lint-repo` checks on one tri-state result protocol: skipped checks now print `ℹ` instead of a misleading `✓`.
+- Key the CI tool-binary caches on `tool_registry.py` instead of the whole runner module, so engine-only changes stop invalidating cached tools.
 - Report `sync-deps` and `update-checksums` progress as a `✓`/`✘` trail with a running tally and a timed summary.
+- Warn about unknown `[tool.repomatic]` keys once per project and process, instead of on every configuration re-load.
 - Loosen the uv `required-version` pin to a lower bound (`>=0.12`), dropping the per-minor upper cap so uv can update across minors without a manual bump.
+- Move the docs link checker from `ubuntu-slim` to `ubuntu-24.04-arm`: the crawl outgrew the slim runner's 15-minute job cap.
+- Extend the bundled lychee configuration with generic excludes: GitHub issue-comment fragments, release binary downloads, and DOI-to-Zenodo redirects.
+- Declare least-privilege permissions on the canonical `release.yaml`, clearing the workflow `check_workflow_permissions` lint.
+- Block install-time scripts and apply the `minimum-release-age` cooldown on every npm install of `awesome-lint`, hardening both the runtime and CI-provisioning paths against supply-chain attacks.
 - Surface `uv audit`'s stderr when it exits without emitting JSON, replacing the bare `produced no output` error.
 - Keep `metadata` from crashing when git refuses the repository (dubious ownership, unresolvable range): it now logs git's stderr and continues.
 - Accept `sur` (macOS Big Sur, Homebrew's `big_sur` bottle tag) as a valid word in the bundled typos configuration, so `fix-typos` stops correcting it to `sure`.
-- Extend the bundled lychee configuration with generic excludes: GitHub issue-comment fragments, release binary downloads, and DOI-to-Zenodo redirects.
 - Document the minimum OS requirement of each binary target, and the distributions it opens execution to, in a new [Minimum OS requirements](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements) section that downstream binaries pages link to.
+- Document how to verify a downloaded binary's build-provenance attestation with `gh attestation verify` on the installation page.
+- Order the installation docs' Python-compatibility table newest-first, so the latest release and Python version read from the upper-left.
 - Rename the binaries page chart markers to `binaries-chart`/`binaries-chart-end`, aligning on click-extra's `<!-- name --> / <!-- name-end -->` marker grammar; pages carrying older markers are migrated on their next refresh.
 - Fix the click-extra `{matrix}` directive link on the installation page, and realign page octicons with the `sphinx-docs` agent's extended icon registry.
-- Order the installation docs' Python-compatibility table newest-first, so the latest release and Python version read from the upper-left.
-- Document how to verify a downloaded binary's build-provenance attestation with `gh attestation verify` on the installation page.
-- Add `update-docs --check` to report out-of-date self-updating content and exit non-zero without writing, for CI drift detection. The docs update script must accept its own `--check` flag to participate.
-- Emit man pages for repomatic's own CLI on docs builds and attach a `repomatic-manpages.tar.gz` asset to each release.
-- Pin the install guide's versioned CLI examples (`pkg@X.Y.Z`, `pkg==X.Y.Z`) to the release in the prepare-release freeze step.
 - Emit an absolute `og:image` URL for social previews: `ogp_site_url` now backs `ogp_image` in the docs configuration.
-- Teach the `sphinx-docs` agent the `{click:run}` `--version` trap, the thin-schema combined CLI page, Cloudflare-blocked intersphinx probes, and mdformat's seed-block collapse.
-- Add release-asset, self-healing-marker, and linkcheck re-test guards to the `sphinx-docs-sync` skill's audit procedure.
-- Add a `check_sha_pinning_required` lint check and setup-guide step for GitHub's `sha_pinning_required` Actions setting, the platform-enforced backstop for action SHA pinning.
-- Add the missing top-level `permissions: {}` to the canonical `release.yaml`, clearing the one workflow `check_workflow_permissions` already flagged.
-- Block install-time scripts and apply the `minimum-release-age` cooldown on every npm install of `awesome-lint`, hardening both the runtime and CI-provisioning paths against supply-chain attacks.
+- Pin the install guide's versioned CLI examples (`pkg@X.Y.Z`, `pkg==X.Y.Z`) to the release in the prepare-release freeze step.
+- Direct the `babysit-ci` skill to announce its early exit and name the still-unverified `release.yaml` binary run, instead of stopping on a silent idle.
+- Harden the `repomatic-ship` skill: forbid detached `Monitor` polling, read the whole unreleased changelog section at invocation, and align every convention description its docs pass corrects.
+- Extend the `sphinx-docs` agent and `sphinx-docs-sync` skill: the `{click:run}` `--version` trap, thin-schema combined CLI page, Cloudflare-blocked intersphinx probes, mdformat seed-block collapse, plus release-asset, self-healing-marker, and linkcheck audit guards.
 
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 
