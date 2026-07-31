@@ -55,6 +55,7 @@ import json
 import logging
 from pathlib import Path
 
+from click_extra.blocks import replace_region
 from packaging.version import InvalidVersion, Version
 
 from .binary import NUITKA_BUILD_TARGETS
@@ -97,15 +98,33 @@ false-positive submission round (see the `/av-false-positive` skill).
 """
 
 LEGACY_PAGE_END_MARKER = "<!-- binaries-end -->"
-"""Pre-rename closing marker, migrated to {data}`PAGE_END_MARKER` on first touch."""
+"""Oldest closing marker, migrated to {data}`PAGE_END_MARKER` on first touch."""
 
-LEGACY_PAGE_START_MARKER = "<!-- binaries-start -->"
-"""Pre-rename opening marker, migrated to {data}`PAGE_START_MARKER` on first touch."""
+LEGACY_PAGE_START_MARKERS = (
+    "<!-- binaries-start -->",
+    "<!-- binaries-chart-start -->",
+)
+"""Superseded opening markers, migrated to {data}`PAGE_START_MARKER` on first touch.
 
-PAGE_END_MARKER = "<!-- binaries-chart-end -->"
+Two generations precede the current bare open: the original
+`<!-- binaries-start -->`, then the `<!-- binaries-chart-start -->` of the
+short-lived `-start`/`-end` pair. Both collapse to {data}`PAGE_START_MARKER`, so
+a page written by any past version refreshes cleanly.
+"""
+
+PAGE_REGION = "binaries-chart"
+"""Region name spliced by {func}`click_extra.blocks.replace_region`.
+
+The generated chart lives between the `<!-- binaries-chart -->` and
+`<!-- binaries-chart-end -->` markers that {data}`PAGE_START_MARKER` and
+{data}`PAGE_END_MARKER` spell out, following click-extra's
+`<!-- name --> / <!-- name-end -->` marker grammar with `name` = this value.
+"""
+
+PAGE_END_MARKER = f"<!-- {PAGE_REGION}-end -->"
 """Closing marker of the generated chart region in the binaries page."""
 
-PAGE_START_MARKER = "<!-- binaries-chart-start -->"
+PAGE_START_MARKER = f"<!-- {PAGE_REGION} -->"
 """Opening marker of the generated chart region in the binaries page."""
 
 PAGE_TEMPLATE = """\
@@ -125,7 +144,7 @@ Compiled Python binaries are regularly flagged by heuristic antivirus engines, s
 
 Fresh binaries are compiled from every push to the default branch by the [release workflow]({repo_url}/actions/workflows/release.yaml). To try the latest development build: open the most recent successful run and download the artifact matching your platform (a GitHub account is required, and the binary comes wrapped in a zip). The same builds are also attached to a rolling dev pre-release, a draft only visible to repository maintainers.
 
-<!-- binaries-chart-start -->
+<!-- binaries-chart -->
 
 <!-- binaries-chart-end -->
 
@@ -435,10 +454,11 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
 
     A missing page is created (with parent directories) from
     {data}`PAGE_TEMPLATE`. On an existing page only the region between
-    {data}`PAGE_START_MARKER` and {data}`PAGE_END_MARKER` is replaced,
-    leaving all surrounding prose untouched. Pages carrying the pre-rename
-    {data}`LEGACY_PAGE_START_MARKER` / {data}`LEGACY_PAGE_END_MARKER` pair
-    are migrated to the current markers in the same pass.
+    {data}`PAGE_START_MARKER` and {data}`PAGE_END_MARKER` is replaced by
+    {func}`click_extra.blocks.replace_region`, leaving all surrounding prose
+    untouched. Pages carrying any {data}`LEGACY_PAGE_START_MARKERS` open or the
+    {data}`LEGACY_PAGE_END_MARKER` close are migrated to the current markers in
+    the same pass.
 
     :param page_path: Path to the Markdown page.
     :param chart_section: Rendered chart from {func}`render_chart_section`,
@@ -453,10 +473,12 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
     original = None
     if page_path.exists():
         original = page_path.read_text(encoding="UTF-8")
-        # Migrate pages generated before the marker rename.
-        text = original.replace(LEGACY_PAGE_START_MARKER, PAGE_START_MARKER).replace(
-            LEGACY_PAGE_END_MARKER, PAGE_END_MARKER
-        )
+        # Migrate pages written before the marker grammar aligned on
+        # click-extra's bare `<!-- name -->` open.
+        text = original
+        for legacy_open in LEGACY_PAGE_START_MARKERS:
+            text = text.replace(legacy_open, PAGE_START_MARKER)
+        text = text.replace(LEGACY_PAGE_END_MARKER, PAGE_END_MARKER)
         if PAGE_START_MARKER not in text or PAGE_END_MARKER not in text:
             raise ValueError(
                 f"{page_path} lacks the {PAGE_START_MARKER} / {PAGE_END_MARKER} "
@@ -465,11 +487,7 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
     else:
         text = PAGE_TEMPLATE.replace("{repo_url}", f"https://github.com/{repo_slug}")
 
-    before, rest = text.split(PAGE_START_MARKER, 1)
-    _, after = rest.split(PAGE_END_MARKER, 1)
-    section = chart_section.strip()
-    between = f"\n\n{section}\n\n" if section else "\n\n"
-    new_text = before + PAGE_START_MARKER + between + PAGE_END_MARKER + after
+    new_text = replace_region(text, PAGE_REGION, chart_section.strip())
 
     if new_text == original:
         logging.info(f"Binaries page {page_path} already up to date.")

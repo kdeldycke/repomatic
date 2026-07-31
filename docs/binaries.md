@@ -27,7 +27,7 @@ Systems below these floors (CentOS and RHEL 7 with glibc `2.17`, Ubuntu 18.04 wi
 
 Fresh binaries are compiled from every push to the default branch by the [release workflow](https://github.com/kdeldycke/repomatic/actions/workflows/release.yaml). To try the latest development build: open the most recent successful run and download the artifact matching your platform (a GitHub account is required, and the binary comes wrapped in a zip). The same builds are also attached to a rolling dev pre-release, a draft only visible to repository maintainers.
 
-<!-- binaries-chart-start -->
+<!-- binaries-chart -->
 
 ## VirusTotal detections
 

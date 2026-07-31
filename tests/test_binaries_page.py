@@ -25,7 +25,7 @@ import pytest
 from repomatic.binaries_page import (
     CSV_HEADERS,
     LEGACY_PAGE_END_MARKER,
-    LEGACY_PAGE_START_MARKER,
+    LEGACY_PAGE_START_MARKERS,
     PAGE_END_MARKER,
     PAGE_START_MARKER,
     render_binaries_csv,
@@ -343,18 +343,28 @@ def test_update_binaries_page_preserves_prose(tmp_path):
     assert "new chart" in text
 
 
-def test_update_binaries_page_migrates_legacy_markers(tmp_path):
-    """Pages carrying the pre-rename markers are migrated in place."""
+@pytest.mark.parametrize(
+    ("legacy_open", "close_marker"),
+    [
+        # Oldest generation: bare open paired with the bare close.
+        (LEGACY_PAGE_START_MARKERS[0], LEGACY_PAGE_END_MARKER),
+        # Short-lived `-start`/`-end` pair: its close is already the current one.
+        (LEGACY_PAGE_START_MARKERS[1], PAGE_END_MARKER),
+    ],
+)
+def test_update_binaries_page_migrates_legacy_markers(
+    tmp_path, legacy_open, close_marker
+):
+    """Pages carrying any superseded open marker are migrated in place."""
     page = tmp_path / "binaries.md"
     page.write_text(
-        f"# Intro\n\n{LEGACY_PAGE_START_MARKER}\n\nold chart\n\n"
-        f"{LEGACY_PAGE_END_MARKER}\n\nTrailing prose.\n",
+        f"# Intro\n\n{legacy_open}\n\nold chart\n\n"
+        f"{close_marker}\n\nTrailing prose.\n",
         encoding="utf-8",
     )
     assert update_binaries_page(page, "new chart", REPO) is True
     text = page.read_text(encoding="utf-8")
-    assert LEGACY_PAGE_START_MARKER not in text
-    assert LEGACY_PAGE_END_MARKER not in text
+    assert legacy_open not in text
     assert PAGE_START_MARKER in text
     assert PAGE_END_MARKER in text
     assert "old chart" not in text

@@ -439,13 +439,15 @@ For Python source files (where the role appeared inside docstrings or comments),
 
 For `pyproject.toml` schemas, CLI command lists, and tool registries, generate the markdown from the source of truth. The pattern: a `docs/docs_update.py` script writes between named auto-region markers, invoked by the upstream `docs.yaml` workflow via `repomatic update-docs`.
 
-**Marker naming convention.** Use descriptive `<!-- {feature}-{kind}-start -->` / `<!-- {feature}-{kind}-end -->` pairs, never bare `<!-- start -->`/`<!-- end -->`. Rationale: a single doc page often holds two or three auto-regions (a summary table, a Mermaid graph, an autodata block). Bare markers force the regenerator to use index-based dispatch and break the moment a region is reordered or removed; named markers stay correct under any rearrangement and grep cleanly. Examples from the lineage:
+**Marker naming convention.** Name each auto-region descriptively as `{feature}-{kind}` and wrap it in click-extra's `<!-- {feature}-{kind} --> / <!-- {feature}-{kind}-end -->` marker grammar: the grammar of `click_extra.blocks.replace_region` and of click-extra's own `{matrix}` and `mirror` markers. Never use generic bare `<!-- start -->`/`<!-- end -->`. Rationale: a single doc page often holds two or three auto-regions (a summary table, a Mermaid graph, an autodata block). Generic markers force the regenerator to use index-based dispatch and break the moment a region is reordered or removed; named markers stay correct under any rearrangement and grep cleanly. Examples:
 
-- `<!-- binaries-chart-start -->` / `<!-- binaries-chart-end -->` (a VirusTotal detections chart on the binaries page).
-- `<!-- managers-sankey-start -->` / `<!-- managers-sankey-end -->` (a Mermaid sankey of supported managers).
-- `<!-- operation-matrix-start -->` / `<!-- operation-matrix-end -->` (a feature-coverage table).
-- `<!-- pytest-decorators-autodata-start -->` / `<!-- pytest-decorators-autodata-end -->` (autodata blocks for pytest fixtures).
-- `<!-- python-compat-matrix-start -->` / `<!-- python-compat-matrix-end -->` (a compatibility table refreshed by a regenerator).
+- `<!-- binaries-chart -->` / `<!-- binaries-chart-end -->` (a VirusTotal detections chart on the binaries page).
+- `<!-- managers-sankey -->` / `<!-- managers-sankey-end -->` (a Mermaid sankey of supported managers).
+- `<!-- operation-matrix -->` / `<!-- operation-matrix-end -->` (a feature-coverage table).
+- `<!-- pytest-decorators-autodata -->` / `<!-- pytest-decorators-autodata-end -->` (autodata blocks for pytest fixtures).
+- `<!-- python-compat-matrix -->` / `<!-- python-compat-matrix-end -->` (a compatibility table refreshed by a regenerator).
+
+Pages written before the grammar aligned on click-extra spell the open marker with a `-start` suffix (`<!-- binaries-chart-start -->`); the binaries page migrates it automatically on its next refresh, and other regions adopt the bare open as their generators move to `replace_region`.
 
 Pick the `{feature}` slug from the canonical name of the source-of-truth (registry name, dataclass name, command path); pick the `{kind}` slug from the output shape (`table`, `sankey`, `mindmap`, `chart`, `autodata`, `automodule`, `autodoc`, `reference`).
 

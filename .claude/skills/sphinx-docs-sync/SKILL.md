@@ -83,7 +83,7 @@ These are about *how* you run the audit, not what counts as a violation:
 - Respect project-specific opt-outs: `[tool.repomatic] exclude` and `include` lists are authoritative. A page or component listed in `exclude` is intentionally absent.
 - Never silently bump a version pin. Loose pins are sometimes intentional; tight pins always have a reason. Flag, don't fix.
 - Before flagging download-URL or asset-name findings, list the real release assets (`gh release view {tag} --json assets`). Releases in this lineage attach unversioned alias binaries alongside the version-stamped ones, so `releases/latest/download/` links that look impossible against stamped filenames are in fact valid.
-- A marker or format deviating from the current convention may already be self-healing: check the generator for a legacy-marker migration shim before reporting drift (repomatic's binaries page auto-renames bare `binaries-start` pairs on next touch).
+- A marker or format deviating from the current convention may already be self-healing: check the generator for a legacy-marker migration shim before reporting drift (repomatic's binaries page auto-migrates legacy `binaries-start` and `binaries-chart-start` opens to the bare `binaries-chart` on next touch).
 - Sandboxed sessions usually cannot re-test `linkcheck_ignore` hosts: network allowlists make denials indistinguishable from real 403s. Hand the probe list to the user or defer to a local `sphinx-build -b linkcheck` run instead of silently skipping the re-test.
 
 ### Next steps

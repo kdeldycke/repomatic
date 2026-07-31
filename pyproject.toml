@@ -84,17 +84,16 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 8.6 is the floor: repomatic imports `OperationTrail` and
-  # `resolve_jobs` (both new in 8.6.0) to render the `sync-*` resolve trail, and
-  # the `{matrix}` directive's newest-first default (also 8.6.0) is what the
-  # committed Python-compatibility table in `docs/install.md` regenerates
-  # against. 8.5 shipped the `python:render` `:mirror:` regions `update-docs`
-  # phase 4 refreshes and the `make_schema_callable(warn_unknown=...)` unknown-key
-  # warning `load_repomatic_config` opts into, plus the
-  # `click_extra.sphinx.myst_docstrings` extension `docs/conf.py` loads (absorbed
-  # from `repomatic.myst_docstrings`); 8.3 brought the `click:config` directive
-  # and `schema_field_infos()` that `configuration.md` and `show-config` use.
-  "click-extra>=8.6",
+  # click-extra 8.7.1 is the floor: `binaries_page` imports `click_extra.blocks`
+  # (`replace_region`, new in 8.7.1) to splice the binaries page chart region.
+  # Earlier floors remain in play: `OperationTrail` and `resolve_jobs` (8.6.0)
+  # render the `sync-*` resolve trail; the `{matrix}` newest-first default (8.6.0)
+  # backs the committed Python-compatibility table in `docs/install.md`; the
+  # `python:render` `:mirror:` regions (8.5) drive the `update-docs` phase 4
+  # refresh, and `click_extra.sphinx.myst_docstrings` (8.5, absorbed from
+  # `repomatic.myst_docstrings`) is loaded by `docs/conf.py`; `click:config`
+  # and `schema_field_infos()` (8.3) back `configuration.md` and `show-config`.
+  "click-extra>=8.7.1",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.
@@ -221,6 +220,12 @@ exclude-newer = "1 week"
 exclude-newer-package = { "click-extra" = "2026-07-31T00:00:00Z", "extra-platforms" = "2026-07-28T00:00:00Z", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
+
+# TEMPORARY: resolve click-extra from git main until 8.7.1 ships to PyPI with the
+# click_extra.blocks module. Drop this override once 8.7.1 is released; the
+# click-extra>=8.7.1 dependency above then resolves from PyPI on its own.
+[tool.uv.sources]
+click-extra = { git = "https://github.com/kdeldycke/click-extra.git", branch = "main" }
 
 # Nuitka binary build options. repomatic translates this section to CLI flags
 # at build time via `repomatic run nuitka` (Nuitka itself only reads it when
