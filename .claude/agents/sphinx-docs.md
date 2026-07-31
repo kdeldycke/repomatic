@@ -562,28 +562,28 @@ A Sphinx site for a CLI/library project should converge on a predictable page se
 
 Primary toctree (user-facing), in this order:
 
-1. `install` — § Recipes › `install.md`. Always first.
-2. `cli` — § Recipes › `cli.md`. CLIs only.
-3. `configuration` — § Recipes › `configuration.md`. Projects with `[tool.X]` schema.
-4. `dependencies` — Dependency policy page (version-specifier rules, floor-comment conventions, audit procedures). The project's own dependency graph does not get a page of its own: it lives in `install.md`'s `## Dependencies` section (see § Recipes › `install.md`, step 8).
-5. `tool-runner` — Only when the project ships a `repomatic run`-style tool runner.
-6. `workflows` — Only when the project publishes reusable workflows.
-7. `test-matrix` — Only when the project documents its CI test-matrix composition.
-8. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
-9. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
+01. `install` — § Recipes › `install.md`. Always first.
+02. `cli` — § Recipes › `cli.md`. CLIs only.
+03. `configuration` — § Recipes › `configuration.md`. Projects with `[tool.X]` schema.
+04. `dependencies` — Dependency policy page (version-specifier rules, floor-comment conventions, audit procedures). The project's own dependency graph does not get a page of its own: it lives in `install.md`'s `## Dependencies` section (see § Recipes › `install.md`, step 8).
+05. `tool-runner` — Only when the project ships a `repomatic run`-style tool runner.
+06. `workflows` — Only when the project publishes reusable workflows.
+07. `test-matrix` — Only when the project documents its CI test-matrix composition.
+08. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
+09. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
 10. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
 
 Development toctree, in this order:
 
-1. `contributing` — Setup, dev loop, code-style pointers (or `{include} ../contributing.md` if the root file already exists).
-2. `upstream-development` — Project-internal release process. Mark `(upstream maintainers only)` in the page heading so readers know this is not for consumers.
-3. `operation-contracts` — Optional, for projects with formal automated-operation contracts.
-4. `API <{package}>`, `tests` — Autodoc API pages: the `API <...>` entry aliases the package's root autodoc page, `tests` covers the test-suite package. Both keep plain octicon-free headings (see Title octicons below).
-5. `binaries` — Standalone-executables catalog written by the repomatic binaries pipeline. Only for projects compiling Nuitka binaries; a maintainer-facing reference, so it belongs here rather than in the primary toctree (end users reach the same downloads through `install.md`'s `## Executables` section).
-6. `genindex`, `modindex` — Sphinx-generated index and module index.
-7. `changelog` — Reference the root changelog via `{include} ../changelog.md` so the file stays single-sourced.
-8. `changelog-archive` — Only when `[tool.repomatic] changelog.archive-location` points into `docs/`.
-9. `todolist` — `sphinx.ext.todo` output. Drop this entry when the project has no TODOs.
+01. `contributing` — Setup, dev loop, code-style pointers (or `{include} ../contributing.md` if the root file already exists).
+02. `upstream-development` — Project-internal release process. Mark `(upstream maintainers only)` in the page heading so readers know this is not for consumers.
+03. `operation-contracts` — Optional, for projects with formal automated-operation contracts.
+04. `API <{package}>`, `tests` — Autodoc API pages: the `API <...>` entry aliases the package's root autodoc page, `tests` covers the test-suite package. Both keep plain octicon-free headings (see Title octicons below).
+05. `binaries` — Standalone-executables catalog written by the repomatic binaries pipeline. Only for projects compiling Nuitka binaries; a maintainer-facing reference, so it belongs here rather than in the primary toctree (end users reach the same downloads through `install.md`'s `## Executables` section).
+06. `genindex`, `modindex` — Sphinx-generated index and module index.
+07. `changelog` — Reference the root changelog via `{include} ../changelog.md` so the file stays single-sourced.
+08. `changelog-archive` — Only when `[tool.repomatic] changelog.archive-location` points into `docs/`.
+09. `todolist` — `sphinx.ext.todo` output. Drop this entry when the project has no TODOs.
 10. `code-of-conduct`, `license` — `{include}` from root files; never duplicate the text.
 11. `GitHub repository <https://...>` — External link as the last entry.
 12. `Funding <https://github.com/sponsors/...>` — External link if the project accepts funding.
@@ -594,74 +594,74 @@ Page-shape rules that apply across the roster:
 
 - **Title octicons.** Every top-level page heading uses an `{octicon}` icon for visual scanning: `` # {octicon}`download` Installation ``, `` # {octicon}`command-palette` CLI ``, etc. Not just decoration — the Furo theme's sidebar uses them as visual anchors. Canonical icon registry, alphabetized:
 
-  | Page                      | Octicon                |
-  | :------------------------ | :--------------------- |
-  | `add-new-manager.md`      | `diff-added`           |
-  | `add-packaging-channel.md`| `git-merge`            |
-  | `agents.md`               | `dependabot`           |
-  | `architectures.md`        | `cpu`                  |
-  | `benchmark.md`            | `trophy`               |
-  | `binaries.md`             | `desktop-download`     |
-  | `carapace.md`             | `chevron-right`        |
-  | `changelog-archive.md`    | `history`              |
-  | `changelog.md`            | `diff`                 |
-  | `ci.md`                   | `container`            |
-  | `cli.md`                  | `command-palette`      |
-  | `code-of-conduct.md`      | `code-of-conduct`      |
-  | `colorize.md`             | `paintbrush`           |
-  | `commands.md`             | `apps`                 |
-  | `config.md`               | `sliders`              |
-  | `configuration.md`        | `sliders`              |
-  | `context.md`              | `database`             |
-  | `contributing.md`         | `git-pull-request`     |
-  | `decorators.md`           | `mention`              |
-  | `dependencies.md`         | `package-dependencies` |
-  | `detection.md`            | `pulse`                |
-  | `envvar.md`               | `pin`                  |
-  | `execution.md`            | `play`                 |
-  | `falsehoods.md`           | `copilot-warning`      |
-  | `groups.md`               | `apps`                 |
-  | `history.md`              | `log`                  |
-  | `install.md`              | `download`             |
-  | `license.md`              | `law`                  |
-  | `logging.md`              | `log`                  |
-  | `man-page.md`             | `repo`                 |
-  | `mkdocs.md`               | `markdown`             |
-  | `myst-docstrings.md`      | `pencil`               |
-  | `operation-contracts.md`  | `tasklist`             |
-  | `packaging.md`            | `package-dependents`   |
-  | `parameters.md`           | `tasklist`             |
-  | `platforms.md`            | `codespaces`           |
-  | `pygments.md`             | `file-code`            |
-  | `pytest.md`               | `meter`                |
-  | `releasing.md`            | `rocket`               |
-  | `screenshots.md`          | `device-camera`        |
-  | `security.md`             | `shield-lock`          |
-  | `shells.md`               | `chevron-right`        |
-  | `skills.md`               | `mortar-board`         |
-  | `sphinx.md`               | `book`                 |
-  | `spinner.md`              | `sync`                 |
-  | `styling.md`              | `typography`           |
-  | `table.md`                | `table`                |
-  | `telemetry.md`            | `broadcast`            |
-  | `terminals.md`            | `terminal`             |
-  | `test-matrix.md`          | `pivot-column`         |
-  | `test-suite.md`           | `beaker`               |
-  | `testing.md`              | `shield-check`         |
-  | `theme.md`                | `sun`                  |
-  | `todolist.md`             | `checklist`            |
-  | `tool-runner.md`          | `tools`                |
-  | `trait.md`                | `tag`                  |
-  | `tree.md`                 | `workflow`             |
-  | `tutorial.md`             | `mortar-board`         |
-  | `typer.md`                | `git-compare`          |
-  | `types.md`                | `file-binary`          |
-  | `upstream-development.md` | `gear`                 |
-  | `upstream.md`             | `cross-reference`      |
-  | `usecase.md`              | `light-bulb`           |
-  | `version.md`              | `iterations`           |
-  | `workflows.md`            | `workflow`             |
-  | `wrap.md`                 | `terminal`             |
+  | Page                       | Octicon                |
+  | :------------------------- | :--------------------- |
+  | `add-new-manager.md`       | `diff-added`           |
+  | `add-packaging-channel.md` | `git-merge`            |
+  | `agents.md`                | `dependabot`           |
+  | `architectures.md`         | `cpu`                  |
+  | `benchmark.md`             | `trophy`               |
+  | `binaries.md`              | `desktop-download`     |
+  | `carapace.md`              | `chevron-right`        |
+  | `changelog-archive.md`     | `history`              |
+  | `changelog.md`             | `diff`                 |
+  | `ci.md`                    | `container`            |
+  | `cli.md`                   | `command-palette`      |
+  | `code-of-conduct.md`       | `code-of-conduct`      |
+  | `colorize.md`              | `paintbrush`           |
+  | `commands.md`              | `apps`                 |
+  | `config.md`                | `sliders`              |
+  | `configuration.md`         | `sliders`              |
+  | `context.md`               | `database`             |
+  | `contributing.md`          | `git-pull-request`     |
+  | `decorators.md`            | `mention`              |
+  | `dependencies.md`          | `package-dependencies` |
+  | `detection.md`             | `pulse`                |
+  | `envvar.md`                | `pin`                  |
+  | `execution.md`             | `play`                 |
+  | `falsehoods.md`            | `copilot-warning`      |
+  | `groups.md`                | `apps`                 |
+  | `history.md`               | `log`                  |
+  | `install.md`               | `download`             |
+  | `license.md`               | `law`                  |
+  | `logging.md`               | `log`                  |
+  | `man-page.md`              | `repo`                 |
+  | `mkdocs.md`                | `markdown`             |
+  | `myst-docstrings.md`       | `pencil`               |
+  | `operation-contracts.md`   | `tasklist`             |
+  | `packaging.md`             | `package-dependents`   |
+  | `parameters.md`            | `tasklist`             |
+  | `platforms.md`             | `codespaces`           |
+  | `pygments.md`              | `file-code`            |
+  | `pytest.md`                | `meter`                |
+  | `releasing.md`             | `rocket`               |
+  | `screenshots.md`           | `device-camera`        |
+  | `security.md`              | `shield-lock`          |
+  | `shells.md`                | `chevron-right`        |
+  | `skills.md`                | `mortar-board`         |
+  | `sphinx.md`                | `book`                 |
+  | `spinner.md`               | `sync`                 |
+  | `styling.md`               | `typography`           |
+  | `table.md`                 | `table`                |
+  | `telemetry.md`             | `broadcast`            |
+  | `terminals.md`             | `terminal`             |
+  | `test-matrix.md`           | `pivot-column`         |
+  | `test-suite.md`            | `beaker`               |
+  | `testing.md`               | `shield-check`         |
+  | `theme.md`                 | `sun`                  |
+  | `todolist.md`              | `checklist`            |
+  | `tool-runner.md`           | `tools`                |
+  | `trait.md`                 | `tag`                  |
+  | `tree.md`                  | `workflow`             |
+  | `tutorial.md`              | `mortar-board`         |
+  | `typer.md`                 | `git-compare`          |
+  | `types.md`                 | `file-binary`          |
+  | `upstream-development.md`  | `gear`                 |
+  | `upstream.md`              | `cross-reference`      |
+  | `usecase.md`               | `light-bulb`           |
+  | `version.md`               | `iterations`           |
+  | `workflows.md`             | `workflow`             |
+  | `wrap.md`                  | `terminal`             |
 
   When introducing a page that's not in the table, pick the closest [GitHub Octicon](https://primer.style/foundations/icons) and add the entry here so the next repo follows suit. Icons must be unique within a repo — two pages sharing an icon defeats the visual-anchor purpose. A generated, homogeneous page catalog is exempt: meta-package-manager's `docs/managers/<id>.md` stubs (one per supported manager) all share a single category icon (`package`) as a group marker and sit under their own `{toctree}`, not competing for sidebar anchoring, so the uniqueness rule governs the hand-authored roster, not such catalogs. Across repos, reuse is acceptable when the concepts are related (`sliders` for anything configuration-shaped, `chevron-right` for anything shell-shaped); at fleet scale some reuse is inevitable. Auto-generated API pages (`<package>.md`, `tests.md`, and other autodoc module pages) keep plain octicon-free headings, with the package name in backticked form (like `` # `click_extra` package ``): their sidebar icons come from the `custom.css` toctree workaround instead.
 
