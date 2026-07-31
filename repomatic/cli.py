@@ -45,10 +45,12 @@ from click_extra import (
     file_path,
     get_tool_config,
     group,
+    is_stdout,
     jobs_option,
     option,
     option_group,
     pass_context,
+    prep_path,
     style,
 )
 from extra_platforms import is_github_ci
@@ -204,7 +206,6 @@ from .vulnerable_deps import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from typing import IO
 
     from .dep_report import BypassForecast, HeldBackPackage
 
@@ -240,41 +241,6 @@ lockfile_option = option(
     default="uv.lock",
     help="Path to the uv.lock file.",
 )
-
-
-def is_stdout(filepath: Path) -> bool:
-    """Check if a file path is set to stdout.
-
-    Prevents the creation of a `-` file in the current directory.
-    """
-    return str(filepath) == "-"
-
-
-def prep_path(filepath: Path) -> IO:
-    """Prepare the output file parameter for Click's echo function.
-
-    Always returns a UTF-8 encoded file object, including for stdout. This avoids
-    `UnicodeEncodeError` on Windows where the default stdout encoding is `cp1252`.
-
-    For non-stdout paths, parent directories are created automatically if they don't
-    exist. This absorbs the `mkdir -p` step that workflows previously had to do.
-
-    ```{note}
-    When stdout is a captured in-memory stream with no backing file descriptor
-    (Click's test runner, the Sphinx `{click:run}` directive that live-renders CLI
-    output in the docs), `fileno()` raises and we write to the stream directly. Such
-    streams are already Python text objects, so the Windows `cp1252` concern does not
-    apply: that only bites a real terminal, which always has a descriptor.
-    ```
-    """
-    if is_stdout(filepath):
-        try:
-            fd = sys.stdout.fileno()
-        except (OSError, ValueError):
-            return sys.stdout
-        return open(fd, "w", encoding="UTF-8", closefd=False)
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-    return filepath.open("w", encoding="UTF-8")
 
 
 def exit_if_disabled(ctx: Context, enabled: bool, key: str) -> None:

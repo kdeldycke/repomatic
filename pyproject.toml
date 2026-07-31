@@ -91,16 +91,21 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 8.7.1 is the floor: `binaries_page` imports `click_extra.blocks`
-  # (`replace_region`, new in 8.7.1) to splice the binaries page chart region.
-  # Earlier floors remain in play: `OperationTrail` and `resolve_jobs` (8.6.0)
-  # render the `sync-*` resolve trail; the `{matrix}` newest-first default (8.6.0)
-  # backs the committed Python-compatibility table in `docs/install.md`; the
-  # `python:render` `:mirror:` regions (8.5) drive the `update-docs` phase 4
-  # refresh, and `click_extra.sphinx.myst_docstrings` (8.5, absorbed from
+  # click-extra 8.8.0 is the floor: repomatic delegates to the utilities absorbed
+  # there — `format_size` (byte sizes in the image and cache reports), the
+  # `parse_duration`/`parse_friendly_duration`/`parse_iso8601_duration` family
+  # (uv cooldown spans in `uv.py`/`version_sync.py`), `prep_path`/`is_stdout`
+  # (CLI `--output` handling), and `config_table_to_flags` (tool flag
+  # translation). Earlier floors remain in play: `binaries_page` imports
+  # `click_extra.blocks` (`replace_region`, 8.7.1) to splice the binaries page
+  # chart region; `OperationTrail` and `resolve_jobs` (8.6.0) render the `sync-*`
+  # resolve trail; the `{matrix}` newest-first default (8.6.0) backs the committed
+  # Python-compatibility table in `docs/install.md`; the `python:render`
+  # `:mirror:` regions (8.5) drive the `update-docs` phase 4 refresh, and
+  # `click_extra.sphinx.myst_docstrings` (8.5, absorbed from
   # `repomatic.myst_docstrings`) is loaded by `docs/conf.py`; `click:config`
   # and `schema_field_infos()` (8.3) back `configuration.md` and `show-config`.
-  "click-extra>=8.7.1",
+  "click-extra>=8.8.0",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.
@@ -214,9 +219,10 @@ typing = [
 required-version = ">=0.12"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
-# TEMPORARY: resolve click-extra from git main until 8.7.1 ships to PyPI with the
-# click_extra.blocks module. Drop this override once 8.7.1 is released; the
-# click-extra>=8.7.1 dependency above then resolves from PyPI on its own.
+# TEMPORARY: resolve click-extra from git main until 8.8.0 ships to PyPI with the
+# utilities repomatic now delegates to (see the click-extra>=8.8.0 rationale
+# above). Drop this override once 8.8.0 is released; the dependency then resolves
+# from PyPI on its own.
 sources.click-extra = { git = "https://github.com/kdeldycke/click-extra.git", branch = "main" }
 # Cooldown period: 7-day buffer before using newly released packages.
 # Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to

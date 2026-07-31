@@ -69,7 +69,6 @@ from repomatic.tool_runner import (
     binary_tool_context,
     find_unmodified_configs,
     get_data_file_path,
-    pyproject_table_to_flags,
     resolve_config,
     resolve_config_source,
     run_tool,
@@ -2280,45 +2279,6 @@ def test_run_tool_no_check_warning_in_write_mode(
 # ---------------------------------------------------------------------------
 # [tool.X] to CLI flags translation
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("table", "expected"),
-    [
-        ({}, []),
-        ({"onefile": True}, ["--onefile"]),
-        ({"standalone": False}, []),
-        (
-            {"product-name": "Meta Package Manager"},
-            ["--product-name=Meta Package Manager"],
-        ),
-        ({"jobs": 4}, ["--jobs=4"]),
-        (
-            {"include-package-data": ["click_extra", "foo"]},
-            ["--include-package-data=click_extra", "--include-package-data=foo"],
-        ),
-        (
-            {
-                "product-name": "Meta Package Manager",
-                "show-scons": True,
-                "nofollow-import-to": ["*.tests", "*.distutils"],
-            },
-            [
-                "--product-name=Meta Package Manager",
-                "--show-scons",
-                "--nofollow-import-to=*.tests",
-                "--nofollow-import-to=*.distutils",
-            ],
-        ),
-    ],
-)
-def test_pyproject_table_to_flags(table, expected):
-    """A `[tool.X]` table translates to long-form CLI flags.
-
-    `bool` true becomes a bare flag, `false` is skipped, scalars become
-    `--key=value`, lists repeat the flag, and declaration order is preserved.
-    """
-    assert pyproject_table_to_flags(table) == expected
 
 
 def test_resolve_config_flags_format():

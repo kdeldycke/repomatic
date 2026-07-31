@@ -56,6 +56,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from click_extra import format_size
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -94,16 +96,11 @@ class OptimizationResult:
 def format_file_size(size_bytes: int) -> str:
     """Format a byte count as a human-readable string.
 
-    Uses KB/MB/GB with one decimal place, matching the format produced by
-    `calibreapp/image-actions`.
+    A thin binding of {func}`click_extra.format_size` to the JEDEC unit style
+    (binary powers with the customary `KB`/`MB` symbols), matching the format
+    produced by `calibreapp/image-actions`.
     """
-    if size_bytes < 1024:
-        return f"{size_bytes:,} B"
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:,.1f} KB"
-    if size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):,.1f} MB"
-    return f"{size_bytes / (1024 * 1024 * 1024):,.1f} GB"
+    return format_size(size_bytes, units="jedec")
 
 
 def _check_tool(name: str) -> bool:

@@ -124,7 +124,7 @@ class NativeFormat(Enum):
     JSON = "json"
     EDITORCONFIG = "editorconfig"
     # Not a file format: translate the table to CLI flags via
-    # `pyproject_table_to_flags` and pass them on the command line.
+    # `config_table_to_flags` and pass them on the command line.
     FLAGS = "flags"
 
     def _header(self, tool_name: str) -> str:
@@ -153,7 +153,7 @@ class NativeFormat(Enum):
         :raises ValueError: For `FLAGS`, which is not a file format.
         """
         if self is NativeFormat.FLAGS:
-            msg = "FLAGS is not a file format; use pyproject_table_to_flags()."
+            msg = "FLAGS is not a file format; use config_table_to_flags()."
             raise ValueError(msg)
         header = self._header(tool_name) if tool_name else ""
         # Only the TOML serializer can consume a live `tomlrt.Table` and keep its
@@ -496,7 +496,7 @@ class ToolSpec:
     """Target format for `[tool.X]` translation.
 
     `NativeFormat.FLAGS` translates the table to CLI flags (via
-    `pyproject_table_to_flags`) instead of a config file, for tools that expose
+    `config_table_to_flags`) instead of a config file, for tools that expose
     their config keys as long options but read no config file themselves. It is
     mutually exclusive with `reads_pyproject`, `config_flag`, and
     `native_config_files`.

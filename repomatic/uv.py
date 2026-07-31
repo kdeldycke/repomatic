@@ -32,6 +32,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import tomlrt
+from click_extra import parse_friendly_duration, parse_iso8601_duration
 from packaging.version import InvalidVersion, Version
 from tomlrt import Table
 
@@ -83,38 +84,6 @@ def uvx_cmd(exclude_newer: str | None = None) -> list[str]:
 # pyproject.toml exclude-newer-package management
 # ---------------------------------------------------------------------------
 
-_RELATIVE_DURATION_RE = re.compile(
-    r"^(\d+)\s+(seconds?|minutes?|hours?|days?|weeks?)$",
-    re.IGNORECASE,
-)
-"""Matches uv's "friendly" relative duration syntax.
-
-Accepts `N second(s)`, `N minute(s)`, `N hour(s)`, `N day(s)`, and
-`N week(s)`. Calendar units (months, years) are not allowed: uv resolves
-durations to a fixed number of seconds (a day is 24 hours, DST ignored),
-so calendar arithmetic would be ambiguous. See
-[astral-sh/uv#19475](https://github.com/astral-sh/uv/pull/19475) for the
-canonical surface uv documents on this field.
-
-The one grammar behind both cooldown knobs: `exclude-newer` in `[tool.uv]`
-(parsed here) and `minimum-release-age` in `[tool.repomatic]` (parsed by
-{func}`repomatic.version_sync.parse_min_age` on top of
-{func}`parse_relative_duration`).
-"""
-
-_LOCK_DURATION_RE = re.compile(
-    r"^P"
-    r"(?:(?P<weeks>\d+)W)?"
-    r"(?:(?P<days>\d+)D)?"
-    r"(?:T"
-    r"(?:(?P<hours>\d+)H)?"
-    r"(?:(?P<minutes>\d+)M)?"
-    r"(?:(?P<seconds>\d+(?:\.\d+)?)S)?"
-    r")?$"
-)
-"""Matches the subset of ISO 8601 durations uv emits in `uv.lock`'s
-`options.exclude-newer-span`: `P{N}W`, `P{N}D`, `PT{N}S`, and combinations."""
-
 LOCK_TIMESTAMP_SENTINEL = "0001-01-01T00:00:00Z"
 """Placeholder uv writes to `options.exclude-newer` in `uv.lock` when the
 user-configured value is a relative span. The real cutoff is in
@@ -128,59 +97,6 @@ def _build_inline_table(entries: dict[str, str]) -> Table:
     :return: A `tomlrt` inline `Table` with canonical formatting.
     """
     return Table.inline({k: entries[k] for k in sorted(entries)})
-
-
-def parse_relative_duration(value: str) -> timedelta | None:
-    """Parse a uv "friendly" relative duration string into a timedelta.
-
-    Handles `N second(s)`, `N minute(s)`, `N hour(s)`, `N day(s)`, and
-    `N week(s)`. Calendar units (months, years) are not allowed.
-
-    :param value: The duration string, as configured in `exclude-newer`
-        (`pyproject.toml`) or `minimum-release-age` (`[tool.repomatic]`).
-    :return: A {class}`~datetime.timedelta`, or `None` if the value is not
-        a recognized relative duration.
-    """
-    match = _RELATIVE_DURATION_RE.match(value.strip())
-    if not match:
-        return None
-    count = int(match.group(1))
-    unit = match.group(2).lower()
-    if unit.startswith("second"):
-        return timedelta(seconds=count)
-    if unit.startswith("minute"):
-        return timedelta(minutes=count)
-    if unit.startswith("hour"):
-        return timedelta(hours=count)
-    if unit.startswith("week"):
-        return timedelta(weeks=count)
-    return timedelta(days=count)
-
-
-def _parse_lock_duration(value: str) -> timedelta | None:
-    """Parse an ISO 8601 duration from `uv.lock` into a timedelta.
-
-    Handles the subset uv emits in `options.exclude-newer-span` and the
-    per-package `span` field: `P{N}W`, `P{N}D`, `PT{N}S`, and
-    combinations like `P1DT2H`.
-
-    :param value: The duration string from `uv.lock`.
-    :return: A {class}`~datetime.timedelta`, or `None` if the value is
-        not a recognized lock-file duration. A bare `P` returns `None`.
-    """
-    match = _LOCK_DURATION_RE.match(value.strip())
-    if not match:
-        return None
-    parts = match.groupdict()
-    if not any(parts.values()):
-        return None
-    return timedelta(
-        weeks=int(parts["weeks"] or 0),
-        days=int(parts["days"] or 0),
-        hours=int(parts["hours"] or 0),
-        minutes=int(parts["minutes"] or 0),
-        seconds=float(parts["seconds"] or 0),
-    )
 
 
 def _resolve_exclude_newer_cutoff(value: str) -> datetime | None:
@@ -206,7 +122,7 @@ def _resolve_exclude_newer_cutoff(value: str) -> datetime | None:
     """
     if not value:
         return None
-    duration = parse_relative_duration(value) or _parse_lock_duration(value)
+    duration = parse_friendly_duration(value) or parse_iso8601_duration(value)
     if duration is not None:
         return datetime.now(timezone.utc) - duration
     return parse_iso_datetime(value)
@@ -533,8 +449,8 @@ def freeze_exclude_newer_packages(pyproject_path: Path, lock_path: Path) -> set[
         text = str(value)
         # Only relative spans track the latest release; fixed cutoffs already hold.
         is_span = (
-            parse_relative_duration(text) is not None
-            or _parse_lock_duration(text) is not None
+            parse_friendly_duration(text) is not None
+            or parse_iso8601_duration(text) is not None
         )
         if is_span:
             freeze = _freeze_cutoff(upload_times.get(pkg, ""))
@@ -713,7 +629,7 @@ def parse_lock_exclude_newer(lock_path: Path) -> str:
         return timestamp
     span = options.get("exclude-newer-span", "")
     if span:
-        duration = _parse_lock_duration(span)
+        duration = parse_iso8601_duration(span)
         if duration is not None:
             cutoff = datetime.now(timezone.utc) - duration
             return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -859,7 +775,7 @@ def _lock_cooldown_span(lock_path: Path) -> timedelta | None:
     with lock_path.open("rb") as f:
         data = tomlrt.load(f)
     span = data.get("options", {}).get("exclude-newer-span", "")
-    return _parse_lock_duration(span) if span else None
+    return parse_iso8601_duration(span) if span else None
 
 
 def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
@@ -988,8 +904,8 @@ def compute_bypass_forecasts(
     forecasts = []
     for pkg, value in sorted(_bypass_entries(pyproject_path).items()):
         is_span = (
-            parse_relative_duration(value) is not None
-            or _parse_lock_duration(value) is not None
+            parse_friendly_duration(value) is not None
+            or parse_iso8601_duration(value) is not None
         )
         if is_span:
             continue

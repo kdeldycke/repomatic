@@ -38,6 +38,7 @@ import re
 from datetime import date, timedelta
 from typing import NamedTuple
 
+from click_extra import parse_friendly_duration
 from packaging.version import InvalidVersion, Version
 
 from .github.releases import (
@@ -47,7 +48,6 @@ from .github.releases import (
 )
 from .npm import get_release_dates as npm_release_dates
 from .pypi import get_release_dates as pypi_release_dates
-from .uv import parse_relative_duration
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -151,7 +151,7 @@ def parse_min_age(value: str) -> timedelta:
     :return: The cooldown duration, or `timedelta(0)` when *value* does not
         parse.
     """
-    duration = parse_relative_duration(value or "")
+    duration = parse_friendly_duration(value or "")
     if duration is None:
         logging.warning(
             f"Unrecognized minimum-release-age {value!r}; applying no cooldown."

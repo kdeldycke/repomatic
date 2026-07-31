@@ -50,7 +50,7 @@ from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen
 
 import tomlrt
-from click_extra import ClickException, Spinner, progressbar
+from click_extra import ClickException, Spinner, config_table_to_flags, progressbar
 from extra_platforms import is_github_ci
 from packaging.version import Version
 
@@ -72,7 +72,7 @@ from .version_sync import exclude_newer_cutoff, min_release_age_days
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Iterator, Sequence
     from typing import Any
 
 
@@ -213,35 +213,6 @@ def _deliver_config(
     raise NotImplementedError(msg)
 
 
-def pyproject_table_to_flags(table: Mapping[str, Any]) -> list[str]:
-    """Translate a `[tool.X]` table into long-form CLI flags.
-
-    For tools whose command-line options mirror their config keys but which
-    cannot read `[tool.X]` from `pyproject.toml` themselves and accept no
-    config file. Follows the conventional mapping:
-
-    - `key = true` → `--key`
-    - `key = "value"` (or a number) → `--key=value`
-    - `key = ["a", "b"]` → `--key=a --key=b` (one flag per item)
-    - `key = false` is skipped: there is no universal `--no-<key>` form.
-
-    Keys keep their hyphenated spelling so they map straight onto long options,
-    and flags follow their declaration order in `pyproject.toml`.
-    """
-    args: list[str] = []
-    for key, value in table.items():
-        # `bool` must be checked before the scalar fallback: it is a subclass of
-        # `int`, and only truthy flags map to a bare `--key`.
-        if isinstance(value, bool):
-            if value:
-                args.append(f"--{key}")
-        elif isinstance(value, (list, tuple)):
-            args.extend(f"--{key}={item}" for item in value)
-        else:
-            args.append(f"--{key}={value}")
-    return args
-
-
 def resolve_config(
     spec: ToolSpec,
     tool_config: dict[str, Any] | None = None,
@@ -278,7 +249,7 @@ def resolve_config(
             return [], None
 
         if spec.native_format is NativeFormat.FLAGS:
-            flags = pyproject_table_to_flags(tool_config)
+            flags = config_table_to_flags(tool_config)
             logging.info(
                 "%s: translated [tool.%s] to %d CLI flag(s) (level 2).",
                 spec.name,
