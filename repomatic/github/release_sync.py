@@ -29,9 +29,13 @@ from enum import Enum
 from pathlib import Path
 
 from ..changelog import Changelog, build_expected_body
-from .gh import run_gh_command
 from .pr_body import render_template
-from .releases import GitHubReleasesUnavailable, get_github_releases, owner_repo
+from .releases import (
+    GitHubReleasesUnavailable,
+    edit_release_notes,
+    get_github_releases,
+    owner_repo,
+)
 
 
 class SyncAction(Enum):
@@ -160,16 +164,7 @@ def sync_github_releases(
             continue
 
         # Live mode: update the release body.
-        try:
-            run_gh_command([
-                "release",
-                "edit",
-                f"v{version}",
-                "--repo",
-                nwo,
-                "--notes",
-                expected,
-            ])
+        if edit_release_notes(f"v{version}", nwo, expected):
             result.updated += 1
             result.rows.append(
                 SyncRow(
@@ -179,7 +174,7 @@ def sync_github_releases(
                 )
             )
             logging.info(f"Updated release notes for v{version}.")
-        except RuntimeError:
+        else:
             result.failed += 1
             result.rows.append(
                 SyncRow(

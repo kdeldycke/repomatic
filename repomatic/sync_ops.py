@@ -242,6 +242,52 @@ class ResolveContext:
 
 
 @dataclass
+class ToolVersionExtras:
+    """`sync-tool-versions` write extras, applied after the source rewrite."""
+
+    binary_overrides: dict[str, str] = field(default_factory=dict)
+    """Binary tool name to new version, for the checksum recompute."""
+
+    actionlint_version: str | None = None
+    """New actionlint version, for the matcher-URL realignment."""
+
+    checksums_path: Path | None = None
+    """The `tool_registry.py` path the checksum recompute rewrites."""
+
+
+@dataclass
+class UvProjectExtras:
+    """Extras of the uv-project pair (`sync-uv-lock`, `sync-dep-sources`).
+
+    The pair shares one write domain (`uv.lock`, `pyproject.toml`) and resolves
+    under {data}`_UV_PROJECT_MUTEX`. Each resolve already wrote those files, so
+    these fields only inform the terminal and PR-body rendering.
+    """
+
+    exclude_newer: str = ""
+    """The `exclude-newer` cutoff from the lock, or empty."""
+
+    reverted: bool = False
+    """Whether a cosmetic-only re-lock was discarded."""
+
+    pins_synced: bool = False
+    """Whether the `[tool.uv]` policy pins were refreshed from the template."""
+
+    pruned_bypasses: list[BypassForecast] = field(default_factory=list)
+    """Expired `exclude-newer-package` entries removed from `pyproject.toml`,
+    snapshot with the version and expiry each freeze had."""
+
+    frozen_bypasses: list[str] = field(default_factory=list)
+    """`exclude-newer-package` entries rewritten into freeze cutoffs."""
+
+    bypass_forecasts: list[BypassForecast] = field(default_factory=list)
+    """Active cooldown-bypass freezes with their expiry forecasts."""
+
+    source_swaps: list[ReleaseSwap] = field(default_factory=list)
+    """Git-tracked dependencies swapped to their released versions."""
+
+
+@dataclass
 class SyncPlan:
     """The resolved, not-yet-written outcome of one operation's read phase.
 
@@ -303,40 +349,11 @@ class SyncPlan:
     file_writes: dict[Path, str] = field(default_factory=dict)
     """Path to its new full text, written verbatim by {attr}`SyncOperation.apply`."""
 
-    # `sync-tool-versions` extras: applied after the source rewrite.
-    binary_overrides: dict[str, str] = field(default_factory=dict)
-    """Binary tool name to new version, for the checksum recompute."""
+    tool_versions: ToolVersionExtras = field(default_factory=ToolVersionExtras)
+    """`sync-tool-versions` write extras (checksum recompute, matcher URL)."""
 
-    actionlint_version: str | None = None
-    """New actionlint version, for the matcher-URL realignment."""
-
-    checksums_path: Path | None = None
-    """The `tool_registry.py` path the checksum recompute rewrites."""
-
-    # `sync-uv-lock` extras (resolve already wrote; these only inform rendering).
-    exclude_newer: str = ""
-    """The `exclude-newer` cutoff from the lock, or empty."""
-
-    reverted: bool = False
-    """Whether a cosmetic-only re-lock was discarded."""
-
-    pins_synced: bool = False
-    """Whether the `[tool.uv]` policy pins were refreshed from the template."""
-
-    pruned_bypasses: list[BypassForecast] = field(default_factory=list)
-    """Expired `exclude-newer-package` entries removed from `pyproject.toml`,
-    snapshot with the version and expiry each freeze had."""
-
-    frozen_bypasses: list[str] = field(default_factory=list)
-    """`exclude-newer-package` entries rewritten into freeze cutoffs."""
-
-    bypass_forecasts: list[BypassForecast] = field(default_factory=list)
-    """Active cooldown-bypass freezes with their expiry forecasts."""
-
-    # `sync-dep-sources` extras (resolve already wrote; these only inform
-    # rendering).
-    source_swaps: list[ReleaseSwap] = field(default_factory=list)
-    """Git-tracked dependencies swapped to their released versions."""
+    uv_project: UvProjectExtras = field(default_factory=UvProjectExtras)
+    """`sync-uv-lock` and `sync-dep-sources` rendering extras."""
 
     @property
     def has_changes(self) -> bool:
@@ -346,7 +363,11 @@ class SyncPlan:
         `exclude-newer-package` entries still rewrites `pyproject.toml` and
         must produce a report explaining that hunk.
         """
-        return bool(self.changes or self.pruned_bypasses or self.frozen_bypasses)
+        return bool(
+            self.changes
+            or self.uv_project.pruned_bypasses
+            or self.uv_project.frozen_bypasses
+        )
 
     def note_cooldown(self, age_label: str, min_age: timedelta, today: date) -> None:
         """Record the cooldown cutoff and its rendered diff-table note.
@@ -433,18 +454,18 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
                 merged = init_config("uv", pyproject_path)
                 if merged is not None:
                     pyproject_path.write_text(merged, encoding="UTF-8")
-                    plan.pins_synced = True
+                    plan.uv_project.pins_synced = True
 
             result = sync_uv_lock(lockfile)
             plan.changes = result.changes
             plan.dates = result.upload_times
-            plan.exclude_newer = result.exclude_newer
-            plan.reverted = result.reverted
+            plan.uv_project.exclude_newer = result.exclude_newer
+            plan.uv_project.reverted = result.reverted
             plan.cooldown_note = format_exclude_newer_note(result.exclude_newer)
             plan.name_urls = pypi_name_urls(result.changes)
-            plan.pruned_bypasses = result.pruned_bypasses
-            plan.frozen_bypasses = result.frozen_bypasses
-            plan.bypass_forecasts = result.bypass_forecasts
+            plan.uv_project.pruned_bypasses = result.pruned_bypasses
+            plan.uv_project.frozen_bypasses = result.frozen_bypasses
+            plan.uv_project.bypass_forecasts = result.bypass_forecasts
 
             # The probe runs a second uv resolution, so skip it with nothing to
             # report: the caller already gates `held_back` on a consumer being
@@ -541,15 +562,17 @@ def _resolve_dep_sources(rc: ResolveContext) -> SyncPlan:
             )
             return plan
 
-        plan.source_swaps = swaps
+        plan.uv_project.source_swaps = swaps
         plan.changes = diff_lock_versions(before, after)
         plan.dates = parse_lock_upload_times(lockfile)
-        plan.exclude_newer = parse_lock_exclude_newer(lockfile)
-        plan.cooldown_note = format_exclude_newer_note(plan.exclude_newer)
+        plan.uv_project.exclude_newer = parse_lock_exclude_newer(lockfile)
+        plan.cooldown_note = format_exclude_newer_note(plan.uv_project.exclude_newer)
         plan.name_urls = pypi_name_urls(plan.changes)
         # The fresh freezes are this run's news: they render as 📌 rows.
-        plan.frozen_bypasses = [swap.name for swap in swaps]
-        plan.bypass_forecasts = compute_bypass_forecasts(pyproject_path, lockfile)
+        plan.uv_project.frozen_bypasses = [swap.name for swap in swaps]
+        plan.uv_project.bypass_forecasts = compute_bypass_forecasts(
+            pyproject_path, lockfile
+        )
 
         if rc.held_back:
             plan.held_back = compute_held_back_packages(lockfile)
@@ -618,13 +641,13 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         return plan
 
     plan.file_writes = {registry_path: content}
-    plan.checksums_path = registry_path
-    plan.binary_overrides = {
+    plan.tool_versions.checksums_path = registry_path
+    plan.tool_versions.binary_overrides = {
         name: version
         for name, version in overrides.items()
         if TOOL_REGISTRY[name].binary is not None
     }
-    plan.actionlint_version = overrides.get("actionlint")
+    plan.tool_versions.actionlint_version = overrides.get("actionlint")
     plan.name_urls = {
         name: TOOL_REGISTRY[name].datasource_url
         for name, _old, _new in changes
@@ -645,17 +668,19 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
 
 def _apply_tool_versions(plan: SyncPlan) -> None:
     """Rewrite `tool_registry.py`, recompute checksums, realign the matcher URL."""
-    if not plan.has_changes or plan.checksums_path is None:
+    if not plan.has_changes or plan.tool_versions.checksums_path is None:
         return
-    path = plan.checksums_path
+    path = plan.tool_versions.checksums_path
     path.write_text(plan.file_writes[path], encoding="UTF-8")
     # Recompute checksums and VERSIONS stamps for bumped binary tools in the same
     # pass, downloading at the new versions (the in-memory registry still holds
     # the pre-bump versions because the source was edited, not reimported).
-    if plan.binary_overrides:
-        update_registry_checksums(path, version_overrides=plan.binary_overrides)
-    if plan.actionlint_version:
-        _sync_actionlint_matcher_url(plan.actionlint_version)
+    if plan.tool_versions.binary_overrides:
+        update_registry_checksums(
+            path, version_overrides=plan.tool_versions.binary_overrides
+        )
+    if plan.tool_versions.actionlint_version:
+        _sync_actionlint_matcher_url(plan.tool_versions.actionlint_version)
 
 
 def _widest_changes(
@@ -930,9 +955,10 @@ def render_plan_markdown(plan: SyncPlan) -> str:
     so `sync-deps` and the thin commands produce identical output for the
     same plan.
     """
+    swaps = plan.uv_project.source_swaps
     swap_section = format_swap_section(
-        plan.source_swaps,
-        name_urls=pypi_name_urls([(swap.name, "", "") for swap in plan.source_swaps]),
+        swaps,
+        name_urls=pypi_name_urls([(swap.name, "", "") for swap in swaps]),
         reference_date=plan.reference_date,
     )
     diff_table = format_diff_table(
@@ -954,15 +980,16 @@ def render_plan_markdown(plan: SyncPlan) -> str:
     )
     # Bypasses are always PyPI packages (a uv-only concept), so their link
     # targets are derived here rather than carried on the plan.
+    uv = plan.uv_project
     bypass_names = [
-        *(forecast.name for forecast in plan.bypass_forecasts),
-        *(forecast.name for forecast in plan.pruned_bypasses),
-        *plan.frozen_bypasses,
+        *(forecast.name for forecast in uv.bypass_forecasts),
+        *(forecast.name for forecast in uv.pruned_bypasses),
+        *uv.frozen_bypasses,
     ]
     bypass_section = format_bypass_section(
-        plan.bypass_forecasts,
-        pruned=plan.pruned_bypasses,
-        frozen=plan.frozen_bypasses,
+        uv.bypass_forecasts,
+        pruned=uv.pruned_bypasses,
+        frozen=uv.frozen_bypasses,
         name_urls=pypi_name_urls([(name, "", "") for name in bypass_names]),
     )
     return "\n\n".join(

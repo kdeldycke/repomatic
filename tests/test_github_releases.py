@@ -28,6 +28,7 @@ import pytest
 from repomatic.github.releases import (
     GitHubRelease,
     GitHubReleasesUnavailable,
+    edit_release_notes,
     extract_version,
     fetch_github_release_notes,
     get_github_releases,
@@ -301,3 +302,44 @@ def test_fetch_github_release_notes_honors_tag_pattern():
         ])
     _repo, versions = notes["lychee"]
     assert [tag for tag, _ in versions] == ["lychee-v0.24.0"]
+
+
+# --- edit_release_notes() ---
+
+
+def test_edit_release_notes_success():
+    """Edits an existing release, title included, and returns True."""
+    with patch("repomatic.github.releases.run_gh_command") as mock_gh:
+        result = edit_release_notes(
+            "v6.1.1.dev0", "user/repo", "body", title="6.1.1.dev0"
+        )
+
+    assert result is True
+    mock_gh.assert_called_once_with([
+        "release",
+        "edit",
+        "v6.1.1.dev0",
+        "--repo",
+        "user/repo",
+        "--notes",
+        "body",
+        "--title",
+        "6.1.1.dev0",
+    ])
+
+
+def test_edit_release_notes_keeps_title():
+    """Without a title, only the notes are replaced."""
+    with patch("repomatic.github.releases.run_gh_command") as mock_gh:
+        assert edit_release_notes("v1.2.3", "user/repo", "body") is True
+
+    assert "--title" not in mock_gh.call_args.args[0]
+
+
+def test_edit_release_notes_not_found():
+    """Returns False when the release does not exist."""
+    with patch(
+        "repomatic.github.releases.run_gh_command",
+        side_effect=RuntimeError("release not found"),
+    ):
+        assert edit_release_notes("v1.2.3", "user/repo", "body") is False

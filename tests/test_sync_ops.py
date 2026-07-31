@@ -47,6 +47,7 @@ from repomatic.sync_ops import (
     ResolveContext,
     SyncOperation,
     SyncPlan,
+    UvProjectExtras,
     _resolve_action_pins,
     _resolve_dep_sources,
     _resolve_tool_versions,
@@ -415,7 +416,11 @@ def test_bypass_only_plan_counts_as_changed_and_renders() -> None:
         operation="sync-uv-lock",
         subject="Package",
         heading="Updated packages",
-        pruned_bypasses=[BypassForecast("mango", "2.0.0", "2026-07-01 (5 days ago)")],
+        uv_project=UvProjectExtras(
+            pruned_bypasses=[
+                BypassForecast("mango", "2.0.0", "2026-07-01 (5 days ago)")
+            ],
+        ),
     )
     assert plan.has_changes
     body = render_plan_markdown(plan)
@@ -533,9 +538,9 @@ def test_resolve_dep_sources_swaps_and_freezes(tmp_path, monkeypatch) -> None:
     plan = _resolve_dep_sources(rc)
 
     assert plan.has_changes
-    assert [swap.release for swap in plan.source_swaps] == ["2.1.0"]
+    assert [swap.release for swap in plan.uv_project.source_swaps] == ["2.1.0"]
     assert plan.changes == [("mango", "2.1.0.dev0", "2.1.0")]
-    assert plan.frozen_bypasses == ["mango"]
+    assert plan.uv_project.frozen_bypasses == ["mango"]
     pyproject = (tmp_path / "pyproject.toml").read_text(encoding="UTF-8")
     assert "mango = { git" not in pyproject
     assert '"mango>=2.1.0"' in pyproject

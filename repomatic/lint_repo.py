@@ -18,6 +18,9 @@
 
 This module provides consistency checks for repository metadata,
 including package names, website fields, descriptions, and funding configuration.
+
+Every check returns a :class:`CheckResult`, whose tri-state `passed` flag
+distinguishes success, failure, and skipped/indeterminate outcomes uniformly.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -41,6 +45,18 @@ from .pypi import (
 )
 from .registry import DEFAULT_REPO
 from .version_sync import find_upstream_ref_versions
+
+
+class CheckResult(NamedTuple):
+    """Outcome of one repository check.
+
+    `passed` is tri-state: `True` on success, `False` on failure, `None`
+    when the check could not run or does not apply (skipped). `message` is
+    the human-readable line for both terminal output and annotations.
+    """
+
+    passed: bool | None
+    message: str
 
 
 def get_repo_metadata(repo: str) -> dict[str, str | None]:
@@ -70,38 +86,38 @@ def get_repo_metadata(repo: str) -> dict[str, str | None]:
         return {"homepageUrl": None, "description": None}
 
 
-def check_package_name_vs_repo(
-    package_name: str | None, repo_name: str
-) -> tuple[str | None, str]:
+def check_package_name_vs_repo(package_name: str | None, repo_name: str) -> CheckResult:
     """Check if package name matches repository name.
 
     :param package_name: The Python package name.
     :param repo_name: The repository name.
-    :return: Tuple of (warning_message or None, info_message).
+    :return: A `CheckResult`.
     """
     if not package_name:
-        return None, "Package name check: skipped (no package name provided)"
+        return CheckResult(
+            None, "Package name check: skipped (no package name provided)"
+        )
 
     if package_name != repo_name:
         msg = (
             f"Package name '{package_name}' differs from repository name '{repo_name}'."
         )
-        return msg, msg
-    return None, f"Package name '{package_name}' matches repository name."
+        return CheckResult(False, msg)
+    return CheckResult(True, f"Package name '{package_name}' matches repository name.")
 
 
 def check_website_for_sphinx(
     repo: str, is_sphinx: bool, homepage_url: str | None = None
-) -> tuple[str | None, str]:
+) -> CheckResult:
     """Check that Sphinx projects have a website set.
 
     :param repo: Repository in 'owner/repo' format.
     :param is_sphinx: Whether the project uses Sphinx documentation.
     :param homepage_url: The homepage URL from API (to avoid duplicate calls).
-    :return: Tuple of (warning_message or None, info_message).
+    :return: A `CheckResult`.
     """
     if not is_sphinx:
-        return None, "Website check: skipped (not a Sphinx project)"
+        return CheckResult(None, "Website check: skipped (not a Sphinx project)")
 
     if homepage_url is None:
         metadata = get_repo_metadata(repo)
@@ -109,24 +125,26 @@ def check_website_for_sphinx(
 
     if not homepage_url:
         msg = "Sphinx documentation detected but repository website field is not set."
-        return msg, msg
-    return None, f"Website field is set: {homepage_url}"
+        return CheckResult(False, msg)
+    return CheckResult(True, f"Website field is set: {homepage_url}")
 
 
 def check_description_matches(
     repo: str,
     project_description: str | None,
     repo_description: str | None = None,
-) -> tuple[str | None, str]:
+) -> CheckResult:
     """Check that repository description matches project description.
 
     :param repo: Repository in 'owner/repo' format.
     :param project_description: Description from pyproject.toml.
     :param repo_description: Description from API (to avoid duplicate calls).
-    :return: Tuple of (error_message or None, info_message).
+    :return: A `CheckResult`.
     """
     if not project_description:
-        return None, "Description check: skipped (no project description provided)"
+        return CheckResult(
+            None, "Description check: skipped (no project description provided)"
+        )
 
     if repo_description is None:
         metadata = get_repo_metadata(repo)
@@ -137,8 +155,8 @@ def check_description_matches(
             f"Repo description '{repo_description}' != "
             f"project description '{project_description}'."
         )
-        return msg, msg
-    return None, "Repository description matches project description."
+        return CheckResult(False, msg)
+    return CheckResult(True, "Repository description matches project description.")
 
 
 def _funding_file_exists() -> bool:
@@ -154,7 +172,7 @@ def _funding_file_exists() -> bool:
     )
 
 
-def check_funding_file(repo: str) -> tuple[str | None, str]:
+def check_funding_file(repo: str) -> CheckResult:
     """Check that repos with GitHub Sponsors have a `FUNDING.yml`.
 
     Skips forks (they inherit the parent's sponsor button) and owners
@@ -162,10 +180,10 @@ def check_funding_file(repo: str) -> tuple[str | None, str]:
     does not expose `hasSponsorsListing`.
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (warning_message or None, info_message).
+    :return: A `CheckResult`.
     """
     if _funding_file_exists():
-        return None, "Funding file found."
+        return CheckResult(True, "Funding file found.")
 
     owner, name = repo.split("/", 1)
 
@@ -180,30 +198,34 @@ def check_funding_file(repo: str) -> tuple[str | None, str]:
         output = run_gh_command(["api", "graphql", "--field", f"query={query}"])
     except RuntimeError as e:
         logging.warning(f"Could not query GitHub Sponsors status: {e}")
-        return None, "Funding check: skipped (could not query GitHub API)"
+        return CheckResult(None, "Funding check: skipped (could not query GitHub API)")
 
     try:
         data = json.loads(output)
     except json.JSONDecodeError:
-        return None, "Funding check: skipped (could not parse API response)"
+        return CheckResult(
+            None, "Funding check: skipped (could not parse API response)"
+        )
 
     repo_data = data.get("data", {}).get("repository", {})
     owner_data = data.get("data", {}).get("repositoryOwner", {})
 
     if repo_data.get("isFork"):
-        return None, "Funding check: skipped (repository is a fork)"
+        return CheckResult(None, "Funding check: skipped (repository is a fork)")
 
     if not owner_data.get("hasSponsorsListing"):
-        return None, "Funding check: skipped (owner has no GitHub Sponsors listing)"
+        return CheckResult(
+            None, "Funding check: skipped (owner has no GitHub Sponsors listing)"
+        )
 
     msg = (
         "Owner has GitHub Sponsors enabled but .github/FUNDING.yml is missing."
         " Create it to display the Sponsor button on the repository."
     )
-    return msg, msg
+    return CheckResult(False, msg)
 
 
-def check_stale_draft_releases(repo: str) -> tuple[str | None, str]:
+def check_stale_draft_releases(repo: str) -> CheckResult:
     """Check for draft releases that are not dev pre-releases.
 
     Draft releases whose tag does not end with `.dev0` are likely
@@ -212,7 +234,7 @@ def check_stale_draft_releases(repo: str) -> tuple[str | None, str]:
     `sync-dev-release`.
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (warning_message or None, info_message).
+    :return: A `CheckResult`.
     """
     try:
         output = run_gh_command([
@@ -224,12 +246,14 @@ def check_stale_draft_releases(repo: str) -> tuple[str | None, str]:
             repo,
         ])
     except RuntimeError:
-        return None, "Stale draft releases check: skipped (API call failed)."
+        return CheckResult(
+            None, "Stale draft releases check: skipped (API call failed)."
+        )
 
     try:
         releases = json.loads(output)
     except json.JSONDecodeError:
-        return None, "Stale draft releases check: skipped (invalid JSON)."
+        return CheckResult(None, "Stale draft releases check: skipped (invalid JSON).")
 
     stale_drafts = [
         r["tagName"]
@@ -239,32 +263,36 @@ def check_stale_draft_releases(repo: str) -> tuple[str | None, str]:
     if stale_drafts:
         tags = ", ".join(stale_drafts)
         msg = f"Stale draft releases found: {tags}. Delete these leftover drafts."
-        return msg, msg
-    return None, "No stale draft releases."
+        return CheckResult(False, msg)
+    return CheckResult(True, "No stale draft releases.")
 
 
 def check_topics_subset_of_keywords(
     repo: str,
     keywords: list[str] | None = None,
-) -> tuple[str | None, str]:
+) -> CheckResult:
     """Check that GitHub repo topics are a subset of pyproject.toml keywords.
 
     :param repo: Repository in 'owner/repo' format.
     :param keywords: Keywords from pyproject.toml. If `None`, check is skipped.
-    :return: Tuple of (warning_message or None, info_message).
+    :return: A `CheckResult`.
     """
     if not keywords:
-        return None, "Topics check: skipped (no keywords in pyproject.toml)"
+        return CheckResult(
+            None, "Topics check: skipped (no keywords in pyproject.toml)"
+        )
 
     try:
         output = run_gh_command(["api", f"repos/{repo}", "--jq", ".topics[]"])
     except RuntimeError as e:
         logging.warning(f"Could not fetch GitHub topics: {e}")
-        return None, "Topics check: skipped (could not fetch GitHub topics)"
+        return CheckResult(
+            None, "Topics check: skipped (could not fetch GitHub topics)"
+        )
 
     topics = {t.strip() for t in output.splitlines() if t.strip()}
     if not topics:
-        return None, "Topics check: skipped (no GitHub topics set)"
+        return CheckResult(None, "Topics check: skipped (no GitHub topics set)")
 
     extra = sorted(topics - set(keywords))
     if extra:
@@ -272,11 +300,13 @@ def check_topics_subset_of_keywords(
             f"GitHub topics not in pyproject.toml keywords: {', '.join(extra)}. "
             "Add them to [project] keywords or remove from repo topics."
         )
-        return msg, msg
-    return None, f"All {len(topics)} GitHub topics are in pyproject.toml keywords."
+        return CheckResult(False, msg)
+    return CheckResult(
+        True, f"All {len(topics)} GitHub topics are in pyproject.toml keywords."
+    )
 
 
-def check_pat_repository_scope(repo: str) -> tuple[str | None, str]:
+def check_pat_repository_scope(repo: str) -> CheckResult:
     """Check that the PAT is scoped to only the current repository.
 
     Fine-grained PATs should use **Only select repositories** to follow
@@ -292,7 +322,7 @@ def check_pat_repository_scope(repo: str) -> tuple[str | None, str]:
        not have access to, it is over-scoped.
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (warning_message or None, info_message).
+    :return: A `CheckResult`.
     """
     # Strategy A: installation/repositories endpoint.
     try:
@@ -313,8 +343,10 @@ def check_pat_repository_scope(repo: str) -> tuple[str | None, str]:
                 "PAT has 'All repositories' access."
                 " Scope it to 'Only select repositories' for least privilege."
             )
-            return msg, msg
-        return None, "PAT scope: correctly limited to selected repositories."
+            return CheckResult(False, msg)
+        return CheckResult(
+            True, "PAT scope: correctly limited to selected repositories."
+        )
 
     # Strategy B: cross-repo probe.
     owner = repo.split("/", 1)[0]
@@ -330,13 +362,15 @@ def check_pat_repository_scope(repo: str) -> tuple[str | None, str]:
             "type=owner",
         ])
     except RuntimeError:
-        return None, "PAT scope check: skipped (could not list owner repos)."
+        return CheckResult(
+            None, "PAT scope check: skipped (could not list owner repos)."
+        )
 
     other_repos = [
         r.strip() for r in output.splitlines() if r.strip() and r.strip() != repo
     ]
     if not other_repos:
-        return None, "PAT scope check: skipped (no other repos to probe)."
+        return CheckResult(None, "PAT scope check: skipped (no other repos to probe).")
 
     probe_repo = other_repos[0]
     try:
@@ -352,14 +386,16 @@ def check_pat_repository_scope(repo: str) -> tuple[str | None, str]:
                 " Token is likely scoped to 'All repositories'"
                 " instead of 'Only select repositories'."
             )
-            return msg, msg
+            return CheckResult(False, msg)
     except RuntimeError:
-        return None, "PAT scope check: skipped (probe request failed)."
+        return CheckResult(None, "PAT scope check: skipped (probe request failed).")
 
-    return None, f"PAT scope: no push access to {probe_repo} (correctly scoped)."
+    return CheckResult(
+        True, f"PAT scope: no push access to {probe_repo} (correctly scoped)."
+    )
 
 
-def check_pat_stale_statuses_permission(repo: str) -> tuple[str | None, str]:
+def check_pat_stale_statuses_permission(repo: str) -> CheckResult:
     """Detect a PAT that still grants the dropped `Commit statuses` permission.
 
     `REPOMATIC_PAT` stopped needing `statuses:write` once the Renovate
@@ -383,7 +419,7 @@ def check_pat_stale_statuses_permission(repo: str) -> tuple[str | None, str]:
     ```
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (warning_message or None, info_message).
+    :return: A `CheckResult`.
     """
     try:
         run_gh_command([
@@ -403,15 +439,21 @@ def check_pat_stale_statuses_permission(repo: str) -> tuple[str | None, str]:
                 " repomatic no longer uses. Edit the token to remove it for"
                 " least privilege."
             )
-            return msg, msg
+            return CheckResult(False, msg)
         if "HTTP 403" in stderr:
-            return None, "Commit statuses: token correctly lacks the dropped scope."
-        return None, "Stale Commit statuses check: skipped (indeterminate response)."
+            return CheckResult(
+                True, "Commit statuses: token correctly lacks the dropped scope."
+            )
+        return CheckResult(
+            None, "Stale Commit statuses check: skipped (indeterminate response)."
+        )
     # A 2xx is unreachable: NULL_SHA can never resolve to a commit.
-    return None, "Stale Commit statuses check: skipped (unexpected success)."
+    return CheckResult(
+        None, "Stale Commit statuses check: skipped (unexpected success)."
+    )
 
 
-def check_fork_pr_approval_policy(repo: str) -> tuple[bool | None, str]:
+def check_fork_pr_approval_policy(repo: str) -> CheckResult:
     """Check that fork PR workflows require approval for first-time contributors.
 
     GitHub Actions has a per-repository policy that controls when workflows
@@ -441,8 +483,8 @@ def check_fork_pr_approval_policy(repo: str) -> tuple[bool | None, str]:
     ```
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed_or_None, message). `None` means the check
-        could not run (API inaccessible, unparsable, or unknown policy).
+    :return: A `CheckResult`. `passed` is `None` when the check could not run
+        (API inaccessible, unparsable, or unknown policy).
     """
     try:
         output = run_gh_command([
@@ -450,19 +492,21 @@ def check_fork_pr_approval_policy(repo: str) -> tuple[bool | None, str]:
             f"repos/{repo}/actions/permissions/fork-pr-contributor-approval",
         ])
     except RuntimeError:
-        return None, "Fork PR approval policy check: skipped (could not query API)."
+        return CheckResult(
+            None, "Fork PR approval policy check: skipped (could not query API)."
+        )
 
     try:
         data = json.loads(output)
     except json.JSONDecodeError:
-        return (
+        return CheckResult(
             None,
             "Fork PR approval policy check: skipped (invalid JSON from API).",
         )
 
     policy = data.get("approval_policy", "")
     if policy in {"first_time_contributors", "all_external_contributors"}:
-        return True, f"Fork PR approval policy: {policy}."
+        return CheckResult(True, f"Fork PR approval policy: {policy}.")
 
     if policy == "first_time_contributors_new_to_github":
         msg = (
@@ -472,15 +516,15 @@ def check_fork_pr_approval_policy(repo: str) -> tuple[bool | None, str]:
             f" https://github.com/{repo}/settings/actions"
             " to require approval for any first-time contributor."
         )
-        return False, msg
+        return CheckResult(False, msg)
 
-    return (
+    return CheckResult(
         None,
         f"Fork PR approval policy check: skipped (unknown policy '{policy}').",
     )
 
 
-def check_tag_protection_rules(repo: str) -> tuple[str | None, str]:
+def check_tag_protection_rules(repo: str) -> CheckResult:
     """Check that no tag rulesets could block the `create-tag` workflow job.
 
     Tag rulesets that restrict creation or require status checks can prevent
@@ -489,7 +533,7 @@ def check_tag_protection_rules(repo: str) -> tuple[str | None, str]:
     targets tags.
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (warning_message or None, info_message).
+    :return: A `CheckResult`.
     """
     try:
         output = run_gh_command([
@@ -501,12 +545,16 @@ def check_tag_protection_rules(repo: str) -> tuple[str | None, str]:
             "includes_parents=true",
         ])
     except RuntimeError:
-        return None, "Tag protection check: skipped (could not query rulesets API)."
+        return CheckResult(
+            None, "Tag protection check: skipped (could not query rulesets API)."
+        )
 
     try:
         rulesets = json.loads(output)
     except json.JSONDecodeError:
-        return None, "Tag protection check: skipped (invalid JSON from rulesets API)."
+        return CheckResult(
+            None, "Tag protection check: skipped (invalid JSON from rulesets API)."
+        )
 
     tag_rulesets = [
         r["name"]
@@ -523,11 +571,11 @@ def check_tag_protection_rules(repo: str) -> tuple[str | None, str]:
             " Ensure the REPOMATIC_PAT token is in the bypass list,"
             " or remove the rulesets."
         )
-        return msg, msg
-    return None, "No active tag rulesets found."
+        return CheckResult(False, msg)
+    return CheckResult(True, "No active tag rulesets found.")
 
 
-def check_branch_ruleset_on_default(repo: str) -> tuple[bool, str]:
+def check_branch_ruleset_on_default(repo: str) -> CheckResult:
     """Check that at least one active branch ruleset exists.
 
     Queries the same ``GET /repos/{repo}/rulesets`` endpoint as
@@ -546,7 +594,7 @@ def check_branch_ruleset_on_default(repo: str) -> tuple[bool, str]:
     ```
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed, message).
+    :return: A `CheckResult`.
     """
     try:
         output = run_gh_command([
@@ -558,12 +606,16 @@ def check_branch_ruleset_on_default(repo: str) -> tuple[bool, str]:
             "includes_parents=true",
         ])
     except RuntimeError:
-        return False, "Branch ruleset check: skipped (could not query rulesets API)."
+        return CheckResult(
+            False, "Branch ruleset check: skipped (could not query rulesets API)."
+        )
 
     try:
         rulesets = json.loads(output)
     except json.JSONDecodeError:
-        return False, "Branch ruleset check: skipped (invalid JSON from rulesets API)."
+        return CheckResult(
+            False, "Branch ruleset check: skipped (invalid JSON from rulesets API)."
+        )
 
     branch_rulesets = [
         r["name"]
@@ -574,11 +626,13 @@ def check_branch_ruleset_on_default(repo: str) -> tuple[bool, str]:
     ]
     if branch_rulesets:
         names = ", ".join(branch_rulesets)
-        return True, f"Active branch rulesets found: {names}."
-    return False, "No active branch rulesets found protecting the default branch."
+        return CheckResult(True, f"Active branch rulesets found: {names}.")
+    return CheckResult(
+        False, "No active branch rulesets found protecting the default branch."
+    )
 
 
-def check_immutable_releases(repo: str) -> tuple[bool | None, str]:
+def check_immutable_releases(repo: str) -> CheckResult:
     """Check that immutable releases are enabled for the repository.
 
     Queries ``GET /repos/{repo}/immutable-releases`` and inspects the
@@ -593,13 +647,13 @@ def check_immutable_releases(repo: str) -> tuple[bool | None, str]:
     ```
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed_or_None, message). `None` means the check
-        could not run (API inaccessible or unparsable).
+    :return: A `CheckResult`. `passed` is `None` when the check could not run
+        (API inaccessible or unparsable).
     """
     try:
         output = run_gh_command(["api", f"repos/{repo}/immutable-releases"])
     except RuntimeError:
-        return (
+        return CheckResult(
             None,
             "Immutable releases check: skipped (could not query API).",
         )
@@ -607,17 +661,17 @@ def check_immutable_releases(repo: str) -> tuple[bool | None, str]:
     try:
         data = json.loads(output)
     except json.JSONDecodeError:
-        return (
+        return CheckResult(
             None,
             "Immutable releases check: skipped (invalid JSON from API).",
         )
 
     if data.get("enabled"):
-        return True, "Immutable releases are enabled."
-    return False, "Immutable releases are not enabled."
+        return CheckResult(True, "Immutable releases are enabled.")
+    return CheckResult(False, "Immutable releases are not enabled.")
 
 
-def check_pages_deployment_source(repo: str) -> tuple[bool | None, str]:
+def check_pages_deployment_source(repo: str) -> CheckResult:
     """Check that GitHub Pages is deployed via GitHub Actions, not a branch.
 
     The `docs.yaml` workflow uses `actions/upload-pages-artifact` and
@@ -636,13 +690,13 @@ def check_pages_deployment_source(repo: str) -> tuple[bool | None, str]:
     ```
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed_or_None, message). `None` means the check
-        could not run (Pages not configured, or API inaccessible).
+    :return: A `CheckResult`. `passed` is `None` when the check could not run
+        (Pages not configured, or API inaccessible).
     """
     try:
         output = run_gh_command(["api", f"repos/{repo}/pages"])
     except RuntimeError:
-        return (
+        return CheckResult(
             None,
             "Pages deployment source check: skipped (Pages not configured or API"
             " inaccessible).",
@@ -651,14 +705,16 @@ def check_pages_deployment_source(repo: str) -> tuple[bool | None, str]:
     try:
         data = json.loads(output)
     except json.JSONDecodeError:
-        return (
+        return CheckResult(
             None,
             "Pages deployment source check: skipped (invalid JSON from API).",
         )
 
     build_type = data.get("build_type")
     if build_type == "workflow":
-        return True, "GitHub Pages deployment source is set to GitHub Actions."
+        return CheckResult(
+            True, "GitHub Pages deployment source is set to GitHub Actions."
+        )
     if build_type == "legacy":
         msg = (
             "GitHub Pages deployment source is set to 'Deploy from a branch'."
@@ -666,8 +722,8 @@ def check_pages_deployment_source(repo: str) -> tuple[bool | None, str]:
             f" https://github.com/{repo}/settings/pages"
             " so the docs.yaml workflow can deploy."
         )
-        return False, msg
-    return (
+        return CheckResult(False, msg)
+    return CheckResult(
         None,
         f"Pages deployment source check: skipped (unknown build_type '{build_type}').",
     )
@@ -676,7 +732,7 @@ def check_pages_deployment_source(repo: str) -> tuple[bool | None, str]:
 def check_pypi_trusted_publisher(
     repo: str,
     package_name: str | None,
-) -> tuple[bool | None, str]:
+) -> CheckResult:
     """Check that the PyPI Trusted Publisher entry is registered for this repo.
 
     PyPI's Trusted Publisher settings are owner-only at
@@ -701,31 +757,42 @@ def check_pypi_trusted_publisher(
     :param repo: Repository in ``"owner/repo"`` format.
     :param package_name: PyPI package name. The check is skipped when not
         provided.
-    :return: Tuple of ``(passed_or_None, message)``.
+    :return: A `CheckResult`.
     """
     if not package_name:
-        return None, ("PyPI Trusted Publisher check: skipped (no package name).")
+        return CheckResult(
+            None, ("PyPI Trusted Publisher check: skipped (no package name).")
+        )
 
     latest = get_latest_release_file(package_name)
     if latest is None:
-        return None, (
-            f"PyPI Trusted Publisher check: skipped (no released version of"
-            f" '{package_name}' on PyPI yet)."
+        return CheckResult(
+            None,
+            (
+                f"PyPI Trusted Publisher check: skipped (no released version of"
+                f" '{package_name}' on PyPI yet)."
+            ),
         )
     version, filename = latest
 
     publishers = get_trusted_publishers(package_name, version, filename)
     if publishers is None:
-        return None, (
-            f"PyPI Trusted Publisher check: skipped (no provenance for"
-            f" '{package_name}' {version}; previous release likely uploaded"
-            f" via API token)."
+        return CheckResult(
+            None,
+            (
+                f"PyPI Trusted Publisher check: skipped (no provenance for"
+                f" '{package_name}' {version}; previous release likely uploaded"
+                f" via API token)."
+            ),
         )
 
     if not publishers:
-        return None, (
-            f"PyPI Trusted Publisher check: skipped (provenance for"
-            f" '{package_name}' {version} contains no publisher bundles)."
+        return CheckResult(
+            None,
+            (
+                f"PyPI Trusted Publisher check: skipped (provenance for"
+                f" '{package_name}' {version} contains no publisher bundles)."
+            ),
         )
 
     for publisher in publishers:
@@ -734,9 +801,12 @@ def check_pypi_trusted_publisher(
             and publisher.repository == repo
             and publisher.workflow == PYPI_TRUSTED_PUBLISHER_WORKFLOW
         ):
-            return True, (
-                f"PyPI Trusted Publisher matches: {publisher.repository}"
-                f" via {publisher.workflow}."
+            return CheckResult(
+                True,
+                (
+                    f"PyPI Trusted Publisher matches: {publisher.repository}"
+                    f" via {publisher.workflow}."
+                ),
             )
 
     observed = ", ".join(f"{p.repository}:{p.workflow}" for p in publishers)
@@ -753,33 +823,33 @@ def check_pypi_trusted_publisher(
         f" but provenance names: {observed}."
         f" Register the correct entry at {settings_url}."
     )
-    return False, msg
+    return CheckResult(False, msg)
 
 
-def check_stale_gh_pages_branch(repo: str) -> tuple[bool | None, str]:
+def check_stale_gh_pages_branch(repo: str) -> CheckResult:
     """Check for a leftover `gh-pages` branch after switching to GitHub Actions.
 
     When Pages is deployed via GitHub Actions, the `gh-pages` branch is no
     longer needed and should be deleted to avoid confusion.
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Tuple of (passed_or_None, message).
+    :return: A `CheckResult`.
     """
     try:
         run_gh_command(["api", f"repos/{repo}/branches/gh-pages"])
     except RuntimeError:
         # 404: branch doesn't exist. That's the desired state.
-        return True, "No stale gh-pages branch found."
+        return CheckResult(True, "No stale gh-pages branch found.")
 
     msg = (
         "Stale `gh-pages` branch detected. Pages is deployed via GitHub"
         " Actions, so this branch is no longer needed. Delete it with:"
         f" `gh api --method DELETE repos/{repo}/git/refs/heads/gh-pages`"
     )
-    return False, msg
+    return CheckResult(False, msg)
 
 
-def check_workflow_permissions() -> list[tuple[str | None, str]]:
+def check_workflow_permissions() -> list[CheckResult]:
     """Check that workflows with custom jobs declare ``permissions: {}``.
 
     Thin-caller workflows (all jobs use `uses:` to call a reusable workflow)
@@ -787,12 +857,16 @@ def check_workflow_permissions() -> list[tuple[str | None, str]]:
     `permissions` key. Workflows that define their own `steps:` should
     declare ``permissions: {}`` to follow the principle of least privilege.
 
-    :return: List of (warning_message or None, info_message) tuples.
+    :return: A list of `CheckResult`.
     """
-    results: list[tuple[str | None, str]] = []
+    results: list[CheckResult] = []
     workflows_dir = Path(".github/workflows")
     if not workflows_dir.is_dir():
-        return [(None, "Workflow permissions check: skipped (no .github/workflows/)")]
+        return [
+            CheckResult(
+                None, "Workflow permissions check: skipped (no .github/workflows/)"
+            )
+        ]
 
     for wf_path in sorted(workflows_dir.glob("*.yaml")):
         try:
@@ -819,19 +893,23 @@ def check_workflow_permissions() -> list[tuple[str | None, str]]:
                 " top-level `permissions` key. Add `permissions: {{}}` for"
                 " least-privilege security."
             )
-            results.append((msg, msg))
+            results.append(CheckResult(False, msg))
         else:
-            results.append((None, f"Workflow {wf_path.name}: permissions declared."))
+            results.append(
+                CheckResult(True, f"Workflow {wf_path.name}: permissions declared.")
+            )
 
     if not results:
-        results.append((
-            None,
-            "Workflow permissions check: no custom-step workflows found.",
-        ))
+        results.append(
+            CheckResult(
+                None,
+                "Workflow permissions check: no custom-step workflows found.",
+            )
+        )
     return results
 
 
-def check_test_matrix_excludes() -> list[tuple[str | None, str]]:
+def check_test_matrix_excludes() -> list[CheckResult]:
     """Flag `[tool.repomatic.test-matrix] exclude` entries that match no axis.
 
     An exclude naming a value absent from every matrix axis (like a renamed
@@ -839,18 +917,24 @@ def check_test_matrix_excludes() -> list[tuple[str | None, str]]:
     silently and its exclusion intent is lost. Reporting it as a warning makes
     the drift visible in CI instead of silently weakening the matrix.
 
-    :return: List of (warning_message or None, info_message) tuples.
+    :return: A list of `CheckResult`.
     """
     metadata = Metadata()
     if not metadata.config.test_matrix.exclude:
-        return [(None, "Test matrix excludes check: skipped (none configured).")]
+        return [
+            CheckResult(None, "Test matrix excludes check: skipped (none configured).")
+        ]
 
     axes = metadata.test_matrix.all_variations()
     stale = metadata.stale_test_matrix_excludes
     if not stale:
-        return [(None, "Test matrix excludes check: all entries match a live axis.")]
+        return [
+            CheckResult(
+                True, "Test matrix excludes check: all entries match a live axis."
+            )
+        ]
 
-    results: list[tuple[str | None, str]] = []
+    results: list[CheckResult] = []
     for entry in stale:
         bad = stale_axis_values(entry, axes)
         msg = (
@@ -859,14 +943,14 @@ def check_test_matrix_excludes() -> list[tuple[str | None, str]]:
             "effect. Update it (for instance after an upstream runner rename) "
             "or remove it."
         )
-        results.append((msg, msg))
+        results.append(CheckResult(False, msg))
     return results
 
 
 def check_inline_pins_match_upstream(
     workflow_dir: Path = Path(".github/workflows"),
     upstream_repo: str = DEFAULT_REPO,
-) -> tuple[str | None, str]:
+) -> CheckResult:
     """Check inline upstream pins match the workflow `uses:` ref version.
 
     A workflow that pins the upstream toolkit in a `run:` shell command (like
@@ -881,11 +965,13 @@ def check_inline_pins_match_upstream(
     :param workflow_dir: Directory holding the workflow YAML files.
     :param upstream_repo: Upstream ``owner/repo``; its name is the inline
         package to match (e.g. ``repomatic``).
-    :return: ``(error_message_or_None, info_message)``.
+    :return: A `CheckResult`.
     """
     package = upstream_repo.rsplit("/", 1)[-1]
     if not workflow_dir.is_dir():
-        return None, f"Inline {package} pin check: skipped (no {workflow_dir})."
+        return CheckResult(
+            None, f"Inline {package} pin check: skipped (no {workflow_dir})."
+        )
 
     pin_re = re.compile(rf"\b{re.escape(package)}==(?P<version>[0-9]+(?:\.[0-9]+)*)")
 
@@ -902,7 +988,7 @@ def check_inline_pins_match_upstream(
             pins_by_file[wf.name] = found
 
     if not upstream_versions or not pins_by_file:
-        return None, f"Inline {package} pin check: nothing to compare."
+        return CheckResult(None, f"Inline {package} pin check: nothing to compare.")
 
     lagging = {
         name: versions
@@ -915,8 +1001,33 @@ def check_inline_pins_match_upstream(
             f"{name} pins {', '.join(sorted(v))}" for name, v in sorted(lagging.items())
         )
         msg = f"Inline {package} pin lags the uses: ref version ({expected}): {detail}."
-        return msg, msg
-    return None, f"Inline {package} pins match the uses: refs ({expected})."
+        return CheckResult(False, msg)
+    return CheckResult(
+        True, f"Inline {package} pins match the uses: refs ({expected})."
+    )
+
+
+def _report_result(
+    result: CheckResult, level: AnnotationLevel = AnnotationLevel.WARNING
+) -> bool:
+    """Print one check line and emit its annotation; return True when it failed.
+
+    :param result: The check outcome to render.
+    :param level: Severity for a failure. `WARNING` prints `⚠` and emits a
+        warning annotation; `ERROR` prints `✗` and emits an error annotation.
+    :return: `True` when the check failed (`passed is False`), else `False`.
+        A skipped check (`passed is None`) prints `ℹ` and emits no annotation.
+    """
+    if result.passed is None:
+        print(f"ℹ {result.message}")
+        return False
+    if result.passed:
+        print(f"✓ {result.message}")
+        return False
+    symbol = "✗" if level is AnnotationLevel.ERROR else "⚠"
+    emit_annotation(level, result.message)
+    print(f"{symbol} {result.message}")
+    return True
 
 
 def run_repo_lint(
@@ -963,123 +1074,74 @@ def run_repo_lint(
 
     # Check 1: Package name vs repo name.
     if package_name and repo_name:
-        warning, msg = check_package_name_vs_repo(package_name, repo_name)
-        if warning:
-            emit_annotation(AnnotationLevel.WARNING, warning)
-        print(f"{'⚠' if warning else '✓'} {msg}")
+        _report_result(check_package_name_vs_repo(package_name, repo_name))
 
     # Check 2: Website for Sphinx projects.
     if is_sphinx:
         homepage_url = repo_metadata.get("homepageUrl") if repo_metadata else None
-        warning, msg = check_website_for_sphinx(repo or "", is_sphinx, homepage_url)
-        if warning:
-            emit_annotation(AnnotationLevel.WARNING, warning)
-        print(f"{'⚠' if warning else '✓'} {msg}")
+        _report_result(check_website_for_sphinx(repo or "", is_sphinx, homepage_url))
 
     # Check 3: Pages deployment source (Sphinx projects only).
     if is_sphinx and repo:
-        passed, msg = check_pages_deployment_source(repo)
-        if passed is False:
-            emit_annotation(AnnotationLevel.WARNING, msg)
-            print(f"⚠ {msg}")
-        elif passed is True:
-            print(f"✓ {msg}")
-        else:
-            print(f"ℹ {msg}")
+        _report_result(check_pages_deployment_source(repo))
 
     # Check 3b: Stale gh-pages branch (Sphinx projects only).
     if is_sphinx and repo:
-        passed, msg = check_stale_gh_pages_branch(repo)
-        if passed is False:
-            emit_annotation(AnnotationLevel.WARNING, msg)
-            print(f"⚠ {msg}")
-        elif passed is True:
-            print(f"✓ {msg}")
+        _report_result(check_stale_gh_pages_branch(repo))
 
     # Check 4: Description matches (fatal).
     if project_description:
         repo_description = repo_metadata.get("description") if repo_metadata else None
-        error, msg = check_description_matches(
-            repo or "", project_description, repo_description
-        )
-        if error:
-            emit_annotation(AnnotationLevel.ERROR, error)
+        if _report_result(
+            check_description_matches(
+                repo or "", project_description, repo_description
+            ),
+            AnnotationLevel.ERROR,
+        ):
             fatal_error = True
-        print(f"{'✗' if error else '✓'} {msg}")
 
     # Check 5: GitHub topics are a subset of pyproject.toml keywords.
     if keywords and repo:
-        warning, msg = check_topics_subset_of_keywords(repo, keywords)
-        if warning:
-            emit_annotation(AnnotationLevel.WARNING, warning)
-        print(f"{'⚠' if warning else '✓'} {msg}")
+        _report_result(check_topics_subset_of_keywords(repo, keywords))
 
     # Check 6: Funding file present when owner has GitHub Sponsors.
     if repo:
-        warning, msg = check_funding_file(repo)
-        if warning:
-            emit_annotation(AnnotationLevel.WARNING, warning)
-        print(f"{'⚠' if warning else '✓'} {msg}")
+        _report_result(check_funding_file(repo))
 
     # Check 7: Stale draft releases (warning).
     if repo:
-        warning, msg = check_stale_draft_releases(repo)
-        if warning:
-            emit_annotation(AnnotationLevel.WARNING, warning)
-        print(f"{'⚠' if warning else '✓'} {msg}")
+        _report_result(check_stale_draft_releases(repo))
 
     # Check 8: Tag protection rules (warning).
     if repo:
-        warning, msg = check_tag_protection_rules(repo)
-        if warning:
-            emit_annotation(AnnotationLevel.WARNING, warning)
-        print(f"{'⚠' if warning else '✓'} {msg}")
+        _report_result(check_tag_protection_rules(repo))
 
     # Check 9: Fork PR approval policy strict enough (warning).
     if repo:
-        passed, msg = check_fork_pr_approval_policy(repo)
-        if passed is False:
-            emit_annotation(AnnotationLevel.WARNING, msg)
-            print(f"⚠ {msg}")
-        elif passed is True:
-            print(f"✓ {msg}")
-        else:
-            print(f"ℹ {msg}")
+        _report_result(check_fork_pr_approval_policy(repo))
 
     # Check 9b: PyPI Trusted Publisher entry registered (warning).
     if repo and package_name:
-        passed, msg = check_pypi_trusted_publisher(repo, package_name)
-        if passed is False:
-            emit_annotation(AnnotationLevel.WARNING, msg)
-            print(f"⚠ {msg}")
-        elif passed is True:
-            print(f"✓ {msg}")
-        else:
-            print(f"ℹ {msg}")
+        _report_result(check_pypi_trusted_publisher(repo, package_name))
 
     # Check 10: Workflow permissions declared on custom-step workflows.
-    for warning, msg in check_workflow_permissions():
-        if warning:
-            emit_annotation(AnnotationLevel.WARNING, warning)
-        print(f"{'⚠' if warning else '✓'} {msg}")
+    for result in check_workflow_permissions():
+        _report_result(result)
 
     # Check 10b: Test matrix excludes reference values present in a live axis.
-    for warning, msg in check_test_matrix_excludes():
-        if warning:
-            emit_annotation(AnnotationLevel.WARNING, warning)
-        print(f"{'⚠' if warning else '✓'} {msg}")
+    for result in check_test_matrix_excludes():
+        _report_result(result)
 
     # Check 10c: Inline upstream pins match the workflow uses: ref version (error).
-    error, msg = check_inline_pins_match_upstream()
-    if error:
-        emit_annotation(AnnotationLevel.ERROR, error)
+    if _report_result(check_inline_pins_match_upstream(), AnnotationLevel.ERROR):
         fatal_error = True
-    print(f"{'✗' if error else '✓'} {msg}")
 
     # Check 11: VIRUSTOTAL_API_KEY secret (warning, only when Nuitka builds are active).
     if nuitka_active:
         if has_virustotal_key:
-            print("✓ VIRUSTOTAL_API_KEY secret is configured.")
+            _report_result(
+                CheckResult(True, "VIRUSTOTAL_API_KEY secret is configured.")
+            )
         else:
             vt_msg = (
                 "VIRUSTOTAL_API_KEY secret is not configured."
@@ -1087,14 +1149,15 @@ def run_repo_lint(
                 " Get a free API key at https://www.virustotal.com/gui/my-apikey"
                 " and add it as a repository secret."
             )
-            emit_annotation(AnnotationLevel.WARNING, vt_msg)
-            print(f"⚠ {vt_msg}")
+            _report_result(CheckResult(False, vt_msg))
 
     # Check 12: REPOMATIC_NOTIFICATIONS_PAT secret (warning, only when the
     # unsubscribe workflow is opted in via notification.unsubscribe).
     if unsubscribe_active:
         if has_notifications_pat:
-            print("✓ REPOMATIC_NOTIFICATIONS_PAT secret is configured.")
+            _report_result(
+                CheckResult(True, "REPOMATIC_NOTIFICATIONS_PAT secret is configured.")
+            )
         else:
             notif_msg = (
                 "REPOMATIC_NOTIFICATIONS_PAT secret is not configured."
@@ -1104,8 +1167,7 @@ def run_repo_lint(
                 "?description=REPOMATIC_NOTIFICATIONS_PAT&scopes=notifications"
                 " and add it as a repository secret."
             )
-            emit_annotation(AnnotationLevel.WARNING, notif_msg)
-            print(f"⚠ {notif_msg}")
+            _report_result(CheckResult(False, notif_msg))
 
     # PAT capability checks (only when REPOMATIC_PAT is configured).
     if not has_pat or not repo:
@@ -1116,23 +1178,13 @@ def run_repo_lint(
     results = check_all_pat_permissions(repo)
 
     for passed, msg in results.iter_results():
-        if passed:
-            print(f"✓ {msg}")
-        else:
-            emit_annotation(AnnotationLevel.ERROR, msg)
-            print(f"✗ {msg}")
+        if _report_result(CheckResult(passed, msg), AnnotationLevel.ERROR):
             fatal_error = True
 
     # Check PAT repository scope (warning, not fatal).
-    warning, msg = check_pat_repository_scope(repo)
-    if warning:
-        emit_annotation(AnnotationLevel.WARNING, warning)
-    print(f"{'⚠' if warning else '✓'} {msg}")
+    _report_result(check_pat_repository_scope(repo))
 
     # Check for the dropped Commit statuses permission (warning, not fatal).
-    warning, msg = check_pat_stale_statuses_permission(repo)
-    if warning:
-        emit_annotation(AnnotationLevel.WARNING, warning)
-    print(f"{'⚠' if warning else '✓'} {msg}")
+    _report_result(check_pat_stale_statuses_permission(repo))
 
     return 1 if fatal_error else 0

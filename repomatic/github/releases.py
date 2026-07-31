@@ -19,8 +19,14 @@
 The single home for reading GitHub Releases: raw cached API access (tags,
 versions, single bodies), tag-to-version extraction, tag-to-SHA resolution, and
 the range-to-release-notes fetch shared by the dependency updaters. The
-{mod}`repomatic.version_sync` adapters and {mod}`repomatic.uv` release-notes
-helper build on top of these reads.
+{mod}`repomatic.version_sync` adapters and {mod}`repomatic.dep_report`
+release-notes helper build on top of these reads.
+
+One write helper lives here too: {func}`edit_release_notes`, the shared
+`gh release edit` path behind the dev pre-release sync
+({mod}`repomatic.github.dev_release`) and the changelog-to-release-notes sync
+({mod}`repomatic.github.release_sync`), so both writers carry the same
+arguments and failure contract.
 """
 
 from __future__ import annotations
@@ -35,7 +41,7 @@ from packaging.version import InvalidVersion, Version
 from ..cache import get_cached_response, store_response
 from ..config import load_repomatic_config
 from ..http import FetchError, get_json
-from .gh import resolve_gh_token
+from .gh import resolve_gh_token, run_gh_command
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -408,6 +414,30 @@ def extract_version(tag: str, tag_pattern: str | None) -> str | None:
         match = re.match(tag_pattern, tag)
         return match.group("version") if match else None
     return tag.removeprefix("v")
+
+
+def edit_release_notes(tag: str, nwo: str, body: str, *, title: str = "") -> bool:
+    """Edit a release's notes (and optionally its title) in place.
+
+    The one `gh release edit` path shared by every release writer, so the
+    dev pre-release sync and the changelog-to-release-notes sync carry the
+    same arguments and failure contract. Assets are never touched.
+
+    :param tag: Git tag name of the release (e.g. `v1.2.3`).
+    :param nwo: Repository name-with-owner (e.g. `user/repo`).
+    :param body: The new release body text.
+    :param title: When non-empty, also replace the release title.
+    :return: `True` when the edit landed, `False` when the release does not
+        exist or the edit failed.
+    """
+    args = ["release", "edit", tag, "--repo", nwo, "--notes", body]
+    if title:
+        args += ["--title", title]
+    try:
+        run_gh_command(args)
+    except RuntimeError:
+        return False
+    return True
 
 
 def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:

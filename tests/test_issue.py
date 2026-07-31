@@ -14,14 +14,14 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for :mod:`repomatic.github.pr`."""
+"""Tests for :mod:`repomatic.github.issue`."""
 
 from __future__ import annotations
 
 import json
 from unittest.mock import patch
 
-from repomatic.github.pr import (
+from repomatic.github.issue import (
     close_open_prs_on_branch,
     close_pr,
     list_open_prs_by_branch,
@@ -29,7 +29,7 @@ from repomatic.github.pr import (
 
 
 def test_list_open_prs_by_branch_filters_arguments():
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
         mock_gh.return_value = json.dumps([{"number": 42, "title": "Bump"}])
         prs = list_open_prs_by_branch("minor-version-increment")
     assert prs == [{"number": 42, "title": "Bump"}]
@@ -42,13 +42,13 @@ def test_list_open_prs_by_branch_filters_arguments():
 
 
 def test_list_open_prs_by_branch_empty():
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
         mock_gh.return_value = "[]"
         assert list_open_prs_by_branch("major-version-increment") == []
 
 
 def test_close_pr_default_deletes_branch():
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
         close_pr(7, "stale")
     args = mock_gh.call_args.args[0]
     assert args[:3] == ["pr", "close", "7"]
@@ -57,13 +57,13 @@ def test_close_pr_default_deletes_branch():
 
 
 def test_close_pr_can_keep_branch():
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
         close_pr(7, "stale", delete_branch=False)
     assert "--delete-branch" not in mock_gh.call_args.args[0]
 
 
 def test_close_open_prs_on_branch_no_match_is_noop():
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
         mock_gh.return_value = "[]"
         closed = close_open_prs_on_branch("minor-version-increment", "stale")
     assert closed == []
@@ -75,7 +75,7 @@ def test_close_open_prs_on_branch_closes_every_match():
         {"number": 11, "title": "A"},
         {"number": 22, "title": "B"},
     ])
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
         mock_gh.side_effect = [payload, "", ""]
         closed = close_open_prs_on_branch("minor-version-increment", "stale")
     assert closed == [11, 22]

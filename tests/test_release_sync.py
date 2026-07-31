@@ -261,14 +261,14 @@ def test_sync_dry_run_no_mutations(tmp_path):
             return_value=mock_releases,
         ),
         patch(
-            "repomatic.github.release_sync.run_gh_command",
-        ) as mock_gh,
+            "repomatic.github.release_sync.edit_release_notes",
+        ) as mock_edit,
     ):
         sync_github_releases(
             "https://github.com/user/repo", changelog_path, dry_run=True
         )
 
-    mock_gh.assert_not_called()
+    mock_edit.assert_not_called()
 
 
 def test_sync_live_updates(tmp_path):
@@ -289,22 +289,15 @@ def test_sync_live_updates(tmp_path):
             return_value=mock_releases,
         ),
         patch(
-            "repomatic.github.release_sync.run_gh_command",
-        ) as mock_gh,
+            "repomatic.github.release_sync.edit_release_notes",
+            return_value=True,
+        ) as mock_edit,
     ):
         result = sync_github_releases(
             "https://github.com/user/repo", changelog_path, dry_run=False
         )
 
-    mock_gh.assert_called_once_with([
-        "release",
-        "edit",
-        "v2.0.0",
-        "--repo",
-        "user/repo",
-        "--notes",
-        expected_body,
-    ])
+    mock_edit.assert_called_once_with("v2.0.0", "user/repo", expected_body)
     assert result.updated == 1
     assert result.drifted == 1
 
@@ -336,7 +329,7 @@ def test_sync_missing_changelog_section(tmp_path):
 
 
 def test_sync_live_failure(tmp_path):
-    """Records failure when ``gh release edit`` raises."""
+    """Records failure when ``gh release edit`` fails."""
     changelog_path = tmp_path / "changelog.md"
     changelog_path.write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
 
@@ -350,8 +343,8 @@ def test_sync_live_failure(tmp_path):
             return_value=mock_releases,
         ),
         patch(
-            "repomatic.github.release_sync.run_gh_command",
-            side_effect=RuntimeError("auth failed"),
+            "repomatic.github.release_sync.edit_release_notes",
+            return_value=False,
         ),
     ):
         result = sync_github_releases(

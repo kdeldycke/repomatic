@@ -47,6 +47,7 @@ from pathlib import Path
 
 from ..changelog import Changelog, build_expected_body
 from .gh import run_gh_command
+from .releases import edit_release_notes
 
 DEV_ASSET_PATTERNS = ("*.bin", "*.exe", "*.whl", "*.tar.gz")
 """Glob patterns for dev release assets.
@@ -114,7 +115,7 @@ def sync_dev_release(
 
     # Try to edit the existing release first. This preserves assets (binaries)
     # from previous successful builds when the current push skips compilation.
-    if _edit_dev_release(tag, version, body, nwo):
+    if edit_release_notes(tag, nwo, body, title=version):
         logging.info(f"Updated existing dev draft pre-release {tag}.")
     else:
         # No existing release to edit; create a new draft pre-release targeting
@@ -272,36 +273,6 @@ def cleanup_dev_releases(nwo: str, *, keep_tag: str | None = None) -> None:
         tag = release["tagName"]
         if tag.endswith(".dev0") and tag != keep_tag:
             delete_release_by_tag(tag, nwo)
-
-
-def _edit_dev_release(tag: str, version: str, body: str, nwo: str) -> bool:
-    """Edit an existing dev release's metadata.
-
-    Updates the title and body of an existing release without touching its
-    assets. Returns `False` if the release does not exist.
-
-    :param tag: Git tag name (e.g. `v6.1.1.dev0`).
-    :param version: Version string for the title (e.g. `6.1.1.dev0`).
-    :param body: Release body text.
-    :param nwo: Repository name-with-owner (e.g. `user/repo`).
-    :return: `True` if the release was edited, `False` if it doesn't exist.
-    """
-    try:
-        run_gh_command([
-            "release",
-            "edit",
-            tag,
-            "--title",
-            version,
-            "--notes",
-            body,
-            "--repo",
-            nwo,
-        ])
-    except RuntimeError:
-        return False
-    else:
-        return True
 
 
 def delete_dev_release(version: str, nwo: str) -> None:

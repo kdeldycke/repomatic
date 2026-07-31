@@ -100,7 +100,7 @@ from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
     sync_dev_release as _sync_dev_release,
 )
-from .github.pr import close_open_prs_on_branch
+from .github.issue import close_open_prs_on_branch
 from .github.pr_body import (
     build_pr_body,
     generate_pr_metadata_block,
@@ -2348,7 +2348,7 @@ def sync_dep_sources(
 
     op.apply(plan)
 
-    for swap in plan.source_swaps:
+    for swap in plan.uv_project.source_swaps:
         echo(
             f"Swapped {swap.name} from git branch {swap.branch!r} to released"
             f" {swap.release}, frozen until it clears the cooldown."
@@ -2460,7 +2460,7 @@ def sync_uv_lock_cmd(
     )
     plan = op.resolve(rc)
 
-    if plan.pins_synced:
+    if plan.uv_project.pins_synced:
         echo("Synced [tool.uv] policy pins from the bundled template.")
 
     if not plan.has_changes:
@@ -2471,15 +2471,15 @@ def sync_uv_lock_cmd(
 
     if plan.changes:
         echo(f"{len(plan.changes)} package(s) updated.")
-    if plan.pruned_bypasses:
+    if plan.uv_project.pruned_bypasses:
         echo(
             "Expired cooldown bypass(es) cleared from pyproject.toml: "
-            + ", ".join(forecast.name for forecast in plan.pruned_bypasses)
+            + ", ".join(forecast.name for forecast in plan.uv_project.pruned_bypasses)
         )
-    if plan.frozen_bypasses:
+    if plan.uv_project.frozen_bypasses:
         echo(
             "Cooldown bypass(es) frozen at their locked version: "
-            + ", ".join(plan.frozen_bypasses)
+            + ", ".join(plan.uv_project.frozen_bypasses)
         )
 
     _emit_lockfile_sync_report(
@@ -2509,8 +2509,11 @@ def _emit_lockfile_sync_report(
     """
     # Terminal output: structured table via click-extra.
     if table:
-        if plan.exclude_newer:
-            echo(f"exclude-newer cutoff: {format_upload_date(plan.exclude_newer)}")
+        if plan.uv_project.exclude_newer:
+            echo(
+                "exclude-newer cutoff: "
+                f"{format_upload_date(plan.uv_project.exclude_newer)}"
+            )
         _print_sync_table(
             ctx,
             plan.changes,
@@ -2520,8 +2523,8 @@ def _emit_lockfile_sync_report(
         )
         if plan.held_back:
             _print_held_back_table(ctx, plan.held_back)
-        if plan.bypass_forecasts:
-            _print_bypass_table(ctx, plan.bypass_forecasts)
+        if plan.uv_project.bypass_forecasts:
+            _print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
 
     # Release notes echoed to the terminal (already fetched during resolve).
     if plan.notes_section:
@@ -2937,8 +2940,8 @@ def sync_deps(
         )
         if plan.held_back:
             _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
-        if plan.bypass_forecasts:
-            _print_bypass_table(ctx, plan.bypass_forecasts)
+        if plan.uv_project.bypass_forecasts:
+            _print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
 
     if output:
         sections = [

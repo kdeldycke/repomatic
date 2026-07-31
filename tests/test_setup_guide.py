@@ -33,6 +33,7 @@ from click.testing import CliRunner
 
 from repomatic.cli import repomatic as repomatic_cli
 from repomatic.github.token import PatPermissionResults
+from repomatic.lint_repo import CheckResult
 from tests.conftest import all_pass_pat_results
 
 TYPE_CHECKING = False
@@ -65,14 +66,11 @@ def _partial_fail_pat_results() -> PatPermissionResults:
 def _offline_setup_guide(
     *,
     pat_results: PatPermissionResults | None = None,
-    branch_ok: tuple[bool, str] = (True, "Active branch rulesets found: main."),
-    immutable_ok: tuple[bool | None, str] = (True, "Immutable releases enabled."),
-    fork_pr_ok: tuple[bool | None, str] = (True, "Fork PR approval is required."),
-    pypi_ok: tuple[bool | None, str] = (True, "Trusted publisher is configured."),
-    pages_ok: tuple[bool | None, str] = (
-        True,
-        "Pages deployment source is GitHub Actions.",
-    ),
+    branch_ok: CheckResult | None = None,
+    immutable_ok: CheckResult | None = None,
+    fork_pr_ok: CheckResult | None = None,
+    pypi_ok: CheckResult | None = None,
+    pages_ok: CheckResult | None = None,
     owner_type: str = "User",
 ) -> Iterator[tuple[MagicMock, list[str]]]:
     """Patch every network seam `manage_setup_guide` reaches.
@@ -94,6 +92,16 @@ def _offline_setup_guide(
     """
     if pat_results is None:
         pat_results = all_pass_pat_results()
+    if branch_ok is None:
+        branch_ok = CheckResult(True, "Active branch rulesets found: main.")
+    if immutable_ok is None:
+        immutable_ok = CheckResult(True, "Immutable releases enabled.")
+    if fork_pr_ok is None:
+        fork_pr_ok = CheckResult(True, "Fork PR approval is required.")
+    if pypi_ok is None:
+        pypi_ok = CheckResult(True, "Trusted publisher is configured.")
+    if pages_ok is None:
+        pages_ok = CheckResult(True, "Pages deployment source is GitHub Actions.")
     bodies: list[str] = []
     with ExitStack() as stack:
         enter = stack.enter_context
@@ -200,19 +208,19 @@ def test_setup_guide_disabled_skips(mock_lifecycle, _mock_token, tmp_path, monke
     ("branch_ok", "has_vt_key", "expected_has_issues"),
     (
         pytest.param(
-            (True, "Active branch rulesets found: main."),
+            CheckResult(True, "Active branch rulesets found: main."),
             True,
             False,
             id="all-pass-closes",
         ),
         pytest.param(
-            (False, "No active branch rulesets found."),
+            CheckResult(False, "No active branch rulesets found."),
             True,
             True,
             id="branch-missing-opens",
         ),
         pytest.param(
-            (True, "Active branch rulesets found: main."),
+            CheckResult(True, "Active branch rulesets found: main."),
             False,
             True,
             id="vt-key-missing-opens",

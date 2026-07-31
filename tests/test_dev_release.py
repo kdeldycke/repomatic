@@ -21,7 +21,6 @@ from unittest.mock import call, patch
 
 from repomatic.github.dev_release import (
     _delete_release_assets,
-    _edit_dev_release,
     cleanup_dev_releases,
     delete_dev_release,
     delete_release_by_tag,
@@ -86,14 +85,19 @@ def test_sync_dev_release_live(tmp_path):
 
     # gh release list returns no existing dev releases.
     # Edit fails (no existing release), then create succeeds.
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-        side_effect=[
-            json.dumps([]),  # list releases for cleanup
-            RuntimeError("not found"),  # edit fails (no existing release)
-            None,  # create new release
-        ],
-    ) as mock_gh:
+    with (
+        patch(
+            "repomatic.github.dev_release.run_gh_command",
+            side_effect=[
+                json.dumps([]),  # list releases for cleanup
+                None,  # create new release
+            ],
+        ) as mock_gh,
+        patch(
+            "repomatic.github.dev_release.edit_release_notes",
+            return_value=False,  # edit fails (no existing release)
+        ) as mock_edit,
+    ):
         result = sync_dev_release(
             changelog_path,
             "6.1.1.dev0",
@@ -111,11 +115,10 @@ def test_sync_dev_release_live(tmp_path):
         "--repo",
         "user/repo",
     ])
-    # Second call: edit attempt (fails).
-    edit_call = mock_gh.call_args_list[1]
-    assert edit_call[0][0][:3] == ["release", "edit", "v6.1.1.dev0"]
-    # Third call: create new draft pre-release.
-    create_call = mock_gh.call_args_list[2]
+    # Edit attempted (fails), against the right release.
+    assert mock_edit.call_args.args[:2] == ("v6.1.1.dev0", "user/repo")
+    # Second gh call: create new draft pre-release.
+    create_call = mock_gh.call_args_list[1]
     assert create_call[0][0][:3] == ["release", "create", "v6.1.1.dev0"]
     assert "--draft" in create_call[0][0]
     assert "--prerelease" in create_call[0][0]
@@ -129,13 +132,18 @@ def test_sync_dev_release_edits_existing(tmp_path):
 
     # gh release list returns the current dev release.
     release_list = json.dumps([{"tagName": "v6.1.1.dev0"}])
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-        side_effect=[
-            release_list,  # list releases (current kept, not deleted)
-            None,  # edit succeeds
-        ],
-    ) as mock_gh:
+    with (
+        patch(
+            "repomatic.github.dev_release.run_gh_command",
+            side_effect=[
+                release_list,  # list releases (current kept, not deleted)
+            ],
+        ) as mock_gh,
+        patch(
+            "repomatic.github.dev_release.edit_release_notes",
+            return_value=True,  # edit succeeds
+        ) as mock_edit,
+    ):
         result = sync_dev_release(
             changelog_path,
             "6.1.1.dev0",
@@ -144,17 +152,16 @@ def test_sync_dev_release_edits_existing(tmp_path):
         )
 
     assert result is True
-    assert mock_gh.call_count == 2
+    assert mock_gh.call_count == 1
     # Should NOT delete the current dev release.
     delete_calls = [
         c for c in mock_gh.call_args_list if c[0][0][0:2] == ["release", "delete"]
     ]
     assert delete_calls == []
-    # Should edit, not create.
-    edit_call = mock_gh.call_args_list[1]
-    assert edit_call[0][0][:3] == ["release", "edit", "v6.1.1.dev0"]
-    assert "--title" in edit_call[0][0]
-    assert "--notes" in edit_call[0][0]
+    # Should edit (title refreshed alongside the notes), not create.
+    mock_edit.assert_called_once()
+    assert mock_edit.call_args.args[:2] == ("v6.1.1.dev0", "user/repo")
+    assert mock_edit.call_args.kwargs["title"] == "6.1.1.dev0"
     create_calls = [
         c for c in mock_gh.call_args_list if c[0][0][0:2] == ["release", "create"]
     ]
@@ -171,15 +178,20 @@ def test_sync_dev_release_cleans_stale_releases(tmp_path):
         {"tagName": "v6.0.1.dev0"},
         {"tagName": "v6.1.0"},
     ])
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-        side_effect=[
-            release_list,  # list releases
-            None,  # delete v6.0.1.dev0 (stale)
-            RuntimeError("not found"),  # edit fails (no existing release)
-            None,  # create new release
-        ],
-    ) as mock_gh:
+    with (
+        patch(
+            "repomatic.github.dev_release.run_gh_command",
+            side_effect=[
+                release_list,  # list releases
+                None,  # delete v6.0.1.dev0 (stale)
+                None,  # create new release
+            ],
+        ) as mock_gh,
+        patch(
+            "repomatic.github.dev_release.edit_release_notes",
+            return_value=False,  # edit fails (no existing release)
+        ),
+    ):
         result = sync_dev_release(
             changelog_path,
             "6.1.1.dev0",
@@ -232,14 +244,19 @@ def test_sync_dev_release_body_content(tmp_path):
     changelog_path = tmp_path / "changelog.md"
     changelog_path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
 
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-        side_effect=[
-            json.dumps([]),  # list releases for cleanup
-            RuntimeError("not found"),  # edit fails (no existing release)
-            None,  # create new release
-        ],
-    ) as mock_gh:
+    with (
+        patch(
+            "repomatic.github.dev_release.run_gh_command",
+            side_effect=[
+                json.dumps([]),  # list releases for cleanup
+                None,  # create new release
+            ],
+        ) as mock_gh,
+        patch(
+            "repomatic.github.dev_release.edit_release_notes",
+            return_value=False,  # edit fails (no existing release)
+        ),
+    ):
         sync_dev_release(
             changelog_path,
             "6.1.1.dev0",
@@ -248,7 +265,7 @@ def test_sync_dev_release_body_content(tmp_path):
         )
 
     # The create call's --notes argument should contain changes.
-    create_args = mock_gh.call_args_list[2][0][0]
+    create_args = mock_gh.call_args_list[1][0][0]
     notes_idx = create_args.index("--notes")
     body = create_args[notes_idx + 1]
     assert "New feature in progress." in body
@@ -363,41 +380,6 @@ def test_cleanup_dev_releases_keeps_current_tag():
         "--repo",
         "user/repo",
     ])
-
-
-# --- _edit_dev_release() tests ---
-
-
-def test_edit_dev_release_success():
-    """Edits an existing release and returns True."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-    ) as mock_gh:
-        result = _edit_dev_release("v6.1.1.dev0", "6.1.1.dev0", "body", "user/repo")
-
-    assert result is True
-    mock_gh.assert_called_once_with([
-        "release",
-        "edit",
-        "v6.1.1.dev0",
-        "--title",
-        "6.1.1.dev0",
-        "--notes",
-        "body",
-        "--repo",
-        "user/repo",
-    ])
-
-
-def test_edit_dev_release_not_found():
-    """Returns False when the release does not exist."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-        side_effect=RuntimeError("release not found"),
-    ):
-        result = _edit_dev_release("v6.1.1.dev0", "6.1.1.dev0", "body", "user/repo")
-
-    assert result is False
 
 
 # --- delete_dev_release() tests ---
@@ -621,16 +603,21 @@ def test_sync_dev_release_with_assets(tmp_path):
     asset_dir.mkdir()
     (asset_dir / "repomatic-6.1.1.dev0.tar.gz").touch()
 
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-        side_effect=[
-            json.dumps([]),  # list releases for cleanup
-            RuntimeError("not found"),  # edit fails
-            None,  # create release
-            json.dumps({"assets": []}),  # view assets (empty)
-            None,  # upload
-        ],
-    ) as mock_gh:
+    with (
+        patch(
+            "repomatic.github.dev_release.run_gh_command",
+            side_effect=[
+                json.dumps([]),  # list releases for cleanup
+                None,  # create release
+                json.dumps({"assets": []}),  # view assets (empty)
+                None,  # upload
+            ],
+        ) as mock_gh,
+        patch(
+            "repomatic.github.dev_release.edit_release_notes",
+            return_value=False,  # edit fails
+        ),
+    ):
         result = sync_dev_release(
             changelog_path,
             "6.1.1.dev0",

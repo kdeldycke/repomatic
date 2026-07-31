@@ -86,18 +86,18 @@ def test_json_parse_error():
 
 def test_names_match():
     """No warning when names match."""
-    warning, msg = check_package_name_vs_repo("my-package", "my-package")
-    assert warning is None
-    assert "matches" in msg
+    result = check_package_name_vs_repo("my-package", "my-package")
+    assert result.passed is True
+    assert "matches" in result.message
 
 
 def test_names_differ():
     """Warning when names differ."""
-    warning, _msg = check_package_name_vs_repo("my-package", "my-repo")
-    assert warning is not None
-    assert "differs" in warning
-    assert "my-package" in warning
-    assert "my-repo" in warning
+    result = check_package_name_vs_repo("my-package", "my-repo")
+    assert result.passed is False
+    assert "differs" in result.message
+    assert "my-package" in result.message
+    assert "my-repo" in result.message
 
 
 def test_no_package_name():
@@ -116,52 +116,50 @@ def test_not_sphinx():
 
 def test_sphinx_with_website():
     """No warning when Sphinx project has website."""
-    warning, msg = check_website_for_sphinx(
+    result = check_website_for_sphinx(
         "owner/repo", is_sphinx=True, homepage_url="https://docs.example.com"
     )
-    assert warning is None
-    assert "https://docs.example.com" in msg
+    assert result.passed is True
+    assert "https://docs.example.com" in result.message
 
 
 def test_sphinx_without_website():
     """Warning when Sphinx project has no website."""
-    warning, _msg = check_website_for_sphinx(
-        "owner/repo", is_sphinx=True, homepage_url=None
-    )
-    assert warning is not None
-    assert "Sphinx" in warning
-    assert "not set" in warning
+    result = check_website_for_sphinx("owner/repo", is_sphinx=True, homepage_url=None)
+    assert result.passed is False
+    assert "Sphinx" in result.message
+    assert "not set" in result.message
 
 
 def test_sphinx_fetches_metadata():
     """Fetch metadata when homepage_url not provided."""
     with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
         mock_get.return_value = {"homepageUrl": "https://example.com"}
-        warning, _msg = check_website_for_sphinx("owner/repo", is_sphinx=True)
-        assert warning is None
+        result = check_website_for_sphinx("owner/repo", is_sphinx=True)
+        assert result.passed is True
         mock_get.assert_called_once_with("owner/repo")
 
 
 def test_descriptions_match():
     """No error when descriptions match."""
-    error, msg = check_description_matches(
+    result = check_description_matches(
         "owner/repo",
         project_description="A cool package",
         repo_description="A cool package",
     )
-    assert error is None
-    assert "matches" in msg
+    assert result.passed is True
+    assert "matches" in result.message
 
 
 def test_descriptions_differ():
     """Error when descriptions differ."""
-    error, _msg = check_description_matches(
+    result = check_description_matches(
         "owner/repo",
         project_description="A cool package",
         repo_description="Different description",
     )
-    assert error is not None
-    assert "!=" in error
+    assert result.passed is False
+    assert "!=" in result.message
 
 
 def test_no_project_description():
@@ -177,10 +175,10 @@ def test_fetches_metadata():
     """Fetch metadata when repo_description not provided."""
     with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
         mock_get.return_value = {"description": "A cool package"}
-        error, _msg = check_description_matches(
+        result = check_description_matches(
             "owner/repo", project_description="A cool package"
         )
-        assert error is None
+        assert result.passed is True
         mock_get.assert_called_once_with("owner/repo")
 
 
@@ -282,22 +280,22 @@ def test_topics_all_in_keywords():
     """No warning when all topics are in keywords."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
         mock_gh.return_value = "python\nautomation\n"
-        warning, msg = check_topics_subset_of_keywords(
+        result = check_topics_subset_of_keywords(
             "owner/repo", keywords=["python", "automation", "cli"]
         )
-        assert warning is None
-        assert "2" in msg
+        assert result.passed is True
+        assert "2" in result.message
 
 
 def test_topics_extra_not_in_keywords():
     """Warning when topics exist that are not in keywords."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
         mock_gh.return_value = "python\nunknown-topic\n"
-        warning, _msg = check_topics_subset_of_keywords(
+        result = check_topics_subset_of_keywords(
             "owner/repo", keywords=["python", "cli"]
         )
-        assert warning is not None
-        assert "unknown-topic" in warning
+        assert result.passed is False
+        assert "unknown-topic" in result.message
 
 
 def test_topics_api_failure():
@@ -339,9 +337,9 @@ def test_funding_file_exists(tmp_path, monkeypatch):
     (tmp_path / ".github" / "FUNDING.yml").write_text(
         "github: owner\n", encoding="utf-8"
     )
-    warning, msg = check_funding_file("owner/repo")
-    assert warning is None
-    assert "found" in msg
+    result = check_funding_file("owner/repo")
+    assert result.passed is True
+    assert "found" in result.message
 
 
 def test_funding_file_exists_lowercase(tmp_path, monkeypatch):
@@ -351,9 +349,9 @@ def test_funding_file_exists_lowercase(tmp_path, monkeypatch):
     (tmp_path / ".github" / "funding.yml").write_text(
         "github: owner\n", encoding="utf-8"
     )
-    warning, msg = check_funding_file("owner/repo")
-    assert warning is None
-    assert "found" in msg
+    result = check_funding_file("owner/repo")
+    assert result.passed is True
+    assert "found" in result.message
 
 
 def test_funding_missing_with_sponsors(tmp_path, monkeypatch):
@@ -361,10 +359,10 @@ def test_funding_missing_with_sponsors(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
         mock_gh.return_value = _graphql_response(has_sponsors=True)
-        warning, _msg = check_funding_file("owner/repo")
-        assert warning is not None
-        assert "FUNDING.yml" in warning
-        assert "Sponsor" in warning
+        result = check_funding_file("owner/repo")
+        assert result.passed is False
+        assert "FUNDING.yml" in result.message
+        assert "Sponsor" in result.message
 
 
 def test_funding_skipped_for_fork(tmp_path, monkeypatch):
@@ -418,10 +416,10 @@ def test_stale_drafts_detected():
             {"tagName": "v6.2.0", "isDraft": False},
             {"tagName": "v6.3.0.dev0", "isDraft": True},
         ])
-        warning, _msg = check_stale_draft_releases("owner/repo")
-        assert warning is not None
-        assert "v6.1.2" in warning
-        assert "v6.3.0.dev0" not in warning
+        result = check_stale_draft_releases("owner/repo")
+        assert result.passed is False
+        assert "v6.1.2" in result.message
+        assert "v6.3.0.dev0" not in result.message
 
 
 def test_stale_drafts_none():
@@ -431,9 +429,9 @@ def test_stale_drafts_none():
             {"tagName": "v6.2.0", "isDraft": False},
             {"tagName": "v6.3.0.dev0", "isDraft": True},
         ])
-        warning, msg = check_stale_draft_releases("owner/repo")
-        assert warning is None
-        assert "No stale" in msg
+        result = check_stale_draft_releases("owner/repo")
+        assert result.passed is True
+        assert "No stale" in result.message
 
 
 def test_stale_drafts_api_failure():
@@ -452,10 +450,10 @@ def test_stale_drafts_multiple():
             {"tagName": "v6.1.2", "isDraft": True},
             {"tagName": "v6.2.0-rc1", "isDraft": True},
         ])
-        warning, _msg = check_stale_draft_releases("owner/repo")
-        assert warning is not None
-        assert "v6.1.2" in warning
-        assert "v6.2.0-rc1" in warning
+        result = check_stale_draft_releases("owner/repo")
+        assert result.passed is False
+        assert "v6.1.2" in result.message
+        assert "v6.2.0-rc1" in result.message
 
 
 # --- PAT capability check unit tests ---
@@ -540,10 +538,10 @@ def test_pat_stale_statuses_permission_present():
     """Warn when a 422 proves the token still grants Commit statuses."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
         mock_gh.side_effect = RuntimeError("No commit found for SHA: 000... (HTTP 422)")
-        warning, _msg = check_pat_stale_statuses_permission("owner/repo")
-        assert warning is not None
-        assert "Commit statuses" in warning
-        assert "least privilege" in warning
+        result = check_pat_stale_statuses_permission("owner/repo")
+        assert result.passed is False
+        assert "Commit statuses" in result.message
+        assert "least privilege" in result.message
 
 
 @pytest.mark.parametrize(
@@ -558,8 +556,8 @@ def test_pat_stale_statuses_permission_absent_or_indeterminate(stderr):
     """Stay silent when the token lacks the scope (403) or the probe is inconclusive."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
         mock_gh.side_effect = RuntimeError(stderr)
-        warning, _msg = check_pat_stale_statuses_permission("owner/repo")
-        assert warning is None
+        result = check_pat_stale_statuses_permission("owner/repo")
+        assert result.passed is not False
 
 
 def test_pat_stale_statuses_permission_unexpected_success():
@@ -777,7 +775,7 @@ def test_check_test_matrix_excludes_flags_stale(tmp_path, monkeypatch):
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     results = check_test_matrix_excludes()
-    assert any(warning and "macos-15-intel" in warning for warning, _ in results)
+    assert any(r.passed is False and "macos-15-intel" in r.message for r in results)
 
 
 def test_check_test_matrix_excludes_clean(tmp_path, monkeypatch):
@@ -792,7 +790,7 @@ def test_check_test_matrix_excludes_clean(tmp_path, monkeypatch):
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     results = check_test_matrix_excludes()
-    assert all(warning is None for warning, _ in results)
+    assert all(r.passed is not False for r in results)
 
 
 # A SHA-pinned thin-caller `uses:` ref to the upstream toolkit, declaring v6.29.0.
@@ -811,11 +809,11 @@ def test_inline_pins_match_upstream_flags_lagging_pin(tmp_path):
         "      - run: uvx --no-progress 'repomatic==6.28.1' metadata\n",
         encoding="UTF-8",
     )
-    error, _ = check_inline_pins_match_upstream(tmp_path)
-    assert error is not None
-    assert "6.28.1" in error
-    assert "6.29.0" in error
-    assert "tests.yaml" in error
+    result = check_inline_pins_match_upstream(tmp_path)
+    assert result.passed is False
+    assert "6.28.1" in result.message
+    assert "6.29.0" in result.message
+    assert "tests.yaml" in result.message
 
 
 def test_inline_pins_match_upstream_accepts_synced_pin(tmp_path):
@@ -825,9 +823,9 @@ def test_inline_pins_match_upstream_accepts_synced_pin(tmp_path):
         "      - run: uvx --no-progress 'repomatic==6.29.0' metadata\n",
         encoding="UTF-8",
     )
-    error, msg = check_inline_pins_match_upstream(tmp_path)
-    assert error is None
-    assert "match" in msg
+    result = check_inline_pins_match_upstream(tmp_path)
+    assert result.passed is True
+    assert "match" in result.message
 
 
 def test_inline_pins_match_upstream_skips_without_refs(tmp_path):

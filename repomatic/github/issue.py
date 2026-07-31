@@ -14,11 +14,14 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""GitHub issue lifecycle management.
+"""GitHub issue and pull-request lifecycle management.
 
 Generic primitives for listing, creating, updating, closing, and triaging
-GitHub issues via the `gh` CLI. Used by {mod}`broken_links` and potentially
-other modules that manage bot-created issues.
+GitHub issues via the `gh` CLI, used by {mod}`repomatic.broken_links` and
+other modules that manage bot-created issues. The thin pull-request closers
+live here too: GitHub models pull requests as issues (they share one number
+space), and both families are the same `gh <kind> <verb>` wrappers over
+{mod}`~repomatic.github.gh`.
 
 We need to manually manage the life-cycle of issues created in CI jobs because the
 `create-issue-from-file` action blindly creates issues ad-nauseam.
@@ -279,3 +282,69 @@ def manage_issue_lifecycle(
             update_issue(issue_to_update, body_file)
         else:
             create_issue(body_file, labels, title=title)
+
+
+# ---------------------------------------------------------------------------
+# Pull requests
+# ---------------------------------------------------------------------------
+
+
+def list_open_prs_by_branch(branch: str) -> list[dict[str, Any]]:
+    """List open pull requests whose head branch matches `branch`.
+
+    :param branch: The head branch name to filter on.
+    :return: List of PR dicts with `number` and `title`. Empty if no
+        open PR exists on `branch`.
+    """
+    output = run_gh_command([
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--head",
+        branch,
+        "--json",
+        "number,title",
+    ])
+    prs: list[dict[str, Any]] = json.loads(output)
+    return prs
+
+
+def close_pr(number: int, comment: str, delete_branch: bool = True) -> None:
+    """Close a pull request with a comment.
+
+    :param number: The PR number to close.
+    :param comment: The comment to add when closing.
+    :param delete_branch: When `True`, also delete the head branch.
+    """
+    args = [
+        "pr",
+        "close",
+        str(number),
+        "--comment",
+        comment,
+    ]
+    if delete_branch:
+        args.append("--delete-branch")
+    run_gh_command(args)
+    logging.info(f"Closed PR #{number}")
+
+
+def close_open_prs_on_branch(branch: str, comment: str) -> list[int]:
+    """Close every open PR whose head branch matches `branch`.
+
+    Idempotent: a no-op when no open PR exists on the branch.
+
+    :param branch: The head branch name to match.
+    :param comment: The comment to add when closing each PR.
+    :return: The list of PR numbers that were closed.
+    """
+    prs = list_open_prs_by_branch(branch)
+    if not prs:
+        logging.info(f"No open PR on branch {branch!r}, nothing to close.")
+        return []
+    closed: list[int] = []
+    for pr in prs:
+        close_pr(pr["number"], comment)
+        closed.append(pr["number"])
+    return closed

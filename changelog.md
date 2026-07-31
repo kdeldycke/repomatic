@@ -5,7 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** Regroup the internal module layout: the tool catalog moves to `tool_registry.py`, dependency-report rendering to `dep_report.py`, label management to `labels.py`, bundled-data access to `bundle.py`, and CI matrix axes to `matrix_axes.py` (formerly `test_matrix.py`). Python import paths change; the CLI surface does not.
+- **Breaking:** Regroup the internal module layout: the tool catalog moves to `tool_registry.py`, dependency-report rendering to `dep_report.py`, label management to `labels.py`, bundled-data access to `bundle.py`, CI matrix axes to `matrix_axes.py` (formerly `test_matrix.py`), and the pull-request helpers into `github/issue.py`. Python import paths change; the CLI surface does not.
+- Unify the `lint-repo` checks on one tri-state result protocol: skipped checks now print `ℹ` instead of a misleading `✓`.
 - Key the CI tool-binary caches on `tool_registry.py` instead of the whole runner module, so engine-only changes stop invalidating cached tools.
 - **Breaking:** Rename `update-deps-graph` to `update-dep-graph` across the CLI command, autofix job, PR branch, and body template, aligning with the `dependency-graph` config key. Close any open `update-deps-graph` pull request; the next run reopens it on the new branch.
 - **Breaking:** `repomatic init` component selectors are now case-sensitive, validated by the same code path as the `exclude` and `include` configuration entries.

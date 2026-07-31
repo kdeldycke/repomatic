@@ -141,31 +141,31 @@ def manage_setup_guide(
     token_ok = has_pat and not has_permission_failures
 
     # Branch ruleset check.
-    branch_ok = False
+    branch_ok: bool | None = False
     if has_pat and repo:
-        branch_ok, _ = check_branch_ruleset_on_default(repo)
+        branch_ok = check_branch_ruleset_on_default(repo).passed
 
     # Immutable releases check.
     has_changelog = Path(config.changelog_location).exists()
     immutable_ok: bool | None = False
     if has_pat and repo and has_changelog:
-        immutable_ok, _ = check_immutable_releases(repo)
+        immutable_ok = check_immutable_releases(repo).passed
 
     # Fork PR approval policy check.
     fork_pr_ok: bool | None = False
     if has_pat and repo:
-        fork_pr_ok, _ = check_fork_pr_approval_policy(repo)
+        fork_pr_ok = check_fork_pr_approval_policy(repo).passed
 
     # PyPI Trusted Publisher check (only for projects that publish to PyPI).
     # The probe does not need a PAT: it hits the public PyPI integrity API.
     pypi_publisher_ok: bool | None = None
     if repo and md.package_name:
-        pypi_publisher_ok, _ = check_pypi_trusted_publisher(repo, md.package_name)
+        pypi_publisher_ok = check_pypi_trusted_publisher(repo, md.package_name).passed
 
     # Pages deployment source check (Sphinx projects only).
     pages_ok: bool | None = None
     if md.is_sphinx and repo:
-        pages_ok, _ = check_pages_deployment_source(repo)
+        pages_ok = check_pages_deployment_source(repo).passed
 
     # --- Render each step as a collapsible section ---
 
