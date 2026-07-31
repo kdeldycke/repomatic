@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 import yaml
 
-from repomatic.binary import (
+from repomatic.git_ops import (
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,

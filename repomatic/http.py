@@ -19,21 +19,35 @@
 The single implementation of the GET-and-parse-JSON loop used by the PyPI
 ({mod}`repomatic.pypi`), npm ({mod}`repomatic.npm`), and GitHub Releases
 ({mod}`repomatic.github.releases`) clients, so every datasource shares the
-same timeout and truncated-body retry semantics. Response caching stays with
-the callers: each client owns its cache namespace, TTL, and serialization.
+same timeout and truncated-body retry semantics. Caching *policy* stays with
+the callers — each client owns its cache namespace, TTL, and serialization —
+while {func}`get_cached_json` shares the raw-response caching mechanics for
+the clients that store verbatim bodies.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from http.client import IncompleteRead
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+
+from .cache import get_cached_response, store_response
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from typing import Any
+
+
+DEFAULT_TIMEOUT = 10
+"""Socket timeout in seconds for every HTTP fetch repomatic makes.
+
+Shared by the JSON clients here and the plain-text gitignore.io fetch
+({mod}`repomatic.gitignore`): a stalled connection must fail the operation,
+not hang it.
+"""
 
 
 class FetchError(RuntimeError):
@@ -51,7 +65,7 @@ def get_json(
     url: str,
     *,
     headers: Mapping[str, str] | None = None,
-    timeout: int = 10,
+    timeout: float = DEFAULT_TIMEOUT,
 ) -> tuple[Any, bytes]:
     """GET *url* and parse the body as JSON, retrying once on truncation.
 
@@ -78,3 +92,57 @@ def get_json(
                 continue
             raise FetchError(str(exc)) from exc
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def get_json_soft(url: str, log_label: str) -> tuple[Any, bytes] | None:
+    """GET *url* as JSON, logging any failure as a soft miss.
+
+    :param url: The URL to fetch.
+    :param log_label: Human-readable label for the debug log on failure.
+    :return: `(parsed, raw_bytes)`, or `None` on any failure (HTTP error,
+        network error, timeout, JSON parse error).
+    """
+    try:
+        return get_json(url)
+    except FetchError as exc:
+        logging.debug(f"{log_label}: {exc}")
+        return None
+
+
+def get_cached_json(
+    namespace: str,
+    key: str,
+    url: str,
+    *,
+    ttl: int,
+    log_label: str,
+) -> Any | None:
+    """GET *url* as JSON through the raw-response cache.
+
+    A fresh cached body under `{namespace}/{key}` short-circuits the network;
+    otherwise the response is fetched, cached verbatim (when *ttl* is
+    positive), and returned parsed. The caller keeps the caching policy: it
+    picks the namespace, the cache key, and the TTL.
+
+    :param namespace: Cache namespace (like `"pypi"` or `"npm"`).
+    :param key: Cache key within the namespace, usually the package name.
+    :param url: The URL to fetch on a cache miss.
+    :param ttl: Freshness TTL in seconds; `0` disables caching.
+    :param log_label: Human-readable label for the debug log on failure.
+    :return: The parsed JSON value, or `None` on any fetch failure.
+    """
+    cached = get_cached_response(namespace, key, ttl)
+    if cached is not None:
+        try:
+            return json.loads(cached)
+        except json.JSONDecodeError:
+            pass
+
+    fetched = get_json_soft(url, log_label)
+    if fetched is None:
+        return None
+    result, raw = fetched
+
+    if ttl > 0:
+        store_response(namespace, key, raw)
+    return result

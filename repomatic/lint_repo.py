@@ -796,7 +796,7 @@ def check_workflow_permissions() -> list[tuple[str | None, str]]:
 
     for wf_path in sorted(workflows_dir.glob("*.yaml")):
         try:
-            data = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
+            data = yaml.safe_load(wf_path.read_text(encoding="UTF-8"))
         except (yaml.YAMLError, OSError) as e:
             logging.warning(f"Could not parse {wf_path}: {e}")
             continue

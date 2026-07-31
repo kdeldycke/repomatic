@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import struct
 import sys
 from pathlib import Path
@@ -33,15 +34,16 @@ from repomatic.binary import (
     NUITKA_BUILD_TARGETS,
     PE_MACHINES,
     SKIP_BINARY_BUILD_BRANCHES,
-    VERSION_BUMP_BRANCHES,
     _binary_format,
     _elf_info,
     _macho_info,
     _pe_machine,
     _version_key,
+    compute_file_sha256,
     verify_binary_arch,
     verify_binary_floor,
 )
+from repomatic.git_ops import VERSION_BUMP_BRANCHES
 from repomatic.github.actions import WorkflowEvent
 from repomatic.metadata import Metadata
 
@@ -113,6 +115,14 @@ def test_version_key_ordering():
     assert _version_key("2.4") < _version_key("2.38")
     assert _version_key("10.15") < _version_key("11.0")
     assert max(["2.4", "2.38", "2.17"], key=_version_key) == "2.38"
+
+
+def test_compute_file_sha256(tmp_path):
+    """Compute SHA-256 of a file with known content."""
+    p = tmp_path / "test.bin"
+    p.write_bytes(b"hello world")
+    expected = hashlib.sha256(b"hello world").hexdigest()
+    assert compute_file_sha256(p) == expected
 
 
 @pytest.mark.parametrize(

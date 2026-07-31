@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -29,7 +28,6 @@ from repomatic.virustotal import (
     DetectionStats,
     ScanRecord,
     ScanResult,
-    _compute_sha256,
     load_scan_records,
     poll_detection_stats,
     records_from_release_notes,
@@ -76,17 +74,6 @@ def test_detection_stats_flagged():
     assert stats.flagged == 4
     assert stats.total == 72
     assert str(stats) == "4 / 72"
-
-
-# --- _compute_sha256 ---
-
-
-def test_compute_sha256(tmp_path):
-    """Compute SHA-256 of a file with known content."""
-    p = tmp_path / "test.bin"
-    p.write_bytes(b"hello world")
-    expected = hashlib.sha256(b"hello world").hexdigest()
-    assert _compute_sha256(p) == expected
 
 
 # --- ScanRecord ---

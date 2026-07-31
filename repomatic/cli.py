@@ -22,12 +22,10 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-import tomlrt
 from click_extra import (
     UNPROCESSED,
     Choice,
@@ -85,6 +83,10 @@ from .config import (
     config_reference,
     escape_type_for_gfm_table,
 )
+from .dep_report import (
+    format_released,
+    format_upload_date,
+)
 from .deps_graph import (
     SubgraphKind,
     generate_dependency_graph,
@@ -140,7 +142,8 @@ from .images import (
     generate_markdown_summary,
     optimize_images,
 )
-from .init_project import export_content, run_init
+from .init_project import export_content, find_all_unmodified_configs, run_init
+from .labels import apply_labels
 from .lint_repo import (
     run_repo_lint,
 )
@@ -163,6 +166,7 @@ from .registry import (
     FILE_SELECTOR_COMPONENTS,
     SKILL_PHASE_ORDER,
     SKILL_PHASES,
+    parse_component_entries,
     valid_file_ids,
 )
 from .setup_guide import manage_setup_guide
@@ -174,16 +178,13 @@ from .sync_ops import (
     run_sync_operations,
     selected_operations,
 )
-from .tool_runner import (
+from .tool_registry import (
     TOOL_REGISTRY,
-    binary_tool_context,
     generated_header,
+)
+from .tool_runner import (
     resolve_config_source,
     run_tool,
-)
-from .uv import (
-    format_released,
-    format_upload_date,
 )
 from .virustotal import (
     load_scan_records,
@@ -205,7 +206,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import IO
 
-    from .uv import BypassForecast, HeldBackPackage
+    from .dep_report import BypassForecast, HeldBackPackage
 
 
 output_format_option = option(
@@ -274,6 +275,49 @@ def prep_path(filepath: Path) -> IO:
         return open(fd, "w", encoding="UTF-8", closefd=False)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     return filepath.open("w", encoding="UTF-8")
+
+
+def exit_if_disabled(ctx: Context, enabled: bool, key: str) -> None:
+    """Exit successfully when a `[tool.repomatic]` feature flag is off.
+
+    The shared guard of every sync command: a disabled feature is a normal,
+    configured state, so the command logs the flag and exits `0` instead of
+    failing the workflow that invoked it.
+
+    :param ctx: The Click context to exit through.
+    :param enabled: The resolved feature flag value.
+    :param key: The `[tool.repomatic]` key, in kebab-case, for the log line.
+    """
+    if not enabled:
+        logging.info(f"[tool.repomatic] {key} is disabled. Skipping.")
+        ctx.exit(0)
+
+
+def emit_report(
+    body: str,
+    output: Path | None,
+    output_format: str,
+    key: str = "diff_table",
+) -> None:
+    """Write a markdown report to `--output`, optionally as a step output.
+
+    The shared tail of every report-producing command: nothing is written
+    when no output path is set or the body is empty; with
+    `--output-format github-actions` the body is wrapped as a heredoc step
+    output variable named *key* for `$GITHUB_OUTPUT` consumption.
+
+    :param body: The markdown report.
+    :param output: The `--output` path (`None` to skip, `-` for stdout).
+    :param output_format: `markdown` or `github-actions`.
+    :param key: The step output variable name for the `github-actions` format.
+    """
+    if output is None or not body:
+        return
+    if output_format == "github-actions":
+        content = format_multiline_output(key, body)
+    else:
+        content = body
+    echo(content, file=prep_path(output))
 
 
 def generate_header(ctx: Context) -> str:
@@ -353,8 +397,10 @@ class ComponentSelector(ParamType):
 
     Bare names (e.g., `skills`) select an entire component.  Qualified
     entries (e.g., `skills/repomatic-topics`) select a single file within
-    a component.  The same syntax is used by the `exclude` config option
-    in `[tool.repomatic]`.
+    a component.  Validation delegates to
+    {func}`~repomatic.registry.parse_component_entries`, the same code path
+    the `exclude` and `include` config options go through, so the CLI and
+    config agree on syntax and error messages.
     """
 
     name = "selector"
@@ -363,49 +409,11 @@ class ComponentSelector(ParamType):
         return "[COMPONENT[/FILE]]"
 
     def convert(self, value, param, ctx):
-        # --- bare component name ---
-        if "/" not in value:
-            for key in ALL_COMPONENTS:
-                if key.lower() == value.lower():
-                    return key
-            choices = ", ".join(sorted(ALL_COMPONENTS))
-            self.fail(
-                f"Unknown component {value!r}. Choose from: {choices}",
-                param,
-                ctx,
-            )
-
-        # --- qualified component/file entry ---
-        component_part, file_id = value.split("/", 1)
-        component = None
-        for key in ALL_COMPONENTS:
-            if key.lower() == component_part.lower():
-                component = key
-                break
-        if component is None:
-            choices = ", ".join(sorted(ALL_COMPONENTS))
-            self.fail(
-                f"Unknown component {component_part!r} in {value!r}."
-                f" Choose from: {choices}",
-                param,
-                ctx,
-            )
-        assert component is not None  # self.fail() raises; narrows for mypy.
-        valid = valid_file_ids(component)
-        if not valid:
-            self.fail(
-                f"Component {component!r} does not support file-level selection.",
-                param,
-                ctx,
-            )
-        if file_id not in valid:
-            self.fail(
-                f"Unknown file {file_id!r} for {component!r}."
-                f" Choose from: {', '.join(sorted(valid))}",
-                param,
-                ctx,
-            )
-        return f"{component}/{file_id}"
+        try:
+            parse_component_entries([value], context="selection")
+        except ValueError as e:
+            self.fail(str(e), param, ctx)
+        return value
 
     def shell_complete(self, ctx, param, incomplete):
         from click.shell_completion import CompletionItem
@@ -1157,11 +1165,7 @@ def sync_gitignore(ctx: Context, output_path: Path | None) -> None:
         repomatic sync-gitignore --output -
     """
     config = get_tool_config(ctx)
-    if not config.gitignore.sync:
-        logging.info(
-            "[tool.repomatic] gitignore.sync is disabled. Skipping .gitignore sync."
-        )
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.gitignore.sync, "gitignore.sync")
 
     content = build_gitignore(config)
 
@@ -1270,11 +1274,7 @@ def sync_dev_release(
         repomatic sync-dev-release --live --delete
     """
     config = get_tool_config(ctx)
-    if not config.dev_release_sync:
-        logging.info(
-            "[tool.repomatic] dev-release.sync is disabled. Skipping dev release sync."
-        )
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.dev_release_sync, "dev-release.sync")
 
     if delete and upload_assets:
         raise UsageError("--delete and --upload-assets are mutually exclusive.")
@@ -1412,11 +1412,7 @@ def sync_mailmap(ctx, source, create_if_missing, destination_mailmap):
     to print to stdout instead.
     """
     config = get_tool_config(ctx)
-    if not config.mailmap_sync:
-        logging.info(
-            "[tool.repomatic] mailmap.sync is disabled. Skipping .mailmap sync."
-        )
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.mailmap_sync, "mailmap.sync")
 
     # Default destination to source path (in-place update).
     if destination_mailmap is None:
@@ -1954,9 +1950,7 @@ def setup_guide(
     if has_pat is None:
         has_pat = bool(os.environ.get("REPOMATIC_PAT"))
     config = get_tool_config(ctx)
-    if not config.setup_guide:
-        logging.info("[tool.repomatic] setup-guide is disabled. Skipping setup guide.")
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.setup_guide, "setup-guide")
 
     manage_setup_guide(
         config,
@@ -2220,11 +2214,7 @@ def audit(
 
     if fix:
         # vulnerable-deps.sync gates the autofix (mutation), not reporting.
-        if not config.vulnerable_deps.sync:
-            logging.info(
-                "[tool.repomatic] vulnerable-deps.sync is disabled. Skipping --fix."
-            )
-            ctx.exit(0)
+        exit_if_disabled(ctx, config.vulnerable_deps.sync, "vulnerable-deps.sync")
 
         has_fixes, diff_table = _fix_vulnerable_deps(
             lockfile, repo=repo or None, sources=sources or None
@@ -2236,14 +2226,9 @@ def audit(
         echo("Upgraded vulnerable packages.")
         if diff_table:
             echo(diff_table)
-        if output and diff_table:
-            # Keep the github-actions key as `diff_table`: the autofix
-            # workflow's pr-metadata step reads steps.fix.outputs.diff_table.
-            if output_format == "github-actions":
-                content = format_multiline_output("diff_table", diff_table)
-            else:
-                content = diff_table
-            echo(content, file=prep_path(output))
+        # Keep the github-actions key as `diff_table`: the autofix
+        # workflow's pr-metadata step reads steps.fix.outputs.diff_table.
+        emit_report(diff_table, output, output_format)
         ctx.exit(0)
 
     # Report mode (default, read-only).
@@ -2267,12 +2252,9 @@ def audit(
     ctx.print_table(rows, AUDIT_HEADER_DEFS)
 
     if output:
-        markdown = format_vulnerability_table(vulns)
-        if output_format == "github-actions":
-            content = format_multiline_output("vuln_table", markdown)
-        else:
-            content = markdown
-        echo(content, file=prep_path(output))
+        emit_report(
+            format_vulnerability_table(vulns), output, output_format, key="vuln_table"
+        )
 
     ctx.exit(0 if exit_zero else 1)
 
@@ -2346,12 +2328,7 @@ def sync_dep_sources(
             --output "$GITHUB_OUTPUT" --output-format github-actions
     """
     config = get_tool_config(ctx)
-    if not config.dep_sources_sync:
-        logging.info(
-            "[tool.repomatic] dep-sources.sync is disabled."
-            " Skipping dependency source sync."
-        )
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.dep_sources_sync, "dep-sources.sync")
 
     op = OPERATIONS_BY_NAME["sync-dep-sources"]
     rc = ResolveContext(
@@ -2469,11 +2446,7 @@ def sync_uv_lock_cmd(
             --output "$GITHUB_OUTPUT" --output-format github-actions
     """
     config = get_tool_config(ctx)
-    if not config.uv_lock_sync:
-        logging.info(
-            "[tool.repomatic] uv-lock.sync is disabled. Skipping uv.lock sync."
-        )
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.uv_lock_sync, "uv-lock.sync")
 
     op = OPERATIONS_BY_NAME["sync-uv-lock"]
     rc = ResolveContext(
@@ -2557,13 +2530,7 @@ def _emit_lockfile_sync_report(
 
     # File output: markdown report for CI or downstream tooling.
     if output:
-        body = render_plan_markdown(plan)
-        if body:
-            if output_format == "github-actions":
-                content = format_multiline_output("diff_table", body)
-            else:
-                content = body
-            echo(content, file=prep_path(output))
+        emit_report(render_plan_markdown(plan), output, output_format)
 
 
 def _print_sync_table(
@@ -2628,7 +2595,7 @@ def _print_bypass_table(ctx: Context, forecasts: list[BypassForecast]) -> None:
     """Print the active cooldown-bypass freezes with their expiry forecasts.
 
     Columns are `Package | Held at | Held until`, mirroring the markdown
-    section from {func}`~repomatic.uv.format_bypass_section`, and respects
+    section from {func}`~repomatic.dep_report.format_bypass_section`, and respects
     the global `--table-format`.
     """
     echo("Cooldown bypasses:")
@@ -2670,13 +2637,54 @@ def _emit_version_sync_report(
         echo("")
         echo(plan.notes_section)
     if output:
-        body = render_plan_markdown(plan)
-        if body:
-            if output_format == "github-actions":
-                content = format_multiline_output("diff_table", body)
-            else:
-                content = body
-            echo(content, file=prep_path(output))
+        emit_report(render_plan_markdown(plan), output, output_format)
+
+
+def _run_version_sync(
+    ctx: Context,
+    op_name: str,
+    enabled: bool,
+    key: str,
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+    up_to_date: str,
+) -> None:
+    """Shared body of the three version-sync commands.
+
+    `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` differ
+    only in their operation, feature flag, and messages: the guard, resolve,
+    apply, and report sequence is identical.
+
+    :param ctx: The Click context.
+    :param op_name: The {data}`~repomatic.sync_ops.OPERATIONS_BY_NAME` key.
+    :param enabled: The resolved feature flag value.
+    :param key: The `[tool.repomatic]` flag key, for the disabled log line.
+    :param output: The `--output` report path.
+    :param output_format: The `--output-format` value.
+    :param release_notes: Whether to fetch GitHub release notes.
+    :param held_back: Whether to report cooldown-held releases.
+    :param up_to_date: Message printed when nothing needs updating.
+    """
+    exit_if_disabled(ctx, enabled, key)
+
+    op = OPERATIONS_BY_NAME[op_name]
+    rc = ResolveContext(
+        config=get_tool_config(ctx),
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        held_back=held_back,
+    )
+    plan = op.resolve(rc)
+
+    if not plan.has_changes:
+        echo(up_to_date)
+        ctx.exit(0)
+
+    op.apply(plan)
+
+    _emit_version_sync_report(ctx, plan, output, output_format)
 
 
 @repomatic.command(
@@ -2705,7 +2713,7 @@ def sync_tool_versions(
     \b
     For each registry tool, finds the highest version that has cleared the
     [tool.repomatic] minimum-release-age cooldown (GitHub releases for binary
-    tools, PyPI otherwise), writes it into tool_runner.py, recomputes binary
+    tools, PyPI otherwise), writes it into tool_registry.py, recomputes binary
     checksums in the same pass, and keeps the actionlint matcher URL in
     lint.yaml in lockstep.
 
@@ -2722,29 +2730,17 @@ def sync_tool_versions(
         repomatic sync-tool-versions \\
             --output "$GITHUB_OUTPUT" --output-format github-actions
     """
-    config = get_tool_config(ctx)
-    if not config.tool_versions_sync:
-        logging.info(
-            "[tool.repomatic] tool-versions.sync is disabled. Skipping tool sync."
-        )
-        ctx.exit(0)
-
-    op = OPERATIONS_BY_NAME["sync-tool-versions"]
-    rc = ResolveContext(
-        config=config,
-        today=datetime.now(timezone.utc).date(),
-        release_notes=release_notes,
-        held_back=held_back,
+    _run_version_sync(
+        ctx,
+        "sync-tool-versions",
+        get_tool_config(ctx).tool_versions_sync,
+        "tool-versions.sync",
+        output,
+        output_format,
+        release_notes,
+        held_back,
+        "All tools are up to date.",
     )
-    plan = op.resolve(rc)
-
-    if not plan.has_changes:
-        echo("All tools are up to date.")
-        ctx.exit(0)
-
-    op.apply(plan)
-
-    _emit_version_sync_report(ctx, plan, output, output_format)
 
 
 @repomatic.command(
@@ -2781,29 +2777,17 @@ def sync_action_pins(
     Example:
         repomatic sync-action-pins
     """
-    config = get_tool_config(ctx)
-    if not config.action_pins_sync:
-        logging.info(
-            "[tool.repomatic] action-pins.sync is disabled. Skipping action sync."
-        )
-        ctx.exit(0)
-
-    op = OPERATIONS_BY_NAME["sync-action-pins"]
-    rc = ResolveContext(
-        config=config,
-        today=datetime.now(timezone.utc).date(),
-        release_notes=release_notes,
-        held_back=held_back,
+    _run_version_sync(
+        ctx,
+        "sync-action-pins",
+        get_tool_config(ctx).action_pins_sync,
+        "action-pins.sync",
+        output,
+        output_format,
+        release_notes,
+        held_back,
+        "All action pins are up to date.",
     )
-    plan = op.resolve(rc)
-
-    if not plan.has_changes:
-        echo("All action pins are up to date.")
-        ctx.exit(0)
-
-    op.apply(plan)
-
-    _emit_version_sync_report(ctx, plan, output, output_format)
 
 
 @repomatic.command(
@@ -2838,29 +2822,17 @@ def sync_workflow_pins(
     Example:
         repomatic sync-workflow-pins
     """
-    config = get_tool_config(ctx)
-    if not config.workflow_pins_sync:
-        logging.info(
-            "[tool.repomatic] workflow-pins.sync is disabled. Skipping pin sync."
-        )
-        ctx.exit(0)
-
-    op = OPERATIONS_BY_NAME["sync-workflow-pins"]
-    rc = ResolveContext(
-        config=config,
-        today=datetime.now(timezone.utc).date(),
-        release_notes=release_notes,
-        held_back=held_back,
+    _run_version_sync(
+        ctx,
+        "sync-workflow-pins",
+        get_tool_config(ctx).workflow_pins_sync,
+        "workflow-pins.sync",
+        output,
+        output_format,
+        release_notes,
+        held_back,
+        "All workflow pins are up to date.",
     )
-    plan = op.resolve(rc)
-
-    if not plan.has_changes:
-        echo("All workflow pins are up to date.")
-        ctx.exit(0)
-
-    op.apply(plan)
-
-    _emit_version_sync_report(ctx, plan, output, output_format)
 
 
 @repomatic.command(
@@ -2972,13 +2944,7 @@ def sync_deps(
         sections = [
             body for _op, plan in changed if (body := render_plan_markdown(plan))
         ]
-        combined = "\n\n".join(sections)
-        if combined:
-            if output_format == "github-actions":
-                content = format_multiline_output("diff_table", combined)
-            else:
-                content = combined
-            echo(content, file=prep_path(output))
+        emit_report("\n\n".join(sections), output, output_format)
 
     if failed:
         echo(f"Failed to resolve: {', '.join(failed)}", err=True)
@@ -2999,12 +2965,7 @@ def sync_bumpversion(ctx: Context) -> None:
     bootstrapping.
     """
     config = get_tool_config(ctx)
-    if not config.bumpversion_sync:
-        logging.info(
-            "[tool.repomatic] bumpversion.sync is disabled."
-            " Skipping bumpversion config sync."
-        )
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.bumpversion_sync, "bumpversion.sync")
 
     result = run_init(
         output_dir=Path("."),
@@ -3033,8 +2994,6 @@ def clean_unmodified_configs() -> None:
     Designed for standalone use. The sync-repomatic autofix job uses
     repomatic init --delete-unmodified instead.
     """
-    from .init_project import find_all_unmodified_configs
-
     unmodified = find_all_unmodified_configs()
     if not unmodified:
         echo("No unmodified config files found.")
@@ -3066,9 +3025,7 @@ def sync_labels(ctx: Context, repository: str | None) -> None:
     automatically via the tool registry.
     """
     config = get_tool_config(ctx)
-    if not config.labels.sync:
-        logging.info("[tool.repomatic] labels.sync is disabled. Skipping label sync.")
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.labels.sync, "labels.sync")
 
     # Auto-detect repository.
     meta = Metadata()
@@ -3082,87 +3039,12 @@ def sync_labels(ctx: Context, repository: str | None) -> None:
     for path in [*result.created, *result.updated]:
         logging.info(f"Exported: {path}")
 
-    with binary_tool_context("labelmaker") as lm:
-        # Apply default profile.
-        _run_labelmaker(lm, "apply", "labels.toml", "--profile", "default", repository)
-
-        # Apply awesome profile for awesome-* repos.
-        if meta.is_awesome:
-            _run_labelmaker(
-                lm, "apply", "labels.toml", "--profile", "awesome", repository
-            )
-
-        # Apply extra label files.
-        extra_dir = Path("extra-labels")
-        if extra_dir.is_dir():
-            for label_file in sorted(extra_dir.iterdir()):
-                if label_file.is_file():
-                    _run_labelmaker(lm, "apply", str(label_file), repository)
-
-        # Apply inline label definitions from `[tool.repomatic.labels.extra]`.
-        inline_toml = _serialize_inline_labels(config.labels.extra)
-        if inline_toml:
-            with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
-                inline_file = Path(tmpdir) / "inline.toml"
-                inline_file.write_text(inline_toml, encoding="UTF-8")
-                _run_labelmaker(lm, "apply", str(inline_file), repository)
+    try:
+        apply_labels(config, repository, is_awesome=meta.is_awesome)
+    except RuntimeError as e:
+        raise ClickException(str(e))
 
     echo("Labels synced.")
-
-
-def _serialize_inline_labels(entries: list[dict[str, str]]) -> str:
-    """Serialize `[tool.repomatic.labels.extra]` entries to a labelmaker TOML config.
-
-    Each entry becomes a `[[profiles.default.labels]]` block under the `default`
-    profile. Leading `#` on hex colors is stripped so the output matches
-    labelmaker's convention. Entries missing a `name` are skipped with a warning:
-    labelmaker rejects nameless labels and would abort the whole sync.
-
-    Returns an empty string when there are no valid entries, so the caller can
-    skip writing a temp file and invoking labelmaker entirely.
-    """
-    labels: list[dict[str, str]] = []
-    for entry in entries:
-        name = entry.get("name", "").strip()
-        if not name:
-            logging.warning(
-                "Skipping inline label without a `name`: %r.",
-                entry,
-            )
-            continue
-        label: dict[str, str] = {"name": name}
-        if color := entry.get("color"):
-            label["color"] = color.lstrip("#")
-        if description := entry.get("description"):
-            label["description"] = description
-        labels.append(label)
-
-    if not labels:
-        return ""
-
-    doc = tomlrt.Document({"profiles": {"default": {"labels": labels}}})
-    return tomlrt.dumps(doc)
-
-
-def _run_labelmaker(labelmaker_path: Path, *args: str) -> None:
-    """Run a `labelmaker` command.
-
-    :param labelmaker_path: Path to the labelmaker binary.
-    :param args: Arguments to pass to labelmaker.
-    :raises ClickException: If labelmaker fails.
-    """
-    cmd = [str(labelmaker_path), *args]
-    logging.info(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        encoding="UTF-8",
-        check=False,
-    )
-    if result.returncode:
-        raise ClickException(f"labelmaker failed: {result.stderr}")
-    if result.stdout:
-        logging.debug(result.stdout)
 
 
 def _parse_skill_frontmatter(content: str) -> dict[str, str]:
@@ -3996,12 +3878,7 @@ def sync_binaries(
             --records docs/assets/virustotal-scans.json --backfill-records
     """
     config = get_tool_config(ctx)
-    if not config.binaries_sync:
-        logging.info(
-            "[tool.repomatic] binaries.sync is disabled. Skipping binaries catalog"
-            " sync."
-        )
-        ctx.exit(0)
+    exit_if_disabled(ctx, config.binaries_sync, "binaries.sync")
 
     if backfill_records and not records:
         raise UsageError("--backfill-records requires --records.")
@@ -4267,7 +4144,7 @@ def update_checksums_cmd() -> None:
 
     Downloads each binary-distributed tool in the `repomatic run` registry at
     its pinned version, computes the SHA-256, and rewrites any stale hash (and
-    its version stamp) in tool_runner.py.
+    its version stamp) in tool_registry.py.
 
     \b
     A repair path for a manual version edit: sync-tool-versions already
@@ -4277,8 +4154,8 @@ def update_checksums_cmd() -> None:
     Example:
         repomatic update-checksums
     """
-    tool_runner_path = Path(__file__).parent / "tool_runner.py"
-    updated = update_registry_checksums(tool_runner_path)
+    registry_path = Path(__file__).parent / "tool_registry.py"
+    updated = update_registry_checksums(registry_path)
 
     for url, old_hash, new_hash in updated:
         echo(f"Updated: {url}")
@@ -4360,14 +4237,9 @@ def format_images_cmd(
     )
     markdown = generate_markdown_summary(results)
 
-    if output_format == "github-actions":
-        content = format_multiline_output("markdown", markdown)
-    else:
-        content = markdown
-
     if is_stdout(output):
         logging.info(f"Print image optimization summary to {sys.stdout.name}")
     else:
         logging.info(f"Write image optimization summary to {output}")
 
-    echo(content, file=prep_path(output))
+    emit_report(markdown, output, output_format, key="markdown")

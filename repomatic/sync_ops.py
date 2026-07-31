@@ -69,8 +69,22 @@ from pathlib import Path
 import click
 from click_extra import OperationTrail, resolve_jobs, run_jobs
 
-from . import tool_runner
+from . import tool_registry
 from .checksums import update_registry_checksums
+from .dep_report import (
+    EXCLUDE_NEWER_HELD_BACK_NOTE,
+    BypassForecast,
+    HeldBackPackage,
+    build_comparison_urls,
+    build_held_back,
+    fetch_release_notes,
+    format_bypass_section,
+    format_diff_table,
+    format_exclude_newer_note,
+    format_held_back_table,
+    format_release_notes,
+    pypi_name_urls,
+)
 from .dep_sources import (
     ReleaseSwap,
     apply_release_swaps,
@@ -81,27 +95,17 @@ from .dep_sources import (
 from .github.pr_body import template_docs_url
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .init_project import init_config, is_source_repo
+from .npm import NPM_PACKAGE_URL
+from .pypi import PYPI_PACKAGE_URL
 from .registry import BUNDLED_VERBATIM_TARGETS, DEFAULT_REPO, UPSTREAM_REPO_SLUGS
-from .tool_runner import TOOL_REGISTRY
+from .tool_registry import TOOL_REGISTRY
 from .uv import (
-    EXCLUDE_NEWER_HELD_BACK_NOTE,
-    BypassForecast,
-    HeldBackPackage,
-    build_comparison_urls,
-    build_held_back,
     compute_bypass_forecasts,
     compute_held_back_packages,
     diff_lock_versions,
-    fetch_release_notes,
-    format_bypass_section,
-    format_diff_table,
-    format_exclude_newer_note,
-    format_held_back_table,
-    format_release_notes,
     parse_lock_exclude_newer,
     parse_lock_upload_times,
     parse_lock_versions,
-    pypi_name_urls,
     sync_uv_lock,
     upsert_exclude_newer_packages,
     uv_cmd,
@@ -135,7 +139,10 @@ if TYPE_CHECKING:
 DEPENDENCY_LABEL = "🔗 dependencies"
 """GitHub label applied to every dependency-update PR.
 
-Shared by all five bumpers so a single label filters the whole family.
+Shared by all five bumpers so a single label filters the whole family. Workflow
+YAML cannot import Python, so `autofix.yaml` and the bundled label data files
+repeat this string literally; `tests/test_sync_ops.py` asserts they all match
+this constant, which is what keeps the copies aligned.
 """
 
 _UV_PROJECT_MUTEX = threading.Lock()
@@ -149,7 +156,7 @@ whole duration.
 """
 
 
-def workflow_and_action_files() -> list[Path]:
+def _workflow_and_action_files() -> list[Path]:
     """Collect workflow and composite-action YAML files under `.github/`."""
     github_dir = Path(".github")
     files: list[Path] = []
@@ -181,7 +188,7 @@ def _pinnable_files() -> dict[Path, str]:
     in_source_repo = is_source_repo(Path.cwd())
     return {
         path: path.read_text(encoding="UTF-8")
-        for path in workflow_and_action_files()
+        for path in _workflow_and_action_files()
         if in_source_repo or path.as_posix() not in BUNDLED_VERBATIM_TARGETS
     }
 
@@ -304,7 +311,7 @@ class SyncPlan:
     """New actionlint version, for the matcher-URL realignment."""
 
     checksums_path: Path | None = None
-    """The `tool_runner.py` path the checksum recompute rewrites."""
+    """The `tool_registry.py` path the checksum recompute rewrites."""
 
     # `sync-uv-lock` extras (resolve already wrote; these only inform rendering).
     exclude_newer: str = ""
@@ -573,8 +580,8 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         operation="sync-tool-versions", subject="Tool", heading="Updated tools"
     )
     plan.reference_date = today
-    tool_runner_path = Path(tool_runner.__file__)
-    content = tool_runner_path.read_text(encoding="UTF-8")
+    registry_path = Path(tool_registry.__file__)
+    content = registry_path.read_text(encoding="UTF-8")
 
     changes: list[tuple[str, str, str]] = []
     overrides: dict[str, str] = {}
@@ -610,8 +617,8 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
     if not changes:
         return plan
 
-    plan.file_writes = {tool_runner_path: content}
-    plan.checksums_path = tool_runner_path
+    plan.file_writes = {registry_path: content}
+    plan.checksums_path = registry_path
     plan.binary_overrides = {
         name: version
         for name, version in overrides.items()
@@ -637,7 +644,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
 
 
 def _apply_tool_versions(plan: SyncPlan) -> None:
-    """Rewrite `tool_runner.py`, recompute checksums, realign the matcher URL."""
+    """Rewrite `tool_registry.py`, recompute checksums, realign the matcher URL."""
     if not plan.has_changes or plan.checksums_path is None:
         return
     path = plan.checksums_path
@@ -830,7 +837,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             # the refs, not PyPI, which also means no PyPI upload date is
             # fetched: the "Released" cell marks the exemption instead.
             resolved[(ecosystem, package)] = lockstep_version
-            plan.name_urls[package] = f"https://pypi.org/project/{package}/"
+            plan.name_urls[package] = PYPI_PACKAGE_URL.format(package=package)
             docs_url = template_docs_url("sync-workflow-pins")
             marker = "⛓️ lockstep with `uses:` refs"
             plan.released_overrides[package] = (
@@ -842,9 +849,9 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         )
         latest = select_latest(candidates, min_age, today)
         package_url = (
-            f"https://www.npmjs.com/package/{package}"
+            NPM_PACKAGE_URL.format(package=package)
             if ecosystem == "npm"
-            else f"https://pypi.org/project/{package}/"
+            else PYPI_PACKAGE_URL.format(package=package)
         )
         _track_held_back(
             plan,
@@ -901,17 +908,17 @@ def _uv_lock_applies() -> bool:
 def _tool_versions_applies() -> bool:
     """`sync-tool-versions` runs only inside the repomatic source checkout.
 
-    It rewrites repomatic's own `tool_runner.py`, so it is meaningful only when
+    It rewrites repomatic's own `tool_registry.py`, so it is meaningful only when
     that file lives under the current working tree (an editable checkout), never
     from an installed wheel or a downstream repo.
     """
-    source = Path(tool_runner.__file__).resolve()
+    source = Path(tool_registry.__file__).resolve()
     return Path.cwd().resolve() in source.parents
 
 
 def _workflow_files_present() -> bool:
     """The pin updaters run wherever workflow or composite-action files exist."""
-    return bool(workflow_and_action_files())
+    return bool(_workflow_and_action_files())
 
 
 def render_plan_markdown(plan: SyncPlan) -> str:
@@ -1089,7 +1096,7 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
         resolve=_resolve_tool_versions,
         apply=_apply_tool_versions,
         applies_here=_tool_versions_applies,
-        write_domain=("repomatic/tool_runner.py", ".github/workflows/lint.yaml"),
+        write_domain=("repomatic/tool_registry.py", ".github/workflows/lint.yaml"),
         editable=True,
         needs_gh_token=True,
         ci_flags=("--release-notes",),

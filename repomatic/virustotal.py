@@ -42,7 +42,6 @@ polls) are rate-limited with a sleep between each request.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -53,6 +52,12 @@ from pathlib import Path
 
 import vt
 from packaging.version import InvalidVersion, Version
+
+from .binary import compute_file_sha256
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing import Any
 
 VIRUSTOTAL_GUI_URL = "https://www.virustotal.com/gui/file/{sha256}"
 """URL template for the VirusTotal file analysis page."""
@@ -168,7 +173,7 @@ class ScanRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> ScanRecord:
+    def from_dict(cls, data: dict[str, Any]) -> ScanRecord:
         """Rebuild a record from its flattened JSON mapping."""
         return cls(
             tag=data["tag"],
@@ -182,19 +187,6 @@ class ScanRecord:
                 harmless=int(data["harmless"]),
             ),
         )
-
-
-def _compute_sha256(path: Path) -> str:
-    """Compute the SHA-256 hex digest of a file.
-
-    :param path: Path to the file.
-    :return: Lowercase hex digest string.
-    """
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def scan_files(
@@ -221,7 +213,7 @@ def scan_files(
                 logging.info(f"Rate limiting: waiting {delay:.0f}s before next upload.")
                 time.sleep(delay)
 
-            sha256 = _compute_sha256(path)
+            sha256 = compute_file_sha256(path)
             analysis_url = VIRUSTOTAL_GUI_URL.format(sha256=sha256)
 
             try:

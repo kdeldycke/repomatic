@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.tool_runner import TOOL_REGISTRY, NativeFormat
+from repomatic.tool_registry import TOOL_REGISTRY, NativeFormat
 
 REPO_ROOT = Path(__file__).parent.parent
 CLI_MD = REPO_ROOT / "docs" / "cli.md"

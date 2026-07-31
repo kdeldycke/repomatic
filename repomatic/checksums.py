@@ -18,7 +18,7 @@
 
 Iterates every `TOOL_REGISTRY` entry with a `binary` spec, downloads each
 platform's release artifact, and rewrites stale hashes in-place in
-`tool_runner.py` (alongside the `VERSIONS` stamps). Driven by
+`tool_registry.py` (alongside the `VERSIONS` stamps). Driven by
 `repomatic update-checksums` and, with a version override, by
 `sync-tool-versions` so a version bump and its matching checksums land in one
 pass.
@@ -32,10 +32,14 @@ import re
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-import click
-from click_extra import OperationTrail, resolve_jobs, run_jobs
+from click_extra import (
+    OperationTrail,
+    get_current_context,
+    resolve_jobs,
+    run_jobs,
+)
 
-from .tool_runner import TOOL_REGISTRY, PlatformKey, ToolSpec
+from .tool_registry import TOOL_REGISTRY, PlatformKey, ToolSpec
 
 
 def _download_sha256(url: str) -> str:
@@ -52,10 +56,10 @@ def _download_sha256(url: str) -> str:
 
 
 def update_registry_checksums(
-    tool_runner_path: Path,
+    registry_path: Path,
     version_overrides: dict[str, str] | None = None,
 ) -> list[tuple[str, str, str]]:
-    """Recompute binary checksums and version stamps in `tool_runner.py`.
+    """Recompute binary checksums and version stamps in `tool_registry.py`.
 
     Iterates every `TOOL_REGISTRY` entry with a `binary` spec, downloads each
     platform URL (concurrently, sized by the global `--jobs` option and
@@ -64,7 +68,7 @@ def update_registry_checksums(
     `VERSIONS` stamp with the version the checksums were computed for, the basis
     of the offline staleness test.
 
-    :param tool_runner_path: Path to `tool_runner.py`.
+    :param registry_path: Path to `tool_registry.py`.
     :param version_overrides: Optional mapping of tool name to a version to
         download instead of the in-memory `ToolSpec.version`. `sync-tool-versions`
         passes this so it can bump the version in the source and refresh the
@@ -74,7 +78,7 @@ def update_registry_checksums(
         Empty if all checksums are already correct.
     """
     overrides = version_overrides or {}
-    original = tool_runner_path.read_text(encoding="UTF-8")
+    original = registry_path.read_text(encoding="UTF-8")
     content = original
     updated: list[tuple[str, str, str]] = []
 
@@ -99,7 +103,7 @@ def update_registry_checksums(
 
     # Size the fan-out once, up front, so the trail's rendering mode matches
     # the width run_jobs fans out to below.
-    ctx = click.get_current_context(silent=True)
+    ctx = get_current_context(silent=True)
     jobs = resolve_jobs(ctx, len(entries), serial_at_debug=True)
 
     # run_jobs yields digests in submission order, so the rewrite loop below
@@ -135,6 +139,6 @@ def update_registry_checksums(
         )
 
     if content != original:
-        tool_runner_path.write_text(content, encoding="UTF-8")
+        registry_path.write_text(content, encoding="UTF-8")
 
     return updated

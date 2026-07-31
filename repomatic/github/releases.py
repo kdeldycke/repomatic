@@ -470,8 +470,8 @@ def fetch_github_release_notes(
         pin, where *old* and *new* are bare versions and *tag_pattern* is the
         per-tool extraction regex (or `None` for the `vX.Y.Z` scheme).
     :return: A dict mapping names to `(repo_url, versions)` tuples, the same
-        shape {func}`repomatic.uv.fetch_release_notes` returns, so
-        {func}`repomatic.uv.format_release_notes` renders it unchanged. Only
+        shape {func}`repomatic.dep_report.fetch_release_notes` returns, so
+        {func}`repomatic.dep_report.format_release_notes` renders it unchanged. Only
         entries with at least one non-empty release body are included.
     """
     notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}

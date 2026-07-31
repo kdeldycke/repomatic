@@ -48,6 +48,7 @@ from pathlib import Path
 from string import Template
 
 from .. import __version__
+from .actions import extract_workflow_filename
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -473,21 +474,6 @@ def get_template_names() -> list[str]:
         elif item_name.endswith(".md"):
             names.append(item_name.removesuffix(".md"))
     return sorted(names)
-
-
-def extract_workflow_filename(workflow_ref: str | None) -> str:
-    """Extract the workflow filename from `GITHUB_WORKFLOW_REF`.
-
-    :param workflow_ref: The full workflow reference, e.g.
-        `owner/repo/.github/workflows/name.yaml@refs/heads/branch`.
-    :return: The workflow filename (e.g. `name.yaml`), or an empty string
-        if the reference is empty or malformed.
-    """
-    if not workflow_ref:
-        return ""
-    # Strip the @ref suffix, then take the basename.
-    path_part = workflow_ref.split("@")[0]
-    return path_part.rsplit("/", 1)[-1] if "/" in path_part else path_part
 
 
 def generate_pr_metadata_block(

@@ -6,7 +6,7 @@ This page is the guide: how to decide what the matrix should test, which GitHub-
 
 ## How the matrix is built
 
-The base axes are `os` and `python-version`, seeded from `repomatic`'s defaults (`TEST_RUNNERS_FULL`/`TEST_RUNNERS_PR` and `TEST_PYTHON_FULL`/`TEST_PYTHON_PR` in `repomatic/test_matrix.py`). A project then reshapes the matrix through a fixed chain of transformations, each a `[tool.repomatic.test-matrix.*]` key, applied in this order:
+The base axes are `os` and `python-version`, seeded from `repomatic`'s defaults (`TEST_RUNNERS_FULL`/`TEST_RUNNERS_PR` and `TEST_PYTHON_FULL`/`TEST_PYTHON_PR` in `repomatic/matrix_axes.py`). A project then reshapes the matrix through a fixed chain of transformations, each a `[tool.repomatic.test-matrix.*]` key, applied in this order:
 
 1. `replace`: swap axis values in place.
 2. `remove`: drop axis values from an axis.
@@ -131,7 +131,7 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 
 ## GitHub-hosted runner inventory
 
-`repomatic`'s full matrix spans both architectures of each OS; the reduced PR set keeps one per OS. The runners (defined in `repomatic/test_matrix.py`):
+`repomatic`'s full matrix spans both architectures of each OS; the reduced PR set keeps one per OS. The runners (defined in `repomatic/matrix_axes.py`):
 
 | Runner                                                                                                            | OS      | Architecture          | In PR set | Notes                                                                                                                                |
 | :---------------------------------------------------------------------------------------------------------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------- |
@@ -240,10 +240,10 @@ On top of the built-in `3.14t` flavor smoke test (stable, on `ubuntu-24.04-arm` 
 
 The shipped configuration is exercised everywhere a regression would reach a user; the floor and the one regression-prone release are verified cheaply on the fastest runner; and the development branch gives a heads-up without the power to redden the build. The PR matrix stays the curated reduced set for fast feedback, since `variations` and `unstable` apply to the full matrix only. The same shape extends to a prerelease Python (add it as a `python-version` variation, pin it to one runner with `exclude`, and mark it `unstable`) or to a released free-threaded flavor (the same, but stable: leave it out of `unstable`, as [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner) explains).
 
-## `repomatic.test_matrix` API
+## `repomatic.matrix_axes` API
 
 ```{eval-rst}
-.. automodule:: repomatic.test_matrix
+.. automodule:: repomatic.matrix_axes
    :members:
    :undoc-members:
    :show-inheritance:

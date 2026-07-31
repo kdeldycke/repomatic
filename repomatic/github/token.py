@@ -235,14 +235,6 @@ class PatPermissionResults:
     workflows: tuple[bool, str]
     """Result of the `workflows` {data}`PAT_PERMISSION_PROBES` row."""
 
-    def all_passed(self) -> bool:
-        """Return `True` when every executed check passed."""
-        for f in fields(self):
-            result = getattr(self, f.name)
-            if result is not None and not result[0]:
-                return False
-        return True
-
     def failed(self) -> list[tuple[str, str]]:
         """Return `(field_name, message)` pairs for each failed check."""
         failures: list[tuple[str, str]] = []

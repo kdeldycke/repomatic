@@ -22,17 +22,17 @@ Provides a shared HTTP client and domain-specific query functions used by
 
 from __future__ import annotations
 
-import json
-import logging
 from typing import NamedTuple
 from urllib.parse import urlencode
 
-from .cache import get_cached_response, store_response
 from .config import load_repomatic_config
-from .http import FetchError, get_json
+from .http import get_cached_json, get_json_soft
 
 PYPI_API_URL = "https://pypi.org/pypi/{package}/json"
 """PyPI JSON API URL for fetching all release metadata for a package."""
+
+PYPI_PACKAGE_URL = "https://pypi.org/project/{package}/"
+"""PyPI project homepage URL for a package (no version pinned)."""
 
 PYPI_PROJECT_URL = "https://pypi.org/project/{package}/{version}/"
 """PyPI project page URL for a specific version."""
@@ -131,21 +131,6 @@ _SOURCE_URL_KEYS = (
 )
 
 
-def _get_json(url: str, log_context: str) -> tuple[dict, bytes] | None:
-    """GET *url* as JSON, logging any failure as a soft miss.
-
-    :param url: The URL to fetch.
-    :param log_context: Human-readable label for the debug log on failure.
-    :return: `(parsed, raw_bytes)`, or `None` on any failure (HTTP error,
-        network error, timeout, JSON parse error).
-    """
-    try:
-        return get_json(url)
-    except FetchError as exc:
-        logging.debug(f"{log_context}: {exc}")
-        return None
-
-
 def _fetch_json(package: str) -> dict | None:
     """Fetch the full JSON metadata for a PyPI package.
 
@@ -173,23 +158,13 @@ def _fetch_json(package: str) -> dict | None:
     :param package: The PyPI package name.
     :return: Parsed JSON response, or `None` on any failure.
     """
-    ttl = load_repomatic_config().cache.pypi_ttl
-    cached = get_cached_response("pypi", package, ttl)
-    if cached is not None:
-        try:
-            return json.loads(cached)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
-
-    url = PYPI_API_URL.format(package=package)
-    fetched = _get_json(url, f"PyPI lookup failed for {package}")
-    if fetched is None:
-        return None
-    result, raw = fetched
-
-    if ttl > 0:
-        store_response("pypi", package, raw)
-    return result
+    return get_cached_json(
+        "pypi",
+        package,
+        PYPI_API_URL.format(package=package),
+        ttl=load_repomatic_config().cache.pypi_ttl,
+        log_label=f"PyPI lookup failed for {package}",
+    )
 
 
 class PyPIRelease(NamedTuple):
@@ -343,7 +318,9 @@ def get_trusted_publishers(
     url = PYPI_PROVENANCE_URL.format(
         package=package, version=version, filename=filename
     )
-    fetched = _get_json(url, f"PyPI provenance lookup failed for {package} {version}")
+    fetched = get_json_soft(
+        url, f"PyPI provenance lookup failed for {package} {version}"
+    )
     if fetched is None:
         return None
     data, _raw = fetched

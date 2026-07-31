@@ -309,7 +309,6 @@ import logging
 import os
 import re
 import subprocess
-import sys
 from collections.abc import Callable, Iterable
 from dataclasses import fields
 from functools import cached_property, partial
@@ -337,7 +336,6 @@ from wcmatch.glob import (
 from .binary import (
     BINARY_AFFECTING_PATHS,
     FLAT_BUILD_TARGETS,
-    MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     NUITKA_BUILD_TARGETS,
     SKIP_BINARY_BUILD_BRANCHES,
 )
@@ -347,7 +345,14 @@ from .changelog import (
     build_expected_body,
     build_release_admonition,
 )
+from .compat import StrEnum
+from .config import (
+    SUBCOMMAND_CONFIG_FIELDS,
+    Config,
+    load_repomatic_config,
+)
 from .git_ops import (
+    MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     RELEASE_COMMIT_PATTERN,
     SHORT_SHA_LENGTH,
     Commit,
@@ -371,8 +376,7 @@ from .github.actions import NULL_SHA, WorkflowEvent, generate_delimiter
 from .github.gh import run_gh_command
 from .github.matrix import Matrix
 from .mailmap import MAILMAP_PATH
-from .pypi import PYPI_PROJECT_URL
-from .test_matrix import (
+from .matrix_axes import (
     MYPY_VERSION_MIN,
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
@@ -381,17 +385,7 @@ from .test_matrix import (
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
 )
-
-if sys.version_info >= (3, 11):
-    from enum import StrEnum
-else:
-    from backports.strenum import StrEnum
-
-from .config import (
-    SUBCOMMAND_CONFIG_FIELDS,
-    Config,
-    load_repomatic_config,
-)
+from .pypi import PYPI_PROJECT_URL
 from .pyproject import is_python_project as _is_python_project
 
 TYPE_CHECKING = False
@@ -514,6 +508,24 @@ METADATA_KEYS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
 """Column definitions for the metadata keys reference table."""
 
 
+def _metadata_config_fields() -> list[str]:
+    """`Config` field names exposed as metadata outputs.
+
+    One filter shared by {func}`metadata_keys_reference`,
+    {func}`all_metadata_keys`, and {meth}`Metadata.dump`, so the three
+    surfaces can never disagree on which config fields are metadata. Excluded
+    are the Nuitka fields consumed through dedicated computed keys and every
+    field in {data}`~repomatic.config.SUBCOMMAND_CONFIG_FIELDS` (read directly
+    by its subcommand).
+    """
+    skipped = ("nuitka_entry_points", "nuitka_unstable_targets")
+    return [
+        f.name
+        for f in fields(Config)
+        if f.name not in skipped and f.name not in SUBCOMMAND_CONFIG_FIELDS
+    ]
+
+
 def metadata_keys_reference() -> list[tuple[str, str]]:
     """Build the metadata keys reference as table rows.
 
@@ -531,34 +543,16 @@ def metadata_keys_reference() -> list[tuple[str, str]]:
         name: " ".join(text.split("\n\n")[0].split())
         for name, text in field_docstrings(Config).items()
     }
-    for f in fields(Config):
-        if (
-            f.name
-            not in (
-                "nuitka_entry_points",
-                "nuitka_unstable_targets",
-            )
-            and f.name not in SUBCOMMAND_CONFIG_FIELDS
-        ):
-            desc = docstrings.get(f.name, "").replace("``", "`")
-            rows.append((f.name, desc))
+    for name in _metadata_config_fields():
+        desc = docstrings.get(name, "").replace("``", "`")
+        rows.append((name, desc))
 
     return rows
 
 
 def all_metadata_keys() -> frozenset[str]:
     """Returns the set of all valid metadata key names."""
-    config_keys = frozenset(
-        f.name
-        for f in fields(Config)
-        if f.name
-        not in (
-            "nuitka_entry_points",
-            "nuitka_unstable_targets",
-        )
-        and f.name not in SUBCOMMAND_CONFIG_FIELDS
-    )
-    return frozenset(_METADATA_KEY_DESCRIPTIONS) | config_keys
+    return frozenset(_METADATA_KEY_DESCRIPTIONS) | frozenset(_metadata_config_fields())
 
 
 GITIGNORE_PATH = Path(".gitignore")
@@ -2683,17 +2677,9 @@ class Metadata:
         # Convert kebab-case config keys to snake_case metadata keys.
         # Exclude nuitka internal config (dedicated properties with validation logic)
         # and subcommand config fields (read directly by deps-graph).
-        for f in fields(Config):
-            if (
-                f.name
-                not in (
-                    "nuitka_entry_points",
-                    "nuitka_unstable_targets",
-                )
-                and f.name not in SUBCOMMAND_CONFIG_FIELDS
-            ):
-                # `partial` binds ``f.name`` eagerly, dodging the late-binding pitfall.
-                factories[f.name] = partial(getattr, self.config, f.name)
+        for name in _metadata_config_fields():
+            # `partial` binds ``name`` eagerly, dodging the late-binding pitfall.
+            factories[name] = partial(getattr, self.config, name)
 
         keys_set = set(keys)
         metadata: dict[str, Any] = {

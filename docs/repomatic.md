@@ -47,6 +47,15 @@
    :undoc-members:
 ```
 
+## `repomatic.bundle` module
+
+```{eval-rst}
+.. automodule:: repomatic.bundle
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.cache` module
 
 ```{eval-rst}
@@ -83,10 +92,28 @@
    :undoc-members:
 ```
 
+## `repomatic.compat` module
+
+```{eval-rst}
+.. automodule:: repomatic.compat
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.config` module
 
 ```{eval-rst}
 .. automodule:: repomatic.config
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.dep_report` module
+
+```{eval-rst}
+.. automodule:: repomatic.dep_report
    :members:
    :show-inheritance:
    :undoc-members:
@@ -164,6 +191,15 @@
    :undoc-members:
 ```
 
+## `repomatic.labels` module
+
+```{eval-rst}
+.. automodule:: repomatic.labels
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.lint_repo` module
 
 ```{eval-rst}
@@ -177,6 +213,15 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.mailmap
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.matrix_axes` module
+
+```{eval-rst}
+.. automodule:: repomatic.matrix_axes
    :members:
    :show-inheritance:
    :undoc-members:
@@ -254,10 +299,10 @@
    :undoc-members:
 ```
 
-## `repomatic.test_matrix` module
+## `repomatic.tool_registry` module
 
 ```{eval-rst}
-.. automodule:: repomatic.test_matrix
+.. automodule:: repomatic.tool_registry
    :members:
    :show-inheritance:
    :undoc-members:

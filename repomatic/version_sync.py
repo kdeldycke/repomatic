@@ -47,6 +47,7 @@ from .github.releases import (
 )
 from .npm import get_release_dates as npm_release_dates
 from .pypi import get_release_dates as pypi_release_dates
+from .uv import parse_relative_duration
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -65,26 +66,8 @@ MIN_AGE_HELD_BACK_NOTE = (
 """Intro paragraph for the version-sync held-back section.
 
 The GitHub/PyPI/npm counterpart to
-{data}`repomatic.uv.EXCLUDE_NEWER_HELD_BACK_NOTE`.
+{data}`repomatic.dep_report.EXCLUDE_NEWER_HELD_BACK_NOTE`.
 """
-
-_DURATION_RE = re.compile(
-    r"^\s*(\d+)\s*(second|minute|hour|day|week)s?\s*$",
-    re.IGNORECASE,
-)
-"""Friendly relative duration accepted by `minimum-release-age`.
-
-Mirrors the relative-duration subset uv accepts for `exclude-newer`. Calendar
-units (months, years) are intentionally excluded: their length is ambiguous.
-"""
-
-_UNIT_TO_KWARG = {
-    "second": "seconds",
-    "minute": "minutes",
-    "hour": "hours",
-    "day": "days",
-    "week": "weeks",
-}
 
 ACTION_PIN_RE = re.compile(
     r"(?P<prefix>uses:\s*)"
@@ -168,14 +151,13 @@ def parse_min_age(value: str) -> timedelta:
     :return: The cooldown duration, or `timedelta(0)` when *value* does not
         parse.
     """
-    match = _DURATION_RE.match(value or "")
-    if not match:
+    duration = parse_relative_duration(value or "")
+    if duration is None:
         logging.warning(
             f"Unrecognized minimum-release-age {value!r}; applying no cooldown."
         )
         return timedelta(0)
-    count = int(match.group(1))
-    return timedelta(**{_UNIT_TO_KWARG[match.group(2).lower()]: count})
+    return duration
 
 
 def min_release_age_days(value: str) -> int:
@@ -222,7 +204,7 @@ def format_cooldown_note(age_label: str, cutoff: date) -> str:
     """Render the `minimum-release-age` cutoff sentence for a diff table.
 
     The version-sync counterpart to
-    {func}`repomatic.uv.format_exclude_newer_note`. uv records an absolute
+    {func}`repomatic.dep_report.format_exclude_newer_note`. uv records an absolute
     `exclude-newer` timestamp; here the cooldown is a relative span, so the
     effective cutoff is `today - min_age`, recomputed each run rather than
     stored.
@@ -232,7 +214,7 @@ def format_cooldown_note(age_label: str, cutoff: date) -> str:
     :param cutoff: The effective cutoff date (`today - min_age`); releases
         published after it are held back.
     :return: A one-line markdown note for
-        {func}`repomatic.uv.format_diff_table`.
+        {func}`repomatic.dep_report.format_diff_table`.
     """
     return (
         f"Resolved with [`minimum-release-age`]({MINIMUM_RELEASE_AGE_URL})"
@@ -343,7 +325,7 @@ def github_candidates(repo_url: str, tag_pattern: str | None = None) -> list[Can
 
     :param repo_url: The repository URL.
     :param tag_pattern: Per-tool version-extraction regex (see
-        {attr}`repomatic.tool_runner.ToolSpec.tag_pattern`).
+        {attr}`repomatic.tool_registry.ToolSpec.tag_pattern`).
     :return: One {class}`Candidate` per release whose tag yields a version.
         Empty when the API is unavailable (logged, never raised).
     """
@@ -398,12 +380,12 @@ def is_newer(new: str, old: str) -> bool:
 
 
 def set_tool_version(content: str, name: str, new_version: str) -> str:
-    """Rewrite a tool's `version=` field in the `tool_runner.py` source.
+    """Rewrite a tool's `version=` field in the `tool_registry.py` source.
 
     Targets the first `version="…"` inside the named `ToolSpec(` entry, stopping
     at the next entry so a later tool is never touched.
 
-    :param content: The `tool_runner.py` source text.
+    :param content: The `tool_registry.py` source text.
     :param name: The `TOOL_REGISTRY` key (e.g. `"gitleaks"`).
     :param new_version: The version to write.
     :return: The updated source text.

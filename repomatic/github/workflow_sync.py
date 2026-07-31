@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sys
 from dataclasses import dataclass, field
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -50,7 +49,8 @@ from pathlib import Path
 import yaml
 
 from .. import __version__
-from ..init_project import export_content, get_data_content
+from ..bundle import get_data_content
+from ..compat import StrEnum
 from ..registry import (
     ALL_WORKFLOW_FILES,
     DEFAULT_REPO,
@@ -61,11 +61,6 @@ from ..registry import (
     WORKFLOW_SOURCES,
 )
 from .actions import AnnotationLevel, emit_annotation
-
-if sys.version_info >= (3, 11):
-    from enum import StrEnum
-else:
-    from backports.strenum import StrEnum
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -200,8 +195,8 @@ class WorkflowFormat(StrEnum):
 
         if self is WorkflowFormat.FULL_COPY:
             try:
-                content = export_content(filename)
-            except (ValueError, FileNotFoundError) as e:
+                content = get_data_content(filename)
+            except FileNotFoundError as e:
                 logging.error(f"Failed to export {filename}: {e}")
                 return False
 
@@ -1337,68 +1332,6 @@ def check_secrets_passed(
         ),
         is_issue=True,
         level=AnnotationLevel.WARNING,
-    )
-
-
-def check_concurrency_match(
-    workflow_path: Path,
-    canonical_filename: str,
-) -> LintResult:
-    """Check that a thin caller's concurrency block matches the canonical workflow.
-
-    Compares parsed concurrency dicts so formatting differences are ignored.
-
-    :param workflow_path: Path to the caller workflow file.
-    :param canonical_filename: Filename of the canonical upstream workflow.
-    :return: Lint result.
-    """
-    info = extract_trigger_info(canonical_filename)
-
-    try:
-        content = workflow_path.read_text(encoding="UTF-8")
-        data = yaml.safe_load(content)
-    except (OSError, yaml.YAMLError) as e:
-        return LintResult(
-            message=f"{workflow_path.name}: failed to parse: {e}",
-            is_issue=True,
-            level=AnnotationLevel.ERROR,
-        )
-
-    caller_concurrency = data.get("concurrency") if isinstance(data, dict) else None
-
-    if info.concurrency is None:
-        # Canonical has no concurrency; caller shouldn't either, but don't flag it.
-        return LintResult(
-            message=(
-                f"{workflow_path.name}: no concurrency required"
-                f" by {canonical_filename}."
-            ),
-            is_issue=False,
-        )
-
-    if caller_concurrency is None:
-        return LintResult(
-            message=(
-                f"{workflow_path.name}: missing concurrency block"
-                f" (expected by {canonical_filename})."
-            ),
-            is_issue=True,
-            level=AnnotationLevel.WARNING,
-        )
-
-    if caller_concurrency != info.concurrency:
-        return LintResult(
-            message=(
-                f"{workflow_path.name}: concurrency block does not match"
-                f" canonical {canonical_filename}."
-            ),
-            is_issue=True,
-            level=AnnotationLevel.WARNING,
-        )
-
-    return LintResult(
-        message=f"{workflow_path.name}: concurrency matches canonical.",
-        is_issue=False,
     )
 
 

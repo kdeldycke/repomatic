@@ -34,12 +34,12 @@ from repomatic.config import (
     load_repomatic_config,
 )
 from repomatic.github.actions import NULL_SHA
-from repomatic.metadata import Dialect, Metadata
-from repomatic.test_matrix import (
+from repomatic.matrix_axes import (
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
     UNSTABLE_PYTHON_VERSIONS,
 )
+from repomatic.metadata import Dialect, Metadata
 
 
 def regex(pattern: str) -> re.Pattern:
@@ -421,13 +421,16 @@ expected: dict[str, Any] = {
         "repomatic/binaries_page.py",
         "repomatic/binary.py",
         "repomatic/broken_links.py",
+        "repomatic/bundle.py",
         "repomatic/cache.py",
         "repomatic/changelog.py",
         "repomatic/checksums.py",
         "repomatic/cli.py",
+        "repomatic/compat.py",
         "repomatic/config.py",
         "repomatic/data/__init__.py",
         "repomatic/data/awesome_template/__init__.py",
+        "repomatic/dep_report.py",
         "repomatic/dep_sources.py",
         "repomatic/deps_graph.py",
         "repomatic/docs.py",
@@ -451,8 +454,10 @@ expected: dict[str, Any] = {
         "repomatic/http.py",
         "repomatic/images.py",
         "repomatic/init_project.py",
+        "repomatic/labels.py",
         "repomatic/lint_repo.py",
         "repomatic/mailmap.py",
+        "repomatic/matrix_axes.py",
         "repomatic/metadata.py",
         "repomatic/npm.py",
         "repomatic/prepare_release.py",
@@ -462,7 +467,7 @@ expected: dict[str, Any] = {
         "repomatic/setup_guide.py",
         "repomatic/sync_ops.py",
         "repomatic/templates/__init__.py",
-        "repomatic/test_matrix.py",
+        "repomatic/tool_registry.py",
         "repomatic/tool_runner.py",
         "repomatic/tool_runner_page.py",
         "repomatic/uv.py",
@@ -488,6 +493,7 @@ expected: dict[str, Any] = {
         "tests/test_github_releases.py",
         "tests/test_gitignore.py",
         "tests/test_help.py",
+        "tests/test_http.py",
         "tests/test_images.py",
         "tests/test_imports.py",
         "tests/test_init_project.py",

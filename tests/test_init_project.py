@@ -64,7 +64,7 @@ from repomatic.registry import (
     parse_component_entries,
     valid_file_ids,
 )
-from repomatic.tool_runner import TOOL_REGISTRY
+from repomatic.tool_registry import TOOL_REGISTRY
 
 # Convenience set for tests that check opt-in workflow membership.
 _OPT_IN_IDS = frozenset(

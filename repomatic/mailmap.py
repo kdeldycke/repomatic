@@ -21,9 +21,10 @@ import sys
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from subprocess import run
 
 from boltons.iterutils import unique
+
+from .git_ops import list_contributor_identities
 
 MAILMAP_PATH = Path(".mailmap")
 """Canonical path to the `.mailmap` file in the repository root."""
@@ -143,23 +144,13 @@ class Mailmap:
         """Returns the set of all contributors found in the Git commit history.
 
         No normalization happens: all variations of authors and committers strings
-        attached to all commits are considered.
-
-        For format output syntax, see:
-        https://git-scm.com/docs/pretty-formats#Documentation/pretty-formats.txt-aN
+        attached to all commits are considered. A failing git invocation exits
+        the process with git's stderr, keeping the CLI's error output clean.
         """
-        contributors = set()
-
-        git_cli = ("git", "log", "--pretty=format:%aN <%aE>%n%cN <%cE>")
-        logging.debug(f"Run: {' '.join(git_cli)}")
-        process = run(git_cli, capture_output=True, encoding="UTF-8", check=False)
-
-        # Parse git CLI output.
-        if process.returncode:
-            sys.exit(process.stderr)
-        for line in map(str.strip, process.stdout.splitlines()):
-            if line:
-                contributors.add(line)
+        try:
+            contributors = list_contributor_identities()
+        except RuntimeError as exc:
+            sys.exit(str(exc))
 
         logging.debug(
             "Authors and committers found in Git history:\n"

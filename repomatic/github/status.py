@@ -30,12 +30,11 @@ probe itself never masks the original error.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from functools import cache
-from urllib.error import URLError
-from urllib.request import Request, urlopen
+
+from ..http import FetchError, get_json
 
 GITHUB_STATUS_SUMMARY_URL = "https://www.githubstatus.com/api/v2/status.json"
 """Status summary endpoint exposed by Statuspage.
@@ -101,14 +100,13 @@ def get_github_status() -> GitHubStatus | None:
     can treat the probe as best-effort and never let it mask the
     underlying error they were trying to annotate.
     """
-    request = Request(
-        GITHUB_STATUS_SUMMARY_URL,
-        headers={"Accept": "application/json"},
-    )
     try:
-        with urlopen(request, timeout=_PROBE_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read())
-    except (URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        payload, _raw = get_json(
+            GITHUB_STATUS_SUMMARY_URL, timeout=_PROBE_TIMEOUT_SECONDS
+        )
+    # OSError on top of FetchError: the probe runs from an error path, so
+    # even an exotic local failure must never mask the error being annotated.
+    except (FetchError, OSError) as exc:
         logging.debug("GitHub Status probe failed: %s", exc)
         return None
     status = payload.get("status") if isinstance(payload, dict) else None

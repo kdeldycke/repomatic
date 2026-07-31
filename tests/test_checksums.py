@@ -21,19 +21,19 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from repomatic.checksums import update_registry_checksums
-from repomatic.tool_runner import TOOL_REGISTRY
+from repomatic.tool_registry import TOOL_REGISTRY
 
 FAKE_HASH_OLD = "a" * 64
 FAKE_HASH_NEW = "b" * 64
 
 
 def test_update_registry_checksums_replaces_stale_hash(tmp_path):
-    """update_registry_checksums replaces stale hashes in tool_runner.py."""
+    """update_registry_checksums replaces stale hashes in tool_registry.py."""
     spec = next(s for s in TOOL_REGISTRY.values() if s.binary is not None)
     assert spec.binary is not None
     old_hash = next(iter(spec.binary.checksums.values()))
 
-    registry = tmp_path / "tool_runner.py"
+    registry = tmp_path / "tool_registry.py"
     registry.write_text(
         f'    checksums={{\n        "linux-x64": "{old_hash}",\n    }},\n',
         encoding="UTF-8",
@@ -51,7 +51,7 @@ def test_update_registry_checksums_replaces_stale_hash(tmp_path):
 
 def test_update_registry_checksums_noop_when_current(tmp_path):
     """update_registry_checksums does not rewrite when all hashes match."""
-    registry = tmp_path / "tool_runner.py"
+    registry = tmp_path / "tool_registry.py"
     content = "# no checksums to update\n"
     registry.write_text(content, encoding="UTF-8")
 
@@ -88,7 +88,7 @@ def test_update_registry_checksums_reconciles_version_stamp(tmp_path):
                     return s.binary.checksums[pk]
         return FAKE_HASH_OLD
 
-    registry = tmp_path / "tool_runner.py"
+    registry = tmp_path / "tool_registry.py"
     registry.write_text(
         f'VERSIONS = {{\n    "{name}": "9.9.9",\n}}\n', encoding="UTF-8"
     )
@@ -113,7 +113,7 @@ def test_update_registry_checksums_version_override(tmp_path):
     new_version = "99.0.0"
     old_hash = next(iter(spec.binary.checksums.values()))
 
-    registry = tmp_path / "tool_runner.py"
+    registry = tmp_path / "tool_registry.py"
     registry.write_text(
         f'VERSIONS = {{\n    "{name}": "9.9.9",\n}}\n# {old_hash}\n',
         encoding="UTF-8",

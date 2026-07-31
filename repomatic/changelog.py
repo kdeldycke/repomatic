@@ -130,6 +130,12 @@ from .github.releases import (
     GitHubReleasesUnavailable,
     get_github_releases,
 )
+from .pypi import (
+    PYPI_LABEL,
+    PYPI_PROJECT_URL,
+    PyPIRelease,
+    get_release_dates as get_pypi_release_dates,
+)
 from .pyproject import get_project_name
 
 CHANGELOG_HEADER = "# Changelog\n"
@@ -182,13 +188,6 @@ GITHUB_RELEASE_URL = "{repo_url}/releases/tag/v{version}"
 
 NOT_AVAILABLE_VERB = "is **not available** on"
 """Verb phrase for versions missing from a platform."""
-
-from .pypi import (
-    PYPI_LABEL,
-    PYPI_PROJECT_URL,
-    PyPIRelease,
-    get_release_dates as get_pypi_release_dates,
-)
 
 YANKED_DEDUP_MARKER = "yanked from PyPI"
 """Dedup marker for the yanked admonition to prevent duplicate insertion."""

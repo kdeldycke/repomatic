@@ -15,7 +15,12 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 """Tests for the `audit` command (read-only report by default, `--fix` to
-upgrade) and the `exclude-newer-package` cooldown-bypass lifecycle."""
+upgrade) and the `exclude-newer-package` cooldown-bypass lifecycle.
+
+The `repomatic.dep_report` renderers (diff, held-back, and bypass tables and
+release-notes sections) are covered here alongside the `repomatic.uv` lock
+helpers whose results they render.
+"""
 
 from __future__ import annotations
 
@@ -29,21 +34,23 @@ from click.testing import CliRunner
 from repomatic import cli
 from repomatic.cli import repomatic
 from repomatic.config import Config
-from repomatic.uv import (
+from repomatic.dep_report import (
     BYPASS_NEEDS_RELEASE,
     BypassForecast,
     HeldBackPackage,
     build_held_back,
-    compute_bypass_forecasts,
-    compute_pruned_forecasts,
     format_bypass_section,
     format_diff_table,
     format_exclude_newer_note,
     format_held_back_table,
     format_release_notes,
+    pypi_name_urls,
+)
+from repomatic.uv import (
+    compute_bypass_forecasts,
+    compute_pruned_forecasts,
     freeze_exclude_newer_packages,
     prune_stale_exclude_newer_packages,
-    pypi_name_urls,
 )
 from repomatic.vulnerable_deps import (
     AdvisorySource,

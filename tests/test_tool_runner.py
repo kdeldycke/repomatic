@@ -44,7 +44,7 @@ from extra_platforms import (
     Platform,
 )
 
-from repomatic.tool_runner import (
+from repomatic.tool_registry import (
     _DIRECTIVE_YAML_OPTIONS_RE,
     _ESCAPED_COLON_FENCE_RE,
     CHECKSUMS,
@@ -54,16 +54,18 @@ from repomatic.tool_runner import (
     BinarySpec,
     NativeFormat,
     ToolSpec,
-    _build_install_args,
-    _download_and_verify,
-    _extract_binary,
     _fix_myst_directives,
-    _install_binary,
-    _install_npm,
-    _npm_supports_cooldown,
     _reroot_section,
     _unescape_colon_fence,
     _yaml_block_to_field_list,
+)
+from repomatic.tool_runner import (
+    _build_install_args,
+    _download_and_verify,
+    _extract_binary,
+    _install_binary,
+    _install_npm,
+    _npm_supports_cooldown,
     binary_tool_context,
     find_unmodified_configs,
     get_data_file_path,
@@ -469,8 +471,8 @@ def test_resolve_platform_exact_match():
         archive_format=ArchiveFormat.RAW,
     )
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=MACOS),
-        patch("repomatic.tool_runner.current_architecture", return_value=AARCH64),
+        patch("repomatic.tool_registry.current_platform", return_value=MACOS),
+        patch("repomatic.tool_registry.current_architecture", return_value=AARCH64),
     ):
         assert spec.resolve_platform() == (MACOS, AARCH64)
 
@@ -484,8 +486,8 @@ def test_resolve_platform_group_match():
     )
     # Simulate an Ubuntu system (member of LINUX group).
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_runner.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
     ):
         assert spec.resolve_platform() == (LINUX, X86_64)
 
@@ -498,8 +500,8 @@ def test_resolve_platform_no_match():
         archive_format=ArchiveFormat.RAW,
     )
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=MACOS),
-        patch("repomatic.tool_runner.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.current_platform", return_value=MACOS),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
         pytest.raises(RuntimeError, match="No binary"),
     ):
         spec.resolve_platform()
@@ -839,8 +841,8 @@ def test_install_binary_missing_platform():
         ),
     )
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=MACOS),
-        patch("repomatic.tool_runner.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.current_platform", return_value=MACOS),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
         pytest.raises(RuntimeError, match="No binary for"),
     ):
         _install_binary(spec, Path("/tmp"))
@@ -874,8 +876,8 @@ def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
     sidecar.write_text(binary_checksum, encoding="UTF-8")
 
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_runner.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
     ):
         result = _install_binary(spec, tmp_path / "staging")
 
@@ -902,8 +904,8 @@ def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
     staging.mkdir()
 
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_runner.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
         patch("repomatic.tool_runner._download_and_verify"),
         patch("repomatic.tool_runner._extract_binary") as mock_extract,
     ):
@@ -944,8 +946,8 @@ def test_install_binary_no_cache_flag(tmp_path, monkeypatch, cache_env):
     staging.mkdir()
 
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_runner.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
         patch("repomatic.tool_runner._download_and_verify"),
         patch("repomatic.tool_runner._extract_binary") as mock_extract,
         patch("repomatic.tool_runner.store_binary") as mock_store,
@@ -992,8 +994,8 @@ def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch, cache_env
     staging.mkdir()
 
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_runner.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
         patch("repomatic.tool_runner._download_and_verify"),
         patch("repomatic.tool_runner._extract_binary") as mock_extract,
     ):
@@ -1034,8 +1036,8 @@ def test_install_binary_cache_store_fallback(tmp_path, monkeypatch, cache_env):
         return cache_env / "bin" / "ghost" / "binary"
 
     with (
-        patch("repomatic.tool_runner.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_runner.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
         patch("repomatic.tool_runner._download_and_verify"),
         patch("repomatic.tool_runner._extract_binary") as mock_extract,
         patch("repomatic.tool_runner.store_binary", side_effect=fake_store),

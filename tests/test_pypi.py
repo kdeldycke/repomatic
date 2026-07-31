@@ -30,7 +30,6 @@ import pytest
 from repomatic.pypi import (
     PYPI_TRUSTED_PUBLISHER_SETTINGS_URL,
     TrustedPublisher,
-    _fetch_json,
     get_latest_release_file,
     get_trusted_publishers,
     pypi_trusted_publisher_settings_url,
@@ -223,29 +222,6 @@ def test_get_trusted_publishers_retries_incomplete_read():
             )
             == []
         )
-
-
-def test_fetch_json_retries_incomplete_read(monkeypatch):
-    """A truncated body gets one retry before giving up."""
-    monkeypatch.setattr("repomatic.pypi.get_cached_response", lambda *args: None)
-    monkeypatch.setattr("repomatic.pypi.store_response", lambda *args: None)
-    body = json.dumps({"releases": {}}).encode()
-    with patch(
-        "repomatic.http.urlopen",
-        side_effect=[IncompleteRead(b""), FakeResponse(body)],
-    ):
-        assert _fetch_json("cherries") == {"releases": {}}
-
-
-def test_fetch_json_persistent_incomplete_read(monkeypatch):
-    """A body truncated on the retry too returns None."""
-    monkeypatch.setattr("repomatic.pypi.get_cached_response", lambda *args: None)
-    monkeypatch.setattr("repomatic.pypi.store_response", lambda *args: None)
-    with patch(
-        "repomatic.http.urlopen",
-        side_effect=[IncompleteRead(b""), IncompleteRead(b"")],
-    ):
-        assert _fetch_json("cherries") is None
 
 
 def test_get_trusted_publishers_skips_malformed_entries():

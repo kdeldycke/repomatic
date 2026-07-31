@@ -27,6 +27,7 @@ import logging
 from urllib.request import Request, urlopen
 
 from . import __version__
+from .http import DEFAULT_TIMEOUT
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -78,9 +79,7 @@ def build_gitignore(config: Config) -> str:
     url = f"{GITIGNORE_IO_URL}/{','.join(all_categories)}"
     logging.info(f"Fetching {url}")
     request = Request(url, headers={"User-Agent": f"repomatic/{__version__}"})
-    # Same socket timeout as repomatic.http's JSON fetches: a stalled
-    # gitignore.io connection must fail the sync, not hang it.
-    with urlopen(request, timeout=10) as response:
+    with urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
         content: str = response.read().decode("UTF-8")
 
     if config.gitignore.extra_content:

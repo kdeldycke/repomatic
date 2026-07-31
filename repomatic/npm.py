@@ -23,12 +23,12 @@ resolve the npm version literals embedded in workflow YAML (like
 
 from __future__ import annotations
 
-import json
-import logging
-
-from .cache import get_cached_response, store_response
 from .config import load_repomatic_config
-from .http import FetchError, get_json
+from .http import get_cached_json
+
+NPM_PACKAGE_URL = "https://www.npmjs.com/package/{package}"
+"""npm package homepage URL. The npm counterpart to
+{data}`repomatic.pypi.PYPI_PACKAGE_URL`."""
 
 NPM_REGISTRY_URL = "https://registry.npmjs.org/{package}"
 """npm registry metadata URL for a package."""
@@ -44,25 +44,13 @@ def _fetch_json(package: str) -> dict | None:
     :param package: The npm package name.
     :return: Parsed JSON response, or `None` on any failure.
     """
-    ttl = load_repomatic_config().cache.npm_ttl
-    cached = get_cached_response("npm", package, ttl)
-    if cached is not None:
-        try:
-            return json.loads(cached)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
-
-    url = NPM_REGISTRY_URL.format(package=package)
-    try:
-        fetched, raw = get_json(url)
-    except FetchError as exc:
-        logging.debug(f"npm lookup failed for {package}: {exc}")
-        return None
-    result: dict = fetched
-
-    if ttl > 0:
-        store_response("npm", package, raw)
-    return result
+    return get_cached_json(
+        "npm",
+        package,
+        NPM_REGISTRY_URL.format(package=package),
+        ttl=load_repomatic_config().cache.npm_ttl,
+        log_label=f"npm lookup failed for {package}",
+    )
 
 
 def get_release_dates(package: str) -> dict[str, str]:

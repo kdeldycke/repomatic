@@ -40,7 +40,6 @@ import json
 import logging
 import re
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,26 +47,25 @@ from pathlib import Path
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from .github.gh import run_gh_command
-from .uv import (
-    add_exclude_newer_packages,
-    diff_lock_versions,
+from .compat import StrEnum
+from .dep_report import (
     fetch_release_notes,
     format_diff_table,
     format_exclude_newer_note,
     format_release_notes,
+    pypi_name_urls,
+)
+from .github.gh import run_gh_command
+from .pypi import PYPI_PACKAGE_URL
+from .uv import (
+    add_exclude_newer_packages,
+    diff_lock_versions,
     packages_outside_cooldown,
     parse_lock_exclude_newer,
     parse_lock_upload_times,
     parse_lock_versions,
-    pypi_name_urls,
     uv_cmd,
 )
-
-if sys.version_info >= (3, 11):
-    from enum import StrEnum
-else:
-    from backports.strenum import StrEnum
 
 MIN_UV_AUDIT_JSON_VERSION = Version("0.11.15")
 """Minimum `uv` version exposing `uv audit --output-format json`.
@@ -239,7 +237,7 @@ def format_vulnerability_table(vulns: list[VulnerablePackage]) -> str:
         "| :-- | :-- | :-- | :-- | :-- |",
     ]
     for v in vulns:
-        pkg_link = f"[{v.name}](https://pypi.org/project/{v.name}/)"
+        pkg_link = f"[{v.name}]({PYPI_PACKAGE_URL.format(package=v.name)})"
         if v.advisory_url:
             adv_link = f"[{v.advisory_id}]({v.advisory_url})"
         else:

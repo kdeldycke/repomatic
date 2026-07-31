@@ -49,7 +49,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 import tomlrt
@@ -57,8 +57,9 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
+from .dep_report import format_released
 from .pypi import get_release_dates
-from .uv import date_to_utc_cutoff, format_released
+from .uv import freeze_cutoff_after
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -105,15 +106,13 @@ class ReleaseSwap:
     def freeze_cutoff(self) -> str:
         """The `exclude-newer-package` cutoff adopting {attr}`release`.
 
-        One day of margin past the release's earliest upload date, rendered
-        as an explicit UTC timestamp, mirroring `_freeze_cutoff` (see there
-        for the margin and timezone rationale): every distribution file of
+        Delegates the margin policy to
+        {func}`repomatic.uv.freeze_cutoff_after`: every distribution file of
         the adopted release sits inside the window even when its uploads
         straddle midnight, while the global cooldown still shields anything
         newer.
         """
-        day_after = date.fromisoformat(self.released) + timedelta(days=1)
-        return date_to_utc_cutoff(day_after)
+        return freeze_cutoff_after(date.fromisoformat(self.released))
 
 
 def tracked_git_overrides(pyproject_path: Path) -> dict[str, str]:

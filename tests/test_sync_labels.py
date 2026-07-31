@@ -21,19 +21,19 @@ import logging
 import pytest
 import tomlrt
 
-from repomatic.cli import _serialize_inline_labels
+from repomatic.labels import serialize_inline_labels
 
 
 def test_serialize_inline_labels_empty():
     """An empty input yields an empty string so the caller can skip labelmaker."""
-    assert _serialize_inline_labels([]) == ""
+    assert serialize_inline_labels([]) == ""
 
 
 def test_serialize_inline_labels_all_invalid_returns_empty(caplog):
     """If every entry is nameless, the result is empty and warnings are logged."""
     caplog.set_level(logging.WARNING)
     entries = [{"color": "bfdadc"}, {"description": "no name here"}]
-    assert _serialize_inline_labels(entries) == ""
+    assert serialize_inline_labels(entries) == ""
     assert len(caplog.records) == 2
     for record in caplog.records:
         assert "Skipping inline label without a `name`" in record.message
@@ -45,7 +45,7 @@ def test_serialize_inline_labels_round_trip():
         {"name": "bug", "color": "d73a4a", "description": "Something isn't working"},
         {"name": "📦 manager: apk", "color": "bfdadc", "description": "apk"},
     ]
-    output = _serialize_inline_labels(entries)
+    output = serialize_inline_labels(entries)
     parsed = tomlrt.loads(output)
     labels = parsed["profiles"]["default"]["labels"]
     assert len(labels) == 2
@@ -57,7 +57,7 @@ def test_serialize_inline_labels_round_trip():
 
 def test_serialize_inline_labels_strips_leading_hash_on_color():
     """Hex colors with a leading `#` are normalized to bare hex."""
-    output = _serialize_inline_labels([
+    output = serialize_inline_labels([
         {"name": "bug", "color": "#d73a4a", "description": "x"},
     ])
     parsed = tomlrt.loads(output)
@@ -66,7 +66,7 @@ def test_serialize_inline_labels_strips_leading_hash_on_color():
 
 def test_serialize_inline_labels_omits_missing_optional_fields():
     """Missing `color` and `description` are omitted, not emitted as empty strings."""
-    output = _serialize_inline_labels([{"name": "bug"}])
+    output = serialize_inline_labels([{"name": "bug"}])
     parsed = tomlrt.loads(output)
     label = parsed["profiles"]["default"]["labels"][0]
     assert label["name"] == "bug"
@@ -77,7 +77,7 @@ def test_serialize_inline_labels_omits_missing_optional_fields():
 def test_serialize_inline_labels_skips_blank_name(caplog):
     """A whitespace-only name is treated as missing."""
     caplog.set_level(logging.WARNING)
-    output = _serialize_inline_labels([
+    output = serialize_inline_labels([
         {"name": "   ", "color": "bfdadc"},
         {"name": "real", "color": "bfdadc"},
     ])
@@ -100,7 +100,7 @@ def test_serialize_inline_labels_skips_blank_name(caplog):
 )
 def test_serialize_inline_labels_escapes_special_characters(name, description):
     """Special characters survive serialization and re-parsing."""
-    output = _serialize_inline_labels([
+    output = serialize_inline_labels([
         {"name": name, "color": "bfdadc", "description": description},
     ])
     parsed = tomlrt.loads(output)

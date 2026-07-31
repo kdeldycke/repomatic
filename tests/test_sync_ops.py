@@ -337,7 +337,7 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
 
     awesome-lint is the only npm tool, so recording the argument `npm_candidates`
     receives proves the `elif spec.npm` branch routes it away from PyPI/GitHub.
-    Empty candidate lists mean nothing is bumped, so `tool_runner.py` stays put.
+    Empty candidate lists mean nothing is bumped, so `tool_registry.py` stays put.
     """
     seen = {}
 

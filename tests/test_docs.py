@@ -146,7 +146,9 @@ def test_update_docs_check_skips_writes_and_propagates(tmp_path, monkeypatch):
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "docs_update.py").write_text("", encoding="utf-8")
-    (docs / "page.md").write_text("<!-- mirror -->\n\n<!-- mirror-end -->\n", encoding="utf-8")
+    (docs / "page.md").write_text(
+        "<!-- mirror -->\n\n<!-- mirror-end -->\n", encoding="utf-8"
+    )
     monkeypatch.chdir(tmp_path)
     meta = SimpleNamespace(is_sphinx=True, active_autodoc=True, uses_myst=True)
     with (

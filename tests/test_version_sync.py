@@ -31,7 +31,7 @@ from repomatic import version_sync as vs
 from repomatic.cli import repomatic
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
-from repomatic.tool_runner import TOOL_REGISTRY
+from repomatic.tool_registry import TOOL_REGISTRY
 
 TODAY = date(2026, 6, 27)
 
@@ -223,7 +223,7 @@ def test_format_cooldown_note():
 
 
 def test_set_tool_version_targets_one_tool():
-    source = Path("repomatic/tool_runner.py").read_text(encoding="UTF-8")
+    source = Path("repomatic/tool_registry.py").read_text(encoding="UTF-8")
     bumped = vs.set_tool_version(source, "gitleaks", "9.9.9")
     assert bumped.count('version="9.9.9"') == 1
     # A sibling tool is untouched.

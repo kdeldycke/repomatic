@@ -45,15 +45,16 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 
-from repomatic.pyproject import read_pyproject_toml
-from repomatic.uv import load_lock_data, parse_lock_specifiers, uv_cmd
+from .pypi import PYPI_PACKAGE_URL
+from .pyproject import read_pyproject_toml
+from .uv import load_lock_data, parse_lock_specifiers, uv_cmd
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Any
 
-    from repomatic.uv import LockSpecifiers
+    from .uv import LockSpecifiers
 
 
 @lru_cache(maxsize=16)
@@ -723,11 +724,11 @@ def render_mermaid(
     lines.append("")
     for name in sorted(packages):
         node_id = normalize_package_name(name)
-        pypi_url = f"https://pypi.org/project/{name}/"
+        pypi_url = PYPI_PACKAGE_URL.format(package=name)
         lines.append(f'    click {node_id} "{pypi_url}" _blank')
     # Duplicate headline nodes link to the same PyPI page as their real node.
     for node_id, name in duplicate_nodes:
-        pypi_url = f"https://pypi.org/project/{name}/"
+        pypi_url = PYPI_PACKAGE_URL.format(package=name)
         lines.append(f'    click {node_id} "{pypi_url}" _blank')
 
     # Style root and directly-declared dependency nodes with thick borders.

@@ -54,22 +54,17 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from random import randint
 
+from ..compat import StrEnum
 from .gh import run_gh_command
-
-if sys.version_info >= (3, 11):
-    from enum import StrEnum
-else:
-    from backports.strenum import StrEnum
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from typing import Any, Literal
+    from typing import Any
 
 
 NULL_SHA = "0" * 40
@@ -125,11 +120,30 @@ class WorkflowEvent(StrEnum):
 
 
 class AnnotationLevel(Enum):
-    """Annotation levels for GitHub Actions workflow commands."""
+    """Annotation levels for GitHub Actions workflow commands.
+
+    Mirrors the three levels GitHub supports, even where the codebase only
+    emits a subset.
+    """
 
     ERROR = "error"
     WARNING = "warning"
     NOTICE = "notice"
+
+
+def extract_workflow_filename(workflow_ref: str | None) -> str:
+    """Extract the workflow filename from `GITHUB_WORKFLOW_REF`.
+
+    :param workflow_ref: The full workflow reference, e.g.
+        `owner/repo/.github/workflows/name.yaml@refs/heads/branch`.
+    :return: The workflow filename (e.g. `name.yaml`), or an empty string
+        if the reference is empty or malformed.
+    """
+    if not workflow_ref:
+        return ""
+    # Strip the @ref suffix, then take the basename.
+    path_part = workflow_ref.split("@")[0]
+    return path_part.rsplit("/", 1)[-1] if "/" in path_part else path_part
 
 
 def generate_delimiter() -> str:
@@ -172,24 +186,19 @@ def format_multiline_output(name: str, value: str) -> str:
     return f"{name}<<{delimiter}\n{value}\n{delimiter}"
 
 
-def emit_annotation(
-    level: AnnotationLevel | Literal["error", "warning", "notice"],
-    message: str,
-) -> None:
+def emit_annotation(level: AnnotationLevel, message: str) -> None:
     """Emit a GitHub Actions workflow annotation.
 
     Prints a workflow command that creates an annotation visible in the GitHub
     Actions UI and PR checks.
 
-    :param level: The annotation level (error, warning, or notice).
+    :param level: The annotation level.
     :param message: The annotation message.
 
     ```{seealso}
     https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-error-message
     ```
     """
-    if isinstance(level, str):
-        level = AnnotationLevel(level)
     print(f"::{level.value}::{message}")
 
 

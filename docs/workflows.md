@@ -223,7 +223,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - **Upstream-only**: runs only inside `kdeldycke/repomatic` (guarded by `github.repository == 'kdeldycke/repomatic'`); downstream repos receive updated tool versions when they sync against a new repomatic release
 - Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gitleaks, labelmaker, lychee, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
-- Runs via `uv run` against the local editable source, rewriting `repomatic/tool_runner.py` directly
+- Runs via `uv run` against the local editable source, rewriting `repomatic/tool_registry.py` directly
 - **Runs on**: weekly schedule and manual dispatch
 - **Requires**:
   - `REPOMATIC_PAT` secret with contents write permission

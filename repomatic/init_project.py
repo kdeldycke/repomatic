@@ -46,15 +46,23 @@ import logging
 import re
 import sys
 from dataclasses import dataclass, field
-from importlib.resources import as_file, files
+from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from urllib.request import urlretrieve
 
 import tomlrt
-import yaml
 
-from . import __version__
+from . import __git_tag_sha__, __version__
+from .bundle import get_data_content
 from .config import Config, load_repomatic_config
+from .github.workflow_sync import (
+    PathsSpec,
+    extract_extra_jobs,
+    generate_thin_caller,
+    generate_workflow_header,
+    identify_canonical_workflow,
+)
+from .labels import augment_labeller_content
 from .metadata import Metadata
 from .pyproject import is_python_project, resolve_source_paths
 from .registry import (
@@ -74,7 +82,8 @@ from .registry import (
     excluded_rel_path,
     parse_component_entries,
 )
-from .tool_runner import TOOL_REGISTRY, find_unmodified_configs
+from .tool_registry import TOOL_REGISTRY
+from .tool_runner import find_unmodified_configs
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -120,29 +129,6 @@ EXPORTABLE_FILES: dict[str, str | None] = {
 by `repomatic init` (used for `pyproject.toml` templates that need merging,
 tool-runner default configs, and runtime fragments).
 """
-
-
-# ---------------------------------------------------------------------------
-# Bundled data access
-# ---------------------------------------------------------------------------
-
-
-def get_data_content(filename: str) -> str:
-    """Get the content of a bundled data file.
-
-    This is the low-level function for reading any file from `repomatic/data/`.
-
-    :param filename: Name of the file to retrieve (e.g., "labels.toml").
-    :return: Content of the file as a string.
-    :raises FileNotFoundError: If the file doesn't exist.
-    """
-    data_files = files("repomatic.data")
-    with as_file(data_files.joinpath(filename)) as path:
-        if path.exists():
-            return path.read_text(encoding="UTF-8")
-
-    msg = f"Data file not found: {filename}"
-    raise FileNotFoundError(msg)
 
 
 def export_content(filename: str) -> str:
@@ -831,15 +817,6 @@ def _init_workflows(
 
     :param include: When not `None`, only generate files in this set.
     """
-    # Lazy import to avoid circular dependency with workflow_sync.
-    from . import __git_tag_sha__
-    from .github.workflow_sync import (
-        PathsSpec,
-        extract_extra_jobs,
-        generate_thin_caller,
-        generate_workflow_header,
-    )
-
     # Use the build-time SHA for pinning, if available.
     commit_sha: str | None = __git_tag_sha__ or None
 
@@ -1061,209 +1038,11 @@ def _classify_removed_workflow(path: Path) -> str:
         workflow, `"review"` when the user appended extra jobs, or `"skip"`
         when the file is not a lineage thin-caller (leave it untouched).
     """
-    # Lazy import to avoid a circular dependency with workflow_sync.
-    from .github.workflow_sync import extract_extra_jobs, identify_canonical_workflow
-
     for slug in UPSTREAM_REPO_SLUGS:
         if identify_canonical_workflow(path, slug) == path.name:
             extra = extract_extra_jobs(path.read_text(encoding="UTF-8"), slug)
             return "review" if extra.strip() else "prune"
     return "skip"
-
-
-FILE_RULE_CHANGED_FILES_MATCHERS: tuple[str, ...] = (
-    "any-glob-to-any-file",
-    "any-glob-to-all-files",
-    "all-globs-to-any-file",
-    "all-globs-to-all-files",
-)
-"""`actions/labeler` matchers nested under `changed-files` in the rendered YAML."""
-
-FILE_RULE_BRANCH_MATCHERS: tuple[str, ...] = ("head-branch", "base-branch")
-"""`actions/labeler` matchers that sit at the same level as `changed-files`."""
-
-FILE_RULE_GROUP_WRAPPERS: tuple[str, ...] = ("any", "all")
-"""`actions/labeler` group wrappers whose value is a list of nested sub-groups."""
-
-FILE_RULE_MATCHER_KEYS: frozenset[str] = frozenset((
-    *FILE_RULE_CHANGED_FILES_MATCHERS,
-    *FILE_RULE_BRANCH_MATCHERS,
-    *FILE_RULE_GROUP_WRAPPERS,
-))
-"""Keys valid inside a match group (top-level entry minus `label`, or nested)."""
-
-CONTENT_RULE_KNOWN_KEYS: frozenset[str] = frozenset(("label", "patterns"))
-"""All keys recognized on a single `[[labels.content-rules]]` TOML entry."""
-
-
-def _dump_labeller_yaml(grouped: dict[str, Any]) -> str:
-    """Serialize a label-keyed dict to the labeller YAML dialect.
-
-    Both `actions/labeler` (file rules) and `github/issue-labeler` (content
-    rules) consume top-level `label: ...` mappings; the only shared dump
-    settings are `default_flow_style=False`, `sort_keys=False`, and
-    `allow_unicode=True` (labels contain emojis). `width=10000` keeps long
-    glob lists on one line for readable diffs. Returns an empty string when
-    `grouped` is empty so the caller can skip the labeller append entirely.
-    """
-    if not grouped:
-        return ""
-    return yaml.safe_dump(
-        grouped,
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-        width=10000,
-    )
-
-
-def _render_file_rule_group(group: dict[str, Any], label: str) -> dict[str, Any]:
-    """Render one TOML match group as an `actions/labeler` YAML group dict.
-
-    File-level matchers (`any-glob-to-any-file` etc.) collapse under a single
-    `changed-files` key. Branch matchers pass through at the group's top level.
-    The `any` / `all` group wrappers recurse into nested groups, so a downstream
-    project can express the full `actions/labeler` v5+ schema without falling
-    back to raw YAML. Unknown keys log a warning and are dropped.
-    """
-    rendered: dict[str, Any] = {}
-    for key in group:
-        if key not in FILE_RULE_MATCHER_KEYS:
-            logging.warning(
-                "Unknown file rule key %r in label %r (ignored).",
-                key,
-                label,
-            )
-    changed_files: list[dict[str, list[str]]] = []
-    for key in FILE_RULE_CHANGED_FILES_MATCHERS:
-        value = group.get(key)
-        if value:
-            changed_files.append({key: list(value)})
-    if changed_files:
-        rendered["changed-files"] = changed_files
-    for key in FILE_RULE_BRANCH_MATCHERS:
-        value = group.get(key)
-        if value:
-            rendered[key] = list(value)
-    for wrapper in FILE_RULE_GROUP_WRAPPERS:
-        value = group.get(wrapper)
-        if not value:
-            continue
-        sub_groups = []
-        for sub in value:
-            sub_rendered = _render_file_rule_group(sub, label)
-            if sub_rendered:
-                sub_groups.append(sub_rendered)
-            else:
-                logging.warning(
-                    "Skipping empty %r sub-group for label %r.",
-                    wrapper,
-                    label,
-                )
-        if sub_groups:
-            rendered[wrapper] = sub_groups
-    return rendered
-
-
-def _serialize_file_rules(rules: list[dict[str, Any]]) -> str:
-    """Serialize structured file-rules to `actions/labeler` YAML.
-
-    Each rule entry becomes one match group under its `label`. Repeating the
-    same `label` across entries OR's the resulting groups, matching the
-    labeller convention. Entries without a `label` or without any matcher are
-    skipped with a warning, since the labeller would either crash or apply
-    the label to every PR.
-
-    Keep the globs precise: a file rule should match paths owned by exactly one
-    label. A glob broad enough to catch unrelated changes mislabels every PR
-    touching them, and the labeller is only a convenience for the maintainer's
-    first pass, never a substitute for manual classification (see `claude.md`).
-    """
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for rule in rules:
-        label = str(rule.get("label") or "").strip()
-        if not label:
-            logging.warning("Skipping file rule without `label`: %r.", rule)
-            continue
-        group_body = {k: v for k, v in rule.items() if k != "label"}
-        group = _render_file_rule_group(group_body, label)
-        if not group:
-            logging.warning(
-                "Skipping file rule for label %r with no matchers: %r.",
-                label,
-                rule,
-            )
-            continue
-        grouped.setdefault(label, []).append(group)
-    return _dump_labeller_yaml(grouped)
-
-
-def _serialize_content_rules(rules: list[dict[str, Any]]) -> str:
-    r"""Serialize structured content-rules to `github/issue-labeler` YAML.
-
-    Each rule entry contributes its `patterns` list under its `label`.
-    Repeating the same `label` across entries concatenates the patterns.
-    Entries without a `label` or without `patterns` are skipped with a
-    warning.
-
-    `github/issue-labeler` AND-joins a label's patterns (every one must match)
-    and matches each as an unanchored, case-sensitive regex. A downstream rule
-    that means "any of these keywords" must therefore supply a *single* anchored,
-    case-insensitive alternation (`/\bfoo\b|\bbar\b/i`), not a list of bare words.
-    Encode a rule only for terms that unambiguously name the subject and that the
-    project never prints in its own output; see the labeller principle in
-    `claude.md`.
-    """
-    grouped: dict[str, list[str]] = {}
-    for rule in rules:
-        label = str(rule.get("label") or "").strip()
-        if not label:
-            logging.warning("Skipping content rule without `label`: %r.", rule)
-            continue
-        for key in rule:
-            if key not in CONTENT_RULE_KNOWN_KEYS:
-                logging.warning(
-                    "Unknown content rule key %r in label %r (ignored).",
-                    key,
-                    label,
-                )
-        patterns = rule.get("patterns") or []
-        if not patterns:
-            logging.warning(
-                "Skipping content rule for label %r with no patterns: %r.",
-                label,
-                rule,
-            )
-            continue
-        grouped.setdefault(label, []).extend(patterns)
-    return _dump_labeller_yaml(grouped)
-
-
-def _augment_labeller_content(
-    source: str,
-    content: str,
-    config: Config | None,
-) -> str:
-    """Append structured per-label rules to a bundled labeller YAML.
-
-    The bundled YAML is the canonical default rules upstream ships. Downstream
-    projects add their own rules as structured TOML under
-    `[[tool.repomatic.labels.file-rules]]` or
-    `[[tool.repomatic.labels.content-rules]]`; the structured form is rendered
-    to YAML at export time and concatenated after the bundled content with a
-    blank-line separator. Pass-through for non-labeller source files.
-    """
-    if config is None:
-        return content
-    if source == "labeller-file-based.yaml":
-        structured = _serialize_file_rules(config.labels.file_rules)
-    elif source == "labeller-content-based.yaml":
-        structured = _serialize_content_rules(config.labels.content_rules)
-    else:
-        return content
-    if not structured.strip():
-        return content
-    return content.rstrip() + "\n\n" + structured.rstrip() + "\n"
 
 
 def _init_config_files(
@@ -1303,7 +1082,7 @@ def _init_config_files(
 
         content = export_content(entry.source)
         if component_name == "labels":
-            content = _augment_labeller_content(entry.source, content, config)
+            content = augment_labeller_content(entry.source, content, config)
         # Normalize trailing whitespace to a single newline, matching the
         # convention used by sync commands (echo(content.rstrip(), ...)).
         normalized = content.rstrip() + "\n"

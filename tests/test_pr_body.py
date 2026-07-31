@@ -26,6 +26,7 @@ import pytest
 
 from repomatic import __version__
 from repomatic.config import config_reference
+from repomatic.github.actions import extract_workflow_filename
 from repomatic.github.pr_body import (
     GITHUB_BODY_MAX_CHARS,
     _parse_frontmatter,
@@ -33,7 +34,6 @@ from repomatic.github.pr_body import (
     _utf16_len,
     build_pr_body,
     demote_markdown_headings,
-    extract_workflow_filename,
     fit_issue_body,
     generate_pr_metadata_block,
     generate_refresh_tip,

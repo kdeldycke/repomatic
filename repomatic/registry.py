@@ -21,9 +21,9 @@ Each component carries all its metadata: what kind it is, whether it is
 selected by default, which files it manages, and any per-file properties like
 repo-scope gating or config keys.
 
-All derived constants (`ALL_COMPONENTS`, `COMPONENT_FILES`,
-`REUSABLE_WORKFLOWS`, `SKILL_PHASES`, etc.) are computed from this single
-registry in {mod}`repomatic.init_project`.
+All derived constants (`ALL_COMPONENTS`, `REUSABLE_WORKFLOWS`,
+`SKILL_PHASES`, etc.) are computed from this single registry at the bottom of
+this module.
 """
 
 from __future__ import annotations

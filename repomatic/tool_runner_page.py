@@ -28,7 +28,7 @@ import re
 
 from click_extra import TableFormat, render_table
 
-from .tool_runner import TOOL_REGISTRY, NativeFormat, ToolSpec
+from .tool_registry import TOOL_REGISTRY, NativeFormat, ToolSpec
 
 _PYPI_RELEASE_TOOLS = frozenset({"mdformat", "mypy"})
 """Tools that lack a usable GitHub "latest release" object.

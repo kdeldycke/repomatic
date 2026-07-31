@@ -22,10 +22,10 @@ import pytest
 import yaml
 
 from repomatic.config import Config, LabelsConfig
-from repomatic.init_project import (
-    _augment_labeller_content,
-    _serialize_content_rules,
-    _serialize_file_rules,
+from repomatic.labels import (
+    augment_labeller_content,
+    serialize_content_rules,
+    serialize_file_rules,
 )
 
 # -- File rules ---------------------------------------------------------------
@@ -33,12 +33,12 @@ from repomatic.init_project import (
 
 def test_serialize_file_rules_empty():
     """Empty input yields empty string so the caller can skip the append."""
-    assert _serialize_file_rules([]) == ""
+    assert serialize_file_rules([]) == ""
 
 
 def test_serialize_file_rules_single_matcher():
     """The simplest rule shape: label plus one glob list."""
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {"label": "📦 manager: apk", "any-glob-to-any-file": ["managers/apk*"]},
     ])
     parsed = yaml.safe_load(output)
@@ -60,7 +60,7 @@ def test_serialize_file_rules_single_matcher():
 )
 def test_serialize_file_rules_all_changed_files_matchers(matcher):
     """Every actions/labeler changed-files matcher round-trips correctly."""
-    output = _serialize_file_rules([{"label": "x", matcher: ["a", "b"]}])
+    output = serialize_file_rules([{"label": "x", matcher: ["a", "b"]}])
     parsed = yaml.safe_load(output)
     assert parsed == {"x": [{"changed-files": [{matcher: ["a", "b"]}]}]}
 
@@ -68,14 +68,14 @@ def test_serialize_file_rules_all_changed_files_matchers(matcher):
 @pytest.mark.parametrize("matcher", ["head-branch", "base-branch"])
 def test_serialize_file_rules_branch_matchers(matcher):
     """Branch matchers sit at the group's top level, not inside changed-files."""
-    output = _serialize_file_rules([{"label": "x", matcher: ["^foo/"]}])
+    output = serialize_file_rules([{"label": "x", matcher: ["^foo/"]}])
     parsed = yaml.safe_load(output)
     assert parsed == {"x": [{matcher: ["^foo/"]}]}
 
 
 def test_serialize_file_rules_combined_conditions_in_one_group():
     """Multiple matchers in one entry AND together as a single group."""
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {
             "label": "x",
             "any-glob-to-any-file": ["a"],
@@ -99,7 +99,7 @@ def test_serialize_file_rules_combined_conditions_in_one_group():
 
 def test_serialize_file_rules_same_label_ored():
     """Repeating a label across entries produces multiple OR'd groups."""
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {"label": "x", "any-glob-to-any-file": ["a"]},
         {"label": "x", "head-branch": ["^foo/"]},
         {"label": "y", "any-glob-to-any-file": ["b"]},
@@ -117,7 +117,7 @@ def test_serialize_file_rules_same_label_ored():
 def test_serialize_file_rules_skips_unlabeled(caplog):
     """Entries without a label are skipped with a warning."""
     caplog.set_level(logging.WARNING)
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {"any-glob-to-any-file": ["a"]},
         {"label": "x", "any-glob-to-any-file": ["b"]},
     ])
@@ -131,7 +131,7 @@ def test_serialize_file_rules_skips_unlabeled(caplog):
 def test_serialize_file_rules_skips_matcherless(caplog):
     """A label with no matchers would label every PR; skip it loudly."""
     caplog.set_level(logging.WARNING)
-    assert _serialize_file_rules([{"label": "x"}]) == ""
+    assert serialize_file_rules([{"label": "x"}]) == ""
     assert any(
         "Skipping file rule for label 'x' with no matchers" in r.message
         for r in caplog.records
@@ -141,7 +141,7 @@ def test_serialize_file_rules_skips_matcherless(caplog):
 def test_serialize_file_rules_warns_on_unknown_keys(caplog):
     """Unknown keys are dropped with a warning, leaving valid matchers intact."""
     caplog.set_level(logging.WARNING)
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {"label": "x", "any-glob-to-any-file": ["a"], "made-up": ["nope"]},
     ])
     parsed = yaml.safe_load(output)
@@ -155,7 +155,7 @@ def test_serialize_file_rules_warns_on_unknown_keys(caplog):
 @pytest.mark.parametrize("wrapper", ["any", "all"])
 def test_serialize_file_rules_group_wrappers(wrapper):
     """`any`/`all` wrappers render as nested groups in the labeller YAML."""
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {
             "label": "x",
             wrapper: [
@@ -179,7 +179,7 @@ def test_serialize_file_rules_group_wrappers(wrapper):
 
 def test_serialize_file_rules_nested_group_wrappers():
     """Group wrappers nest recursively, covering the full labeller v5+ schema."""
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {
             "label": "x",
             "any": [
@@ -213,7 +213,7 @@ def test_serialize_file_rules_nested_group_wrappers():
 
 def test_serialize_file_rules_group_wrapper_alongside_siblings():
     """A group may carry both flat matchers and a wrapper; both survive."""
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {
             "label": "x",
             "any-glob-to-any-file": ["a"],
@@ -234,7 +234,7 @@ def test_serialize_file_rules_group_wrapper_alongside_siblings():
 def test_serialize_file_rules_skips_empty_sub_group(caplog):
     """Empty sub-groups inside `any`/`all` are dropped with a warning."""
     caplog.set_level(logging.WARNING)
-    output = _serialize_file_rules([
+    output = serialize_file_rules([
         {
             "label": "x",
             "any": [
@@ -263,12 +263,12 @@ def test_serialize_file_rules_skips_empty_sub_group(caplog):
 
 
 def test_serialize_content_rules_empty():
-    assert _serialize_content_rules([]) == ""
+    assert serialize_content_rules([]) == ""
 
 
 def test_serialize_content_rules_basic():
     """Label plus patterns round-trip to the issue-labeler shape."""
-    output = _serialize_content_rules([
+    output = serialize_content_rules([
         {"label": "🔌 bar-plugin", "patterns": ["xbar", "swiftbar"]},
     ])
     parsed = yaml.safe_load(output)
@@ -277,7 +277,7 @@ def test_serialize_content_rules_basic():
 
 def test_serialize_content_rules_same_label_merged():
     """Repeating a label concatenates its patterns, preserving order."""
-    output = _serialize_content_rules([
+    output = serialize_content_rules([
         {"label": "x", "patterns": ["a", "b"]},
         {"label": "x", "patterns": ["c"]},
         {"label": "y", "patterns": ["d"]},
@@ -288,7 +288,7 @@ def test_serialize_content_rules_same_label_merged():
 
 def test_serialize_content_rules_skips_empty_patterns(caplog):
     caplog.set_level(logging.WARNING)
-    output = _serialize_content_rules([
+    output = serialize_content_rules([
         {"label": "x", "patterns": []},
         {"label": "y", "patterns": ["yes"]},
     ])
@@ -310,7 +310,7 @@ def _make_config(**labels_kwargs):
 def test_augment_passes_through_unknown_source():
     """Non-labeller source files come back unchanged."""
     config = _make_config(file_rules=[{"label": "x", "any-glob-to-any-file": ["a"]}])
-    assert _augment_labeller_content("labels.toml", "x\n", config) == "x\n"
+    assert augment_labeller_content("labels.toml", "x\n", config) == "x\n"
 
 
 def test_augment_returns_bundled_when_no_rules():
@@ -318,8 +318,7 @@ def test_augment_returns_bundled_when_no_rules():
     config = _make_config()
     bundled = "bundled: yes\n"
     assert (
-        _augment_labeller_content("labeller-file-based.yaml", bundled, config)
-        == bundled
+        augment_labeller_content("labeller-file-based.yaml", bundled, config) == bundled
     )
 
 
@@ -328,7 +327,7 @@ def test_augment_appends_file_rules():
     config = _make_config(
         file_rules=[{"label": "x", "any-glob-to-any-file": ["a"]}],
     )
-    result = _augment_labeller_content(
+    result = augment_labeller_content(
         "labeller-file-based.yaml",
         "bundled: yes\n",
         config,
@@ -343,7 +342,7 @@ def test_augment_appends_content_rules():
     config = _make_config(
         content_rules=[{"label": "x", "patterns": ["xbar"]}],
     )
-    result = _augment_labeller_content(
+    result = augment_labeller_content(
         "labeller-content-based.yaml",
         "bundled:\n  - upstream\n",
         config,
@@ -356,5 +355,5 @@ def test_augment_none_config():
     """A None config (caller opts out) preserves the bundled content."""
     bundled = "bundled: yes\n"
     assert (
-        _augment_labeller_content("labeller-file-based.yaml", bundled, None) == bundled
+        augment_labeller_content("labeller-file-based.yaml", bundled, None) == bundled
     )
