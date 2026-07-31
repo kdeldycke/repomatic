@@ -1460,7 +1460,7 @@ requires-dist = [
     { name = "arrow", specifier = ">=1.3" },
     { name = "backports-strenum", marker = "python_full_version < '3.11'", specifier = ">=1" },
     { name = "boltons", specifier = ">=25" },
-    { name = "click-extra", specifier = ">=8.8.0" },
+    { name = "click-extra", specifier = ">=8.8" },
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=17" },
     { name = "py-walk", specifier = ">=0.3.1" },
@@ -1812,14 +1812,14 @@ wheels = [
 
 [[package]]
 name = "tomlrt"
-version = "2.1.1"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions", marker = "python_full_version < '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/98/18/74c541ebf3f34313293b8c66c6fb80d5dde7645859614a22dd634bde3d5d/tomlrt-2.1.1.tar.gz", hash = "sha256:3ca1543a89d816d90df882f6af491a6c064c2437501854e48d2b0036ed5c7a18", size = 352275, upload-time = "2026-07-21T17:11:51.446Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/17/54/351b7d6c10d25ee33861ae50939e4f15ddfebf184e7efebf7821ce5e76cc/tomlrt-2.2.0.tar.gz", hash = "sha256:e65293f38465ea9cfc90a66f78e147bb106a8bdbde17737be9a6f1b7389c5eea", size = 357685, upload-time = "2026-07-24T09:24:22.129Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/30/bd195241ebe83ad156a8f62bf0300ca2e0dad2069a540485cf05a079fe1b/tomlrt-2.1.1-py3-none-any.whl", hash = "sha256:c5f8a9998412a734c79545271574682044d16126de113b047477cfd496a044de", size = 137422, upload-time = "2026-07-21T17:11:49.771Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/25/353b2e741532184a7cdc1c22c3a46d12bfd69239ee044101ef6d1ed7999f/tomlrt-2.2.0-py3-none-any.whl", hash = "sha256:971f1a6a9f70c7b1ed657a8097dcadd6ad0663c640f888a1f02cf836f314d7ab", size = 138166, upload-time = "2026-07-24T09:24:20.698Z" },
 ]
 
 [[package]]
