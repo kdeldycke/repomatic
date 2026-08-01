@@ -41,7 +41,6 @@ flowchart LR
     propcache(["`propcache`"])
     python_dateutil(["`python-dateutil`"])
     sphinx_basic_ng(["`sphinx-basic-ng`"])
-    sphinxcontrib_jquery(["`sphinxcontrib-jquery`"])
     tabulate(["`tabulate`"])
     wcwidth(["`wcwidth`"])
     aiofiles(["`aiofiles`"])
@@ -80,6 +79,7 @@ flowchart LR
         furo{{"`furo >=2025.9.25`"}}
         sphinx_datatables{{"`sphinx-datatables >=1`"}}
         sphinxcontrib_mermaid{{"`sphinxcontrib-mermaid >=1.2.3`"}}
+        sphinxcontrib_jquery{{"`sphinxcontrib-jquery >=4`"}}
         sphinx_autodoc_typehints{{"`sphinx-autodoc-typehints >=2.4`"}}
         sphinx_copybutton{{"`sphinx-copybutton >=0.5.2`"}}
         sphinx_design{{"`sphinx-design >=0.6`"}}
@@ -176,6 +176,7 @@ flowchart LR
     arrow --> python_dateutil
     arrow --> tzdata
     coverage --> tomli
+    sphinxcontrib_jquery --> sphinx
     vt_py --> aiohttp
     vt_py --> aiofiles
     wcmatch --> bracex
@@ -213,7 +214,6 @@ flowchart LR
     mdit_py_plugins --> markdown_it_py
     python_dateutil --> six
     sphinx_basic_ng --> sphinx
-    sphinxcontrib_jquery --> sphinx
     tabulate --> wcwidth
     yarl --> multidict
     yarl --> idna
@@ -338,6 +338,7 @@ flowchart LR
     style sphinx_copybutton stroke-width:3px
     style sphinx_datatables stroke-width:3px
     style sphinx_design stroke-width:3px
+    style sphinxcontrib_jquery stroke-width:3px
     style sphinxcontrib_mermaid stroke-width:3px
     style sphinxext_opengraph stroke-width:3px
     style tomlrt stroke-width:3px
