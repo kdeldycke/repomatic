@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - Add two review links to the release PR's `How-to release` checklist: the draft dev pre-release and the full changes against `main`.
+- Extend the `uvx` script-equals-package guard to the `pipx run <script>` install check, so `📦 Package install` no longer fails permanently for projects whose CLI script differs from their package name.
 
 ## [`7.4.0` (2026-07-31)](https://github.com/kdeldycke/repomatic/compare/v7.3.1...v7.4.0)
 
