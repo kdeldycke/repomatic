@@ -28,6 +28,7 @@ import pytest
 from repomatic.github.releases import (
     GitHubRelease,
     GitHubReleasesUnavailable,
+    dev_release_url_and_previous_version,
     edit_release_notes,
     extract_version,
     fetch_github_release_notes,
@@ -343,3 +344,118 @@ def test_edit_release_notes_not_found():
         side_effect=RuntimeError("release not found"),
     ):
         assert edit_release_notes("v1.2.3", "user/repo", "body") is False
+
+
+def _asset_payload(
+    tag: str,
+    *,
+    draft: bool = False,
+    prerelease: bool = False,
+    html_url: str = "",
+    date: str = "2026-01-01",
+) -> dict:
+    """Build a minimal release JSON object for get_releases_with_assets."""
+    return {
+        "tag_name": tag,
+        "draft": draft,
+        "prerelease": prerelease,
+        "html_url": html_url,
+        "published_at": f"{date}T00:00:00Z",
+        "created_at": f"{date}T00:00:00Z",
+        "assets": [],
+        "body": "",
+    }
+
+
+def test_dev_release_url_and_previous_version_resolves_both():
+    """One fetch yields the draft dev URL and the highest final version."""
+    page = json.dumps([
+        _asset_payload(
+            "v1.2.3.dev0",
+            draft=True,
+            prerelease=True,
+            html_url="https://github.com/user/repo/releases/tag/untagged-deadbeef",
+        ),
+        _asset_payload("v1.2.2"),
+        _asset_payload("v1.2.1"),
+    ]).encode()
+    responses = iter([FakeResponse(page), FakeResponse(b"[]")])
+    with patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses)):
+        dev_url, previous = dev_release_url_and_previous_version(
+            "https://github.com/user/repo", "1.2.3"
+        )
+
+    assert dev_url == "https://github.com/user/repo/releases/tag/untagged-deadbeef"
+    assert previous == "1.2.2"
+
+
+def test_dev_release_url_and_previous_version_matches_release_segment():
+    """A `.dev1` draft still matches by release segment, ignoring drafts' order."""
+    page = json.dumps([
+        _asset_payload("v3.0.0", prerelease=True, html_url="rc-should-be-ignored"),
+        _asset_payload(
+            "v2.5.0.dev1",
+            draft=True,
+            prerelease=True,
+            html_url="https://github.com/user/repo/releases/tag/untagged-feed",
+        ),
+        _asset_payload("v2.4.0"),
+    ]).encode()
+    responses = iter([FakeResponse(page), FakeResponse(b"[]")])
+    with patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses)):
+        dev_url, previous = dev_release_url_and_previous_version(
+            "https://github.com/user/repo", "2.5.0"
+        )
+
+    # The pre-release v3.0.0 is excluded from the previous-version scan.
+    assert dev_url == "https://github.com/user/repo/releases/tag/untagged-feed"
+    assert previous == "2.4.0"
+
+
+def test_dev_release_url_and_previous_version_no_draft():
+    """A missing dev draft yields None for the URL but keeps the previous version."""
+    page = json.dumps([
+        _asset_payload("v2.0.0"),
+        _asset_payload("v1.9.0"),
+    ]).encode()
+    responses = iter([FakeResponse(page), FakeResponse(b"[]")])
+    with patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses)):
+        dev_url, previous = dev_release_url_and_previous_version(
+            "https://github.com/user/repo", "2.1.0"
+        )
+
+    assert dev_url is None
+    assert previous == "2.0.0"
+
+
+def test_dev_release_url_and_previous_version_first_release():
+    """The very first release has a dev draft but no previous version."""
+    page = json.dumps([
+        _asset_payload(
+            "v1.0.0.dev0",
+            draft=True,
+            prerelease=True,
+            html_url="https://github.com/user/repo/releases/tag/untagged-cafe",
+        ),
+    ]).encode()
+    responses = iter([FakeResponse(page), FakeResponse(b"[]")])
+    with patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses)):
+        dev_url, previous = dev_release_url_and_previous_version(
+            "https://github.com/user/repo", "1.0.0"
+        )
+
+    assert dev_url == "https://github.com/user/repo/releases/tag/untagged-cafe"
+    assert previous is None
+
+
+def test_dev_release_url_and_previous_version_unavailable(monkeypatch):
+    """An API failure degrades both lookups to None."""
+
+    def _raise(repo_url):
+        raise GitHubReleasesUnavailable("boom")
+
+    monkeypatch.setattr("repomatic.github.releases.get_releases_with_assets", _raise)
+
+    assert dev_release_url_and_previous_version(
+        "https://github.com/user/repo", "1.0.0"
+    ) == (None, None)

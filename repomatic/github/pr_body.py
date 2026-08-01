@@ -49,6 +49,7 @@ from string import Template
 
 from .. import __version__
 from .actions import extract_workflow_filename
+from .releases import dev_release_url_and_previous_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -542,6 +543,52 @@ def generate_refresh_tip(md: Metadata) -> str:
         repo_url=md.repo_url,
         workflow_file=workflow_file,
     )
+
+
+def build_release_review_steps(md: Metadata, version: str) -> tuple[str, str]:
+    """Build the two optional review steps of the prepare-release checklist.
+
+    The `How-to release` list opens with two review steps that render only
+    when their GitHub data is reachable, so the checklist degrades to the bare
+    merge instructions offline (or when the dev pre-release is disabled):
+
+    - **Dev pre-release review**: links the rolling `v{version}.dev0` draft
+      through its {attr}`~repomatic.github.releases.ReleaseWithAssets.html_url`
+      (drafts have no public tag URL). Omitted when no such draft is visible.
+    - **Full-changes review**: links the `v{previous}...main` comparison.
+      Omitted when no prior release exists to compare against.
+
+    Both come from a single {func}`dev_release_url_and_previous_version`
+    lookup. Each returned string is a complete ordered-list line ending in a
+    newline (or empty), written with a `1.` marker so the surrounding lazily
+    numbered list renumbers correctly however many steps survive.
+
+    :param md: CI context, read for the repository URL.
+    :param version: The release version being prepared (e.g. `1.2.3`).
+    :return: A `(dev_release_review, changes_review)` pair of list-item lines.
+    """
+    repo_url = md.repo_url
+    if not repo_url:
+        return "", ""
+    dev_release_url, previous_version = dev_release_url_and_previous_version(
+        repo_url, version
+    )
+
+    dev_release_review = ""
+    if dev_release_url:
+        dev_release_review = (
+            f"1. Review the [`v{version}.dev0` GitHub release]({dev_release_url})\n"
+        )
+
+    changes_review = ""
+    if previous_version:
+        changes_review = (
+            "1. Review the full changes: "
+            f"[`v{previous_version}...main`]"
+            f"({repo_url}/compare/v{previous_version}...main)\n"
+        )
+
+    return dev_release_review, changes_review
 
 
 def _utf16_len(text: str) -> int:

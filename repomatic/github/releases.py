@@ -207,6 +207,16 @@ class ReleaseWithAssets(NamedTuple):
     before the scan history file existed.
     """
 
+    html_url: str = ""
+    """Browser URL of the release page.
+
+    For a **draft** release this is the only resolvable link: drafts have no
+    public `releases/tag/<tag>` URL, so GitHub serves them at an unguessable
+    `releases/tag/untagged-<hash>` path exposed only in this field. The
+    prepare-release PR body links the rolling dev pre-release through it (see
+    {func}`dev_release_url_and_previous_version`).
+    """
+
 
 def _cached_release_map(
     namespace: str,
@@ -357,9 +367,68 @@ def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
                 prerelease=release.get("prerelease", False),
                 assets=assets,
                 body=release.get("body") or "",
+                html_url=release.get("html_url", ""),
             )
         )
     return releases
+
+
+def _release_version(tag: str) -> Version | None:
+    """Parse a release tag as a version, or `None` for foreign tag schemes."""
+    try:
+        return Version(tag.removeprefix("v"))
+    except InvalidVersion:
+        return None
+
+
+def dev_release_url_and_previous_version(
+    repo_url: str, version: str
+) -> tuple[str | None, str | None]:
+    """Look up the two release references the prepare-release PR body links to.
+
+    A single {func}`get_releases_with_assets` fetch yields both:
+
+    - **Dev pre-release URL**: the {attr}`~ReleaseWithAssets.html_url` of the
+      draft pre-release whose version shares *version*'s release segment (the
+      rolling `v{version}.dev0` draft). Drafts are visible only to
+      authenticated maintainers, so an unauthenticated or token-less caller
+      gets `None` here even when the draft exists.
+    - **Previous version**: the highest final release (draft, pre-release, and
+      `.dev` tags excluded) already published. At prepare-release time the tag
+      for *version* does not exist yet, so this is the release the new one
+      supersedes, used for the `v{previous}...main` comparison link.
+
+    :param repo_url: Repository URL (e.g. `https://github.com/user/repo`).
+    :param version: The release version being prepared (e.g. `1.2.3`), with
+        the `.dev` suffix already stripped.
+    :return: An `(dev_release_url, previous_version)` pair. Either element is
+        `None` when its release cannot be found or the API is unavailable, so
+        the caller degrades each list item independently.
+    """
+    try:
+        releases = get_releases_with_assets(repo_url)
+    except GitHubReleasesUnavailable:
+        return None, None
+
+    target = _release_version(version)
+    dev_release_url = None
+    finals: list[Version] = []
+    for release in releases:
+        parsed = _release_version(release.tag)
+        if parsed is None:
+            continue
+        if release.draft:
+            if (
+                target is not None
+                and parsed.is_devrelease
+                and parsed.base_version == target.base_version
+            ):
+                dev_release_url = release.html_url or None
+        elif not release.prerelease and not parsed.is_prerelease:
+            finals.append(parsed)
+
+    previous_version = str(max(finals)) if finals else None
+    return dev_release_url, previous_version
 
 
 def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:

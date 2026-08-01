@@ -105,6 +105,7 @@ from .github.dev_release import (
 from .github.issue import close_open_prs_on_branch
 from .github.pr_body import (
     build_pr_body,
+    build_release_review_steps,
     generate_pr_metadata_block,
     generate_refresh_tip,
     get_template_names,
@@ -4026,6 +4027,24 @@ def pr_body(
         logging.info(f"Auto-detected version: {ver}")
         return ver
 
+    def _resolve_version() -> str:
+        """Resolve the release version from --version, else the bumpversion config."""
+        return version if version is not None else _auto_version()
+
+    # The prepare-release checklist's two review steps share one GitHub
+    # releases lookup; memoize it so both template args reuse a single fetch,
+    # and so no other template pays for it (only prepare-release declares them).
+    review_steps: dict[str, str] = {}
+
+    def _review_step(key: str) -> str:
+        if not review_steps:
+            dev_review, changes_review = build_release_review_steps(
+                Metadata(), _resolve_version()
+            )
+            review_steps["dev_release_review"] = dev_review
+            review_steps["changes_review"] = changes_review
+        return review_steps[key]
+
     cli_extra_args: dict[str, str | None] = {}
     for entry in template_args_cli:
         if "=" not in entry:
@@ -4037,6 +4056,8 @@ def pr_body(
     # Map argument names to their values or callables. CLI-provided extras
     # override built-in flag-driven sources so callers can pass any name.
     arg_sources: dict[str, str | None | Callable[[], str | None]] = {
+        "changes_review": lambda: _review_step("changes_review"),
+        "dev_release_review": lambda: _review_step("dev_release_review"),
         "diff_table": os.getenv("REPOMATIC_DIFF_TABLE", ""),
         "part": part,
         "pr_ref": pr_ref,

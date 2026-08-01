@@ -254,6 +254,9 @@ jobs:
       - id: pr-metadata
         env:
           CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
+          # Authenticated read so the checklist can link the draft dev pre-release
+          # (drafts are visible only to maintainers) and resolve the previous tag.
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
           uvx --no-progress --from . repomatic pr-body --output-format github-actions
           --template prepare-release

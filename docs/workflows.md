@@ -307,6 +307,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 #### 🎬 Prepare release (`prepare-release`)
 
 - Creates a release PR with two commits: a **freeze commit** that freezes everything to the release version, and an **unfreeze commit** that reverts to development references and bumps the patch version
+- The PR body's `How-to release` checklist opens with two review links, the draft dev pre-release and the full changes against `main`, before the merge instructions; each is omitted when its GitHub data is unavailable (no dev pre-release, no prior release, or an unauthenticated run)
 - Uses [`bump-my-version`](https://github.com/callowayproject/bump-my-version) and [`repomatic changelog`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/changelog.py)
 - Must be merged with "Rebase and merge" (not squash) — the auto-tagging job needs both commits separate
 - **Requires**:

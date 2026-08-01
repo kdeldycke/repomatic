@@ -33,6 +33,7 @@ from repomatic.github.pr_body import (
     _unescape_dollars,
     _utf16_len,
     build_pr_body,
+    build_release_review_steps,
     demote_markdown_headings,
     fit_issue_body,
     generate_pr_metadata_block,
@@ -375,7 +376,11 @@ def test_render_commit_message_no_title_returns_empty(tmp_path):
 def test_template_args_parameterized():
     """Parameterized templates report their required arguments."""
     assert template_args("bump-version") == ["version", "part"]
-    assert template_args("prepare-release") == ["version"]
+    assert template_args("prepare-release") == [
+        "changes_review",
+        "dev_release_review",
+        "version",
+    ]
 
 
 def test_template_args_static():
@@ -435,25 +440,106 @@ def test_render_bump_version():
     assert "changelog-yaml-jobs" in result
 
 
-def test_render_prepare_release(monkeypatch):
+def test_render_prepare_release():
     """Prepare release template includes version, links, and caution admonition."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
-
+    dev_review = (
+        "1. Review the [`v5.8.1.dev0` GitHub release]"
+        "(https://github.com/kdeldycke/repomatic/releases/tag/untagged-abc123)\n"
+    )
+    changes_review = (
+        "1. Review the full changes: [`v5.8.0...main`]"
+        "(https://github.com/kdeldycke/repomatic/compare/v5.8.0...main)\n"
+    )
     result = render_template(
         "prepare-release",
         version="5.8.1",
+        dev_release_review=dev_review,
+        changes_review=changes_review,
     )
 
     assert "## How-to release `v5.8.1`" in result
     assert "`v5.8.1` tag on `main`" in result
     assert "`v5.8.1` release" in result
+    # Both review steps render ahead of the merge instructions.
+    assert "GitHub release]" in result
+    assert "Review the full changes" in result
+    assert result.index("GitHub release]") < result.index("Ready for review")
+    assert result.index("Review the full changes") < result.index("Ready for review")
     assert "[!CAUTION]" in result
     assert "Squash and merge" in result
     assert "PyPI" in result
     assert "prepare-release" in result
     assert "changelog-yaml-jobs" in result
     assert "release-yaml-jobs" in result
+
+
+def test_render_prepare_release_without_review_steps():
+    """Empty review fragments degrade the checklist to the merge instructions."""
+    result = render_template(
+        "prepare-release",
+        version="5.8.1",
+        dev_release_review="",
+        changes_review="",
+    )
+
+    assert "## How-to release `v5.8.1`" in result
+    assert "Ready for review" in result
+    assert "Rebase and merge" in result
+    # No dangling review links survive when the data is unavailable.
+    assert "GitHub release]" not in result
+    assert "Review the full changes" not in result
+
+
+def test_build_release_review_steps(monkeypatch):
+    """Review steps embed the draft dev URL and the previous-version compare link."""
+    for key, value in GITHUB_ENV_VARS.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        "repomatic.github.pr_body.dev_release_url_and_previous_version",
+        lambda repo_url, version: (
+            "https://github.com/owner/repo/releases/tag/untagged-abc",
+            "1.2.2",
+        ),
+    )
+
+    dev_review, changes_review = build_release_review_steps(Metadata(), "1.2.3")
+
+    assert dev_review == (
+        "1. Review the [`v1.2.3.dev0` GitHub release]"
+        "(https://github.com/owner/repo/releases/tag/untagged-abc)\n"
+    )
+    assert changes_review == (
+        "1. Review the full changes: [`v1.2.2...main`]"
+        "(https://github.com/owner/repo/compare/v1.2.2...main)\n"
+    )
+
+
+def test_build_release_review_steps_partial(monkeypatch):
+    """Each step is omitted independently when its release data is missing."""
+    for key, value in GITHUB_ENV_VARS.items():
+        monkeypatch.setenv(key, value)
+    # Dev draft absent, previous version present.
+    monkeypatch.setattr(
+        "repomatic.github.pr_body.dev_release_url_and_previous_version",
+        lambda repo_url, version: (None, "1.2.2"),
+    )
+
+    dev_review, changes_review = build_release_review_steps(Metadata(), "1.2.3")
+
+    assert dev_review == ""
+    assert "v1.2.2...main" in changes_review
+
+
+def test_build_release_review_steps_unavailable(monkeypatch):
+    """Both steps collapse to empty strings when the lookup returns nothing."""
+    for key, value in GITHUB_ENV_VARS.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        "repomatic.github.pr_body.dev_release_url_and_previous_version",
+        lambda repo_url, version: (None, None),
+    )
+
+    assert build_release_review_steps(Metadata(), "1.2.3") == ("", "")
 
 
 def test_render_sync_gitignore():
@@ -840,8 +926,12 @@ def _template_package_items(
 )
 def test_template_file_policy(filename, name):
     """Each PR template file must be a valid ``.md`` file with correct frontmatter."""
-    # Must be a markdown file.
-    assert filename.endswith(".md"), f"Template file {filename!r} is not a .md file"
+    # Must be a markdown file. ``.md.noformat`` is a markdown template hidden
+    # from mdformat (its ``string.Template`` placeholders confuse the list
+    # parser); see :func:`load_template`.
+    assert filename.endswith((".md", ".md.noformat")), (
+        f"Template file {filename!r} is not a .md or .md.noformat file"
+    )
 
     # Must parse without errors.
     meta, body = load_template(name)
@@ -861,10 +951,14 @@ def test_template_file_policy(filename, name):
             v for k, v in meta.items() if k != "args" and isinstance(v, str)
         )
         for arg in meta["args"]:
-            marker = f"${arg}"
-            assert marker in body or marker in frontmatter_text, (
+            # Both the bare (`$arg`) and braced (`${arg}`) substitution forms
+            # count as a reference; the braced form is needed when a
+            # placeholder abuts an identifier character (e.g. `${step}1.`).
+            markers = (f"${arg}", "${" + arg + "}")
+            haystack = body + " " + frontmatter_text
+            assert any(marker in haystack for marker in markers), (
                 f"Template {name!r} declares arg {arg!r}"
-                f" but neither body nor frontmatter contains {marker}"
+                f" but neither body nor frontmatter references {markers[0]}"
             )
 
     # PR body sections render as h2: no h3 heading (like the retired
