@@ -45,6 +45,6 @@ jobs:
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
         # See repomatic/github/actions.py for the cancellation logic.
         run: >
-          uvx --no-progress --from . repomatic cancel-runs
+          uvx --no-progress 'repomatic==7.4.1' cancel-runs
           --branch "$PR_BRANCH"
           --current-run-id '${{ github.run_id }}'
