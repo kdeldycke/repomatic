@@ -7,6 +7,7 @@
 
 - Add two review links to the release PR's `How-to release` checklist: the draft dev pre-release and the full changes against `main`.
 - Extend the `uvx` script-equals-package guard to the `pipx run <script>` install check, so `📦 Package install` no longer fails permanently for projects whose CLI script differs from their package name.
+- Teach the `repomatic-ship` pre-push gate to read the latest conclusive ancestor CI run when HEAD's own runs are still in-flight, catching a pre-existing platform-gated failure before the first push.
 
 ## [`7.4.0` (2026-07-31)](https://github.com/kdeldycke/repomatic/compare/v7.3.1...v7.4.0)
 
