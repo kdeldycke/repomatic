@@ -33,6 +33,7 @@ upstream-development
 operation-contracts
 API <repomatic>
 tests
+packaging
 binaries
 genindex
 modindex

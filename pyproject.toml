@@ -190,6 +190,10 @@ docs = [
   "sphinx-datatables>=1",
   # sphinx-design 0.6 introduced the current directive syntax for cards, grids, and tabs.
   "sphinx-design>=0.6",
+  # sphinxcontrib-jquery is loaded explicitly in docs/conf.py (sphinx-datatables
+  # activates it too late to register jquery.js on its own); declare it so the
+  # build never relies on it arriving only transitively via sphinx-datatables.
+  "sphinxcontrib-jquery>=4",
   # sphinxcontrib-mermaid 1.2.3 fixed mermaid_d3_zoom configuration support.
   "sphinxcontrib-mermaid>=1.2.3",
   # sphinxext-opengraph 0.13 stabilized OpenGraph metadata generation for Sphinx 8+.

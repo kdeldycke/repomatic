@@ -279,10 +279,17 @@ linkcheck_ignore = [
 ]
 
 # OpenGraph / social previews.
-ogp_image = "assets/banner-social-light.png"
-# ogp_image is relative to ogp_site_url, not to the page. Without a site URL,
-# sphinxext.opengraph emits the image path as-is, which social crawlers can't
-# resolve since they only ever see the raw HTML.
+# Social-card image (og:image), served from the GitHub raw host: docs/assets/
+# is not copied into the built site (it is neither in html_static_path nor
+# referenced by any doc body, so Sphinx's image collector never picks it up),
+# which means a site-relative `assets/...` path resolves against ogp_site_url
+# to a URL that 404s for social crawlers. The absolute raw URL points at the
+# committed file on `main`, mirroring the readme banner and screenshots.
+ogp_image = (
+    f"https://raw.githubusercontent.com/{github_user}/"
+    f"{project_id}/main/docs/assets/banner-social-light.png"
+)
+# Absolute base URL for OpenGraph (used for og:url and other page-level tags).
 ogp_site_url = f"https://{github_user}.github.io/{project_id}/"
 
 # Footer content.

@@ -139,11 +139,3 @@ $ gh attestation verify repomatic-7.4.0-linux-x64.bin --repo kdeldycke/repomatic
 `--signer-repo kdeldycke/repomatic` is required because the release runs from the reusable `_release-engine.yaml` workflow whose signing identity is `kdeldycke/repomatic`. Downstream projects that build binaries through the same reusable workflow verify with their own `--repo` but keep `--signer-repo kdeldycke/repomatic`.
 
 The PyPI distributions carry their own [PEP 740](https://peps.python.org/pep-0740/) attestations, visible and verifiable on the [PyPI project page](https://pypi.org/project/repomatic/).
-
-## Dependencies
-
-This is a graph of the Python package's dependencies. Boxes hold the directly-declared dependencies (main set and each development group), drawn as hexagons; transitive dependencies render outside the boxes as ovals:
-
-```mermaid assets/dependencies.mmd
-:align: center
-```
