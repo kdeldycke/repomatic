@@ -7,7 +7,7 @@ build-backend = "uv_build"
 # repomatic runs across the ecosystem, where uv versions drift between projects,
 # and a hard ceiling risks a chicken-and-egg deadlock when one project's uv
 # moves ahead of repomatic's next release.
-requires = [ "uv-build>=0.12" ]
+requires = [ "uv-build>=0.8" ]
 
 [project]
 # Docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
