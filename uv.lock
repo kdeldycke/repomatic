@@ -1437,6 +1437,7 @@ docs = [
     { name = "sphinx-copybutton", marker = "python_full_version >= '3.14'" },
     { name = "sphinx-datatables", marker = "python_full_version >= '3.14'" },
     { name = "sphinx-design", marker = "python_full_version >= '3.14'" },
+    { name = "sphinxcontrib-jquery", marker = "python_full_version >= '3.14'" },
     { name = "sphinxcontrib-mermaid", marker = "python_full_version >= '3.14'" },
     { name = "sphinxext-opengraph", marker = "python_full_version >= '3.14'" },
 ]
@@ -1482,6 +1483,7 @@ docs = [
     { name = "sphinx-copybutton", marker = "python_full_version >= '3.14'", specifier = ">=0.5.2" },
     { name = "sphinx-datatables", marker = "python_full_version >= '3.14'", specifier = ">=1" },
     { name = "sphinx-design", marker = "python_full_version >= '3.14'", specifier = ">=0.6" },
+    { name = "sphinxcontrib-jquery", marker = "python_full_version >= '3.14'", specifier = ">=4" },
     { name = "sphinxcontrib-mermaid", marker = "python_full_version >= '3.14'", specifier = ">=1.2.3" },
     { name = "sphinxext-opengraph", marker = "python_full_version >= '3.14'", specifier = ">=0.13" },
 ]

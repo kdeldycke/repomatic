@@ -373,7 +373,7 @@ def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
     return releases
 
 
-def _release_version(tag: str) -> Version | None:
+def parse_release_version(tag: str) -> Version | None:
     """Parse a release tag as a version, or `None` for foreign tag schemes."""
     try:
         return Version(tag.removeprefix("v"))
@@ -410,11 +410,11 @@ def dev_release_url_and_previous_version(
     except GitHubReleasesUnavailable:
         return None, None
 
-    target = _release_version(version)
+    target = parse_release_version(version)
     dev_release_url = None
     finals: list[Version] = []
     for release in releases:
-        parsed = _release_version(release.tag)
+        parsed = parse_release_version(release.tag)
         if parsed is None:
             continue
         if release.draft:

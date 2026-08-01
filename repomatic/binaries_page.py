@@ -56,9 +56,9 @@ import logging
 from pathlib import Path
 
 from click_extra.blocks import replace_region
-from packaging.version import InvalidVersion, Version
 
 from .binary import NUITKA_BUILD_TARGETS
+from .github.releases import parse_release_version
 from .virustotal import VIRUSTOTAL_GUI_URL
 
 TYPE_CHECKING = False
@@ -182,14 +182,6 @@ def _platform_target(name: str) -> str:
     return name
 
 
-def _release_version(tag: str) -> Version | None:
-    """Parse a release tag as a version, or `None` for foreign tag schemes."""
-    try:
-        return Version(tag.removeprefix("v"))
-    except InvalidVersion:
-        return None
-
-
 def _binary_assets(release: ReleaseWithAssets) -> list[ReleaseAsset]:
     """Return the release's compiled binaries, sorted by filename.
 
@@ -261,7 +253,7 @@ def render_chart_section(records: Sequence[ScanRecord]) -> str:
 
     points = []
     for tag, (date, flagged, total) in per_tag.items():
-        version = _release_version(tag)
+        version = parse_release_version(tag)
         if version is None:
             continue
         if total:
@@ -383,7 +375,8 @@ def render_binaries_csv(
     versioned = [
         (version, release)
         for release in releases
-        if not release.draft and (version := _release_version(release.tag)) is not None
+        if not release.draft
+        and (version := parse_release_version(release.tag)) is not None
     ]
     versioned.sort(key=lambda pair: pair[0], reverse=True)
 
