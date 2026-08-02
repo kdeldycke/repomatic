@@ -536,6 +536,7 @@ def resolve_default_pin(
     *,
     repo: str = DEFAULT_REPO,
     today: date | None = None,
+    warnings: list[str] | None = None,
 ) -> tuple[str, str | None]:
     """Resolve the default upstream pin, holding fresh releases back by cooldown.
 
@@ -559,6 +560,9 @@ def resolve_default_pin(
     :param repo: Upstream `owner/repo` whose releases gate the pin.
     :param today: Reference date for the cooldown; defaults to the current UTC
         date.
+    :param warnings: When provided, a step-back note is appended here (in
+        addition to being logged), so `run_init` can surface it in the final
+        `init` summary rather than only mid-run.
     :return: `(version_pin, commit_sha)`. `commit_sha` is `None` when no SHA can
         be resolved, leaving a bare tag pin the next `sync-action-pins` run
         re-hardens.
@@ -580,11 +584,14 @@ def resolve_default_pin(
     )
     if stepped_back is None:
         return f"v{base}", build_sha
-    logging.warning(
+    note = (
         f"repomatic {base} is inside the {config.minimum_release_age} "
         f"minimum-release-age window; pinning the newest cleared release "
         f"v{stepped_back.version} instead. Pass --no-cooldown to pin {base}."
     )
+    if warnings is not None:
+        warnings.append(note)
+    logging.warning(note)
     # Fall back to a bare tag pin when the SHA lookup fails; the next
     # sync-action-pins run re-hardens it.
     return f"v{stepped_back.version}", resolve_tag_to_sha(repo_url, stepped_back.ref)
@@ -881,7 +888,9 @@ def run_init(
             for name in selected
         )
         if cooldown and workflows_selected:
-            version, commit_sha = resolve_default_pin(config, repo=repo)
+            version, commit_sha = resolve_default_pin(
+                config, repo=repo, warnings=result.warnings
+            )
         else:
             version = default_version_pin()
 

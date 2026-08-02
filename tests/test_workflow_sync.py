@@ -155,6 +155,35 @@ def test_unsubscribe_has_call_inputs() -> None:
     assert set(info.call_inputs) == {"batch-size", "dry-run", "months"}
 
 
+# The complete workflow_call input surface every thin-caller-deployed reusable
+# workflow forwards. Only unsubscribe.yaml (config-gated, off by default) carries
+# any; the rest forward nothing.
+EXPECTED_THIN_CALLER_CALL_INPUTS: dict[str, set[str]] = {
+    "unsubscribe.yaml": {"batch-size", "dry-run", "months"},
+}
+
+
+def test_thin_caller_workflow_call_inputs_stay_minimal() -> None:
+    """No reusable workflow may grow its forwarded workflow_call inputs unreviewed.
+
+    Every input a thin caller forwards widens the blast radius of the cooldown
+    step-back in {func}`repomatic.init_project.resolve_default_pin`: that pin can
+    reference a reusable workflow one release older than the caller was generated
+    from, and GitHub rejects a forwarded input the older workflow does not yet
+    declare. Locking the surface keeps a new input a deliberate act, weighed
+    against the step-back, not an accident. To relax it, add the input to
+    EXPECTED_THIN_CALLER_CALL_INPUTS with that trade-off in mind.
+    """
+    forwarded = {
+        filename: set(
+            extract_trigger_info(WORKFLOW_SOURCES.get(filename, filename)).call_inputs
+        )
+        for filename in REUSABLE_WORKFLOWS
+    }
+    non_empty = {name: inputs for name, inputs in forwarded.items() if inputs}
+    assert non_empty == EXPECTED_THIN_CALLER_CALL_INPUTS
+
+
 def test_unsubscribe_caller_forwards_inputs() -> None:
     """Verify the generated caller forwards each input with the right expression.
 

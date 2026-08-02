@@ -828,7 +828,11 @@ def test_resolve_default_pin_aged_version_is_noop(monkeypatch):
 
 
 def test_resolve_default_pin_steps_back_when_fresh(monkeypatch):
-    """A fresh running version steps the pin back and re-resolves the SHA."""
+    """A fresh running version steps the pin back, re-resolves the SHA, and warns.
+
+    The step-back note is appended to the caller-supplied warnings list so
+    `run_init` can surface it in the init summary, not only in the log.
+    """
     monkeypatch.setattr(ip, "__version__", "7.4.2")
     monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
     monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
@@ -837,7 +841,21 @@ def test_resolve_default_pin_steps_back_when_fresh(monkeypatch):
         "resolve_tag_to_sha",
         lambda _url, tag: "b" * 40 if tag == "v7.4.1" else None,
     )
-    assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.1", "b" * 40)
+    warnings: list[str] = []
+    result = resolve_default_pin(Config(), today=date(2026, 8, 2), warnings=warnings)
+    assert result == ("v7.4.1", "b" * 40)
+    assert len(warnings) == 1
+    assert "7.4.2" in warnings[0] and "v7.4.1" in warnings[0]
+
+
+def test_resolve_default_pin_aged_version_leaves_warnings_empty(monkeypatch):
+    """The no-op path appends no warning."""
+    monkeypatch.setattr(ip, "__version__", "7.4.1")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    warnings: list[str] = []
+    resolve_default_pin(Config(), today=date(2026, 8, 2), warnings=warnings)
+    assert warnings == []
 
 
 def test_resolve_default_pin_dev_version_skips_datasource(monkeypatch):
@@ -904,11 +922,13 @@ def test_run_init_cooldown_steps_back_in_generated_pin(tmp_path, monkeypatch):
         ],
     )
     monkeypatch.setattr(ip, "resolve_tag_to_sha", lambda _url, _tag: "")
-    run_init(output_dir=tmp_path, components=("workflows",))
+    result = run_init(output_dir=tmp_path, components=("workflows",))
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
         encoding="utf-8"
     )
     assert "kdeldycke/repomatic/.github/workflows/autofix.yaml@v7.4.1" in autofix
+    # The step-back surfaces in the init summary, not only the log.
+    assert any("v7.4.1" in w for w in result.warnings)
 
 
 def test_init_default_components():
