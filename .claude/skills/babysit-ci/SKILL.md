@@ -153,16 +153,16 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    ```shell-session
    $ gh run list --workflow=autofix.yaml --branch=<BRANCH> --limit=1
-   $ gh pr list --head=format-python --state=open --json number,title,url
+   $ gh pr list --state=open --json number,title,headRefName,url
    ```
 
-   If a `format-python` autofix PR exists, review its diff: it contains ruff's own autofixes for the same commit. If it resolves issues you're seeing, merge it first (`gh pr merge --squash`), pull, and rebase your fix before pushing.
+   If any open autofix PR already contains your fix — a `format-python` branch (ruff's own autofixes), a `sync-repomatic`/`sync-workflow-pins` branch (a bumped workflow pin), or another `sync-*`/`fix-*` branch — prefer merging it over authoring your own commit: GitHub signs the merge commit server-side, so this sidesteps a local hardware-key signing prompt entirely. If it resolves the failure, merge it (`gh pr merge <n> --squash --delete-branch`), pull, and rebase your fix before pushing — or skip your own commit if the merge is the whole fix. If `gh pr merge` is denied outright (a standing `permissions.deny` on the verb, not a retryable prompt), see [§ PR-merge permission wall](#pr-merge-permission-wall).
 
 7. **Commit the fix** with a clear message describing what changed and why, then `git push`.
 
    When the fix corrects a *user-facing* bug, add a `changelog.md` entry **only when the bug reached a released version**. Blame the changed line against the last release tag (`git blame`, or `git log -S`): a bug introduced *and* fixed within the current unreleased cycle never shipped, so it gets no entry; a bug that predates the last tag is a real regression and does. Making this call here keeps a parent `/repomatic-ship` run from having to add or drop entries afterward.
 
-   **If commit signing fails, do not loop on it.** The sandbox can block the SSH key or socket under `~/.ssh/*` (`Operation not permitted`): fix with `dangerouslyDisableSandbox: true` for the `git commit` and `git push` calls only. A hardware-backed key (Secretive, YubiKey, TPM) then prompts the maintainer per signature, and a refused or missed prompt surfaces as `agent refused operation?`, indistinguishable from a real failure. Retry once at most after disabling the sandbox; if it still refuses, hand off cleanly: stage the specific files you fixed (never `git add -A`), return the exact commit message and `git push` command verbatim, and exit the loop. The fix is done — only the signature is missing.
+   **If commit signing fails, do not loop on it.** The sandbox can block the SSH key or socket under `~/.ssh/*` (`Operation not permitted`): fix with `dangerouslyDisableSandbox: true` for the `git commit` and `git push` calls only. A hardware-backed key (Secretive, YubiKey, TPM) then prompts the maintainer per signature, and a refused or missed prompt surfaces as `agent refused operation?`, indistinguishable from a real failure. Retry once at most after disabling the sandbox; if it still refuses, hand off cleanly: stage the specific files you fixed (never `git add -A`), return the exact commit message and `git push` command verbatim, and exit the loop. The fix is done — only the signature is missing. If the block is instead a structural permission deny on `gh pr merge` (not a signing refusal), the escalation differs — a maintainer's in-chat approval cannot clear a deny rule: see [§ PR-merge permission wall](#pr-merge-permission-wall).
 
 8. **Repeat from step 2** until the monitored workflows are green: `tests.yaml` with all stable (✅) jobs passing, `lint.yaml` with no mypy failures (test and docs files included). **Stop after 5 iterations**: if the loop has not converged, report what was fixed and what remains, and ask for guidance rather than churning.
 
@@ -244,6 +244,12 @@ Heavy polling from this loop spends the same REST quota (5,000 requests/hour) as
 - Workflows fail with *permission-shaped* errors: `lint-repo` reports the PAT lacks `Contents`/`Dependabot`/`Workflows` scopes, or a `create-pull-request` step hangs at `Attempting creation of pull request` until its timeout or the concurrency group kills the run.
 
 Diagnose with `gh api rate_limit` **before** touching token settings: `remaining: 0` on the `core` bucket confirms it. Recovery: wait for the printed `reset` epoch, then re-run the failed workflows unchanged (`gh run rerun <RUN_ID> --failed`); they go green with no commit. While waiting, degrade to the channels that stay live: the GraphQL bucket is metered separately (`gh api graphql` for a commit's check suites, refs, and releases; `gh pr list` / `gh pr view`), and `git fetch` over SSH covers branch and commit verification.
+
+<a id="pr-merge-permission-wall"></a>
+
+### PR-merge permission wall
+
+`gh pr merge` — and other write-heavy verbs (force-push, `reset --hard`, repo or release delete) — is commonly hard-denied in the operator's own Claude Code `settings.json` as a standing guard against irreversible actions, independent of any conversation. This deny is structural, not a per-call prompt: it fires identically whether or not a maintainer just authorized the exact command in chat, because it blocks the tool call itself rather than asking. Signs you have hit it, not a normal prompt: the denial is immediate with nothing to answer, and it recurs identically after a fresh, explicit, real-time go-ahead. Do not retry it, and do not read a maintainer's chat-level "yes, merge it" as actionable — a deny rule cannot be cleared from inside the session. Report the wall once and ask the maintainer to run the merge themselves, fully outside this session (their terminal, or the GitHub web UI): that is the only path this deny shape leaves open. The same holds when a hardware-key signing refusal blocks a direct commit (step 7): with both remedies walled, the release advances only by a human acting outside the tool.
 
 ### Nuitka binary build failures (release.yaml)
 
