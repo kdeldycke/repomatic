@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import re
 import subprocess
+from datetime import date, timedelta
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -28,7 +29,7 @@ import tomlrt
 import yaml
 from packaging.version import InvalidVersion, Version
 
-from repomatic import __version__
+from repomatic import __version__, init_project as ip
 from repomatic.config import Config, LabelsConfig, WorkflowConfig
 from repomatic.init_project import (
     EXPORTABLE_FILES,
@@ -36,11 +37,13 @@ from repomatic.init_project import (
     _detect_removed_assets,
     _resolve_agents_target,
     _resolve_skills_target,
+    _select_cooldown_pin,
     _update_tool_config,
     default_version_pin,
     export_content,
     get_data_content,
     init_config,
+    resolve_default_pin,
     run_init,
 )
 from repomatic.registry import (
@@ -65,6 +68,7 @@ from repomatic.registry import (
     valid_file_ids,
 )
 from repomatic.tool_registry import TOOL_REGISTRY
+from repomatic.version_sync import Candidate
 
 # Convenience set for tests that check opt-in workflow membership.
 _OPT_IN_IDS = frozenset(
@@ -763,6 +767,148 @@ def test_default_version_pin():
     assert pin.startswith("v")
     # Should not contain .dev suffix.
     assert ".dev" not in pin
+
+
+# --- Cooldown-gated default pin ---
+
+# Three releases: 7.4.0 and 7.4.1 sit outside an 8-day window on 2026-08-02
+# (cutoff 2026-07-25), 7.4.2 is inside it.
+_COOLDOWN_CANDIDATES = [
+    Candidate("7.4.0", "2026-07-01", "v7.4.0"),
+    Candidate("7.4.1", "2026-07-24", "v7.4.1"),
+    Candidate("7.4.2", "2026-07-31", "v7.4.2"),
+]
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        # The running version has cleared the window: pin it unchanged. This is
+        # the CI sync-repomatic path (init runs at the already-pinned, aged
+        # version), which must stay an idempotent no-op.
+        pytest.param("7.4.1", None, id="aged-base-pins-itself"),
+        # A --refresh landed on a version still inside the window: step back to
+        # the newest release that has cleared it.
+        pytest.param("7.4.2", "7.4.1", id="fresh-base-steps-back"),
+        # The running version is not published (yet): fail open to it.
+        pytest.param("9.9.9", None, id="absent-base-fails-open"),
+    ],
+)
+def test_select_cooldown_pin(base, expected):
+    result = _select_cooldown_pin(
+        _COOLDOWN_CANDIDATES, base, timedelta(days=8), date(2026, 8, 2)
+    )
+    assert (result.version if result else None) == expected
+
+
+def test_select_cooldown_pin_no_aged_predecessor():
+    """A fresh base with no cleared predecessor has nothing to step back to."""
+    candidates = [Candidate("7.4.2", "2026-07-31", "v7.4.2")]
+    result = _select_cooldown_pin(
+        candidates, "7.4.2", timedelta(days=8), date(2026, 8, 2)
+    )
+    assert result is None
+
+
+def test_resolve_default_pin_aged_version_is_noop(monkeypatch):
+    """An aged running version pins itself with its build SHA, no step-back.
+
+    Locks in the CI sync-repomatic invariant: init at the already-pinned version
+    never moves the pin and never resolves a replacement SHA.
+    """
+    monkeypatch.setattr(ip, "__version__", "7.4.1")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    monkeypatch.setattr(
+        ip,
+        "resolve_tag_to_sha",
+        lambda _url, _tag: pytest.fail("aged base must not resolve a new SHA"),
+    )
+    assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.1", "a" * 40)
+
+
+def test_resolve_default_pin_steps_back_when_fresh(monkeypatch):
+    """A fresh running version steps the pin back and re-resolves the SHA."""
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    monkeypatch.setattr(
+        ip,
+        "resolve_tag_to_sha",
+        lambda _url, tag: "b" * 40 if tag == "v7.4.1" else None,
+    )
+    assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.1", "b" * 40)
+
+
+def test_resolve_default_pin_dev_version_skips_datasource(monkeypatch):
+    """An unreleased dev cut pins its base version without any network call."""
+    monkeypatch.setattr(ip, "__version__", "7.4.2.dev0")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    monkeypatch.setattr(
+        ip,
+        "github_candidates",
+        lambda _url: pytest.fail("dev version must not hit the datasource"),
+    )
+    assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.2", None)
+
+
+def test_resolve_default_pin_zero_window_skips_datasource(monkeypatch):
+    """A disabled cooldown (0 days) pins the running version without a lookup."""
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    monkeypatch.setattr(
+        ip,
+        "github_candidates",
+        lambda _url: pytest.fail("disabled cooldown must not hit the datasource"),
+    )
+    config = Config(minimum_release_age="0 days")
+    assert resolve_default_pin(config, today=date(2026, 8, 2)) == ("v7.4.2", None)
+
+
+def test_resolve_default_pin_fails_open_when_datasource_empty(monkeypatch):
+    """An unreachable datasource falls back to the running version."""
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(ip, "github_candidates", lambda _url: [])
+    assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.2", "a" * 40)
+
+
+def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch):
+    """--no-cooldown pins the running version and never consults the datasource."""
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    monkeypatch.setattr(
+        ip,
+        "github_candidates",
+        lambda _url: pytest.fail("cooldown=False must not hit the datasource"),
+    )
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "kdeldycke/repomatic/.github/workflows/autofix.yaml@v7.4.2" in autofix
+
+
+def test_run_init_cooldown_steps_back_in_generated_pin(tmp_path, monkeypatch):
+    """A fresh running version lands the stepped-back tag in the thin caller."""
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    # Dates chosen to be robust against the real clock resolve_default_pin
+    # reads: 7.4.1 is always aged, 7.4.2 always fresh.
+    monkeypatch.setattr(
+        ip,
+        "github_candidates",
+        lambda _url: [
+            Candidate("7.4.1", "2020-01-01", "v7.4.1"),
+            Candidate("7.4.2", "2999-01-01", "v7.4.2"),
+        ],
+    )
+    monkeypatch.setattr(ip, "resolve_tag_to_sha", lambda _url, _tag: "")
+    run_init(output_dir=tmp_path, components=("workflows",))
+    autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "kdeldycke/repomatic/.github/workflows/autofix.yaml@v7.4.1" in autofix
 
 
 def test_init_default_components():

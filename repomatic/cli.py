@@ -437,6 +437,13 @@ def _removed_line(path: str, successor: str, color: str) -> str:
     "Defaults to the latest release derived from the package version.",
 )
 @option(
+    "--cooldown/--no-cooldown",
+    default=True,
+    help="Hold the derived upstream pin back to the newest release past the "
+    "[tool.repomatic] minimum-release-age window. --no-cooldown pins the "
+    "running repomatic version immediately. Ignored when --version is set.",
+)
+@option(
     "--repo",
     default=DEFAULT_REPO,
     help="Upstream repository containing reusable workflows.",
@@ -476,6 +483,7 @@ def _removed_line(path: str, successor: str, color: str) -> str:
 def init_project(
     components,
     version_pin,
+    cooldown,
     repo,
     output_dir,
     delete_excluded,
@@ -498,6 +506,12 @@ def init_project(
     [tool.repomatic]: bare names select an entire component, qualified
     component/file entries select a single file.
 
+    The derived upstream pin honors the [tool.repomatic] minimum-release-age
+    cooldown: if the running repomatic version is still inside that window, the
+    workflow pin steps back to the newest release that has cleared it. Pass
+    --no-cooldown to pin the running version immediately, or --version to pin an
+    exact tag.
+
     \b
     Components:
     {component_table}
@@ -516,6 +530,10 @@ def init_project(
     \b
         # Pin to a specific version
         repomatic init --version v5.9.1
+
+    \b
+        # Adopt the running version now, skipping the release-age cooldown
+        repomatic init --no-cooldown
 
     \b
         # Install a single skill
@@ -543,6 +561,7 @@ def init_project(
         output_dir=output_dir,
         components=components,
         version=version_pin,
+        cooldown=cooldown,
         repo=repo,
         config=get_tool_config(),
     )

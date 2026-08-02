@@ -46,6 +46,7 @@ import logging
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from urllib.request import urlretrieve
@@ -55,6 +56,7 @@ import tomlrt
 from . import __git_tag_sha__, __version__
 from .bundle import get_data_content
 from .config import Config, load_repomatic_config
+from .github.releases import resolve_tag_to_sha
 from .github.workflow_sync import (
     PathsSpec,
     extract_extra_jobs,
@@ -84,6 +86,13 @@ from .registry import (
 )
 from .tool_registry import TOOL_REGISTRY
 from .tool_runner import find_unmodified_configs
+from .version_sync import (
+    Candidate,
+    github_candidates,
+    is_newer,
+    parse_min_age,
+    select_latest,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -455,14 +464,130 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
 # ---------------------------------------------------------------------------
 
 
+def _base_version() -> str:
+    """The running repomatic version with any PEP 440 `.devN` suffix stripped.
+
+    `"5.10.0.dev0"` becomes `"5.10.0"`. The bare (no `v`) form, used both for the
+    default pin and to age-check the running version against a release
+    datasource.
+    """
+    return re.sub(r"\.dev\d*$", "", __version__)
+
+
 def default_version_pin() -> str:
     """Derive the default version pin from `__version__`.
 
     Strips any `.dev0` suffix and prefixes with `v`. For example,
     `"5.10.0.dev0"` becomes `"v5.10.0"`.
     """
-    version = re.sub(r"\.dev\d*$", "", __version__)
-    return f"v{version}"
+    return f"v{_base_version()}"
+
+
+def _select_cooldown_pin(
+    candidates: list[Candidate],
+    base: str,
+    min_age: timedelta,
+    today: date,
+) -> Candidate | None:
+    """Pick the release `init` should pin when the cooldown holds `base` back.
+
+    `init` normally pins the running repomatic version (`base`). When that
+    version is still inside the `minimum-release-age` window (a fresh release a
+    `--refresh` just pulled), pinning it would adopt an unproven cut, bypassing
+    the cooldown every other version adopter honors. This returns the newest
+    release *older* than `base` that has cleared the window, so the downstream
+    pin steps back to a proven release instead.
+
+    The step-back is skipped (returns `None`, meaning "keep pinning `base`")
+    whenever `base` is safe or nothing better exists:
+
+    - `base` is absent from *candidates* (an unreleased `.dev` cut, or the
+      datasource is unavailable): fail open to `base`.
+    - `base` has already cleared the cooldown: the common case, no change.
+    - No cooldown-cleared release is strictly older than `base`: nothing to step
+      back to.
+
+    :param candidates: Releases offered by the datasource.
+    :param base: The running repomatic version (bare, no `v` prefix).
+    :param min_age: The `minimum-release-age` stabilization window.
+    :param today: Reference date for the cooldown computation.
+    :return: The {class}`~repomatic.version_sync.Candidate` to pin instead of
+        `base`, or `None` to keep pinning `base`.
+    """
+    cutoff = today - min_age
+    base_date = next((c.date for c in candidates if c.version == base), None)
+    if base_date is None:
+        return None
+    try:
+        released = date.fromisoformat(base_date)
+    except ValueError:
+        return None
+    # `base` is old enough: the overwhelmingly common case, pin it unchanged.
+    if released <= cutoff:
+        return None
+    latest = select_latest(candidates, min_age, today)
+    if latest is None or not is_newer(base, latest.version):
+        return None
+    return latest
+
+
+def resolve_default_pin(
+    config: Config,
+    *,
+    repo: str = DEFAULT_REPO,
+    today: date | None = None,
+) -> tuple[str, str | None]:
+    """Resolve the default upstream pin, holding fresh releases back by cooldown.
+
+    Returns the `(version, commit_sha)` `init` stamps into thin-caller `uses:`
+    refs. In the common case, and on any datasource failure, this is the running
+    repomatic version paired with its build-time SHA, identical to the
+    pre-cooldown behavior. Only when the running version is still inside the
+    `[tool.repomatic] minimum-release-age` window does it step the pin back to
+    the newest cooldown-cleared release (see {func}`_select_cooldown_pin`),
+    resolving that tag's SHA afresh.
+
+    ```{note}
+    This activates only for a manual `uvx --refresh -- repomatic init` that
+    lands on a bleeding-edge release. The CI `sync-repomatic` job runs `init` at
+    the already-pinned version, which `sync-workflow-pins` selected under the
+    same cooldown, so `base` is always aged there and the pin never moves: an
+    idempotent no-op.
+    ```
+
+    :param config: Repomatic config supplying the `minimum-release-age` window.
+    :param repo: Upstream `owner/repo` whose releases gate the pin.
+    :param today: Reference date for the cooldown; defaults to the current UTC
+        date.
+    :return: `(version_pin, commit_sha)`. `commit_sha` is `None` when no SHA can
+        be resolved, leaving a bare tag pin the next `sync-action-pins` run
+        re-hardens.
+    """
+    base = _base_version()
+    build_sha = __git_tag_sha__ or None
+    # Unreleased dev cuts never appear in a release datasource: pin as-is,
+    # sparing the source repo's own `--from .` runs a pointless lookup.
+    if base != __version__:
+        return f"v{base}", build_sha
+    min_age = parse_min_age(config.minimum_release_age)
+    if not min_age:
+        return f"v{base}", build_sha
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+    repo_url = f"https://github.com/{repo}"
+    stepped_back = _select_cooldown_pin(
+        github_candidates(repo_url), base, min_age, today
+    )
+    if stepped_back is None:
+        return f"v{base}", build_sha
+    logging.warning(
+        f"repomatic {base} is inside the {config.minimum_release_age} "
+        f"minimum-release-age window; pinning the newest cleared release "
+        f"v{stepped_back.version} instead. Pass --no-cooldown to pin {base}."
+    )
+    # Fall back to a bare tag pin when the SHA lookup fails; the next
+    # sync-action-pins run re-hardens it.
+    return f"v{stepped_back.version}", resolve_tag_to_sha(repo_url, stepped_back.ref)
 
 
 @dataclass
@@ -504,6 +629,7 @@ def run_init(
     output_dir: Path,
     components: Sequence[str] = (),
     version: str | None = None,
+    cooldown: bool = True,
     repo: str = DEFAULT_REPO,
     repo_slug: str | None = None,
     config: Config | None = None,
@@ -530,15 +656,17 @@ def run_init(
     :param output_dir: Root directory of the target repository.
     :param components: Components to initialize. Empty means all defaults.
         When non-empty, scope and user-config exclusions are bypassed.
-    :param version: Version pin for upstream workflows (e.g., `v5.10.0`).
+    :param version: Version pin for upstream workflows (e.g., `v5.10.0`). When
+        `None`, derived from the running package version, gated by *cooldown*.
+    :param cooldown: When `True` (and *version* is unset), hold the derived pin
+        back to the newest release past the `[tool.repomatic]
+        minimum-release-age` window instead of pinning a fresh running version
+        (see {func}`resolve_default_pin`). Ignored when *version* is explicit.
     :param repo: Upstream repository containing reusable workflows.
     :param repo_slug: Repository `owner/name` slug for awesome-template URL
         rewriting. Auto-detected via {class}`Metadata` if not provided.
     :return: Summary of created, updated, skipped, and warned items.
     """
-    if version is None:
-        version = default_version_pin()
-
     # Parse CLI selection.  Entries may be bare component names (e.g.,
     # "skills") or qualified component/file selectors (e.g.,
     # "skills/repomatic-topics").
@@ -742,6 +870,21 @@ def run_init(
 
     logging.debug("Selected components: %s", ", ".join(sorted(selected)))
 
+    # Resolve the upstream version pin (and its SHA) only when a workflow is
+    # actually generated: config-only inits (labels, bumpversion) need no pin
+    # and must not pay for the cooldown datasource lookup. An explicit --version
+    # keeps its build-time SHA and bypasses the cooldown.
+    commit_sha: str | None = __git_tag_sha__ or None
+    if version is None:
+        workflows_selected = any(
+            isinstance(COMPONENTS_BY_NAME.get(name), WorkflowComponent)
+            for name in selected
+        )
+        if cooldown and workflows_selected:
+            version, commit_sha = resolve_default_pin(config, repo=repo)
+        else:
+            version = default_version_pin()
+
     for comp in COMPONENTS:
         if comp.name not in selected:
             continue
@@ -759,6 +902,7 @@ def run_init(
                 repo,
                 version,
                 result,
+                commit_sha=commit_sha,
                 exclude=file_exclude,
                 include=file_include,
                 source_paths=source_paths,
@@ -808,6 +952,7 @@ def _init_workflows(
     version: str,
     result: InitResult,
     *,
+    commit_sha: str | None = None,
     exclude: frozenset[str] = frozenset(),
     include: frozenset[str] | None = None,
     source_paths: list[str] | None = None,
@@ -815,11 +960,13 @@ def _init_workflows(
 ) -> None:
     """Generate thin-caller workflows and sync non-reusable workflow headers.
 
+    :param commit_sha: SHA to pin the `uses:` refs to, paired with *version* as
+        `@sha # version`. Used verbatim: `None` yields a bare `@version` tag pin
+        the next `sync-action-pins` run re-hardens. The caller
+        ({func}`run_init`) owns the resolution so a cooldown step-back can pair
+        the stepped-back tag with its own SHA.
     :param include: When not `None`, only generate files in this set.
     """
-    # Use the build-time SHA for pinning, if available.
-    commit_sha: str | None = __git_tag_sha__ or None
-
     workflows = REUSABLE_WORKFLOWS
     if include is not None:
         workflows = tuple(w for w in workflows if w in include)

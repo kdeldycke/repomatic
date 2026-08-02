@@ -710,7 +710,9 @@ class Config:
     public for at least this long, giving upstream time to yank a bad cut. It
     also gates `repomatic run`'s ad-hoc installs at run time, so their
     transitive trees honor the same window: `uvx` tools via uv's
-    `--exclude-newer`, npm tools via npm's `min-release-age`. The
+    `--exclude-newer`, npm tools via npm's `min-release-age`. `repomatic init`
+    honors it too: the derived upstream workflow pin steps back to the newest
+    release past the window (override with `--no-cooldown`). The
     GitHub/PyPI/npm counterpart to uv's `exclude-newer` (which guards
     `sync-uv-lock`). Accepts the same friendly durations (`8 days`, `2 weeks`,
     `36 hours`). Set to `0 days` to adopt releases immediately.
