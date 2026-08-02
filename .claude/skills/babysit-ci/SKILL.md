@@ -128,7 +128,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
    $ gh run view <LINT_RUN_ID> --json jobs --jq '[.jobs[] | select(.conclusion == "failure")] | .[].databaseId'
    ```
 
-   Fetch each failed job's log (`gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs`) and fix everything in one batch: different sources surface different issues, and batching avoids burning another full CI round. Analyze following the [error triage discipline](#error-triage-discipline): stable-job `FAILED`/`AssertionError` lines only.
+   Fetch each failed job's log (`gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs`) and fix them as one batch: different sources surface different issues, and logs survive cancellation. Batch only what has *already failed*, never what might still fail. Once every harvested failure is root-caused and fixed, push immediately rather than waiting for undrained cells to surface more: the fresh run supersedes the stale one, and serially waiting out each full matrix is the slow path. Analyze following the [error triage discipline](#error-triage-discipline): stable-job `FAILED`/`AssertionError` lines only.
 
    `gh run view --log-failed` writes its log cache under `~/.cache/gh`, which the harness sandbox denies: the resulting `failed to get run log: creating cache entry ... operation not permitted` masquerades as a `gh` bug. Disable the sandbox for that read, exactly like the signing calls in step 7.
 
@@ -162,9 +162,11 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    When the fix corrects a *user-facing* bug, add a `changelog.md` entry **only when the bug reached a released version**. Blame the changed line against the last release tag (`git blame`, or `git log -S`): a bug introduced *and* fixed within the current unreleased cycle never shipped, so it gets no entry; a bug that predates the last tag is a real regression and does. Making this call here keeps a parent `/repomatic-ship` run from having to add or drop entries afterward.
 
+   **Time each push by what its diff rebuilds.** A source-affecting fix (`repomatic/**`, `tests/**`, `pyproject.toml`, `uv.lock`: whatever the repo's test and binary `paths:` filters name) pushes the moment it clears step 5: the runs it supersedes were verifying an obsolete tree, and its own run rebuilds everything it cancels. A commit those filters skip (changelog-only, docs-only, cosmetic prose) is the opposite case on a binaries-enabled project: `release.yaml` runs on *every* push in a per-branch cancel-in-progress group, so pushed mid-drain such a commit cancels the in-flight binary matrix while its own run skips the rebuild (`Metadata.skip_binary_build`), and the lost verification costs a full re-dispatch. Hold it until the heavy matrices on the current HEAD are terminal, or bundle it into the next source-affecting push; with binaries disabled, or nothing heavy in flight, push freely.
+
    **If commit signing fails, do not loop on it.** The sandbox can block the SSH key or socket under `~/.ssh/*` (`Operation not permitted`): fix with `dangerouslyDisableSandbox: true` for the `git commit` and `git push` calls only. A hardware-backed key (Secretive, YubiKey, TPM) then prompts the maintainer per signature, and a refused or missed prompt surfaces as `agent refused operation?`, indistinguishable from a real failure. Retry once at most after disabling the sandbox; if it still refuses, hand off cleanly: stage the specific files you fixed (never `git add -A`), return the exact commit message and `git push` command verbatim, and exit the loop. The fix is done — only the signature is missing. If the block is instead a structural permission deny on `gh pr merge` (not a signing refusal), the escalation differs — a maintainer's in-chat approval cannot clear a deny rule: see [§ PR-merge permission wall](#pr-merge-permission-wall).
 
-8. **Repeat from step 2** until the monitored workflows are green: `tests.yaml` with all stable (✅) jobs passing, `lint.yaml` with no mypy failures (test and docs files included). **Stop after 5 iterations**: if the loop has not converged, report what was fixed and what remains, and ask for guidance rather than churning.
+8. **Repeat from step 2** until the monitored workflows are green: `tests.yaml` with all stable (✅) jobs passing, `lint.yaml` with no mypy failures (test and docs files included). **Stop after 5 iterations without progress** (the set of distinct failing stable jobs did not shrink): report what was fixed and what remains, and ask for guidance rather than churning. Productive iterations never trip the cap: a release paying down a long test-debt tail legitimately takes more than five pushes.
 
 ### Early exit (human-invoked runs only)
 
@@ -175,7 +177,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 ## Stable vs. unstable
 
 - **Stable jobs** (✅): must pass. Their names start with `✅`.
-- **Unstable jobs** (⁉️): allowed to fail (Python dev versions like 3.15, 3.15t). Ignore their failures.
+- **Unstable jobs** (⁉️): allowed to fail (Python dev versions like 3.15, 3.15t). Their failures never gate the loop; a release context still fixes the repo-fixable ones (see [error triage discipline](#error-triage-discipline), rule 1).
 
 The workflow uses `continue-on-error` for unstable jobs, so the run can succeed even when they fail.
 
@@ -185,7 +187,7 @@ The workflow uses `continue-on-error` for unstable jobs, so the run can succeed 
 
 Read the exact error messages before forming a hypothesis. The most common diagnostic mistake is latching onto a warning or unstable-job failure instead of the actual stable-job error.
 
-1. **Filter first.** Only look at stable (✅) job output. Discard unstable (⁉️) logs entirely: do not read, mention, or fix what they surface.
+1. **Filter first.** Gating and loop cadence read stable (✅) jobs only: an unstable (⁉️) failure never blocks the loop, never sets its tempo, and never queue-jumps a stable red. When an orchestrator like `/repomatic-ship` spawned this loop for a release, ⁉️ reds are still work owed under its genuinely-green goal: once no stable red is outstanding, read their logs and fix what is repo-fixable (a crash converted to a clean availability-gated skip, a flaky live install folded into a tolerated-exit set), leaving only genuine dev-interpreter breakage unfixed and named in the final report. Human-invoked runs keep the strict filter: discard ⁉️ logs entirely unless asked.
 2. **Quote the error.** Before proposing a fix, quote the exact failing line(s) from the log. If you cannot quote a specific error, you have not diagnosed the problem.
 3. **One cause at a time.** Multiple failing jobs often share a root cause: identify the common thread before treating each job as independent.
 4. **Distinguish test failures from lint failures.** A pytest `AssertionError` and a mypy `error:` have different fixes, but always analyze mypy and ruff failures together before fixing either (see [§ mypy/ruff fix oscillation](#mypy-ruff-fix-oscillation)).
@@ -259,7 +261,7 @@ This section only applies to projects that build binaries (`[tool.repomatic] nui
 - **Nuitka configuration** (`Error, unsupported ...`, an unknown `--flag`, a missing data file): fix `[tool.nuitka]` in `pyproject.toml`, not the Python source; verify each key maps to a current Nuitka option.
 - **Real compile or runtime errors** (the binary builds but its smoke test fails, a `ModuleNotFoundError` at runtime): fix the code or the `include-package`/`include-data-files` configuration, then push and re-monitor.
 
-The matrix is slow: let `tests.yaml` and `lint.yaml` set the loop cadence, then check the binary matrix once it finishes and fold any genuine failure into the same fix batch.
+The matrix is slow: let `tests.yaml` and `lint.yaml` set the loop cadence, but act on a red build cell the moment it lands, like any stable failure (every faster channel has already reported by then): fix, push, supersede. Never idle out the rest of a matrix you already know is doomed.
 
 ### Autofix job failures (autofix.yaml)
 

@@ -66,7 +66,7 @@ These steps take a downstream repository from a fresh checkout to its first rele
    /repomatic-changelog add
    ```
 
-3. Hand the rest to [`/repomatic-ship`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-ship/SKILL.md): it reconciles the changelog, code, and docs, commits and pushes (rebuilding the [release PR](workflows.md#release-engineering)), then runs [`/babysit-ci`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/babysit-ci/SKILL.md) until `main` is green, catching [Nuitka binary-build](#github-workflows-release-engine-yaml-jobs) breakage. It shows the changelog diff before the commit prompt, so you approve each step as you go:
+3. Hand the rest to [`/repomatic-ship`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-ship/SKILL.md): it reconciles the changelog, code, and docs, commits and pushes (rebuilding the [release PR](workflows.md#release-engineering)), then runs [`/babysit-ci`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/babysit-ci/SKILL.md) until `main` is green, catching [Nuitka binary-build](workflows.md#github-workflows-release-engine-yaml-jobs) breakage. It shows the changelog diff before the commit prompt, so you approve each step as you go:
 
    ```text
    /repomatic-ship
@@ -106,7 +106,7 @@ sequenceDiagram
 
     Note over Ship,CL: Phase 1 reconcile substance, then summarize
     par code
-        Ship->>AG: code review (simplify, dedup, harmonize)
+        Ship->>AG: code review (simplify, dedup, harmonize, fix CI's red inventory)
     and docs
         Ship->>AG: docs verification
     end
@@ -132,9 +132,38 @@ sequenceDiagram
     Note over Ship,BCI: Phase 6 babysit (first run mostly green)
     Ship->>BCI: run /babysit-ci (foreground Sonnet)
     loop until main green
-        CI-->>BCI: only CI-exclusive failures (platform, Nuitka)
-        BCI->>Main: fix and push
+        CI-->>BCI: first failing stable job (job-level poll)
+        BCI->>Main: fix and push now, superseding the stale run
+        Note over BCI,Main: prose-only commits hold until the heavy matrices drain
     end
     BCI-->>Ship: green
     Ship-->>Op: Phase 7 release PR ready, then Rebase and merge
 ```
+
+## How a release converges to green
+
+Step 6 dominates the release wall-clock on projects with a long test suite or Nuitka binaries: the 6-platform binary matrix alone takes 40-90 minutes to drain, and it restarts on every push to `main`. The loop converges by acting on failures the moment they land instead of waiting out a run it already knows is doomed:
+
+```mermaid
+flowchart TD
+    PUSH(["push to main"]) --> FAN["CI fan-out: tests, lint, autofix, docs,<br/>release binaries, prepare-release PR"]
+    FAN --> POLL["poll at the job level"]
+    POLL --> RED{"stable job red?"}
+    RED -->|"yes"| FIX["fetch the failed log, root-cause,<br/>fix against the pinned gate"]
+    FIX --> TIMING{"diff rebuilds the<br/>heavy matrices?"}
+    TIMING -->|"source-affecting"| NOW["push now: the fresh run<br/>supersedes the stale one"]
+    NOW --> FAN
+    TIMING -->|"changelog- or docs-only"| HOLD["hold the commit: a mid-drain prose<br/>push kills the binary build<br/>and replaces nothing"]
+    HOLD -.->|"after the drain"| LAND
+    RED -->|"no"| DRAIN{"every workflow terminal<br/>green on HEAD?"}
+    DRAIN -->|"not yet"| POLL
+    DRAIN -->|"green"| DEBT["pay down test debt: chronic<br/>flakes, crashing ⁉️ probes"]
+    DEBT -->|"fixes found"| NOW
+    DEBT -->|"clean"| LAND["push held commits and the changelog<br/>reconciliation onto the green base"]
+    LAND --> VERIFY["re-verify: workflow conclusions,<br/>binary matrix built, release PR refreshed"]
+    VERIFY --> STOP(["report the draft release PR and stop:<br/>the merge stays human"])
+```
+
+Two rules govern the loop. A run-level conclusion hides an already-failed fast job for as long as the slowest cell keeps running, so the babysitter reads individual jobs and fixes the first stable red it sees. And each push is timed by what its diff rebuilds: a source fix pushes immediately, since the run it cancels was validating an obsolete tree anyway, while a changelog- or docs-only commit waits for the heavy matrices to drain, because `release.yaml` runs on every push and a prose diff cancels the in-flight binary build without triggering a rebuild. Projects without binaries can push freely: everything a prose push cancels there is cheap to re-run.
+
+A release is also when test debt gets paid. Once no stable job is red, the loop turns to the failures that never gate a merge: chronic platform flakes and allowed-failure `⁉️` probes that crash outright get fixed at the source (a tolerated exit set, an availability-gated skip, a real code fix) rather than catalogued as known reds.

@@ -6,6 +6,8 @@
 > This version is **not released yet** and is under active development.
 
 - `repomatic init` holds the derived upstream workflow pin back to the newest release past the `minimum-release-age` cooldown; `--no-cooldown` pins the running version immediately.
+- Teach the `repomatic-ship` and `babysit-ci` skills to act on the first failing CI job instead of waiting out full matrices, pay down pre-existing and `⁉️`-probe test debt before the first push, and hold prose-only pushes while binary matrices drain.
+- Chart the `/repomatic-ship` convergence loop (first-failing-job fixes, push timing, debt paydown) on the skills docs page.
 
 ## [`7.4.1` (2026-08-01)](https://github.com/kdeldycke/repomatic/compare/v7.4.0...v7.4.1)
 
