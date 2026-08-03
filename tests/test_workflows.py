@@ -485,6 +485,25 @@ def test_version_increments_runs_on_expected_events() -> None:
     assert "workflow_run" in condition, "metadata job should run on workflow_run events"
 
 
+def test_prepare_release_runs_on_workflow_run() -> None:
+    """The prepare-release job must run on workflow_run events (the PR-refresh backstop).
+
+    `workflow_run` fires after every "🚀 Build & release" — so after every push to
+    `main` — and re-bases the release PR onto the current HEAD. Without it, a push
+    that misses changelog.yaml's `paths:` filter (a `tests/`- or packaging-only
+    reconciliation commit) leaves the PR stale on its prior base. The job may exclude
+    `schedule` (that trigger serves bump-version only) but must not exclude
+    `workflow_run`.
+    """
+    jobs = load_workflow("changelog.yaml").get("jobs", {})
+    condition = jobs.get("prepare-release", {}).get("if", "")
+    assert condition, "prepare-release job must have an `if:` condition"
+    assert "!= 'workflow_run'" not in condition, (
+        "prepare-release must run on workflow_run events (the PR-refresh backstop); "
+        f"its `if:` must not exclude them. Found: {condition!r}"
+    )
+
+
 def test_workflow_run_references_match_workflow_names() -> None:
     """Every `workflow_run` trigger must watch an existing workflow name.
 

@@ -19,10 +19,12 @@ name: 🆙 Changelog & versions
       - .github/workflows/*.yaml
       # Trigger on lockfile changes so bump-version recreates its PRs before they conflict.
       - uv.lock
-      # Trigger on source, test, and docs changes too. A reconciliation commit that
-      # touches only these files (e.g., a release-time code cleanup) would otherwise
-      # leave the prepare-release PR stale on the pre-cleanup commit, forcing a
-      # manual `gh workflow run changelog.yaml --ref main` re-trigger.
+      # Trigger on source and docs changes too, so a reconciliation commit that
+      # touches only these gets an immediate PR re-base instead of waiting for the
+      # workflow_run backstop below (see the prepare-release job's `if:`). That
+      # backstop re-bases the PR after every Build & release regardless of paths, so
+      # a commit missed here — a tests/- or packaging-only cleanup — is caught then
+      # rather than leaving the PR stale.
       - "**/*.py"
       - "docs/**"
   # Trigger after release workflow completes to ensure tags exist before bump-version.
@@ -196,9 +198,15 @@ jobs:
 
   prepare-release:
     name: 🎬 Prepare release
-    # Skip schedule (exists for bump-version only) and workflow_run (would double-run
-    # on every push to main, since push already triggers this job directly).
-    if: github.event_name != 'schedule' && github.event_name != 'workflow_run'
+    # Skip only schedule (that trigger exists for the bump-version job alone).
+    # workflow_run is intentionally allowed: it fires after every "🚀 Build &
+    # release" (so after every push to main) and re-bases the PR onto the current
+    # HEAD. That is the backstop for a push that did not match this workflow's
+    # `paths:` filter — a tests/- or packaging-only reconciliation commit — which
+    # would otherwise leave the PR stale on its prior base. It double-runs with the
+    # push trigger on paths-matching commits, but create-pull-request no-ops when
+    # the branch is already current, so the extra run is cheap and idempotent.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-slim
     permissions:
       contents: write

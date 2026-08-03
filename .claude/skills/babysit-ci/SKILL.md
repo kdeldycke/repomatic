@@ -181,6 +181,8 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
 The workflow uses `continue-on-error` for unstable jobs, so the run can succeed even when they fail.
 
+**Classify by the leading glyph, never by splitting the name.** Match `.name | startswith("✅")` (or `"⁉️"`) directly, as the `jq` filters above do. Job-name shapes differ across workflows — `tests.yaml` names carry no workflow prefix (`✅ ubuntu-24.04 / py3.10`) while `release.yaml`'s are templated (`workflow / ✅ {os} build`) — so any poll or summary logic that splits on `" / "` and reads a fixed position strips the glyph off one of them and misfiles a stable red as an unstable probe, masking a real failure as green. If you reformat job names for display, keep the raw glyph test on the original string.
+
 **A run whose `conclusion` is `failure` while *no* job has `conclusion == "failure"` is not benign.** It signals a workflow-level setup error — a `strategy`/`matrix` expression evaluating to an invalid value (like `fromJSON('')`), malformed YAML, a missing secret — that fails the run around the jobs without a failed-job log. Read the run's error annotations and fix the workflow itself. Never write off a persistently-red workflow as a known artifact without confirming which component actually failed.
 
 ## Error triage discipline
