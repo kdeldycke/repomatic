@@ -39,6 +39,7 @@ genindex
 modindex
 changelog
 changelog-archive
+history
 todolist
 code-of-conduct
 license
