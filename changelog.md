@@ -10,6 +10,7 @@
 - Chart the `/repomatic-ship` convergence loop (first-failing-job fixes, push timing, debt paydown) on the skills docs page.
 - Re-base the release PR onto the current `main` HEAD after every build by also running `prepare-release` on `workflow_run`, so a reconciliation commit that misses `changelog.yaml`'s `paths:` filter no longer leaves the PR stale.
 - Add a `history` documentation page retracing the project from its 2021 reusable-workflow origins through the `gha-utils` CLI to the `repomatic` rename.
+- Recenter the readme and the workflows page on the CLI-first design: workflows only trigger CLI commands, with local-run examples and links to the standalone binaries and history pages.
 
 ## [`7.4.1` (2026-08-01)](https://github.com/kdeldycke/repomatic/compare/v7.4.0...v7.4.1)
 

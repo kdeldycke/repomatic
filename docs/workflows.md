@@ -1,6 +1,6 @@
 # {octicon}`workflow` Reusable workflows
 
-The `repomatic` CLI operates in CI through [reusable GitHub Actions workflows](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows). You configure behavior via [`[tool.repomatic]`](configuration.md) in `pyproject.toml`; the workflows are the execution layer.
+The `repomatic` CLI is invoked in CI from [reusable GitHub Actions workflows](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows). You configure behavior via [`[tool.repomatic]`](configuration.md) in `pyproject.toml`; the workflows trigger jobs and wire their outputs together, the CLI does the work.
 
 ### Example usage
 

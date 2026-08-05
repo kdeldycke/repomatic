@@ -9,7 +9,7 @@
 [![Coverage status](https://codecov.io/gh/kdeldycke/repomatic/branch/main/graph/badge.svg)](https://app.codecov.io/gh/kdeldycke/repomatic)
 [![Documentation status](https://img.shields.io/github/actions/workflow/status/kdeldycke/repomatic/docs.yaml?branch=main&label=%F0%9F%93%9A%20Docs)](https://github.com/kdeldycke/repomatic/actions/workflows/docs.yaml?query=branch%3Amain)
 
-A Python CLI and `pyproject.toml` configuration that let you **release Python packages multiple times a day with only 2-clicks**. Designed for `uv`-based Python projects, but usable for other projects too. The CLI operates through reusable GitHub Actions workflows as its CI delivery mechanism.
+A Python CLI and `pyproject.toml` configuration that let you **release Python packages multiple times a day with only 2-clicks**. Designed for `uv`-based Python projects, but usable for other projects too. Every step is a CLI command: reusable GitHub Actions workflows are only the trigger, so the same automation runs on your machine.
 
 **Maintainer-in-the-loop**: nothing is done behind your back. A PR or issue is created every time a change is proposed or action is needed.
 
@@ -31,6 +31,8 @@ A Python CLI and `pyproject.toml` configuration that let you **release Python pa
 
 ## Why repomatic
 
+repomatic does for the release process what ruff did for linting and uv did for packaging: replace a stack of single-purpose tools with one.
+
 - [18 third-party GitHub Actions replaced](https://kdeldycke.github.io/repomatic/security.html#third-party-action-minimization) by internal CLI commands and SHA-256-verified binary downloads, keeping the supply chain attack surface minimal
 - [8 Python linters and formatters](https://kdeldycke.github.io/repomatic/security.html#ruff-consolidation) (pylint, black, isort, pyupgrade, pydocstyle, pycln, docformatter, blacken-docs) consolidated into ruff
 - [5 packaging and install tools](https://kdeldycke.github.io/repomatic/security.html#uv-consolidation) (poetry, build, twine, check-wheel-contents, pip-audit) consolidated into uv
@@ -42,6 +44,7 @@ A Python CLI and `pyproject.toml` configuration that let you **release Python pa
 - Workflow security linting with [`zizmor`](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-lint-yaml-jobs) on every push to catch dangerous triggers and excessive permissions
 - Credential scanning with [`gitleaks`](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-lint-yaml-jobs) to prevent secret leakage
 - Single [`pyproject.toml` configuration](https://kdeldycke.github.io/repomatic/configuration.html): no extra dotfiles, no JSON configs, no YAML presets to maintain
+- The CLI itself [ships as standalone binaries](https://kdeldycke.github.io/repomatic/install.html#executables) (Linux / macOS / Windows, x86_64 / arm64): no Python environment needed to run it
 - [15+ code quality tools](https://kdeldycke.github.io/repomatic/tool-runner.html) (ruff, mypy, biome, typos, mdformat, shfmt, yamllint, actionlint, lychee, oxipng, jpegoptim, pyproject-fmt, labelmaker, gitleaks, zizmor) managed through one `repomatic run <tool>` interface with automatic installation and platform-specific binary caching
 
 ## Quick start
@@ -56,6 +59,13 @@ $ git push
 
 Works for new and existing repositories. Managed files are always regenerated to the latest version; `changelog.md` is never overwritten. Push, and the workflows guide you through remaining setup via issues and PRs.
 
+The workflows only call CLI commands, so every automated step can also be run and previewed locally:
+
+```shell-session
+$ uvx -- repomatic sync-deps --dry-run
+$ uvx -- repomatic run ruff -- check
+```
+
 See `repomatic init --help` for available components and options.
 
 ## Documentation
@@ -69,6 +79,7 @@ See the **[full documentation](https://kdeldycke.github.io/repomatic/)** for:
 - [Security practices and token setup](https://kdeldycke.github.io/repomatic/security.html)
 - [Claude Code skills](https://kdeldycke.github.io/repomatic/skills.html)
 - [API reference](https://kdeldycke.github.io/repomatic/repomatic.html)
+- [Project history](https://kdeldycke.github.io/repomatic/history.html)
 
 ## Used in
 
