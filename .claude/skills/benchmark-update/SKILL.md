@@ -3,7 +3,7 @@ name: benchmark-update
 description: Create or update a competitive benchmark page (docs/benchmark.md) comparing the current project against alternatives in the same space. Checks maintenance status, feature accuracy, new candidates, and badge health.
 model: opus
 disable-model-invocation: true
-allowed-tools: Bash, Read, Grep, Glob, WebFetch, WebSearch, Agent
+allowed-tools: Bash Read Grep Glob WebFetch WebSearch Agent
 argument-hint: '[audit|init|add <project>|refresh-badges]'
 ---
 

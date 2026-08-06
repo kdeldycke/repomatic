@@ -26,6 +26,7 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import yaml
 from click_extra import (
     UNPROCESSED,
     Choice,
@@ -207,6 +208,7 @@ from .vulnerable_deps import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import Any
 
     from .dep_report import BypassForecast, HeldBackPackage
 
@@ -3036,22 +3038,37 @@ def sync_labels(ctx: Context, repository: str | None) -> None:
     echo("Labels synced.")
 
 
-def _parse_skill_frontmatter(content: str) -> dict[str, str]:
-    """Extract YAML frontmatter fields from a skill definition file.
+def _parse_skill_frontmatter(content: str) -> dict[str, Any]:
+    """Extract the YAML frontmatter mapping from a skill definition file.
 
-    Parses the `---`-delimited frontmatter block and returns a dict of
-    key-value pairs. Only handles simple `key: value` lines (no nested
-    structures).
+    Values keep their YAML types, so a boolean flag like
+    `disable-model-invocation` reads back as a `bool` and the [Agent Skills
+    spec](https://agentskills.io/specification)'s `metadata` field as a
+    nested mapping.
+
+    ```{note}
+    Both delimiters must sit alone on their own line, per the frontmatter
+    convention. Scanning for the closing line, instead of splitting the file
+    on the first three `---` runs, keeps a value that embeds `---` (like an
+    `argument-hint` listing a long-form option) from truncating the block.
+    ```
+
+    :param content: full text of a `SKILL.md` file.
+    :return: the parsed frontmatter, or an empty mapping when the file has no
+        frontmatter block or the block does not parse as a YAML mapping.
     """
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
         return {}
-    result = {}
-    for line in parts[1].strip().splitlines():
-        if ":" in line:
-            key, _, value = line.partition(":")
-            result[key.strip()] = value.strip()
-    return result
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            break
+    else:
+        return {}
+    parsed = yaml.safe_load("\n".join(lines[1:index]))
+    if not isinstance(parsed, dict):
+        return {}
+    return parsed
 
 
 @repomatic.command(

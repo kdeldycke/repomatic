@@ -3,7 +3,7 @@ name: repomatic-deps
 description: Generate dependency graphs, audit pyproject.toml declarations against version policy, explore unused dependency APIs that could simplify code, and modernize code against the changelogs of upgraded dependencies.
 model: opus
 disable-model-invocation: true
-allowed-tools: Bash, Read, Grep, Glob, Agent, Edit, Write, WebFetch
+allowed-tools: Bash Read Grep Glob Agent Edit Write WebFetch
 argument-hint: '[graph [--level N]|review [all|runtime|dev|policy]|explore [<package>]|modernize [<package>]]'
 ---
 

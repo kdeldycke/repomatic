@@ -3,7 +3,7 @@ name: repomatic-topics
 description: Optimize GitHub topics for discoverability by analyzing competition on topic pages.
 model: sonnet
 disable-model-invocation: true
-allowed-tools: Bash, Read, Grep, Glob, WebFetch, WebSearch, Task, Edit
+allowed-tools: Bash Read Grep Glob WebFetch WebSearch Agent Edit
 argument-hint: '[audit|apply]'
 ---
 

@@ -3,7 +3,7 @@ name: awesome-triage
 description: Triage new issues and PRs on awesome-list repos by applying curation criteria distilled from past decisions.
 model: opus
 disable-model-invocation: true
-allowed-tools: Bash, Read, Grep, Glob, WebFetch, WebSearch
+allowed-tools: Bash Read Grep Glob WebFetch WebSearch
 argument-hint: <issue-or-pr-url>
 ---
 

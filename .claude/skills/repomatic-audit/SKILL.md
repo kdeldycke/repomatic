@@ -2,7 +2,7 @@
 name: repomatic-audit
 description: Audit downstream repo alignment with upstream repomatic reference, covering workflows, configs, and conventions.
 model: opus
-allowed-tools: Bash, Read, Grep, Glob, WebFetch, Agent
+allowed-tools: Bash Read Grep Glob WebFetch Agent
 argument-hint: '[all|workflows|configs|claude]'
 ---
 

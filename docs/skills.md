@@ -1,6 +1,6 @@
 # {octicon}`mortar-board` Claude Code skills
 
-This repository includes [Claude Code skills](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/skills) that bring `repomatic` workflows into Claude Code as slash commands. Downstream repositories can install them with:
+This repository includes [Claude Code skills](https://code.claude.com/docs/en/skills) that bring `repomatic` workflows into Claude Code as slash commands. Downstream repositories can install them with:
 
 ```shell-session
 $ uvx -- repomatic init skills
@@ -167,3 +167,19 @@ flowchart TD
 Two rules govern the loop. A run-level conclusion hides an already-failed fast job for as long as the slowest cell keeps running, so the babysitter reads individual jobs and fixes the first stable red it sees. And each push is timed by what its diff rebuilds: a source fix pushes immediately, since the run it cancels was validating an obsolete tree anyway, while a changelog- or docs-only commit waits for the heavy matrices to drain, because `release.yaml` runs on every push and a prose diff cancels the in-flight binary build without triggering a rebuild. Projects without binaries can push freely: everything a prose push cancels there is cheap to re-run.
 
 A release is also when test debt gets paid. Once no stable job is red, the loop turns to the failures that never gate a merge: chronic platform flakes and allowed-failure `⁉️` probes that crash outright get fixed at the source (a tolerated exit set, an availability-gated skip, a real code fix) rather than catalogued as known reds.
+
+## Agent Skills specification
+
+Bundled skills follow the [Agent Skills specification](https://agentskills.io/specification): each one is a directory holding a `SKILL.md` whose YAML frontmatter carries a spec-shaped `name` matching that directory, a `description` under the 1024-character ceiling, and `allowed-tools` written as the spec's space-separated string. `tests/test_skills.py` asserts all of this over every bundled skill, so a new or edited one cannot silently drift out of the format.
+
+Three frontmatter fields go beyond the spec's six. Claude Code reads them at the top level, so they cannot hide under the spec's `metadata` escape hatch:
+
+| Field                      | Purpose                                                |
+| :------------------------- | :----------------------------------------------------- |
+| `argument-hint`            | Autocomplete hint for the arguments the skill accepts. |
+| `disable-model-invocation` | Reserve the skill for explicit `/name` invocation.     |
+| `model`                    | Pin the model the skill runs on.                       |
+
+That surplus is deliberate, and it is not free: the claude.ai upload path, the Skills API, and `package_skill.py` from [anthropics/skills](https://github.com/anthropics/skills) reject an unknown frontmatter key with a hard error rather than ignoring it. These skills are Claude Code project skills installed under `.claude/skills/`, so they trade that distribution channel for the extra control. A skill that has to travel through claude.ai must drop the three fields first.
+
+The optional `license` and `compatibility` fields stay unset. `repomatic init skills` copies each `SKILL.md` into a downstream repository where it is meant to be edited, so an upstream declaration would misstate the file the moment it is customized.
