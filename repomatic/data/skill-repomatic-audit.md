@@ -1,1 +1,0 @@
-../../.claude/skills/repomatic-audit/SKILL.md

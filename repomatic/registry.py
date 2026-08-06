@@ -120,7 +120,7 @@ class FileEntry:
     """A single file managed within a component."""
 
     source: str
-    """Filename in `repomatic/data/`."""
+    """Filename in `repomatic/data/`, or a directory when {attr}`tree` is set."""
 
     target: str = ""
     """Relative output path in the target repository.
@@ -146,6 +146,23 @@ class FileEntry:
 
     phase: str = ""
     """Skill-specific: lifecycle phase for `list-skills` display."""
+
+    tree: bool = False
+    r"""Whether {attr}`source` and {attr}`target` name directories, not files.
+
+    A tree entry is copied wholesale, so a skill can ship `scripts/`,
+    `references/` and `assets/` alongside its `SKILL.md` exactly as the [Agent
+    Skills spec](https://agentskills.io/specification) describes, with no
+    per-file registration.
+
+    ```{caution}
+    Under `repomatic/data/` a tree's directories must be **real** and only its
+    leaves may be symlinks back into the authoritative tree. `uv_build` refuses
+    a symlinked directory in package data (`Is a directory (os error 21)`) and
+    fails the whole wheel, while symlinked files are dereferenced into it
+    normally.
+    ```
+    """
 
     def is_enabled(self, config: object) -> bool:
         """Whether this entry is enabled by the given `Config` object.
@@ -405,10 +422,31 @@ def _agent_target(agent_id: str) -> str:
     return f"{prefix}/{agent_id}.md"
 
 
-def _skill_target(skill_id: str) -> str:
-    """Build the default target path for a skill file from the Config default."""
+SKILL_FILENAME = "SKILL.md"
+"""Name the Agent Skills spec reserves for a skill's entry point."""
+
+SKILL_SOURCE_ROOT = "skills"
+"""Directory under `repomatic/data/` holding one folder per bundled skill."""
+
+
+def _skill_dir(skill_id: str) -> str:
+    """Build the default target directory for a skill from the Config default."""
     prefix = Config.skills_location.removeprefix("./").rstrip("/")
-    return f"{prefix}/{skill_id}/SKILL.md"
+    return f"{prefix}/{skill_id}"
+
+
+def _skill_target(skill_id: str) -> str:
+    """Build the default target path of a skill's `SKILL.md`.
+
+    Kept alongside {func}`_skill_dir` because {class}`RemovedAsset` tombstones
+    address individual files on a downstream repo's disk, not directories.
+    """
+    return f"{_skill_dir(skill_id)}/{SKILL_FILENAME}"
+
+
+def _skill_source(skill_id: str) -> str:
+    """Build the bundled source directory for a skill."""
+    return f"{SKILL_SOURCE_ROOT}/{skill_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -496,95 +534,110 @@ COMPONENTS: tuple[Component, ...] = (
         keep_unmodified=True,
         files=(
             FileEntry(
-                "skill-av-false-positive.md",
-                _skill_target("av-false-positive"),
+                _skill_source("av-false-positive"),
+                _skill_dir("av-false-positive"),
                 "av-false-positive",
+                tree=True,
                 phase="Release",
             ),
             FileEntry(
-                "skill-awesome-triage.md",
-                _skill_target("awesome-triage"),
+                _skill_source("awesome-triage"),
+                _skill_dir("awesome-triage"),
                 "awesome-triage",
+                tree=True,
                 scope=RepoScope.AWESOME_ONLY,
                 phase="Maintenance",
             ),
             FileEntry(
-                "skill-babysit-ci.md",
-                _skill_target("babysit-ci"),
+                _skill_source("babysit-ci"),
+                _skill_dir("babysit-ci"),
                 "babysit-ci",
+                tree=True,
                 phase="Quality",
             ),
             FileEntry(
-                "skill-benchmark-update.md",
-                _skill_target("benchmark-update"),
+                _skill_source("benchmark-update"),
+                _skill_dir("benchmark-update"),
                 "benchmark-update",
+                tree=True,
                 phase="Development",
             ),
             FileEntry(
-                "skill-brand-assets.md",
-                _skill_target("brand-assets"),
+                _skill_source("brand-assets"),
+                _skill_dir("brand-assets"),
                 "brand-assets",
+                tree=True,
                 phase="Development",
             ),
             FileEntry(
-                "skill-file-bug-report.md",
-                _skill_target("file-bug-report"),
+                _skill_source("file-bug-report"),
+                _skill_dir("file-bug-report"),
                 "file-bug-report",
+                tree=True,
                 phase="Maintenance",
             ),
             FileEntry(
-                "skill-repomatic-audit.md",
-                _skill_target("repomatic-audit"),
+                _skill_source("repomatic-audit"),
+                _skill_dir("repomatic-audit"),
                 "repomatic-audit",
+                tree=True,
                 phase="Maintenance",
             ),
             FileEntry(
-                "skill-repomatic-changelog.md",
-                _skill_target("repomatic-changelog"),
+                _skill_source("repomatic-changelog"),
+                _skill_dir("repomatic-changelog"),
                 "repomatic-changelog",
+                tree=True,
                 phase="Release",
             ),
             FileEntry(
-                "skill-repomatic-deps.md",
-                _skill_target("repomatic-deps"),
+                _skill_source("repomatic-deps"),
+                _skill_dir("repomatic-deps"),
                 "repomatic-deps",
+                tree=True,
                 phase="Development",
             ),
             FileEntry(
-                "skill-repomatic-init.md",
-                _skill_target("repomatic-init"),
+                _skill_source("repomatic-init"),
+                _skill_dir("repomatic-init"),
                 "repomatic-init",
+                tree=True,
                 phase="Setup",
             ),
             FileEntry(
-                "skill-repomatic-ship.md",
-                _skill_target("repomatic-ship"),
+                _skill_source("repomatic-ship"),
+                _skill_dir("repomatic-ship"),
                 "repomatic-ship",
+                tree=True,
                 phase="Release",
             ),
             FileEntry(
-                "skill-repomatic-topics.md",
-                _skill_target("repomatic-topics"),
+                _skill_source("repomatic-topics"),
+                _skill_dir("repomatic-topics"),
                 "repomatic-topics",
+                tree=True,
                 phase="Development",
             ),
             FileEntry(
-                "skill-sphinx-docs-sync.md",
-                _skill_target("sphinx-docs-sync"),
+                _skill_source("sphinx-docs-sync"),
+                _skill_dir("sphinx-docs-sync"),
                 "sphinx-docs-sync",
+                tree=True,
                 phase="Maintenance",
             ),
             FileEntry(
-                "skill-translation-sync.md",
-                _skill_target("translation-sync"),
+                _skill_source("translation-sync"),
+                _skill_dir("translation-sync"),
                 "translation-sync",
+                tree=True,
                 scope=RepoScope.AWESOME_ONLY,
                 phase="Maintenance",
             ),
             FileEntry(
-                "skill-upstream-audit.md",
-                _skill_target("upstream-audit"),
+                _skill_source("upstream-audit"),
+                _skill_dir("upstream-audit"),
                 "upstream-audit",
+                tree=True,
                 phase="Maintenance",
             ),
         ),

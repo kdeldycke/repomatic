@@ -25,6 +25,7 @@ import sys
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
+from shutil import rmtree
 
 import yaml
 from click_extra import (
@@ -69,6 +70,7 @@ from .binary import (
     verify_binary_floor,
 )
 from .broken_links import manage_combined_broken_links_issue
+from .bundle import get_data_content
 from .cache import (
     cache_dir as _cache_dir,
     cache_info,
@@ -146,7 +148,7 @@ from .images import (
     generate_markdown_summary,
     optimize_images,
 )
-from .init_project import export_content, find_all_unmodified_configs, run_init
+from .init_project import find_all_unmodified_configs, run_init
 from .labels import apply_labels
 from .lint_repo import (
     run_repo_lint,
@@ -168,6 +170,7 @@ from .registry import (
     COMPONENTS_BY_NAME,
     DEFAULT_REPO,
     FILE_SELECTOR_COMPONENTS,
+    SKILL_FILENAME,
     SKILL_PHASE_ORDER,
     SKILL_PHASES,
     parse_component_entries,
@@ -404,8 +407,15 @@ class ComponentSelector(ParamType):
 
 
 def _unlink_with_empty_parents(target: Path, root: Path) -> None:
-    """Delete `target`, then prune now-empty parent directories up to `root`."""
-    target.unlink()
+    """Delete `target`, then prune now-empty parent directories up to `root`.
+
+    A skill is a whole folder, so *target* may be a directory: remove it and
+    everything it carries (`scripts/`, `references/`, `assets/`) in one go.
+    """
+    if target.is_dir():
+        rmtree(target)
+    else:
+        target.unlink()
     parent = target.parent
     while parent != root:
         try:
@@ -3041,10 +3051,9 @@ def sync_labels(ctx: Context, repository: str | None) -> None:
 def _parse_skill_frontmatter(content: str) -> dict[str, Any]:
     """Extract the YAML frontmatter mapping from a skill definition file.
 
-    Values keep their YAML types, so a boolean flag like
-    `disable-model-invocation` reads back as a `bool` and the [Agent Skills
-    spec](https://agentskills.io/specification)'s `metadata` field as a
-    nested mapping.
+    Values keep their YAML types, so the [Agent Skills
+    spec](https://agentskills.io/specification)'s `metadata` field reads back
+    as a nested mapping rather than a flat string.
 
     ```{note}
     Both delimiters must sit alone on their own line, per the frontmatter
@@ -3085,7 +3094,8 @@ def list_skills() -> None:
     skills_comp = COMPONENTS_BY_NAME["skills"]
     skills = []
     for entry in skills_comp.files:
-        content = export_content(entry.source)
+        # Each skill is a bundled folder, so reach past it for the entry point.
+        content = get_data_content(f"{entry.source}/{SKILL_FILENAME}")
         meta = _parse_skill_frontmatter(content)
         name = meta.get("name", entry.file_id)
         description = meta.get("description", "")

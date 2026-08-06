@@ -308,9 +308,13 @@ Patterns that recur across sessions, to watch for proactively:
 
 ### Skills
 
-Skills in `.claude/skills/` are user-invocable only (`disable-model-invocation: true`) by default and follow agent conventions: lean, no duplication with `CLAUDE.md`, reference sections instead of restating rules. Run `repomatic list-skills` to list them. **A skill another skill invokes programmatically drops `disable-model-invocation`** to become model-invocable (the flag blocks the `Skill` tool, not just auto-triggering): `repomatic-changelog` is unlocked so `/repomatic-ship` can run its consolidation, and the caller lists `Skill` and `Agent` in `allowed-tools` and guards for graceful degradation (below).
+Skills in `.claude/skills/` follow agent conventions: lean, no duplication with `CLAUDE.md`, reference sections instead of restating rules. Run `repomatic list-skills` to list them.
 
-**Skills must be self-contained for downstream portability.** Skills deploy downstream via `repomatic init skills` as standalone SKILL.md files; downstream repos have no `docs/` and skills typically lack `WebFetch`, so all domain knowledge must be inline. Duplication between a skill and a docs page is intentional: `docs/` serves humans, the skill serves Claude at runtime.
+**A skill is a plain folder of static files, copied verbatim.** `repomatic init skills` places the folder at its destination and does nothing else: no rendering, no per-target variants, no flavor flags. Optional `scripts/`, `references/` and `assets/` subdirectories travel with it. Anything that would otherwise vary per destination belongs in the skill body as prose, never in a code path.
+
+**Frontmatter carries [Agent Skills spec](https://agentskills.io/specification) fields, plus `argument-hint`.** That single deviation is settled; every other Claude Code extension stays out. Notably there is no `model:` (the recommended model rides in the spec's `compatibility` field) and no `disable-model-invocation:`, so **every skill is model-invocable by design**: skills exist to augment the parent agent, and what they may actually do is gated by the permission layer, not by frontmatter. `tests/test_skills.py` enforces this, so argue a new field there before adding it to a skill.
+
+**Skills must be self-contained for downstream portability.** Skills deploy downstream via `repomatic init skills` as standalone folders; downstream repos have no `docs/` and skills typically lack `WebFetch`, so all domain knowledge must be inline or in the skill's own `references/`. Duplication between a skill and a docs page is intentional: `docs/` serves humans, the skill serves Claude at runtime.
 
 **Cross-references between skills and agents must degrade gracefully.** A "Next steps" line suggesting `/other-skill` is informational; a *programmatic* call is the same: a skill invoking another through the `Skill` tool must fall back to a subagent or inline work when the target is excluded (via `[tool.repomatic] exclude` or scope filtering), never letting a missing skill abort the caller. Write prose so a missing cross-reference is a no-op, not a blocker.
 

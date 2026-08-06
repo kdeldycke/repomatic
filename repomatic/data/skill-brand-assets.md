@@ -1,1 +1,0 @@
-../../.claude/skills/brand-assets/SKILL.md

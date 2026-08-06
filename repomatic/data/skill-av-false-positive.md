@@ -1,1 +1,0 @@
-../../.claude/skills/av-false-positive/SKILL.md

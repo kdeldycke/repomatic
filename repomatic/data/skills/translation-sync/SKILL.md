@@ -1,0 +1,1 @@
+../../../../.claude/skills/translation-sync/SKILL.md

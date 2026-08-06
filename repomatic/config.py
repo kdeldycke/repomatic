@@ -33,11 +33,13 @@ from click_extra import (
     make_schema_callable,
     schema_field_infos,
 )
+from extra_platforms import ALL_AGENTS, ALL_CI
 
 from .pyproject import read_pyproject_toml
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from typing import Any, Final
 
 
@@ -164,6 +166,120 @@ class DocsConfig:
     Resolved relative to the repository root. Must reside under the `docs/`
     directory for security. Set to an empty string to disable.
     """
+
+
+@dataclass
+class AgentLayout:
+    """Where one AI coding agent expects its assets to live."""
+
+    skills: str
+    """Directory holding one folder per skill."""
+
+    agents: str
+    """Directory holding subagent definitions."""
+
+
+AGENT_LAYOUTS: Final[dict[str, AgentLayout]] = {
+    "claude_code": AgentLayout(skills="./.claude/skills/", agents="./.claude/agents/"),
+}
+"""Asset layout per agent, keyed by `extra_platforms.ALL_AGENTS` trait ID.
+
+Only agents repomatic can actually lay out appear here. `cline` and `cursor`
+are valid trait IDs but have no Agent Skills layout to target, so selecting
+one is rejected rather than silently producing a Claude Code tree.
+"""
+
+DEFAULT_AGENT: Final[str] = "claude_code"
+"""Agent assumed when `[tool.repomatic.flavor] agent` is unset."""
+
+DEFAULT_CI: Final[str] = "github_ci"
+"""CI system assumed when `[tool.repomatic.flavor] ci` is unset."""
+
+
+def _resolve_flavor(
+    value: str, group: Iterable[Any], supported: set[str], key: str
+) -> str:
+    """Normalize a flavor value, then check it twice.
+
+    First against the full extra-platforms vocabulary, which catches a typo or
+    an ecosystem nobody has heard of, then against the subset repomatic can
+    actually target. Keeping the two apart means a real-but-unimplemented
+    ecosystem reports as unsupported rather than as a spelling mistake.
+
+    Trait IDs are underscore-separated (`claude_code`) while `[tool.repomatic]`
+    keys are hyphenated, so both spellings are accepted.
+
+    :param group: extra-platforms trait group defining the vocabulary.
+    :param supported: Trait IDs repomatic implements.
+    :param key: Dotted config path, used in the error messages.
+    :raises ValueError: When *value* is unknown upstream or unsupported here.
+    """
+    normalized = value.strip().lower().replace("-", "_")
+    known = {trait.id for trait in group}
+    if normalized not in known:
+        msg = (
+            f"Unknown [tool.repomatic] {key} = {value!r}. Expected an "
+            f"extra-platforms trait ID: {', '.join(sorted(known))}."
+        )
+        raise ValueError(msg)
+    if normalized not in supported:
+        msg = (
+            f"Unsupported [tool.repomatic] {key} = {value!r}. repomatic "
+            f"targets: {', '.join(sorted(supported))}."
+        )
+        raise ValueError(msg)
+    return normalized
+
+
+@dataclass
+class FlavorConfig:
+    """Nested schema for `[tool.repomatic.flavor]`.
+
+    Declares which ecosystem repomatic is targeting, so a future decision has
+    one place to branch on instead of a new flag per feature.
+
+    ```{note}
+    Values are trait IDs from
+    [extra-platforms](https://github.com/kdeldycke/extra-platforms), which
+    already models both AI agents and CI systems. Borrowing its vocabulary
+    brings its detection helpers (`current_agent()`, `is_github_ci()`) and its
+    naming along for free, instead of repomatic maintaining a parallel enum.
+    ```
+
+    ```{caution}
+    Defaults are static, never detected. Deriving them from `current_agent()`
+    would make a repository's effective configuration depend on which tool
+    happened to invoke `repomatic` last, so `repomatic metadata` would stop
+    being reproducible.
+    ```
+    """
+
+    agent: str = DEFAULT_AGENT
+    """AI coding agent whose asset layout the bundled skills and agents target.
+
+    Accepts a `extra_platforms.ALL_AGENTS` trait ID present in
+    {data}`AGENT_LAYOUTS`. Hyphens are normalized, so `claude-code` works too.
+    """
+
+    ci: str = DEFAULT_CI
+    """CI system the bundled workflows target.
+
+    Accepts a `extra_platforms.ALL_CI` trait ID. Only `github_ci` is
+    implemented: every bundled workflow is a GitHub Actions workflow, so any
+    other value is rejected rather than quietly emitting the wrong thing.
+    """
+
+    def __post_init__(self) -> None:
+        """Normalize and validate both flavors against their vocabularies."""
+        self.agent = _resolve_flavor(
+            self.agent, ALL_AGENTS, set(AGENT_LAYOUTS), "flavor.agent"
+        )
+        self.ci = _resolve_flavor(self.ci, ALL_CI, {DEFAULT_CI}, "flavor.ci")
+
+    @property
+    def layout(self) -> AgentLayout:
+        """Asset layout for the selected agent."""
+        return AGENT_LAYOUTS[self.agent]
 
 
 @dataclass
@@ -505,10 +621,13 @@ class Config:
     """
 
     agents_location: str = field(
-        default="./.claude/agents/",
+        default=AGENT_LAYOUTS[DEFAULT_AGENT].agents,
         metadata={CONFIG_PATH_METADATA_KEY: "agents.location"},
     )
-    """Directory prefix for Claude Code agent files, relative to the repository root.
+    """Directory prefix for agent files, relative to the repository root.
+
+    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
+    explicitly overrides that.
 
     Agent files are written as `{agents_location}/{agent-id}.md`.
     Useful for repositories where `.claude/` is not at the root (like
@@ -640,6 +759,12 @@ class Config:
     Affects `repomatic init`, `workflow sync`, and `workflow create`.
     Explicit CLI positional arguments override this list.
     """
+
+    flavor: FlavorConfig = field(
+        default_factory=FlavorConfig,
+        metadata={CONFIG_PATH_METADATA_KEY: "flavor"},
+    )
+    """Which agent and CI ecosystem this repository targets."""
 
     gitignore: GitignoreConfig = field(
         default_factory=GitignoreConfig,
@@ -810,10 +935,13 @@ class Config:
     """
 
     skills_location: str = field(
-        default="./.claude/skills/",
+        default=AGENT_LAYOUTS[DEFAULT_AGENT].skills,
         metadata={CONFIG_PATH_METADATA_KEY: "skills.location"},
     )
-    """Directory prefix for Claude Code skill files, relative to the repository root.
+    """Directory prefix for skill folders, relative to the repository root.
+
+    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
+    explicitly overrides that.
 
     Skill files are written as `{skills_location}/{skill-id}/SKILL.md`.
     Useful for repositories where `.claude/` is not at the root (like
@@ -879,6 +1007,20 @@ class Config:
     to `false`.
     """
 
+    def __post_init__(self) -> None:
+        """Point the asset locations at the selected agent's layout.
+
+        Only a location still sitting at its default is derived, so an
+        explicit `skills.location` or `agents.location` always wins over the
+        flavor.
+        """
+        default = AGENT_LAYOUTS[DEFAULT_AGENT]
+        layout = self.flavor.layout
+        if self.skills_location == default.skills:
+            self.skills_location = layout.skills
+        if self.agents_location == default.agents:
+            self.agents_location = layout.agents
+
 
 SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "abandoned_versions",
@@ -894,6 +1036,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "dev_release_sync",
     "docs",
     "exclude",
+    "flavor",
     "gitignore",
     "include",
     "labels",

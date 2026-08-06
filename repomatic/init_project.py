@@ -120,7 +120,7 @@ explicitly so the data-file registry tests stay authoritative.
 
 # Exportable files: all registry entries + tool runner bundled defaults.
 EXPORTABLE_FILES: dict[str, str | None] = {
-    **{f.source: f.target for c in COMPONENTS for f in c.files},
+    **{f.source: f.target for c in COMPONENTS for f in c.files if not f.tree},
     **{c.source_file: None for c in COMPONENTS if isinstance(c, ToolConfigComponent)},
     # Standalone linter configs from the tool runner (yamllint, zizmor).
     # These are bundled defaults used at runtime, not init components.
@@ -1236,6 +1236,19 @@ def _init_config_files(
         target = output_dir / effective_target
         rel = target.relative_to(output_dir).as_posix()
 
+        # A tree entry is a whole folder (a skill and its optional `scripts/`,
+        # `references/` and `assets/`), copied verbatim rather than rendered.
+        if entry.tree:
+            source_root = files("repomatic.data").joinpath(entry.source)
+            tree_created, tree_updated = _copy_template_tree(source_root, target)
+            result.created.extend(
+                p.relative_to(output_dir).as_posix() for p in tree_created
+            )
+            result.updated.extend(
+                p.relative_to(output_dir).as_posix() for p in tree_updated
+            )
+            continue
+
         content = export_content(entry.source)
         if component_name == "labels":
             content = augment_labeller_content(entry.source, content, config)
@@ -1266,21 +1279,23 @@ AWESOME_TEMPLATE_SLUG = "kdeldycke/awesome-template"
 """Source slug embedded in bundled awesome-template files, rewritten at sync time."""
 
 
-def _copy_template_tree(root: Traversable, dest: Path) -> tuple[int, int]:
+def _copy_template_tree(root: Traversable, dest: Path) -> tuple[list[Path], list[Path]]:
     """Recursively copy files from a traversable resource tree to disk.
 
-    Skips `__init__.py` and `__pycache__` entries. Returns
-    `(created, updated)` counts.
+    Skips `__init__.py` and `__pycache__` entries, and leaves a file whose
+    content already matches untouched, so re-running is a no-op.
+
+    :return: `(created, updated)` lists of the paths actually written.
     """
-    created = 0
-    updated = 0
+    created: list[Path] = []
+    updated: list[Path] = []
     for entry in root.iterdir():
         if entry.name in ("__init__.py", "__pycache__"):
             continue
         if entry.is_dir():
             c, u = _copy_template_tree(entry, dest / entry.name)
-            created += c
-            updated += u
+            created.extend(c)
+            updated.extend(u)
         else:
             target = dest / entry.name
             existed = target.exists()
@@ -1290,10 +1305,10 @@ def _copy_template_tree(root: Traversable, dest: Path) -> tuple[int, int]:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(new_bytes)
             if existed:
-                updated += 1
+                updated.append(target)
                 logging.info(f"Updated: {target}")
             else:
-                created += 1
+                created.append(target)
                 logging.info(f"Created: {target}")
     return created, updated
 
@@ -1316,9 +1331,9 @@ def init_awesome_template(
     template_root = files("repomatic.data").joinpath("awesome_template")
     created, updated = _copy_template_tree(template_root, output_dir)
     if created:
-        result.created.append(f"awesome-template ({created} files)")
+        result.created.append(f"awesome-template ({len(created)} files)")
     if updated:
-        result.updated.append(f"awesome-template ({updated} files)")
+        result.updated.append(f"awesome-template ({len(updated)} files)")
 
     # Rewrite template URLs in .github/ markdown and YAML files.
     github_dir = output_dir / ".github"

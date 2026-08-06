@@ -21,27 +21,29 @@ spec](https://agentskills.io/specification), so a new or edited skill cannot
 silently drift out of it.
 
 ```{note}
-The spec allows six frontmatter fields. Claude Code accepts those six plus its
-own extensions, and this repository uses three of them (see
-{data}`CLAUDE_CODE_EXTENSIONS`). That surplus is deliberate but not free: the
-claude.ai upload path, the Skills API, and `package_skill.py` from
-[anthropics/skills](https://github.com/anthropics/skills) reject an unknown key
-with a hard error rather than ignoring it. Keeping the extension set small and
-explicit is what makes that trade-off reviewable, and it catches a misspelled
-field name (`user_invocable` for `user-invocable`) that would otherwise parse
-as valid YAML and be silently ignored.
+The spec allows six frontmatter fields, and `argument-hint` is the single
+deliberate deviation (see {data}`CLAUDE_CODE_EXTENSIONS`). Anything Claude Code
+could express through another of its own extensions belongs in a spec field
+instead: the recommended model rides in `compatibility` rather than a `model:`
+key, which is why {func}`test_skill_compatibility_carries_the_model_hint`
+exists. Pinning the extension set to exactly one entry is what stops that
+budget creeping back, and it catches a misspelled field name
+(`user_invocable` for `user-invocable`) that would otherwise parse as valid
+YAML and be silently ignored.
 ```
 """
 
 from __future__ import annotations
 
 import re
+from importlib.resources import files
 
 import pytest
 
+from repomatic.bundle import get_data_content
 from repomatic.cli import _parse_skill_frontmatter
-from repomatic.init_project import export_content
-from repomatic.registry import COMPONENTS_BY_NAME, _skill_target
+from repomatic.init_project import _copy_template_tree
+from repomatic.registry import COMPONENTS_BY_NAME, SKILL_FILENAME, _skill_dir
 
 SPEC_FIELDS = frozenset({
     "allowed-tools",
@@ -53,23 +55,25 @@ SPEC_FIELDS = frozenset({
 })
 """The six frontmatter fields the Agent Skills spec defines."""
 
-CLAUDE_CODE_EXTENSIONS = frozenset({
-    "argument-hint",
-    "disable-model-invocation",
-    "model",
-})
-"""Non-spec frontmatter fields this repository relies on.
+CLAUDE_CODE_EXTENSIONS = frozenset({"argument-hint"})
+"""The only non-spec frontmatter field bundled skills are allowed to carry.
 
-Claude Code reads these at the top level, so they cannot move under the spec's
-`metadata` escape hatch. Extend this set only when a new field earns its keep:
-each one narrows where the skill can be distributed.
+Kept because no spec field expresses an autocomplete hint, and it degrades to
+a no-op wherever it is not understood. Do not grow this set: reach for a spec
+field first, the way `compatibility` now carries what `model:` used to.
 """
+
+MAX_COMPATIBILITY_LENGTH = 500
+"""Spec ceiling on the `compatibility` field."""
 
 MAX_DESCRIPTION_LENGTH = 1024
 """Spec ceiling on the `description` field."""
 
 MAX_NAME_LENGTH = 64
 """Spec ceiling on the `name` field."""
+
+MODEL_HINT_RE = re.compile(r"Recommended model: \w+\.")
+"""Shape of the model recommendation carried by `compatibility`."""
 
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 """Spec charset for `name`: lowercase alphanumerics and single inner hyphens.
@@ -87,7 +91,25 @@ skill_entries = pytest.mark.parametrize(
 
 def frontmatter(entry):
     """Parse the frontmatter of a bundled skill registry entry."""
-    return _parse_skill_frontmatter(export_content(entry.source))
+    return _parse_skill_frontmatter(
+        get_data_content(f"{entry.source}/{SKILL_FILENAME}")
+    )
+
+
+@skill_entries
+def test_skill_is_a_folder_holding_a_skill_md(entry):
+    """The spec's unit of distribution: a folder entered through `SKILL.md`.
+
+    Registering the folder rather than the file is what lets a skill grow
+    `scripts/`, `references/` or `assets/` without touching the registry.
+    """
+    assert entry.tree, f"{entry.source} is not registered as a folder"
+    root = files("repomatic.data").joinpath(entry.source)
+    assert root.is_dir(), f"{entry.source} is not a directory"
+    names = {child.name for child in root.iterdir()}
+    assert SKILL_FILENAME in names, (
+        f"{entry.source} has no {SKILL_FILENAME}: {sorted(names)}"
+    )
 
 
 @skill_entries
@@ -95,9 +117,10 @@ def test_skill_name_matches_directory(entry):
     """`name` is required, spec-shaped, and equal to the parent directory."""
     name = frontmatter(entry).get("name")
     assert name, f"{entry.source} has no name field"
+    assert isinstance(name, str), f"{entry.source} name is not a string"
     assert len(name) <= MAX_NAME_LENGTH, f"{entry.source} name is too long"
     assert SKILL_NAME_RE.match(name), f"{entry.source} name {name!r} is malformed"
-    assert entry.target == _skill_target(name), (
+    assert entry.target == _skill_dir(name), (
         f"{entry.source} name {name!r} does not match its target {entry.target}"
     )
 
@@ -107,10 +130,52 @@ def test_skill_description_within_spec_limit(entry):
     """`description` is required and fits the spec ceiling."""
     description = frontmatter(entry).get("description")
     assert description, f"{entry.source} has no description field"
+    assert isinstance(description, str), f"{entry.source} description is not a string"
     assert len(description) <= MAX_DESCRIPTION_LENGTH, (
         f"{entry.source} description is {len(description)} characters, "
         f"over the {MAX_DESCRIPTION_LENGTH} limit"
     )
+
+
+@skill_entries
+def test_skill_compatibility_carries_the_model_hint(entry):
+    """Every skill names its recommended model in `compatibility`.
+
+    `model:` is a Claude Code extension the spec does not define, so the hint
+    rides in a spec field instead of a bespoke key or a line of body prose:
+    structured, greppable, and portable to any client that reads the spec.
+    """
+    compatibility = frontmatter(entry).get("compatibility")
+    assert compatibility, f"{entry.source} has no compatibility field"
+    assert MODEL_HINT_RE.search(compatibility), (
+        f"{entry.source} names no recommended model: {compatibility!r}"
+    )
+
+
+@skill_entries
+def test_skill_optional_spec_fields_are_well_formed(entry):
+    """`compatibility` and `metadata` hold what the spec says they hold.
+
+    No bundled skill sets `metadata` today, so that half guards the shape a
+    future one would have to honour rather than an invariant already in play.
+    """
+    meta = frontmatter(entry)
+    compatibility = meta.get("compatibility")
+    if compatibility is not None:
+        assert isinstance(compatibility, str), (
+            f"{entry.source} compatibility is not a string"
+        )
+        assert len(compatibility) <= MAX_COMPATIBILITY_LENGTH, (
+            f"{entry.source} compatibility is {len(compatibility)} characters, "
+            f"over the {MAX_COMPATIBILITY_LENGTH} limit"
+        )
+    metadata = meta.get("metadata")
+    if metadata is not None:
+        assert isinstance(metadata, dict), f"{entry.source} metadata is not a map"
+        assert all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in metadata.items()
+        ), f"{entry.source} metadata is not a string-to-string map"
 
 
 @skill_entries
@@ -136,3 +201,37 @@ def test_skill_frontmatter_fields_are_known(entry):
     """No field beyond the spec's six and the extensions we opted into."""
     unknown = set(frontmatter(entry)) - SPEC_FIELDS - CLAUDE_CODE_EXTENSIONS
     assert not unknown, f"{entry.source} has unknown frontmatter fields: {unknown}"
+
+
+def test_skill_resource_folders_are_copied_verbatim(tmp_path):
+    """`scripts/`, `references/` and `assets/` travel with a skill.
+
+    No bundled skill ships resources yet, so this exercises the contract on a
+    synthetic folder: whatever sits beside `SKILL.md` is copied as-is, with no
+    per-file registration, and re-running changes nothing.
+    """
+    source = tmp_path / "bundled" / "papaya-report"
+    for subdir in ("assets", "references", "scripts"):
+        (source / subdir).mkdir(parents=True)
+    (source / SKILL_FILENAME).write_text(
+        "---\nname: papaya-report\ndescription: Chart papaya harvests.\n---\n",
+        encoding="utf-8",
+    )
+    (source / "references/REFERENCE.md").write_text("Yields.\n", encoding="utf-8")
+    (source / "scripts/harvest.sh").write_text("echo papaya\n", encoding="utf-8")
+    (source / "assets/template.md").write_text("Template.\n", encoding="utf-8")
+
+    dest = tmp_path / "out" / "papaya-report"
+    created, updated = _copy_template_tree(source, dest)
+
+    assert sorted(
+        p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file()
+    ) == [
+        "SKILL.md",
+        "assets/template.md",
+        "references/REFERENCE.md",
+        "scripts/harvest.sh",
+    ]
+    assert len(created) == 4
+    assert updated == []
+    assert _copy_template_tree(source, dest) == ([], [])

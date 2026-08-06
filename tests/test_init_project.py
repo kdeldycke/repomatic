@@ -54,6 +54,7 @@ from repomatic.registry import (
     RELEASE_ENGINE_WORKFLOWS,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
+    SKILL_FILENAME,
     SKILL_PHASES,
     BundledComponent,
     GeneratedComponent,
@@ -63,6 +64,8 @@ from repomatic.registry import (
     ToolConfigComponent,
     WorkflowComponent,
     _agent_target,
+    _skill_dir,
+    _skill_source,
     _skill_target,
     parse_component_entries,
     valid_file_ids,
@@ -1257,7 +1260,7 @@ def test_skills_consistency():
 
     # Collect data symlinks.
     data_dir = Path(__file__).resolve().parents[1] / "repomatic" / "data"
-    data_skills = {p.stem.removeprefix("skill-") for p in data_dir.glob("skill-*.md")}
+    data_skills = {p.parent.name for p in data_dir.glob("skills/*/SKILL.md")}
 
     assert fs_skills == component_skills, (
         f"Registry mismatch: "
@@ -2579,7 +2582,7 @@ def test_init_detects_excluded_skill_file(
 
     # File is detected but not deleted.
     assert skill_file.exists()
-    assert ".claude/skills/awesome-triage/SKILL.md" in result.excluded_existing
+    assert ".claude/skills/awesome-triage" in result.excluded_existing
     # Other skills should still exist.
     assert (tmp_path / ".claude" / "skills" / "repomatic-init" / "SKILL.md").exists()
 
@@ -2613,7 +2616,7 @@ def test_init_detects_auto_excluded_awesome_triage(
 
     # File is detected but not deleted.
     assert skill_file.exists()
-    assert ".claude/skills/awesome-triage/SKILL.md" in result.excluded_existing
+    assert ".claude/skills/awesome-triage" in result.excluded_existing
 
 
 @pytest.mark.parametrize(
@@ -2810,7 +2813,7 @@ def test_init_detects_excluded_skill_custom_location(
     result = run_init(output_dir=tmp_path, repo_slug="user/awesome-list")
 
     assert skill_file.exists()
-    assert "custom/skills/awesome-triage/SKILL.md" in result.excluded_existing
+    assert "custom/skills/awesome-triage" in result.excluded_existing
 
 
 def test_init_detects_disabled_opt_in_workflow(
@@ -3354,12 +3357,24 @@ def test_removed_data_assets_are_tombstoned() -> None:
         p.name for p in data_dir.glob("agent-*.md")
     }
 
+    # What init currently writes downstream, which is what decides whether a
+    # dropped bundled source actually orphans anything.
+    shipped_targets = {
+        f"{entry.target}/{SKILL_FILENAME}" if entry.tree else entry.target
+        for name in ("skills", "agents")
+        for entry in COMPONENTS_BY_NAME[name].files
+    }
+
     tombstoned = {a.target for a in REMOVED_ASSETS}
     for source in sorted(old_sources - current_sources):
         if source.startswith("skill-"):
             target = _skill_target(source[len("skill-") : -len(".md")])
         else:
             target = _agent_target(source[len("agent-") : -len(".md")])
+        # Relocating a bundled source (a skill moving to its folder layout)
+        # leaves no orphan as long as the downstream path is unchanged.
+        if target in shipped_targets:
+            continue
         assert target in tombstoned, (
             f"{source!r} shipped in {prev} but was removed without a RemovedAsset "
             f"tombstone (expected target {target!r}); add one to REMOVED_ASSETS"
@@ -3616,22 +3631,19 @@ def test_workflow_sources_are_yaml() -> None:
 
 
 def test_skill_files_target_skill_dir() -> None:
-    """All skill file entries must target .claude/skills/{id}/SKILL.md."""
+    """All skill entries must target the .claude/skills/{id} folder itself."""
     for entry in COMPONENTS_BY_NAME["skills"].files:
-        assert entry.target.startswith(".claude/skills/"), (
+        assert entry.tree, f"Skill entry {entry.file_id!r} is not a folder entry"
+        assert entry.target == _skill_dir(entry.file_id), (
             f"Skill entry {entry.file_id!r} targets {entry.target!r},"
-            " expected .claude/skills/ prefix"
-        )
-        assert entry.target.endswith("/SKILL.md"), (
-            f"Skill entry {entry.file_id!r} targets {entry.target!r},"
-            " expected /SKILL.md suffix"
+            f" expected {_skill_dir(entry.file_id)!r}"
         )
 
 
 def test_skill_sources_follow_naming_convention() -> None:
-    """Skill source files must be named skill-{id}.md."""
+    """Skill sources must be the bundled skills/{id} folder."""
     for entry in COMPONENTS_BY_NAME["skills"].files:
-        expected_source = f"skill-{entry.file_id}.md"
+        expected_source = _skill_source(entry.file_id)
         assert entry.source == expected_source, (
             f"Skill {entry.file_id!r}: source is {entry.source!r},"
             f" expected {expected_source!r}"
@@ -3833,7 +3845,7 @@ def test_find_unmodified_init_files_skips_skills(
 ):
     """Skills are not checked for redundancy."""
     monkeypatch.chdir(tmp_path)
-    content = export_content("skill-repomatic-audit.md")
+    content = get_data_content(f"{_skill_source('repomatic-audit')}/{SKILL_FILENAME}")
     skill_dir = tmp_path / ".claude" / "skills" / "repomatic-audit"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(content.rstrip() + "\n", encoding="UTF-8")

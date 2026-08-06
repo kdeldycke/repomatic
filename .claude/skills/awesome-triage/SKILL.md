@@ -1,8 +1,7 @@
 ---
 name: awesome-triage
 description: Triage new issues and PRs on awesome-list repos by applying curation criteria distilled from past decisions.
-model: opus
-disable-model-invocation: true
+compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Grep Glob WebFetch WebSearch
 argument-hint: <issue-or-pr-url>
 ---

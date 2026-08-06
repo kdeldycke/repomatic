@@ -1,1 +1,0 @@
-../../.claude/skills/sphinx-docs-sync/SKILL.md

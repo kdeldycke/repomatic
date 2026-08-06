@@ -1,8 +1,7 @@
 ---
 name: repomatic-ship
 description: Orchestrate release preparation. Reconcile the changelog, code, and docs to the net release state, then commit, push, and babysit CI until the release PR is built and `main` is green. Stop before the merge. Review-gated in normal use, fully autonomous under `--dangerously-skip-permissions`.
-model: opus
-disable-model-invocation: true
+compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Grep Glob Skill Agent
 ---
 

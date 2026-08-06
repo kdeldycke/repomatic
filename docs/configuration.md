@@ -40,6 +40,9 @@ gitignore.extra-content = '''
 
 exclude = ["skills", "workflows/debug.yaml", "zizmor"]
 
+flavor.agent = "claude_code"
+flavor.ci = "github_ci"
+
 labels.extra-files = ["https://example.com/my-labels.toml"]
 
 nuitka.enabled = false
@@ -67,6 +70,31 @@ patterns = ["(CVE|vulnerability)"]
 ```{click:config} repomatic
 from repomatic.cli import repomatic
 ```
+
+### Flavors
+
+`[tool.repomatic.flavor]` declares which ecosystems a repository targets, giving every present and future ecosystem decision one place to live instead of a new flag per feature.
+
+| Key            | Default       | Meaning                                                      |
+| :------------- | :------------ | :----------------------------------------------------------- |
+| `flavor.agent` | `claude_code` | AI coding agent whose asset layout skills and agents follow. |
+| `flavor.ci`    | `github_ci`   | CI system the bundled workflows target.                      |
+
+Values are trait IDs borrowed from [extra-platforms](https://github.com/kdeldycke/extra-platforms), which already models both AI agents and CI systems, so repomatic inherits its vocabulary and detection helpers instead of maintaining a parallel enum. Hyphens are normalized, so `claude-code` and `claude_code` are the same thing.
+
+Each value is checked twice, and the two failures read differently on purpose. A value outside the upstream vocabulary is a typo:
+
+```text
+Unknown [tool.repomatic] flavor.ci = 'mango'. Expected an extra-platforms trait ID: azure_pipelines, bamboo, …
+```
+
+while a real ecosystem repomatic has not implemented says so plainly:
+
+```text
+Unsupported [tool.repomatic] flavor.ci = 'gitlab_ci'. repomatic targets: github_ci.
+```
+
+`flavor.agent` drives where assets land: leave `skills.location` and `agents.location` unset and they follow the agent's own layout, while setting either explicitly overrides it. Defaults are static and never auto-detected: deriving them from the running agent would make a repository's effective configuration depend on which tool last invoked repomatic, and `repomatic metadata` would stop being reproducible.
 
 ## `[tool.X]` bridge and tool runner
 

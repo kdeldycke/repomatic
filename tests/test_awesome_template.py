@@ -59,8 +59,8 @@ def test_bundled_files_exist():
 def test_copy_template_tree(tmp_path):
     """_copy_template_tree copies all files and skips __init__.py."""
     created, updated = _copy_template_tree(TEMPLATE_ROOT, tmp_path)
-    assert created == len(EXPECTED_FILES)
-    assert updated == 0
+    assert len(created) == len(EXPECTED_FILES)
+    assert updated == []
 
     # Verify key files exist at the expected paths.
     assert (tmp_path / "license").is_file()
@@ -75,15 +75,15 @@ def test_copy_template_tree(tmp_path):
 
     # Second run is a no-op: files already exist and are identical.
     created2, updated2 = _copy_template_tree(TEMPLATE_ROOT, tmp_path)
-    assert created2 == 0
-    assert updated2 == 0
+    assert created2 == []
+    assert updated2 == []
 
 
 def test_copy_template_tree_creates_directories(tmp_path):
     """_copy_template_tree creates parent directories as needed."""
     dest = tmp_path / "nested" / "deep"
     created, _updated = _copy_template_tree(TEMPLATE_ROOT, dest)
-    assert created == len(EXPECTED_FILES)
+    assert len(created) == len(EXPECTED_FILES)
     assert (dest / ".github" / "ISSUE_TEMPLATE" / "new-link.yaml").is_file()
 
 

@@ -1,8 +1,7 @@
 ---
 name: repomatic-init
 description: Bootstrap a repository with reusable workflows from kdeldycke/repomatic.
-model: haiku
-disable-model-invocation: true
+compatibility: 'Designed for Claude Code. Recommended model: Haiku.'
 allowed-tools: Bash Read Grep Glob
 argument-hint: '[component ...]'
 ---

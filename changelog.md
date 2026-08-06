@@ -5,15 +5,19 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** bundled skills drop `model` and `disable-model-invocation`, so every skill is now model-invocable and runs on the session model. The recommended model moved to the spec's `compatibility` field.
 - `repomatic init` holds the derived upstream workflow pin back to the newest release past the `minimum-release-age` cooldown; `--no-cooldown` pins the running version immediately.
 - Align bundled skills with the [Agent Skills specification](https://agentskills.io/specification): `babysit-ci` gains its required `name` field, and `allowed-tools` moves to the spec's space-separated form.
+- Skills are now installed as whole folders, so one can ship the spec's optional `scripts/`, `references/` and `assets/` directories alongside its `SKILL.md`.
+- Add `[tool.repomatic.flavor]` with `agent` and `ci` keys, declaring the ecosystems a repository targets. Values are [extra-platforms](https://github.com/kdeldycke/extra-platforms) trait IDs.
+- `skills.location` and `agents.location` now default to the layout of the configured `flavor.agent`, and still win when set explicitly.
 - Teach the `repomatic-ship` and `babysit-ci` skills to act on the first failing CI job instead of waiting out full matrices, pay down pre-existing and `⁉️`-probe test debt before the first push, and hold prose-only pushes while binary matrices drain.
 - Chart the `/repomatic-ship` convergence loop (first-failing-job fixes, push timing, debt paydown) on the skills docs page.
 - Re-base the release PR onto the current `main` HEAD after every build by also running `prepare-release` on `workflow_run`, so a reconciliation commit that misses `changelog.yaml`'s `paths:` filter no longer leaves the PR stale.
 - `/repomatic-topics` pre-approves the `Agent` tool instead of the retired `Task` name.
 - Add a `history` documentation page retracing the project from its 2021 reusable-workflow origins through the `gha-utils` CLI to the `repomatic` rename.
 - Recenter the readme and the workflows page on the CLI-first design: workflows only trigger CLI commands, with local-run examples and links to the standalone binaries and history pages.
-- Document Agent Skills spec conformance, and the three Claude Code-only frontmatter fields that bar upload to claude.ai, on the skills documentation page.
+- Document Agent Skills spec conformance, and `argument-hint` as the single accepted deviation, on the skills documentation page.
 
 ## [`7.4.1` (2026-08-01)](https://github.com/kdeldycke/repomatic/compare/v7.4.0...v7.4.1)
 

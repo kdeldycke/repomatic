@@ -1,7 +1,7 @@
 ---
 name: file-bug-report
 description: Write a bug report for an upstream project. Exhaustively reads contribution guidelines, issue templates, and community norms before producing a markdown file ready to paste.
-model: opus
+compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Grep Glob Write WebFetch WebSearch Agent
 argument-hint: <owner/repo> <one-line summary of the bug>
 ---

@@ -1,8 +1,7 @@
 ---
 name: repomatic-topics
 description: Optimize GitHub topics for discoverability by analyzing competition on topic pages.
-model: sonnet
-disable-model-invocation: true
+compatibility: 'Designed for Claude Code. Recommended model: Sonnet.'
 allowed-tools: Bash Read Grep Glob WebFetch WebSearch Agent Edit
 argument-hint: '[audit|apply]'
 ---

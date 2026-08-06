@@ -250,6 +250,7 @@ file-description = "🏭 Automate repository maintenance, releases, and CI/CD wo
 file-version = "7.4.2"
 include-data-dir = [
   "repomatic/data/awesome_template=repomatic/data/awesome_template",
+  "repomatic/data/skills=repomatic/data/skills",
 ]
 include-data-files = [
   "repomatic/templates/*.md=repomatic/templates/",

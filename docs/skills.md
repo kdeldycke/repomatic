@@ -172,14 +172,30 @@ A release is also when test debt gets paid. Once no stable job is red, the loop 
 
 Bundled skills follow the [Agent Skills specification](https://agentskills.io/specification): each one is a directory holding a `SKILL.md` whose YAML frontmatter carries a spec-shaped `name` matching that directory, a `description` under the 1024-character ceiling, and `allowed-tools` written as the spec's space-separated string. `tests/test_skills.py` asserts all of this over every bundled skill, so a new or edited one cannot silently drift out of the format.
 
-Three frontmatter fields go beyond the spec's six. Claude Code reads them at the top level, so they cannot hide under the spec's `metadata` escape hatch:
+A skill is a plain folder of static files. `repomatic init skills` copies it to its destination and does nothing else: there is no rendering step, no per-target variant, and no flag that changes what lands on disk. What you read in the repository is exactly what you get.
 
-| Field                      | Purpose                                                |
-| :------------------------- | :----------------------------------------------------- |
-| `argument-hint`            | Autocomplete hint for the arguments the skill accepts. |
-| `disable-model-invocation` | Reserve the skill for explicit `/name` invocation.     |
-| `model`                    | Pin the model the skill runs on.                       |
+That means a skill can carry the spec's optional resource folders, and they travel with it untouched and unregistered:
 
-That surplus is deliberate, and it is not free: the claude.ai upload path, the Skills API, and `package_skill.py` from [anthropics/skills](https://github.com/anthropics/skills) reject an unknown frontmatter key with a hard error rather than ignoring it. These skills are Claude Code project skills installed under `.claude/skills/`, so they trade that distribution channel for the extra control. A skill that has to travel through claude.ai must drop the three fields first.
+```text
+my-skill/
+├── SKILL.md          the entry point
+├── references/       detail loaded only when needed
+├── scripts/          executable helpers
+└── assets/           templates and data files
+```
 
-The optional `license` and `compatibility` fields stay unset. `repomatic init skills` copies each `SKILL.md` into a downstream repository where it is meant to be edited, so an upstream declaration would misstate the file the moment it is customized.
+Nothing needs adding to the registry when a skill grows one: whatever sits beside `SKILL.md` is copied. Re-running `init` rewrites only what actually differs, so it stays safe to repeat.
+
+`argument-hint` is the **single** frontmatter field that goes beyond the spec's six, kept because no spec field expresses an autocomplete hint and because it degrades to a no-op wherever it is not understood. Every other Claude Code extension stays out, which is why the recommended model rides in the spec's own `compatibility` field:
+
+```yaml
+compatibility: 'Designed for Claude Code. Recommended model: Opus.'
+```
+
+A `model:` key would have pinned the model automatically instead of merely recommending it, but it is not in the spec, so the recommendation is advisory: switch with [`/model`](https://code.claude.com/docs/en/model-config) if you want it honoured.
+
+```{warning}
+No skill sets `disable-model-invocation`, so **Claude may invoke any of them on its own**, including `/repomatic-ship` and `/repomatic-topics apply`. That is deliberate: skills exist to augment the parent agent. What a skill may actually *do* is still gated by Claude Code's permission layer, which is untouched by any of this, so an autonomous `git push` still needs the same approval it always did.
+```
+
+The optional `license` field stays unset. `repomatic init skills` copies each skill into a downstream repository where it is meant to be edited, so an upstream declaration would misstate the file the moment it is customized.

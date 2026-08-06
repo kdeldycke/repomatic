@@ -1,8 +1,7 @@
 ---
 name: translation-sync
 description: Detect stale translations in readme.*.md and contributing.*.md files by comparing structure and content against the English source, then draft updated translations for changed sections.
-model: sonnet
-disable-model-invocation: true
+compatibility: 'Designed for Claude Code. Recommended model: Sonnet.'
 allowed-tools: Bash Read Grep Glob Agent
 argument-hint: '[lang-code]'
 ---

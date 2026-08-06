@@ -1,0 +1,1 @@
+../../../../.claude/skills/repomatic-changelog/SKILL.md

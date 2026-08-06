@@ -1,1 +1,0 @@
-../../.claude/skills/benchmark-update/SKILL.md
