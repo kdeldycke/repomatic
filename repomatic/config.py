@@ -338,18 +338,20 @@ class LabelsConfig:
     `labeller-content-based.yaml`.
     """
 
-    extra: list[dict[str, str]] = field(default_factory=list)
+    extra: list[dict[str, str | bool | list[str]]] = field(default_factory=list)
     """Inline label definitions applied at sync time under the `default` profile.
 
-    Each entry is a mapping with `name`, `color`, and `description` keys,
-    matching `labelmaker`'s label specification. Entries are serialized into a
-    temporary TOML file as `[[profiles.default.labels]]` blocks and applied by
-    `labelmaker apply`. This avoids committing a lonely `extra-labels/*.toml`
-    file when the downstream project only needs the basic three fields.
+    Each entry is a mapping carrying `labelmaker`'s per-label specification:
+    `name` (required), `color` (single color or multi-color list),
+    `description`, `create`, `update`, `enforce-case`, `rename-from` and
+    `on-rename-clash`. A `rename-from` list renames an existing label in
+    place, preserving its issue and PR associations. Entries are serialized
+    into a temporary TOML file as `[[profiles.default.labels]]` blocks and
+    applied by `labelmaker apply`, so no `extra-labels/*.toml` file needs
+    committing.
 
-    For label sets that need `labelmaker`'s advanced features (`rename-from`,
-    multi-profile, multi-color), commit a hand-written file under
-    `extra-labels/` or download one via `extra-files` instead.
+    For label sets that need multiple profiles, commit a hand-written file
+    under `extra-labels/` or download one via `extra-files` instead.
     """
 
     extra_files: list[str] = field(default_factory=list)

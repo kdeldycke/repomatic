@@ -74,6 +74,70 @@ def test_serialize_inline_labels_omits_missing_optional_fields():
     assert "description" not in label
 
 
+def test_serialize_inline_labels_passes_through_labelmaker_fields():
+    """Every per-label labelmaker field rides through, booleans included."""
+    output = serialize_inline_labels([
+        {
+            "name": "🔌 plugin",
+            "color": "fef2c0",
+            "description": "Plugin code",
+            "create": False,
+            "update": True,
+            "enforce-case": False,
+            "rename-from": ["🔌 bar-plugin", "plugin"],
+            "on-rename-clash": "error",
+        },
+    ])
+    parsed = tomlrt.loads(output)
+    label = parsed["profiles"]["default"]["labels"][0]
+    assert label["create"] is False
+    assert label["update"] is True
+    assert label["enforce-case"] is False
+    assert label["rename-from"] == ["🔌 bar-plugin", "plugin"]
+    assert label["on-rename-clash"] == "error"
+
+
+def test_serialize_inline_labels_strips_hash_on_multi_color():
+    """Multi-color lists are normalized to bare hex like single colors."""
+    output = serialize_inline_labels([
+        {"name": "bug", "color": ["#d73a4a", "bfdadc"]},
+    ])
+    parsed = tomlrt.loads(output)
+    assert parsed["profiles"]["default"]["labels"][0]["color"] == [
+        "d73a4a",
+        "bfdadc",
+    ]
+
+
+def test_serialize_inline_labels_omits_empty_values():
+    """Empty strings and empty lists are omitted, not emitted as blanks."""
+    output = serialize_inline_labels([
+        {"name": "bug", "description": "", "rename-from": []},
+    ])
+    parsed = tomlrt.loads(output)
+    label = parsed["profiles"]["default"]["labels"][0]
+    assert "description" not in label
+    assert "rename-from" not in label
+
+
+def test_serialize_inline_labels_warns_on_unknown_fields(caplog):
+    """Unknown fields are dropped with a warning instead of aborting the sync."""
+    caplog.set_level(logging.WARNING)
+    output = serialize_inline_labels([
+        {"name": "bug", "color": "d73a4a", "renme-from": ["typo"], "bogus": 1},
+    ])
+    parsed = tomlrt.loads(output)
+    label = parsed["profiles"]["default"]["labels"][0]
+    assert label["name"] == "bug"
+    assert "renme-from" not in label
+    assert "bogus" not in label
+    assert any(
+        "Ignoring unknown fields 'bogus', 'renme-from' on inline label 'bug'"
+        in r.message
+        for r in caplog.records
+    )
+
+
 def test_serialize_inline_labels_skips_blank_name(caplog):
     """A whitespace-only name is treated as missing."""
     caplog.set_level(logging.WARNING)

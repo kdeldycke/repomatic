@@ -10,6 +10,7 @@
 - Align bundled skills with the [Agent Skills specification](https://agentskills.io/specification): `babysit-ci` gains its required `name` field, and `allowed-tools` moves to the spec's space-separated form.
 - Skills are now installed as whole folders, so one can ship the spec's optional `scripts/`, `references/` and `assets/` directories alongside its `SKILL.md`.
 - Add `[tool.repomatic.flavor]` with `agent` and `ci` keys, declaring the ecosystems a repository targets. Values are [extra-platforms](https://github.com/kdeldycke/extra-platforms) trait IDs.
+- `[tool.repomatic.labels.extra]` entries now carry `labelmaker`'s full per-label specification instead of only `name`/`color`/`description`: a `rename-from` list renames a label in place on GitHub (preserving its issue and PR associations), multi-color lists work, and the `create`, `update`, `enforce-case` and `on-rename-clash` knobs pass through. Unknown fields are dropped with a warning instead of silently.
 - `skills.location` and `agents.location` now default to the layout of the configured `flavor.agent`, and still win when set explicitly.
 - Teach the `repomatic-ship` and `babysit-ci` skills to act on the first failing CI job instead of waiting out full matrices, pay down pre-existing and `⁉️`-probe test debt before the first push, and hold prose-only pushes while binary matrices drain.
 - Chart the `/repomatic-ship` convergence loop (first-failing-job fixes, push timing, debt paydown) on the skills docs page.

@@ -65,6 +65,22 @@ FILE_RULE_MATCHER_KEYS: frozenset[str] = frozenset((
 CONTENT_RULE_KNOWN_KEYS: frozenset[str] = frozenset(("label", "patterns"))
 """All keys recognized on a single `[[labels.content-rules]]` TOML entry."""
 
+INLINE_LABEL_FIELDS: tuple[str, ...] = (
+    "name",
+    "color",
+    "description",
+    "create",
+    "update",
+    "enforce-case",
+    "rename-from",
+    "on-rename-clash",
+)
+"""Per-label fields of labelmaker's specification, in its documented order.
+
+`serialize_inline_labels` passes them through verbatim (colors get their
+leading `#` stripped), so declarative renames and the other per-label knobs
+ride the regular sync."""
+
 
 def _dump_labeller_yaml(grouped: dict[str, Any]) -> str:
     """Serialize a label-keyed dict to the labeller YAML dialect.
@@ -236,31 +252,54 @@ def augment_labeller_content(
     return content.rstrip() + "\n\n" + structured.rstrip() + "\n"
 
 
-def serialize_inline_labels(entries: list[dict[str, str]]) -> str:
+def serialize_inline_labels(entries: list[dict[str, Any]]) -> str:
     """Serialize `[tool.repomatic.labels.extra]` entries to a labelmaker TOML config.
 
     Each entry becomes a `[[profiles.default.labels]]` block under the `default`
-    profile. Leading `#` on hex colors is stripped so the output matches
-    labelmaker's convention. Entries missing a `name` are skipped with a warning:
-    labelmaker rejects nameless labels and would abort the whole sync.
+    profile, carrying every per-label field of labelmaker's specification
+    (`INLINE_LABEL_FIELDS`): a `rename-from` list renames a label in place on
+    GitHub, preserving its issue and PR associations, and the `create`,
+    `update`, `enforce-case` and `on-rename-clash` knobs pass through alike.
+    Leading `#` on hex colors is stripped, on both single colors and multi-color
+    lists, so the output matches labelmaker's convention.
+
+    Entries missing a `name` are skipped with a warning, and unknown fields are
+    dropped with a warning: labelmaker rejects both and would abort the whole
+    sync.
 
     Returns an empty string when there are no valid entries, so the caller can
     skip writing a temp file and invoking labelmaker entirely.
     """
-    labels: list[dict[str, str]] = []
+    labels: list[dict[str, Any]] = []
     for entry in entries:
-        name = entry.get("name", "").strip()
+        name = str(entry.get("name", "")).strip()
         if not name:
             logging.warning(
                 "Skipping inline label without a `name`: %r.",
                 entry,
             )
             continue
-        label: dict[str, str] = {"name": name}
-        if color := entry.get("color"):
-            label["color"] = color.lstrip("#")
-        if description := entry.get("description"):
-            label["description"] = description
+        label: dict[str, Any] = {"name": name}
+        for field_id in INLINE_LABEL_FIELDS[1:]:
+            if field_id not in entry:
+                continue
+            value = entry[field_id]
+            # Emptied fields are omitted, never emitted as blanks. Booleans
+            # pass: an explicit `create = false` is meaningful.
+            if value is None or value == "" or value == []:
+                continue
+            if field_id == "color":
+                if isinstance(value, list):
+                    value = [str(color).lstrip("#") for color in value]
+                else:
+                    value = str(value).lstrip("#")
+            label[field_id] = value
+        if unknown := sorted(set(entry) - set(INLINE_LABEL_FIELDS)):
+            logging.warning(
+                "Ignoring unknown fields %s on inline label %r.",
+                ", ".join(map(repr, unknown)),
+                name,
+            )
         labels.append(label)
 
     if not labels:
