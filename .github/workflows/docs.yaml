@@ -47,6 +47,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Run repomatic metadata
         id: metadata
         run: >
@@ -71,6 +73,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Install Graphviz and mandoc
         # Graphviz: backs the sphinx.ext.graphviz directive.
         # See: https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html
@@ -78,9 +82,14 @@ jobs:
         # click_extra.sphinx.manpages hook into the browser-viewable
         # `.html` siblings the docs site links to. Skipped silently when
         # the hook is not opted in.
+        # fonts-liberation is graphviz's only Recommends (via the transitional
+        # fonts-liberation2), and "ubuntu-slim" does not ship it: naming it here
+        # keeps diagram labels rendering exactly as before while
+        # --no-install-recommends stops apt pulling anything else unasked.
         run: |
-          sudo apt update
-          sudo apt install --yes graphviz mandoc
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            fonts-liberation graphviz mandoc
       - name: Build documentation
         # Install --all-extras so documentation can covers all features of the project, including the optional ones.
         run: uv --no-progress run --frozen --all-extras --group docs -- sphinx-build -b html ./docs ./docs/_build
@@ -116,6 +125,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
@@ -128,9 +139,10 @@ jobs:
           && fromJSON(needs.metadata.outputs.metadata).is_sphinx
         # So we can use the sphinx.ext.graphviz plugin.
         # See: https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html
+        # fonts-liberation named explicitly: see the deploy-docs job above.
         run: |
-          sudo apt update
-          sudo apt install --yes graphviz
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends fonts-liberation graphviz
       - name: Run Sphinx linkcheck
         if: >
           fromJSON(needs.metadata.outputs.metadata).is_python_project

@@ -37,6 +37,7 @@ from repomatic.registry import (
     SELF_MAINTENANCE_WORKFLOWS,
     WORKFLOW_SOURCES,
 )
+from repomatic.version_sync import find_workflow_literals
 
 # Common prefix for all changelog-related commits.
 CHANGELOG_COMMIT_PREFIX = "[changelog]"
@@ -1153,3 +1154,53 @@ def test_cooldown_override_is_declared(workflow: str) -> None:
         "UV_EXCLUDE_NEWER without being declared in COOLDOWN_EXEMPT_JOBS. "
         "Add the job with a comment naming what breaks without the override."
     )
+
+
+# ---------------------------------------------------------------------------
+# Pinned uv toolchain
+# ---------------------------------------------------------------------------
+
+SETUP_UV_STEP_RE = re.compile(r"uses:[^\S\n]*astral-sh/setup-uv@[0-9a-f]{40}")
+
+UV_PINNED_FILES = sorted([
+    *WORKFLOWS_DIR.glob("*.yaml"),
+    *(REPO_ROOT / ".github" / "actions").glob("*/*.yaml"),
+])
+
+
+@pytest.mark.parametrize("path", UV_PINNED_FILES, ids=lambda p: p.name)
+def test_every_setup_uv_step_pins_a_version(path: Path) -> None:
+    """Every `setup-uv` step declares the uv version it installs.
+
+    Two reasons this must hold everywhere rather than mostly. Without the input,
+    `setup-uv` installs the newest uv satisfying `required-version`, so the tool
+    enforcing every cooldown arrives without one. And
+    {data}`~repomatic.version_sync._SETUP_UV_VERSION_RE` scans lazily from the
+    `uses:` line to the next `version:`, so a step missing the input would silently
+    borrow the following step's and `sync-workflow-pins` would rewrite the wrong
+    line.
+    """
+    content = path.read_text(encoding="UTF-8")
+    steps = len(SETUP_UV_STEP_RE.findall(content))
+    if not steps:
+        pytest.skip("no setup-uv steps")
+    pins = len([lit for lit in find_workflow_literals(content) if lit.package == "uv"])
+    assert pins == steps, (
+        f"{path.name}: {steps} setup-uv step(s) but {pins} version pin(s). "
+        'Every setup-uv step needs `with: version: "X.Y.Z"`.'
+    )
+
+
+def test_setup_uv_pins_agree() -> None:
+    """All `setup-uv` pins name one uv version.
+
+    `sync-workflow-pins` resolves a single version per package, so a split pin
+    would leave one of the two silently un-bumped.
+    """
+    versions = {
+        lit.version
+        for path in UV_PINNED_FILES
+        for lit in find_workflow_literals(path.read_text(encoding="UTF-8"))
+        if lit.package == "uv"
+    }
+    assert len(versions) == 1, f"setup-uv pins disagree: {sorted(versions)}"

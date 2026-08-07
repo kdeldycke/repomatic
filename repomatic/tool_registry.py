@@ -528,6 +528,24 @@ class ToolSpec:
     Passed as `--with <pkg>` to uvx.
     """
 
+    path_tools: tuple[str, ...] = ()
+    """Other registry tools whose executable must be on `PATH` while this runs.
+
+    For a plugin that shells out to a second binary rather than importing it:
+    `mdformat-shfmt` formats fenced shell blocks by invoking `shfmt` from `PATH`,
+    so `mdformat` declares `path_tools=("shfmt",)`.
+
+    Each name is installed through the same registry path as a direct
+    `repomatic run`, so the companion arrives at the pinned version, checksum
+    verified, from the shared cache. The alternative, letting the environment
+    supply it, is what this field exists to prevent: a system package manager
+    hands over whatever its archive holds, unpinned and outside the cooldown, and
+    the same tool then behaves differently depending on which job invoked it.
+
+    Names must resolve in {data}`TOOL_REGISTRY` and carry a `binary` spec;
+    `test_tool_spec_integrity` enforces both.
+    """
+
     needs_venv: bool = False
     """If `True`, use `uv run` (project venv) instead of `uvx` (isolated).
 
@@ -1320,6 +1338,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "mdformat-toc==0.5.0",
             "mdformat-web==0.2.0",
         ),
+        # mdformat-shfmt shells out to `shfmt` rather than importing it, so the
+        # binary has to be on PATH. Routed through the registry to get the same
+        # pinned, checksum-verified build `repomatic run shfmt` uses.
+        path_tools=("shfmt",),
         post_process=_fix_myst_directives,
         check_flags=("--check",),
         docs_notes=cleandoc(r"""

@@ -51,6 +51,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Manage setup guide issue
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -67,6 +69,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Run repomatic metadata
         id: metadata
         run: >
@@ -92,6 +96,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Run autopep8
         if: fromJSON(needs.metadata.outputs.metadata).python_files
         # Ruff is not wrapping comments: https://github.com/astral-sh/ruff/issues/7414
@@ -144,6 +150,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Run pyproject-fmt
         # pyproject-fmt returns exit code 1 when it reformats the file, but
         # xargs translates any non-zero child exit to 123. Accept both 0 and
@@ -178,21 +186,30 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).markdown_files
-    # "ubuntu-slim" lacks shfmt (needed by mdformat-shfmt), so this job needs a
-    # full image. ARM would run the per-file mdformat pass ~1.26x faster, but
-    # mdformat-config pulls taplo, which ships no linux-aarch64 wheel and has a
-    # broken 0.9.3 sdist; stay on full x86 until taplo publishes an aarch64 wheel.
-    # See docs/test-matrix.md.
-    runs-on: ubuntu-24.04
+    # Back on the lean default: shfmt was the only reason this job needed a full
+    # image, and `repomatic run mdformat` now provisions it through mdformat's
+    # `path_tools` instead of apt. ARM would run the per-file mdformat pass
+    # ~1.26x faster, but mdformat-config pulls taplo, which ships no
+    # linux-aarch64 wheel and has a broken 0.9.3 sdist; stay on x86 until taplo
+    # publishes an aarch64 wheel. See docs/test-matrix.md.
+    runs-on: ubuntu-slim
     permissions:
       contents: write
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-      - name: Install shfmt
-        # Required by the mdformat-shfmt plugin for shell code block formatting.
-        run: sudo apt install --yes shfmt
+        with:
+          version: "0.12.0"
+      # Shares the `format-shell` job's shfmt cache: mdformat pulls the same
+      # pinned binary through its `path_tools`, keyed off the registry file that
+      # pins it.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/repomatic/bin
+          key: repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-${{ hashFiles('repomatic/tool_registry.py') }}
+          restore-keys: |
+            repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-
       - name: Auto-format Markdown
         env:
           MARKDOWN_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).markdown_files }}
@@ -208,9 +225,15 @@ jobs:
         # mdformat-toc has pending PRs to support this feature:
         # https://github.com/hukkin/mdformat-toc/issues/17
         # https://github.com/hukkin/mdformat-toc/pull/20
+        #
+        # `sed -i`, not `gawk -i inplace`: sed is a Debian Essential package and
+        # gawk is not, so gawk would need an apt install on the lean image this
+        # job runs on. The step only fires on awesome-* repos, so a missing gawk
+        # would break downstream without ever failing repomatic's own CI. Both
+        # take the same ERE and delete the same lines.
         run: >
           find ./ -type f \( -name 'readme.md' -or -name 'readme.*.md' \) -print
-          -exec gawk -i inplace '!/^- \[(Contents|Contributing|Footnotes|Related Lists)\]\(#.+\)$/{print}' "{}" \;
+          -exec sed -i -E '/^- \[(Contents|Contributing|Footnotes|Related Lists)\]\(#.+\)$/d' "{}" \;
       - id: pr-metadata
         run: >
           uvx --no-progress --from . repomatic
@@ -240,6 +263,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
@@ -281,6 +306,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
@@ -325,6 +352,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
@@ -363,6 +392,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - id: fix
         name: Fix vulnerable dependencies
         # GH_TOKEN lets repomatic query the GitHub Advisory Database via the
@@ -404,6 +435,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Sync repomatic-managed files
         run: >
           uvx --no-progress --from . repomatic init
@@ -438,6 +471,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Install image optimization tools
         env:
           # Version appears in both the tag path and the .deb filename,
@@ -487,6 +522,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Sync .gitignore
         run: uvx --no-progress --from . repomatic sync-gitignore
       - id: pr-metadata
@@ -518,6 +555,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Sync bumpversion config
         run: uvx --no-progress --from . repomatic sync-bumpversion
       - id: pr-metadata
@@ -552,6 +591,8 @@ jobs:
           # Fetch all history to extract all contributors.
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Sync .mailmap
         run: uvx --no-progress --from . repomatic sync-mailmap --skip-if-missing
       - id: pr-metadata
@@ -596,6 +637,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       # Persist repomatic's HTTP cache (PyPI/GitHub/npm release metadata) across
       # runs. Entries are TTL-gated in repomatic.cache, so a restored cache never
       # serves a stale "latest" version; this mainly speeds up bursts of pushes.
@@ -756,6 +799,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Generate graph
         # Package name and output path are auto-detected from pyproject.toml.
         run: uvx --no-progress --from . repomatic update-dep-graph
@@ -792,6 +837,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Update docs
         # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, runs docs/docs_update.py, then
         # refreshes self-updating directive blocks with click-extra refresh-directives.

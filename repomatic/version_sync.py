@@ -96,6 +96,34 @@ _PYPI_LITERAL_RE = re.compile(
     r"'(?P<package>[a-z][a-z0-9._-]*)(?:\[[^\]]+\])?==(?P<version>[0-9][0-9.]*)'"
 )
 
+SETUP_UV_PACKAGE = "uv"
+"""PyPI project backing the `astral-sh/setup-uv` version pin."""
+
+# The uv build `astral-sh/setup-uv` installs, as a `version:` input on the step.
+_SETUP_UV_VERSION_RE = re.compile(
+    r"uses:[^\S\n]*astral-sh/setup-uv@[0-9a-f]{40}[^\n]*\n"
+    # Intervening `with:` line, sibling inputs and their comments. Lazy, so the
+    # match stops at this step's own `version:` rather than a later step's.
+    r"(?:[^\S\n]+(?:with:|#[^\n]*|[a-z][a-z0-9-]*:[^\n]*)\n)*?"
+    r"[^\S\n]+version:[^\S\n]*"
+    r'"(?P<version>[0-9][0-9.]*)"'
+)
+"""Match the uv version pinned on a `setup-uv` step.
+
+```{note}
+Without this pin `setup-uv` installs the newest uv satisfying `required-version`,
+which leaves the tool that enforces every other cooldown installed without one.
+The two knobs are deliberately different: `required-version` stays a lower bound,
+so contributors and downstream repos are never capped, while this pin fixes what
+CI downloads and `sync-workflow-pins` walks it forward once a uv release clears
+`minimum-release-age`. See `claude.md` § Pin uv with `required-version`.
+```
+
+Every `setup-uv` step must carry the input, which `tests/test_workflows.py`
+enforces: the lazy middle section stops at the first `version:` it finds, so a
+step missing one would otherwise borrow the next step's.
+"""
+
 
 class Candidate(NamedTuple):
     """A single release version offered by a datasource."""
@@ -460,6 +488,10 @@ def find_workflow_literals(content: str) -> list[WorkflowLiteral]:
         WorkflowLiteral("pypi", m.group("package"), m.group("version"))
         for m in _PYPI_LITERAL_RE.finditer(content)
     )
+    literals.extend(
+        WorkflowLiteral("pypi", SETUP_UV_PACKAGE, m.group("version"))
+        for m in _SETUP_UV_VERSION_RE.finditer(content)
+    )
     return literals
 
 
@@ -488,8 +520,23 @@ def apply_workflow_literals(
 
         return inner
 
+    def replace_setup_uv(match: re.Match[str]) -> str:
+        """Rewrite a `setup-uv` step's `version:` input.
+
+        Separate from {func}`replace` because the package name is implied by the
+        step rather than captured from the text, and the version is delimited by
+        `version: "…"` instead of a `pkg==version` separator.
+        """
+        new_version = resolved.get(("pypi", SETUP_UV_PACKAGE))
+        old_version = match.group("version")
+        if not new_version or new_version == old_version:
+            return match.group(0)
+        changes.append((SETUP_UV_PACKAGE, old_version, new_version))
+        return match.group(0).replace(f'"{old_version}"', f'"{new_version}"')
+
     content = _NPM_LITERAL_RE.sub(replace("npm", "@"), content)
     content = _PYPI_LITERAL_RE.sub(replace("pypi", "=="), content)
+    content = _SETUP_UV_VERSION_RE.sub(replace_setup_uv, content)
     return content, changes
 
 

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -772,6 +773,62 @@ def _splice_config_args(
     return [*config_args, *extra_args]
 
 
+def _path_tools_env(
+    spec: ToolSpec,
+    skip_checksum: bool,
+    no_cache: bool,
+    path_dirs: list[tempfile.TemporaryDirectory[str]],
+) -> dict[str, str] | None:
+    """Build the child environment exposing *spec*'s {attr}`~ToolSpec.path_tools`.
+
+    Installs each companion through {func}`_install_binary`, so it arrives at the
+    registry-pinned version with its checksum verified, then prepends the
+    directories holding them to `PATH`. Prepending (rather than appending) is
+    what makes the pin authoritative: a system-installed build of the same tool
+    further down `PATH` is shadowed instead of winning by accident.
+
+    Temporary directories are appended to *path_dirs* for the caller to clean up,
+    since they must outlive this function and stay alive for the tool's run.
+
+    :param spec: Specification of the tool about to run.
+    :param skip_checksum: Skip SHA-256 verification, as for the primary tool.
+    :param no_cache: Bypass the binary cache when `True`.
+    :param path_dirs: Accumulator the caller cleans up in its `finally` block.
+    :return: The environment to hand the child, or `None` to inherit unchanged
+        when the tool declares no companions.
+    :raises ClickException: If a companion cannot be installed.
+    """
+    if not spec.path_tools:
+        return None
+
+    prefixes = []
+    for tool_name in spec.path_tools:
+        companion = TOOL_REGISTRY[tool_name]
+        tmp_dir = tempfile.TemporaryDirectory(prefix=f"repomatic-{tool_name}-path-")
+        path_dirs.append(tmp_dir)
+        try:
+            bin_path = _install_binary(
+                companion,
+                Path(tmp_dir.name),
+                skip_checksum,
+                no_cache=no_cache,
+            )
+        except RuntimeError as exc:
+            msg = f"Cannot provision {tool_name} on PATH for {spec.name}: {exc}"
+            raise ClickException(msg) from exc
+        logging.info(
+            "Exposing %s %s on PATH for %s.",
+            tool_name,
+            companion.version,
+            spec.name,
+        )
+        prefixes.append(str(bin_path.parent))
+
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([*prefixes, env.get("PATH", "")])
+    return env
+
+
 def run_tool(
     name: str,
     extra_args: Sequence[str] = (),
@@ -811,6 +868,7 @@ def run_tool(
     config_args, tmp_path = resolve_config(spec)
 
     bin_dir = None
+    path_dirs: list[tempfile.TemporaryDirectory[str]] = []
     try:
         # Build command prefix: binary download or uvx/uv-run.
         if spec.binary is not None:
@@ -866,8 +924,10 @@ def run_tool(
             if arg == "--output" and i + 1 < len(extra_args):
                 Path(extra_args[i + 1]).parent.mkdir(parents=True, exist_ok=True)
 
+        env = _path_tools_env(spec, skip_checksum, no_cache, path_dirs)
+
         logging.info("Running: %s", " ".join(cmd))
-        result = subprocess.run(cmd, check=False)
+        result = subprocess.run(cmd, check=False, env=env)
 
         logging.info("%s exited with code %d.", spec.name, result.returncode)
 
@@ -896,6 +956,8 @@ def run_tool(
     finally:
         if bin_dir is not None:
             bin_dir.cleanup()
+        for path_dir in path_dirs:
+            path_dir.cleanup()
         if tmp_path is not None:
             logging.debug("Cleaning up temp config: %s", tmp_path.resolve())
             tmp_path.unlink(missing_ok=True)

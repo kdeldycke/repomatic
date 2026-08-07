@@ -76,6 +76,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Run repomatic metadata
         id: metadata
         run: >
@@ -93,6 +95,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Lint repository metadata
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -112,6 +116,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Install all package dependencies
         # --all-extras and --all-groups are required as Mypy will check all Python files of the project, including
         # those related to optional features, tests, development and documentation.
@@ -138,6 +144,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Run yamllint
         run: uvx --no-progress --from . repomatic run yamllint -- .
 
@@ -154,8 +162,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Zsh
         run: |
-          sudo apt update
-          sudo apt install --yes zsh
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends zsh
       - name: Lint
         env:
           ZSH_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).zsh_files }}
@@ -174,6 +182,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
@@ -181,7 +191,9 @@ jobs:
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-actionlint-
       - name: Install shellcheck
-        run: sudo apt update && sudo apt install --yes shellcheck
+        run: >
+          sudo apt-get update
+          && sudo apt-get install --yes --no-install-recommends shellcheck
       - name: Setup problem matcher
         # Source: https://github.com/rhysd/actionlint/blob/main/docs/usage.md#problem-matchers
         run: |
@@ -203,6 +215,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Run zizmor
         run: uvx --no-progress --from . repomatic run zizmor -- .
 
@@ -218,6 +232,8 @@ jobs:
           # Fetch all history to please linter's age checks.
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - name: Provision npm for the min-release-age cooldown
         # `repomatic run awesome-lint` installs awesome-lint with npm's
         # min-release-age cooldown, which needs npm 11.10.0+; older npm ignores
@@ -249,6 +265,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin

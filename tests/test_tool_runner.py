@@ -111,6 +111,20 @@ def test_tool_spec_integrity(name, spec):
             f"{name}: config_flag {spec.config_flag!r} must start with --"
         )
 
+    # path_tools names another registry entry that ships a downloadable binary:
+    # the runner installs each one through _install_binary to put it on PATH, so
+    # a uvx- or npm-backed entry has no binary to expose and would fail at run
+    # time rather than here.
+    for companion in spec.path_tools:
+        assert companion in TOOL_REGISTRY, (
+            f"{name}: path_tools names unknown tool {companion!r}"
+        )
+        assert companion != name, f"{name}: path_tools must not list itself"
+        assert TOOL_REGISTRY[companion].binary is not None, (
+            f"{name}: path_tools entry {companion!r} has no binary spec, so the "
+            "runner cannot place it on PATH"
+        )
+
     # Flags in default_flags and ci_flags that begin with "-" must use long form:
     # either POSIX "--foo" or Go-style "-foo" (more than one char after the dash).
     # Bare values like "88" or "github" interspersed with flags are left unchecked.

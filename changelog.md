@@ -7,6 +7,11 @@
 
 - **Breaking:** bundled skills drop `model` and `disable-model-invocation`, so every skill is now model-invocable and runs on the session model. The recommended model moved to the spec's `compatibility` field.
 - Every workflow now gates package installs behind the `minimum-release-age` cooldown, so no `uvx`, `uv pip install`, `npm install` or `npx` resolves a release published inside the window.
+- `astral-sh/setup-uv` steps now pin the uv version, bumped by `sync-workflow-pins` once a release clears the cooldown, instead of installing the newest build satisfying `required-version`.
+- `repomatic run mdformat` provisions its own `shfmt` at the registry-pinned version, so formatting shell blocks in Markdown no longer needs a system `shfmt`.
+- New `path_tools` field on a tool spec, naming registry tools whose binary must be on `PATH` while it runs.
+- The `format-markdown` job drops back to the lean `ubuntu-slim` runner, and its awesome-list fixup uses `sed` instead of `gawk`.
+- `apt-get` replaces `apt` in every workflow step, with `--no-install-recommends` throughout.
 - Dependency-updater reports now close on the `Held back by cooldown` section, below `Cooldown bypasses`, so a PR opens on what the run changed instead of what it left alone.
 - `sync-tool-versions` leaves `autofix.yaml` for a new upstream-only `self-maintenance.yaml`, and polls daily instead of weekly. Downstream `autofix.yaml` loses the four steps it could never run.
 - `sync-tool-versions` now also bumps the packages pinned alongside a tool in its `uvx` environment, like mdformat's plugin set, which drifted unnoticed until now.
