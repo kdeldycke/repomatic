@@ -850,6 +850,8 @@ Three installs opt out, each as narrowly as it can:
 | A security fix inside the window | One package | `audit --fix` reaches the fix through an `exclude-newer-package` entry rather than lifting `exclude-newer` for everything.                                |
 | The `test-package-install` job   | One job     | Its subject *is* the fresh release, so a cooldown makes the question it answers unanswerable. It holds no secrets and inherits `permissions: {}`.         |
 
+The handful of `apt-get install` steps are not a fourth exemption: a distro archive is not a live registry. It is frozen at release and moves only through the distribution's own staging, so the delay a cooldown adds is already built in one layer down, and a distro version string names the maintainer's build rather than an upstream publish date, leaving a publish-date filter nothing to filter on. [meta-package-manager's inventory](https://kdeldycke.github.io/meta-package-manager/cooldown.html#supported-managers) marks these managers N/A rather than unsupported for that reason. A third-party repository added by hand (a PPA, a vendor `.repo` file) is the real exception, since it is a single-publisher registry with none of that staging behind it.
+
 #### Tagged workflow URLs
 
 Workflows in this repository are **self-referential**. The [`prepare-release`](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/changelog.yaml) job's freeze commit rewrites workflow URL references from `main` to the release tag, ensuring released versions reference immutable URLs. The unfreeze commit reverts them back to `main` for development.

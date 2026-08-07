@@ -35,19 +35,27 @@ A command that resolves against a checked-in lockfile is the exception that need
 
 uv accepts a friendly duration (`8 days`), an ISO 8601 span (`P8D`), or an absolute date; npm counts whole days and needs 11.10.0 or newer. Both knobs gate the whole resolved tree, transitive dependencies included, which is the point: the compromised package is rarely the one named on the command line.
 
-For any other package manager, consult [meta-package-manager's cooldown inventory](https://kdeldycke.github.io/meta-package-manager/cooldown.html#supported-managers) for which of them enforce a cooldown natively, which have support proposed upstream, and which cannot express one at all. It tracks the capability across every manager mpm drives and stays fresher than a table copied into this file.
+For any other package manager, consult [meta-package-manager's cooldown inventory](https://kdeldycke.github.io/meta-package-manager/cooldown.html#supported-managers) for which of them enforce a cooldown natively, which have support proposed upstream, which have none, and which are marked N/A because their archive already stages releases on its own. It tracks the capability across every manager mpm drives and stays fresher than a table copied into this file. Read the N/A verdict as "different threat model", not "gap": see [§ Distro archives are out of scope](#distro-archives-are-out-of-scope-not-an-exception).
 
-### Managers that cannot express a cooldown
+### Live registries with no cooldown knob
 
-Fail closed. When the manager has no cooldown knob (`pipx`, bare `pip`, most system package managers), do not hand it a floating version range. Either pin an exact version that a cooldown-gated updater already vetted (`sync-action-pins`, `sync-tool-versions` and `sync-workflow-pins` all apply `minimum-release-age` before proposing a bump), or route the install through uv, which has the flag. An unpinned install on an ungated manager is the exact thing this rule exists to prevent.
+Fail closed. When a *live registry* client has no cooldown knob (`pipx`, bare `pip`), do not hand it a floating version range. Either pin an exact version that a cooldown-gated updater already vetted (`sync-action-pins`, `sync-tool-versions` and `sync-workflow-pins` all apply `minimum-release-age` before proposing a bump), or route the install through uv, which has the flag. An unpinned install against a self-service registry is the exact thing this rule exists to prevent.
 
-**Prefer the tool registry over the system package manager.** When CI needs a binary that `repomatic run` already pins (`shfmt`, `actionlint`, `biome`, `gitleaks`, `lychee`, `typos`), take it from there rather than `apt install`: the registry version is pinned, checksum verified, cooldown-gated at pin time and identical on every runner, where the distro archive gives whatever it happens to hold. For a tool that a *plugin* shells out to rather than imports, declare it in the plugin host's `path_tools` (`mdformat` does this for `shfmt`) instead of installing it beside the job.
+### Distro archives are out of scope, not an exception
 
-`apt`, `dnf` and the other system package managers remain an accepted residual: they have no cooldown knob to set, so the handful of `apt-get install` steps left (graphviz, mandoc, zsh, jpegoptim, shellcheck) are outside this rule rather than in violation of it. Prefer not to add more, and write the ones you cannot avoid so they pull as little as possible:
+`apt` and its peers are **not** live registries, and this rule was never about them. A stable archive is frozen at release and moves only through the distro's own staging: Debian's migration windows are a cooldown, implemented one layer down and measured in weeks rather than days. Nobody self-publishes into it, which is the property the window exists to compensate for everywhere else.
 
-- **`apt-get`, never `apt`.** `apt` has no stable CLI and says so on every scripted run; `apt-get` is the interface meant for scripts.
-- **`--no-install-recommends` always.** Recommends are exactly what this section is about: extra unpinned packages nobody asked for, arriving from an archive with no cooldown. Turning them off shrinks the surface to what the step actually named.
-- **Name what the Recommends were providing.** Dropping them can quietly remove something real (graphviz recommends `fonts-liberation`, and `ubuntu-slim` has no fonts of its own), so add it to the install list explicitly. An explicit dependency you can read beats an implicit one you inherit.
+A second reason the knob could not exist even if someone wanted it: a distro version string is *the maintainer's package build*, not an upstream publish date, so a publish-date filter has nothing to filter on. mpm's inventory files these managers as **N/A** rather than unsupported for exactly this reason: the ecosystem solves the problem differently, it is not missing a solution.
+
+**The exception is a repository you add yourself.** A PPA or a vendor's `.repo` file is a live, single-publisher registry wearing apt's clothes, with none of the distro staging behind it. Pin the version there, or fetch a checksummed artifact instead. `_release-engine.yaml` adding `cli.github.com` to install `gh` is the one place in this repo where that applies.
+
+Still prefer the tool registry over `apt-get` when both can supply a binary (`shfmt`, `actionlint`, `biome`, `gitleaks`, `lychee`, `typos`), for reasons that have nothing to do with cooldowns: the registry version is pinned, checksum verified, and identical on every runner and every developer machine, where the archive gives each distro release whatever it happens to hold. For a tool a *plugin* shells out to rather than imports, declare it in the plugin host's `path_tools` (`mdformat` does this for `shfmt`) instead of installing it beside the job.
+
+Write the `apt-get` calls you do keep so they pull as little as possible:
+
+- **`apt-get`, never `apt`.** The `apt(8)` man page says to prefer `apt-get` and `apt-cache` in scripts, as they keep backward compatibility; `apt` is an end-user tool whose behavior may change between versions.
+- **`--no-install-recommends` always.** Recommends are extra packages nobody asked for, and every one widens what a step installs beyond what it names.
+- **Name what the Recommends were providing.** Dropping them can quietly remove something real (graphviz recommends `fonts-liberation`, and `ubuntu-slim` ships no fonts of its own), so add it to the install list explicitly. An explicit dependency you can read beats an implicit one you inherit.
 
 ### Documented exemptions
 
