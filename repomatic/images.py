@@ -56,8 +56,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from click_extra import format_size
-
+from .humanize import format_file_size
 from .tool_registry import TOOL_REGISTRY
 from .tool_runner import ensure_binary
 
@@ -94,16 +93,6 @@ class OptimizationResult:
         if self.before_bytes == 0:
             return 0.0
         return (self.saved_bytes / self.before_bytes) * 100
-
-
-def format_file_size(size_bytes: int) -> str:
-    """Format a byte count as a human-readable string.
-
-    A thin binding of {func}`click_extra.format_size` to the JEDEC unit style
-    (binary powers with the customary `KB`/`MB` symbols), matching the format
-    produced by `calibreapp/image-actions`.
-    """
-    return format_size(size_bytes, units="jedec")
 
 
 def _check_tool(name: str) -> bool:

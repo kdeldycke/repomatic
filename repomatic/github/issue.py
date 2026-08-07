@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
+from contextlib import contextmanager
 from operator import itemgetter
 from pathlib import Path
 
@@ -44,6 +46,7 @@ from .pr_body import fit_issue_body, generate_pr_metadata_block
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from typing import Any
 
 
@@ -221,9 +224,32 @@ def triage_issues(
     return needed, issue_to_update, issue_state, issues_to_close
 
 
+@contextmanager
+def _body_file(body: str) -> Iterator[Path]:
+    """Materialize an issue body as a temporary file, then remove it.
+
+    The `gh` CLI takes a body only through `--body-file`, so every write path
+    here needs one on disk. Owning the temp file at this layer keeps callers
+    working in the currency they actually produce (rendered markdown) instead of
+    each repeating the same write / `try` / `unlink` envelope.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".md",
+        delete=False,
+        encoding="UTF-8",
+    ) as handle:
+        handle.write(body)
+        path = Path(handle.name)
+    try:
+        yield path
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def manage_issue_lifecycle(
     has_issues: bool,
-    body_file: Path,
+    body: str,
     labels: list[str],
     title: str,
     no_issues_comment: str = "No more issues.",
@@ -242,7 +268,9 @@ def manage_issue_lifecycle(
     closed, it is reopened and updated rather than creating a duplicate.
 
     :param has_issues: Whether issues were found that warrant an open issue.
-    :param body_file: Path to the file containing the issue body.
+    :param body: The rendered markdown issue body. Written to a temporary file
+        only when a create or update actually happens, since a run that just
+        closes issues never needs one.
     :param labels: Labels to apply when creating a new issue.
     :param title: Issue title to match and create.
     :param no_issues_comment: Comment to add when closing issues because
@@ -270,8 +298,11 @@ def manage_issue_lifecycle(
             comment = no_issues_comment
         close_issue(issue_number, f"{comment}\n\n{metadata_block}")
 
-    # Create, update, or reopen issue if needed.
-    if has_issues:
+    if not has_issues:
+        return
+
+    # Create, update, or reopen the issue.
+    with _body_file(body) as body_path:
         if issue_to_update:
             # Reopen the issue if it was closed.
             if issue_state == "CLOSED":
@@ -279,9 +310,9 @@ def manage_issue_lifecycle(
                     issue_to_update,
                     comment=f"Condition recurred.\n\n{metadata_block}",
                 )
-            update_issue(issue_to_update, body_file)
+            update_issue(issue_to_update, body_path)
         else:
-            create_issue(body_file, labels, title=title)
+            create_issue(body_path, labels, title=title)
 
 
 # ---------------------------------------------------------------------------

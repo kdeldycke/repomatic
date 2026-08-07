@@ -182,6 +182,37 @@ def run_gh_command(args: list[str]) -> str:
     return process.stdout
 
 
+def gh_api_json(args: Sequence[str]) -> Any | None:
+    """Run a `gh` command expected to emit JSON, and parse it.
+
+    The two ways a JSON-producing `gh` call can fail are indistinguishable to a
+    caller that just wants the payload: the command may not run at all (network,
+    auth, a `404` on an endpoint the repository has not enabled) or it may return
+    something that is not JSON. Both collapse to `None` here, so a caller reports
+    one "could not read it" outcome instead of two it cannot act on differently.
+
+    Reserved for calls whose failure is a *tolerable* outcome, which is what
+    every {mod}`repomatic.lint_repo` check wants: a probe that cannot run reports
+    itself as skipped rather than failing the lint. Callers that must distinguish
+    the failure modes, or that treat a failure as fatal, should keep using
+    {func}`run_gh_command` and handle `RuntimeError` themselves.
+
+    :param args: Command arguments to pass to `gh`.
+    :return: The parsed JSON payload, or `None` when the command failed or its
+        output did not parse.
+    """
+    try:
+        output = run_gh_command(list(args))
+    except RuntimeError as error:
+        logging.debug(f"gh {' '.join(args)} failed: {error}")
+        return None
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError as error:
+        logging.debug(f"gh {' '.join(args)} returned unparsable JSON: {error}")
+        return None
+
+
 def iter_graphql_nodes(
     query: str,
     connection_path: Sequence[str],

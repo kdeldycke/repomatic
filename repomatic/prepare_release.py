@@ -54,7 +54,7 @@ from functools import cached_property
 from pathlib import Path
 
 from .changelog import Changelog
-from .config import Config
+from .config import load_repomatic_config
 from .metadata import Metadata
 
 SELF_PIN_COOLDOWN_EXEMPTION = "--exclude-newer-package repomatic=P0D"
@@ -98,7 +98,7 @@ class PrepareRelease:
         default_branch: str = "main",
     ) -> None:
         self.changelog_path = (
-            changelog_path or Path(Config.changelog_location).resolve()
+            changelog_path or Path(load_repomatic_config().changelog_location).resolve()
         )
         self.citation_path = citation_path or Path("./citation.cff").resolve()
         self.workflow_dir = workflow_dir or Path("./.github/workflows").resolve()

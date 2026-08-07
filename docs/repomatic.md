@@ -146,6 +146,15 @@
    :undoc-members:
 ```
 
+## `repomatic.frontmatter` module
+
+```{eval-rst}
+.. automodule:: repomatic.frontmatter
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.git_ops` module
 
 ```{eval-rst}
@@ -168,6 +177,15 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.http
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.humanize` module
+
+```{eval-rst}
+.. automodule:: repomatic.humanize
    :members:
    :show-inheritance:
    :undoc-members:

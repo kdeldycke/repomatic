@@ -35,8 +35,6 @@ from repomatic.init_project import (
     EXPORTABLE_FILES,
     RUNTIME_FRAGMENTS,
     _detect_removed_assets,
-    _resolve_agents_target,
-    _resolve_skills_target,
     _select_cooldown_pin,
     _update_tool_config,
     default_version_pin,
@@ -2620,45 +2618,67 @@ def test_init_detects_auto_excluded_awesome_triage(
 
 
 @pytest.mark.parametrize(
-    ("location", "target", "expected"),
+    ("component", "field", "default_dir", "leaf"),
     [
-        # Default location, no change.
-        (
-            "./.claude/skills/",
-            ".claude/skills/foo/SKILL.md",
-            ".claude/skills/foo/SKILL.md",
-        ),
-        # Equivalent default without leading "./".
-        (
-            ".claude/skills/",
-            ".claude/skills/foo/SKILL.md",
-            ".claude/skills/foo/SKILL.md",
-        ),
-        # Custom location replaces prefix.
-        ("./custom/", ".claude/skills/foo/SKILL.md", "custom/foo/SKILL.md"),
-        # Custom location without leading "./".
-        ("custom/dir/", ".claude/skills/foo/SKILL.md", "custom/dir/foo/SKILL.md"),
-        # Non-matching target is returned unchanged.
-        ("./custom/", "other/path.md", "other/path.md"),
-        # Hidden directory preserved with removeprefix (not strip).
-        (
-            "./.hidden/skills/",
-            ".claude/skills/foo/SKILL.md",
-            ".hidden/skills/foo/SKILL.md",
-        ),
+        pytest.param("skills", "skills_location", ".claude/skills", "papaya/SKILL.md"),
+        pytest.param("agents", "agents_location", ".claude/agents", "papaya.md"),
     ],
 )
-def test_resolve_skills_target(location: str, target: str, expected: str):
-    """Verify skill target path resolution with various config values."""
-    config = Config(skills_location=location)
-    assert _resolve_skills_target(target, config) == expected
+@pytest.mark.parametrize(
+    ("location", "expected_dir"),
+    [
+        pytest.param("./.claude/{leaf_dir}/", None, id="default"),
+        pytest.param(".claude/{leaf_dir}/", None, id="default-no-dot-slash"),
+        pytest.param("./custom/", "custom", id="custom"),
+        pytest.param("custom/dir/", "custom/dir", id="custom-nested"),
+        pytest.param("./.hidden/{leaf_dir}/", ".hidden/{leaf_dir}", id="hidden-dir"),
+    ],
+)
+def test_resolve_target(component, field, default_dir, leaf, location, expected_dir):
+    """A declared target is rebased onto the configured location.
 
-
-def test_resolve_skills_target_no_config():
-    """Verify no-op when config is None."""
+    `removeprefix` (not `strip`) normalizes the `./` the config default carries,
+    so a location that is itself a hidden directory keeps its leading dot.
+    """
+    leaf_dir = default_dir.rsplit("/", 1)[-1]
+    location = location.format(leaf_dir=leaf_dir)
+    expected_prefix = (
+        default_dir if expected_dir is None else expected_dir.format(leaf_dir=leaf_dir)
+    )
+    config = Config(**{field: location})
+    comp = COMPONENTS_BY_NAME[component]
     assert (
-        _resolve_skills_target(".claude/skills/x/SKILL.md", None)
-        == ".claude/skills/x/SKILL.md"
+        comp.resolve_target(f"{default_dir}/{leaf}", config)
+        == f"{expected_prefix}/{leaf}"
+    )
+
+
+@pytest.mark.parametrize("component", ["skills", "agents"])
+def test_resolve_target_leaves_foreign_paths_alone(component):
+    """A target outside the component's default location passes through."""
+    comp = COMPONENTS_BY_NAME[component]
+    config = Config(skills_location="./custom/", agents_location="./custom/")
+    assert comp.resolve_target("other/path.md", config) == "other/path.md"
+
+
+@pytest.mark.parametrize("component", ["skills", "agents", "workflows"])
+def test_resolve_target_without_config_is_noop(component):
+    """With no config there is nothing to rebase onto."""
+    comp = COMPONENTS_BY_NAME[component]
+    target = comp.files[0].target
+    assert comp.resolve_target(target, None) == target
+
+
+def test_resolve_target_ignores_components_with_fixed_location():
+    """A component with no configurable location never rebases.
+
+    `.github/workflows/` is GitHub's path, not one the user may move, so
+    `workflows` declares no `location_field` and its targets are literal.
+    """
+    comp = COMPONENTS_BY_NAME["workflows"]
+    config = Config(skills_location="./custom/", agents_location="./custom/")
+    assert comp.resolve_target(".github/workflows/autofix.yaml", config) == (
+        ".github/workflows/autofix.yaml"
     )
 
 
@@ -2683,46 +2703,6 @@ def test_init_skills_custom_location(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     # Default location should not exist.
     assert not (tmp_path / ".claude" / "skills" / "repomatic-init").exists()
-
-
-@pytest.mark.parametrize(
-    ("location", "target", "expected"),
-    [
-        # Default location, no change.
-        (
-            "./.claude/agents/",
-            ".claude/agents/foo.md",
-            ".claude/agents/foo.md",
-        ),
-        # Equivalent default without leading "./".
-        (
-            ".claude/agents/",
-            ".claude/agents/foo.md",
-            ".claude/agents/foo.md",
-        ),
-        # Custom location replaces prefix.
-        ("./custom/", ".claude/agents/foo.md", "custom/foo.md"),
-        # Custom location without leading "./".
-        ("custom/dir/", ".claude/agents/foo.md", "custom/dir/foo.md"),
-        # Non-matching target is returned unchanged.
-        ("./custom/", "other/path.md", "other/path.md"),
-        # Hidden directory preserved with removeprefix (not strip).
-        (
-            "./.hidden/agents/",
-            ".claude/agents/foo.md",
-            ".hidden/agents/foo.md",
-        ),
-    ],
-)
-def test_resolve_agents_target(location: str, target: str, expected: str):
-    """Verify agent target path resolution with various config values."""
-    config = Config(agents_location=location)
-    assert _resolve_agents_target(target, config) == expected
-
-
-def test_resolve_agents_target_no_config():
-    """Verify no-op when config is None."""
-    assert _resolve_agents_target(".claude/agents/x.md", None) == ".claude/agents/x.md"
 
 
 def test_init_agents_custom_location(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

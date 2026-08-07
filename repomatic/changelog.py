@@ -144,9 +144,6 @@ CHANGELOG_HEADER = "# Changelog\n"
 SECTION_START = "##"
 """Markdown heading level for changelog version sections."""
 
-DATE_PATTERN = re.compile(r"\d{4}\-\d{2}\-\d{2}")
-"""Pattern matching release dates in YYYY-MM-DD format."""
-
 VERSION_COMPARE_PATTERN = re.compile(r"v(\d+\.\d+\.\d+)\.\.\.v(\d+\.\d+\.\d+)")
 """Pattern matching GitHub comparison URLs like `v1.0.0...v1.0.1`."""
 

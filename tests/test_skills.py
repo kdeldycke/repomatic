@@ -41,7 +41,7 @@ from importlib.resources import files
 import pytest
 
 from repomatic.bundle import get_data_content
-from repomatic.cli import _parse_skill_frontmatter
+from repomatic.frontmatter import split_frontmatter
 from repomatic.init_project import _copy_template_tree
 from repomatic.registry import COMPONENTS_BY_NAME, SKILL_FILENAME, _skill_dir
 
@@ -91,9 +91,10 @@ skill_entries = pytest.mark.parametrize(
 
 def frontmatter(entry):
     """Parse the frontmatter of a bundled skill registry entry."""
-    return _parse_skill_frontmatter(
+    meta, _body = split_frontmatter(
         get_data_content(f"{entry.source}/{SKILL_FILENAME}")
     )
+    return meta
 
 
 @pytest.fixture

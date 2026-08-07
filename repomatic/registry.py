@@ -220,6 +220,18 @@ class Component:
     When `False`, unmodified copies are flagged for cleanup by
     `--delete-unmodified`."""
 
+    location_field: str = ""
+    """{class}`~repomatic.config.Config` field holding this component's
+    destination directory, when the user can move it.
+
+    Set for the two components whose destination is configurable (`agents` and
+    `skills`): their {attr}`FileEntry.target` values are built against the
+    *default* location, so a repo that overrode it needs each target rebased onto
+    the configured one. {meth}`resolve_target` performs that rebase, and leaving
+    this empty means the targets are fixed (`.github/workflows/` is GitHub's, not
+    ours to move).
+    """
+
     def is_enabled(self, config: object) -> bool:
         """Whether this component is enabled by the given `Config` object.
 
@@ -228,6 +240,31 @@ class Component:
         :param config: A {class}`~repomatic.config.Config` instance.
         """
         return _config_enabled(config, self.config_key, self.config_default)
+
+    def resolve_target(self, target: str, config: object) -> str:
+        """Rebase a declared target path onto this component's configured location.
+
+        A no-op unless {attr}`location_field` is set and the resolved config
+        actually moves the directory, so every caller can route every target
+        through this method instead of testing the component name first.
+
+        :param target: A path as declared on a {class}`FileEntry` (or a
+            {class}`RemovedAsset` tombstone), relative to the repository root and
+            expressed against the default location.
+        :param config: A {class}`~repomatic.config.Config` instance, or `None`.
+        :return: The target rebased onto the configured location, or *target*
+            unchanged.
+        """
+        if not self.location_field or config is None:
+            return target
+        # The Config default carries a "./" prefix the registry targets omit.
+        default = getattr(Config, self.location_field).removeprefix("./").rstrip("/")
+        if not target.startswith(f"{default}/"):
+            return target
+        custom = getattr(config, self.location_field).removeprefix("./").rstrip("/")
+        if custom == default:
+            return target
+        return f"{custom}/{target[len(default) + 1 :]}"
 
 
 @dataclass(frozen=True)
@@ -416,10 +453,24 @@ class RemovedAsset:
 # ---------------------------------------------------------------------------
 
 
+WORKFLOW_TARGET_ROOT = ".github/workflows"
+"""Directory GitHub reads workflow files from. Not configurable."""
+
+
 def _agent_target(agent_id: str) -> str:
     """Build the default target path for an agent file from the Config default."""
     prefix = Config.agents_location.removeprefix("./").rstrip("/")
     return f"{prefix}/{agent_id}.md"
+
+
+def _agent_entry(agent_id: str) -> FileEntry:
+    """Declare the {class}`FileEntry` of one bundled agent definition.
+
+    Every agent follows the same shape (`agent-{id}.md` in the bundle, one
+    Markdown file under the agents directory, `{id}` as its selector), so the
+    registry names the id once and derives the rest.
+    """
+    return FileEntry(f"agent-{agent_id}.md", _agent_target(agent_id), agent_id)
 
 
 SKILL_FILENAME = "SKILL.md"
@@ -447,6 +498,53 @@ def _skill_target(skill_id: str) -> str:
 def _skill_source(skill_id: str) -> str:
     """Build the bundled source directory for a skill."""
     return f"{SKILL_SOURCE_ROOT}/{skill_id}"
+
+
+def _skill_entry(
+    skill_id: str,
+    phase: str,
+    scope: RepoScope = RepoScope.ALL,
+) -> FileEntry:
+    """Declare the {class}`FileEntry` of one bundled skill.
+
+    Every skill is a whole folder copied verbatim (`tree=True`) from
+    `data/skills/{id}/` to `{skills_location}/{id}/`, with `{id}` as its
+    selector. Only the lifecycle phase and the repo scope vary, so those are the
+    only arguments.
+    """
+    return FileEntry(
+        _skill_source(skill_id),
+        _skill_dir(skill_id),
+        skill_id,
+        scope=scope,
+        phase=phase,
+        tree=True,
+    )
+
+
+def _workflow_entry(
+    source: str,
+    *,
+    target: str = "",
+    scope: RepoScope = RepoScope.ALL,
+    reusable: bool = True,
+    config_key: str = "",
+) -> FileEntry:
+    """Declare the {class}`FileEntry` of one workflow.
+
+    A workflow's downstream path is `.github/workflows/` plus its own filename,
+    so naming the bundled source is enough. *target* overrides the filename for
+    the one workflow whose deployed name differs from its source (the release
+    entry, generated from `_release-engine.yaml`).
+    """
+    filename = target or source
+    return FileEntry(
+        source,
+        f"{WORKFLOW_TARGET_ROOT}/{filename}",
+        scope=scope,
+        reusable=reusable,
+        config_key=config_key,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -507,22 +605,11 @@ COMPONENTS: tuple[Component, ...] = (
         # description. Keep them on disk even when unmodified so the runtime
         # can always discover them.
         keep_unmodified=True,
+        location_field="agents_location",
         files=(
-            FileEntry(
-                "agent-grunt-qa.md",
-                _agent_target("grunt-qa"),
-                "grunt-qa",
-            ),
-            FileEntry(
-                "agent-qa-engineer.md",
-                _agent_target("qa-engineer"),
-                "qa-engineer",
-            ),
-            FileEntry(
-                "agent-sphinx-docs.md",
-                _agent_target("sphinx-docs"),
-                "sphinx-docs",
-            ),
+            _agent_entry("grunt-qa"),
+            _agent_entry("qa-engineer"),
+            _agent_entry("sphinx-docs"),
         ),
     ),
     BundledComponent(
@@ -532,114 +619,23 @@ COMPONENTS: tuple[Component, ...] = (
         # Skills are user-facing documents, not machine configs. Keep them
         # on disk even when unmodified so Claude Code can always find them.
         keep_unmodified=True,
+        location_field="skills_location",
         files=(
-            FileEntry(
-                _skill_source("av-false-positive"),
-                _skill_dir("av-false-positive"),
-                "av-false-positive",
-                tree=True,
-                phase="Release",
-            ),
-            FileEntry(
-                _skill_source("awesome-triage"),
-                _skill_dir("awesome-triage"),
-                "awesome-triage",
-                tree=True,
-                scope=RepoScope.AWESOME_ONLY,
-                phase="Maintenance",
-            ),
-            FileEntry(
-                _skill_source("babysit-ci"),
-                _skill_dir("babysit-ci"),
-                "babysit-ci",
-                tree=True,
-                phase="Quality",
-            ),
-            FileEntry(
-                _skill_source("benchmark-update"),
-                _skill_dir("benchmark-update"),
-                "benchmark-update",
-                tree=True,
-                phase="Development",
-            ),
-            FileEntry(
-                _skill_source("brand-assets"),
-                _skill_dir("brand-assets"),
-                "brand-assets",
-                tree=True,
-                phase="Development",
-            ),
-            FileEntry(
-                _skill_source("file-bug-report"),
-                _skill_dir("file-bug-report"),
-                "file-bug-report",
-                tree=True,
-                phase="Maintenance",
-            ),
-            FileEntry(
-                _skill_source("repomatic-audit"),
-                _skill_dir("repomatic-audit"),
-                "repomatic-audit",
-                tree=True,
-                phase="Maintenance",
-            ),
-            FileEntry(
-                _skill_source("repomatic-changelog"),
-                _skill_dir("repomatic-changelog"),
-                "repomatic-changelog",
-                tree=True,
-                phase="Release",
-            ),
-            FileEntry(
-                _skill_source("repomatic-deps"),
-                _skill_dir("repomatic-deps"),
-                "repomatic-deps",
-                tree=True,
-                phase="Development",
-            ),
-            FileEntry(
-                _skill_source("repomatic-init"),
-                _skill_dir("repomatic-init"),
-                "repomatic-init",
-                tree=True,
-                phase="Setup",
-            ),
-            FileEntry(
-                _skill_source("repomatic-ship"),
-                _skill_dir("repomatic-ship"),
-                "repomatic-ship",
-                tree=True,
-                phase="Release",
-            ),
-            FileEntry(
-                _skill_source("repomatic-topics"),
-                _skill_dir("repomatic-topics"),
-                "repomatic-topics",
-                tree=True,
-                phase="Development",
-            ),
-            FileEntry(
-                _skill_source("sphinx-docs-sync"),
-                _skill_dir("sphinx-docs-sync"),
-                "sphinx-docs-sync",
-                tree=True,
-                phase="Maintenance",
-            ),
-            FileEntry(
-                _skill_source("translation-sync"),
-                _skill_dir("translation-sync"),
-                "translation-sync",
-                tree=True,
-                scope=RepoScope.AWESOME_ONLY,
-                phase="Maintenance",
-            ),
-            FileEntry(
-                _skill_source("upstream-audit"),
-                _skill_dir("upstream-audit"),
-                "upstream-audit",
-                tree=True,
-                phase="Maintenance",
-            ),
+            _skill_entry("av-false-positive", "Release"),
+            _skill_entry("awesome-triage", "Maintenance", RepoScope.AWESOME_ONLY),
+            _skill_entry("babysit-ci", "Quality"),
+            _skill_entry("benchmark-update", "Development"),
+            _skill_entry("brand-assets", "Development"),
+            _skill_entry("file-bug-report", "Maintenance"),
+            _skill_entry("repomatic-audit", "Maintenance"),
+            _skill_entry("repomatic-changelog", "Release"),
+            _skill_entry("repomatic-deps", "Development"),
+            _skill_entry("repomatic-init", "Setup"),
+            _skill_entry("repomatic-ship", "Release"),
+            _skill_entry("repomatic-topics", "Development"),
+            _skill_entry("sphinx-docs-sync", "Maintenance"),
+            _skill_entry("translation-sync", "Maintenance", RepoScope.AWESOME_ONLY),
+            _skill_entry("upstream-audit", "Maintenance"),
         ),
     ),
     # --- Workflow component ---
@@ -647,42 +643,26 @@ COMPONENTS: tuple[Component, ...] = (
         name="workflows",
         description="Thin-caller workflow files",
         files=(
-            FileEntry("autofix.yaml", ".github/workflows/autofix.yaml"),
-            FileEntry("autolock.yaml", ".github/workflows/autolock.yaml"),
-            FileEntry("cancel-runs.yaml", ".github/workflows/cancel-runs.yaml"),
-            FileEntry(
-                "changelog.yaml",
-                ".github/workflows/changelog.yaml",
-                scope=RepoScope.PYTHON_ONLY,
-            ),
-            FileEntry(
-                "debug.yaml",
-                ".github/workflows/debug.yaml",
-                scope=RepoScope.PYTHON_ONLY,
-            ),
-            FileEntry("docs.yaml", ".github/workflows/docs.yaml"),
-            FileEntry("labels.yaml", ".github/workflows/labels.yaml"),
-            FileEntry("lint.yaml", ".github/workflows/lint.yaml"),
-            FileEntry(
-                # Downstream artifact is release.yaml (the entry), generated by
-                # workflow_sync._generate_release_caller and pointing its `uses:`
-                # at the RELEASE_ENGINE_WORKFLOWS lanes. This source records the
-                # representative backing reusable (_release-engine.yaml); see
-                # WORKFLOW_SOURCES and RELEASE_ENGINE_WORKFLOWS.
+            _workflow_entry("autofix.yaml"),
+            _workflow_entry("autolock.yaml"),
+            _workflow_entry("cancel-runs.yaml"),
+            _workflow_entry("changelog.yaml", scope=RepoScope.PYTHON_ONLY),
+            _workflow_entry("debug.yaml", scope=RepoScope.PYTHON_ONLY),
+            _workflow_entry("docs.yaml"),
+            _workflow_entry("labels.yaml"),
+            _workflow_entry("lint.yaml"),
+            # Downstream artifact is release.yaml (the entry), generated by
+            # workflow_sync._generate_release_caller and pointing its `uses:` at
+            # the RELEASE_ENGINE_WORKFLOWS lanes. This source records the
+            # representative backing reusable (_release-engine.yaml); see
+            # WORKFLOW_SOURCES and RELEASE_ENGINE_WORKFLOWS.
+            _workflow_entry(
                 "_release-engine.yaml",
-                ".github/workflows/release.yaml",
+                target="release.yaml",
                 scope=RepoScope.PYTHON_ONLY,
             ),
-            FileEntry(
-                "tests.yaml",
-                ".github/workflows/tests.yaml",
-                reusable=False,
-            ),
-            FileEntry(
-                "unsubscribe.yaml",
-                ".github/workflows/unsubscribe.yaml",
-                config_key="notification.unsubscribe",
-            ),
+            _workflow_entry("tests.yaml", reusable=False),
+            _workflow_entry("unsubscribe.yaml", config_key="notification.unsubscribe"),
         ),
     ),
     # --- Special components ---
@@ -802,204 +782,212 @@ COMPONENTS_BY_NAME: dict[str, Component] = {c.name: c for c in COMPONENTS}
 # Removed assets (tombstones).
 # ---------------------------------------------------------------------------
 
+# Successors shared by several tombstones: the 2026 reorganization retired one
+# skill per CI concern in favor of the workflow that now runs on every push, and
+# each rename generation (gha-* → repokit-* → repomatic-*) left a tombstone
+# pointing at the same replacement.
+_NOW_IN_AUTOFIX = "now handled by autofix.yaml on every push"
+_NOW_IN_LINT = "now handled by lint.yaml on every push"
+_NOW_IN_METADATA_CMD = "now handled by the repomatic metadata CLI command"
+_NOW_IN_TESTS = "now handled by tests.yaml on every push"
+_REPLACED_BY_SHIP = "replaced by repomatic-ship"
+
+
+def _removed_skill(
+    skill_id: str,
+    removed_in: str,
+    *hashes: str,
+    successor: str = "",
+) -> RemovedAsset:
+    """Declare a tombstone for a skill repomatic no longer ships.
+
+    Skills are content-gated: the *hashes* are the normalized contents the skill
+    shipped across its released lifetime (see {attr}`RemovedAsset.hashes` for the
+    recipe that collects them).
+    """
+    return RemovedAsset(
+        "skills", _skill_target(skill_id), removed_in, hashes, successor=successor
+    )
+
+
+def _removed_workflow(
+    filename: str, removed_in: str, *, successor: str = ""
+) -> RemovedAsset:
+    """Declare a tombstone for a workflow repomatic no longer ships.
+
+    Workflows are fingerprint-gated by their `uses:` line rather than hashed, so
+    they carry no *hashes* (see the {class}`RemovedAsset` docstring).
+    """
+    return RemovedAsset(
+        "workflows",
+        f"{WORKFLOW_TARGET_ROOT}/{filename}",
+        removed_in,
+        successor=successor,
+    )
+
+
 REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
-    RemovedAsset(
-        "skills",
-        _skill_target("gha-changelog"),
+    _removed_skill(
+        "gha-changelog",
         "6.0.0",
-        ("2c178a58e1106f08aa6e540cd022eff12c4e954942ec5d794282c7b640adf768",),
+        "2c178a58e1106f08aa6e540cd022eff12c4e954942ec5d794282c7b640adf768",
         successor="renamed to repomatic-changelog",
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("gha-deps"),
+    _removed_skill(
+        "gha-deps",
         "6.0.0",
-        ("d0bcb44f81335f4aabcadb82085f5048be12db252fc0a1f8c6bda8d9e5292efd",),
+        "d0bcb44f81335f4aabcadb82085f5048be12db252fc0a1f8c6bda8d9e5292efd",
         successor="renamed to repomatic-deps",
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("gha-init"),
+    _removed_skill(
+        "gha-init",
         "6.0.0",
-        ("0f4f23f424c73774dd6253d9cb547e7a1d52ed64266c93b5b7271f4bee492a25",),
+        "0f4f23f424c73774dd6253d9cb547e7a1d52ed64266c93b5b7271f4bee492a25",
         successor="renamed to repomatic-init",
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("gha-lint"),
+    _removed_skill(
+        "gha-lint",
         "6.0.0",
-        ("7079f4d79c6347b03b4788de97db2e1839006b606e9dbacbfeb51e9cca04db20",),
-        successor="now handled by lint.yaml on every push",
+        "7079f4d79c6347b03b4788de97db2e1839006b606e9dbacbfeb51e9cca04db20",
+        successor=_NOW_IN_LINT,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("gha-metadata"),
+    _removed_skill(
+        "gha-metadata",
         "6.0.0",
-        ("74c6f7d3574236d20aa7011b92f174abd2f8fdda162131e7f61851dfee7145fa",),
-        successor="now handled by the repomatic metadata CLI command",
+        "74c6f7d3574236d20aa7011b92f174abd2f8fdda162131e7f61851dfee7145fa",
+        successor=_NOW_IN_METADATA_CMD,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("gha-release"),
+    _removed_skill(
+        "gha-release",
         "6.0.0",
-        ("99a466bc4d377bb056c5696de8f0eae2b025b34505ac951d504bee55a42bdd1c",),
-        successor="replaced by repomatic-ship",
+        "99a466bc4d377bb056c5696de8f0eae2b025b34505ac951d504bee55a42bdd1c",
+        successor=_REPLACED_BY_SHIP,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("gha-sync"),
+    _removed_skill(
+        "gha-sync",
         "6.0.0",
-        ("f856f143db3f0ad37adb6c80b89c33efa5112e1307927ff3331f82857a71fef4",),
-        successor="now handled by autofix.yaml on every push",
+        "f856f143db3f0ad37adb6c80b89c33efa5112e1307927ff3331f82857a71fef4",
+        successor=_NOW_IN_AUTOFIX,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("gha-test"),
+    _removed_skill(
+        "gha-test",
         "6.0.0",
-        ("4a00dac78e0ca3c598c2a3ae6e649f354f73e754c5aaea531d8409f1eff23434",),
-        successor="now handled by tests.yaml on every push",
+        "4a00dac78e0ca3c598c2a3ae6e649f354f73e754c5aaea531d8409f1eff23434",
+        successor=_NOW_IN_TESTS,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repokit-changelog"),
+    _removed_skill(
+        "repokit-changelog",
         "6.0.1",
-        ("6e176d9d0090afb9d9a10035e4c6721fff8fac4a1c313010fc04a7ab631be399",),
+        "6e176d9d0090afb9d9a10035e4c6721fff8fac4a1c313010fc04a7ab631be399",
         successor="renamed to repomatic-changelog",
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repokit-deps"),
+    _removed_skill(
+        "repokit-deps",
         "6.0.1",
-        ("577687ae8481cc67b992497ee0de9fb38c0f26cd20a9b907a4bf78f834803cc0",),
+        "577687ae8481cc67b992497ee0de9fb38c0f26cd20a9b907a4bf78f834803cc0",
         successor="renamed to repomatic-deps",
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repokit-init"),
+    _removed_skill(
+        "repokit-init",
         "6.0.1",
-        ("c68a9108ead81c4bb5b33912770155f6a587188ca72c8ba8d08f7283fdcad281",),
+        "c68a9108ead81c4bb5b33912770155f6a587188ca72c8ba8d08f7283fdcad281",
         successor="renamed to repomatic-init",
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repokit-lint"),
+    _removed_skill(
+        "repokit-lint",
         "6.0.1",
-        ("1c05f0fb8c5ff8eed38ac02af2fff016e931fdf8866fd93a3fc6c61f84d4df52",),
-        successor="now handled by lint.yaml on every push",
+        "1c05f0fb8c5ff8eed38ac02af2fff016e931fdf8866fd93a3fc6c61f84d4df52",
+        successor=_NOW_IN_LINT,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repokit-metadata"),
+    _removed_skill(
+        "repokit-metadata",
         "6.0.1",
-        ("0322f70cdd8e53d03fce2befbf904be1f0dc5596b79e41557ce8ec788a202cff",),
-        successor="now handled by the repomatic metadata CLI command",
+        "0322f70cdd8e53d03fce2befbf904be1f0dc5596b79e41557ce8ec788a202cff",
+        successor=_NOW_IN_METADATA_CMD,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repokit-release"),
+    _removed_skill(
+        "repokit-release",
         "6.0.1",
-        ("a6ceb0394f084f481765bb834f275af0cb1cf58a9383059358ceec50ea87b93a",),
-        successor="replaced by repomatic-ship",
+        "a6ceb0394f084f481765bb834f275af0cb1cf58a9383059358ceec50ea87b93a",
+        successor=_REPLACED_BY_SHIP,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repokit-sync"),
+    _removed_skill(
+        "repokit-sync",
         "6.0.1",
-        ("412811337a541b6c4518e588240ce2cb13f3f476bcd311f32edcf04394e17ade",),
-        successor="now handled by autofix.yaml on every push",
+        "412811337a541b6c4518e588240ce2cb13f3f476bcd311f32edcf04394e17ade",
+        successor=_NOW_IN_AUTOFIX,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repokit-test"),
+    _removed_skill(
+        "repokit-test",
         "6.0.1",
-        ("63f0b532f379aa4400eea5a6284c3004ddc09749c8f476f4ea5a5e8ce3c4716f",),
-        successor="now handled by tests.yaml on every push",
+        "63f0b532f379aa4400eea5a6284c3004ddc09749c8f476f4ea5a5e8ce3c4716f",
+        successor=_NOW_IN_TESTS,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repomatic-lint"),
+    _removed_skill(
+        "repomatic-lint",
         "6.21.0",
-        (
-            "11131553c99adb7daf880b6b19b84e4d4573eedbe7b951092aa7d4a1f9357aab",
-            "d72cada008b46db93eff0b7a167f1f57346c528ec317fca73857205895fb1395",
-            "058b9cc3248cd1d537d8fbf7a0c1133e3107c6ed405859457e88625b9301d3d8",
-            "7ec6520cba0a14af07ed1bb4e2f0388109ac8db0509ca92ffa0829cf2967bd11",
-        ),
-        successor="now handled by lint.yaml on every push",
+        "11131553c99adb7daf880b6b19b84e4d4573eedbe7b951092aa7d4a1f9357aab",
+        "d72cada008b46db93eff0b7a167f1f57346c528ec317fca73857205895fb1395",
+        "058b9cc3248cd1d537d8fbf7a0c1133e3107c6ed405859457e88625b9301d3d8",
+        "7ec6520cba0a14af07ed1bb4e2f0388109ac8db0509ca92ffa0829cf2967bd11",
+        successor=_NOW_IN_LINT,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repomatic-metadata"),
+    _removed_skill(
+        "repomatic-metadata",
         "6.3.0",
-        (
-            "e94ba4246c0bf56b8dfb6a7e4d3ea2e9521c000e8322130b1746e7a54d3f260b",
-            "58c6eec756177f445893366960464c2d5872de994a692399440df0eb30b11e35",
-        ),
-        successor="now handled by the repomatic metadata CLI command",
+        "e94ba4246c0bf56b8dfb6a7e4d3ea2e9521c000e8322130b1746e7a54d3f260b",
+        "58c6eec756177f445893366960464c2d5872de994a692399440df0eb30b11e35",
+        successor=_NOW_IN_METADATA_CMD,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repomatic-release"),
+    _removed_skill(
+        "repomatic-release",
         "6.21.0",
-        (
-            "0ecfa8ff5d55b33394d83bce76d39015450403124ff63e131fea14adf685c00b",
-            "8546a42c1ea44b2a4fa0ed1bc49f71eaf8be3b5656a323ee93957ea1fdb0bb38",
-            "778783f3ef6093d9892a4772fc312747155b399e18ba33f416fa9b138897b43d",
-            "b076cae374b3104f50996cf8b92eae6f53ec9546d3b0fab2c033c90cb1e8a107",
-            "8e93d723827042e90acbe22d038516400bcd743bf39f3fb45a65c115008a97d0",
-        ),
-        successor="replaced by repomatic-ship",
+        "0ecfa8ff5d55b33394d83bce76d39015450403124ff63e131fea14adf685c00b",
+        "8546a42c1ea44b2a4fa0ed1bc49f71eaf8be3b5656a323ee93957ea1fdb0bb38",
+        "778783f3ef6093d9892a4772fc312747155b399e18ba33f416fa9b138897b43d",
+        "b076cae374b3104f50996cf8b92eae6f53ec9546d3b0fab2c033c90cb1e8a107",
+        "8e93d723827042e90acbe22d038516400bcd743bf39f3fb45a65c115008a97d0",
+        successor=_REPLACED_BY_SHIP,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repomatic-sync"),
+    _removed_skill(
+        "repomatic-sync",
         "6.21.0",
-        (
-            "3b36a8b4fc76282c280f6cc19fdc24aa826db8a81ee91a66737b24cb921c84d9",
-            "1460738708f7e878c17ef578a7fad14710962a5fd7e7789f3bc08ae6bc49247b",
-            "54a2b2aa40799c05d666295ee0a1f4d65946605c5397a006185123e4c2e9f1d0",
-            "771d4e15efab4739fb00a7c1ba20495e063025842beb2e54d84207e1410f40a1",
-            "687c7f9cae7271ee56f4d35b754325ba7a2c3b13537eee057679cc160e39471e",
-            "ceaf3141599850847ee51b2e4f85c76a4cae130a01b2a4fd820dd3b5c0dd0dc0",
-            "91add2c0b7686f64f810bb86fa70c3ac99d3940b37ba6fbe57c01a4d427cc902",
-        ),
-        successor="now handled by autofix.yaml on every push",
+        "3b36a8b4fc76282c280f6cc19fdc24aa826db8a81ee91a66737b24cb921c84d9",
+        "1460738708f7e878c17ef578a7fad14710962a5fd7e7789f3bc08ae6bc49247b",
+        "54a2b2aa40799c05d666295ee0a1f4d65946605c5397a006185123e4c2e9f1d0",
+        "771d4e15efab4739fb00a7c1ba20495e063025842beb2e54d84207e1410f40a1",
+        "687c7f9cae7271ee56f4d35b754325ba7a2c3b13537eee057679cc160e39471e",
+        "ceaf3141599850847ee51b2e4f85c76a4cae130a01b2a4fd820dd3b5c0dd0dc0",
+        "91add2c0b7686f64f810bb86fa70c3ac99d3940b37ba6fbe57c01a4d427cc902",
+        successor=_NOW_IN_AUTOFIX,
     ),
-    RemovedAsset(
-        "skills",
-        _skill_target("repomatic-test"),
+    _removed_skill(
+        "repomatic-test",
         "6.21.0",
-        (
-            "8bc5f054507b369f9be34dd4a34183e00b6a8e0186c34d4deb385032e6682e1a",
-            "cb987bfe342c2d00ea1a6226585238f19bc5a351a678124f7e6225d5c6122c2c",
-            "17bae80a4b98518b6037518ad340a60d117d35a4fa26725fa2ab685ebd23e8dd",
-        ),
-        successor="now handled by tests.yaml on every push",
+        "8bc5f054507b369f9be34dd4a34183e00b6a8e0186c34d4deb385032e6682e1a",
+        "cb987bfe342c2d00ea1a6226585238f19bc5a351a678124f7e6225d5c6122c2c",
+        "17bae80a4b98518b6037518ad340a60d117d35a4fa26725fa2ab685ebd23e8dd",
+        successor=_NOW_IN_TESTS,
     ),
-    RemovedAsset(
-        "workflows",
-        ".github/workflows/label-sponsors.yaml",
+    _removed_workflow(
+        "label-sponsors.yaml",
         "4.25.0",
         successor="merged into labels.yaml",
     ),
-    RemovedAsset(
-        "workflows",
-        ".github/workflows/labeller-content-based.yaml",
+    _removed_workflow(
+        "labeller-content-based.yaml",
         "4.25.0",
         successor="merged into labels.yaml",
     ),
-    RemovedAsset(
-        "workflows",
-        ".github/workflows/labeller-file-based.yaml",
+    _removed_workflow(
+        "labeller-file-based.yaml",
         "4.25.0",
         successor="merged into labels.yaml",
     ),
-    RemovedAsset(
-        "workflows",
-        ".github/workflows/renovate.yaml",
+    _removed_workflow(
+        "renovate.yaml",
         "7.0.0.dev0",
-        successor="replaced by self-hosted sync-tool-versions, sync-action-pins,"
-        " and sync-workflow-pins",
+        successor="replaced by self-hosted sync-tool-versions, sync-action-pins, and sync-workflow-pins",
     ),
 )
 r"""Tombstones for assets repomatic has dropped (see {class}`RemovedAsset`).

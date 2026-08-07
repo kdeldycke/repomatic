@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch
 
 import pytest
@@ -29,8 +28,10 @@ from repomatic.github.token import (
     probe_pat_permission,
 )
 from repomatic.lint_repo import (
+    check_branch_ruleset_on_default,
     check_description_matches,
     check_funding_file,
+    check_immutable_releases,
     check_inline_pins_match_upstream,
     check_package_name_vs_repo,
     check_pat_stale_statuses_permission,
@@ -51,10 +52,11 @@ from tests.conftest import all_pass_pat_results
 
 def test_successful_fetch():
     """Fetch and parse repo metadata."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = (
-            '{"homepageUrl": "https://example.com", "description": "A package"}'
-        )
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {
+            "homepageUrl": "https://example.com",
+            "description": "A package",
+        }
         result = get_repo_metadata("owner/repo")
         assert result == {
             "homepageUrl": "https://example.com",
@@ -64,24 +66,20 @@ def test_successful_fetch():
 
 def test_empty_fields():
     """Handle empty fields."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = '{"homepageUrl": "", "description": ""}'
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {"homepageUrl": "", "description": ""}
         result = get_repo_metadata("owner/repo")
         assert result == {"homepageUrl": None, "description": None}
 
 
-def test_api_failure():
-    """Handle API failure."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("gh command failed")
-        result = get_repo_metadata("owner/repo")
-        assert result == {"homepageUrl": None, "description": None}
+def test_unreadable_metadata():
+    """Both fields are None when the payload cannot be read.
 
-
-def test_json_parse_error():
-    """Handle JSON parse error."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = "not json"
+    `gh_api_json` collapses a failed call and unparsable output into one `None`,
+    so there is a single outcome to assert on here.
+    """
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = None
         result = get_repo_metadata("owner/repo")
         assert result == {"homepageUrl": None, "description": None}
 
@@ -322,14 +320,14 @@ def test_topics_empty_response():
         assert "skipped" in msg
 
 
-def _graphql_response(*, is_fork: bool = False, has_sponsors: bool = True) -> str:
-    """Build a mock GraphQL response for funding checks."""
-    return json.dumps({
+def _graphql_response(*, is_fork: bool = False, has_sponsors: bool = True) -> dict:
+    """Build a mock GraphQL payload for funding checks."""
+    return {
         "data": {
             "repository": {"isFork": is_fork},
             "repositoryOwner": {"hasSponsorsListing": has_sponsors},
         },
-    })
+    }
 
 
 def test_funding_file_exists(tmp_path, monkeypatch):
@@ -359,7 +357,7 @@ def test_funding_file_exists_lowercase(tmp_path, monkeypatch):
 def test_funding_missing_with_sponsors(tmp_path, monkeypatch):
     """Warning when owner has sponsors but no funding file."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
         mock_gh.return_value = _graphql_response(has_sponsors=True)
         result = check_funding_file("owner/repo")
         assert result.passed is False
@@ -370,7 +368,7 @@ def test_funding_missing_with_sponsors(tmp_path, monkeypatch):
 def test_funding_skipped_for_fork(tmp_path, monkeypatch):
     """Skip funding check for forked repositories."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
         mock_gh.return_value = _graphql_response(is_fork=True)
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
@@ -380,7 +378,7 @@ def test_funding_skipped_for_fork(tmp_path, monkeypatch):
 def test_funding_skipped_no_sponsors(tmp_path, monkeypatch):
     """Skip when owner has no GitHub Sponsors listing."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
         mock_gh.return_value = _graphql_response(has_sponsors=False)
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
@@ -445,21 +443,11 @@ def test_workflow_permissions(tmp_path, monkeypatch, workflow, expect_fail, need
         assert not failures
 
 
-def test_funding_api_failure(tmp_path, monkeypatch):
-    """Skip gracefully when GraphQL API call fails."""
+def test_funding_unreadable_payload(tmp_path, monkeypatch):
+    """Skip gracefully when the GraphQL payload cannot be read."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("gh command failed")
-        warning, msg = check_funding_file("owner/repo")
-        assert warning is None
-        assert "skipped" in msg
-
-
-def test_funding_json_parse_error(tmp_path, monkeypatch):
-    """Skip gracefully when API returns invalid JSON."""
-    monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = "not json"
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = None
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
         assert "skipped" in msg
@@ -470,12 +458,12 @@ def test_funding_json_parse_error(tmp_path, monkeypatch):
 
 def test_stale_drafts_detected():
     """Warn about draft releases that are not dev pre-releases."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = json.dumps([
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = [
             {"tagName": "v6.1.2", "isDraft": True},
             {"tagName": "v6.2.0", "isDraft": False},
             {"tagName": "v6.3.0.dev0", "isDraft": True},
-        ])
+        ]
         result = check_stale_draft_releases("owner/repo")
         assert result.passed is False
         assert "v6.1.2" in result.message
@@ -484,20 +472,20 @@ def test_stale_drafts_detected():
 
 def test_stale_drafts_none():
     """No warning when only dev pre-release drafts exist."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = json.dumps([
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = [
             {"tagName": "v6.2.0", "isDraft": False},
             {"tagName": "v6.3.0.dev0", "isDraft": True},
-        ])
+        ]
         result = check_stale_draft_releases("owner/repo")
         assert result.passed is True
         assert "No stale" in result.message
 
 
-def test_stale_drafts_api_failure():
-    """Skip gracefully when API call fails."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("gh command failed")
+def test_stale_drafts_unreadable_payload():
+    """Skip gracefully when the release list cannot be read."""
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = None
         warning, msg = check_stale_draft_releases("owner/repo")
         assert warning is None
         assert "skipped" in msg
@@ -505,11 +493,11 @@ def test_stale_drafts_api_failure():
 
 def test_stale_drafts_multiple():
     """List all stale draft tags in the warning."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = json.dumps([
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = [
             {"tagName": "v6.1.2", "isDraft": True},
             {"tagName": "v6.2.0-rc1", "isDraft": True},
-        ])
+        ]
         result = check_stale_draft_releases("owner/repo")
         assert result.passed is False
         assert "v6.1.2" in result.message
@@ -521,12 +509,12 @@ def test_stale_drafts_multiple():
 
 def test_sha_pinning_required_enabled():
     """Pass when the repository requires SHA pinning for Actions."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = json.dumps({
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {
             "enabled": True,
             "allowed_actions": "all",
             "sha_pinning_required": True,
-        })
+        }
         result = check_sha_pinning_required("owner/repo")
         assert result.passed is True
         assert "enabled" in result.message
@@ -534,30 +522,21 @@ def test_sha_pinning_required_enabled():
 
 def test_sha_pinning_required_disabled():
     """Warn with a fix link when SHA pinning is not required."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = json.dumps({
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {
             "enabled": True,
             "allowed_actions": "all",
             "sha_pinning_required": False,
-        })
+        }
         result = check_sha_pinning_required("owner/repo")
         assert result.passed is False
         assert "owner/repo/settings/actions" in result.message
 
 
-def test_sha_pinning_required_api_failure():
-    """Skip gracefully when the API call fails."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("gh command failed")
-        result = check_sha_pinning_required("owner/repo")
-        assert result.passed is None
-        assert "skipped" in result.message
-
-
-def test_sha_pinning_required_json_parse_error():
-    """Skip gracefully when the API returns unparsable JSON."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = "not json"
+def test_sha_pinning_required_unreadable_payload():
+    """Skip gracefully when the permissions payload cannot be read."""
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = None
         result = check_sha_pinning_required("owner/repo")
         assert result.passed is None
         assert "skipped" in result.message
@@ -944,3 +923,72 @@ def test_inline_pins_match_upstream_skips_without_refs(tmp_path):
     error, msg = check_inline_pins_match_upstream(tmp_path)
     assert error is None
     assert "nothing to compare" in msg
+
+
+# ---------------------------------------------------------------------------
+# Branch ruleset check tests
+# ---------------------------------------------------------------------------
+
+
+def test_check_branch_ruleset_found():
+    """Active branch ruleset is detected."""
+
+    rulesets = [
+        {"name": "main", "target": "branch", "enforcement": "active"},
+    ]
+    with patch("repomatic.lint_repo.gh_api_json", return_value=rulesets):
+        passed, msg = check_branch_ruleset_on_default("owner/repo")
+    assert passed is True
+    assert "main" in msg
+
+
+def test_check_branch_ruleset_none():
+    """No branch rulesets returns failure."""
+
+    rulesets = [
+        {"name": "tags", "target": "tag", "enforcement": "active"},
+    ]
+    with patch("repomatic.lint_repo.gh_api_json", return_value=rulesets):
+        passed, _msg = check_branch_ruleset_on_default("owner/repo")
+    assert passed is False
+
+
+def test_check_branch_ruleset_api_error():
+    """API failure defaults to incomplete (show the step)."""
+
+    with patch("repomatic.lint_repo.gh_api_json", return_value=None):
+        passed, msg = check_branch_ruleset_on_default("owner/repo")
+    assert passed is False
+    assert "skipped" in msg
+
+
+# --- check_immutable_releases ---------------------------------------------------
+
+
+def test_check_immutable_releases_enabled():
+    """Immutable releases enabled is detected."""
+
+    response = {"enabled": True, "enforced_by_owner": False}
+    with patch("repomatic.lint_repo.gh_api_json", return_value=response):
+        passed, msg = check_immutable_releases("owner/repo")
+    assert passed is True
+    assert "enabled" in msg
+
+
+def test_check_immutable_releases_disabled():
+    """Immutable releases disabled returns failure."""
+
+    response = {"enabled": False, "enforced_by_owner": False}
+    with patch("repomatic.lint_repo.gh_api_json", return_value=response):
+        passed, msg = check_immutable_releases("owner/repo")
+    assert passed is False
+    assert "not enabled" in msg
+
+
+def test_check_immutable_releases_api_error():
+    """API failure returns None (indeterminate), not False."""
+
+    with patch("repomatic.lint_repo.gh_api_json", return_value=None):
+        passed, msg = check_immutable_releases("owner/repo")
+    assert passed is None
+    assert "skipped" in msg

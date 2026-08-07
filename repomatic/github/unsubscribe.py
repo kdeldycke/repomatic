@@ -39,6 +39,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from functools import partial
 
 import arrow
 
@@ -98,11 +99,21 @@ mutation($id: ID!) {
 
 
 class ItemAction(Enum):
-    """Action taken (or to be taken) on a notification item."""
+    """Action taken (or to be taken) on a notification item.
 
-    DRY_RUN = "dry_run"
-    FAILED = "failed"
-    UNSUBSCRIBED = "unsubscribed"
+    Each member's value is the emoji-decorated label the report table shows for
+    it, so the rendering reads the label off the action instead of consulting a
+    parallel mapping that a new member could silently miss.
+    """
+
+    DRY_RUN = "\U0001f441️ Dry-run"
+    FAILED = "⚠️ Failed"
+    UNSUBSCRIBED = "\U0001f515 Unsubscribed"
+
+    @property
+    def label(self) -> str:
+        """The emoji-decorated label for the report table."""
+        return self.value
 
 
 @dataclass(frozen=True)
@@ -180,15 +191,6 @@ def _compute_cutoff(months: int) -> datetime:
     max_day = calendar.monthrange(year, month)[1]
     day = min(now.day, max_day)
     return now.replace(year=year, month=month, day=day)
-
-
-def _action_emoji(action: ItemAction) -> str:
-    """Map an action to its emoji + label for the report table."""
-    return {
-        ItemAction.DRY_RUN: "\U0001f441\ufe0f Dry-run",
-        ItemAction.FAILED: "\u26a0\ufe0f Failed",
-        ItemAction.UNSUBSCRIBED: "\U0001f515 Unsubscribed",
-    }[action]
 
 
 def _format_link(row: DetailRow) -> str:
@@ -417,8 +419,7 @@ def _render_detail_table(rows: list[DetailRow]) -> str:
     for row in rows:
         ago = arrow.get(row.updated_at).humanize() if row.updated_at else "-"
         lines.append(
-            f"| {row.title} | {_format_link(row)}"
-            f" | {ago} | {_action_emoji(row.action)} |"
+            f"| {row.title} | {_format_link(row)} | {ago} | {row.action.label} |"
         )
     return "\n".join(lines)
 
@@ -637,49 +638,30 @@ def unsubscribe_threads(
             logging.info(f"  Thread {thread_id}: updated recently, skipping.")
             continue
 
-        # Closed + stale: candidate for unsubscription.
+        # Closed + stale: candidate for unsubscription. The three outcomes below
+        # differ only in the action recorded, so the row is built once here.
         html_url = details.get("html_url", subject_url)
-        number = details.get("number")
+        row = partial(
+            DetailRow,
+            html_url=html_url,
+            number=details.get("number"),
+            repo=thread_repo,
+            title=thread_title,
+            updated_at=updated_at,
+        )
 
         logging.info(f"  {prefix}Unsubscribing from thread {thread_id} ({html_url}).")
         if dry_run:
             p1.threads_unsubscribed += 1
-            p1.rows.append(
-                DetailRow(
-                    action=ItemAction.DRY_RUN,
-                    html_url=html_url,
-                    number=number,
-                    repo=thread_repo,
-                    title=thread_title,
-                    updated_at=updated_at,
-                )
-            )
+            p1.rows.append(row(action=ItemAction.DRY_RUN))
             continue
 
         if _unsubscribe_rest_thread(str(thread_id)):
             p1.threads_unsubscribed += 1
-            p1.rows.append(
-                DetailRow(
-                    action=ItemAction.UNSUBSCRIBED,
-                    html_url=html_url,
-                    number=number,
-                    repo=thread_repo,
-                    title=thread_title,
-                    updated_at=updated_at,
-                )
-            )
+            p1.rows.append(row(action=ItemAction.UNSUBSCRIBED))
         else:
             p1.threads_failed += 1
-            p1.rows.append(
-                DetailRow(
-                    action=ItemAction.FAILED,
-                    html_url=html_url,
-                    number=number,
-                    repo=thread_repo,
-                    title=thread_title,
-                    updated_at=updated_at,
-                )
-            )
+            p1.rows.append(row(action=ItemAction.FAILED))
 
     # Phase 2: GraphQL threadless subscriptions.
     logging.info("Phase 2: Processing GraphQL threadless subscriptions...")
@@ -729,48 +711,27 @@ def unsubscribe_threads(
                 p2.graphql_skipped_recent += 1
                 continue
 
-            gql_url = item.get("url", "")
-            title = item.get("title", "")
+            row = partial(
+                DetailRow,
+                html_url=item.get("url", ""),
+                number=number,
+                repo=repo,
+                title=item.get("title", ""),
+                updated_at=gql_updated_at,
+            )
 
             logging.info(f"  {prefix}Unsubscribing from {repo}#{number} (GraphQL).")
             if dry_run:
                 p2.graphql_unsubscribed += 1
-                p2.rows.append(
-                    DetailRow(
-                        action=ItemAction.DRY_RUN,
-                        html_url=gql_url,
-                        number=number,
-                        repo=repo,
-                        title=title,
-                        updated_at=gql_updated_at,
-                    )
-                )
+                p2.rows.append(row(action=ItemAction.DRY_RUN))
                 continue
 
             if _graphql_unsubscribe(node_id):
                 p2.graphql_unsubscribed += 1
-                p2.rows.append(
-                    DetailRow(
-                        action=ItemAction.UNSUBSCRIBED,
-                        html_url=gql_url,
-                        number=number,
-                        repo=repo,
-                        title=title,
-                        updated_at=gql_updated_at,
-                    )
-                )
+                p2.rows.append(row(action=ItemAction.UNSUBSCRIBED))
             else:
                 p2.graphql_failed += 1
-                p2.rows.append(
-                    DetailRow(
-                        action=ItemAction.FAILED,
-                        html_url=gql_url,
-                        number=number,
-                        repo=repo,
-                        title=title,
-                        updated_at=gql_updated_at,
-                    )
-                )
+                p2.rows.append(row(action=ItemAction.FAILED))
     except RuntimeError as exc:
         logging.warning(
             "GraphQL search failed. Phase 2 may be incomplete. "

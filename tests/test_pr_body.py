@@ -26,10 +26,11 @@ import pytest
 
 from repomatic import __version__
 from repomatic.config import config_reference
+from repomatic.frontmatter import split_frontmatter
 from repomatic.github.actions import extract_workflow_filename
 from repomatic.github.pr_body import (
     GITHUB_BODY_MAX_CHARS,
-    _parse_frontmatter,
+    _parse_template,
     _unescape_dollars,
     _utf16_len,
     build_pr_body,
@@ -131,19 +132,40 @@ def test_unescape_dollars(text, expected):
     assert _unescape_dollars(text) == expected
 
 
-def test_parse_frontmatter_unescapes_body():
+def test_parse_template_unescapes_body():
     r"""Body ``\$`` placeholders are unescaped at parse time."""
     raw = "---\ntitle: Test\n---\nHello \\$name"
-    _meta, body = _parse_frontmatter(raw)
+    _meta, body = _parse_template(raw)
     assert "$name" in body
     assert r"\$" not in body
 
 
-def test_parse_frontmatter_unescapes_no_frontmatter():
+def test_parse_template_unescapes_no_frontmatter():
     r"""Templates without frontmatter also get ``\$`` unescaped."""
     raw = "Hello \\$world"
-    _meta, body = _parse_frontmatter(raw)
+    _meta, body = _parse_template(raw)
     assert body == "Hello $world"
+
+
+@pytest.mark.parametrize(
+    ("declaration", "wants_footer"),
+    [
+        pytest.param("footer: false", False, id="yaml-boolean"),
+        pytest.param('footer: "false"', False, id="quoted-string"),
+        pytest.param("footer: true", True, id="explicit-opt-in"),
+        pytest.param("title: Harvest", True, id="unset"),
+    ],
+)
+def test_footer_opt_out_accepts_both_spellings(tmp_path, declaration, wants_footer):
+    """`footer: false` opts out whether written as a YAML boolean or a string.
+
+    The frontmatter is real YAML, so a bare `false` arrives as a boolean, but a
+    downstream template may have quoted it. Both spell the same intent.
+    """
+    template = tmp_path / "harvest.md"
+    template.write_text(f"---\n{declaration}\n---\nCrates packed.\n", encoding="utf-8")
+    rendered = render_template(template)
+    assert ("Generated with" in rendered) is wants_footer
 
 
 def test_generate_metadata_block_all_vars(monkeypatch):
@@ -991,19 +1013,15 @@ FRONTMATTER_KEY_ORDER = ["args", "title", "commit_message", "docs", "footer"]
     ids=[pair[1] for pair in _template_package_items()],
 )
 def test_frontmatter_key_ordering(filename, name):
-    """Frontmatter keys must follow the canonical order in `FRONTMATTER_KEY_ORDER`."""
+    """Frontmatter keys must follow the canonical order in `FRONTMATTER_KEY_ORDER`.
+
+    `yaml.safe_load` preserves document order in the mapping it builds, so the
+    parsed keys read back in the order the template spells them.
+    """
     template_dir = files("repomatic.templates")
     raw = template_dir.joinpath(filename).read_text(encoding="UTF-8")
-    if not raw.startswith("---"):
-        return
-    end = raw.index("---", 3)
-    yaml_block = raw[3:end].strip()
-    keys = [
-        line.partition(":")[0].strip()
-        for line in yaml_block.splitlines()
-        if ":" in line
-    ]
-    known = [k for k in keys if k in FRONTMATTER_KEY_ORDER]
+    meta, _body = split_frontmatter(raw)
+    known = [k for k in meta if k in FRONTMATTER_KEY_ORDER]
     expected = [k for k in FRONTMATTER_KEY_ORDER if k in known]
     assert known == expected, (
         f"Template {name!r} frontmatter keys are {known}, expected order {expected}"

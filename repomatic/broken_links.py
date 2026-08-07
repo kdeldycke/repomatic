@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import logging
-import tempfile
 from dataclasses import dataclass
 from itertools import groupby
 from operator import attrgetter
@@ -333,22 +332,9 @@ def manage_combined_broken_links_issue(
         sphinx_section=sphinx_section,
     )
 
-    # Write combined body to a temporary file.
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".md",
-        delete=False,
-        encoding="UTF-8",
-    ) as tmp:
-        tmp.write(body)
-        body_file = Path(tmp.name)
-
-    try:
-        manage_issue_lifecycle(
-            has_issues=has_broken_links,
-            body_file=body_file,
-            labels=[get_label(repo_name)],
-            title=ISSUE_TITLE,
-        )
-    finally:
-        body_file.unlink(missing_ok=True)
+    manage_issue_lifecycle(
+        has_issues=has_broken_links,
+        body=body,
+        labels=[get_label(repo_name)],
+        title=ISSUE_TITLE,
+    )

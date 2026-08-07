@@ -135,6 +135,15 @@
    :undoc-members:
 ```
 
+## `tests.test_frontmatter` module
+
+```{eval-rst}
+.. automodule:: tests.test_frontmatter
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_gh` module
 
 ```{eval-rst}
@@ -184,6 +193,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_http
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_humanize` module
+
+```{eval-rst}
+.. automodule:: tests.test_humanize
    :members:
    :show-inheritance:
    :undoc-members:
@@ -373,6 +391,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_status
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_suite_hygiene` module
+
+```{eval-rst}
+.. automodule:: tests.test_suite_hygiene
    :members:
    :show-inheritance:
    :undoc-members:

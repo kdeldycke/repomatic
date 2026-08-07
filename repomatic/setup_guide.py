@@ -27,7 +27,6 @@ outcome, and the issue closes only once every verifiable step passes.
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
 
 from .github import token
@@ -353,15 +352,6 @@ def manage_setup_guide(
         org_tip=org_tip,
         repo_url=repo_url,
     )
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".md",
-        delete=False,
-        encoding="UTF-8",
-    ) as tmp:
-        tmp.write(setup_body)
-        setup_body_file = Path(tmp.name)
-
     # Close issue only when all verifiable steps pass.
     # Immutable releases and verify are excluded (no API to check).
     # Fork PR approval is included only when determinate.
@@ -387,16 +377,12 @@ def manage_setup_guide(
         and pypi_publisher_gate
     )
 
-    try:
-        manage_issue_lifecycle(
-            has_issues=needs_issue,
-            body_file=setup_body_file,
-            labels=["🤖 ci"],
-            title="Repomatic setup guide",
-            no_issues_comment=(
-                "PAT configured, all permissions verified, repository settings"
-                " complete."
-            ),
-        )
-    finally:
-        setup_body_file.unlink(missing_ok=True)
+    manage_issue_lifecycle(
+        has_issues=needs_issue,
+        body=setup_body,
+        labels=["🤖 ci"],
+        title="Repomatic setup guide",
+        no_issues_comment=(
+            "PAT configured, all permissions verified, repository settings complete."
+        ),
+    )

@@ -854,10 +854,7 @@ def run_init(
         for fid in sorted(file_ids):
             rel = excluded_rel_path(comp_name, fid)
             if rel:
-                if comp_name == "agents":
-                    rel = _resolve_agents_target(rel, config)
-                elif comp_name == "skills":
-                    rel = _resolve_skills_target(rel, config)
+                rel = _resolve_target(comp_name, rel, config)
                 if (output_dir / rel).exists():
                     result.excluded_existing.append(rel)
     for rel in sorted(scope_excluded_targets):
@@ -1097,36 +1094,18 @@ def is_source_repo(output_dir: Path) -> bool:
     ).is_dir()
 
 
-def _resolve_agents_target(entry_target: str, config: Config | None) -> str:
-    """Apply `agents.location` override to an agent file's target path.
+def _resolve_target(component_name: str, target: str, config: Config | None) -> str:
+    """Rebase a target path onto its component's configured location.
 
-    Replaces the default `.claude/agents/` prefix with the configured
-    `agents_location` when the config specifies a non-default value.
+    A thin lookup in front of {meth}`~repomatic.registry.Component.resolve_target`,
+    for the callers that hold a component *name* (a `[tool.repomatic] exclude`
+    entry, a {class}`~repomatic.registry.RemovedAsset` tombstone) rather than the
+    component itself. Unknown names pass through untouched.
     """
-    default = Config.agents_location.removeprefix("./").rstrip("/") + "/"
-    if not config or not entry_target.startswith(default):
-        return entry_target
-    custom = config.agents_location.removeprefix("./").rstrip("/") + "/"
-    if custom == default:
-        return entry_target
-    return custom + entry_target[len(default) :]
-
-
-def _resolve_skills_target(entry_target: str, config: Config | None) -> str:
-    """Apply `skills.location` override to a skill file's target path.
-
-    Replaces the default `.claude/skills/` prefix with the configured
-    `skills_location` when the config specifies a non-default value.
-    """
-    # Normalize the Config default (which has a "./" prefix) to match the
-    # registry target format (which omits it).
-    default = Config.skills_location.removeprefix("./").rstrip("/") + "/"
-    if not config or not entry_target.startswith(default):
-        return entry_target
-    custom = config.skills_location.removeprefix("./").rstrip("/") + "/"
-    if custom == default:
-        return entry_target
-    return custom + entry_target[len(default) :]
+    component = COMPONENTS_BY_NAME.get(component_name)
+    if component is None:
+        return target
+    return component.resolve_target(target, config)
 
 
 def _detect_removed_assets(
@@ -1157,11 +1136,7 @@ def _detect_removed_assets(
     prunable: list[tuple[str, str]] = []
     review: list[tuple[str, str]] = []
     for asset in REMOVED_ASSETS:
-        rel = asset.target
-        if asset.component == "agents":
-            rel = _resolve_agents_target(rel, config)
-        elif asset.component == "skills":
-            rel = _resolve_skills_target(rel, config)
+        rel = _resolve_target(asset.component, asset.target, config)
         path = output_dir / rel
         if not path.exists():
             continue
@@ -1233,13 +1208,7 @@ def _init_config_files(
             continue
         if exclude_ids and entry.file_id in exclude_ids:
             continue
-        if component_name == "agents":
-            effective_target = _resolve_agents_target(entry.target, config)
-        elif component_name == "skills":
-            effective_target = _resolve_skills_target(entry.target, config)
-        else:
-            effective_target = entry.target
-        target = output_dir / effective_target
+        target = output_dir / comp.resolve_target(entry.target, config)
         rel = target.relative_to(output_dir).as_posix()
 
         # A tree entry is a whole folder (a skill and its optional `scripts/`,

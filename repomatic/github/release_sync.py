@@ -39,12 +39,22 @@ from .releases import (
 
 
 class SyncAction(Enum):
-    """Action taken (or to be taken) on a release body."""
+    """Action taken (or to be taken) on a release body.
 
-    DRY_RUN = "dry_run"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    UPDATED = "updated"
+    Each member's value is the emoji-decorated label the report table shows for
+    it, so the rendering reads the label off the action instead of consulting a
+    parallel mapping that a new member could silently miss.
+    """
+
+    DRY_RUN = "\U0001f441️ Dry-run"
+    FAILED = "⚠️ Failed"
+    SKIPPED = "✅ In sync"
+    UPDATED = "\U0001f504 Updated"
+
+    @property
+    def label(self) -> str:
+        """The emoji-decorated label for the report table."""
+        return self.value
 
 
 @dataclass(frozen=True)
@@ -188,16 +198,6 @@ def sync_github_releases(
     return result
 
 
-def _action_emoji(action: SyncAction) -> str:
-    """Map a sync action to its emoji + label for the report table."""
-    return {
-        SyncAction.DRY_RUN: "\U0001f441\ufe0f Dry-run",
-        SyncAction.FAILED: "\u26a0\ufe0f Failed",
-        SyncAction.SKIPPED: "\u2705 In sync",
-        SyncAction.UPDATED: "\U0001f504 Updated",
-    }[action]
-
-
 def render_sync_report(result: SyncResult) -> str:
     """Render a markdown report from sync results.
 
@@ -233,7 +233,7 @@ def render_sync_report(result: SyncResult) -> str:
         detail_lines.extend(
             f"| `{row.version}`"
             f" | [`v{row.version}`]({row.release_url})"
-            f" | {_action_emoji(row.action)} |"
+            f" | {row.action.label} |"
             for row in drifted_rows
         )
         details_section = "\n".join(detail_lines)

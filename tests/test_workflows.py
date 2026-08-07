@@ -246,7 +246,7 @@ def test_event_scoped_group_isolates_events(workflow_name: str) -> None:
     )
 
 
-@pytest.mark.parametrize("workflow_name", WORKFLOWS_WITH_UNIQUE_GROUPS)
+@pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_WITH_UNIQUE_GROUPS))
 def test_unique_group_protects_releases(workflow_name: str) -> None:
     """Verify workflows using unique groups protect releases via github.sha."""
     workflow = load_workflow(workflow_name)
@@ -266,7 +266,7 @@ def test_unique_group_protects_releases(workflow_name: str) -> None:
     )
 
 
-@pytest.mark.parametrize("workflow_name", WORKFLOWS_WITHOUT_CONCURRENCY)
+@pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_WITHOUT_CONCURRENCY))
 def test_exempt_workflows_no_concurrency(workflow_name: str) -> None:
     """Verify that exempt workflows do not have concurrency configured."""
     workflow = load_workflow(workflow_name)

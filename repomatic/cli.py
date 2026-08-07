@@ -22,12 +22,10 @@ import os
 import re
 import subprocess
 import sys
-import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from shutil import rmtree
 
-import yaml
 from click_extra import (
     UNPROCESSED,
     Choice,
@@ -98,6 +96,7 @@ from .dep_report import (
     format_upload_date,
 )
 from .docs import update_docs as _update_docs
+from .frontmatter import split_frontmatter
 from .git_ops import commit_and_push_files, create_and_push_tag
 from .github import token as _token_mod, unsubscribe as _unsub_mod
 from .github.actions import cancel_superseded_runs, format_multiline_output
@@ -141,10 +140,10 @@ from .github.unsubscribe import (
 )
 from .github.workflow_sync import run_workflow_lint
 from .gitignore import build_gitignore
+from .humanize import format_age, format_file_size
 from .images import (
     DEFAULT_MIN_SAVINGS_BYTES,
     DEFAULT_MIN_SAVINGS_PCT,
-    format_file_size,
     generate_markdown_summary,
     optimize_images,
 )
@@ -180,6 +179,7 @@ from .setup_guide import manage_setup_guide
 from .sync_ops import (
     OPERATIONS_BY_NAME,
     ResolveContext,
+    SyncOperation,
     SyncPlan,
     render_plan_markdown,
     run_sync_operations,
@@ -210,11 +210,18 @@ from .vulnerable_deps import (
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import Any
+    from collections.abc import Callable, Sequence
 
     from .dep_report import BypassForecast, HeldBackPackage
 
+
+# ---------------------------------------------------------------------------
+# Shared options.
+#
+# An option used by more than one command is declared once here and applied as a
+# decorator, so the flag name, type, default and help text cannot drift between
+# the commands that expose it.
+# ---------------------------------------------------------------------------
 
 output_format_option = option(
     "--output-format",
@@ -246,6 +253,79 @@ lockfile_option = option(
     type=file_path(resolve_path=True),
     default="uv.lock",
     help="Path to the uv.lock file.",
+)
+# The lockfile pair (sync-uv-lock, sync-dep-sources) probes held-back releases
+# with a second uv resolution rather than from an already-fetched candidate list,
+# so its help text names that cost where the version-sync trio's does not.
+lock_held_back_option = option(
+    "--held-back/--no-held-back",
+    default=True,
+    help="Report newer releases withheld by the exclude-newer cooldown "
+    "(runs a second uv resolution).",
+)
+sync_table_option = option(
+    "--table/--no-table",
+    default=True,
+    help="Print a summary table of updated packages.",
+)
+report_output_option = option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default=None,
+    help="Write a markdown report (table + release notes) to this file.",
+)
+version_report_output_option = option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default=None,
+    help="Write a markdown report (version table) to this file.",
+)
+stdout_output_option = option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default="-",
+    help="Output file path. Defaults to stdout.",
+)
+dry_run_option = option(
+    "--dry-run/--live",
+    default=True,
+    help="Report what would be done without making changes.",
+)
+repo_slug_option = option(
+    "--repo",
+    default=None,
+    envvar="GITHUB_REPOSITORY",
+    help="Repository in 'owner/repo' format. Defaults to $GITHUB_REPOSITORY.",
+)
+repo_name_option = option(
+    "--repo-name",
+    default=None,
+    help="Repository name. Defaults to $GITHUB_REPOSITORY name component.",
+)
+has_notifications_pat_option = option(
+    "--has-notifications-pat",
+    is_flag=True,
+    default=False,
+    envvar="HAS_REPOMATIC_NOTIFICATIONS_PAT",
+    help="Whether REPOMATIC_NOTIFICATIONS_PAT is configured.",
+)
+# Auto-detected from the environment rather than declared `envvar`: the flag is
+# tri-state (`None` means "not specified on the CLI"), and only the *presence* of
+# a token matters, not its value, which no envvar mapping can express.
+has_pat_option = option(
+    "--has-pat/--no-has-pat",
+    default=lambda: bool(os.environ.get("REPOMATIC_PAT")),
+    help=(
+        "Whether REPOMATIC_PAT is configured, enabling the PAT capability checks."
+        " Auto-detected from the REPOMATIC_PAT environment variable when omitted."
+    ),
+)
+has_virustotal_key_option = option(
+    "--has-virustotal-key",
+    is_flag=True,
+    default=False,
+    envvar="HAS_VIRUSTOTAL_API_KEY",
+    help="Whether VIRUSTOTAL_API_KEY is configured.",
 )
 
 
@@ -290,6 +370,47 @@ def emit_report(
     else:
         content = body
     echo(content, file=prep_path(output))
+
+
+def log_output_target(subject: str, output: Path) -> None:
+    """Log where a command is about to write *subject*.
+
+    Every command that honors an `--output` path narrates the destination the
+    same way, distinguishing the stdout case (`-`) so the log names the stream
+    instead of a literal dash.
+
+    :param subject: What is being written, as a noun phrase (`"metadata"`,
+        `"PR body"`).
+    :param output: The resolved `--output` path.
+    """
+    if is_stdout(output):
+        logging.info(f"Print {subject} to {sys.stdout.name}")
+    else:
+        logging.info(f"Write {subject} to {output}")
+
+
+def load_changelog_repo(config: Config) -> tuple[Path, str] | None:
+    """Load the configured changelog and read the repository URL out of it.
+
+    The shared preamble of the two release-notes syncers, which both need the
+    changelog's path (to read sections from) and the repository it belongs to
+    (to address the GitHub API with). The URL comes from the changelog's own
+    comparison links rather than from the git remote, so a project whose
+    changelog points elsewhere stays authoritative.
+
+    :param config: The resolved `[tool.repomatic]` configuration.
+    :return: `(changelog_path, repo_url)`, or `None` after logging why neither
+        could be determined (no changelog on disk, or no comparison link in it).
+    """
+    changelog_path = Path(config.changelog_location)
+    if not changelog_path.exists():
+        logging.warning(f"{changelog_path} not found.")
+        return None
+    repo_url = Changelog(changelog_path.read_text(encoding="UTF-8")).extract_repo_url()
+    if not repo_url:
+        logging.warning("Could not extract repository URL from changelog.")
+        return None
+    return changelog_path, repo_url
 
 
 def generate_header(ctx: Context) -> str:
@@ -425,10 +546,62 @@ def _unlink_with_empty_parents(target: Path, root: Path) -> None:
         parent = parent.parent
 
 
-def _removed_line(path: str, successor: str, color: str) -> str:
-    """Format one removed-asset report line, with an optional successor note."""
-    note = style(f"  ({successor})", dim=True) if successor else ""
-    return f"  {style(path, fg=color)}{note}"
+def _report_paths(
+    paths: Sequence[str] | Sequence[tuple[str, str]],
+    heading: str,
+    *,
+    color: str = "",
+    bold: bool = False,
+    hint: str = "",
+) -> None:
+    """Echo one `init` report section: a styled heading, then its paths.
+
+    Every section of the `init` summary has this shape, and an empty one prints
+    nothing, so callers can hand over a list without guarding on it first.
+
+    :param paths: Bare relative paths, or `(path, successor)` pairs for the
+        removed-asset sections, whose successor note is appended dimmed.
+    :param heading: The section heading, already carrying its own count.
+    :param color: Colour for the heading and each path. Empty renders them
+        dimmed instead, for a section that reports a non-event.
+    :param bold: Embolden the heading, marking a section whose files were
+        actually deleted rather than merely reported.
+    :param hint: Dimmed suffix naming the flag that would act on the section.
+    """
+    if not paths:
+        return
+    if color:
+        echo(style(heading, fg=color, bold=bold) + style(hint, dim=True))
+    else:
+        echo(style(heading, dim=True) + style(hint, dim=True))
+    for entry in paths:
+        path, successor = entry if isinstance(entry, tuple) else (entry, "")
+        note = style(f"  ({successor})", dim=True) if successor else ""
+        styled = style(path, fg=color) if color else style(path, dim=True)
+        echo(f"  {styled}{note}")
+
+
+def _prune_paths(
+    paths: Sequence[str] | Sequence[tuple[str, str]],
+    output_dir: Path,
+    *,
+    prune_parents: bool = True,
+) -> None:
+    """Delete every path of an `init` report section.
+
+    :param prune_parents: Also remove parent directories left empty. On for the
+        removed-asset and excluded sections, whose targets sit in directories
+        repomatic itself created (`.claude/skills/<name>/`). Off for unmodified
+        tool configs, which share `.github/` and the repository root with files
+        repomatic does not own.
+    """
+    for entry in paths:
+        path = entry[0] if isinstance(entry, tuple) else entry
+        target = output_dir / path
+        if prune_parents:
+            _unlink_with_empty_parents(target, output_dir)
+        else:
+            target.unlink()
 
 
 @repomatic.command(
@@ -578,129 +751,102 @@ def init_project(
         config=get_tool_config(),
     )
 
-    # Print summary.
+    # Print summary. The exclude list is the one section that reads as a single
+    # inline sentence rather than a heading over a path list.
     if result.excluded:
         echo(
             style("Excluded by config: ", dim=True)
             + ", ".join(style(e, fg="yellow") for e in result.excluded)
         )
-    if result.created:
-        echo(style(f"Created {len(result.created)} file(s):", fg="green", bold=True))
-        for path in result.created:
-            echo(f"  {style(path, fg='green')}")
-    if result.updated:
-        echo(
-            style(
-                f"Updated {len(result.updated)} existing file(s):",
-                fg="yellow",
-                bold=True,
-            )
+
+    _report_paths(
+        result.created,
+        f"Created {len(result.created)} file(s):",
+        color="green",
+        bold=True,
+    )
+    _report_paths(
+        result.updated,
+        f"Updated {len(result.updated)} existing file(s):",
+        color="yellow",
+        bold=True,
+    )
+    _report_paths(
+        result.skipped,
+        f"Skipped {len(result.skipped)} existing file(s) (never overwritten):",
+    )
+
+    # Each remaining section pairs a delete flag with the two reports it picks
+    # between: acted-on when the flag says so, left-on-disk otherwise.
+    if delete_excluded:
+        _prune_paths(result.excluded_existing, output_dir)
+        _report_paths(
+            result.excluded_existing,
+            f"Deleted {len(result.excluded_existing)} excluded file(s) still on disk:",
+            color="red",
+            bold=True,
         )
-        for path in result.updated:
-            echo(f"  {style(path, fg='yellow')}")
-    if result.skipped:
-        echo(
-            style(
-                f"Skipped {len(result.skipped)} existing file(s) (never overwritten):",
-                dim=True,
-            )
+    else:
+        _report_paths(
+            result.excluded_existing,
+            f"Excluded: {len(result.excluded_existing)} file(s) still on disk",
+            color="red",
+            hint=" (use --delete-excluded to remove):",
         )
-        for path in result.skipped:
-            echo(f"  {style(path, dim=True)}")
-    if result.excluded_existing:
-        if delete_excluded:
-            for path in result.excluded_existing:
-                _unlink_with_empty_parents(output_dir / path, output_dir)
-            echo(
-                style(
-                    f"Deleted {len(result.excluded_existing)} excluded"
-                    " file(s) still on disk:",
-                    fg="red",
-                    bold=True,
-                )
-            )
-        else:
-            echo(
-                style(
-                    f"Excluded: {len(result.excluded_existing)} file(s) still on disk",
-                    fg="red",
-                )
-                + style(" (use --delete-excluded to remove):", dim=True)
-            )
-        for path in result.excluded_existing:
-            echo(f"  {style(path, fg='red')}")
-    if result.unmodified_configs:
-        if delete_unmodified:
-            for path in result.unmodified_configs:
-                (output_dir / path).unlink()
-            echo(
-                style(
-                    f"Deleted {len(result.unmodified_configs)} unmodified"
-                    " file(s) identical to bundled defaults:",
-                    fg="red",
-                    bold=True,
-                )
-            )
-        else:
-            echo(
-                style(
-                    f"Unmodified: {len(result.unmodified_configs)} file(s)"
-                    " identical to bundled defaults",
-                    fg="cyan",
-                )
-                + style(" (use --delete-unmodified to remove):", dim=True)
-            )
-        for path in result.unmodified_configs:
-            echo(f"  {style(path, fg='cyan' if not delete_unmodified else 'red')}")
-    if result.removed_prunable or result.removed_review:
-        if result.removed_prunable and not keep_removed:
-            for path, _ in result.removed_prunable:
-                _unlink_with_empty_parents(output_dir / path, output_dir)
-            echo(
-                style(
-                    f"Pruned {len(result.removed_prunable)} removed-upstream"
-                    " file(s) (unmodified orphans):",
-                    fg="red",
-                    bold=True,
-                )
-            )
-            for path, successor in result.removed_prunable:
-                echo(_removed_line(path, successor, "red"))
-        elif result.removed_prunable:
-            echo(
-                style(
-                    f"Removed upstream: {len(result.removed_prunable)} unmodified"
-                    " orphan(s) on disk",
-                    fg="red",
-                )
-                + style(" (--keep-removed set; delete manually):", dim=True)
-            )
-            for path, successor in result.removed_prunable:
-                echo(_removed_line(path, successor, "red"))
-        if result.removed_review:
-            if delete_removed_modified:
-                for path, _ in result.removed_review:
-                    _unlink_with_empty_parents(output_dir / path, output_dir)
-                echo(
-                    style(
-                        f"Force-deleted {len(result.removed_review)} removed-upstream"
-                        " file(s) (locally modified):",
-                        fg="red",
-                        bold=True,
-                    )
-                )
-                for path, successor in result.removed_review:
-                    echo(_removed_line(path, successor, "red"))
-            else:
-                echo(
-                    style(
-                        f"Review manually: {len(result.removed_review)} removed-upstream"
-                        " file(s) modified since repomatic shipped them:",
-                        fg="yellow",
-                    )
-                )
-                for path, successor in result.removed_review:
-                    echo(_removed_line(path, successor, "yellow"))
+
+    if delete_unmodified:
+        _prune_paths(result.unmodified_configs, output_dir, prune_parents=False)
+        _report_paths(
+            result.unmodified_configs,
+            f"Deleted {len(result.unmodified_configs)} unmodified file(s) identical"
+            " to bundled defaults:",
+            color="red",
+            bold=True,
+        )
+    else:
+        _report_paths(
+            result.unmodified_configs,
+            f"Unmodified: {len(result.unmodified_configs)} file(s) identical to"
+            " bundled defaults",
+            color="cyan",
+            hint=" (use --delete-unmodified to remove):",
+        )
+
+    if keep_removed:
+        _report_paths(
+            result.removed_prunable,
+            f"Removed upstream: {len(result.removed_prunable)} unmodified orphan(s)"
+            " on disk",
+            color="red",
+            hint=" (--keep-removed set; delete manually):",
+        )
+    else:
+        _prune_paths(result.removed_prunable, output_dir)
+        _report_paths(
+            result.removed_prunable,
+            f"Pruned {len(result.removed_prunable)} removed-upstream file(s)"
+            " (unmodified orphans):",
+            color="red",
+            bold=True,
+        )
+
+    if delete_removed_modified:
+        _prune_paths(result.removed_review, output_dir)
+        _report_paths(
+            result.removed_review,
+            f"Force-deleted {len(result.removed_review)} removed-upstream file(s)"
+            " (locally modified):",
+            color="red",
+            bold=True,
+        )
+    else:
+        _report_paths(
+            result.removed_review,
+            f"Review manually: {len(result.removed_review)} removed-upstream file(s)"
+            " modified since repomatic shipped them:",
+            color="yellow",
+        )
+
     if result.warnings:
         for warning in result.warnings:
             echo(style("Warning: ", fg="yellow", bold=True) + warning)
@@ -797,6 +943,7 @@ def metadata(ctx, format, overwrite, output, list_keys, keys):
                 "Use --list-keys to see all available keys."
             )
 
+    log_output_target("metadata", output)
     if is_stdout(output):
         # The overwrite flag is moot for stdout. Warn only when the user set it
         # explicitly: firing on the default value warns on every bare stdout run.
@@ -805,17 +952,13 @@ def metadata(ctx, format, overwrite, output, list_keys, keys):
             and ctx.get_parameter_source("overwrite") is not ParameterSource.DEFAULT
         ):
             logging.warning("Ignore the --overwrite/--force/--replace option.")
-        logging.info(f"Print metadata to {sys.stdout.name}")
-    else:
-        logging.info(f"Dump all metadata to {output}")
-
-        if output.exists():
-            msg = "Target file exists and will be overwritten."
-            if overwrite:
-                logging.warning(msg)
-            else:
-                logging.critical(msg)
-                ctx.exit(2)
+    elif output.exists():
+        msg = "Target file exists and will be overwritten."
+        if overwrite:
+            logging.warning(msg)
+        else:
+            logging.critical(msg)
+            ctx.exit(2)
 
     meta = Metadata()
 
@@ -946,10 +1089,7 @@ def changelog(ctx, source, changelog_path):
         logging.warning("Changelog already up to date. Do nothing.")
         ctx.exit()
 
-    if is_stdout(changelog_path):
-        logging.info(f"Print updated results to {sys.stdout.name}")
-    else:
-        logging.info(f"Save updated results to {changelog_path}")
+    log_output_target("updated changelog", changelog_path)
     echo(content, file=prep_path(changelog_path))
 
 
@@ -1038,7 +1178,7 @@ def prepare_release(
             )
 
     if changelog_path is None:
-        changelog_path = Path(Config.changelog_location).resolve()
+        changelog_path = Path(get_tool_config(ctx).changelog_location).resolve()
     prep = PrepareRelease(
         changelog_path=changelog_path,
         citation_path=citation_path if citation_path.exists() else None,
@@ -1171,10 +1311,7 @@ def sync_gitignore(ctx: Context, output_path: Path | None) -> None:
     if output_path is None:
         output_path = Path(config.gitignore.location)
 
-    if is_stdout(output_path):
-        logging.info(f"Print to {sys.stdout.name}")
-    else:
-        logging.info(f"Write to {output_path}")
+    log_output_target(".gitignore", output_path)
 
     echo(content.rstrip(), file=prep_path(output_path))
 
@@ -1183,11 +1320,7 @@ def sync_gitignore(ctx: Context, output_path: Path | None) -> None:
     short_help="Sync GitHub release notes from changelog",
     section=_section_sync,
 )
-@option(
-    "--dry-run/--live",
-    default=True,
-    help="Report what would be done without making changes.",
-)
+@dry_run_option
 def sync_github_releases(dry_run: bool) -> None:
     """Sync GitHub release notes from changelog.md.
 
@@ -1203,16 +1336,10 @@ def sync_github_releases(dry_run: bool) -> None:
         # Update drifted release notes
         repomatic sync-github-releases --live
     """
-    changelog_path = Path(Config.changelog_location)
-    if not changelog_path.exists():
-        logging.warning(f"{changelog_path} not found.")
+    loaded = load_changelog_repo(get_tool_config())
+    if loaded is None:
         return
-
-    changelog = Changelog(changelog_path.read_text(encoding="UTF-8"))
-    repo_url = changelog.extract_repo_url()
-    if not repo_url:
-        logging.warning("Could not extract repository URL from changelog.")
-        return
+    changelog_path, repo_url = loaded
 
     result = _sync_github_releases(repo_url, changelog_path, dry_run)
     echo(_render_sync_report(result))
@@ -1222,11 +1349,7 @@ def sync_github_releases(dry_run: bool) -> None:
     short_help="Sync rolling dev pre-release on GitHub",
     section=_section_sync,
 )
-@option(
-    "--dry-run/--live",
-    default=True,
-    help="Report what would be done without making changes.",
-)
+@dry_run_option
 @option(
     "--delete/--no-delete",
     default=False,
@@ -1281,16 +1404,10 @@ def sync_dev_release(
         logging.warning("Could not determine current version.")
         return
 
-    changelog_path = Path(config.changelog_location)
-    if not changelog_path.exists():
-        logging.warning(f"{changelog_path} not found.")
+    loaded = load_changelog_repo(config)
+    if loaded is None:
         return
-
-    changelog = Changelog(changelog_path.read_text(encoding="UTF-8"))
-    repo_url = changelog.extract_repo_url()
-    if not repo_url:
-        logging.warning("Could not extract repository URL from changelog.")
-        return
+    changelog_path, repo_url = loaded
 
     # Parse owner/repo for gh CLI.
     parsed = owner_repo(repo_url)
@@ -1428,15 +1545,14 @@ def sync_mailmap(ctx, source, create_if_missing, destination_mailmap):
     mailmap.update_from_git()
     new_content = mailmap.render()
 
+    log_output_target("updated mailmap", destination_mailmap)
     if is_stdout(destination_mailmap):
-        logging.info(f"Print updated results to {sys.stdout.name}.")
         logging.debug(
             "Ignore the "
             + ("--create-if-missing" if create_if_missing else "--skip-if-missing")
             + " option."
         )
     else:
-        logging.info(f"Save updated results to {destination_mailmap}")
         if not create_if_missing and not destination_mailmap.exists():
             logging.warning(
                 f"{destination_mailmap} does not exist, stop the sync process."
@@ -1760,10 +1876,7 @@ def dep_graph(
         exclude_base=exclude_base,
     )
 
-    if is_stdout(output):
-        logging.info(f"Print graph to {sys.stdout.name}")
-    else:
-        logging.info(f"Write graph to {output}")
+    log_output_target("graph", output)
 
     echo(graph, file=prep_path(output))
 
@@ -1883,40 +1996,16 @@ def broken_links(
 @repomatic.command(
     short_help="Manage setup guide issue lifecycle", section=_section_github
 )
-@option(
-    "--has-notifications-pat",
-    is_flag=True,
-    default=False,
-    envvar="HAS_REPOMATIC_NOTIFICATIONS_PAT",
-    help="Whether REPOMATIC_NOTIFICATIONS_PAT is configured.",
-)
-@option(
-    "--has-pat/--no-has-pat",
-    default=None,
-    help=(
-        "Whether REPOMATIC_PAT is configured. "
-        "Auto-detected from the REPOMATIC_PAT environment variable when omitted."
-    ),
-)
-@option(
-    "--has-virustotal-key",
-    is_flag=True,
-    default=False,
-    envvar="HAS_VIRUSTOTAL_API_KEY",
-    help="Whether VIRUSTOTAL_API_KEY is configured.",
-)
-@option(
-    "--repo",
-    default=None,
-    envvar="GITHUB_REPOSITORY",
-    help="Repository in 'owner/repo' format. Defaults to $GITHUB_REPOSITORY.",
-)
+@has_notifications_pat_option
+@has_pat_option
+@has_virustotal_key_option
+@repo_slug_option
 @_require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def setup_guide(
     ctx: Context,
     has_notifications_pat: bool,
-    has_pat: bool | None,
+    has_pat: bool,
     has_virustotal_key: bool,
     repo: str | None,
 ) -> None:
@@ -1944,9 +2033,6 @@ def setup_guide(
         # Secret configured: close the issue if all checks pass
         repomatic setup-guide --has-pat
     """
-    # Auto-detect PAT from env when not explicitly specified on CLI.
-    if has_pat is None:
-        has_pat = bool(os.environ.get("REPOMATIC_PAT"))
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.setup_guide, "setup-guide")
 
@@ -1975,11 +2061,7 @@ def setup_guide(
     default=200,
     help="Maximum number of threads/items to process per phase.",
 )
-@option(
-    "--dry-run/--live",
-    default=True,
-    help="Report what would be done without making changes.",
-)
+@dry_run_option
 @_require_token(_unsub_mod, "_validate_notifications_token")
 def unsubscribe_threads(months: int, batch_size: int, dry_run: bool) -> None:
     """Unsubscribe from closed, inactive GitHub notification threads.
@@ -2263,28 +2345,10 @@ def audit(
     section=_section_sync,
 )
 @lockfile_option
-@option(
-    "--table/--no-table",
-    default=True,
-    help="Print a summary table of updated packages.",
-)
-@option(
-    "--release-notes/--no-release-notes",
-    default=False,
-    help="Fetch release notes from GitHub (markdown, appended after the table).",
-)
-@option(
-    "--held-back/--no-held-back",
-    default=True,
-    help="Report newer releases withheld by the exclude-newer cooldown "
-    "(runs a second uv resolution).",
-)
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default=None,
-    help="Write a markdown report (table + release notes) to this file.",
-)
+@sync_table_option
+@sync_release_notes_option
+@lock_held_back_option
+@report_output_option
 @output_format_option
 @pass_context
 def sync_dep_sources(
@@ -2328,17 +2392,15 @@ def sync_dep_sources(
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.dep_sources_sync, "dep-sources.sync")
 
-    op = OPERATIONS_BY_NAME["sync-dep-sources"]
-    rc = ResolveContext(
-        config=config,
-        today=datetime.now(timezone.utc).date(),
-        release_notes=release_notes,
-        # The held-back probe runs a second uv resolution, so gate it on a
-        # consumer being present (terminal table or file output).
-        held_back=held_back and (table or output is not None),
+    op, rc, plan = _resolve_lockfile_plan(
+        "sync-dep-sources",
+        config,
         lockfile=lockfile,
+        table=table,
+        output=output,
+        release_notes=release_notes,
+        held_back=held_back,
     )
-    plan = op.resolve(rc)
 
     if not plan.has_changes:
         echo("No awaited release shipped.")
@@ -2369,28 +2431,10 @@ def sync_dep_sources(
     section=_section_sync,
 )
 @lockfile_option
-@option(
-    "--table/--no-table",
-    default=True,
-    help="Print a summary table of updated packages.",
-)
-@option(
-    "--release-notes/--no-release-notes",
-    default=False,
-    help="Fetch release notes from GitHub (markdown, appended after the table).",
-)
-@option(
-    "--held-back/--no-held-back",
-    default=True,
-    help="Report newer releases withheld by the exclude-newer cooldown "
-    "(runs a second uv resolution).",
-)
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default=None,
-    help="Write a markdown report (table + release notes) to this file.",
-)
+@sync_table_option
+@sync_release_notes_option
+@lock_held_back_option
+@report_output_option
 @output_format_option
 @pass_context
 def sync_uv_lock_cmd(
@@ -2446,17 +2490,15 @@ def sync_uv_lock_cmd(
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.uv_lock_sync, "uv-lock.sync")
 
-    op = OPERATIONS_BY_NAME["sync-uv-lock"]
-    rc = ResolveContext(
-        config=config,
-        today=datetime.now(timezone.utc).date(),
-        release_notes=release_notes,
-        # The held-back probe runs a second uv resolution, so gate it on a
-        # consumer being present (terminal table or file output).
-        held_back=held_back and (table or output is not None),
+    op, rc, plan = _resolve_lockfile_plan(
+        "sync-uv-lock",
+        config,
         lockfile=lockfile,
+        table=table,
+        output=output,
+        release_notes=release_notes,
+        held_back=held_back,
     )
-    plan = op.resolve(rc)
 
     if plan.uv_project.pins_synced:
         echo("Synced [tool.uv] policy pins from the bundled template.")
@@ -2490,6 +2532,63 @@ def sync_uv_lock_cmd(
     )
 
 
+def _resolve_lockfile_plan(
+    op_name: str,
+    config: Config,
+    *,
+    lockfile: Path,
+    table: bool,
+    output: Path | None,
+    release_notes: bool,
+    held_back: bool,
+) -> tuple[SyncOperation, ResolveContext, SyncPlan]:
+    """Resolve one of the two lockfile-mutating operations.
+
+    `sync-uv-lock` and `sync-dep-sources` build the same resolve context and,
+    unlike the version-sync trio, gate the held-back probe on a consumer being
+    present: that probe costs a second full uv resolution, so a run that prints
+    no table and writes no report must not pay for it.
+
+    The apply and the narration stay with each command, whose "what happened"
+    lines differ (adopted releases for one, bypass lifecycle for the other).
+
+    :return: `(operation, resolve_context, plan)`.
+    """
+    op = OPERATIONS_BY_NAME[op_name]
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        held_back=held_back and (table or output is not None),
+        lockfile=lockfile,
+    )
+    return op, rc, op.resolve(rc)
+
+
+def _print_plan_tables(ctx: Context, plan: SyncPlan, reference_date: date) -> None:
+    """Print a resolved plan's diff, bypass and held-back tables.
+
+    The terminal counterpart of {func}`~repomatic.sync_ops.render_plan_markdown`,
+    in the same order, so a run's terminal output and its PR body read the same
+    way. Every dependency updater goes through here: the two lockfile commands,
+    the three version-sync commands, and the aggregate `sync-deps`.
+
+    Each table respects the global `--table-format`, and an empty section prints
+    nothing.
+    """
+    _print_sync_table(
+        ctx,
+        plan.changes,
+        plan.dates,
+        subject=plan.subject,
+        reference_date=reference_date,
+    )
+    if plan.uv_project.bypass_forecasts:
+        _print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
+    if plan.held_back:
+        _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
+
+
 def _emit_lockfile_sync_report(
     ctx: Context,
     plan: SyncPlan,
@@ -2499,32 +2598,21 @@ def _emit_lockfile_sync_report(
     output: Path | None,
     output_format: str,
 ) -> None:
-    """Emit the shared terminal table and markdown report for a lockfile sync.
+    """Emit the terminal tables and markdown report of a lockfile sync.
 
-    Both sync-uv-lock and sync-dep-sources render the same package diff table,
-    bypass and held-back tables, terminal release notes, and optional markdown
-    file output from their resolved {class}`SyncPlan`. Table order matches
-    {func}`~repomatic.sync_ops.render_plan_markdown`, so the terminal report and
-    the PR body read the same way.
+    `sync-uv-lock` and `sync-dep-sources` share this tail. They alone can suppress
+    the terminal tables with `--no-table` (their CI jobs want only the markdown
+    report), and they alone have an `exclude-newer` cutoff to announce, uv's
+    lock-level cooldown standing in for the `minimum-release-age` window the
+    version-sync trio reports.
     """
-    # Terminal output: structured table via click-extra.
     if table:
         if plan.uv_project.exclude_newer:
             echo(
                 "exclude-newer cutoff: "
                 f"{format_upload_date(plan.uv_project.exclude_newer)}"
             )
-        _print_sync_table(
-            ctx,
-            plan.changes,
-            plan.dates,
-            subject="Package",
-            reference_date=reference_date,
-        )
-        if plan.uv_project.bypass_forecasts:
-            _print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
-        if plan.held_back:
-            _print_held_back_table(ctx, plan.held_back)
+        _print_plan_tables(ctx, plan, reference_date)
 
     # Release notes echoed to the terminal (already fetched during resolve).
     if plan.notes_section:
@@ -2627,15 +2715,9 @@ def _emit_version_sync_report(
     echo(f"{len(plan.changes)} {plan.subject.lower()}(s) updated.")
     if plan.cutoff is not None:
         echo(f"minimum-release-age cutoff: {plan.cutoff:%Y-%m-%d}")
-    _print_sync_table(
-        ctx,
-        plan.changes,
-        plan.dates,
-        subject=plan.subject,
-        reference_date=plan.reference_date or datetime.now(timezone.utc).date(),
+    _print_plan_tables(
+        ctx, plan, plan.reference_date or datetime.now(timezone.utc).date()
     )
-    if plan.held_back:
-        _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
     if plan.notes_section:
         echo("")
         echo(plan.notes_section)
@@ -2694,12 +2776,7 @@ def _run_version_sync(
     short_help="Bump registry tool versions from upstream releases",
     section=_section_sync,
 )
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default=None,
-    help="Write a markdown report (version table) to this file.",
-)
+@version_report_output_option
 @sync_release_notes_option
 @sync_held_back_option
 @output_format_option
@@ -2750,12 +2827,7 @@ def sync_tool_versions(
     short_help="Bump SHA-pinned GitHub Actions to their latest release",
     section=_section_sync,
 )
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default=None,
-    help="Write a markdown report (version table) to this file.",
-)
+@version_report_output_option
 @sync_release_notes_option
 @sync_held_back_option
 @output_format_option
@@ -2797,12 +2869,7 @@ def sync_action_pins(
     short_help="Bump npm/PyPI version literals in workflow YAML",
     section=_section_sync,
 )
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default=None,
-    help="Write a markdown report (version table) to this file.",
-)
+@version_report_output_option
 @sync_release_notes_option
 @sync_held_back_option
 @output_format_option
@@ -2935,13 +3002,7 @@ def sync_deps(
     verb = "Would update" if dry_run else "Updated"
     for op, plan in changed:
         echo(f"{verb} {len(plan.changes)} via {op.name}:")
-        _print_sync_table(
-            ctx, plan.changes, plan.dates, subject=plan.subject, reference_date=rc.today
-        )
-        if plan.uv_project.bypass_forecasts:
-            _print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
-        if plan.held_back:
-            _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
+        _print_plan_tables(ctx, plan, rc.today)
 
     if output:
         sections = [
@@ -3050,38 +3111,6 @@ def sync_labels(ctx: Context, repository: str | None) -> None:
     echo("Labels synced.")
 
 
-def _parse_skill_frontmatter(content: str) -> dict[str, Any]:
-    """Extract the YAML frontmatter mapping from a skill definition file.
-
-    Values keep their YAML types, so the [Agent Skills
-    spec](https://agentskills.io/specification)'s `metadata` field reads back
-    as a nested mapping rather than a flat string.
-
-    ```{note}
-    Both delimiters must sit alone on their own line, per the frontmatter
-    convention. Scanning for the closing line, instead of splitting the file
-    on the first three `---` runs, keeps a value that embeds `---` (like an
-    `argument-hint` listing a long-form option) from truncating the block.
-    ```
-
-    :param content: full text of a `SKILL.md` file.
-    :return: the parsed frontmatter, or an empty mapping when the file has no
-        frontmatter block or the block does not parse as a YAML mapping.
-    """
-    lines = content.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
-    for index, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            break
-    else:
-        return {}
-    parsed = yaml.safe_load("\n".join(lines[1:index]))
-    if not isinstance(parsed, dict):
-        return {}
-    return parsed
-
-
 @repomatic.command(
     short_help="List available Claude Code skills",
     section=_section_setup,
@@ -3098,7 +3127,7 @@ def list_skills() -> None:
     for entry in skills_comp.files:
         # Each skill is a bundled folder, so reach past it for the entry point.
         content = get_data_content(f"{entry.source}/{SKILL_FILENAME}")
-        meta = _parse_skill_frontmatter(content)
+        meta, _body = split_frontmatter(content)
         name = meta.get("name", entry.file_id)
         description = meta.get("description", "")
         # Strip trailing period for table display.
@@ -3121,46 +3150,18 @@ def list_skills() -> None:
 @repomatic.command(
     short_help="Run repository consistency checks", section=_section_lint
 )
-@option(
-    "--repo-name",
-    default=None,
-    help="Repository name. Defaults to $GITHUB_REPOSITORY name component.",
-)
-@option(
-    "--repo",
-    default=None,
-    envvar="GITHUB_REPOSITORY",
-    help="Repository in 'owner/repo' format. Defaults to $GITHUB_REPOSITORY.",
-)
-@option(
-    "--has-notifications-pat",
-    is_flag=True,
-    default=False,
-    envvar="HAS_REPOMATIC_NOTIFICATIONS_PAT",
-    help="Whether REPOMATIC_NOTIFICATIONS_PAT is configured.",
-)
-@option(
-    "--has-pat/--no-has-pat",
-    default=None,
-    help=(
-        "Whether REPOMATIC_PAT is configured. Enables PAT capability checks. "
-        "Auto-detected from the REPOMATIC_PAT environment variable when omitted."
-    ),
-)
-@option(
-    "--has-virustotal-key",
-    is_flag=True,
-    default=False,
-    envvar="HAS_VIRUSTOTAL_API_KEY",
-    help="Whether VIRUSTOTAL_API_KEY is configured.",
-)
+@repo_name_option
+@repo_slug_option
+@has_notifications_pat_option
+@has_pat_option
+@has_virustotal_key_option
 @pass_context
 def lint_repo(
     ctx: Context,
     repo_name: str | None,
     repo: str | None,
     has_notifications_pat: bool,
-    has_pat: bool | None,
+    has_pat: bool,
     has_virustotal_key: bool,
 ) -> None:
     """Run consistency checks on repository metadata.
@@ -3202,9 +3203,6 @@ def lint_repo(
         # With PAT capability checks
         repomatic lint-repo --has-pat
     """
-    # Auto-detect PAT from env when not explicitly specified on CLI.
-    if has_pat is None:
-        has_pat = bool(os.environ.get("REPOMATIC_PAT"))
 
     if repo_name is None and repo:
         # Extract repo name from owner/repo format.
@@ -3460,16 +3458,6 @@ def cache():
     """
 
 
-def _format_age(mtime: float) -> str:
-    """Format a file mtime as a human-readable age string."""
-    age_days = int((time.time() - mtime) / 86400)
-    if age_days == 0:
-        return "today"
-    if age_days == 1:
-        return "1 day"
-    return f"{age_days} days"
-
-
 _cache_show_sort = SortByOption(*CACHE_LIST_HEADER_DEFS, default="name")
 
 
@@ -3493,7 +3481,7 @@ def show(ctx):
             bin_entry.tool,
             f"{bin_entry.version} ({bin_entry.platform})",
             format_file_size(bin_entry.size),
-            _format_age(bin_entry.mtime),
+            format_age(bin_entry.mtime),
         ))
     for http_entry in http_entries:
         total_size += http_entry.size
@@ -3502,7 +3490,7 @@ def show(ctx):
             http_entry.namespace,
             http_entry.key,
             format_file_size(http_entry.size),
-            _format_age(http_entry.mtime),
+            format_age(http_entry.mtime),
         ))
     for cfg_entry in cfg_entries:
         total_size += cfg_entry.size
@@ -3511,7 +3499,7 @@ def show(ctx):
             cfg_entry.tool,
             cfg_entry.filename,
             format_file_size(cfg_entry.size),
-            _format_age(cfg_entry.mtime),
+            format_age(cfg_entry.mtime),
         ))
 
     ctx.print_table(rows, CACHE_LIST_HEADER_DEFS)
@@ -3999,12 +3987,7 @@ def sync_binaries(
     default=None,
     help="PR reference passed to detect-squash-merge template (e.g. #2316).",
 )
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default="-",
-    help="Output file path. Defaults to stdout.",
-)
+@stdout_output_option
 @option(
     "--output-format",
     type=Choice(["markdown", "github-actions"]),
@@ -4165,10 +4148,7 @@ def pr_body(
     else:
         content = body
 
-    if is_stdout(output):
-        logging.info(f"Print PR body to {sys.stdout.name}")
-    else:
-        logging.info(f"Write PR body to {output}")
+    log_output_target("PR body", output)
 
     echo(content, file=prep_path(output))
 
@@ -4222,12 +4202,7 @@ def update_checksums_cmd() -> None:
     show_default=True,
     help="Minimum absolute byte savings to keep an optimized file.",
 )
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default="-",
-    help="Output file path. Defaults to stdout.",
-)
+@stdout_output_option
 @output_format_option
 def format_images_cmd(
     min_savings: float,
@@ -4275,9 +4250,6 @@ def format_images_cmd(
     )
     markdown = generate_markdown_summary(results)
 
-    if is_stdout(output):
-        logging.info(f"Print image optimization summary to {sys.stdout.name}")
-    else:
-        logging.info(f"Write image optimization summary to {output}")
+    log_output_target("image optimization summary", output)
 
     emit_report(markdown, output, output_format, key="markdown")

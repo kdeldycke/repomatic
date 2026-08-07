@@ -48,6 +48,7 @@ from pathlib import Path
 from string import Template
 
 from .. import __version__
+from ..frontmatter import split_frontmatter
 from .actions import extract_workflow_filename
 from .releases import dev_release_url_and_previous_version
 
@@ -255,41 +256,20 @@ def _unescape_dollars(text: str) -> str:
     return text.replace(r"\$", "$")
 
 
-def _parse_frontmatter(raw: str) -> tuple[dict[str, object], str]:
+def _parse_template(raw: str) -> tuple[dict[str, object], str]:
     """Split a template file into YAML frontmatter and markdown body.
+
+    Delegates the split to {func}`~repomatic.frontmatter.split_frontmatter` and
+    adds the one template-specific step: restoring the `$placeholder` syntax
+    mdformat escapes (see {func}`_unescape_dollars`). The body is unescaped, the
+    frontmatter is not: its values are metadata (`args`, `title`, `docs`), never
+    `string.Template` sources.
 
     :param raw: Raw template file content.
     :return: A tuple of (frontmatter dict, body string).
     """
-    if not raw.startswith("---"):
-        return {}, _unescape_dollars(raw)
-
-    # Find the closing --- delimiter.
-    end = raw.index("---", 3)
-    yaml_block = raw[3:end].strip()
-    body = _unescape_dollars(raw[end + 3 :].lstrip("\n"))
-
-    # Minimal YAML parsing: supports `key: value` and `key: [items]`.
-    meta: dict[str, object] = {}
-    for line in yaml_block.splitlines():
-        if ":" not in line:
-            continue
-        key, _, value = line.partition(":")
-        value = value.strip()
-        if value.startswith("[") and value.endswith("]"):
-            items = value[1:-1]
-            meta[key.strip()] = (
-                [item.strip() for item in items.split(",") if item.strip()]
-                if items.strip()
-                else []
-            )
-        else:
-            # Strip surrounding quotes from YAML string values.
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-                value = value[1:-1]
-            meta[key.strip()] = value
-
-    return meta, body
+    meta, body = split_frontmatter(raw)
+    return meta, _unescape_dollars(body)
 
 
 def load_template(name: str | Path) -> tuple[dict[str, object], str]:
@@ -315,7 +295,7 @@ def load_template(name: str | Path) -> tuple[dict[str, object], str]:
         if not name.is_file():
             msg = f"Template file {str(name)!r} does not exist"
             raise FileNotFoundError(msg)
-        return _parse_frontmatter(name.read_text(encoding="UTF-8"))
+        return _parse_template(name.read_text(encoding="UTF-8"))
 
     template_files = files("repomatic.templates")
     for ext in (".md.noformat", ".md"):
@@ -323,7 +303,7 @@ def load_template(name: str | Path) -> tuple[dict[str, object], str]:
         if resource.is_file():
             with as_file(resource) as path:
                 raw = path.read_text(encoding="UTF-8")
-            return _parse_frontmatter(raw)
+            return _parse_template(raw)
     msg = f"Template {name!r} not found in repomatic/templates/"
     raise FileNotFoundError(msg)
 
@@ -344,6 +324,11 @@ def _substitute(text: str, kwargs: dict[str, str | None]) -> str:
 def _render_single(name: str | Path, kwargs: dict[str, str | None]) -> tuple[str, bool]:
     """Render a single template and return its body with footer preference.
 
+    A template opts out of the attribution footer with `footer: false`. Both the
+    boolean and the quoted string are honored: the frontmatter is YAML, so a bare
+    `false` parses as a boolean, but a downstream template may well have quoted
+    it, and the two spellings mean the same thing to whoever wrote them.
+
     :param name: Template name without `.md` extension, or a
         {class}`~pathlib.Path` pointing to a template file.
     :param kwargs: Variables to substitute into the template.
@@ -351,7 +336,8 @@ def _render_single(name: str | Path, kwargs: dict[str, str | None]) -> tuple[str
     """
     meta, body = load_template(name)
     result = _substitute(body, kwargs).strip()
-    wants_footer = meta.get("footer") != "false" and name != "generated-footer"
+    opted_out = meta.get("footer", True) in (False, "false")
+    wants_footer = not opted_out and name != "generated-footer"
     return result, wants_footer
 
 

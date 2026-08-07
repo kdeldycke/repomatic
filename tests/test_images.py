@@ -25,29 +25,9 @@ import pytest
 
 from repomatic.images import (
     OptimizationResult,
-    format_file_size,
     generate_markdown_summary,
     optimize_image,
 )
-
-
-@pytest.mark.parametrize(
-    ("size_bytes", "expected"),
-    [
-        (0, "0 B"),
-        (512, "512 B"),
-        (1023, "1,023 B"),
-        (1024, "1.0 KB"),
-        (1536, "1.5 KB"),
-        (10240, "10.0 KB"),
-        (1048576, "1.0 MB"),
-        (1572864, "1.5 MB"),
-        (1073741824, "1.0 GB"),
-    ],
-)
-def test_format_file_size(size_bytes: int, expected: str) -> None:
-    """Human-readable file size formatting."""
-    assert format_file_size(size_bytes) == expected
 
 
 def test_optimization_result_saved_bytes() -> None:

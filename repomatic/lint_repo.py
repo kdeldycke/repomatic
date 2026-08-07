@@ -34,7 +34,7 @@ from typing import NamedTuple
 import yaml
 
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
-from .github.gh import run_gh_command
+from .github.gh import gh_api_json, run_gh_command
 from .github.token import check_all_pat_permissions
 from .metadata import Metadata, stale_axis_values
 from .pypi import (
@@ -59,31 +59,45 @@ class CheckResult(NamedTuple):
     message: str
 
 
+def _fetch_rulesets(repo: str) -> list[dict] | None:
+    """Fetch the repository's rulesets, parents included.
+
+    One endpoint serves two checks ({func}`check_tag_protection_rules` and
+    {func}`check_branch_ruleset_on_default`), which filter the same payload on
+    different `target` values. They still call it once each: their skip verdicts
+    differ (`None` vs `False`), and sharing a single fetch would mean threading
+    the payload through {func}`run_repo_lint`, which calls each check
+    independently.
+
+    :param repo: Repository in 'owner/repo' format.
+    :return: The ruleset list, or `None` when the API could not be read.
+    """
+    rulesets = gh_api_json([
+        "api",
+        f"repos/{repo}/rulesets",
+        "--method",
+        "GET",
+        "-f",
+        "includes_parents=true",
+    ])
+    return rulesets if isinstance(rulesets, list) else None
+
+
 def get_repo_metadata(repo: str) -> dict[str, str | None]:
     """Fetch repository metadata from GitHub API.
 
     :param repo: Repository in 'owner/repo' format.
-    :return: Dictionary with 'homepageUrl' and 'description' keys.
+    :return: Dictionary with 'homepageUrl' and 'description' keys. Both are
+        `None` when the repository could not be read.
     """
-    try:
-        output = run_gh_command([
-            "repo",
-            "view",
-            repo,
-            "--json",
-            "homepageUrl,description",
-        ])
-        data = json.loads(output)
-        return {
-            "homepageUrl": data.get("homepageUrl") or None,
-            "description": data.get("description") or None,
-        }
-    except RuntimeError as e:
-        logging.error(f"Failed to fetch repo metadata: {e}")
+    data = gh_api_json(["repo", "view", repo, "--json", "homepageUrl,description"])
+    if data is None:
+        logging.error(f"Failed to fetch metadata for {repo}.")
         return {"homepageUrl": None, "description": None}
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to parse repo metadata: {e}")
-        return {"homepageUrl": None, "description": None}
+    return {
+        "homepageUrl": data.get("homepageUrl") or None,
+        "description": data.get("description") or None,
+    }
 
 
 def check_package_name_vs_repo(package_name: str | None, repo_name: str) -> CheckResult:
@@ -194,18 +208,9 @@ def check_funding_file(repo: str) -> CheckResult:
         " ... on Sponsorable { hasSponsorsListing } } }"
     )
 
-    try:
-        output = run_gh_command(["api", "graphql", "--field", f"query={query}"])
-    except RuntimeError as e:
-        logging.warning(f"Could not query GitHub Sponsors status: {e}")
+    data = gh_api_json(["api", "graphql", "--field", f"query={query}"])
+    if data is None:
         return CheckResult(None, "Funding check: skipped (could not query GitHub API)")
-
-    try:
-        data = json.loads(output)
-    except json.JSONDecodeError:
-        return CheckResult(
-            None, "Funding check: skipped (could not parse API response)"
-        )
 
     repo_data = data.get("data", {}).get("repository", {})
     owner_data = data.get("data", {}).get("repositoryOwner", {})
@@ -236,24 +241,18 @@ def check_stale_draft_releases(repo: str) -> CheckResult:
     :param repo: Repository in 'owner/repo' format.
     :return: A `CheckResult`.
     """
-    try:
-        output = run_gh_command([
-            "release",
-            "list",
-            "--json",
-            "tagName,isDraft",
-            "--repo",
-            repo,
-        ])
-    except RuntimeError:
+    releases = gh_api_json([
+        "release",
+        "list",
+        "--json",
+        "tagName,isDraft",
+        "--repo",
+        repo,
+    ])
+    if releases is None:
         return CheckResult(
-            None, "Stale draft releases check: skipped (API call failed)."
+            None, "Stale draft releases check: skipped (could not query API)."
         )
-
-    try:
-        releases = json.loads(output)
-    except json.JSONDecodeError:
-        return CheckResult(None, "Stale draft releases check: skipped (invalid JSON).")
 
     stale_drafts = [
         r["tagName"]
@@ -486,22 +485,13 @@ def check_fork_pr_approval_policy(repo: str) -> CheckResult:
     :return: A `CheckResult`. `passed` is `None` when the check could not run
         (API inaccessible, unparsable, or unknown policy).
     """
-    try:
-        output = run_gh_command([
-            "api",
-            f"repos/{repo}/actions/permissions/fork-pr-contributor-approval",
-        ])
-    except RuntimeError:
+    data = gh_api_json([
+        "api",
+        f"repos/{repo}/actions/permissions/fork-pr-contributor-approval",
+    ])
+    if data is None:
         return CheckResult(
             None, "Fork PR approval policy check: skipped (could not query API)."
-        )
-
-    try:
-        data = json.loads(output)
-    except json.JSONDecodeError:
-        return CheckResult(
-            None,
-            "Fork PR approval policy check: skipped (invalid JSON from API).",
         )
 
     policy = data.get("approval_policy", "")
@@ -551,18 +541,10 @@ def check_sha_pinning_required(repo: str) -> CheckResult:
     :return: A `CheckResult`. `passed` is `None` when the check could not run
         (API inaccessible or unparsable).
     """
-    try:
-        output = run_gh_command(["api", f"repos/{repo}/actions/permissions"])
-    except RuntimeError:
+    data = gh_api_json(["api", f"repos/{repo}/actions/permissions"])
+    if data is None:
         return CheckResult(
             None, "SHA pinning required check: skipped (could not query API)."
-        )
-
-    try:
-        data = json.loads(output)
-    except json.JSONDecodeError:
-        return CheckResult(
-            None, "SHA pinning required check: skipped (invalid JSON from API)."
         )
 
     if data.get("sha_pinning_required"):
@@ -590,25 +572,10 @@ def check_tag_protection_rules(repo: str) -> CheckResult:
     :param repo: Repository in 'owner/repo' format.
     :return: A `CheckResult`.
     """
-    try:
-        output = run_gh_command([
-            "api",
-            f"repos/{repo}/rulesets",
-            "--method",
-            "GET",
-            "-f",
-            "includes_parents=true",
-        ])
-    except RuntimeError:
+    rulesets = _fetch_rulesets(repo)
+    if rulesets is None:
         return CheckResult(
             None, "Tag protection check: skipped (could not query rulesets API)."
-        )
-
-    try:
-        rulesets = json.loads(output)
-    except json.JSONDecodeError:
-        return CheckResult(
-            None, "Tag protection check: skipped (invalid JSON from rulesets API)."
         )
 
     tag_rulesets = [
@@ -651,25 +618,10 @@ def check_branch_ruleset_on_default(repo: str) -> CheckResult:
     :param repo: Repository in 'owner/repo' format.
     :return: A `CheckResult`.
     """
-    try:
-        output = run_gh_command([
-            "api",
-            f"repos/{repo}/rulesets",
-            "--method",
-            "GET",
-            "-f",
-            "includes_parents=true",
-        ])
-    except RuntimeError:
+    rulesets = _fetch_rulesets(repo)
+    if rulesets is None:
         return CheckResult(
             False, "Branch ruleset check: skipped (could not query rulesets API)."
-        )
-
-    try:
-        rulesets = json.loads(output)
-    except json.JSONDecodeError:
-        return CheckResult(
-            False, "Branch ruleset check: skipped (invalid JSON from rulesets API)."
         )
 
     branch_rulesets = [
@@ -705,20 +657,11 @@ def check_immutable_releases(repo: str) -> CheckResult:
     :return: A `CheckResult`. `passed` is `None` when the check could not run
         (API inaccessible or unparsable).
     """
-    try:
-        output = run_gh_command(["api", f"repos/{repo}/immutable-releases"])
-    except RuntimeError:
+    data = gh_api_json(["api", f"repos/{repo}/immutable-releases"])
+    if data is None:
         return CheckResult(
             None,
             "Immutable releases check: skipped (could not query API).",
-        )
-
-    try:
-        data = json.loads(output)
-    except json.JSONDecodeError:
-        return CheckResult(
-            None,
-            "Immutable releases check: skipped (invalid JSON from API).",
         )
 
     if data.get("enabled"):
@@ -748,21 +691,12 @@ def check_pages_deployment_source(repo: str) -> CheckResult:
     :return: A `CheckResult`. `passed` is `None` when the check could not run
         (Pages not configured, or API inaccessible).
     """
-    try:
-        output = run_gh_command(["api", f"repos/{repo}/pages"])
-    except RuntimeError:
+    data = gh_api_json(["api", f"repos/{repo}/pages"])
+    if data is None:
         return CheckResult(
             None,
             "Pages deployment source check: skipped (Pages not configured or API"
             " inaccessible).",
-        )
-
-    try:
-        data = json.loads(output)
-    except json.JSONDecodeError:
-        return CheckResult(
-            None,
-            "Pages deployment source check: skipped (invalid JSON from API).",
         )
 
     build_type = data.get("build_type")

@@ -32,7 +32,6 @@ from repomatic.github.unsubscribe import (
     DetailRow,
     ItemAction,
     UnsubscribeResult,
-    _action_emoji,
     _compute_cutoff,
     _fetch_notification_threads,
     _format_link,
@@ -249,7 +248,7 @@ def test_compute_cutoff(fixed_now, months, expected):
         assert _compute_cutoff(months) == expected
 
 
-# -- _action_emoji ------------------------------------------------------------
+# -- ItemAction.label --------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -260,9 +259,9 @@ def test_compute_cutoff(fixed_now, months, expected):
         (ItemAction.UNSUBSCRIBED, "\U0001f515 Unsubscribed"),
     ],
 )
-def test_action_emoji(action, expected):
-    """Each action maps to its emoji-and-label string."""
-    assert _action_emoji(action) == expected
+def test_action_label(action, expected):
+    """Each action carries its own emoji-and-label string."""
+    assert action.label == expected
 
 
 # -- _format_link -------------------------------------------------------------

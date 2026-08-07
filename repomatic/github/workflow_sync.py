@@ -400,6 +400,55 @@ class LintResult:
     """Severity level for GitHub Actions annotations."""
 
 
+def workflow_triggers(data: object) -> dict[str, Any]:
+    """Extract a parsed workflow's `on:` mapping.
+
+    ```{note}
+    PyYAML follows YAML 1.1, where a bare `on` key parses as the boolean `True`
+    while a quoted `"on"` stays a string. Both spellings occur in the wild, so
+    every reader of a workflow's triggers has to try the boolean key first and
+    the string key second. Resolving that here once keeps the quirk from being
+    re-remembered at each call site.
+    ```
+
+    :param data: The result of `yaml.safe_load` on a workflow file.
+    :return: The trigger mapping, empty when *data* is not a mapping or declares
+        no triggers.
+    """
+    if not isinstance(data, dict):
+        return {}
+    triggers = data.get(True, data.get("on"))
+    return triggers if isinstance(triggers, dict) else {}
+
+
+def _parse_workflow(workflow_path: Path) -> dict[str, Any] | LintResult:
+    """Read and parse a workflow file, or return the lint result for the failure.
+
+    Every lint check opens by loading the file it inspects and reports the same
+    error when that fails. Returning the {class}`LintResult` in place of the data
+    lets each check start with a two-line guard instead of its own `try`.
+
+    :param workflow_path: Path to the workflow file.
+    :return: The parsed mapping, or the {class}`LintResult` the caller returns
+        as-is.
+    """
+    try:
+        data = yaml.safe_load(workflow_path.read_text(encoding="UTF-8"))
+    except (OSError, yaml.YAMLError) as error:
+        return LintResult(
+            message=f"{workflow_path.name}: failed to parse: {error}",
+            is_issue=True,
+            level=AnnotationLevel.ERROR,
+        )
+    if not isinstance(data, dict):
+        return LintResult(
+            message=f"{workflow_path.name}: invalid workflow structure.",
+            is_issue=True,
+            level=AnnotationLevel.ERROR,
+        )
+    return data
+
+
 def canonical_caller_permissions(filename: str) -> dict[str, str]:
     """Union the job-level `permissions:` scopes of a canonical workflow.
 
@@ -447,14 +496,7 @@ def extract_trigger_info(filename: str) -> WorkflowTriggerInfo:
     data = yaml.safe_load(content)
 
     name = data.get("name", filename)
-
-    # Handle YAML parsing of bare `on` keyword: PyYAML reads bare `on` as
-    # boolean `True`, while quoted `"on"` is a string key.
-    triggers: dict[str, Any] = {}
-    if True in data:
-        triggers = data[True] or {}
-    elif "on" in data:
-        triggers = data["on"] or {}
+    triggers = workflow_triggers(data)
 
     has_workflow_call = "workflow_call" in triggers
     call_config = triggers.get("workflow_call") or {}
@@ -1260,24 +1302,11 @@ def check_has_workflow_dispatch(workflow_path: Path) -> LintResult:
     :param workflow_path: Path to the workflow file.
     :return: Lint result.
     """
-    try:
-        content = workflow_path.read_text(encoding="UTF-8")
-        data = yaml.safe_load(content)
-    except (OSError, yaml.YAMLError) as e:
-        return LintResult(
-            message=f"{workflow_path.name}: failed to parse: {e}",
-            is_issue=True,
-            level=AnnotationLevel.ERROR,
-        )
+    data = _parse_workflow(workflow_path)
+    if isinstance(data, LintResult):
+        return data
 
-    triggers: dict[str, Any] = {}
-    if isinstance(data, dict):
-        if True in data:
-            triggers = data[True] or {}
-        elif "on" in data:
-            triggers = data["on"] or {}
-
-    if "workflow_dispatch" not in triggers:
+    if "workflow_dispatch" not in workflow_triggers(data):
         return LintResult(
             message=(f"{workflow_path.name}: missing workflow_dispatch trigger."),
             is_issue=True,
@@ -1337,21 +1366,11 @@ def check_triggers_match(
     :param canonical_filename: Filename of the canonical upstream workflow.
     :return: Lint result.
     """
-    try:
-        content = workflow_path.read_text(encoding="UTF-8")
-        data = yaml.safe_load(content)
-    except (OSError, yaml.YAMLError) as e:
-        return LintResult(
-            message=f"{workflow_path.name}: failed to parse: {e}",
-            is_issue=True,
-            level=AnnotationLevel.ERROR,
-        )
+    data = _parse_workflow(workflow_path)
+    if isinstance(data, LintResult):
+        return data
 
-    caller_triggers: set[str] = set()
-    if isinstance(data, dict):
-        raw = data.get(True) or data.get("on") or {}
-        caller_triggers = set(raw.keys()) if isinstance(raw, dict) else set()
-
+    caller_triggers = set(workflow_triggers(data))
     info = extract_trigger_info(canonical_filename)
     expected = set(info.non_call_triggers.keys())
 
@@ -1406,22 +1425,9 @@ def check_secrets_passed(
             is_issue=False,
         )
 
-    try:
-        content = workflow_path.read_text(encoding="UTF-8")
-        data = yaml.safe_load(content)
-    except (OSError, yaml.YAMLError) as e:
-        return LintResult(
-            message=f"{workflow_path.name}: failed to parse: {e}",
-            is_issue=True,
-            level=AnnotationLevel.ERROR,
-        )
-
-    if not isinstance(data, dict):
-        return LintResult(
-            message=f"{workflow_path.name}: invalid workflow structure.",
-            is_issue=True,
-            level=AnnotationLevel.ERROR,
-        )
+    data = _parse_workflow(workflow_path)
+    if isinstance(data, LintResult):
+        return data
 
     expected = set(info.call_secrets)
     jobs = data.get("jobs") or {}

@@ -156,9 +156,7 @@ def _offline_setup_guide(
         )
         enter(patch("repomatic.setup_guide.run_gh_command", return_value=owner_type))
         lifecycle = enter(patch("repomatic.setup_guide.manage_issue_lifecycle"))
-        lifecycle.side_effect = lambda **kw: bodies.append(
-            kw["body_file"].read_text(encoding="utf-8")
-        )
+        lifecycle.side_effect = lambda **kw: bodies.append(kw["body"])
         yield lifecycle, bodies
 
 

@@ -133,6 +133,7 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
     from datetime import timedelta
+    from typing import Any
 
     from .config import Config
     from .version_sync import Candidate
@@ -423,6 +424,34 @@ def _track_held_back(
         plan.held_back_name_urls[name] = url
 
 
+def _finish_uv_plan(plan: SyncPlan, rc: ResolveContext, lockfile: Path) -> None:
+    """Attach the held-back probe, release notes and compare URLs to a uv plan.
+
+    The shared tail of the uv-project pair. Both operations end by asking uv the
+    same two follow-up questions about the lock they just wrote, so the wiring
+    (and the reason each step is gated) lives here once.
+
+    :param plan: The plan being resolved, mutated in place.
+    :param rc: The resolve inputs, supplying the opt-in flags.
+    :param lockfile: The `uv.lock` the operation just rewrote.
+    """
+    # The probe runs a second uv resolution, so skip it with nothing to report:
+    # the caller already gates `held_back` on a consumer being present (terminal
+    # table or file output). Bypass edits count as changes: a prune may leave
+    # newer releases cooldown-held, and this is the report that explains them.
+    if rc.held_back and plan.has_changes:
+        plan.held_back = compute_held_back_packages(lockfile)
+        plan.held_back_name_urls = pypi_name_urls([
+            (pkg.name, "", "") for pkg in plan.held_back
+        ])
+
+    notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
+    if rc.release_notes and plan.changes:
+        notes = fetch_release_notes(plan.changes)
+        plan.notes_section = format_release_notes(notes)
+    plan.comparison_urls = build_comparison_urls(plan.changes, notes)
+
+
 def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
     """Re-lock dependencies and roll cooldown overrides forward.
 
@@ -468,22 +497,7 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
             plan.uv_project.frozen_bypasses = result.frozen_bypasses
             plan.uv_project.bypass_forecasts = result.bypass_forecasts
 
-            # The probe runs a second uv resolution, so skip it with nothing to
-            # report: the caller already gates `held_back` on a consumer being
-            # present (terminal table or file output). Bypass edits count as
-            # changes: a prune may leave newer releases cooldown-held, and this
-            # is the report that explains them.
-            if rc.held_back and plan.has_changes:
-                plan.held_back = compute_held_back_packages(lockfile)
-                plan.held_back_name_urls = pypi_name_urls([
-                    (pkg.name, "", "") for pkg in plan.held_back
-                ])
-
-            notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
-            if rc.release_notes and result.changes:
-                notes = fetch_release_notes(result.changes)
-                plan.notes_section = format_release_notes(notes)
-            plan.comparison_urls = build_comparison_urls(result.changes, notes)
+            _finish_uv_plan(plan, rc, lockfile)
         finally:
             if rc.dry_run:
                 if lock_before is not None:
@@ -575,17 +589,7 @@ def _resolve_dep_sources(rc: ResolveContext) -> SyncPlan:
             pyproject_path, lockfile
         )
 
-        if rc.held_back:
-            plan.held_back = compute_held_back_packages(lockfile)
-            plan.held_back_name_urls = pypi_name_urls([
-                (pkg.name, "", "") for pkg in plan.held_back
-            ])
-
-        notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
-        if rc.release_notes and plan.changes:
-            notes = fetch_release_notes(plan.changes)
-            plan.notes_section = format_release_notes(notes)
-        plan.comparison_urls = build_comparison_urls(plan.changes, notes)
+        _finish_uv_plan(plan, rc, lockfile)
 
         if rc.dry_run:
             restore()
@@ -769,6 +773,38 @@ def _widest_changes(
     return [(name, old, new) for name, (old, new) in sorted(widest.items())]
 
 
+def _plan_file_rewrites(
+    plan: SyncPlan,
+    rc: ResolveContext,
+    file_data: dict[Path, str],
+    rewriter: Callable[[str, Any], tuple[str, list[tuple[str, str, str]]]],
+    resolved: Any,
+    min_age: timedelta,
+) -> None:
+    """Apply a pin rewriter across every scanned file and record the outcome.
+
+    The write-planning half of the two `.github/` pin updaters: run the pure
+    rewriter over each file's text, keep the ones it changed for
+    {func}`_apply_file_writes`, and collapse the per-file change lists into one
+    row per name.
+
+    :param plan: The plan being resolved, mutated in place.
+    :param rc: The resolve inputs, supplying the cooldown label.
+    :param file_data: Each scanned file's path and current text.
+    :param rewriter: A pure `(text, resolved) -> (new_text, changes)` function.
+    :param resolved: The rewriter's target versions, keyed however it expects.
+    :param min_age: The cooldown window, for the diff-table note.
+    """
+    changes: list[tuple[str, str, str]] = []
+    for path, text in file_data.items():
+        new_content, file_changes = rewriter(text, resolved)
+        if file_changes:
+            plan.file_writes[path] = new_content
+            changes.extend(file_changes)
+    plan.changes = _widest_changes(changes)
+    plan.note_cooldown(rc.config.minimum_release_age, min_age, rc.today)
+
+
 def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
     """Bump SHA-pinned GitHub Actions across `.github/` to their latest release.
 
@@ -838,14 +874,7 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
         resolved[slug] = (new_sha, latest.ref)
         plan.dates[slug] = latest.date
 
-    changes: list[tuple[str, str, str]] = []
-    for path, text in file_data.items():
-        new_content, file_changes = apply_action_pins(text, resolved)
-        if file_changes:
-            plan.file_writes[path] = new_content
-            changes.extend(file_changes)
-    plan.changes = _widest_changes(changes)
-    plan.note_cooldown(rc.config.minimum_release_age, min_age, today)
+    _plan_file_rewrites(plan, rc, file_data, apply_action_pins, resolved, min_age)
     plan.name_urls = {
         slug: f"https://github.com/{slug}" for slug, _old, _new in plan.changes
     }
@@ -954,14 +983,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         plan.dates[package] = latest.date
         plan.name_urls[package] = package_url
 
-    changes: list[tuple[str, str, str]] = []
-    for path, text in file_data.items():
-        new_content, file_changes = apply_workflow_literals(text, resolved)
-        if file_changes:
-            plan.file_writes[path] = new_content
-            changes.extend(file_changes)
-    plan.changes = _widest_changes(changes)
-    plan.note_cooldown(rc.config.minimum_release_age, min_age, today)
+    _plan_file_rewrites(plan, rc, file_data, apply_workflow_literals, resolved, min_age)
     if rc.release_notes:
         # Only PyPI literals resolve to a source repo, reusing sync-uv-lock's
         # path: PyPI `project_urls` to GitHub releases, with a changelog-link

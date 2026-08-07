@@ -6,8 +6,16 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** bundled skills drop `model` and `disable-model-invocation`, so every skill is now model-invocable and runs on the session model. The recommended model moved to the spec's `compatibility` field.
+- **Breaking:** `manage_issue_lifecycle()` takes the rendered `body` string instead of a `body_file` path, and writes the temporary file `gh` needs itself.
+- **Breaking:** `format_file_size` moves from `images` to a new `humanize` module, joined there by `format_age`. Frontmatter parsing moves to a new `frontmatter` module.
+- A `lint-repo` check that cannot read its GitHub API response now reports one "could not query API" outcome instead of separate unreachable-API and unparsable-JSON messages.
+- Fix `prepare-release` and `sync-github-releases` reading `./changelog.md` instead of the configured `changelog.location`.
+- Fix a PR body template's `footer: false` being ignored, appending the attribution footer to a template that opted out of it.
+- Fix template and skill frontmatter truncating at a value that embeds `---`, dropping every field below it.
+- Fix the parallel test run aborting before any test executed, and add a conformance test asserting no parametrization iterates an unordered collection.
+- Trim the hand-maintained example dumps from `metadata`'s module and `nuitka_matrix` docstrings, which had drifted from the values they claimed to show.
 - Every workflow now gates package installs behind the `minimum-release-age` cooldown, so no `uvx`, `uv pip install`, `npm install` or `npx` resolves a release published inside the window.
-- A thin caller that carries extra downstream jobs now gets a top-level `permissions: {}` plus, on its managed job, the union of the scopes the reusable workflow's own jobs declare. `lint-repo` asked for the first half but the generator rebuilt the header on every sync, so a hand-added key never survived, and adding it alone would have starved the call. Callers with no extra jobs are untouched.
+- A thin caller carrying extra downstream jobs now gets a top-level `permissions: {}`, and on its managed job the union of the scopes the reusable workflow's jobs declare. Callers with no extra jobs are untouched.
 - `astral-sh/setup-uv` steps now pin the uv version, bumped by `sync-workflow-pins` once a release clears the cooldown, instead of installing the newest build satisfying `required-version`.
 - `repomatic run mdformat` provisions its own `shfmt` at the registry-pinned version, so formatting shell blocks in Markdown no longer needs a system `shfmt`.
 - New `path_tools` field on a tool spec, naming registry tools whose binary must be on `PATH` while it runs.
@@ -27,8 +35,8 @@
 - Align bundled skills with the [Agent Skills specification](https://agentskills.io/specification): `babysit-ci` gains its required `name` field, and `allowed-tools` moves to the spec's space-separated form.
 - Skills are now installed as whole folders, so one can ship the spec's optional `scripts/`, `references/` and `assets/` directories alongside its `SKILL.md`.
 - Add `[tool.repomatic.flavor]` with `agent` and `ci` keys, declaring the ecosystems a repository targets. Values are [extra-platforms](https://github.com/kdeldycke/extra-platforms) trait IDs.
-- `[tool.repomatic.labels.extra]` entries now carry `labelmaker`'s full per-label specification instead of only `name`/`color`/`description`: a `rename-from` list renames a label in place on GitHub (preserving its issue and PR associations), multi-color lists work, and the `create`, `update`, `enforce-case` and `on-rename-clash` knobs pass through. Unknown fields are dropped with a warning instead of silently.
-- Add an `extra-assets` job to the release engine, driven by the new `release-assets` filename list in `[tool.repomatic]`: each declared asset is built by a caller-side job in the consumer's own release workflow (the same handoff as the wheel's `build` lane, so the engine never executes consumer-supplied commands), handed over as a `release-asset-<filename>` run artifact, attested with the same provenance chain as the compiled binaries, and attached to the release draft (with its sigstore bundle as `extra-assets.attestation.json`) before publication locks the immutable release.
+- `[tool.repomatic.labels.extra]` entries now carry `labelmaker`'s full per-label specification, adding `rename-from` in-place renames, multi-color lists, and the `create`, `update`, `enforce-case` and `on-rename-clash` knobs. An unknown field now warns instead of being dropped silently.
+- New `release-assets` filename list in `[tool.repomatic]`: each named asset is built by a caller-side job, attested like the compiled binaries, and attached to the release draft before publication locks it.
 - The man-page tarball is now attested like the compiled binaries, with its sigstore bundle attached as a `manpages.attestation.json` release asset.
 - `skills.location` and `agents.location` now default to the layout of the configured `flavor.agent`, and still win when set explicitly.
 - `repomatic run mdformat` drops the `mdformat-ruff` plugin and its separate ruff pin, and the bundled ruff config drops `extend-include`: ruff formats fenced Python blocks in Markdown on its own.

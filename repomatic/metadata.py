@@ -30,275 +30,27 @@ Since `github.event.head_commit` only sees the post-release bump, this module ex
 the full commit range from the push event and identifies release commits that need
 special handling (tagging, PyPI publishing, GitHub release creation).
 
-The following variables are [printed to the environment file](https://docs.github.com/en/free-pro-team@latest/actions/reference/workflow-commands-for-github-actions#environment-files):
+```{rubric} Output shapes
+```
+
+Every key is [printed to the environment file](https://docs.github.com/en/free-pro-team@latest/actions/reference/workflow-commands-for-github-actions#environment-files)
+as one `key=value` line. Values take three shapes:
 
 ```{code-block} text
-is_bot=false
-new_commits=346ce664f055fbd042a25ee0b7e96702e95 6f27db47612aaee06fdf08744b09a9f5f6c2
-release_commits=6f27db47612aaee06fdf08744b09a9f5f6c2
-mailmap_exists=true
-gitignore_exists=true
-python_files=".github/update_mailmap.py" ".github/metadata.py" "setup.py"
-json_files=
-yaml_files="config.yaml" ".github/workflows/lint.yaml" ".github/workflows/test.yaml"
-workflow_files=".github/workflows/lint.yaml" ".github/workflows/test.yaml"
-doc_files="changelog.md" "readme.md" "docs/license.md"
-markdown_files="changelog.md" "readme.md" "docs/license.md"
-image_files=
-zsh_files=
 is_python_project=true
-package_name=click-extra
-project_description=📦 Extra colorful clickable helpers for the CLI.
-mypy_params=--python-version 3.7
-current_version=2.0.1
-released_version=2.0.0
-is_sphinx=true
-active_autodoc=true
-release_notes=[🐍 Available on PyPI](https://pypi.org/project/click-extra/2.21.3).
-new_commits_matrix={
-    "commit": [
-        "346ce664f055fbd042a25ee0b7e96702e95",
-        "6f27db47612aaee06fdf08744b09a9f5f6c2"
-    ],
-    "include": [
-        {
-            "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-            "short_sha": "346ce66",
-            "current_version": "2.0.1"
-        },
-        {
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "short_sha": "6f27db4",
-            "current_version": "2.0.0"
-        }
-    ]
-}
-release_commits_matrix={
-    "commit": ["6f27db47612aaee06fdf08744b09a9f5f6c2"],
-    "include": [
-        {
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "short_sha": "6f27db4",
-            "current_version": "2.0.0"
-        }
-    ]
-}
-build_targets=[
-    {
-        "target": "linux-arm64",
-        "os": "ubuntu-24.04-arm",
-        "platform_id": "linux",
-        "arch": "arm64",
-        "extension": "bin",
-        "container": "quay.io/pypa/manylinux_2_28_aarch64@sha256:...",
-        "glibc_floor": "2.28"
-    },
-    {
-        "target": "linux-x64",
-        "os": "ubuntu-24.04",
-        "platform_id": "linux",
-        "arch": "x64",
-        "extension": "bin",
-        "container": "quay.io/pypa/manylinux_2_28_x86_64@sha256:...",
-        "glibc_floor": "2.28"
-    },
-    {
-        "target": "macos-arm64",
-        "os": "macos-26",
-        "platform_id": "macos",
-        "arch": "arm64",
-        "extension": "bin",
-        "min_os": "11.0"
-    },
-    {
-        "target": "macos-x64",
-        "os": "macos-26-intel",
-        "platform_id": "macos",
-        "arch": "x64",
-        "extension": "bin",
-        "min_os": "10.15"
-    },
-    {
-        "target": "windows-arm64",
-        "os": "windows-11-arm",
-        "platform_id": "windows",
-        "arch": "arm64",
-        "extension": "exe",
-        "min_os": "11"
-    },
-    {
-        "target": "windows-x64",
-        "os": "windows-2025",
-        "platform_id": "windows",
-        "arch": "x64",
-        "extension": "exe",
-        "min_os": "10"
-    }
-]
-nuitka_matrix={
-    "os": [
-        "ubuntu-24.04-arm",
-        "ubuntu-24.04",
-        "macos-26",
-        "macos-26-intel",
-        "windows-11-arm",
-        "windows-2025"
-    ],
-    "entry_point": ["mpm"],
-    "commit": [
-        "346ce664f055fbd042a25ee0b7e96702e95",
-        "6f27db47612aaee06fdf08744b09a9f5f6c2"
-    ],
-    "include": [
-        {
-            "target": "linux-arm64",
-            "os": "ubuntu-24.04-arm",
-            "platform_id": "linux",
-            "arch": "arm64",
-            "extension": "bin",
-            "container": "quay.io/pypa/manylinux_2_28_aarch64@sha256:...",
-            "glibc_floor": "2.28"
-        },
-        {
-            "target": "linux-x64",
-            "os": "ubuntu-24.04",
-            "platform_id": "linux",
-            "arch": "x64",
-            "extension": "bin",
-            "container": "quay.io/pypa/manylinux_2_28_x86_64@sha256:...",
-            "glibc_floor": "2.28"
-        },
-        {
-            "target": "macos-arm64",
-            "os": "macos-26",
-            "platform_id": "macos",
-            "arch": "arm64",
-            "extension": "bin",
-            "min_os": "11.0"
-        },
-        {
-            "target": "macos-x64",
-            "os": "macos-26-intel",
-            "platform_id": "macos",
-            "arch": "x64",
-            "extension": "bin",
-            "min_os": "10.15"
-        },
-        {
-            "target": "windows-arm64",
-            "os": "windows-11-arm",
-            "platform_id": "windows",
-            "arch": "arm64",
-            "extension": "exe",
-            "min_os": "11"
-        },
-        {
-            "target": "windows-x64",
-            "os": "windows-2025",
-            "platform_id": "windows",
-            "arch": "x64",
-            "extension": "exe",
-            "min_os": "10"
-        },
-        {
-            "entry_point": "mpm",
-            "cli_id": "mpm",
-            "module_id": "meta_package_manager.__main__",
-            "callable_id": "main",
-            "module_path": "meta_package_manager"
-        },
-        {
-            "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-            "short_sha": "346ce66",
-            "current_version": "2.0.0"
-        },
-        {
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "short_sha": "6f27db4",
-            "current_version": "1.9.1"
-        },
-        {
-            "os": "ubuntu-24.04-arm",
-            "entry_point": "mpm",
-            "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-            "bin_name": "mpm-linux-arm64.bin"
-        },
-        {
-            "os": "ubuntu-24.04-arm",
-            "entry_point": "mpm",
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "bin_name": "mpm-linux-arm64.bin"
-        },
-        {
-            "os": "ubuntu-24.04",
-            "entry_point": "mpm",
-            "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-            "bin_name": "mpm-linux-x64.bin"
-        },
-        {
-            "os": "ubuntu-24.04",
-            "entry_point": "mpm",
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "bin_name": "mpm-linux-x64.bin"
-        },
-        {
-            "os": "macos-26",
-            "entry_point": "mpm",
-            "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-            "bin_name": "mpm-macos-arm64.bin"
-        },
-        {
-            "os": "macos-26",
-            "entry_point": "mpm",
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "bin_name": "mpm-macos-arm64.bin"
-        },
-        {
-            "os": "macos-26-intel",
-            "entry_point": "mpm",
-            "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-            "bin_name": "mpm-macos-x64.bin"
-        },
-        {
-            "os": "macos-26-intel",
-            "entry_point": "mpm",
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "bin_name": "mpm-macos-x64.bin"
-        },
-        {
-            "os": "windows-11-arm",
-            "entry_point": "mpm",
-            "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-            "bin_name": "mpm-windows-arm64.bin"
-        },
-        {
-            "os": "windows-11-arm",
-            "entry_point": "mpm",
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "bin_name": "mpm-windows-arm64.bin"
-        },
-        {
-            "os": "windows-2025",
-            "entry_point": "mpm",
-            "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-            "bin_name": "mpm-windows-x64.exe"
-        },
-        {
-            "os": "windows-2025",
-            "entry_point": "mpm",
-            "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            "bin_name": "mpm-windows-x64.exe"
-        },
-        {"state": "stable"}
-    ]
-}
+doc_files="changelog.md" "readme.md" "docs/license.md"
+new_commits_matrix={"commit": ["346ce66…", "6f27db4…"], "include": [{"commit": "346ce66…", "short_sha": "346ce66"}]}
 ```
 
-```{warning}
-Fields with serialized lists and dictionaries, like `new_commits_matrix`,
-`build_targets` or `nuitka_matrix`, are pretty-printed in the example above for
-readability. They are inlined in the actual output and not formatted this way.
-```
+A scalar prints bare. A list prints as space-joined, individually quoted items,
+not a JSON array: workflow `if:` conditions test membership with a padded
+`contains()` against that string. A matrix prints as inlined JSON for
+`fromJSON()` to parse into a job matrix. See {meth}`Metadata.format_github_value`
+for the encoding, and {class}`Dialect` for the other output formats.
+
+The full key inventory is generated from this module rather than listed here, so
+it cannot go stale: run `repomatic metadata --list-keys`, or read the rendered
+table in [the workflows documentation](https://kdeldycke.github.io/repomatic/workflows.html).
 """
 
 from __future__ import annotations
@@ -2026,178 +1778,30 @@ class Metadata:
     def nuitka_matrix(self) -> Matrix | None:
         """Pre-compute a matrix for Nuitka compilation workflows.
 
-        Combine the variations of:
-        - release commits only (during releases) or all new commits (otherwise)
-        - all entry points
-        - for the 3 main OSes
-        - for a set of architectures
+        Crosses three axes:
 
-        Returns a ready-to-use matrix structure, where each variation is augmented with
-        specific extra parameters by the way of matching parameters in the `include`
-        directive.
+        - one commit per release commit (during a release) or per new commit
+          (otherwise)
+        - every `[project.scripts]` entry point
+        - every build target of {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`
+          (runner, platform, architecture, binary extension, and the glibc floor
+          or minimum-OS version that target enforces)
 
-        ```{code-block} python
-        {
-            "os": [
-                "ubuntu-24.04-arm",
-                "ubuntu-24.04",
-                "macos-26",
-                "macos-26-intel",
-                "windows-11-arm",
-                "windows-2025",
-            ],
-            "entry_point": [
-                "mpm",
-            ],
-            "commit": [
-                "346ce664f055fbd042a25ee0b7e96702e95",
-                "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            ],
-            "include": [
-                {
-                    "target": "linux-arm64",
-                    "os": "ubuntu-24.04-arm",
-                    "platform_id": "linux",
-                    "arch": "arm64",
-                    "extension": "bin",
-                    "container": "quay.io/pypa/manylinux_2_28_aarch64@sha256:...",
-                    "glibc_floor": "2.28",
-                },
-                {
-                    "target": "linux-x64",
-                    "os": "ubuntu-24.04",
-                    "platform_id": "linux",
-                    "arch": "x64",
-                    "extension": "bin",
-                    "container": "quay.io/pypa/manylinux_2_28_x86_64@sha256:...",
-                    "glibc_floor": "2.28",
-                },
-                {
-                    "target": "macos-arm64",
-                    "os": "macos-26",
-                    "platform_id": "macos",
-                    "arch": "arm64",
-                    "extension": "bin",
-                    "min_os": "11.0",
-                },
-                {
-                    "target": "macos-x64",
-                    "os": "macos-26-intel",
-                    "platform_id": "macos",
-                    "arch": "x64",
-                    "extension": "bin",
-                    "min_os": "10.15",
-                },
-                {
-                    "target": "windows-arm64",
-                    "os": "windows-11-arm",
-                    "platform_id": "windows",
-                    "arch": "arm64",
-                    "extension": "exe",
-                    "min_os": "11",
-                },
-                {
-                    "target": "windows-x64",
-                    "os": "windows-2025",
-                    "platform_id": "windows",
-                    "arch": "x64",
-                    "extension": "exe",
-                    "min_os": "10",
-                },
-                {
-                    "entry_point": "mpm",
-                    "cli_id": "mpm",
-                    "module_id": "meta_package_manager.__main__",
-                    "callable_id": "main",
-                    "module_path": "meta_package_manager",
-                },
-                {
-                    "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-                    "short_sha": "346ce66",
-                    "current_version": "2.0.0",
-                },
-                {
-                    "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-                    "short_sha": "6f27db4",
-                    "current_version": "1.9.1",
-                },
-                {
-                    "os": "ubuntu-24.04-arm",
-                    "entry_point": "mpm",
-                    "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-                    "bin_name": "mpm-2.0.0-linux-arm64.bin",
-                },
-                {
-                    "os": "ubuntu-24.04-arm",
-                    "entry_point": "mpm",
-                    "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-                    "bin_name": "mpm-1.9.1-linux-arm64.bin",
-                },
-                {
-                    "os": "ubuntu-24.04",
-                    "entry_point": "mpm",
-                    "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-                    "bin_name": "mpm-2.0.0-linux-x64.bin",
-                },
-                {
-                    "os": "ubuntu-24.04",
-                    "entry_point": "mpm",
-                    "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-                    "bin_name": "mpm-1.9.1-linux-x64.bin",
-                },
-                {
-                    "os": "macos-26",
-                    "entry_point": "mpm",
-                    "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-                    "bin_name": "mpm-2.0.0-macos-arm64.bin",
-                },
-                {
-                    "os": "macos-26",
-                    "entry_point": "mpm",
-                    "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-                    "bin_name": "mpm-1.9.1-macos-arm64.bin",
-                },
-                {
-                    "os": "macos-26-intel",
-                    "entry_point": "mpm",
-                    "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-                    "bin_name": "mpm-2.0.0-macos-x64.bin",
-                },
-                {
-                    "os": "macos-26-intel",
-                    "entry_point": "mpm",
-                    "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-                    "bin_name": "mpm-1.9.1-macos-x64.bin",
-                },
-                {
-                    "os": "windows-11-arm",
-                    "entry_point": "mpm",
-                    "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-                    "bin_name": "mpm-2.0.0-windows-arm64.exe",
-                },
-                {
-                    "os": "windows-11-arm",
-                    "entry_point": "mpm",
-                    "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-                    "bin_name": "mpm-1.9.1-windows-arm64.exe",
-                },
-                {
-                    "os": "windows-2025",
-                    "entry_point": "mpm",
-                    "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-                    "bin_name": "mpm-2.0.0-windows-x64.exe",
-                },
-                {
-                    "os": "windows-2025",
-                    "entry_point": "mpm",
-                    "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-                    "bin_name": "mpm-1.9.1-windows-x64.exe",
-                },
-                {
-                    "state": "stable",
-                },
-            ],
-        }
+        Each axis contributes an `include` entry carrying the extra parameters
+        the compile job needs, keyed on the axis value that selects it: the
+        target's runner and floors, the entry point's module and callable, and
+        the commit's short SHA and version. A final pass adds one `include` entry
+        per `(os, entry_point, commit)` triple naming the `bin_name` the compiled
+        artifact takes, since that name depends on all three at once.
+
+        The matrix closes with `{"state": "stable"}`, which the release workflow
+        reads to decide whether a failing job blocks the release.
+
+        ```{note}
+        Every value comes from {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`
+        and the project's own `pyproject.toml`, so no literal is repeated here:
+        run `repomatic metadata nuitka_matrix` against a project to see the
+        matrix it computes, or `repomatic show-test-matrix` for the test one.
         ```
         """
         # Only produce a matrix if the project is providing CLI entry points.
