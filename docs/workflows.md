@@ -187,8 +187,8 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - Syncs the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) from the bundled template into `pyproject.toml`, so the lock resolves against the pinned uv floor and cooldown, while leaving every other project-owned `[tool.uv]` key untouched
 - Only creates a PR when the lock file contains real dependency changes or a cooldown-bypass edit (timestamp-only noise is detected and skipped)
 - PR body includes a table of updated packages with version ranges linked to GitHub comparison diffs, plus collapsible release notes for all intermediate versions
-- PR body also lists releases held back by the `exclude-newer` cooldown, including those blocked by an `exclude-newer-package` freeze: newer versions already published but still too young to lock, with the date each ages out of the window
-- PR body tracks the [`exclude-newer-package`](https://docs.astral.sh/uv/reference/settings/#exclude-newer-package) cooldown bypasses in a single `Cooldown bypasses` table: one row per freeze with its held version and a `Held until` expiry, `📌 frozen:` and `🧹 cleared:` labels on the entries the run rewrote or removed, and a `🚧 unreleased:` label with a *needs release* expiry for freezes holding git or path sources
+- PR body then tracks the [`exclude-newer-package`](https://docs.astral.sh/uv/reference/settings/#exclude-newer-package) cooldown bypasses in a single `Cooldown bypasses` table: one row per freeze with its held version and a `Held until` expiry, `📌 frozen:` and `🧹 cleared:` labels on the entries the run rewrote or removed, and a `🚧 unreleased:` label with a *needs release* expiry for freezes holding git or path sources
+- PR body closes on the releases held back by the `exclude-newer` cooldown, including those blocked by an `exclude-newer-package` freeze: newer versions already published but still too young to lock, with the date each ages out of the window. It comes last because it is the only section reporting what the run left alone rather than what it changed
 - **Requires**:
   - Python package with a `pyproject.toml` file
 - **Skipped if**:

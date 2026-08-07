@@ -950,10 +950,17 @@ def render_plan_markdown(plan: SyncPlan) -> str:
     """Render a plan as the markdown PR-body section every updater shares.
 
     Concatenates the source-swap section (when the plan carries one), the
-    diff table, any release notes, the held-back section, and the uv
-    cooldown-bypass section exactly as the individual `sync-*` commands do,
-    so `sync-deps` and the thin commands produce identical output for the
-    same plan.
+    diff table, any release notes, the uv cooldown-bypass section, and the
+    held-back section exactly as the individual `sync-*` commands do, so
+    `sync-deps` and the thin commands produce identical output for the same
+    plan.
+
+    Every other section reports what the run did to the working tree, so the
+    held-back one closes the body: it is the only forward-looking section,
+    listing releases the run deliberately left alone. A run that only rewrites
+    `exclude-newer-package` entries moves no version at all, and leading with
+    the forecast would open its PR on the releases it did not adopt instead of
+    the `pyproject.toml` hunk it asks to merge.
     """
     swaps = plan.uv_project.source_swaps
     swap_section = format_swap_section(
@@ -998,8 +1005,8 @@ def render_plan_markdown(plan: SyncPlan) -> str:
             swap_section,
             diff_table,
             plan.notes_section,
-            held_back_section,
             bypass_section,
+            held_back_section,
         )
         if section
     )

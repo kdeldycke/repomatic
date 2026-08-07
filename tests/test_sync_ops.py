@@ -36,6 +36,7 @@ from click.testing import CliRunner
 from repomatic import dep_sources
 from repomatic.cli import repomatic
 from repomatic.config import Config
+from repomatic.dep_report import HeldBackPackage
 from repomatic.github.pr_body import get_template_names
 from repomatic.init_project import get_data_content
 from repomatic.pypi import PyPIRelease
@@ -429,6 +430,35 @@ def test_bypass_only_plan_counts_as_changed_and_renders() -> None:
         "| [mango](https://pypi.org/project/mango/) | 🧹 cleared: `2.0.0` |"
         " 2026-07-01 (5 days ago) |"
     ) in body
+
+
+def test_render_plan_markdown_closes_on_the_held_back_section() -> None:
+    """What the run did comes first; what it left alone closes the body.
+
+    The held-back section is the only forward-looking one, so it sits below
+    the bypass table. A bypass-only run moves no version, and the old order
+    opened its PR on releases it had not adopted.
+    """
+    plan = SyncPlan(
+        operation="sync-uv-lock",
+        subject="Package",
+        heading="Updated packages",
+        changes=[("cherry", "1.0.0", "1.1.0")],
+        held_back=[
+            HeldBackPackage("papaya", "3.0.0", "3.1.0", "a day ago", "in a week")
+        ],
+        uv_project=UvProjectExtras(
+            bypass_forecasts=[
+                BypassForecast("mango", "2.0.0", "2026-07-08 (in 2 days)")
+            ]
+        ),
+    )
+    body = render_plan_markdown(plan)
+    assert (
+        body.index("## 🆙 Updated packages")
+        < body.index("## ❄️ Cooldown bypasses")
+        < body.index("## ⏸️ Held back by cooldown")
+    )
 
 
 SWAP_PYPROJECT = """\

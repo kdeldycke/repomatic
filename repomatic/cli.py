@@ -2502,8 +2502,10 @@ def _emit_lockfile_sync_report(
     """Emit the shared terminal table and markdown report for a lockfile sync.
 
     Both sync-uv-lock and sync-dep-sources render the same package diff table,
-    held-back and bypass tables, terminal release notes, and optional markdown
-    file output from their resolved {class}`SyncPlan`.
+    bypass and held-back tables, terminal release notes, and optional markdown
+    file output from their resolved {class}`SyncPlan`. Table order matches
+    {func}`~repomatic.sync_ops.render_plan_markdown`, so the terminal report and
+    the PR body read the same way.
     """
     # Terminal output: structured table via click-extra.
     if table:
@@ -2519,10 +2521,10 @@ def _emit_lockfile_sync_report(
             subject="Package",
             reference_date=reference_date,
         )
-        if plan.held_back:
-            _print_held_back_table(ctx, plan.held_back)
         if plan.uv_project.bypass_forecasts:
             _print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
+        if plan.held_back:
+            _print_held_back_table(ctx, plan.held_back)
 
     # Release notes echoed to the terminal (already fetched during resolve).
     if plan.notes_section:
@@ -2936,10 +2938,10 @@ def sync_deps(
         _print_sync_table(
             ctx, plan.changes, plan.dates, subject=plan.subject, reference_date=rc.today
         )
-        if plan.held_back:
-            _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
         if plan.uv_project.bypass_forecasts:
             _print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
+        if plan.held_back:
+            _print_held_back_table(ctx, plan.held_back, subject=plan.subject)
 
     if output:
         sections = [
