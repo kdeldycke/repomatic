@@ -7,6 +7,7 @@
 
 - **Breaking:** bundled skills drop `model` and `disable-model-invocation`, so every skill is now model-invocable and runs on the session model. The recommended model moved to the spec's `compatibility` field.
 - Every workflow now gates package installs behind the `minimum-release-age` cooldown, so no `uvx`, `uv pip install`, `npm install` or `npx` resolves a release published inside the window.
+- A thin caller that carries extra downstream jobs now gets a top-level `permissions: {}` plus, on its managed job, the union of the scopes the reusable workflow's own jobs declare. `lint-repo` asked for the first half but the generator rebuilt the header on every sync, so a hand-added key never survived, and adding it alone would have starved the call. Callers with no extra jobs are untouched.
 - `astral-sh/setup-uv` steps now pin the uv version, bumped by `sync-workflow-pins` once a release clears the cooldown, instead of installing the newest build satisfying `required-version`.
 - `repomatic run mdformat` provisions its own `shfmt` at the registry-pinned version, so formatting shell blocks in Markdown no longer needs a system `shfmt`.
 - New `path_tools` field on a tool spec, naming registry tools whose binary must be on `PATH` while it runs.

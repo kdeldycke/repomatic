@@ -192,6 +192,14 @@ class WorkflowFormat(StrEnum):
                 )
                 return True
 
+            # Extra downstream jobs are read before generating, not after: their
+            # presence is what decides whether the caller spells out a
+            # permissions contract. Those jobs carry custom `steps:`, which is
+            # what makes a top-level `permissions: {}` worth pinning.
+            extra = ""
+            if target.exists():
+                extra = extract_extra_jobs(target.read_text(encoding="UTF-8"), repo)
+
             try:
                 content = generate_thin_caller(
                     filename,
@@ -199,18 +207,13 @@ class WorkflowFormat(StrEnum):
                     version,
                     paths_spec=spec,
                     commit_sha=commit_sha,
+                    with_permissions=bool(extra),
                 )
             except ValueError as e:
                 logging.error(str(e))
                 return False
 
-            # Preserve extra downstream jobs from the existing file.
-            if target.exists():
-                extra = extract_extra_jobs(target.read_text(encoding="UTF-8"), repo)
-                if extra:
-                    content += extra
-
-            target.write_text(content, encoding="UTF-8")
+            target.write_text(content + extra, encoding="UTF-8")
             logging.info(f"Generated thin caller: {target}")
             return True
 
@@ -264,6 +267,14 @@ class WorkflowFormat(StrEnum):
             logging.error(f"Failed to create symlink for {filename}: {e}")
             return False
         return True
+
+
+PERMISSION_RANK: Final[dict[str, int]] = {"none": 0, "read": 1, "write": 2}
+"""Relative strength of the `permissions:` levels GitHub accepts.
+
+Used to union the same scope granted at different levels across the jobs of a
+canonical workflow, keeping the most permissive one.
+"""
 
 
 DEFAULT_VERSION: Final[str] = "main" if ".dev" in __version__ else f"v{__version__}"
@@ -387,6 +398,39 @@ class LintResult:
 
     level: AnnotationLevel = field(default=AnnotationLevel.WARNING)
     """Severity level for GitHub Actions annotations."""
+
+
+def canonical_caller_permissions(filename: str) -> dict[str, str]:
+    """Union the job-level `permissions:` scopes of a canonical workflow.
+
+    A caller job hands its own permissions down to the reusable workflow it
+    calls, and the called workflow's jobs are capped by them: they cannot
+    escalate beyond what the caller granted. The canonical workflows pin a
+    top-level `permissions: {}`, so a job without its own block needs nothing
+    and the union of the job-level blocks is the complete set the caller has
+    to forward.
+
+    A scope appearing at different levels across jobs resolves to the most
+    permissive one, so no job is starved by another's narrower grant.
+
+    :param filename: Canonical workflow filename (e.g., `autofix.yaml`).
+    :return: Scope-to-level mapping, sorted by scope. Empty when no job
+        declares permissions, meaning the caller forwards nothing.
+    :raises FileNotFoundError: If the workflow file is not bundled.
+    """
+    data = yaml.safe_load(get_data_content(filename))
+    union: dict[str, str] = {}
+    for job in (data.get("jobs") or {}).values():
+        if not isinstance(job, dict) or not isinstance(job.get("permissions"), dict):
+            continue
+        for raw_scope, raw_level in job["permissions"].items():
+            scope, level = str(raw_scope), str(raw_level)
+            # An unseen scope ranks below every level, so the first grant always
+            # lands and later ones can only widen it.
+            granted_rank = PERMISSION_RANK.get(union.get(scope, ""), -1)
+            if PERMISSION_RANK.get(level, 0) > granted_rank:
+                union[scope] = level
+    return dict(sorted(union.items()))
 
 
 def extract_trigger_info(filename: str) -> WorkflowTriggerInfo:
@@ -683,6 +727,7 @@ def generate_thin_caller(
     version: str = DEFAULT_VERSION,
     commit_sha: str | None = None,
     paths_spec: PathsSpec | None = None,
+    with_permissions: bool = False,
 ) -> str:
     """Generate a thin caller workflow for a reusable canonical workflow.
 
@@ -706,6 +751,14 @@ def generate_thin_caller(
         When provided, produces `@sha # version`. When `None`, produces
         `@version`.
     :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
+    :param with_permissions: Emit an explicit permissions contract: a top-level
+        `permissions: {}` plus, on the managed job, the scopes the reusable
+        workflow needs (see {func}`canonical_caller_permissions`). Set when the
+        downstream file carries extra jobs of its own, whose custom `steps:`
+        are what make the top-level key worth pinning. Both halves ship
+        together: the top-level `{}` alone would starve the managed call, which
+        GitHub aborts at startup the moment a nested job asks for a scope the
+        caller never granted.
     :return: Complete YAML content for the thin caller workflow.
     :raises ValueError: If the workflow does not support `workflow_call`.
     """
@@ -749,11 +802,33 @@ def generate_thin_caller(
         f"name: {info.name}",
         _render_triggers(triggers),
         "",
+    ]
+
+    if with_permissions:
+        lines.extend(["permissions: {}", ""])
+
+    lines.extend([
         "jobs:",
         "",
         f"  {main_job}:",
         f"    uses: {repo}/.github/workflows/{source}@{uses_ref}",
-    ]
+    ])
+
+    # Restate the scopes the reusable workflow's own jobs declare. Under the
+    # top-level `permissions: {}` above, this job would otherwise forward an
+    # empty token and the called workflow could not escalate back out of it.
+    if with_permissions:
+        forwarded = canonical_caller_permissions(source)
+        if forwarded:
+            lines.append("    permissions:")
+            lines.extend(
+                f"      {scope}: {level}" for scope, level in forwarded.items()
+            )
+        else:
+            # No job upstream asks for a scope, so forwarding nothing is the
+            # accurate contract. Still spelled out, since an absent block would
+            # read as an oversight rather than a deliberate empty grant.
+            lines.append("    permissions: {}")
 
     # Forward workflow_call inputs, so a manual dispatch of the thin caller
     # reaches the reusable workflow. Canonical workflows only declare

@@ -1014,23 +1014,29 @@ def _init_workflows(
         target = workflows_dir / filename
         rel = target.relative_to(output_dir).as_posix()
         existed = target.exists()
-        content = generate_thin_caller(
-            filename,
-            repo,
-            version,
-            paths_spec=paths_spec,
-            commit_sha=commit_sha,
-        )
-        # Preserve extra downstream jobs from the existing file.
+        # Extra downstream jobs are read before generating, not after: their
+        # presence is what decides whether the caller spells out a permissions
+        # contract. Those jobs carry custom `steps:`, which is what makes a
+        # top-level `permissions: {}` worth pinning.
         existing_content: str | None = None
+        extra = ""
         if existed:
             existing_content = target.read_text(encoding="UTF-8")
             extra = extract_extra_jobs(existing_content, repo)
-            if extra:
-                content += extra
-            if existing_content == content:
-                logging.debug(f"Unchanged: {rel}")
-                continue
+        content = (
+            generate_thin_caller(
+                filename,
+                repo,
+                version,
+                paths_spec=paths_spec,
+                commit_sha=commit_sha,
+                with_permissions=bool(extra),
+            )
+            + extra
+        )
+        if existed and existing_content == content:
+            logging.debug(f"Unchanged: {rel}")
+            continue
         target.write_text(content, encoding="UTF-8")
         if existed:
             result.updated.append(rel)

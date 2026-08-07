@@ -34,6 +34,7 @@ from repomatic.github.workflow_sync import (
     _adapt_trigger_paths,
     _split_yaml_quote,
     _substitute_source_paths,
+    canonical_caller_permissions,
     check_has_workflow_dispatch,
     check_secrets_passed,
     check_triggers_match,
@@ -47,6 +48,7 @@ from repomatic.github.workflow_sync import (
     run_workflow_lint,
 )
 from repomatic.init_project import get_data_content
+from repomatic.lint_repo import check_workflow_permissions
 from repomatic.pyproject import derive_source_paths, resolve_source_paths
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
@@ -2007,3 +2009,166 @@ def test_generate_workflows_honors_paths_spec(tmp_path: Path) -> None:
     written = (tmp_path / "tests.yaml").read_text(encoding="UTF-8")
     assert "from_spec/**" in written
     assert "repo-specific.sh" in written
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    (
+        # Every autofix job that writes opens a pull request; setup-guide adds
+        # the issues scope.
+        (
+            "autofix.yaml",
+            {"contents": "write", "issues": "write", "pull-requests": "write"},
+        ),
+        # The labellers only read the tree, so contents stays at read while the
+        # scopes they do write are unioned in.
+        (
+            "labels.yaml",
+            {"contents": "read", "issues": "write", "pull-requests": "write"},
+        ),
+        # Every lint job inherits the canonical top-level `permissions: {}`, so
+        # a caller has nothing to forward.
+        ("lint.yaml", {}),
+    ),
+)
+def test_canonical_caller_permissions(filename: str, expected: dict[str, str]) -> None:
+    """Union the job-level scopes a caller has to forward."""
+    assert canonical_caller_permissions(filename) == expected
+
+
+@pytest.mark.parametrize(
+    ("levels", "expected"),
+    (
+        (("read", "write"), "write"),
+        (("write", "read"), "write"),
+        (("none", "read"), "read"),
+        (("read", "none"), "read"),
+        (("read", "read"), "read"),
+        (("write", "write"), "write"),
+    ),
+)
+def test_canonical_caller_permissions_keeps_most_permissive(
+    monkeypatch: pytest.MonkeyPatch, levels: tuple[str, str], expected: str
+) -> None:
+    """Resolve a scope granted at odds across jobs to its strongest level.
+
+    Order of appearance must not matter: a narrower grant later in the file
+    cannot walk back a wider one already collected.
+    """
+    first, second = levels
+    stub = (
+        "---\njobs:\n"
+        f"  a:\n    permissions:\n      contents: {first}\n"
+        f"  b:\n    permissions:\n      contents: {second}\n"
+    )
+    monkeypatch.setattr(
+        "repomatic.github.workflow_sync.get_data_content", lambda _name: stub
+    )
+    assert canonical_caller_permissions("stub.yaml") == {"contents": expected}
+
+
+def test_generate_thin_caller_omits_permissions_by_default() -> None:
+    """Leave a caller with no extra jobs exactly as before.
+
+    Its single managed job inherits the repository default, which the reusable
+    workflow's own `permissions:` blocks then cap. Pinning `{}` here would buy
+    nothing and starve that call.
+    """
+    content = generate_thin_caller("autofix.yaml", DEFAULT_REPO, "v1.2.3")
+    assert "permissions" not in content
+    assert yaml.safe_load(content).get("permissions") is None
+
+
+def test_generate_thin_caller_emits_both_permission_halves() -> None:
+    """Pin least privilege at the top and forward the scopes the call needs."""
+    content = generate_thin_caller(
+        "autofix.yaml", DEFAULT_REPO, "v1.2.3", with_permissions=True
+    )
+    data = yaml.safe_load(content)
+    assert data["permissions"] == {}
+    assert data["jobs"]["autofix"]["permissions"] == {
+        "contents": "write",
+        "issues": "write",
+        "pull-requests": "write",
+    }
+    # The permissions block must not displace the call's own arguments.
+    assert data["jobs"]["autofix"]["uses"].startswith(DEFAULT_REPO)
+    assert "REPOMATIC_PAT" in data["jobs"]["autofix"]["secrets"]
+
+
+def test_generate_thin_caller_spells_out_an_empty_forward() -> None:
+    """Emit `permissions: {}` on the job when no upstream job asks for a scope."""
+    content = generate_thin_caller(
+        "lint.yaml", DEFAULT_REPO, "v1.2.3", with_permissions=True
+    )
+    data = yaml.safe_load(content)
+    assert data["permissions"] == {}
+    assert data["jobs"]["lint"]["permissions"] == {}
+
+
+def test_thin_caller_permissions_track_extra_jobs(tmp_path: Path) -> None:
+    """Add the contract when extra jobs appear, drop it when they go away."""
+    target = tmp_path / "autofix.yaml"
+
+    def sync() -> bool:
+        return WorkflowFormat.THIN_CALLER.write_workflow(
+            "autofix.yaml",
+            target,
+            repo=DEFAULT_REPO,
+            version="v1.2.3",
+            spec=PathsSpec(),
+            commit_sha=None,
+        )
+
+    # First sync, no downstream file yet: a bare thin caller.
+    assert sync()
+    assert yaml.safe_load(target.read_text(encoding="UTF-8")).get("permissions") is None
+
+    # Author adds a custom job, then re-syncs.
+    target.write_text(
+        target.read_text(encoding="UTF-8")
+        + "\n  custom:\n    runs-on: ubuntu-slim\n    steps:\n      - run: echo hi\n",
+        encoding="UTF-8",
+    )
+    assert sync()
+    data = yaml.safe_load(target.read_text(encoding="UTF-8"))
+    assert data["permissions"] == {}
+    assert data["jobs"]["autofix"]["permissions"]["contents"] == "write"
+    assert data["jobs"]["custom"]["steps"] == [{"run": "echo hi"}]
+
+    # Custom job removed: the contract goes with it.
+    target.write_text(
+        generate_thin_caller("autofix.yaml", DEFAULT_REPO, "v1.2.3"), encoding="UTF-8"
+    )
+    assert sync()
+    assert yaml.safe_load(target.read_text(encoding="UTF-8")).get("permissions") is None
+
+
+def test_generated_caller_with_extra_jobs_satisfies_lint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Close the loop the warning opened.
+
+    `check_workflow_permissions` is what flagged these callers in the first
+    place, and it fails both on a missing top-level key and on a managed call
+    starved by an empty one. A generated caller must clear both at once.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    target = workflows / "autofix.yaml"
+    target.write_text(
+        generate_thin_caller("autofix.yaml", DEFAULT_REPO, "v1.2.3")
+        + "\n  custom:\n    runs-on: ubuntu-slim\n    steps:\n      - run: echo hi\n",
+        encoding="UTF-8",
+    )
+    assert WorkflowFormat.THIN_CALLER.write_workflow(
+        "autofix.yaml",
+        target,
+        repo=DEFAULT_REPO,
+        version="v1.2.3",
+        spec=PathsSpec(),
+        commit_sha=None,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    assert [r for r in check_workflow_permissions() if r.passed is False] == []
