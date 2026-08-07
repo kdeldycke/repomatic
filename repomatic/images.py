@@ -258,8 +258,10 @@ def generate_markdown_summary(results: list[OptimizationResult]) -> str:
     total_pct = (total_saved / total_before * 100) if total_before else 0
 
     lines = [
-        f"Compression reduced images by **{total_pct:.1f}%**, "
-        f"saving **{format_file_size(total_saved)}**.",
+        (
+            f"Compression reduced images by **{total_pct:.1f}%**, "
+            f"saving **{format_file_size(total_saved)}**."
+        ),
         "",
         "| Filename | Before | After | Improvement |",
         "| :------- | -----: | ----: | ----------: |",

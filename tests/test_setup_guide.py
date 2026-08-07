@@ -55,8 +55,10 @@ def _partial_fail_pat_results() -> PatPermissionResults:
         pull_requests=(True, "Pull requests: token has access"),
         vulnerability_alerts=(
             False,
-            "Token lacks 'Dependabot alerts: Read-only' permission."
-            " Update the PAT to include this permission.",
+            (
+                "Token lacks 'Dependabot alerts: Read-only' permission."
+                " Update the PAT to include this permission."
+            ),
         ),
         workflows=(True, "Workflows: token has access"),
     )

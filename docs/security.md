@@ -68,22 +68,22 @@ Replacement strategies, ordered from most to least isolated:
 
 ### Ruff consolidation
 
-Eight separate Python linters and formatters have been absorbed into `ruff`, eliminating eight runtime or dev dependencies:
+Ten separate Python linters and formatters, two of them mdformat plugins, have been absorbed into `ruff`, eliminating ten runtime or dev dependencies:
 
-| Removed tool   | What it did                               | Replaced |
-| :------------- | :---------------------------------------- | :------- |
-| `pylint`       | Static analysis and linting               | Feb 2023 |
-| `pydocstyle`   | Docstring convention enforcement          | Feb 2023 |
-| `pycln`        | Unused import removal                     | Feb 2023 |
-| `pyupgrade`    | Python syntax modernization               | Feb 2023 |
-| `isort`        | Import sorting                            | Feb 2023 |
-| `black`        | Code formatting                           | Sep 2023 |
-| `docformatter` | Docstring formatting                      | Jan 2024 |
-| `blacken-docs` | Python formatting in Markdown code blocks | Feb 2026 |
+| Removed tool     | What it did                                                                            | Replaced |
+| :--------------- | :------------------------------------------------------------------------------------- | :------- |
+| `pylint`         | Static analysis and linting                                                            | Feb 2023 |
+| `pydocstyle`     | Docstring convention enforcement                                                       | Feb 2023 |
+| `pycln`          | Unused import removal                                                                  | Feb 2023 |
+| `pyupgrade`      | Python syntax modernization                                                            | Feb 2023 |
+| `isort`          | Import sorting                                                                         | Feb 2023 |
+| `black`          | Code formatting                                                                        | Sep 2023 |
+| `docformatter`   | Docstring formatting                                                                   | Jan 2024 |
+| `mdformat-black` | Python formatting in Markdown code blocks, as an mdformat plugin                       | Aug 2024 |
+| `blacken-docs`   | Python formatting in Markdown code blocks                                              | Feb 2026 |
+| `mdformat-ruff`  | Same as `mdformat-black`, through a second ruff pinned inside the mdformat environment | Aug 2026 |
 
-The `mdformat-black` plugin was also swapped for `mdformat-ruff` (Aug 2024): same dependency count, but aligns the Markdown pipeline with ruff's formatting rules.
-
-`autopep8` is the only legacy formatter still in use: it handles long-line comment wrapping that ruff does not yet cover.
+`autopep8` is the only legacy formatter still in use: it handles long-line comment wrapping that ruff does not yet cover ([astral-sh/ruff#7414](https://github.com/astral-sh/ruff/issues/7414)).
 
 ### uv consolidation
 

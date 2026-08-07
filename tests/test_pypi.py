@@ -280,8 +280,10 @@ def test_settings_url_bare_without_prefill_args():
                 "workflow_filename": "release.yaml",
                 "environment": "production",
             },
-            "provider=github&owner=alice&repository=cherries"
-            "&workflow_filename=release.yaml&environment=production",
+            (
+                "provider=github&owner=alice&repository=cherries"
+                "&workflow_filename=release.yaml&environment=production"
+            ),
         ),
     ],
 )

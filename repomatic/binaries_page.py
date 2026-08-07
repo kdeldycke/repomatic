@@ -418,8 +418,10 @@ def render_binaries_csv(
             # they stay clickable with their label.
             writer.writerow((
                 f"[`{version}` {{octicon}}`link-external`]({release_url})",
-                f"[{{octicon}}`download` `{_platform_target(asset.name)}`]"
-                f"({asset.download_url})",
+                (
+                    f"[{{octicon}}`download` `{_platform_target(asset.name)}`]"
+                    f"({asset.download_url})"
+                ),
                 release.date,
                 vt_cell,
             ))

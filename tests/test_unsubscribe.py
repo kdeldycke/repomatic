@@ -324,11 +324,15 @@ def test_render_detail_table_exact():
     expected_lines = [
         "### \U0001f4dd Details",
         "",
-        "| \U0001f4ac Title | \U0001f517 Link"
-        " | \U0001f550 Last activity | \u26a1 Action |",
+        (
+            "| \U0001f4ac Title | \U0001f517 Link"
+            " | \U0001f550 Last activity | \u26a1 Action |"
+        ),
         "| --- | --- | --- | --- |",
-        "| Sunny afternoon | [`fruits/apple#7`](https://example.com/apple/7)"
-        " | - | \U0001f515 Unsubscribed |",
+        (
+            "| Sunny afternoon | [`fruits/apple#7`](https://example.com/apple/7)"
+            " | - | \U0001f515 Unsubscribed |"
+        ),
         "| Rainy morning | cities/paris | - | \u26a0\ufe0f Failed |",
     ]
     expected = "\n".join(expected_lines)

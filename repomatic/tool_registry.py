@@ -1297,6 +1297,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         default_config="mdformat.toml",
         reads_pyproject=True,
         default_flags=("--strict-front-matter",),
+        # No Python-formatting plugin here: ruff formats fenced Python blocks in
+        # Markdown natively, and the `format-python` job already runs it over doc
+        # files. A `mdformat-ruff` plugin would only cover the `python` info
+        # string (ruff also handles `py`, `py3`, `python3`, `pyi` and `pycon`) and
+        # would pin a second, independently-drifting ruff version in this
+        # environment, letting the two jobs fight over the same code blocks.
         with_packages=(
             "mdformat_admon==2.1.1",
             "mdformat-config==0.2.1",
@@ -1309,12 +1315,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "mdformat-pelican==1.0.0",
             "mdformat_pyproject==0.1.1",
             "mdformat-recover-urls==0.0.2",
-            "mdformat-ruff==0.1.3",
             "mdformat-shfmt==0.2.0",
             "mdformat_simple_breaks==0.1.0",
             "mdformat-toc==0.5.0",
             "mdformat-web==0.2.0",
-            "ruff==0.15.5",
         ),
         post_process=_fix_myst_directives,
         check_flags=("--check",),
