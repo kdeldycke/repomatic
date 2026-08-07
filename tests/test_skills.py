@@ -96,6 +96,26 @@ def frontmatter(entry):
     )
 
 
+@pytest.fixture
+def exported_skill(tmp_path):
+    """A synthetic bundled skill, already exported once to its destination.
+
+    Stands in for a downstream repo right after `repomatic init skills`: the
+    destination holds a pristine copy of the bundle.
+
+    :return: The `(source, dest)` folder pair.
+    """
+    source = tmp_path / "bundled" / "papaya-report"
+    source.mkdir(parents=True)
+    (source / SKILL_FILENAME).write_text(
+        "---\nname: papaya-report\ndescription: Chart papaya harvests.\n---\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "out" / "papaya-report"
+    _copy_template_tree(source, dest)
+    return source, dest
+
+
 @skill_entries
 def test_skill_is_a_folder_holding_a_skill_md(entry):
     """The spec's unit of distribution: a folder entered through `SKILL.md`.
@@ -235,3 +255,43 @@ def test_skill_resource_folders_are_copied_verbatim(tmp_path):
     assert len(created) == 4
     assert updated == []
     assert _copy_template_tree(source, dest) == ([], [])
+
+
+def test_drifted_skill_is_overwritten(exported_skill):
+    """A downstream copy that fell behind the bundle is reconciled.
+
+    Skills are copied verbatim, with no user-modified heuristic: content that
+    differs from the bundle is rewritten, so a downstream repo picks up new
+    frontmatter on its next `repomatic init`. Adding a leave-what-is-there
+    guard here would strand every downstream repo on whichever revision it
+    first received, which is why this is pinned rather than left to the
+    idempotency check above (identical content exercises neither branch).
+    """
+    source, dest = exported_skill
+    bundled = (source / SKILL_FILENAME).read_text(encoding="utf-8")
+    skill = dest / SKILL_FILENAME
+    skill.write_text(
+        "---\nname: papaya-report\ndescription: Old harvest charts.\n---\n",
+        encoding="utf-8",
+    )
+
+    created, updated = _copy_template_tree(source, dest)
+
+    assert created == []
+    assert updated == [skill]
+    assert skill.read_text(encoding="utf-8") == bundled
+
+
+def test_local_files_beside_a_skill_survive(exported_skill):
+    """Re-exporting creates and overwrites, but never prunes.
+
+    Wiping whatever is not bundled would be an easy way to reconcile a drifted
+    folder, and would take a downstream repo's own files with it. Retiring a
+    bundled asset goes through a `REMOVED_ASSETS` tombstone instead.
+    """
+    source, dest = exported_skill
+    local = dest / "harvest-notes.md"
+    local.write_text("Papaya yields, local notes.\n", encoding="utf-8")
+
+    assert _copy_template_tree(source, dest) == ([], [])
+    assert local.read_text(encoding="utf-8") == "Papaya yields, local notes.\n"
