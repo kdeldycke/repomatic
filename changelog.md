@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.5.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.4.1...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.5.0` (2026-08-07)](https://github.com/kdeldycke/repomatic/compare/v7.4.1...v7.5.0)
 
 - **Breaking:** bundled skills drop `model` and `disable-model-invocation`, so every skill is now model-invocable and runs on the session model. The recommended model moved to the spec's `compatibility` field.
 - **Breaking:** `manage_issue_lifecycle()` takes the rendered `body` string instead of a `body_file` path, and writes the temporary file `gh` needs itself.
