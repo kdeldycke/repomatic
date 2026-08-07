@@ -834,6 +834,22 @@ The `uv.lock` file pins all project Python dependencies. The `sync-uv-lock` upda
 
 The [`--exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) flag in `[tool.uv]` ignores packages released within a short window, providing a buffer against freshly-published broken releases. The window is managed by the `sync-uv-lock` updater, which rolls the `exclude-newer` date forward automatically.
 
+`sync-uv-lock` passes that window to `uv lock` as an explicit `--exclude-newer` flag instead of letting uv read it from `pyproject.toml`. Every workflow exports a `UV_EXCLUDE_NEWER` (see [install-time cooldown](#install-time-cooldown) below), and an environment variable outranks `[tool.uv]`: left implicit, a CI lock would resolve against a different window than a developer running the same command, and the two machines would keep reverting each other's lock.
+
+#### Install-time cooldown
+
+The cooldowns above gate what gets *written into a pin or a lockfile*. A separate layer gates what any command *resolves at run time*: each workflow declares `UV_EXCLUDE_NEWER` and `NPM_CONFIG_MIN_RELEASE_AGE` in a workflow-level `env:` block, so every `uvx`, `uv pip install`, `uv run --with`, `uv tool install`, `npm install` and `npx` in every job refuses a package published inside the window, transitive dependencies included.
+
+The block sits at workflow level rather than on each job or each command because the gap it closes is the command nobody thought to protect: a debugging step, a one-off experiment, a job added next year. Its window is a literal rather than a `metadata` job output, since a workflow-level `env:` block cannot reference `needs`, and the `metadata` job itself runs `uvx` to compute its outputs. `tests/test_workflows.py` holds that literal equal to [`minimum-release-age`](configuration.md#minimum-release-age).
+
+Three installs opt out, each as narrowly as it can:
+
+| Install                          | Scope       | Why                                                                                                                                                       |
+| :------------------------------- | :---------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The frozen `repomatic` self-pin  | One package | Moves in lockstep with the `uses:` refs, so it names a release published minutes earlier. The freeze splices `--exclude-newer-package` in beside the pin. |
+| A security fix inside the window | One package | `audit --fix` reaches the fix through an `exclude-newer-package` entry rather than lifting `exclude-newer` for everything.                                |
+| The `test-package-install` job   | One job     | Its subject *is* the fresh release, so a cooldown makes the question it answers unanswerable. It holds no secrets and inherits `permissions: {}`.         |
+
 #### Tagged workflow URLs
 
 Workflows in this repository are **self-referential**. The [`prepare-release`](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/changelog.yaml) job's freeze commit rewrites workflow URL references from `main` to the release tag, ensuring released versions reference immutable URLs. The unfreeze commit reverts them back to `main` for development.

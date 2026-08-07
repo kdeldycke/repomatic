@@ -39,6 +39,17 @@ permissions: {}
 # release.yaml entry owns the concurrency group (its SHA-based unique group
 # protects release commits, and a block here would contend with it).
 
+# Supply-chain cooldown: no package published within the window can be resolved by
+# any command in this workflow. Set here, not per command, so it also covers the
+# `metadata` bootstrap and any step added later; a workflow-level `env:` cannot
+# reference `needs`, so the window is a literal that tests/test_workflows.py holds
+# equal to `[tool.repomatic] minimum-release-age`. Deliberate bypasses are
+# per-package CLI flags (`--exclude-newer-package`, `--min-release-age-exclude`).
+# See claude.md for the rationale.
+env:
+  NPM_CONFIG_MIN_RELEASE_AGE: 8
+  UV_EXCLUDE_NEWER: "8 days"
+
 jobs:
 
   detect-squash-merge:
@@ -66,7 +77,8 @@ jobs:
         env:
           PR_REF: ${{ steps.extract.outputs.pr_ref }}
         run: >
-          uvx --no-progress --from . repomatic pr-body --output-format github-actions
+          uvx --no-progress --from . repomatic
+          pr-body --output-format github-actions
           --template detect-squash-merge
           --pr-ref "${PR_REF}"
           --output "$GITHUB_OUTPUT"

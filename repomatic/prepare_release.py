@@ -57,6 +57,34 @@ from .changelog import Changelog
 from .config import Config
 from .metadata import Metadata
 
+SELF_PIN_COOLDOWN_EXEMPTION = "--exclude-newer-package repomatic=P0D"
+"""uv escape hatch letting a just-published repomatic install under the cooldown.
+
+Every workflow exports a `UV_EXCLUDE_NEWER` covering all package resolution (see
+`claude.md` § Cooldown on every install), and it applies to the frozen
+`'repomatic==X.Y.Z'` self-pin like any other requirement. That pin moves in
+lockstep with the `uses:` refs pointing at the same tag, so the version it names
+is always minutes old: without an exemption every downstream repo would fail to
+resolve it until the window elapsed. A zero-length window sets that one package's
+cutoff to "now", leaving the rest of the tree gated.
+
+uv exposes no environment variable for `--exclude-newer-package`, so the
+exemption has to ride on the command line, which is why the freeze splices it in
+beside the pin instead of the workflows declaring it once.
+
+Spelled as the ISO 8601 `P0D` rather than the `"0 day"` used in
+`pyproject.toml`'s `exclude-newer-package` table: the flag travels through YAML
+folded scalars into a shell, where the space in `0 day` would need quoting that
+survives both. `P0D` needs none.
+
+```{caution}
+Every character here lands on 80-odd already-long workflow lines at freeze time.
+`tests/test_prepare_release.py` simulates a freeze and fails if the result
+breaches yamllint's 120-column cap, so lengthening this string means reflowing
+the workflows that no longer fit.
+```
+"""
+
 
 class PrepareRelease:
     """Prepare files for a release by updating dates, URLs, and removing warnings."""
@@ -373,6 +401,11 @@ class PrepareRelease:
         workflow YAML files. Comment lines (starting with `#`) are skipped to
         avoid corrupting explanatory comments.
 
+        The pin is spliced in behind {data}`SELF_PIN_COOLDOWN_EXEMPTION`, which
+        is what keeps a release installable the minute it is published despite
+        the workflow-wide cooldown. Local source needs no exemption, so `main`
+        carries none between releases.
+
         :param version: The PyPI version to freeze to.
         :return: Number of files modified.
         """
@@ -382,7 +415,7 @@ class PrepareRelease:
 
         count = 0
         search = "--from . repomatic"
-        yaml_replace = f"'repomatic=={version}'"
+        yaml_replace = f"{SELF_PIN_COOLDOWN_EXEMPTION} 'repomatic=={version}'"
 
         for workflow_file in self._workflow_files():
             original = workflow_file.read_text(encoding="UTF-8")
@@ -400,8 +433,11 @@ class PrepareRelease:
         development cycle on `main`.
 
         Replaces `'repomatic==X.Y.Z'` (quoted, in YAML) with
-        `--from . repomatic`. Comment lines are skipped (see
-        {meth}`freeze_cli_version`).
+        `--from . repomatic`, taking {data}`SELF_PIN_COOLDOWN_EXEMPTION` with it
+        when the freeze put one there: local source resolves from the working
+        tree, so it never needs the escape hatch. The prefix is optional in the
+        pattern so a workflow frozen by an older release still unfreezes cleanly.
+        Comment lines are skipped (see {meth}`freeze_cli_version`).
 
         :return: Number of files modified.
         """
@@ -410,7 +446,9 @@ class PrepareRelease:
             return 0
 
         count = 0
-        yaml_pattern = re.compile(r"'repomatic==[\d.]+'")
+        yaml_pattern = re.compile(
+            rf"(?:{re.escape(SELF_PIN_COOLDOWN_EXEMPTION)} )?'repomatic==[\d.]+'"
+        )
         replace = "--from . repomatic"
 
         for workflow_file in self._workflow_files():

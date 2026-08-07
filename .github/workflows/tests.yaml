@@ -37,6 +37,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ !startsWith(github.event.head_commit.message, '[changelog] Release') }}
 
+# Supply-chain cooldown: no package published within the window can be resolved by
+# any command in this workflow. Set here, not per command, so it also covers the
+# `metadata` bootstrap and any step added later; a workflow-level `env:` cannot
+# reference `needs`, so the window is a literal that tests/test_workflows.py holds
+# equal to `[tool.repomatic] minimum-release-age`. Deliberate bypasses are
+# per-package CLI flags (`--exclude-newer-package`, `--min-release-age-exclude`).
+# See claude.md for the rationale.
+env:
+  NPM_CONFIG_MIN_RELEASE_AGE: 8
+  UV_EXCLUDE_NEWER: "8 days"
+
 jobs:
 
   metadata:
@@ -245,6 +256,15 @@ jobs:
       CLI_SCRIPTS: ${{ fromJSON(needs.metadata.outputs.metadata).cli_scripts }}
       GIT_URL: git+https://github.com/${{ github.repository }}
       PACKAGE: ${{ fromJSON(needs.metadata.outputs.metadata).package_name }}
+      # The one job that opts out of the workflow-wide supply-chain cooldown, by
+      # setting a zero-length window. Its subject IS the freshly published
+      # artifact: it answers "does the release that shipped minutes ago install
+      # and run?", which a cooldown makes unanswerable, since neither the new
+      # release nor a dependency floor raised to a recent version can resolve
+      # until the window elapses. Scoped to this job and safe to scope here: it
+      # inherits `permissions: {}`, takes no secrets, and only runs `--version`
+      # on a throwaway runner. See claude.md § Cooldown on every install.
+      UV_EXCLUDE_NEWER: P0D
     steps:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Install Python

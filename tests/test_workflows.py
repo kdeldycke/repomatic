@@ -30,6 +30,7 @@ from repomatic.git_ops import (
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
 )
+from repomatic.github.workflow_sync import cooldown_env_block
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
     RELEASE_ENGINE_WORKFLOWS,
@@ -1095,4 +1096,60 @@ def test_release_engine_lanes_not_materialized_downstream() -> None:
     )
     assert WORKFLOW_SOURCES["release.yaml"] in RELEASE_ENGINE_WORKFLOWS, (
         "the release entry's source must be one of RELEASE_ENGINE_WORKFLOWS"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Supply-chain cooldown
+# ---------------------------------------------------------------------------
+
+COOLDOWN_EXEMPT_JOBS: dict[str, frozenset[str]] = {
+    "tests.yaml": frozenset(("test-package-install",)),
+}
+"""Jobs allowed to override the workflow-wide cooldown, and why.
+
+`test-package-install` installs the freshly published artifact on purpose, so a
+cooldown makes the question it exists to answer unanswerable. See `claude.md`
+§ Cooldown on every install for the full exemption roster.
+"""
+
+
+@pytest.mark.parametrize(
+    "workflow", sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml"))
+)
+def test_workflow_declares_cooldown_env(workflow: str) -> None:
+    """Every workflow carries the cooldown `env:` block, verbatim.
+
+    The block is rendered from `[tool.repomatic] minimum-release-age`, so this is
+    what keeps the YAML literal tied to its single source of truth: YAML cannot
+    read the config itself. A workflow without it silently resolves packages
+    published seconds ago.
+    """
+    content = (WORKFLOWS_DIR / workflow).read_text(encoding="UTF-8")
+    assert cooldown_env_block() in content, (
+        f"{workflow} is missing the cooldown env block. Re-render it from "
+        "repomatic.github.workflow_sync.cooldown_env_block()."
+    )
+
+
+@pytest.mark.parametrize(
+    "workflow", sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml"))
+)
+def test_cooldown_override_is_declared(workflow: str) -> None:
+    """No job weakens the cooldown without being listed as a known exemption.
+
+    A job-level `env:` silently outranks the workflow-level block, so an
+    undeclared override is the one way the cooldown can disappear while every
+    other check still passes.
+    """
+    allowed = COOLDOWN_EXEMPT_JOBS.get(workflow, frozenset())
+    overriding = {
+        job_id
+        for job_id, job in (load_workflow(workflow).get("jobs") or {}).items()
+        if isinstance(job, dict) and "UV_EXCLUDE_NEWER" in (job.get("env") or {})
+    }
+    assert overriding <= allowed, (
+        f"{workflow}: job(s) {sorted(overriding - allowed)} override "
+        "UV_EXCLUDE_NEWER without being declared in COOLDOWN_EXEMPT_JOBS. "
+        "Add the job with a comment naming what breaks without the override."
     )

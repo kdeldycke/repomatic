@@ -128,6 +128,30 @@ def _resolve_exclude_newer_cutoff(value: str) -> datetime | None:
     return parse_iso_datetime(value)
 
 
+def project_exclude_newer(pyproject_path: Path) -> str:
+    """Read the project's own `[tool.uv] exclude-newer` window.
+
+    ```{caution}
+    Always pass this back to `uv lock` and `uv sync` as an explicit
+    `--exclude-newer` flag rather than letting uv pick the value up from
+    `pyproject.toml` on its own. CI exports a `UV_EXCLUDE_NEWER` covering every
+    ad-hoc install (see `claude.md` § Cooldown on every install), and that
+    environment variable *outranks* `[tool.uv]`: left implicit, a CI lock would
+    resolve against the ambient window while a developer running the same
+    command locally resolves against this one, and `sync-uv-lock` would churn
+    between the two. A CLI flag outranks the environment, which pins the
+    project's own policy.
+    ```
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :return: The configured window verbatim (a friendly duration, an ISO 8601
+        span or an absolute timestamp), or an empty string when unset.
+    """
+    doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+    window = doc.get("tool", {}).get("uv", {}).get("exclude-newer", "")
+    return str(window) if window else ""
+
+
 def packages_outside_cooldown(
     pyproject_path: Path,
     lock_path: Path,
@@ -144,9 +168,7 @@ def packages_outside_cooldown(
     :param packages: Candidate package names.
     :return: The subset that actually requires a `"0 day"` override.
     """
-    content = pyproject_path.read_text(encoding="UTF-8")
-    doc = tomlrt.loads(content)
-    exclude_newer_str = doc.get("tool", {}).get("uv", {}).get("exclude-newer", "")
+    exclude_newer_str = project_exclude_newer(pyproject_path)
     if not exclude_newer_str:
         return packages
 
@@ -1041,10 +1063,17 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     before = parse_lock_versions(lock_path)
     lock_before = lock_path.read_bytes() if lock_path.exists() else None
 
-    # Step 3: Run uv lock --upgrade in the project directory.
+    # Step 3: Run uv lock --upgrade in the project directory. The project's own
+    # exclude-newer window is passed explicitly so CI's ambient UV_EXCLUDE_NEWER
+    # cannot retime the lock; see project_exclude_newer.
     project_dir = lock_path.parent
-    logging.info(f"Running uv lock --upgrade in {project_dir}...")
-    subprocess.run([*uv_cmd("lock"), "--upgrade"], check=True, cwd=project_dir)
+    lock_cmd = [*uv_cmd("lock"), "--upgrade"]
+    if pyproject_path.exists():
+        window = project_exclude_newer(pyproject_path)
+        if window:
+            lock_cmd += ["--exclude-newer", window]
+    logging.info(f"Running {' '.join(lock_cmd)} in {project_dir}...")
+    subprocess.run(lock_cmd, check=True, cwd=project_dir)
 
     # Step 4: Compute version diff.
     after = parse_lock_versions(lock_path)

@@ -16,13 +16,14 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
-from repomatic.prepare_release import PrepareRelease
+from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION, PrepareRelease
 
 
 @pytest.fixture
@@ -863,3 +864,97 @@ def test_prepare_release_pins_install_cli(
     content = temp_install_pinned.read_text(encoding="UTF-8")
     assert "test-project@1.2.3" in content
     assert "test-project==1.2.3" in content
+
+
+# ---------------------------------------------------------------------------
+# Cooldown exemption on the frozen self-pin
+# ---------------------------------------------------------------------------
+
+REPO_WORKFLOWS = Path(__file__).parent.parent / ".github" / "workflows"
+
+YAMLLINT_LINE_LENGTH = 120
+"""Column cap from the bundled `yamllint.yaml`, mirrored here.
+
+Not imported from the YAML: this test asserts the *frozen* workflows satisfy the
+same rule the `lint-yaml` job applies to the working tree, and reading the config
+would make the test pass by construction if the cap were ever loosened to
+accommodate a freeze that outgrew it.
+"""
+
+
+def _breaches_line_length(line: str) -> bool:
+    """Whether *line* violates yamllint's `line-length` as this repo configures it.
+
+    Ports the `allow-non-breakable-words` branch of yamllint's rule rather than
+    comparing raw lengths: the bundled config enables it, so an over-long line
+    made of a single unbreakable token (a release download URL) is legal and must
+    not be reported here. Leading indentation and a `#` or `- ` marker are
+    skipped first, matching yamllint; what is left counts only if it contains a
+    space, meaning it *could* have been wrapped.
+    """
+    if len(line) <= YAMLLINT_LINE_LENGTH:
+        return False
+    rest = line.lstrip(" ")
+    if rest.startswith("#"):
+        rest = rest.lstrip("#")[1:]
+    elif rest.startswith("- "):
+        rest = rest[2:]
+    return " " in rest
+
+
+def _freeze_repo_workflows(tmp_path: Path, version: str = "1.2.3") -> Path:
+    """Copy the real workflows and run the release freeze over them."""
+    frozen = tmp_path / "workflows"
+    shutil.copytree(REPO_WORKFLOWS, frozen)
+    PrepareRelease(workflow_dir=frozen).freeze_cli_version(version)
+    return frozen
+
+
+def test_freeze_keeps_workflows_within_line_length(tmp_path: Path) -> None:
+    """Freezing the real workflows must not breach yamllint's column cap.
+
+    The freeze swaps `--from . repomatic` for the pin *plus* its cooldown
+    exemption, which is markedly longer, and it is a blind string replacement: a
+    line that fits on `main` can overflow only once frozen. Nothing else catches
+    that, because the frozen state is never committed to `main` and only exists
+    on the release commit, where the failure would surface as a red `lint-yaml`
+    on every release.
+    """
+    offenders = [
+        f"{path.name}:{num} ({len(line)} chars) {line.strip()[:60]}"
+        for path in sorted(_freeze_repo_workflows(tmp_path).glob("*.yaml"))
+        for num, line in enumerate(path.read_text(encoding="UTF-8").splitlines(), 1)
+        if _breaches_line_length(line)
+    ]
+    assert not offenders, (
+        "Freezing pushes these lines past yamllint's "
+        f"{YAMLLINT_LINE_LENGTH}-column cap; wrap them in the source workflow "
+        "so they still fit once the pin and its exemption are spliced in:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_freeze_exempts_self_pin_from_cooldown(tmp_path: Path) -> None:
+    """Every frozen invocation carries the cooldown escape hatch.
+
+    Without it the workflow-wide `UV_EXCLUDE_NEWER` would refuse the pin the
+    freeze just wrote, since it names a release published minutes earlier.
+    """
+    for path in sorted(_freeze_repo_workflows(tmp_path).glob("*.yaml")):
+        for num, line in enumerate(path.read_text(encoding="UTF-8").splitlines(), 1):
+            if "'repomatic==1.2.3'" in line and not line.lstrip().startswith("#"):
+                assert SELF_PIN_COOLDOWN_EXEMPTION in line, (
+                    f"{path.name}:{num} pins repomatic without the cooldown "
+                    f"exemption: {line.strip()}"
+                )
+
+
+def test_freeze_unfreeze_round_trips(tmp_path: Path) -> None:
+    """Unfreezing restores the source byte for byte, exemption included."""
+    frozen = _freeze_repo_workflows(tmp_path)
+    PrepareRelease(workflow_dir=frozen).unfreeze_cli_version()
+    for path in sorted(frozen.glob("*.yaml")):
+        original = (REPO_WORKFLOWS / path.name).read_text(encoding="UTF-8")
+        assert path.read_text(encoding="UTF-8") == original, (
+            f"{path.name} did not round-trip through freeze/unfreeze"
+        )

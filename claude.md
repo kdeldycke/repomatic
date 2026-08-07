@@ -9,6 +9,48 @@ This repository is the **canonical reference** for conventions. Repos using the 
 
 **Self-contained `claude.md`:** This file deploys as-is to downstream repos via `repomatic init`, so it must stand on its own: do not rely on user-level `~/.claude/CLAUDE.md` or other external instruction files. Every rule Claude needs must be inline here.
 
+## Cooldown on every install
+
+**Every command that resolves a package from a live registry carries a cooldown.** A cooldown refuses any version published more recently than a fixed window, so a compromised release has to survive that window before it can enter a build. Most malicious releases (stolen publishing credentials, dependency confusion, account takeover) are [caught and pulled within days of publication](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), which is what makes a window of days worth the delay it costs.
+
+The rule has **no scratch exemption**. It binds reusable workflows, one-off CI steps, test scripts, local reproduction commands, and throwaway experiments equally: an uncooled `uvx` in a five-minute debugging step resolves the same tree from the same registry onto the same runner as a production job. If you type an install command, it carries the cooldown.
+
+### Where the window comes from
+
+`[tool.repomatic] minimum-release-age` (default `8 days`) is the single source of truth. Never hard-code a duration next to an install command: read it from config, or from the `npm_min_release_age_days` output `repomatic metadata` derives from it.
+
+Workflows are the exception, and only because YAML cannot read Python: each one sets `UV_EXCLUDE_NEWER` and `NPM_CONFIG_MIN_RELEASE_AGE` in a **workflow-level `env:` block** whose literal is tied back to the config default by a conformance test (`tests/test_workflows.py`). Job-level `env:` would let the value come from the `metadata` job, but it cannot cover the bootstrap: `metadata` runs `uvx` to compute its own outputs, and a workflow-level `env:` block cannot reference `needs`. The literal covers every job, including that bootstrap and any step added later by someone who never read this section.
+
+That makes the cooldown the one place an environment variable beats an explicit flag, inverting [§ uv flags in CI workflows](#uv-flags-in-ci-workflows): a flag only protects the command someone remembered to write it on, and the commands that most need protecting are the ones nobody thought about.
+
+A command that resolves against a checked-in lockfile is the exception that needs the flag *back*. `uv lock` and `uv sync` are governed by the project's own `[tool.uv] exclude-newer`, and an ambient `UV_EXCLUDE_NEWER` silently overrides it, so CI would lock to a different window than a developer running the same command. `sync-uv-lock` therefore passes `--exclude-newer` explicitly, sourced from `[tool.uv]`: a CLI flag outranks the environment.
+
+### Per-ecosystem knobs
+
+| Ecosystem                                                                             | Cooldown                                                           | Per-package exemption                                   |
+| :------------------------------------------------------------------------------------ | :----------------------------------------------------------------- | :------------------------------------------------------ |
+| uv: `uvx`, `uv pip install`, `uv run --with`, `uv tool install`, `uv lock`, `uv sync` | `--exclude-newer`, or `UV_EXCLUDE_NEWER`                           | `--exclude-newer-package pkg=YYYY-MM-DD`, CLI flag only |
+| npm, `npx`                                                                            | `--min-release-age` in whole days, or `NPM_CONFIG_MIN_RELEASE_AGE` | `--min-release-age-exclude` taking a name or glob       |
+| A tool in the `repomatic run` registry                                                | applied by the runner                                              | n/a                                                     |
+
+uv accepts a friendly duration (`8 days`), an ISO 8601 span (`P8D`), or an absolute date; npm counts whole days and needs 11.10.0 or newer. Both knobs gate the whole resolved tree, transitive dependencies included, which is the point: the compromised package is rarely the one named on the command line.
+
+For any other package manager, consult [meta-package-manager's cooldown inventory](https://kdeldycke.github.io/meta-package-manager/cooldown.html#supported-managers) for which of them enforce a cooldown natively, which have support proposed upstream, and which cannot express one at all. It tracks the capability across every manager mpm drives and stays fresher than a table copied into this file.
+
+### Managers that cannot express a cooldown
+
+Fail closed. When the manager has no cooldown knob (`pipx`, bare `pip`, most system package managers), do not hand it a floating version range. Either pin an exact version that a cooldown-gated updater already vetted (`sync-action-pins`, `sync-tool-versions` and `sync-workflow-pins` all apply `minimum-release-age` before proposing a bump), or route the install through uv, which has the flag. An unpinned install on an ungated manager is the exact thing this rule exists to prevent.
+
+### Documented exemptions
+
+Three installs deliberately bypass the window. The first two are per-package and never widen to the rest of the tree; the third is a whole job, and says why it has to be.
+
+- **The upstream toolkit's own pin.** `repomatic` runs from a pin that moves in lockstep with the `uses:` refs pointing at it, so a release must be installable the minute it is published or every downstream repo breaks until the window elapses. The release freeze emits an `--exclude-newer-package` escape hatch beside the pin it writes.
+- **A security fix still inside the window.** `audit --fix` reaches a CVE fix through an `exclude-newer-package` entry rather than lifting `exclude-newer` for everything.
+- **The `test-package-install` job.** Its subject *is* the freshly published artifact, so a cooldown would make the question it exists to answer unanswerable. Scoping the opt-out to one job is what keeps it honest: it holds no secrets, inherits `permissions: {}`, and only runs `--version` on a throwaway runner.
+
+A fourth exemption is a bug until proven otherwise. Anything claiming one carries a comment naming what breaks without it, and the narrowest scope that still works: a package, not a job; a job, not a workflow.
+
 ## Documentation requirements
 
 ### Keeping `claude.md` lean
@@ -411,7 +453,7 @@ When invoking `uv` and `uvx` commands in GitHub Actions workflows:
 - **`--frozen`** on `uv run` commands (run-level flag, after `run`): the lockfile should be immutable in CI.
 - **Flag placement:** `uv --no-progress run --frozen -- command` (not `uv run --no-progress`).
 - **Exceptions:** omit `--frozen` for `uvx` with pinned versions, `uv tool install`, CLI invocability tests, and local examples.
-- **Prefer explicit flags over environment variables** (`UV_NO_PROGRESS`, `UV_FROZEN`): self-documenting, visible in logs, and free of conflicts (like `UV_FROZEN` vs `--locked`).
+- **Prefer explicit flags over environment variables** (`UV_NO_PROGRESS`, `UV_FROZEN`): self-documenting, visible in logs, and free of conflicts (like `UV_FROZEN` vs `--locked`). The cooldown is the deliberate exception, and only the cooldown: `UV_EXCLUDE_NEWER` is set workflow-wide so it reaches commands nobody flagged, per [§ Cooldown on every install](#cooldown-on-every-install).
 - **Per-group `requires-python` in `[tool.uv]`:** a group needing newer Python can be restricted with `dependency-groups.docs = { requires-python = ">= 3.14" }`, so uv won't install incompatible dependencies on older Python.
 
 ### Pin uv with `required-version`

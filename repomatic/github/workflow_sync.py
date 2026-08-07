@@ -51,6 +51,7 @@ import yaml
 from .. import __version__
 from ..bundle import get_data_content
 from ..compat import StrEnum
+from ..config import Config
 from ..registry import (
     ALL_WORKFLOW_FILES,
     DEFAULT_REPO,
@@ -60,11 +61,53 @@ from ..registry import (
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
 )
+from ..version_sync import min_release_age_days
 from .actions import AnnotationLevel, emit_annotation
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any, Final
+
+
+def cooldown_env_block() -> str:
+    """Render the supply-chain cooldown `env:` block every workflow carries.
+
+    Rendered from {attr}`~repomatic.config.Config.minimum_release_age` rather
+    than written by hand, so the literal in the YAML has exactly one source. The
+    same text is asserted verbatim against every checked-in workflow by
+    `tests/test_workflows.py`, and emitted into the downstream `release.yaml`
+    caller by {func}`_generate_release_caller`.
+
+    ```{note}
+    A workflow-level `env:` block cannot reference `needs`, which is why the
+    window is a literal here instead of a `metadata` job output: the `metadata`
+    job runs `uvx` to compute its own outputs, so anything sourced from it would
+    leave that bootstrap install ungated. See `claude.md` § Cooldown on every
+    install.
+    ```
+
+    :return: The comment and `env:` mapping, newline-terminated, ready to splice
+        above a workflow's `jobs:` line.
+    """
+    window = Config.minimum_release_age
+    return (
+        "# Supply-chain cooldown: no package published within the window can be"
+        " resolved by\n"
+        "# any command in this workflow. Set here, not per command, so it also"
+        " covers the\n"
+        "# `metadata` bootstrap and any step added later; a workflow-level `env:`"
+        " cannot\n"
+        "# reference `needs`, so the window is a literal that"
+        " tests/test_workflows.py holds\n"
+        "# equal to `[tool.repomatic] minimum-release-age`. Deliberate bypasses"
+        " are\n"
+        "# per-package CLI flags (`--exclude-newer-package`,"
+        " `--min-release-age-exclude`).\n"
+        "# See claude.md for the rationale.\n"
+        "env:\n"
+        f"  NPM_CONFIG_MIN_RELEASE_AGE: {min_release_age_days(window)}\n"
+        f'  UV_EXCLUDE_NEWER: "{window}"\n'
+    )
 
 
 class WorkflowFormat(StrEnum):
@@ -256,6 +299,11 @@ def _extract_raw_section(content: str, section_name: str) -> str | None:
     with all indented continuation lines (including comments). Returns `None`
     if the section is not found.
 
+    A trailing run of column-0 comment lines is dropped: by YAML convention a
+    comment block sitting flush against the next top-level key documents *that*
+    key, so keeping it here would duplicate it into every copy of this section
+    and orphan it from the block it explains.
+
     :param content: Full workflow file content.
     :param section_name: Top-level key to extract (e.g., `"concurrency"`).
     :return: Raw text of the section, or `None` if absent.
@@ -273,7 +321,11 @@ def _extract_raw_section(content: str, section_name: str) -> str | None:
             break
         result.append(line)
 
-    # Strip trailing blank lines.
+    # Strip trailing blank lines, then the comment header of the next section.
+    while result and not result[-1].strip():
+        result.pop()
+    while len(result) > 1 and result[-1].startswith("#"):
+        result.pop()
     while result and not result[-1].strip():
         result.pop()
 
@@ -970,6 +1022,10 @@ def _generate_release_caller(
     if info.raw_concurrency:
         lines.append(info.raw_concurrency)
         lines.append("")
+    # The publish-pypi job below runs on the downstream runner, so it needs its
+    # own cooldown: a workflow-level `env:` does not cross into the reusable
+    # lanes this caller invokes, nor back out of them.
+    lines.append(cooldown_env_block())
     lines.extend([
         "jobs:",
         "",
