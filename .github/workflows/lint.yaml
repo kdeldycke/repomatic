@@ -218,7 +218,7 @@ jobs:
         env:
           NPM_MIN_RELEASE_AGE: ${{ fromJSON(needs.metadata.outputs.metadata).npm_min_release_age_days }}
         run: > # zizmor: ignore[adhoc-packages]
-          npm install npm@12.0.1 --global --ignore-scripts --no-progress
+          npm install npm@12.0.2 --global --ignore-scripts --no-progress
           --no-update-notifier --no-fund --no-audit
           --min-release-age="$NPM_MIN_RELEASE_AGE"
       - name: Run awesome-lint
