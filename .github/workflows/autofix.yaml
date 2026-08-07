@@ -541,7 +541,7 @@ jobs:
   sync-deps:
     name: 🔗 Sync dependencies
     # Consolidated dependency updater. One runner shares the checkout, the uv
-    # install, and repomatic's HTTP cache across all five bumpers, instead of a
+    # install, and repomatic's HTTP cache across all four bumpers, instead of a
     # separate job per bumper each paying that setup. Each bumper still opens its
     # own PR: the working tree is reset before each one so their diffs never
     # bleed, keeping review and revert independent. Mirrors the local
@@ -701,52 +701,8 @@ jobs:
           branch: sync-workflow-pins
           delete-branch: true
 
-      # --- sync-tool-versions: bump the tool registry (upstream-only). ---
-      # Upstream-only and time-driven: it rewrites repomatic's own tool registry
-      # (repomatic/tool_registry.py), which exists only in this repo, so it runs on
-      # the weekly schedule and manual dispatch here, never in downstream callers.
-      - if: >
-          github.repository == 'kdeldycke/repomatic'
-          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        name: Reset tree before sync-tool-versions
-        run: git checkout -- .
-      - id: sync-tool-versions
-        if: >
-          github.repository == 'kdeldycke/repomatic'
-          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        name: Sync tool versions
-        # `uv run` (editable), not `uvx`: this is the only bumper that rewrites
-        # the checked-out package source, and an isolated uvx wheel would discard
-        # the edit. GH_TOKEN raises the releases API rate limit.
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic sync-tool-versions --release-notes
-          --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: sync-tool-versions-meta
-        if: >
-          github.repository == 'kdeldycke/repomatic'
-          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync-tool-versions.outputs.diff_table }}
-        run: >
-          uv --no-progress run --frozen -- repomatic pr-body
-          --output-format github-actions
-          --template sync-tool-versions
-          --output "$GITHUB_OUTPUT"
-      - if: >
-          github.repository == 'kdeldycke/repomatic'
-          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.sync-tool-versions-meta.outputs.commit_message }}
-          title: ${{ steps.sync-tool-versions-meta.outputs.title }}
-          body: ${{ steps.sync-tool-versions-meta.outputs.body }}
-          labels: "🔗 dependencies"
-          branch: sync-tool-versions
-          delete-branch: true
+      # sync-tool-versions is deliberately absent: it rewrites repomatic's own
+      # tool registry, so it lives in the upstream-only self-maintenance.yaml.
 
   update-dep-graph:
     name: 🕸️ Update dependency graph

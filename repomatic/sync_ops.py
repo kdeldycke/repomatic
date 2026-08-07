@@ -126,6 +126,7 @@ from .version_sync import (
     select_held_back,
     select_latest,
     set_tool_version,
+    set_with_package_version,
 )
 
 TYPE_CHECKING = False
@@ -595,6 +596,31 @@ def _apply_dep_sources(plan: SyncPlan) -> None:
     """No-op: {func}`_resolve_dep_sources` already wrote the swap."""
 
 
+def _pinned_with_packages() -> list[tuple[str, str]]:
+    """Every `package==version` pin declared in a tool's `with_packages`.
+
+    These ride along in a tool's `uvx` environment (plugin sets, and the engine a
+    plugin shells out to) and never surface as a `repomatic run` tool of their
+    own, so nothing else in the bump path looks at them.
+
+    When two tools pin the same package the *lowest* version wins the lookup, so
+    a bump is proposed as long as any one of them trails the latest release;
+    {func}`~repomatic.version_sync.set_with_package_version` then rewrites every
+    occurrence, converging them.
+
+    :return: Sorted `(package, pinned_version)` pairs.
+    """
+    pins: dict[str, str] = {}
+    for spec in TOOL_REGISTRY.values():
+        for entry in spec.with_packages:
+            package, separator, version = entry.partition("==")
+            if not separator:
+                continue
+            if package not in pins or is_newer(pins[package], version):
+                pins[package] = version
+    return sorted(pins.items())
+
+
 def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
     """Bump every `repomatic run` tool to its latest eligible release."""
     min_age = parse_min_age(rc.config.minimum_release_age)
@@ -635,6 +661,24 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         plan.dates[name] = latest.date
         overrides[name] = latest.version
 
+    # Second pass over the packages pinned *alongside* a tool. Without it they
+    # drift silently: a plugin pin ages out, or a second copy of a tool the main
+    # registry has already moved on from goes stale (mdformat once carried its
+    # own `ruff==` pin, formatting the same Markdown code blocks as the top-level
+    # ruff, at a different version).
+    package_urls: dict[str, str] = {}
+    for package, pinned in _pinned_with_packages():
+        url = PYPI_PACKAGE_URL.format(package=package)
+        candidates = pypi_candidates(package)
+        latest = select_latest(candidates, min_age, today)
+        _track_held_back(plan, rc, package, url, candidates, latest, pinned, min_age)
+        if latest is None or not is_newer(latest.version, pinned):
+            continue
+        content = set_with_package_version(content, package, latest.version)
+        changes.append((package, pinned, latest.version))
+        plan.dates[package] = latest.date
+        package_urls[package] = url
+
     plan.changes = changes
     plan.note_cooldown(rc.config.minimum_release_age, min_age, today)
     if not changes:
@@ -648,17 +692,22 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         if TOOL_REGISTRY[name].binary is not None
     }
     plan.tool_versions.actionlint_version = overrides.get("actionlint")
+    # `changes` now mixes registry tools with bare `with_packages` pins, so every
+    # TOOL_REGISTRY lookup below has to tolerate a name that is not a tool.
     plan.name_urls = {
         name: TOOL_REGISTRY[name].datasource_url
         for name, _old, _new in changes
-        if TOOL_REGISTRY[name].source_url or TOOL_REGISTRY[name].npm is not None
-    }
+        if name in TOOL_REGISTRY
+        and (TOOL_REGISTRY[name].source_url or TOOL_REGISTRY[name].npm is not None)
+    } | package_urls
 
     if rc.release_notes:
         notes_items = [
             (name, src, old, new, TOOL_REGISTRY[name].tag_pattern)
             for name, old, new in changes
-            if (src := TOOL_REGISTRY[name].source_url) and "github.com" in src
+            if name in TOOL_REGISTRY
+            and (src := TOOL_REGISTRY[name].source_url)
+            and "github.com" in src
         ]
         plan.notes_section = format_release_notes(
             fetch_github_release_notes(notes_items)
@@ -1047,6 +1096,19 @@ class SyncOperation:
     write_domain: tuple[str, ...]
     """Human-readable globs the operation mutates (for conflict awareness)."""
 
+    workflow: str = "autofix.yaml"
+    """Workflow file whose job runs this operation in CI."""
+
+    job: str = "sync-deps"
+    """Job ID inside {attr}`workflow` hosting this operation's steps.
+
+    Defaults to the consolidated `sync-deps` job, which shares one checkout
+    across every bumper whose write domain exists downstream. An operation that
+    writes only to this repository's own source belongs in a job of its own, in
+    a workflow `repomatic init` never materializes downstream (see
+    {data}`~repomatic.registry.SELF_MAINTENANCE_WORKFLOWS`).
+    """
+
     editable: bool = False
     """CI install mode: `uv run --frozen` (rewrites source) vs `uvx --from .`."""
 
@@ -1065,6 +1127,16 @@ class SyncOperation:
     def template(self) -> str:
         """The PR-body template name (identical to {attr}`name`)."""
         return self.name
+
+    @property
+    def consolidated(self) -> bool:
+        """Whether this operation shares the multi-bumper `sync-deps` job.
+
+        A consolidated operation must reset the working tree before it runs, so
+        the previous bumper's diff never bleeds into its PR. An operation with a
+        job to itself starts from a clean checkout and needs no reset.
+        """
+        return self.job == "sync-deps"
 
     def is_enabled(self, config: Config) -> bool:
         """Whether this operation is enabled in *config*."""
@@ -1122,15 +1194,16 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
         name="sync-tool-versions",
         config_flag="tool_versions_sync",
         job_name="🔼 Sync tool versions",
-        job_if=(
-            "github.repository == 'kdeldycke/repomatic'"
-            " && (github.event_name == 'schedule'"
-            " || github.event_name == 'workflow_dispatch')"
-        ),
+        # No `if:` gate: this one lives in the upstream-only self-maintenance.yaml,
+        # which downstream repos never receive, so nothing has to be guarded away
+        # at runtime.
+        job_if="",
         resolve=_resolve_tool_versions,
         apply=_apply_tool_versions,
         applies_here=_tool_versions_applies,
         write_domain=("repomatic/tool_registry.py", ".github/workflows/lint.yaml"),
+        workflow="self-maintenance.yaml",
+        job="sync-tool-versions",
         editable=True,
         needs_gh_token=True,
         ci_flags=("--release-notes",),
@@ -1141,6 +1214,11 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
 `sync-dep-sources` first (adopting a release changes what the routine re-lock
 even does), then `sync-uv-lock` (its lock churn gates other Python work), then
 the two workflow-file rewriters, then the upstream-only tool bump last.
+
+Only the first four share the `sync-deps` job in `autofix.yaml`. `sync-tool-versions`
+runs from `self-maintenance.yaml` on its own daily schedule, since it rewrites this
+package's source and has no downstream meaning; the order still applies to a local
+`repomatic sync-deps`, which runs every enabled operation in one pass.
 """
 
 OPERATIONS_BY_NAME: dict[str, SyncOperation] = {op.name: op for op in SYNC_OPERATIONS}

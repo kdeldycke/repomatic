@@ -1,0 +1,68 @@
+# Maintains repomatic's own package source. This workflow is upstream-only by construction: unlike every other file in
+# this directory it is not a `FileEntry` of the `workflows` component, so `repomatic init` never materializes it
+# downstream and no `github.repository` guard is needed to keep its jobs from firing in a consumer's repository.
+---
+name: 🔧 Self-maintenance
+"on":
+  workflow_dispatch:
+  schedule:
+    # Run daily, not weekly. The minimum-release-age cooldown already holds a fresh release back on its own; a weekly
+    # poll would stack up to 7 more days on top of it, and the eligibility date lands on any weekday.
+    - cron: "47 5 * * *"
+
+permissions: {}
+
+concurrency:
+  # A manual dispatch landing on top of the nightly run would race it: both rewrite tool_registry.py and force-push the
+  # same branch. The newest run wins, having resolved the newest versions.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  sync-tool-versions:
+    name: 🔼 Sync tool versions
+    # Bumps every `repomatic run` tool, and the packages pinned alongside them, in repomatic/tool_registry.py. That file
+    # only exists here, so this job has no downstream meaning. See repomatic/sync_ops.py for the resolver.
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      # Persist repomatic's HTTP cache (PyPI/GitHub/npm release metadata) across runs. Entries are TTL-gated in
+      # repomatic.cache, so a restored cache never serves a stale "latest" version.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/repomatic
+          key: repomatic-http-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            repomatic-http-${{ runner.os }}-
+      - id: sync-tool-versions
+        name: Sync tool versions
+        # `uv run` (editable), not `uvx`: this is the only bumper that rewrites the checked-out package source, and an
+        # isolated uvx wheel would discard the edit. GH_TOKEN raises the releases API rate limit.
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic sync-tool-versions --release-notes
+          --output "$GITHUB_OUTPUT" --output-format github-actions
+      - id: pr-metadata
+        env:
+          REPOMATIC_DIFF_TABLE: ${{ steps.sync-tool-versions.outputs.diff_table }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-body
+          --output-format github-actions
+          --template sync-tool-versions
+          --output "$GITHUB_OUTPUT"
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.REPOMATIC_PAT || github.token }}
+          assignees: ${{ github.actor }}
+          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
+          title: ${{ steps.pr-metadata.outputs.title }}
+          body: ${{ steps.pr-metadata.outputs.body }}
+          labels: "🔗 dependencies"
+          branch: sync-tool-versions
+          delete-branch: true

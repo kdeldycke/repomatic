@@ -49,6 +49,7 @@ from repomatic.sync_ops import (
     SyncOperation,
     SyncPlan,
     UvProjectExtras,
+    _pinned_with_packages,
     _resolve_action_pins,
     _resolve_dep_sources,
     _resolve_tool_versions,
@@ -58,6 +59,8 @@ from repomatic.sync_ops import (
     run_sync_operations,
     selected_operations,
 )
+from repomatic.tool_registry import TOOL_REGISTRY
+from repomatic.version_sync import is_newer
 
 OPERATION_NAMES = [op.name for op in SYNC_OPERATIONS]
 
@@ -259,26 +262,44 @@ def _consolidated_job_steps() -> list[dict]:
     return steps
 
 
+def _host_job_steps(op: SyncOperation) -> list[dict]:
+    """Steps of the job that actually runs *op*, per its registry entry.
+
+    Most operations share the consolidated `sync-deps` job, but one whose write
+    domain exists only upstream gets its own job in a self-maintenance workflow.
+    """
+    path = AUTOFIX_WORKFLOW.parent / op.workflow
+    workflow = yaml.safe_load(path.read_text(encoding="UTF-8"))
+    steps: list[dict] = workflow["jobs"][op.job]["steps"]
+    return steps
+
+
 def _pr_steps(steps: list[dict]) -> list[dict]:
     return [step for step in steps if "create-pull-request" in step.get("uses", "")]
 
 
 def test_consolidated_job_covers_every_operation() -> None:
-    """The autofix `sync-deps` job has a step group per registered operation.
+    """Every registered operation has a step group in the job hosting it.
 
     The drift guard: a new {class}`~repomatic.sync_ops.SyncOperation` added to
     {data}`~repomatic.sync_ops.SYNC_OPERATIONS` without wiring its sync command,
-    PR body, and PR into the consolidated CI job fails here by name.
+    PR body, and PR into a CI job fails here by name. Each operation is checked
+    against its own {attr}`~repomatic.sync_ops.SyncOperation.workflow` and
+    {attr}`~repomatic.sync_ops.SyncOperation.job`, so moving one out of the
+    consolidated job keeps the guard rather than dropping it.
     """
-    steps = _consolidated_job_steps()
-    runs = " ".join(step.get("run", "") for step in steps)
-    pr_branches = {step["with"]["branch"] for step in _pr_steps(steps)}
     for op in SYNC_OPERATIONS:
+        steps = _host_job_steps(op)
+        runs = " ".join(step.get("run", "") for step in steps)
+        pr_branches = {step["with"]["branch"] for step in _pr_steps(steps)}
         assert f"repomatic {op.name}" in runs, f"{op.name} sync command missing"
         assert f"--template {op.template}" in runs, f"{op.template} pr-body missing"
         assert op.branch in pr_branches, f"{op.name} create-pull-request missing"
+
     # No stray dependency PRs beyond the registry, in either direction.
-    assert pr_branches == {op.branch for op in SYNC_OPERATIONS}
+    assert {
+        step["with"]["branch"] for step in _pr_steps(_consolidated_job_steps())
+    } == {op.branch for op in SYNC_OPERATIONS if op.consolidated}
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
@@ -290,7 +311,7 @@ def test_consolidated_job_passes_ci_flags(op: SyncOperation) -> None:
     drops the feature from the PR body. Fails by name when the registry and the
     YAML disagree.
     """
-    steps = _consolidated_job_steps()
+    steps = _host_job_steps(op)
     sync_runs = [
         run
         for step in steps
@@ -317,13 +338,47 @@ def test_consolidated_job_labels_every_pr_consistently() -> None:
 
 
 def test_consolidated_job_resets_tree_before_each_operation() -> None:
-    """Each operation resets the working tree first, so PR diffs never bleed."""
+    """Each shared-job operation resets the tree first, so PR diffs never bleed.
+
+    Only the consolidated operations need this: one with a job to itself starts
+    from a clean checkout, so a reset there would be dead weight.
+    """
     resets = [
         step
         for step in _consolidated_job_steps()
         if step.get("run", "").strip() == "git checkout -- ."
     ]
-    assert len(resets) == len(SYNC_OPERATIONS)
+    assert len(resets) == len([op for op in SYNC_OPERATIONS if op.consolidated])
+
+
+def test_pinned_with_packages_covers_every_registry_pin() -> None:
+    """Every `package==version` in the registry reaches the bumper.
+
+    The drift guard: a plugin set added to a tool's `with_packages` but never
+    scanned ages out silently, which is how mdformat's own `ruff==` pin sat four
+    minor versions behind the top-level ruff.
+    """
+    collected = dict(_pinned_with_packages())
+    for spec in TOOL_REGISTRY.values():
+        for entry in spec.with_packages:
+            package, _, version = entry.partition("==")
+            assert package in collected, f"{entry} never reaches sync-tool-versions"
+            # The lowest pin wins, so any tool trailing the latest still bumps.
+            assert not is_newer(collected[package], version)
+
+
+def test_pinned_with_packages_keeps_the_lowest_of_two_pins(monkeypatch) -> None:
+    """Two tools pinning one package resolve against the older of the two."""
+    papaya = dataclasses.replace(
+        TOOL_REGISTRY["mdformat"], with_packages=("kiwi==2.0.0",)
+    )
+    mango = dataclasses.replace(
+        TOOL_REGISTRY["mdformat"], with_packages=("kiwi==1.0.0",)
+    )
+    monkeypatch.setattr(
+        "repomatic.sync_ops.TOOL_REGISTRY", {"papaya": papaya, "mango": mango}
+    )
+    assert _pinned_with_packages() == [("kiwi", "1.0.0")]
 
 
 def test_no_standalone_dependency_jobs_remain() -> None:

@@ -1156,6 +1156,22 @@ both lanes here lets stale-file detection and the data-symlink rules treat them
 as a group instead of special-casing each by hand.
 """
 
+SELF_MAINTENANCE_WORKFLOWS: frozenset[str] = frozenset(("self-maintenance.yaml",))
+"""Workflows that maintain this package's own source and never ship downstream.
+
+Unlike {data}`RELEASE_ENGINE_WORKFLOWS`, which downstream repos still reach
+remotely through a `uses:` ref at a release tag, these are invisible outside this
+repository: they are not `FileEntry` targets, carry no `repomatic/data/` symlink,
+and nothing resolves them at runtime. That is what lets their jobs drop the
+`github.repository == 'kdeldycke/repomatic'` guard every in-`autofix.yaml`
+upstream-only step needs, and pick a schedule without spending downstream CI.
+
+A workflow belongs here when its write domain is a path that exists only in this
+repository (`repomatic/tool_registry.py` and friends). A workflow that merely
+*behaves* differently upstream does not: it still ships, so it still needs the
+runtime guard.
+"""
+
 SKILL_PHASES: dict[str, str] = {
     f.file_id: f.phase for f in COMPONENTS_BY_NAME["skills"].files if f.phase
 }

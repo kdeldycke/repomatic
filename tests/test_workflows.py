@@ -33,6 +33,7 @@ from repomatic.git_ops import (
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
     RELEASE_ENGINE_WORKFLOWS,
+    SELF_MAINTENANCE_WORKFLOWS,
     WORKFLOW_SOURCES,
 )
 
@@ -119,14 +120,26 @@ WORKFLOWS_WITH_METADATA_GATE = frozenset((
     "lint.yaml",
 ))
 
+# Workflows with no `push` trigger. `github.event.head_commit` is always null
+# for them, so a release-commit guard in cancel-in-progress would be dead logic:
+# they cancel unconditionally. Derived rather than hand-listed, so a workflow
+# that later grows a push trigger falls back under the conditional-cancel rule
+# without anyone remembering to update this set.
+WORKFLOWS_WITHOUT_PUSH_TRIGGER = frozenset(
+    p.name
+    for p in WORKFLOWS_DIR.glob("*.yaml")
+    if "push" not in (yaml.safe_load(p.read_text(encoding="UTF-8")).get("on") or {})
+)
+
 # Workflows that must use conditional cancel-in-progress (excludes unique
-# group and event-scoped workflows).
+# group, event-scoped, and push-less workflows).
 WORKFLOWS_WITH_CONDITIONAL_CANCEL = tuple(
     sorted(
         name
         for name in WORKFLOWS_WITH_CONCURRENCY
         if name not in WORKFLOWS_WITH_UNIQUE_GROUPS
         and name not in WORKFLOWS_WITH_EVENT_SCOPED_GROUPS
+        and name not in WORKFLOWS_WITHOUT_PUSH_TRIGGER
     )
 )
 
@@ -849,6 +862,9 @@ WORKFLOWS_WITHOUT_SYMLINKS = (
         "release.yaml",
     ))
     | _UNBUNDLED_ENGINE_LANES
+    # Self-maintenance workflows patch this repo's own source and are invisible
+    # downstream, so they are deliberately unbundled.
+    | SELF_MAINTENANCE_WORKFLOWS
 )
 
 

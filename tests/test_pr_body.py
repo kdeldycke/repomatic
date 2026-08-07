@@ -817,6 +817,8 @@ REFERENCE_WORKFLOWS = (
     # The detect-squash-merge --template reference lives in the build lane, not
     # the release.yaml entry (which only calls the lanes and publishes).
     ".github/workflows/_release-build.yaml",
+    # Upstream-only bumpers, whose write domain exists only in this repository.
+    ".github/workflows/self-maintenance.yaml",
 )
 """Workflow files that reference PR body templates via ``--template``."""
 

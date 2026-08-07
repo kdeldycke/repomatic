@@ -164,8 +164,8 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 #### 🔗 Sync dependencies (`sync-deps`)
 
-One consolidated job runs all five dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all five updaters.
-Each updater still opens its own pull request on its own branch (`sync-dep-sources`, `sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`, `sync-tool-versions`), all labelled `🔗 dependencies`.
+One consolidated job runs four dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all four updaters.
+Each updater still opens its own pull request on its own branch (`sync-dep-sources`, `sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`), all labelled `🔗 dependencies`.
 The working tree is reset (`git checkout -- .`) before each updater so their diffs never bleed together, keeping review and revert independent.
 To run all enabled updaters locally, or a named subset, use [`repomatic sync-deps`](cli.md#repomatic-sync-deps).
 
@@ -216,19 +216,9 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - **Skipped if**:
   - `workflow-pins.sync = false` in `[tool.repomatic]`
 
-(github-workflows-sync-tool-versions-yaml-jobs)=
-
-##### 🔄 `sync-tool-versions` updater
-
-- **Upstream-only**: runs only inside `kdeldycke/repomatic` (guarded by `github.repository == 'kdeldycke/repomatic'`); downstream repos receive updated tool versions when they sync against a new repomatic release
-- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gitleaks, labelmaker, lychee, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
-- Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
-- Runs via `uv run` against the local editable source, rewriting `repomatic/tool_registry.py` directly
-- **Runs on**: weekly schedule and manual dispatch
-- **Requires**:
-  - `REPOMATIC_PAT` secret with contents write permission
-- **Skipped if**:
-  - `tool-versions.sync = false` in `[tool.repomatic]`
+```{note}
+A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yaml-jobs), shares this family but not this job: it rewrites repomatic's own tool registry, so it lives in the upstream-only [`self-maintenance.yaml`](#github-workflows-self-maintenance-yaml-jobs).
+```
 
 #### 🕸️ Update dependency graph (`update-dep-graph`)
 
@@ -637,6 +627,27 @@ flowchart TD
 - **Skipped if**:
   - `dev-release.sync = false` in `[tool.repomatic]`
 
+(github-workflows-self-maintenance-yaml-jobs)=
+
+### 🔧 [`.github/workflows/self-maintenance.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/self-maintenance.yaml)
+
+This workflow maintains repomatic's own package source and is the one file in `.github/workflows/` that `repomatic init` never materializes downstream. Because a consumer's repository never receives it, its jobs need no `github.repository` guard and it can pick a schedule without spending downstream CI on runs that would skip every step.
+
+(github-workflows-sync-tool-versions-yaml-jobs)=
+
+#### 🔼 Sync tool versions (`sync-tool-versions`)
+
+- **Upstream-only**: rewrites `repomatic/tool_registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
+- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gitleaks, labelmaker, lychee, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
+- Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
+- Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
+- Runs via `uv run` against the local editable source, rewriting `repomatic/tool_registry.py` directly
+- **Runs on**: daily schedule and manual dispatch. Daily rather than weekly because the `minimum-release-age` cooldown already delays every adoption on its own, and a release becomes eligible on whatever weekday its cooldown expires
+- **Requires**:
+  - `REPOMATIC_PAT` secret with contents write permission
+- **Skipped if**:
+  - `tool-versions.sync = false` in `[tool.repomatic]`
+
 (github-workflows-tests-yaml-jobs)=
 
 ### 🔬 [`.github/workflows/tests.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/tests.yaml)
@@ -788,15 +799,15 @@ All dependencies are pinned to specific versions for stability, reproducibility,
 
 #### Pinning mechanisms
 
-| Mechanism                   | What it pins                       | How it's updated                                                |
-| :-------------------------- | :--------------------------------- | :-------------------------------------------------------------- |
-| `uv.lock`                   | Project Python dependencies        | `sync-uv-lock` updater in `sync-deps` job                       |
-| SHA-pinned `uses:` refs     | GitHub Actions                     | `sync-action-pins` updater in `sync-deps` job                   |
-| Inline version literals     | npm packages, `uvx` PyPI pins      | `sync-workflow-pins` updater in `sync-deps` job                 |
-| Binary tool registry        | `repomatic run` tool versions      | `sync-tool-versions` updater in `sync-deps` job (upstream only) |
-| `uv --exclude-newer` option | Transitive Python dependencies     | Time-based window                                               |
-| Tagged workflow URLs        | Remote workflow `uses:` references | Release process (freeze/unfreeze commits)                       |
-| `--from . repomatic`        | CLI from local source              | Release freeze                                                  |
+| Mechanism                   | What it pins                       | How it's updated                                                    |
+| :-------------------------- | :--------------------------------- | :------------------------------------------------------------------ |
+| `uv.lock`                   | Project Python dependencies        | `sync-uv-lock` updater in `sync-deps` job                           |
+| SHA-pinned `uses:` refs     | GitHub Actions                     | `sync-action-pins` updater in `sync-deps` job                       |
+| Inline version literals     | npm packages, `uvx` PyPI pins      | `sync-workflow-pins` updater in `sync-deps` job                     |
+| Binary tool registry        | `repomatic run` tool versions      | `sync-tool-versions` job in `self-maintenance.yaml` (upstream only) |
+| `uv --exclude-newer` option | Transitive Python dependencies     | Time-based window                                                   |
+| Tagged workflow URLs        | Remote workflow `uses:` references | Release process (freeze/unfreeze commits)                           |
+| `--from . repomatic`        | CLI from local source              | Release freeze                                                      |
 
 #### Hard-coded versions in workflows
 
@@ -811,7 +822,7 @@ GitHub Actions are pinned to full commit SHAs, with the semver tag preserved as 
 
 #### Cooldowns
 
-Every updater inside `sync-deps` respects a cooldown. `sync-action-pins`, `sync-workflow-pins`, and `sync-tool-versions` share [`minimum-release-age`](configuration.md#minimum-release-age) (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. uv's `--exclude-newer` is its counterpart guarding `sync-uv-lock`, and `sync-dep-sources` adopts a fresh release through that same window with an explicit `exclude-newer-package` freeze.
+Every updater respects a cooldown, whether it runs inside `sync-deps` or on its own. `sync-action-pins`, `sync-workflow-pins`, and `sync-tool-versions` share [`minimum-release-age`](configuration.md#minimum-release-age) (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. uv's `--exclude-newer` is its counterpart guarding `sync-uv-lock`, and `sync-dep-sources` adopts a fresh release through that same window with an explicit `exclude-newer-package` freeze.
 
 To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically: no manual bump required.
 

@@ -193,6 +193,15 @@ def test_tool_spec_integrity(name, spec):
     if spec.binary is not None:
         assert not spec.with_packages, f"{name}: binary tools cannot use with_packages"
 
+    # Every with_packages entry must carry an `==` pin. An unpinned entry both
+    # floats the environment between runs and is invisible to sync-tool-versions,
+    # so it would silently age out the way mdformat's own `ruff==` pin once did.
+    for entry in spec.with_packages:
+        package, separator, version = entry.partition("==")
+        assert separator and package and version, (
+            f"{name}: with_packages entry {entry!r} must be pinned as `package==version`"
+        )
+
     if spec.default_config:
         with get_data_file_path(spec.default_config) as path:
             assert path.exists(), f"{spec.default_config} not found in data/"

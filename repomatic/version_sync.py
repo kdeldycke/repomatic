@@ -398,6 +398,24 @@ def set_tool_version(content: str, name: str, new_version: str) -> str:
     return pattern.sub(rf'\g<1>"{new_version}"', content, count=1)
 
 
+def set_with_package_version(content: str, package: str, new_version: str) -> str:
+    """Rewrite a `with_packages` pin in the `tool_registry.py` source.
+
+    Targets the `"{package}=={version}"` literal wherever it appears, unlike
+    {func}`set_tool_version`, which is scoped to one `ToolSpec(` entry. Two tools
+    pinning the same package therefore converge on one version rather than
+    drifting apart, matching how {func}`~repomatic.sync_ops._widest_changes`
+    collapses a name pinned at several versions elsewhere.
+
+    :param content: The `tool_registry.py` source text.
+    :param package: The package name as spelled in the pin (`"mdformat-gfm"`).
+    :param new_version: The version to write.
+    :return: The updated source text.
+    """
+    pattern = re.compile(rf'"{re.escape(package)}==[^"]*"')
+    return pattern.sub(f'"{package}=={new_version}"', content)
+
+
 def find_action_pins(content: str) -> list[ActionPin]:
     """Find every SHA-pinned GitHub Action reference in a workflow file."""
     return [

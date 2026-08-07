@@ -232,6 +232,34 @@ def test_set_tool_version_targets_one_tool():
     assert vs.set_tool_version(bumped, "gitleaks", "9.9.9") == bumped
 
 
+def test_set_with_package_version_rewrites_every_occurrence():
+    source = (
+        "    with_packages=(\n"
+        '        "papaya-plugin==1.0.0",\n'
+        '        "kiwi-plugin==2.3.4",\n'
+        "    ),\n"
+        "    other=(\n"
+        '        "papaya-plugin==1.0.0",\n'
+        "    ),\n"
+    )
+    bumped = vs.set_with_package_version(source, "papaya-plugin", "1.1.0")
+    # Both pins converge, so two tools can never drift apart.
+    assert bumped.count('"papaya-plugin==1.1.0"') == 2
+    assert '"papaya-plugin==1.0.0"' not in bumped
+    # A sibling package is untouched.
+    assert '"kiwi-plugin==2.3.4"' in bumped
+    # Re-applying the same version is a no-op.
+    assert vs.set_with_package_version(bumped, "papaya-plugin", "1.1.0") == bumped
+
+
+def test_set_with_package_version_does_not_match_a_name_prefix():
+    """`mdformat` must not swallow the `mdformat-gfm` pin sitting next to it."""
+    source = '"papaya==1.0.0",\n"papaya-plugin==2.0.0",\n'
+    bumped = vs.set_with_package_version(source, "papaya", "1.2.0")
+    assert '"papaya==1.2.0"' in bumped
+    assert '"papaya-plugin==2.0.0"' in bumped
+
+
 # ---------------------------------------------------------------------------
 # Action pin discovery and rewriting
 # ---------------------------------------------------------------------------
