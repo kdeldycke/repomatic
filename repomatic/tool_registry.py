@@ -774,9 +774,9 @@ r"""Match a colon-fence directive whose delimiters mdformat has escaped.
 ```{note}
 Workaround for
 [executablebooks/mdformat-myst#13](https://github.com/executablebooks/mdformat-myst/issues/13):
-`mdformat-myst` does not treat `:::{name}` colon fences as directives, so
+`mdformat-myst` does not treat ``:::{name}`` colon fences as directives, so
 `mdformat-deflist` escapes their leading colons and `mdformat-myst` escapes the
-opening brace, leaving an uneditable `\:::\{name}` / `\:option:` / `\:::` block.
+opening brace, leaving an uneditable ``\:::\{name}`` / ``\:option:`` / ``\:::`` block.
 Remove when upstream ships colon-fence support, via either
 [executablebooks/mdformat-myst#36](https://github.com/executablebooks/mdformat-myst/pull/36)
 or

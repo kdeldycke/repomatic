@@ -951,7 +951,7 @@ _LOCAL_PUBLISH_PYPI_ACTION: Final[str] = "./.github/actions/publish-pypi"
 
 The canonical entry runs the in-tree action via this local ref (checking
 itself out first). :func:`_render_publish_pypi_job` rewrites it to the pinned
-cross-repo form (`{repo}/.github/actions/publish-pypi@{ref}`) for downstream
+cross-repo form (``{repo}/.github/actions/publish-pypi@{ref}``) for downstream
 callers, whose OIDC `job_workflow_ref` must resolve to their own release.yaml.
 """
 

@@ -63,6 +63,10 @@ from pathlib import Path
 
 import pytest
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 myst_to_rst = pytest.importorskip(
     "click_extra.sphinx.myst_docstrings",
     reason="needs click-extra[sphinx], pulled in by the docs dependency group",
@@ -148,6 +152,38 @@ def _eaten_placeholders(docstring: str) -> set[str]:
     }
 
 
+def _attribute_docstrings(tree: ast.Module) -> Iterator[tuple[int, str, str]]:
+    """Yield `(line, owner, text)` for each attribute docstring in *tree*.
+
+    An attribute docstring is the bare string literal following an assignment.
+    `ast.get_docstring` cannot see one, yet `claude.md` makes it the convention
+    for documenting a dataclass field and `automodule ... :undoc-members:`
+    renders it, so it mangles exactly like any other docstring.
+    """
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list):
+            continue
+        owner = ""
+        for statement in body:
+            if (
+                owner
+                and isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Constant)
+                and isinstance(statement.value.value, str)
+            ):
+                yield statement.lineno, owner, statement.value.value
+            if isinstance(statement, ast.Assign):
+                targets = [t for t in statement.targets if isinstance(t, ast.Name)]
+                owner = targets[0].id if targets else ""
+            elif isinstance(statement, ast.AnnAssign) and isinstance(
+                statement.target, ast.Name
+            ):
+                owner = statement.target.id
+            else:
+                owner = ""
+
+
 def _mangled_docstrings(tree: ast.Module) -> list[str]:
     """Return one description per docstring the conversion corrupts."""
     violations: list[str] = []
@@ -166,7 +202,14 @@ def _mangled_docstrings(tree: ast.Module) -> list[str]:
             line = getattr(node, "lineno", 1)
             name = getattr(node, "name", "<module>")
             violations.append(f"line {line}: {name}: {', '.join(sorted(eaten))}")
-    return violations
+
+    for line, owner, docstring in _attribute_docstrings(tree):
+        if "{" not in docstring:
+            continue
+        if eaten := _eaten_placeholders(docstring):
+            violations.append(f"line {line}: {owner}: {', '.join(sorted(eaten))}")
+
+    return sorted(violations)
 
 
 def test_package_discovered() -> None:

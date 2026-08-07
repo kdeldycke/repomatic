@@ -160,7 +160,7 @@ The table is searchable and sortable on the documentation site; the raw data liv
 """
 """Initial page content, used when the page does not exist yet.
 
-The `{repo_url}` placeholder is substituted with `str.replace` (not
+The ``{repo_url}`` placeholder is substituted with `str.replace` (not
 `str.format`, which would choke on the csv-table directive's braces).
 Everything outside the marker pair is written once and never touched again:
 repositories can reword the prose without fighting the generator.
