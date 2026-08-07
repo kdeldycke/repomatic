@@ -886,21 +886,24 @@ def test_all_workflows_have_symlinks_in_data() -> None:
     )
 
 
-def test_only_workflows_skills_agents_and_actions_are_symlinks_in_data() -> None:
-    """Verify only workflow, skill, agent, and composite-action files are symlinks
+def test_only_workflows_agents_and_actions_are_symlinks_in_data() -> None:
+    """Verify only workflow, agent, and composite-action files are symlinks
     in repomatic/data/.
+
+    Scoped to the top level of `repomatic/data/`. Skills live one directory
+    down, as a folder per skill, and are covered by
+    {func}`test_skill_symlinks_resolve_correctly`.
     """
     workflows = {p.name for p in WORKFLOWS_DIR.glob("*.yaml")}
-    skills = {p.name for p in DATA_DIR.iterdir() if p.name.startswith("skill-")}
     agents = {p.name for p in DATA_DIR.iterdir() if p.name.startswith("agent-")}
     actions = {p.name for p in DATA_DIR.iterdir() if p.name.startswith("action-")}
-    expected = workflows | skills | agents | actions
+    expected = workflows | agents | actions
     symlinks = {p.name for p in DATA_DIR.iterdir() if p.is_symlink()}
 
     extra = symlinks - expected
     assert not extra, (
         f"Unexpected symlinks in repomatic/data/: {sorted(extra)}. "
-        "Only workflow, skill, agent, and composite-action files should be symlinked."
+        "Only workflow, agent, and composite-action files should be symlinked."
     )
 
 
@@ -943,18 +946,35 @@ def test_action_symlinks_resolve_correctly() -> None:
 
 
 def test_skill_symlinks_resolve_correctly() -> None:
-    """Verify that skill symlinks in repomatic/data/ point to the correct targets."""
+    """Verify each bundled skill folder mirrors its `.claude/skills/` original.
+
+    A skill ships as a whole folder, so `repomatic/data/skills/{id}/` must be a
+    **real** directory whose every leaf is a symlink to the file of the same
+    relative path under `.claude/skills/`. `uv_build` refuses a symlinked
+    directory in package data and fails the wheel, while symlinked files are
+    dereferenced into it normally.
+    """
     skills_dir = REPO_ROOT / ".claude" / "skills"
-    for symlink in sorted(DATA_DIR.iterdir()):
-        if not symlink.is_symlink() or not symlink.name.startswith("skill-"):
-            continue
-        # skill-repomatic-changelog.md -> .claude/skills/repomatic-changelog/SKILL.md.
-        skill_name = symlink.name.removeprefix("skill-").removesuffix(".md")
-        expected = (skills_dir / skill_name / "SKILL.md").resolve()
-        target = symlink.resolve()
-        assert target == expected, (
-            f"Symlink {symlink.name} points to {target}, expected {expected}"
-        )
+    bundled_root = DATA_DIR / "skills"
+    bundled = sorted(p for p in bundled_root.iterdir() if p.is_dir())
+    assert bundled, f"No bundled skill folder found under {bundled_root}"
+    for skill_dir in bundled:
+        for path in sorted(skill_dir.rglob("*")):
+            relative = path.relative_to(bundled_root)
+            if path.is_dir():
+                assert not path.is_symlink(), (
+                    f"{relative} must be a real directory: uv_build cannot "
+                    "package a symlinked directory."
+                )
+                continue
+            assert path.is_symlink(), (
+                f"{relative} should be a symlink into {skills_dir}"
+            )
+            expected = (skills_dir / relative).resolve()
+            target = path.resolve()
+            assert target == expected, (
+                f"Symlink {relative} points to {target}, expected {expected}"
+            )
 
 
 def test_agent_symlinks_resolve_correctly() -> None:

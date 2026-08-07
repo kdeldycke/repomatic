@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.4.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.4.1
 ```
 
 > [!IMPORTANT]
@@ -638,7 +638,7 @@ This workflow maintains repomatic's own package source and is the one file in `.
 #### 🔼 Sync tool versions (`sync-tool-versions`)
 
 - **Upstream-only**: rewrites `repomatic/tool_registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
-- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gitleaks, labelmaker, lychee, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
+- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
 - Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
 - Runs via `uv run` against the local editable source, rewriting `repomatic/tool_registry.py` directly

@@ -82,5 +82,8 @@ runs:
           fi
           sleep 15
         done
-        echo "::error::${pkg_name} ${pkg_version} was not visible on PyPI within 5 minutes of publishing. Downstream automation pinning to this version may fail transiently until propagation catches up." >&2
+        msg="${pkg_name} ${pkg_version} was not visible on PyPI within 5 minutes of publishing."
+        msg="${msg} Downstream automation pinning to this version may fail transiently"
+        msg="${msg} until propagation catches up."
+        echo "::error::${msg}" >&2
         exit 1

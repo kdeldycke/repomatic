@@ -804,8 +804,8 @@ def ensure_binary(name: str) -> Path:
     whichever version the machine or CI image happens to carry, unpinned and
     unverified, and it differs between a developer's laptop and every runner.
 
-    :param name: Registry key of a tool whose {class}`ToolSpec` declares a
-        `binary`.
+    :param name: Registry key of a tool whose
+        {class}`~repomatic.tool_registry.ToolSpec` declares a `binary`.
     :return: Absolute path to the cached executable.
     :raises ClickException: If the tool is unknown, ships no binary, or cannot
         be downloaded and verified.
@@ -829,11 +829,12 @@ def _path_tools_env(
     no_cache: bool,
     path_dirs: list[tempfile.TemporaryDirectory[str]],
 ) -> dict[str, str] | None:
-    """Build the child environment exposing *spec*'s {attr}`~ToolSpec.path_tools`.
+    """Build the child environment exposing *spec*'s companion binaries.
 
-    Installs each companion through {func}`_install_binary`, so it arrives at the
-    registry-pinned version with its checksum verified, then prepends the
-    directories holding them to `PATH`. Prepending (rather than appending) is
+    Installs each {attr}`~repomatic.tool_registry.ToolSpec.path_tools` entry
+    through {func}`_install_binary`, so it arrives at the registry-pinned version
+    with its checksum verified, then prepends the directories holding them to
+    `PATH`. Prepending (rather than appending) is
     what makes the pin authoritative: a system-installed build of the same tool
     further down `PATH` is shadowed instead of winning by accident.
 

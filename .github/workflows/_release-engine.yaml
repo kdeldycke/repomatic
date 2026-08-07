@@ -585,8 +585,9 @@ jobs:
       - manpages
       - extra-assets
     # Terminal step: flips the draft to a published (immutable) release, so it must wait for every asset-upload job
-    # (binaries below, man pages in `manpages`). Gates only on create-release so the release still publishes when
-    # binaries or man pages are skipped or fail; always() lets it run despite an upstream job's non-success.
+    # (binaries below, man pages in `manpages`, consumer-built files in `extra-assets`). Gates only on create-release
+    # so the release still publishes when any of those is skipped or fails; always() lets it run despite an upstream
+    # job's non-success.
     if: >-
       always()
       && needs.create-release.result == 'success'

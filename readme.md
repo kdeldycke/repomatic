@@ -34,7 +34,7 @@ A Python CLI and `pyproject.toml` configuration that let you **release Python pa
 repomatic does for the release process what ruff did for linting and uv did for packaging: replace a stack of single-purpose tools with one.
 
 - [18 third-party GitHub Actions replaced](https://kdeldycke.github.io/repomatic/security.html#third-party-action-minimization) by internal CLI commands and SHA-256-verified binary downloads, keeping the supply chain attack surface minimal
-- [8 Python linters and formatters](https://kdeldycke.github.io/repomatic/security.html#ruff-consolidation) (pylint, black, isort, pyupgrade, pydocstyle, pycln, docformatter, blacken-docs) consolidated into ruff
+- [10 Python linters and formatters](https://kdeldycke.github.io/repomatic/security.html#ruff-consolidation) (pylint, pydocstyle, pycln, pyupgrade, isort, black, docformatter, mdformat-black, blacken-docs, mdformat-ruff) consolidated into ruff
 - [5 packaging and install tools](https://kdeldycke.github.io/repomatic/security.html#uv-consolidation) (poetry, build, twine, check-wheel-contents, pip-audit) consolidated into uv
 - All `uses:` references [pinned to full commit SHAs](https://kdeldycke.github.io/repomatic/security.html#supply-chain-security) with stabilization windows before adopting new versions, managed entirely by self-hosted sync jobs
 - [SLSA provenance attestations](https://kdeldycke.github.io/repomatic/security.html#supply-chain-security) on every release artifact (wheels and compiled binaries)

@@ -258,7 +258,8 @@ class FlavorConfig:
     """AI coding agent whose asset layout the bundled skills and agents target.
 
     Accepts a `extra_platforms.ALL_AGENTS` trait ID present in
-    {data}`AGENT_LAYOUTS`. Hyphens are normalized, so `claude-code` works too.
+    {data}`~repomatic.config.AGENT_LAYOUTS`. Hyphens are normalized, so
+    `claude-code` works too.
     """
 
     ci: str = DEFAULT_CI
