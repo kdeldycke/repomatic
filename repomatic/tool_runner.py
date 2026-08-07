@@ -896,6 +896,53 @@ def _path_tools_env(
     return env
 
 
+def _dereference_data_dir_symlinks(
+    config_args: list[str],
+    path_dirs: list[tempfile.TemporaryDirectory[str]],
+) -> list[str]:
+    """Stage a symlink-free copy for any `--include-data-dir=SRC=DEST` flag.
+
+    Nuitka's data-file copier preserves a symlink whose relative target still
+    textually resolves "below" the distribution root, even when that subtree
+    was never populated by any `--include-data-dir`/`--include-data-files`
+    flag: `isFilenameBelowPath` in `nuitka.utils.FileOperations` only checks
+    that the recomputed target does not climb above the root via `..`, never
+    that the target actually exists there. The macOS codesign step then
+    crashes: `signDistributionMacOS` calls `withMadeWritableFileMode` to make
+    every distribution file writable, which runs a plain `os.stat` on each
+    one; `os.stat` follows the dangling link, and the target was never
+    copied.
+
+    Staging a plain copy sidesteps the bug regardless of its root cause:
+    `shutil.copytree(..., symlinks=False)` resolves every symlink to its
+    target's real content, so Nuitka never sees a link to preserve. Applies
+    to any `--include-data-dir` flag from any tool; only Nuitka emits this
+    flag shape today, so it is a no-op for everything else.
+
+    :param config_args: Flags resolved from `[tool.X]`, to scan and rewrite.
+    :param path_dirs: Accumulator the caller cleans up in its `finally` block.
+    :return: *config_args* with symlink-containing sources replaced by staged
+        copies; entries with no symlinks pass through unchanged.
+    """
+    prefix = "--include-data-dir="
+    fixed = []
+    for arg in config_args:
+        if arg.startswith(prefix):
+            src, _, dest = arg[len(prefix) :].partition("=")
+            src_path = Path(src)
+            if src_path.is_dir() and any(
+                member.is_symlink() for member in src_path.rglob("*")
+            ):
+                staging = tempfile.TemporaryDirectory(prefix="repomatic-data-dir-")
+                path_dirs.append(staging)
+                staged_src = Path(staging.name) / src_path.name
+                shutil.copytree(src_path, staged_src, symlinks=False)
+                fixed.append(f"{prefix}{staged_src}={dest}")
+                continue
+        fixed.append(arg)
+    return fixed
+
+
 def run_tool(
     name: str,
     extra_args: Sequence[str] = (),
@@ -937,6 +984,8 @@ def run_tool(
     bin_dir = None
     path_dirs: list[tempfile.TemporaryDirectory[str]] = []
     try:
+        config_args = _dereference_data_dir_symlinks(config_args, path_dirs)
+
         # Build command prefix: binary download or uvx/uv-run.
         if spec.binary is not None:
             bin_dir = tempfile.TemporaryDirectory(

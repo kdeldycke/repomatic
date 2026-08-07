@@ -66,6 +66,7 @@ from repomatic.tool_registry import (
 )
 from repomatic.tool_runner import (
     _build_install_args,
+    _dereference_data_dir_symlinks,
     _download_and_verify,
     _extract_binary,
     _install_binary,
@@ -905,6 +906,58 @@ def test_path_tools_env_skips_platform_without_binary(caplog):
     assert "No binary for" in caplog.text
     # Nothing was prepended, so the child inherits the ambient PATH verbatim.
     assert env["PATH"] == os.environ.get("PATH", "")
+
+
+def test_dereference_data_dir_symlinks_stages_symlinked_source(tmp_path):
+    """A symlink under an `--include-data-dir` source is resolved to real content.
+
+    Reproduces the shape that crashes Nuitka's macOS codesign step: a
+    directory holding a symlink whose target lies outside anything Nuitka
+    copies. Staging must replace the link with the target's actual bytes,
+    not merely a same-looking file.
+    """
+    target = tmp_path / "canonical.md"
+    target.write_text("real content", encoding="UTF-8")
+
+    src = tmp_path / "data" / "skills"
+    src.mkdir(parents=True)
+    (src / "SKILL.md").symlink_to(target)
+
+    path_dirs: list[tempfile.TemporaryDirectory[str]] = []
+    fixed = _dereference_data_dir_symlinks(
+        [f"--include-data-dir={src}=repomatic/data/skills"], path_dirs
+    )
+
+    assert len(fixed) == 1
+    assert len(path_dirs) == 1
+    staged_src = Path(fixed[0].removeprefix("--include-data-dir=").rsplit("=", 1)[0])
+    staged_file = staged_src / "SKILL.md"
+    assert staged_file.read_text(encoding="UTF-8") == "real content"
+    assert not staged_file.is_symlink()
+
+    for path_dir in path_dirs:
+        path_dir.cleanup()
+
+
+def test_dereference_data_dir_symlinks_passes_through_plain_dirs(tmp_path):
+    """A source with no symlinks, or a non-`--include-data-dir` flag, is untouched.
+
+    Staging is wasted work (and a needless temp directory) when nothing
+    would break Nuitka's copy, so only symlink-containing sources trigger it.
+    """
+    src = tmp_path / "data" / "awesome_template"
+    src.mkdir(parents=True)
+    (src / "license").write_text("license text", encoding="UTF-8")
+
+    path_dirs: list[tempfile.TemporaryDirectory[str]] = []
+    original = [
+        f"--include-data-dir={src}=repomatic/data/awesome_template",
+        "--include-package-data=click_extra",
+    ]
+    fixed = _dereference_data_dir_symlinks(original, path_dirs)
+
+    assert fixed == original
+    assert path_dirs == []
 
 
 def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
