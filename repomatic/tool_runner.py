@@ -387,6 +387,7 @@ def _extract_binary(
     dest_dir: Path,
     tool_name: str,
     archive_format: ArchiveFormat | None = None,
+    strip_components: int | None = None,
 ) -> Path:
     """Extract the tool executable from a downloaded archive.
 
@@ -397,6 +398,10 @@ def _extract_binary(
     :param archive_format: Override the spec's default archive format.
         Used by `_install_binary` to pass the per-platform format from
         `BinarySpec.get_archive_format`.
+    :param strip_components: Override the spec's default strip count. Used by
+        `_install_binary` to pass the per-platform value from
+        `BinarySpec.get_strip_components`; falls back to the spec when omitted,
+        which only works if the spec declares a plain `int`.
     :return: Path to the extracted executable.
     :raises FileNotFoundError: If the executable is not found in the archive.
     """
@@ -407,6 +412,11 @@ def _extract_binary(
     else:
         msg = "archive_format is required when spec.archive_format is a dict"
         raise TypeError(msg)
+    if strip_components is None:
+        if not isinstance(spec.strip_components, int):
+            msg = "strip_components is required when spec.strip_components is a dict"
+            raise TypeError(msg)
+        strip_components = spec.strip_components
     executable = spec.archive_executable or tool_name
     # Dispatch by archive format. A RAW download is the executable itself,
     # renamed into place; the archive formats delegate to their extractors.
@@ -416,8 +426,12 @@ def _extract_binary(
         dest.chmod(0o755)
         return dest
     if fmt is ArchiveFormat.ZIP:
-        return _extract_from_zip(archive_path, spec, dest_dir, executable)
-    return _extract_from_tar(archive_path, fmt, spec, dest_dir, executable)
+        return _extract_from_zip(
+            archive_path, spec, dest_dir, executable, strip_components
+        )
+    return _extract_from_tar(
+        archive_path, fmt, spec, dest_dir, executable, strip_components
+    )
 
 
 def _extract_from_tar(
@@ -426,14 +440,15 @@ def _extract_from_tar(
     spec: BinarySpec,
     dest_dir: Path,
     executable: str,
+    strip_components: int,
 ) -> Path:
     """Extract a tool executable from a tar archive."""
     with tarfile.open(str(archive_path), fmt.tarfile_mode()) as tar:
         for member in tar.getmembers():
             parts = PurePosixPath(member.name).parts
-            if len(parts) <= spec.strip_components:
+            if len(parts) <= strip_components:
                 continue
-            stripped = str(PurePosixPath(*parts[spec.strip_components :]))
+            stripped = str(PurePosixPath(*parts[strip_components:]))
             if stripped == executable:
                 _check_member_safety(member.name)
                 if sys.version_info >= (3, 12):
@@ -451,6 +466,7 @@ def _extract_from_zip(
     spec: BinarySpec,
     dest_dir: Path,
     executable: str,
+    strip_components: int,
 ) -> Path:
     """Extract a tool executable from a ZIP archive."""
     # Windows executables may have a .exe suffix inside the archive.
@@ -461,9 +477,9 @@ def _extract_from_zip(
             if info.is_dir():
                 continue
             parts = PurePosixPath(info.filename).parts
-            if len(parts) <= spec.strip_components:
+            if len(parts) <= strip_components:
                 continue
-            stripped = str(PurePosixPath(*parts[spec.strip_components :]))
+            stripped = str(PurePosixPath(*parts[strip_components:]))
             if stripped in targets:
                 _check_member_safety(info.filename)
                 zf.extract(info, dest_dir)
@@ -590,7 +606,9 @@ def _install_binary(
     )
 
     fmt = binary.get_archive_format(key)
-    extracted = _extract_binary(archive_path, binary, tmp_dir, spec.name, fmt)
+    extracted = _extract_binary(
+        archive_path, binary, tmp_dir, spec.name, fmt, binary.get_strip_components(key)
+    )
 
     # Store in cache for future use. Verify the cached copy is accessible
     # before returning it; fall back to the temp directory copy otherwise.

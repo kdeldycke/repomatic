@@ -217,20 +217,13 @@ jobs:
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-path: ${{ matrix.bin_name }}
-      - name: Install gh in container
-        # The manylinux container has no gh CLI preinstalled (the runner VM
-        # does), and the attestation check below shells out to it. Same gate
-        # as that check, so PR builds skip the install.
-        if: >-
-          matrix.container
-          && github.ref == 'refs/heads/main'
-          && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
-        run: |
-          curl --fail --silent --show-error --location \
-            --output /etc/yum.repos.d/gh-cli.repo \
-            https://cli.github.com/packages/rpm/gh-cli.repo
-          dnf install --assumeyes gh
       - name: Verify binary attestation
+        # gh comes from the `repomatic run` registry rather than the image: the
+        # manylinux container the Linux targets build in ships none at all, and
+        # the runners that do ship one leave its version to the image. One
+        # pinned, checksum-verified build now serves every target, which also
+        # retires the third-party RPM repo this step used to add to the
+        # container just to reach the attestation check.
         if: >-
           github.ref == 'refs/heads/main'
           && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
@@ -239,7 +232,8 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         run: >
-          gh attestation verify "${BIN_NAME}"
+          uvx --no-progress --from . repomatic run gh --
+          attestation verify "${BIN_NAME}"
           --repo "${{ github.repository }}"
           --signer-repo kdeldycke/repomatic
       - name: Upload attestation bundle

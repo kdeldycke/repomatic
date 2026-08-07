@@ -34,6 +34,7 @@ import tomlrt
 import yaml
 from extra_platforms import (
     AARCH64,
+    ALL_PLATFORMS,
     LINUX,
     MACOS,
     UBUNTU,
@@ -2329,3 +2330,74 @@ def test_native_format_flags_serialize_raises():
     """FLAGS is not a file format, so serialize() rejects it."""
     with pytest.raises(ValueError, match="not a file format"):
         NativeFormat.FLAGS.serialize({"onefile": True})
+
+
+# ---------------------------------------------------------------------------
+# Per-platform strip_components
+# ---------------------------------------------------------------------------
+
+
+def test_strip_components_resolves_per_platform():
+    """A dict `strip_components` resolves like `archive_format` does.
+
+    `gh` is the reason both exist: its Linux and macOS archives nest under a
+    versioned directory while the Windows zip does not, so one count cannot
+    serve every platform.
+    """
+    spec = BinarySpec(
+        urls={},
+        checksums={},
+        archive_format=ArchiveFormat.ZIP,
+        strip_components={ALL_PLATFORMS: 1, WINDOWS: 0},
+    )
+    assert spec.get_strip_components((LINUX, X86_64)) == 1
+    assert spec.get_strip_components((MACOS, AARCH64)) == 1
+    assert spec.get_strip_components((WINDOWS, X86_64)) == 0
+    assert spec.get_strip_components((WINDOWS, AARCH64)) == 0
+
+
+def test_strip_components_plain_int_applies_everywhere():
+    """A bare `int` keeps applying to every platform, as before."""
+    spec = BinarySpec(urls={}, checksums={}, archive_format=ArchiveFormat.ZIP)
+    assert spec.get_strip_components((LINUX, X86_64)) == 0
+    assert spec.get_strip_components((WINDOWS, X86_64)) == 0
+
+
+def test_extract_binary_rejects_dict_strip_without_resolution(tmp_path):
+    """Extracting without a resolved count fails loudly on a dict spec.
+
+    `_install_binary` always passes the resolved value; a direct caller that
+    forgets would otherwise silently strip nothing.
+    """
+    archive = _create_zip(tmp_path, "subdir/bin/mytool.exe")
+    spec = BinarySpec(
+        urls={},
+        checksums={},
+        archive_format=ArchiveFormat.ZIP,
+        archive_executable="bin/mytool.exe",
+        strip_components={ALL_PLATFORMS: 1},
+    )
+    with pytest.raises(TypeError, match="strip_components is required"):
+        _extract_binary(archive, spec, tmp_path, "testtool")
+
+
+def test_gh_spec_matches_upstream_archive_layout():
+    """`gh`'s declared layout matches what cli/cli actually publishes.
+
+    Locks in the asymmetry that motivated per-platform `strip_components`: a
+    future release that flattened the Linux tarball, or nested the Windows zip,
+    would extract the wrong path and only fail during a release.
+    """
+    binary = TOOL_REGISTRY["gh"].binary
+    assert binary is not None
+    assert binary.archive_executable == "bin/gh"
+    for key, expected_fmt, expected_strip in (
+        ((LINUX, AARCH64), ArchiveFormat.TAR_GZ, 1),
+        ((LINUX, X86_64), ArchiveFormat.TAR_GZ, 1),
+        ((MACOS, AARCH64), ArchiveFormat.ZIP, 1),
+        ((MACOS, X86_64), ArchiveFormat.ZIP, 1),
+        ((WINDOWS, AARCH64), ArchiveFormat.ZIP, 0),
+        ((WINDOWS, X86_64), ArchiveFormat.ZIP, 0),
+    ):
+        assert binary.get_archive_format(key) is expected_fmt, key
+        assert binary.get_strip_components(key) == expected_strip, key

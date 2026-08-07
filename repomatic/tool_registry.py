@@ -68,7 +68,7 @@ from .pypi import PYPI_PACKAGE_URL
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from typing import Literal
+    from typing import Any, Literal
 
     from .metadata import Metadata
 
@@ -295,8 +295,21 @@ class BinarySpec:
     tool name. For `RAW` format, used as the final filename.
     """
 
-    strip_components: int = 0
-    """Number of leading path components to strip when extracting."""
+    strip_components: int | dict[PlatformKey | Platform | Group, int] = 0
+    """Number of leading path components to strip when extracting.
+
+    A single `int` applies to every platform. A dict maps platform specifiers to
+    counts, using the same resolution as {meth}`get_archive_format`, for a
+    project whose archives are not laid out identically across platforms::
+
+        strip_components={ALL_PLATFORMS: 1, WINDOWS: 0}
+
+    `gh` is the motivating case: its Linux and macOS archives nest everything
+    under a `gh_{version}_{platform}_{arch}/` directory, while the Windows zip
+    puts `bin/gh.exe` at the root. The nesting cannot be absorbed by
+    {attr}`archive_executable` instead, since that is one string for all
+    platforms and the directory name carries the version and platform.
+    """
 
     def resolve_platform(self) -> PlatformKey:
         """Match the current environment against registered platform keys.
@@ -333,45 +346,77 @@ class BinarySpec:
         msg = f"No binary for {plat.name} {arch.name}. Available: {available}."
         raise RuntimeError(msg)
 
-    def get_archive_format(self, key: PlatformKey) -> ArchiveFormat:
-        """Return the archive format for the given platform key.
+    @staticmethod
+    def _resolve_per_platform(
+        mapping: dict[PlatformKey | Platform | Group, Any],
+        key: PlatformKey,
+        what: str,
+    ) -> Any:
+        """Pick a per-platform mapping's value for the given platform key.
 
-        When `archive_format` is a single {class}`ArchiveFormat`, returns
-        it directly. When it is a dict, resolves in order: exact
-        {data}`PlatformKey` tuple, bare Platform equality, then Group
-        membership (smallest group wins).
+        Resolves in order: exact {data}`PlatformKey` tuple, bare Platform
+        equality, then Group membership with the smallest group winning, so a
+        narrow `WINDOWS` entry overrides a broad `ALL_PLATFORMS` one.
+
+        :param mapping: Platform specifier to value mapping.
+        :param key: The platform key to resolve for.
+        :param what: Field name, for the error message.
+        :return: The matching value.
+        :raises ValueError: If no entry matches the platform key.
         """
-        if isinstance(self.archive_format, ArchiveFormat):
-            return self.archive_format
-
-        fmt_map = self.archive_format
-
         # Exact tuple match.
-        if key in fmt_map:
-            return fmt_map[key]
+        if key in mapping:
+            return mapping[key]
 
         # Bare Platform or Group match.
         key_plat = key[0]
-        group_hits: list[tuple[Group, ArchiveFormat]] = []
-        for map_key, fmt in fmt_map.items():
+        group_hits: list[tuple[Group, Any]] = []
+        for map_key, value in mapping.items():
             if isinstance(map_key, tuple):
                 continue
             if map_key == key_plat:
-                return fmt
+                return value
             if isinstance(map_key, Group) and (
                 isinstance(key_plat, Platform)
                 and key_plat in map_key
                 or isinstance(key_plat, Group)
                 and (key_plat & map_key)
             ):
-                group_hits.append((map_key, fmt))
+                group_hits.append((map_key, value))
 
         if group_hits:
             # Most-specific group: fewest members.
             return min(group_hits, key=lambda h: len(h[0]))[1]
 
-        msg = f"No archive format for {key[0].name} {key[1].name}"
+        msg = f"No {what} for {key[0].name} {key[1].name}"
         raise ValueError(msg)
+
+    def get_archive_format(self, key: PlatformKey) -> ArchiveFormat:
+        """Return the archive format for the given platform key.
+
+        When `archive_format` is a single {class}`ArchiveFormat`, returns
+        it directly. When it is a dict, resolves through
+        {meth}`_resolve_per_platform`.
+        """
+        if isinstance(self.archive_format, ArchiveFormat):
+            return self.archive_format
+        fmt: ArchiveFormat = self._resolve_per_platform(
+            self.archive_format, key, "archive format"
+        )
+        return fmt
+
+    def get_strip_components(self, key: PlatformKey) -> int:
+        """Return the leading path components to strip for a platform key.
+
+        When {attr}`strip_components` is a plain `int`, returns it directly.
+        When it is a dict, resolves through {meth}`_resolve_per_platform`.
+        """
+        if isinstance(self.strip_components, int):
+            return self.strip_components
+        count: int = self._resolve_per_platform(
+            self.strip_components, key, "strip_components"
+        )
+        return count
 
     @staticmethod
     def platform_cache_key(key: PlatformKey) -> str:
@@ -819,6 +864,32 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
             X86_64,
         ): "47b7c8f59181870782dbeb26bfa45a51229a277ffd458f5cf852dc96dfd3999c",
     },
+    "gh": {
+        (
+            LINUX,
+            AARCH64,
+        ): "06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909",
+        (
+            LINUX,
+            X86_64,
+        ): "83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60",
+        (
+            MACOS,
+            AARCH64,
+        ): "f23a0c37d963aacc3bed703ccbd59b41c5ca22101fab7f00eb2b7cad23aba463",
+        (
+            MACOS,
+            X86_64,
+        ): "4bd449df9ad639391bc62b8032546f0fe9edcd8526e06682a4f88abd8c5d163c",
+        (
+            WINDOWS,
+            AARCH64,
+        ): "c517e0b32c98a4ba90ac95af8d12cc3ac55781ab4ab72f9a91ce3de0541d2b09",
+        (
+            WINDOWS,
+            X86_64,
+        ): "c2d6acc935cd2f00e2144d7e036d5cd82e6b6bd5594e8c75aa75ef2a4ed6aac3",
+    },
     "gitleaks": {
         (
             LINUX,
@@ -941,6 +1012,7 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
     "biome": "2.5.6",
+    "gh": "2.96.0",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
@@ -1139,6 +1211,61 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
 
             The configuration table is `[tool.bumpversion]`, not `[tool.bump-my-version]`: the section name predates the project's rename. `show-bump` previews the next versions without writing; `repomatic run bump-my-version -- bump minor` performs the bump.
+            """),
+    ),
+    "gh": ToolSpec(
+        name="gh",
+        display_name="GitHub CLI",
+        version="2.96.0",
+        source_url="https://github.com/cli/cli",
+        cli_docs_url="https://cli.github.com/manual/",
+        binary=BinarySpec(
+            urls={
+                (
+                    LINUX,
+                    AARCH64,
+                ): "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_arm64.tar.gz",
+                (
+                    LINUX,
+                    X86_64,
+                ): "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.tar.gz",
+                (
+                    MACOS,
+                    AARCH64,
+                ): "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_macOS_arm64.zip",
+                (
+                    MACOS,
+                    X86_64,
+                ): "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_macOS_amd64.zip",
+                (
+                    WINDOWS,
+                    AARCH64,
+                ): "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_windows_arm64.zip",
+                (
+                    WINDOWS,
+                    X86_64,
+                ): "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_windows_amd64.zip",
+            },
+            checksums=CHECKSUMS["gh"],
+            archive_format={
+                ALL_PLATFORMS: ArchiveFormat.TAR_GZ,
+                MACOS: ArchiveFormat.ZIP,
+                WINDOWS: ArchiveFormat.ZIP,
+            },
+            archive_executable="bin/gh",
+            # Linux and macOS archives nest everything under a
+            # `gh_{version}_{platform}_{arch}/` directory; the Windows zip puts
+            # `bin/gh.exe` at the root.
+            strip_components={ALL_PLATFORMS: 1, WINDOWS: 0},
+        ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run gh -- --version
+            ```
+
+            Pinned so the release lane gets the same `gh` everywhere. The manylinux container the Linux binaries compile in ships no `gh`, and the runner images that do ship one leave its version to the image. `gh` reads no project configuration: it authenticates from `GH_TOKEN` in the environment.
             """),
     ),
     "gitleaks": ToolSpec(
