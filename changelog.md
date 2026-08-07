@@ -25,6 +25,9 @@
 
 ## [`7.4.1` (2026-08-01)](https://github.com/kdeldycke/repomatic/compare/v7.4.0...v7.4.1)
 
+> [!NOTE]
+> `7.4.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.4.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.4.1).
+
 - Add two review links to the release PR's `How-to release` checklist: the draft dev pre-release and the full changes against `main`.
 - Teach the `repomatic-ship` pre-push gate to read the latest conclusive ancestor CI run when HEAD's own runs are still in-flight, catching a pre-existing platform-gated failure before the first push.
 - Lower the uv `required-version` floor from `>=0.12` to `>=0.11.15`, the actual resolver minimum.
