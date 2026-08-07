@@ -190,7 +190,12 @@ jobs:
         # console script (from repomatic metadata), so the self-test stays correct when
         # this workflow is synced to downstream repos.
         # Skipped for repos that ship no console script (nothing to self-test).
-        if: fromJSON(needs.metadata.outputs.metadata).cli_scripts[0]
+        # `!cancelled()` keeps this running after a failed pytest step: the two
+        # check different things, and letting a unit-test failure skip the
+        # self-test hides CLI drift until the next green run. A stale assertion
+        # in cli-test-suite.toml stayed invisible for a whole release cycle that
+        # way. Wrapped in `${{ }}` because a bare leading `!` is a YAML tag.
+        if: ${{ !cancelled() && fromJSON(needs.metadata.outputs.metadata).cli_scripts[0] }}
         env:
           CLI_SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).cli_scripts[0] }}
         run: >
@@ -200,7 +205,8 @@ jobs:
         # Same suite as above, driven through the interpreter's `-m` entry
         # point so `__main__` stays exercised against the checkout on every
         # cell (the package-install job only covers it for released builds).
-        if: fromJSON(needs.metadata.outputs.metadata).cli_scripts[0]
+        # `!cancelled()` for the same reason as the step above.
+        if: ${{ !cancelled() && fromJSON(needs.metadata.outputs.metadata).cli_scripts[0] }}
         env:
           PACKAGE: ${{ fromJSON(needs.metadata.outputs.metadata).package_name }}
         shell: bash
