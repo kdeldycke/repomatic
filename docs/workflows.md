@@ -578,6 +578,7 @@ flowchart TD
 
 - Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
 - Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release **draft** via `gh release upload --clobber`, before `publish-release` publishes and locks the release
+- The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as a `manpages.attestation.json` asset, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`
 - **Requires**:
   - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra wrap --man SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
   - The consumer's `click-extra` floor is `>= 8`: the `--output-dir DIR` option to `click-extra wrap --man` writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing
@@ -586,14 +587,27 @@ flowchart TD
 - **Skipped if**:
   - `manpages.script` is empty (the default), which keeps the job silent for every project that has not opted in
 
+#### 📎 Extra release assets (`extra-assets`)
+
+- Attaches consumer-built assets declared by the `release-assets` filename list in `[tool.repomatic]`: each file must be uploaded as a `release-asset-<filename>` run artifact by a job the consumer defines in its own release workflow, the same caller-side handoff the wheel's `build` lane uses
+- The build code therefore stays in the downstream repository as regular workflow code, reviewed and linted there: the engine never executes consumer-supplied commands, it only downloads, attests, verifies, and uploads
+- Assets are attested with the same provenance chain as the compiled binaries and uploaded to the GitHub release **draft** together with their sigstore bundle (`extra-assets.attestation.json`), before `publish-release` publishes and locks the release; provenance verifies with `gh attestation verify <file> --repo <consumer> --signer-repo kdeldycke/repomatic`
+- A declared asset whose artifact never landed fails the job loudly, so a broken consumer build lane cannot silently ship a release without its asset
+- **Requires**:
+  - A non-empty `release-assets` list in the consumer's `pyproject.toml`, with space-free filenames
+  - A consumer-side job uploading each `release-asset-<filename>` artifact; gate the engine call on it (like `needs: build` for the wheel) so the artifact exists before the engine reaches this job
+  - Successful `create-release` job (the draft must exist; the assets must be attached before `publish-release` locks the release: see [§ Immutable releases](#immutable-releases))
+- **Skipped if**:
+  - `release-assets` is empty (the default), which keeps the job silent for every project that has not opted in
+
 #### 🎉 Publish release (`publish-release`)
 
-- Publishes the draft GitHub release after all assets (Python package, binaries, man pages) have been uploaded
+- Publishes the draft GitHub release after all assets (Python package, binaries, man pages, extra assets) have been uploaded
 - Supports [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases): once published, tags and assets are locked, so flipping `--draft=false` is the terminal step of the release engine and every asset-uploading job must run upstream of it
-- Uses `always()` so it runs even when `compile-binaries` or `manpages` is skipped (non-binary projects, no man pages) or partially fails (unstable platforms)
+- Uses `always()` so it runs even when `compile-binaries`, `manpages` or `extra-assets` is skipped (non-binary projects, no man pages, no extra assets) or partially fails (unstable platforms)
 - **Requires**:
   - Successful `create-release` job (draft must exist)
-  - Waits for `compile-binaries` and `manpages` so every asset is attached before the release locks
+  - Waits for `compile-binaries`, `manpages` and `extra-assets` so every asset is attached before the release locks
 
 #### 🛡️ VirusTotal scan (`scan-virustotal`)
 

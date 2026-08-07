@@ -929,6 +929,26 @@ class Config:
     release metadata from all names and generate correct PyPI URLs.
     """
 
+    release_assets: list[str] = field(
+        default_factory=list,
+        metadata={CONFIG_PATH_METADATA_KEY: "release-assets"},
+    )
+    """Extra asset filenames attached to every GitHub release.
+
+    Each listed file must be produced by a job the consumer defines in its own
+    release workflow (alongside the `build` lane the engine call already gates
+    on) and uploaded as a run artifact named `release-asset-<filename>`. The
+    engine's `extra-assets` job downloads the artifacts, attests them with the
+    same provenance chain as the compiled binaries, and attaches them to the
+    release draft before publication locks it (GitHub immutable releases).
+
+    The build code stays in the downstream repository as regular workflow
+    code, reviewed and linted there: the engine never executes
+    consumer-supplied commands. Filenames must be space-free, as they travel
+    through a space-separated job environment variable. Leave empty to
+    disable, which keeps the job silent.
+    """
+
     setup_guide: bool = True
     """Whether the setup guide issue is enabled for this project.
 

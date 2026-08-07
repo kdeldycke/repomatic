@@ -57,6 +57,7 @@ jobs:
           nuitka_extras is_python_project package_name current_version
           released_version release_notes release_notes_with_admonition
           skip_binary_build manpages_script manpages_asset_name binaries_sync
+          release_assets
       - name: Check VirusTotal API key
         id: check-vt-key
         env:
@@ -420,7 +421,9 @@ jobs:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-slim
     permissions:
+      attestations: write
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -444,6 +447,31 @@ jobs:
               || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
             }}
         run: tar --create --gzip --file "${ASSET_NAME}.tar.gz" man/
+      # Same provenance chain as the compiled binaries and the extra-assets job.
+      - name: Generate tarball attestation
+        id: attest-manpages
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: >-
+            ${{
+              format(
+                '{0}.tar.gz',
+                fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
+                || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
+              )
+            }}
+      - name: Verify tarball attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_NAME: >-
+            ${{
+              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
+              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
+            }}
+        run: >
+          gh attestation verify "${ASSET_NAME}.tar.gz"
+          --repo "${{ github.repository }}"
+          --signer-repo kdeldycke/repomatic
       - name: Attach to release draft
         env:
           CURRENT_VERSION: ${{ matrix.current_version }}
@@ -452,11 +480,86 @@ jobs:
               fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
               || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
             }}
+          BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          gh release upload "v${CURRENT_VERSION}" "${ASSET_NAME}.tar.gz"
+          cp "${BUNDLE_PATH}" manpages.attestation.json &&
+          gh release upload "v${CURRENT_VERSION}"
+          "${ASSET_NAME}.tar.gz" manpages.attestation.json
           --repo "${{ github.repository }}"
           --clobber
+
+  # Attach the consumer-built extra assets declared by `release-assets` in `[tool.repomatic]`. Each declared filename
+  # must arrive as a `release-asset-<filename>` run artifact, uploaded by a job the consumer defines in its own
+  # release workflow (the same caller-side handoff as the wheel's build lane). Keeping the build in the downstream
+  # repository means the engine never executes consumer-supplied commands: it only downloads, attests (same
+  # provenance chain as the compiled binaries; verify with `gh attestation verify <file> --repo <consumer>
+  # --signer-repo kdeldycke/repomatic`), and uploads to the release draft, before `publish-release` locks the
+  # immutable release. Opt-in: silently skipped when `release-assets` is empty.
+  extra-assets:
+    name: 📎 Extra release assets (${{ matrix.short_sha }})
+    needs:
+      - metadata
+      - create-release
+    if: >-
+      always()
+      && needs.create-release.result == 'success'
+      && join(fromJSON(needs.metadata.outputs.metadata).release_assets) != ''
+    strategy:
+      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+    runs-on: ubuntu-slim
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - name: Download asset artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-asset-*
+          path: release-assets
+          merge-multiple: true
+      - name: Check all declared assets landed
+        # A declared asset missing its artifact fails the release loudly here,
+        # before the draft publishes without it.
+        env:
+          # Space-separated: see the release_assets docstring in repomatic/config.py.
+          ASSET_NAMES: ${{ join(fromJSON(needs.metadata.outputs.metadata).release_assets, ' ') }}
+        shell: bash
+        run: |
+          for name in ${ASSET_NAMES}; do
+            if [[ ! -f "release-assets/${name}" ]]; then
+              echo "::error::Declared release asset ${name} has no release-asset-* artifact."
+              exit 1
+            fi
+          done
+      - name: Generate assets attestation
+        id: attest-assets
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: release-assets/*
+      - name: Verify assets attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          for asset in release-assets/*; do
+            gh attestation verify "${asset}" \
+              --repo "${{ github.repository }}" \
+              --signer-repo kdeldycke/repomatic
+          done
+      - name: Attach assets to release draft
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+          CURRENT_VERSION: ${{ matrix.current_version }}
+          BUNDLE_PATH: ${{ steps.attest-assets.outputs.bundle-path }}
+        shell: bash
+        run: |
+          cp "${BUNDLE_PATH}" release-assets/extra-assets.attestation.json
+          gh release upload "v${CURRENT_VERSION}" \
+            release-assets/* \
+            --repo "${{ github.repository }}" \
+            --clobber
 
   publish-release:
     name: 🎉 Publish GitHub release (${{ matrix.short_sha }})
@@ -465,6 +568,7 @@ jobs:
       - create-release
       - compile-binaries
       - manpages
+      - extra-assets
     # Terminal step: flips the draft to a published (immutable) release, so it must wait for every asset-upload job
     # (binaries below, man pages in `manpages`). Gates only on create-release so the release still publishes when
     # binaries or man pages are skipped or fail; always() lets it run despite an upstream job's non-success.

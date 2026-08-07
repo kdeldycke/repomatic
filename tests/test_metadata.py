@@ -808,6 +808,7 @@ expected: dict[str, Any] = {
     "binaries_sync": True,
     "manpages_script": "repomatic.cli:repomatic",
     "manpages_asset_name": "",
+    "release_assets": [],
     "nuitka_enabled": True,
     "nuitka_extras": [],
     "nuitka_nofollow_imports": StringList(["tkinter"]),
