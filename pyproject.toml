@@ -223,10 +223,13 @@ typing = [
 required-version = ">=0.11.15"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
-# Cooldown period: 7-day buffer before using newly released packages.
-# Relative dates are fine here: uv 0.11.8+ writes a sentinel timestamp to
-# uv.lock for relative spans, so re-resolving never produces churn.
-exclude-newer = "1 week"
+# Cooldown period before using newly released packages. Kept equal to
+# `[tool.repomatic] minimum-release-age`: that value gates the `uvx` installs
+# every workflow runs, and a wider window here would lock a version those
+# installs refuse to resolve. Relative dates are fine: uv 0.11.8+ writes a
+# sentinel timestamp to uv.lock for relative spans, so re-resolving never
+# produces churn.
+exclude-newer = "8 days"
 # Per-package cooldown control. A fixed date holds a package at the version
 # available then (the day after it shipped), so `uv lock --upgrade` keeps that
 # version instead of tracking newer releases. `sync-uv-lock` freezes new

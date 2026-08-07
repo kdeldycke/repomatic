@@ -57,9 +57,14 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
-from .dep_report import format_released
+from .dep_report import format_released, parse_iso_datetime
 from .pypi import get_release_dates
-from .uv import freeze_cutoff_after
+from .uv import (
+    freeze_cutoff_after,
+    parse_lock_upload_times,
+    parse_lock_versions,
+    resolve_exclude_newer_cutoff,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -206,6 +211,91 @@ def dev_floor(pyproject_path: Path, name: str) -> str | None:
                 if version.is_devrelease:
                     floors.append(version)
     return str(max(floors)) if floors else None
+
+
+def floors_inside_cooldown(
+    pyproject_path: Path,
+    lock_path: Path,
+    window: str,
+) -> dict[str, str]:
+    """Dependency floors that no cooldown-gated resolution can satisfy.
+
+    A floor naming a version published inside the cooldown window makes the
+    *published package* uninstallable. Anyone resolving it from an index
+    (a downstream repo running a frozen workflow's `uvx 'repomatic==X.Y.Z'`, or
+    an end user running `uvx repomatic`) gets a tool environment, which reads
+    neither `uv.lock` nor `[tool.uv] exclude-newer-package`. Since uv exposes no
+    environment variable for a per-package exemption either, there is nowhere
+    for them to record the bypass.
+
+    ```{caution}
+    This repository cannot feel the breakage it would ship. Its own workflows
+    install from `uv.lock` (see
+    {data}`repomatic.prepare_release.LOCAL_CLI_INVOCATION`), which resolves
+    through the local `exclude-newer-package` exemption and stays green. The
+    failure lands only on whoever installs the release, which is why it needs a
+    gate here rather than a red CI run to catch it.
+    ```
+
+    Wait for a release to age out of the window before raising a floor onto it.
+
+    The comparison runs against the locked version's upload time, which
+    `uv.lock` records, so the check needs no network. A floor is reported when
+    the locked version sits inside the window *and* the floor demands at least
+    that version: releases reach an index in version order, so nothing
+    satisfying such a floor can be older than what is already locked.
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param lock_path: Path to the `uv.lock` file.
+    :param window: Cooldown window, in any form `[tool.uv] exclude-newer`
+        accepts.
+    :return: Mapping of canonical package name to the offending floor version,
+        empty when every floor resolves without an exemption.
+    """
+    cutoff = resolve_exclude_newer_cutoff(window)
+    if cutoff is None or not pyproject_path.exists():
+        return {}
+
+    locked = {
+        canonicalize_name(name): version
+        for name, version in parse_lock_versions(lock_path).items()
+    }
+    uploads = {
+        canonicalize_name(name): stamp
+        for name, stamp in parse_lock_upload_times(lock_path).items()
+    }
+
+    doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+    offenders: dict[str, str] = {}
+    for array in _requirement_arrays(doc):
+        for item in array:
+            requirement = _parse_requirement(item)
+            if requirement is None:
+                continue
+            name = canonicalize_name(requirement.name)
+            locked_version = locked.get(name)
+            upload = uploads.get(name)
+            if not locked_version or not upload:
+                continue
+            upload_dt = parse_iso_datetime(upload)
+            # A locked version older than the cutoff resolves on its own, so
+            # no floor pointing at it can need an exemption.
+            if upload_dt is None or upload_dt < cutoff:
+                continue
+            try:
+                locked_parsed = Version(locked_version)
+            except InvalidVersion:
+                continue
+            for spec in requirement.specifier:
+                if spec.operator not in (">=", "=="):
+                    continue
+                try:
+                    floor = Version(spec.version)
+                except InvalidVersion:
+                    continue
+                if floor >= locked_parsed:
+                    offenders[name] = str(floor)
+    return offenders
 
 
 def find_ready_swaps(pyproject_path: Path) -> list[ReleaseSwap]:

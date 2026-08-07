@@ -17,16 +17,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from repomatic import dep_sources
+from repomatic.config import Config
 from repomatic.dep_sources import (
     ReleaseSwap,
     apply_release_swaps,
     dev_floor,
     find_ready_swaps,
+    floors_inside_cooldown,
     format_swap_section,
     strip_dev_bounds,
     tracked_git_overrides,
@@ -274,3 +277,94 @@ def test_format_swap_section():
         ReleaseSwap("mango", "mango", "main", "2.1.0.dev0", "2.1.0", "2026-07-10")
     ])
     assert "| mango |" in section
+
+
+# ---------------------------------------------------------------------------
+# Dependency floors versus the install cooldown
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).parent.parent
+
+COOLDOWN_PYPROJECT = """\
+[project]
+name = "basket"
+version = "1.0.0"
+dependencies = [
+  "cherry>={floor}",
+]
+"""
+
+COOLDOWN_LOCK = """\
+version = 1
+
+[[package]]
+name = "cherry"
+version = "{locked}"
+
+[package.sdist]
+upload-time = "{upload}"
+"""
+
+
+@pytest.mark.parametrize(
+    ("floor", "locked", "age_days", "flagged"),
+    (
+        # Floor demands the locked release, which is still inside the window.
+        ("1.2", "1.2.0", 1, True),
+        # Same floor, but the release has aged out: uvx resolves it unaided.
+        ("1.2", "1.2.0", 30, False),
+        # Floor predates the locked release, so an older version satisfies it.
+        ("1.0", "1.2.0", 1, False),
+    ),
+)
+def test_floors_inside_cooldown(
+    tmp_path: Path,
+    floor: str,
+    locked: str,
+    age_days: int,
+    flagged: bool,
+) -> None:
+    """Only a floor demanding a release inside the window is reported."""
+    upload = datetime.now(timezone.utc) - timedelta(days=age_days)
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(COOLDOWN_PYPROJECT.format(floor=floor), encoding="utf-8")
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        COOLDOWN_LOCK.format(
+            locked=locked, upload=upload.isoformat().replace("+00:00", "Z")
+        ),
+        encoding="utf-8",
+    )
+
+    offenders = floors_inside_cooldown(pyproject, lock, "8 days")
+    assert (offenders == {"cherry": floor}) is flagged
+
+
+def test_dependency_floors_clear_the_cooldown() -> None:
+    """No dependency floor requires a release still inside the cooldown.
+
+    Such a floor makes the published package uninstallable for anyone resolving
+    it from an index: a downstream repo running a frozen workflow's
+    `uvx 'repomatic==X.Y.Z'`, or an end user running `uvx repomatic`. Neither
+    can see `uv.lock` or `[tool.uv] exclude-newer-package`, and uv has no
+    environment variable for a per-package exemption, so they have nowhere to
+    record a bypass.
+
+    This repository's own CI cannot catch it, because it installs from
+    `uv.lock` and resolves straight through the local exemption. That is what
+    makes this a release gate rather than a CI symptom. Wait for a release to
+    clear the window before raising a floor onto it.
+    """
+    offenders = floors_inside_cooldown(
+        REPO_ROOT / "pyproject.toml",
+        REPO_ROOT / "uv.lock",
+        Config.minimum_release_age,
+    )
+    listed = ", ".join(f"{name}>={floor}" for name, floor in sorted(offenders.items()))
+    assert not offenders, (
+        f"Dependency floor(s) inside the {Config.minimum_release_age} cooldown: "
+        f"{listed}. Releasing now ships a package that downstream repos and "
+        "`uvx` users cannot resolve: they see neither uv.lock nor [tool.uv] "
+        "exclude-newer-package, and uv has no env var for a per-package "
+        "exemption. Wait for the release to age out of the window."
+    )

@@ -99,7 +99,7 @@ def _build_inline_table(entries: dict[str, str]) -> Table:
     return Table.inline({k: entries[k] for k in sorted(entries)})
 
 
-def _resolve_exclude_newer_cutoff(value: str) -> datetime | None:
+def resolve_exclude_newer_cutoff(value: str) -> datetime | None:
     """Resolve a `[tool.uv].exclude-newer` value to an absolute cutoff datetime.
 
     [uv accepts three forms](https://github.com/astral-sh/uv/pull/19475)
@@ -172,7 +172,7 @@ def packages_outside_cooldown(
     if not exclude_newer_str:
         return packages
 
-    cutoff = _resolve_exclude_newer_cutoff(exclude_newer_str)
+    cutoff = resolve_exclude_newer_cutoff(exclude_newer_str)
     if cutoff is None:
         # Cannot determine window: be safe and exempt everything.
         return packages
@@ -537,7 +537,7 @@ def prune_stale_exclude_newer_packages(
     if not pkg_table or not exclude_newer_str:
         return set()
 
-    cutoff = _resolve_exclude_newer_cutoff(exclude_newer_str)
+    cutoff = resolve_exclude_newer_cutoff(exclude_newer_str)
     if cutoff is None:
         logging.warning(
             f"Cannot parse exclude-newer value {exclude_newer_str!r}; skipping prune."

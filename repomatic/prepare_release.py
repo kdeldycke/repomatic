@@ -24,7 +24,8 @@ A release cycle produces exactly two commits that **must** be merged via
    - Strips the `.dev0` suffix from the version.
    - Finalizes the changelog date and comparison URL.
    - Freezes workflow action references: `@main` → `@vX.Y.Z`.
-   - Freezes CLI invocations: `--from . repomatic` → `'repomatic==X.Y.Z'`.
+   - Freezes CLI invocations: `uv run --frozen -- repomatic` (from the
+     lockfile) → `uvx 'repomatic==X.Y.Z'` (from PyPI, for downstream repos).
    - Freezes the install guide's binary download URLs to versioned release paths.
    - Pins the install guide's versioned CLI examples to the release.
    - Sets the release date in `citation.cff`.
@@ -83,6 +84,23 @@ Every character here lands on 80-odd already-long workflow lines at freeze time.
 breaches yamllint's 120-column cap, so lengthening this string means reflowing
 the workflows that no longer fit.
 ```
+"""
+
+LOCAL_CLI_INVOCATION = "uv --no-progress run --frozen -- repomatic"
+"""How every workflow on `main` runs the CLI, before the freeze rewrites it.
+
+Resolving from `uv.lock` rather than from the index is what keeps the cooldown
+off the critical path here. A lockfile entry is pinned *and* hash-verified, so
+it is strictly stronger than a publication-age gate, and it cannot be made
+unsatisfiable by one: `uvx --from .` re-resolves `[project.dependencies]` on
+every call, and reads neither `uv.lock` nor `[tool.uv] exclude-newer-package`,
+so a floor naming a release younger than the window took every workflow down at
+once with nowhere to record the bypass.
+
+`--frozen` uses the lockfile as-is instead of asserting it is current, which is
+deliberate: `--locked` would fail every job the moment `pyproject.toml` drifted
+ahead of `uv.lock`, including the `sync-uv-lock` job whose whole purpose is to
+close that gap.
 """
 
 
@@ -397,9 +415,16 @@ class PrepareRelease:
         release will install from PyPI rather than expecting a local source
         tree.
 
-        Replaces `--from . repomatic` with ``'repomatic=={version}'`` in all
-        workflow YAML files. Comment lines (starting with `#`) are skipped to
-        avoid corrupting explanatory comments.
+        Replaces `uv --no-progress run --frozen -- repomatic` with
+        ``uvx --no-progress 'repomatic=={version}'`` in all workflow YAML files.
+        Comment lines (starting with `#`) are skipped to avoid corrupting
+        explanatory comments.
+
+        The two halves are not symmetric by accident. On `main` the CLI runs
+        from `uv.lock`, which is pinned *and* hash-verified, and which no
+        cooldown can make unsatisfiable. A downstream repo has no such lockfile
+        for this project, so its copy has to resolve the published package from
+        the index, which is what `uvx` does.
 
         The pin is spliced in behind {data}`SELF_PIN_COOLDOWN_EXEMPTION`, which
         is what keeps a release installable the minute it is published despite
@@ -414,8 +439,10 @@ class PrepareRelease:
             return 0
 
         count = 0
-        search = "--from . repomatic"
-        yaml_replace = f"{SELF_PIN_COOLDOWN_EXEMPTION} 'repomatic=={version}'"
+        search = LOCAL_CLI_INVOCATION
+        yaml_replace = (
+            f"uvx --no-progress {SELF_PIN_COOLDOWN_EXEMPTION} 'repomatic=={version}'"
+        )
 
         for workflow_file in self._workflow_files():
             original = workflow_file.read_text(encoding="UTF-8")
@@ -432,12 +459,13 @@ class PrepareRelease:
         invocations back to local source (`--from . repomatic`) for the next
         development cycle on `main`.
 
-        Replaces `'repomatic==X.Y.Z'` (quoted, in YAML) with
-        `--from . repomatic`, taking {data}`SELF_PIN_COOLDOWN_EXEMPTION` with it
-        when the freeze put one there: local source resolves from the working
-        tree, so it never needs the escape hatch. The prefix is optional in the
-        pattern so a workflow frozen by an older release still unfreezes cleanly.
-        Comment lines are skipped (see {meth}`freeze_cli_version`).
+        Replaces `uvx --no-progress 'repomatic==X.Y.Z'` with
+        {data}`LOCAL_CLI_INVOCATION`, taking {data}`SELF_PIN_COOLDOWN_EXEMPTION`
+        with it when the freeze put one there: the lockfile resolves from the
+        working tree, so it never needs the escape hatch. The exemption is
+        optional in the pattern so a workflow frozen by an older release still
+        unfreezes cleanly. Comment lines are skipped (see
+        {meth}`freeze_cli_version`).
 
         :return: Number of files modified.
         """
@@ -447,9 +475,10 @@ class PrepareRelease:
 
         count = 0
         yaml_pattern = re.compile(
+            r"uvx --no-progress "
             rf"(?:{re.escape(SELF_PIN_COOLDOWN_EXEMPTION)} )?'repomatic==[\d.]+'"
         )
-        replace = "--from . repomatic"
+        replace = LOCAL_CLI_INVOCATION
 
         for workflow_file in self._workflow_files():
             original = workflow_file.read_text(encoding="UTF-8")

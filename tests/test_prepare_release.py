@@ -23,7 +23,11 @@ from textwrap import dedent
 
 import pytest
 
-from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION, PrepareRelease
+from repomatic.prepare_release import (
+    LOCAL_CLI_INVOCATION,
+    SELF_PIN_COOLDOWN_EXEMPTION,
+    PrepareRelease,
+)
 
 
 @pytest.fixture
@@ -138,7 +142,7 @@ def temp_workflows_with_actions(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def temp_workflows_with_cli(tmp_path: Path) -> Path:
-    """Create workflows with ``--from . repomatic`` CLI invocations."""
+    """Create workflows with lockfile-backed `uv run` CLI invocations."""
     workflow_dir = tmp_path / ".github" / "workflows"
     workflow_dir.mkdir(parents=True)
 
@@ -150,12 +154,12 @@ def temp_workflows_with_cli(tmp_path: Path) -> Path:
               metadata:
                 steps:
                   - run: >
-                      uvx --no-progress --from . repomatic
+                      uv --no-progress run --frozen -- repomatic
                       metadata --output "$GITHUB_OUTPUT"
               lint:
                 steps:
                   - run: >
-                      uvx --no-progress --from . repomatic
+                      uv --no-progress run --frozen -- repomatic
                       lint-repo --repo-name "test"
             """),
         encoding="UTF-8",
@@ -169,9 +173,9 @@ def temp_workflows_with_cli(tmp_path: Path) -> Path:
               format:
                 steps:
                   - run: >
-                      uvx --no-progress --from . repomatic
+                      uv --no-progress run --frozen -- repomatic
                       metadata --output "$GITHUB_OUTPUT"
-                  - run: uvx --no-progress --from . repomatic pr-body
+                  - run: uv --no-progress run --frozen -- repomatic pr-body
             """),
         encoding="UTF-8",
     )
@@ -315,7 +319,7 @@ def test_freeze_cli_version(
     temp_pyproject: Path,
     monkeypatch,
 ) -> None:
-    """Test that ``--from . repomatic`` is frozen to a PyPI version."""
+    """Test that the local `uv run` invocation is frozen to a PyPI version."""
     monkeypatch.chdir(tmp_path)
 
     prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
@@ -324,7 +328,7 @@ def test_freeze_cli_version(
     assert count == 2
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
-        assert "--from . repomatic" not in content
+        assert LOCAL_CLI_INVOCATION not in content
         assert "'repomatic==1.0.0'" in content
 
 
@@ -393,7 +397,7 @@ def test_post_release_unfreezes_cli(
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
         assert "'repomatic==" not in content
-        assert "--from . repomatic" in content
+        assert LOCAL_CLI_INVOCATION in content
 
 
 def test_prepare_release_full(
@@ -415,7 +419,7 @@ def test_prepare_release_full(
     modified = prep.prepare_release(update_workflows=True)
 
     # Changelog once, citation once, 2 workflows for URLs.
-    # CLI freeze doesn't match (no --from . repomatic in temp_workflows).
+    # CLI freeze doesn't match (no local invocation in temp_workflows).
     assert len(modified) == 4
     assert len(set(modified)) == 4
 
@@ -455,7 +459,7 @@ def test_prepare_release_freezes_cli(
 
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
-        assert "--from . repomatic" not in content
+        assert LOCAL_CLI_INVOCATION not in content
         assert "'repomatic==1.2.3'" in content
 
 
@@ -569,7 +573,7 @@ def test_unfreeze_cli_version(
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
         assert "'repomatic==" not in content
-        assert "--from . repomatic" in content
+        assert LOCAL_CLI_INVOCATION in content
 
 
 def test_unfreeze_workflow_urls(
@@ -913,7 +917,7 @@ def _freeze_repo_workflows(tmp_path: Path, version: str = "1.2.3") -> Path:
 def test_freeze_keeps_workflows_within_line_length(tmp_path: Path) -> None:
     """Freezing the real workflows must not breach yamllint's column cap.
 
-    The freeze swaps `--from . repomatic` for the pin *plus* its cooldown
+    The freeze swaps the local `uv run` invocation for the pin *plus* its cooldown
     exemption, which is markedly longer, and it is a blind string replacement: a
     line that fits on `main` can overflow only once frozen. Nothing else catches
     that, because the frozen state is never committed to `main` and only exists

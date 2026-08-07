@@ -915,9 +915,9 @@ def test_inline_pins_match_upstream_accepts_synced_pin(tmp_path):
 
 
 def test_inline_pins_match_upstream_skips_without_refs(tmp_path):
-    """The canonical repo (local `--from .`, no upstream refs) has nothing to check."""
+    """The canonical repo (local `uv run`, no upstream refs) has nothing to check."""
     (tmp_path / "tests.yaml").write_text(
-        "      - run: uvx --no-progress --from . repomatic metadata\n",
+        "      - run: uv --no-progress run --frozen -- repomatic metadata\n",
         encoding="UTF-8",
     )
     error, msg = check_inline_pins_match_upstream(tmp_path)

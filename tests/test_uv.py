@@ -29,6 +29,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+import tomlrt
 from click.testing import CliRunner
 
 from repomatic import cli
@@ -50,12 +51,40 @@ from repomatic.uv import (
     compute_bypass_forecasts,
     compute_pruned_forecasts,
     freeze_exclude_newer_packages,
+    project_exclude_newer,
     prune_stale_exclude_newer_packages,
 )
 from repomatic.vulnerable_deps import (
     AdvisorySource,
     VulnerablePackage,
 )
+
+REPO_ROOT = Path(__file__).parent.parent
+
+
+def test_cooldown_windows_match_minimum_release_age() -> None:
+    """The lock window and the install window are the same duration.
+
+    `[tool.uv] exclude-newer` gates `uv lock`, while `[tool.repomatic]
+    minimum-release-age` gates the `uvx` installs every workflow runs. A lock
+    window wider than the install window resolves versions those installs then
+    refuse, leaving a package pinned in `uv.lock` that CI cannot install.
+    Keeping the two literals equal closes that band.
+    """
+    window = Config.minimum_release_age
+
+    project = project_exclude_newer(REPO_ROOT / "pyproject.toml")
+    assert project == window, (
+        f"[tool.uv] exclude-newer is {project!r}, expected {window!r} to match "
+        "[tool.repomatic] minimum-release-age."
+    )
+
+    bundled_path = REPO_ROOT / "repomatic" / "data" / "uv.toml"
+    bundled = tomlrt.loads(bundled_path.read_text(encoding="UTF-8"))
+    assert bundled.get("exclude-newer") == window, (
+        f"{bundled_path.name} exclude-newer is "
+        f"{bundled.get('exclude-newer')!r}, expected {window!r}."
+    )
 
 
 def _sample_vuln() -> VulnerablePackage:

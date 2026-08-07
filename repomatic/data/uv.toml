@@ -11,5 +11,8 @@
 # installs the newest uv satisfying it, and sync-uv-lock absorbs cross-minor
 # marker churn (astral-sh/setup-uv reads this automatically).
 required-version = ">=0.11.15"
-# Cooldown buffer before adopting newly released packages.
-exclude-newer = "1 week"
+# Cooldown buffer before adopting newly released packages. Must equal
+# `[tool.repomatic] minimum-release-age`, which gates the `uvx` installs CI
+# runs: a lock window wider than that one resolves versions those installs
+# would refuse, so the two are pinned together by tests/test_uv.py.
+exclude-newer = "8 days"

@@ -807,7 +807,7 @@ All dependencies are pinned to specific versions for stability, reproducibility,
 | Binary tool registry        | `repomatic run` tool versions      | `sync-tool-versions` job in `self-maintenance.yaml` (upstream only) |
 | `uv --exclude-newer` option | Transitive Python dependencies     | Time-based window                                                   |
 | Tagged workflow URLs        | Remote workflow `uses:` references | Release process (freeze/unfreeze commits)                           |
-| `--from . repomatic`        | CLI from local source              | Release freeze                                                      |
+| `uv run --frozen`           | CLI from the project lockfile      | Release freeze                                                      |
 
 #### Hard-coded versions in workflows
 
@@ -879,7 +879,11 @@ The [`prepare-release`](#github-workflows-changelog-yaml-jobs) job creates a PR 
 
 The auto-tagging job depends on these being **separate commits**: it uses `release_commits_matrix` to identify and tag only the freeze commit. Squashing would merge both into one, breaking the tagging logic.
 
-On `main`, workflows use `--from . repomatic` to run the CLI from local source (dogfooding). The freeze commit pins these to `'repomatic==X.Y.Z'` so tagged releases reference a published package. The unfreeze commit reverts them for the next development cycle.
+On `main`, workflows run the CLI with `uv --no-progress run --frozen -- repomatic`, which installs the project from `uv.lock` (dogfooding). The freeze commit rewrites these to `uvx --no-progress 'repomatic==X.Y.Z'` so tagged releases resolve a published package from PyPI, which is what a downstream repo needs: it has no lockfile for this project. The unfreeze commit reverts them for the next development cycle.
+
+The asymmetry is deliberate. A lockfile entry is pinned *and* hash-verified, so it is a stronger guarantee than the publication-age cooldown, and unlike an index resolution it cannot be made unsatisfiable by one. An isolated `uvx --from .` re-resolved `[project.dependencies]` on every call while reading neither `uv.lock` nor `[tool.uv] exclude-newer-package`, so raising a dependency floor onto a release younger than [`minimum-release-age`](configuration.md) took every workflow down at once, with nowhere to record the exemption.
+
+Insulating this repository does not remove the hazard, it relocates it: a floor inside the window now resolves fine here and breaks only whoever installs the release from an index. A conformance test rejects such a floor before it can be merged.
 
 The version string moves through the two commits and back to a fresh development cycle:
 
