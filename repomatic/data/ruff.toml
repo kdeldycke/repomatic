@@ -12,6 +12,12 @@ fix = true
 # registry. See: https://docs.astral.sh/ruff/linter/#fix-safety
 unsafe-fixes = false
 show-fixes = true
+# Report `ISC004` rather than `implicit-string-concatenation-in-collection-literal`.
+# Preview mode otherwise prints human-readable rule names, but every knob below
+# (and every CI annotation a contributor acts on) speaks in codes, so the code is
+# the token you paste into `lint.ignore` to silence what you just read.
+# https://docs.astral.sh/ruff/settings/#output-prefer-rule-codes
+output-prefer-rule-codes = true
 # Enable reformatting of code snippets in docstrings.
 # https://docs.astral.sh/ruff/formatter/#docstring-formatting
 format.docstring-code-format = true

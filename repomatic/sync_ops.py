@@ -96,7 +96,7 @@ from .github.pr_body import template_docs_url
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .init_project import init_config, is_source_repo
 from .npm import NPM_PACKAGE_URL
-from .pypi import PYPI_PACKAGE_URL
+from .pypi import PYPI_PACKAGE_URL, get_source_url
 from .registry import BUNDLED_VERBATIM_TARGETS, DEFAULT_REPO, UPSTREAM_REPO_SLUGS
 from .tool_registry import TOOL_REGISTRY
 from .uv import (
@@ -667,17 +667,28 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
     # own `ruff==` pin, formatting the same Markdown code blocks as the top-level
     # ruff, at a different version).
     package_urls: dict[str, str] = {}
+    package_notes: list[tuple[str, str, str, str, str | None]] = []
     for package, pinned in _pinned_with_packages():
-        url = PYPI_PACKAGE_URL.format(package=package)
+        pypi_url = PYPI_PACKAGE_URL.format(package=package)
         candidates = pypi_candidates(package)
         latest = select_latest(candidates, min_age, today)
-        _track_held_back(plan, rc, package, url, candidates, latest, pinned, min_age)
+        _track_held_back(
+            plan, rc, package, pypi_url, candidates, latest, pinned, min_age
+        )
         if latest is None or not is_newer(latest.version, pinned):
             continue
         content = set_with_package_version(content, package, latest.version)
         changes.append((package, pinned, latest.version))
         plan.dates[package] = latest.date
-        package_urls[package] = url
+        # Prefer the GitHub repository, matching ToolSpec.datasource_url's order,
+        # and fall back to the PyPI project page for a package declaring none.
+        # A resolved repo also earns the package release notes: no `tag_pattern`
+        # to consult here, so the default `vX.Y.Z` scheme applies (it also passes
+        # a bare `X.Y.Z` tag through untouched).
+        source = get_source_url(package)
+        package_urls[package] = source or pypi_url
+        if source:
+            package_notes.append((package, source, pinned, latest.version, None))
 
     plan.changes = changes
     plan.note_cooldown(rc.config.minimum_release_age, min_age, today)
@@ -702,7 +713,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
     } | package_urls
 
     if rc.release_notes:
-        notes_items = [
+        tool_notes = [
             (name, src, old, new, TOOL_REGISTRY[name].tag_pattern)
             for name, old, new in changes
             if name in TOOL_REGISTRY
@@ -710,7 +721,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
             and "github.com" in src
         ]
         plan.notes_section = format_release_notes(
-            fetch_github_release_notes(notes_items)
+            fetch_github_release_notes(tool_notes + package_notes)
         )
     return plan
 

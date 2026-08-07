@@ -275,6 +275,9 @@ fix = true
 # Disabled for the reasons documented in the bundled repomatic/data/ruff.toml.
 unsafe-fixes = false
 show-fixes = true
+# Report rule codes, not the human-readable names preview mode defaults to.
+# See the bundled repomatic/data/ruff.toml for the rationale.
+output-prefer-rule-codes = true
 # Enable reformatting of code snippets in docstrings.
 # https://docs.astral.sh/ruff/formatter/#docstring-formatting
 format.docstring-code-format = true

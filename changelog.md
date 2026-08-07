@@ -9,6 +9,9 @@
 - Dependency-updater reports now close on the `Held back by cooldown` section, below `Cooldown bypasses`, so a PR opens on what the run changed instead of what it left alone.
 - `sync-tool-versions` leaves `autofix.yaml` for a new upstream-only `self-maintenance.yaml`, and polls daily instead of weekly. Downstream `autofix.yaml` loses the four steps it could never run.
 - `sync-tool-versions` now also bumps the packages pinned alongside a tool in its `uvx` environment, like mdformat's plugin set, which drifted unnoticed until now.
+- Those `with_packages` bumps now carry release notes and link to their GitHub repository, like every other row in the report.
+- Fix `get_source_url` returning a bug-tracker or changelog sub-path instead of the repository root, and matching `project_urls` keys case-sensitively.
+- The bundled ruff config sets `output-prefer-rule-codes`, so diagnostics report `ISC004` instead of `implicit-string-concatenation-in-collection-literal`. Requires ruff `0.16.1`.
 - `repomatic init` holds the derived upstream workflow pin back to the newest release past the `minimum-release-age` cooldown; `--no-cooldown` pins the running version immediately.
 - Align bundled skills with the [Agent Skills specification](https://agentskills.io/specification): `babysit-ci` gains its required `name` field, and `allowed-tools` moves to the spec's space-separated form.
 - Skills are now installed as whole folders, so one can ship the spec's optional `scripts/`, `references/` and `assets/` directories alongside its `SKILL.md`.

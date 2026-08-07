@@ -120,14 +120,16 @@ _CHANGELOG_URL_KEYS = (
 )
 
 # Keys in PyPI `project_urls` that typically point to a GitHub repository,
-# checked in priority order.
+# checked in priority order. Matched case-insensitively: PyPI preserves whatever
+# spelling the project wrote, so `Homepage`, `homepage` and `HomePage` all occur
+# in the wild and a case-sensitive miss silently falls through to the scan below,
+# which would happily return a Bug Tracker URL.
 _SOURCE_URL_KEYS = (
-    "Source",
-    "Source Code",
-    "Source code",
-    "Repository",
-    "Code",
-    "Homepage",
+    "source",
+    "source code",
+    "repository",
+    "code",
+    "homepage",
 )
 
 
@@ -219,11 +221,34 @@ def get_release_dates(package: str) -> dict[str, PyPIRelease]:
     return result
 
 
+def github_repo_root(url: str) -> str | None:
+    """Reduce any GitHub URL to its `https://github.com/{owner}/{repo}` root.
+
+    A `project_urls` entry often points *inside* a repository (`/issues`,
+    `/releases`, `/blob/main/CHANGELOG.md`), which is fine for a human-facing
+    link but not for callers that derive an `owner/repo` API slug from it: the
+    releases API would be asked for `repo/issues` and answer 404.
+
+    :param url: Any URL, GitHub or not.
+    :return: The repository root, or `None` when *url* names no GitHub
+        repository (a bare `github.com`, or an owner with no repo).
+    """
+    cleaned = url.strip().rstrip("/").removesuffix(".git")
+    _, separator, tail = cleaned.partition("github.com/")
+    if not separator:
+        return None
+    parts = [segment for segment in tail.split("/") if segment]
+    if len(parts) < 2:
+        return None
+    return f"https://github.com/{parts[0]}/{parts[1]}"
+
+
 def get_source_url(package: str) -> str | None:
     """Discover the GitHub repository URL for a PyPI package.
 
-    Queries the PyPI JSON API and scans `project_urls` for keys that
-    typically point to a source repository on GitHub.
+    Queries the PyPI JSON API and scans `project_urls` for keys that typically
+    point to a source repository on GitHub, then reduces the winner to its
+    repository root so an API slug can be derived from it.
 
     :param package: The PyPI package name.
     :return: The GitHub repository URL, or `None` if not found.
@@ -233,14 +258,16 @@ def get_source_url(package: str) -> str | None:
         return None
 
     project_urls: dict[str, str] = data.get("info", {}).get("project_urls") or {}
+    by_key = {key.lower(): value for key, value in project_urls.items()}
     for key in _SOURCE_URL_KEYS:
-        candidate = project_urls.get(key, "")
-        if "github.com" in candidate:
-            return candidate.rstrip("/").removesuffix(".git")
+        root = github_repo_root(by_key.get(key, ""))
+        if root:
+            return root
     # Fallback: scan all values for a GitHub URL.
     for candidate in project_urls.values():
-        if "github.com" in candidate:
-            return candidate.rstrip("/").removesuffix(".git")
+        root = github_repo_root(candidate)
+        if root:
+            return root
     return None
 
 

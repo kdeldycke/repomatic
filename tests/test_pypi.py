@@ -31,7 +31,9 @@ from repomatic.pypi import (
     PYPI_TRUSTED_PUBLISHER_SETTINGS_URL,
     TrustedPublisher,
     get_latest_release_file,
+    get_source_url,
     get_trusted_publishers,
+    github_repo_root,
     pypi_trusted_publisher_settings_url,
 )
 from tests.conftest import FakeResponse
@@ -42,6 +44,65 @@ def _patch_pypi_json(
 ) -> AbstractContextManager[MagicMock]:
     """Patch `_fetch_json` to return `payload`."""
     return patch("repomatic.pypi._fetch_json", return_value=payload)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://github.com/papaya/kiwi", "https://github.com/papaya/kiwi"),
+        ("https://github.com/papaya/kiwi/", "https://github.com/papaya/kiwi"),
+        ("https://github.com/papaya/kiwi.git", "https://github.com/papaya/kiwi"),
+        ("https://github.com/papaya/kiwi/issues", "https://github.com/papaya/kiwi"),
+        ("https://github.com/papaya/kiwi/releases", "https://github.com/papaya/kiwi"),
+        (
+            "https://github.com/papaya/kiwi/blob/main/CHANGELOG.md",
+            "https://github.com/papaya/kiwi",
+        ),
+        # No repository to point at.
+        ("https://github.com/papaya", None),
+        ("https://github.com/", None),
+        ("https://gitlab.com/papaya/kiwi", None),
+        ("", None),
+    ],
+)
+def test_github_repo_root(url, expected):
+    assert github_repo_root(url) == expected
+
+
+def test_get_source_url_matches_keys_case_insensitively():
+    """A lowercase `homepage` key must not fall through to the value scan.
+
+    PyPI preserves whatever spelling a project wrote. A case-sensitive miss used
+    to drop through to the "any github.com value" fallback and return whichever
+    URL came first, which for these packages is the bug tracker.
+    """
+    payload = {
+        "info": {
+            "project_urls": {
+                "Bug Tracker": "https://github.com/papaya/kiwi/issues",
+                "homepage": "https://github.com/papaya/kiwi",
+            }
+        }
+    }
+    with _patch_pypi_json(payload):
+        assert get_source_url("kiwi") == "https://github.com/papaya/kiwi"
+
+
+def test_get_source_url_reduces_a_sub_path_to_the_repo_root():
+    """Even the value-scan fallback yields a slug the releases API accepts."""
+    payload = {
+        "info": {
+            "project_urls": {"Bug Tracker": "https://github.com/papaya/kiwi/issues"}
+        }
+    }
+    with _patch_pypi_json(payload):
+        assert get_source_url("kiwi") == "https://github.com/papaya/kiwi"
+
+
+def test_get_source_url_none_without_a_github_url():
+    payload = {"info": {"project_urls": {"Docs": "https://kiwi.example.com"}}}
+    with _patch_pypi_json(payload):
+        assert get_source_url("kiwi") is None
 
 
 def test_latest_release_file_picks_most_recent_wheel():
