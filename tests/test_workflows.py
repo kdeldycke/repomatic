@@ -631,6 +631,54 @@ def test_version_bump_commit_in_changelog_workflow() -> None:
     )
 
 
+def test_version_bumps_relock_before_committing() -> None:
+    """Every version bump must re-lock before the commit that captures it.
+
+    `bump-my-version` rewrites `pyproject.toml` but not `uv.lock`, so a bump
+    committed without a following `uv lock` leaves the tree with the project
+    version ahead of its own lock entry. `uv run --frozen` then reinstalls the
+    project on the next sync to close that gap, and the release build runs two
+    nested syncs: the workflow's, then the one `repomatic run` opens for a
+    `needs_venv` tool. The second deletes the console script the first had just
+    written, which Windows refuses as a sharing violation and which took the
+    Windows binaries out of a release.
+    """
+    # The `bump` subcommand specifically: `bump-my-version -- show` reads the
+    # version without touching the tree, and a commit message may well spell
+    # the word "bump" on its own.
+    bump_invocation = re.compile(r"bump-my-version\s+--\s+bump\b")
+
+    offenders = []
+    for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
+        jobs = load_workflow(workflow_path.name).get("jobs", {})
+        for job_name, job in jobs.items():
+            steps = job.get("steps", []) or []
+            for index, step in enumerate(steps):
+                run = str(step.get("run", ""))
+                if not bump_invocation.search(run):
+                    continue
+                # Scan forward for the re-lock, stopping at the commit that
+                # would otherwise capture the desynchronized tree.
+                relocked = False
+                for later in steps[index + 1 :]:
+                    later_run = str(later.get("run", ""))
+                    if re.search(r"\buv\b.*\block\b", later_run):
+                        relocked = True
+                        break
+                    if "git commit" in later_run:
+                        break
+                if not relocked:
+                    offenders.append(
+                        f"{workflow_path.name}:{job_name}:{step.get('name', index)}"
+                    )
+
+    assert not offenders, (
+        "Version bump steps with no `uv lock` before the next commit: "
+        f"{offenders}. Add a `Sync uv.lock` step so the committed tree keeps "
+        "pyproject.toml and uv.lock on the same version."
+    )
+
+
 def test_broken_links_skips_post_release_commits() -> None:
     """Verify that broken-links job skips post-release version bump commits."""
     workflow = load_workflow("docs.yaml")

@@ -257,6 +257,15 @@ jobs:
         # Updates changelog and citation dates, comparison URL, and removes warning.
         # Also hard-codes version in workflow URLs for kdeldycke/repomatic repository.
         run: uv --no-progress run --frozen -- repomatic prepare-release
+      - name: Sync uv.lock
+        # Plain `uv lock`, not `--upgrade`: see the bump-version job above. Every
+        # other version bump in this file re-locks; skipping it here left the tag
+        # with pyproject ahead of uv.lock, and `uv run --frozen` reinstalls the
+        # project on the next sync to close that gap. The release build runs two
+        # nested syncs (the workflow's, then the one `repomatic run` opens for a
+        # needs_venv tool), so the second one deleted the console script the
+        # first had just written, which is a sharing violation on Windows.
+        run: uv --no-progress lock
       - name: Prepare repository
         env:
           GIT_AUTHOR: ${{ github.actor }}

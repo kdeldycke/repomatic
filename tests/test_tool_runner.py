@@ -41,6 +41,7 @@ from extra_platforms import (
     LINUX,
     MACOS,
     UBUNTU,
+    UNKNOWN_PLATFORM,
     WINDOWS,
     X86_64,
     Architecture,
@@ -59,6 +60,7 @@ from repomatic.tool_registry import (
     BinarySpec,
     NativeFormat,
     ToolSpec,
+    UnsupportedPlatformError,
     _fix_myst_directives,
     _reroot_section,
     _unescape_colon_fence,
@@ -540,6 +542,85 @@ def test_resolve_platform_no_match():
         pytest.raises(RuntimeError, match="No binary"),
     ):
         spec.resolve_platform()
+
+
+def test_resolve_platform_unknown_distro_falls_back_to_linux():
+    """An unidentified distribution still reaches the family-wide `LINUX` key.
+
+    extra-platforms returns `UNKNOWN_PLATFORM` for any distribution it has yet
+    to learn, and that sentinel belongs to no group, so the group pass misses.
+    The manylinux_2_28 build container (AlmaLinux) is the motivating case: it
+    broke every `repomatic run` binary on a distro identity that never entered
+    the choice of binary.
+    """
+    spec = BinarySpec(
+        urls={
+            (LINUX, X86_64): "https://example.com/{version}/linux",
+            (MACOS, X86_64): "https://example.com/{version}/macos",
+        },
+        checksums={
+            (LINUX, X86_64): "a" * 64,
+            (MACOS, X86_64): "b" * 64,
+        },
+        archive_format=ArchiveFormat.RAW,
+    )
+    with (
+        patch(
+            "repomatic.tool_registry.current_platform", return_value=UNKNOWN_PLATFORM
+        ),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.sys.platform", "linux"),
+    ):
+        assert spec.resolve_platform() == (LINUX, X86_64)
+
+
+@pytest.mark.parametrize(
+    ("urls", "sys_platform"),
+    (
+        # `sys.platform` proves the family, never the distribution, so a key
+        # naming one distro must not absorb another's binary.
+        ({(UBUNTU, X86_64): "https://example.com/deb"}, "linux"),
+        # Only Linux gets a fallback: no other family can be unidentified.
+        ({(LINUX, X86_64): "https://example.com/nix"}, "aix"),
+        # The fallback never crosses architectures.
+        ({(LINUX, AARCH64): "https://example.com/arm"}, "linux"),
+    ),
+)
+def test_resolve_platform_unknown_distro_refuses_beyond_linux(
+    urls: dict, sys_platform: str
+):
+    """The fallback widens to the Linux family and no further."""
+    spec = BinarySpec(
+        urls=urls,
+        checksums=dict.fromkeys(urls, "a" * 64),
+        archive_format=ArchiveFormat.RAW,
+    )
+    with (
+        patch(
+            "repomatic.tool_registry.current_platform", return_value=UNKNOWN_PLATFORM
+        ),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
+        patch("repomatic.tool_registry.sys.platform", sys_platform),
+        pytest.raises(UnsupportedPlatformError, match="No binary"),
+    ):
+        spec.resolve_platform()
+
+
+def test_linux_binaries_are_keyed_on_the_family_group():
+    """Every tool shipping a Linux binary keys it on the `LINUX` group.
+
+    The pass-3 fallback only rescues a family-wide key, so a tool keyed on a
+    specific distribution instead would still fail inside the manylinux build
+    container.
+    """
+    offenders = {
+        name
+        for name, spec in TOOL_REGISTRY.items()
+        if spec.binary
+        for key in spec.binary.urls
+        if isinstance(key[0], Platform) and key[0] in LINUX
+    }
+    assert not offenders, f"Linux binaries keyed on a distro, not LINUX: {offenders}"
 
 
 def test_platform_cache_key():

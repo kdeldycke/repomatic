@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -51,6 +52,7 @@ from extra_platforms import (
     ALL_PLATFORMS,
     LINUX,
     MACOS,
+    UNKNOWN_PLATFORM,
     WINDOWS,
     X86_64,
     Architecture,
@@ -260,6 +262,9 @@ Resolution order in {meth}`BinarySpec.resolve_platform`:
 1. Exact Platform match (`current_platform() == key_platform`).
 2. Group membership (`current_platform() in key_group`), preferring the
    group with fewest members (most specific).
+3. The `LINUX` family, only when `current_platform()` is `UNKNOWN_PLATFORM`,
+   so a distribution extra-platforms cannot name still reaches a family-wide
+   key.
 """
 
 
@@ -327,10 +332,13 @@ class BinarySpec:
         """Match the current environment against registered platform keys.
 
         Uses `current_platform()` and `current_architecture()` from
-        extra-platforms, inheriting its full detection heuristics.
+        extra-platforms, inheriting its full detection heuristics, then falls
+        back to the `LINUX` family when those heuristics name no distribution
+        at all.
 
         :return: The matching {data}`PlatformKey`.
-        :raises RuntimeError: If no key matches the current environment.
+        :raises UnsupportedPlatformError: If no key matches the current
+            environment.
         """
         arch = current_architecture()
         plat = current_platform()
@@ -351,6 +359,22 @@ class BinarySpec:
         if candidates:
             # Most-specific group: fewest members.
             return min(candidates, key=lambda c: len(c[0]))
+
+        # Pass 3: the Linux family, for an unidentified platform only. A distro
+        # extra-platforms has yet to learn resolves to `UNKNOWN_PLATFORM`, which
+        # belongs to no group, so pass 2 misses a family-wide `LINUX` key even
+        # though the binary behind it is distro-generic. Only Linux needs this:
+        # `is_macos()` and `is_windows()` are `sys.platform` tests, so neither
+        # can ever come back unidentified.
+        if plat is UNKNOWN_PLATFORM and sys.platform.startswith("linux"):
+            for key_plat, key_arch in self.urls:
+                if key_arch == arch and key_plat is LINUX:
+                    logging.warning(
+                        "Unidentified Linux distribution, falling back to %s %s.",
+                        key_plat.name,
+                        arch.name,
+                    )
+                    return (key_plat, key_arch)
 
         available = ", ".join(
             f"{k[0].name} {k[1].name}" for k in sorted(self.urls, key=str)

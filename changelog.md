@@ -5,6 +5,9 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix `repomatic run` finding no binary on a Linux distribution `extra-platforms` cannot name, which broke every registry tool inside the AlmaLinux-based manylinux build container.
+- Re-lock `uv.lock` in the release freeze commit, so a release no longer ships with its version ahead of its own lock entry. The desync made the Windows binary builds fail.
+
 ## [`7.5.0` (2026-08-07)](https://github.com/kdeldycke/repomatic/compare/v7.4.1...v7.5.0)
 
 - **Breaking:** bundled skills drop `model` and `disable-model-invocation`, so every skill is now model-invocable and runs on the session model. The recommended model moved to the spec's `compatibility` field.
