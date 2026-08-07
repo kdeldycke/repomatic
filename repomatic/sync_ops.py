@@ -122,6 +122,7 @@ from .version_sync import (
     is_newer,
     npm_candidates,
     parse_min_age,
+    pin_inside_cooldown,
     pypi_candidates,
     select_held_back,
     select_latest,
@@ -962,6 +963,17 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             npm_candidates(package) if ecosystem == "npm" else pypi_candidates(package)
         )
         latest = select_latest(candidates, min_age, today)
+        # Audit the pin already on disk, not just the one about to replace it.
+        # A pin inside the window resolves through `uvx` in CI, which can read
+        # no per-package exemption, so it fails every job that installs it.
+        stuck = pin_inside_cooldown(candidates, current_version, min_age, today)
+        if stuck:
+            logging.warning(
+                f"{package}=={current_version} is pinned inside the"
+                f" {rc.config.minimum_release_age} cooldown (published"
+                f" {stuck.isoformat()}). Installs resolving it from an index"
+                " will fail until it ages out."
+            )
         package_url = (
             NPM_PACKAGE_URL.format(package=package)
             if ecosystem == "npm"

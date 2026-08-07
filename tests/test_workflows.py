@@ -31,6 +31,7 @@ from repomatic.git_ops import (
     VERSION_BUMP_COMMIT_PREFIXES,
 )
 from repomatic.github.workflow_sync import cooldown_env_block
+from repomatic.prepare_release import LOCAL_CLI_INVOCATION
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
     RELEASE_ENGINE_WORKFLOWS,
@@ -1150,6 +1151,42 @@ def test_workflow_declares_cooldown_env(workflow: str) -> None:
     assert cooldown_env_block() in content, (
         f"{workflow} is missing the cooldown env block. Re-render it from "
         "repomatic.github.workflow_sync.cooldown_env_block()."
+    )
+
+
+CLI_INVOCATION_RE = re.compile(
+    # `\s+` spans the newline plus continuation indent a folded scalar inserts.
+    r"uvx\s+--no-progress\s+--from\s+\.\s+repomatic|"
+    + LOCAL_CLI_INVOCATION.replace(" ", r"\s+")
+)
+"""Any way a workflow can invoke this project's CLI from the local checkout."""
+
+
+@pytest.mark.parametrize(
+    "workflow", sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml"))
+)
+def test_local_cli_invocation_is_contiguous(workflow: str) -> None:
+    """Every local CLI invocation is the exact one-line form the freeze rewrites.
+
+    `freeze_cli_version` is a literal string replacement, so an invocation a
+    YAML folded scalar wraps across two lines is invisible to it: the release
+    would ship that step still pointing at the local checkout, which downstream
+    has no copy of. The same blind spot hides the step from a line-oriented
+    grep, which is how one survived the migration off `uvx --from .` and failed
+    only once CI reached it.
+
+    Keep the invocation on one line and wrap elsewhere in the command.
+    """
+    content = (WORKFLOWS_DIR / workflow).read_text(encoding="UTF-8")
+    offenders = [
+        match.group(0)
+        for match in CLI_INVOCATION_RE.finditer(content)
+        if "\n" in match.group(0) or match.group(0).startswith("uvx")
+    ]
+    assert not offenders, (
+        f"{workflow}: {len(offenders)} CLI invocation(s) the freeze cannot "
+        f"rewrite: {offenders}. Use the contiguous "
+        f"`{LOCAL_CLI_INVOCATION}` and wrap the line after it."
     )
 
 

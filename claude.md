@@ -35,7 +35,7 @@ Prefer a binary from the tool registry when one exists: it is the only path that
 
 ### Where the window comes from
 
-`[tool.repomatic] minimum-release-age` (default `8 days`) is the single source of truth. Never hard-code a duration next to an install command: read it from config, or from the `npm_min_release_age_days` output `repomatic metadata` derives from it.
+`[tool.repomatic] minimum-release-age` (default `1 week`) is the single source of truth. Never hard-code a duration next to an install command: read it from config, or from the `npm_min_release_age_days` output `repomatic metadata` derives from it.
 
 Two files carry the duration as a literal instead, and both are pinned back to that source by a conformance test rather than trusted:
 
@@ -54,7 +54,7 @@ A command that resolves against a checked-in lockfile is the exception that need
 | npm, `npx`                                                                            | `--min-release-age` in whole days, or `NPM_CONFIG_MIN_RELEASE_AGE` | `--min-release-age-exclude` taking a name or glob       |
 | A tool in the `repomatic run` registry                                                | applied by the runner                                              | n/a                                                     |
 
-uv accepts a friendly duration (`8 days`), an ISO 8601 span (`P8D`), or an absolute date; npm counts whole days and needs 11.10.0 or newer. Both knobs gate the whole resolved tree, transitive dependencies included, which is the point: the compromised package is rarely the one named on the command line.
+uv accepts a friendly duration (`1 week`), an ISO 8601 span (`P7D`), or an absolute date; npm counts whole days and needs 11.10.0 or newer. Both knobs gate the whole resolved tree, transitive dependencies included, which is the point: the compromised package is rarely the one named on the command line.
 
 For any other package manager, consult [meta-package-manager's cooldown inventory](https://kdeldycke.github.io/meta-package-manager/cooldown.html#supported-managers) for which of them enforce a cooldown natively, which have support proposed upstream, which have none, and which are marked N/A because their archive already stages releases on its own. It tracks the capability across every manager mpm drives and stays fresher than a table copied into this file. Read the N/A verdict as "different threat model", not "gap": see [§ Distro archives are out of scope](#distro-archives-are-out-of-scope-not-an-exception).
 

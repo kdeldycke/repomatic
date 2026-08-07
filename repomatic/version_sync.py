@@ -284,6 +284,33 @@ def _best_candidate(
     return best
 
 
+def cleared_cooldown(released: date, cutoff: date) -> bool:
+    """Whether a release dated *released* is safely older than *cutoff*.
+
+    The comparison is **strict**, and that one character is load-bearing.
+    Datasources report a release *date*, while the cooldown this gates is
+    enforced downstream at *instant* granularity: uv's `--exclude-newer` cutoff
+    is `now - min_age`, carrying the run's time of day. An inclusive `<=`
+    therefore adopts a release published on the cutoff day but later in the day
+    than the run's own clock, which uv then refuses to resolve, pinning a
+    version that cannot be installed until it ages out.
+
+    That is not hypothetical: a `sync-workflow-pins` run at `05:20` UTC adopted
+    a release published at `17:07` on the cutoff date, and every binary build
+    failed on `No solution found` until the window elapsed.
+
+    Being strict costs up to 24 hours of extra window and guarantees
+    correctness, since a release dated before the cutoff day is older than any
+    instant on it. Same "over-protect rather than under-protect" convention as
+    {func}`min_release_age_days`.
+
+    :param released: Release date, as reported by the datasource.
+    :param cutoff: The window boundary, `today - min_age`.
+    :return: `True` when the release may be adopted.
+    """
+    return released < cutoff
+
+
 def select_latest(
     candidates: list[Candidate],
     min_age: timedelta,
@@ -307,7 +334,7 @@ def select_latest(
     return _best_candidate(
         candidates,
         allow_prerelease=allow_prerelease,
-        keep=lambda _candidate, released: released <= cutoff,
+        keep=lambda _candidate, released: cleared_cooldown(released, cutoff),
     )
 
 
@@ -341,11 +368,54 @@ def select_held_back(
     return _best_candidate(
         candidates,
         allow_prerelease=allow_prerelease,
-        # Outside the cooldown: select_latest would already have adopted it.
+        # Negated against the same predicate select_latest adopts on, so the two
+        # sets stay an exact partition: anything this keeps is a release
+        # select_latest declined, never one it would already have taken.
         keep=lambda candidate, released: (
-            released > cutoff and is_newer(candidate.version, pinned)
+            not cleared_cooldown(released, cutoff)
+            and is_newer(candidate.version, pinned)
         ),
     )
+
+
+def pin_inside_cooldown(
+    candidates: list[Candidate],
+    pinned: str,
+    min_age: timedelta,
+    today: date,
+) -> date | None:
+    """The release date of *pinned* when it has not yet cleared the cooldown.
+
+    Audits a pin already written to disk, where {func}`select_latest` only ever
+    judges one it is about to write. The two ask the same question through
+    {func}`cleared_cooldown`, so an audit can never disagree with the decision
+    that produced the pin.
+
+    Worth auditing separately because a pin can enter the tree without passing
+    the selector at all: hand-edited, merged from a branch, restored from a
+    revert, or written by an older release whose selector had a different
+    boundary. Such a pin resolves through `uvx` in CI, where no per-package
+    exemption is reachable, so it fails the whole job until it ages out.
+
+    :param candidates: Versions offered by the datasource, as already fetched
+        for the selection pass.
+    :param pinned: The version currently written in the workflow.
+    :param min_age: The stabilization window from `minimum-release-age`.
+    :param today: Reference date for the cooldown computation.
+    :return: The release date when *pinned* is still inside the window, or
+        `None` when it has cleared, is not among *candidates*, or carries an
+        unparsable date.
+    """
+    cutoff = today - min_age
+    for candidate in candidates:
+        if candidate.version != pinned:
+            continue
+        try:
+            released = date.fromisoformat(candidate.date)
+        except ValueError:
+            return None
+        return None if cleared_cooldown(released, cutoff) else released
+    return None
 
 
 def github_candidates(repo_url: str, tag_pattern: str | None = None) -> list[Candidate]:

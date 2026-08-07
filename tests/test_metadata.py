@@ -1106,8 +1106,8 @@ expected: dict[str, Any] = {
     # These can be True or False depending on the current development cycle state.
     "minor_bump_allowed": AnyBool(),
     "major_bump_allowed": AnyBool(),
-    # `minimum-release-age` default "8 days", rendered as whole days for npm.
-    "npm_min_release_age_days": 8,
+    # `minimum-release-age` default "1 week", rendered as whole days for npm.
+    "npm_min_release_age_days": 7,
 }
 
 

@@ -229,7 +229,7 @@ dependency-groups.docs = { requires-python = ">= 3.14" }
 # installs refuse to resolve. Relative dates are fine: uv 0.11.8+ writes a
 # sentinel timestamp to uv.lock for relative spans, so re-resolving never
 # produces churn.
-exclude-newer = "8 days"
+exclude-newer = "1 week"
 # Per-package cooldown control. A fixed date holds a package at the version
 # available then (the day after it shipped), so `uv lock --upgrade` keeps that
 # version instead of tracking newer releases. `sync-uv-lock` freezes new

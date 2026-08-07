@@ -822,7 +822,7 @@ GitHub Actions are pinned to full commit SHAs, with the semver tag preserved as 
 
 #### Cooldowns
 
-Every updater respects a cooldown, whether it runs inside `sync-deps` or on its own. `sync-action-pins`, `sync-workflow-pins`, and `sync-tool-versions` share [`minimum-release-age`](configuration.md#minimum-release-age) (default `"8 days"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. uv's `--exclude-newer` is its counterpart guarding `sync-uv-lock`, and `sync-dep-sources` adopts a fresh release through that same window with an explicit `exclude-newer-package` freeze.
+Every updater respects a cooldown, whether it runs inside `sync-deps` or on its own. `sync-action-pins`, `sync-workflow-pins`, and `sync-tool-versions` share [`minimum-release-age`](configuration.md#minimum-release-age) (default `"1 week"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. uv's `--exclude-newer` is its counterpart guarding `sync-uv-lock`, and `sync-dep-sources` adopts a fresh release through that same window with an explicit `exclude-newer-package` freeze.
 
 To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically: no manual bump required.
 

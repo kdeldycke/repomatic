@@ -24,7 +24,7 @@ The `lint.yaml` workflow runs `lint-changelog` in CI. The `check` and `fix` subc
 
 - If the context above shows `CANONICAL_REPO`, use `uv run repomatic`.
 - Otherwise, use `uvx -- repomatic`.
-- Gate the `uvx` form with the supply-chain cooldown: `uvx --exclude-newer '8 days' --exclude-newer-package repomatic=P0D -- repomatic`. The window matches `[tool.repomatic] minimum-release-age`; repomatic itself is exempt because a fresh release must stay installable, while its dependency tree stays gated. See `claude.md` § Cooldown on every install.
+- Gate the `uvx` form with the supply-chain cooldown: `uvx --exclude-newer '1 week' --exclude-newer-package repomatic=P0D -- repomatic`. The window matches `[tool.repomatic] minimum-release-age`; repomatic itself is exempt because a fresh release must stay installable, while its dependency tree stays gated. See `claude.md` § Cooldown on every install.
 
 ### Argument handling
 

@@ -126,6 +126,70 @@ def test_select_latest_respects_cooldown():
     assert picked is not None and picked.version == "1.1.0"
 
 
+def test_select_latest_excludes_the_cutoff_day_itself():
+    """A release dated exactly on the cutoff is held back, not adopted.
+
+    Datasources report a release date while uv enforces `--exclude-newer` at
+    instant granularity, so a release published on the cutoff day may still be
+    younger than `now - min_age`. Adopting it pins a version uv then refuses to
+    resolve. This is the shape that broke every binary build: a run at `05:20`
+    UTC took a release published at `17:07` on the cutoff date.
+    """
+    cutoff_day = (TODAY - timedelta(days=8)).isoformat()
+    candidates = [
+        vs.Candidate("1.0.0", "2026-01-01", "v1.0.0"),
+        vs.Candidate("2.0.0", cutoff_day, "v2.0.0"),
+    ]
+    picked = vs.select_latest(candidates, timedelta(days=8), TODAY)
+    assert picked is not None and picked.version == "1.0.0"
+
+    # And it lands in the held-back set rather than vanishing between the two.
+    held = vs.select_held_back(candidates, "1.0.0", timedelta(days=8), TODAY)
+    assert held is not None and held.version == "2.0.0"
+
+
+@pytest.mark.parametrize(
+    ("offset_days", "adopted"),
+    (
+        (9, True),  # Comfortably past the window.
+        (8, False),  # The cutoff day itself: same-day ambiguity, held back.
+        (7, False),  # Inside the window.
+    ),
+)
+def test_cooldown_boundary_partitions_cleanly(offset_days: int, adopted: bool):
+    """`select_latest` and `select_held_back` never both take, nor both drop."""
+    released = (TODAY - timedelta(days=offset_days)).isoformat()
+    candidates = [vs.Candidate("2.0.0", released, "v2.0.0")]
+    picked = vs.select_latest(candidates, timedelta(days=8), TODAY)
+    held = vs.select_held_back(candidates, "1.0.0", timedelta(days=8), TODAY)
+    assert (picked is not None) is adopted
+    assert (held is not None) is not adopted
+
+
+@pytest.mark.parametrize(
+    ("offset_days", "flagged"),
+    (
+        (9, False),  # Cleared the window.
+        (8, True),  # The cutoff day itself: same-day ambiguity.
+        (2, True),  # Well inside.
+    ),
+)
+def test_pin_inside_cooldown(offset_days: int, flagged: bool):
+    """A pin already on disk is judged by the predicate that would write it."""
+    released = (TODAY - timedelta(days=offset_days)).isoformat()
+    candidates = [vs.Candidate("2.0.0", released, "v2.0.0")]
+    stuck = vs.pin_inside_cooldown(candidates, "2.0.0", timedelta(days=8), TODAY)
+    assert (stuck is not None) is flagged
+
+
+def test_pin_inside_cooldown_stays_quiet_on_unknowns():
+    """A pin the datasource does not offer, or dates badly, is never flagged."""
+    candidates = [vs.Candidate("2.0.0", "2026-01-01", "v2.0.0")]
+    assert vs.pin_inside_cooldown(candidates, "9.9.9", timedelta(days=8), TODAY) is None
+    undated = [vs.Candidate("2.0.0", "not-a-date", "v2.0.0")]
+    assert vs.pin_inside_cooldown(undated, "2.0.0", timedelta(days=8), TODAY) is None
+
+
 def test_select_latest_skips_prereleases_by_default():
     candidates = [
         vs.Candidate("1.1.0", "2026-01-01", "v1.1.0"),

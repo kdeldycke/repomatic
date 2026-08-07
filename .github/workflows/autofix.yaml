@@ -32,8 +32,8 @@ concurrency:
 # per-package CLI flags (`--exclude-newer-package`, `--min-release-age-exclude`).
 # See claude.md for the rationale.
 env:
-  NPM_CONFIG_MIN_RELEASE_AGE: 8
-  UV_EXCLUDE_NEWER: "8 days"
+  NPM_CONFIG_MIN_RELEASE_AGE: 7
+  UV_EXCLUDE_NEWER: "1 week"
 
 jobs:
 
@@ -214,8 +214,8 @@ jobs:
         env:
           MARKDOWN_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).markdown_files }}
         run: >
-          echo "${MARKDOWN_FILES}" | xargs -n1 uvx --no-progress
-          --from . repomatic run mdformat --
+          echo "${MARKDOWN_FILES}" | xargs -n1
+          uv --no-progress run --frozen -- repomatic run mdformat --
       - name: Markdown fixes for Awesome Lists
         if: startsWith(github.event.repository.name, 'awesome-')
         # Remove forbidden TOC entries: https://github.com/sindresorhus/awesome-lint/blob/v2.2.2/rules/toc.js#L14-L18

@@ -22,8 +22,8 @@ permissions: {}
 # per-package CLI flags (`--exclude-newer-package`, `--min-release-age-exclude`).
 # See claude.md for the rationale.
 env:
-  NPM_CONFIG_MIN_RELEASE_AGE: 8
-  UV_EXCLUDE_NEWER: "8 days"
+  NPM_CONFIG_MIN_RELEASE_AGE: 7
+  UV_EXCLUDE_NEWER: "1 week"
 
 jobs:
 

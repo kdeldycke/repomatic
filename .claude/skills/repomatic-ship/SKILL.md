@@ -23,7 +23,7 @@ The release is push-driven: the `prepare-release` job in `changelog.yaml` runs `
 ### How this skill runs
 
 - **The review gate is the permission system, not a behavioral stop.** Normal runs prompt on each `git commit`, `git push`, and subagent write; step 4 shows the consolidated changelog diff *before* the first commit prompt, so approving that commit is the review gate and denying it stops the run. `--dangerously-skip-permissions` mutes the prompts so the full sequence runs autonomously; the skill cannot detect the mode and does not need to.
-- **Invocation method.** When the context shows `CANONICAL_REPO`, use `uv run repomatic`. Otherwise use `uvx --exclude-newer '8 days' --exclude-newer-package repomatic=P0D -- repomatic`, which applies the supply-chain cooldown to repomatic's dependency tree while keeping a fresh release installable (see `claude.md` § Cooldown on every install). References to `<cmd>` below resolve to one or the other.
+- **Invocation method.** When the context shows `CANONICAL_REPO`, use `uv run repomatic`. Otherwise use `uvx --exclude-newer '1 week' --exclude-newer-package repomatic=P0D -- repomatic`, which applies the supply-chain cooldown to repomatic's dependency tree while keeping a fresh release installable (see `claude.md` § Cooldown on every install). References to `<cmd>` below resolve to one or the other.
 - **You hold no `Edit`/`Write` of your own**: the changelog skill and the spawned agents do the editing.
 
 ### Sub-agent rules

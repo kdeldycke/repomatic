@@ -9,8 +9,10 @@
 - **Breaking:** `manage_issue_lifecycle()` takes the rendered `body` string instead of a `body_file` path, and writes the temporary file `gh` needs itself.
 - **Breaking:** `format_file_size` moves from `images` to a new `humanize` module, joined there by `format_age`. Frontmatter parsing moves to a new `frontmatter` module.
 - **Breaking:** workflows now run the CLI from `uv.lock` with `uv run --frozen` instead of `uvx --from .`, so installs are hash-verified. The release freeze still pins downstream to `uvx 'repomatic==X.Y.Z'`.
-- `[tool.uv] exclude-newer` now tracks `minimum-release-age` instead of carrying its own `1 week` literal, closing the band where `uv.lock` could pin a version CI then refused to install.
+- `minimum-release-age` now defaults to `1 week` (was `8 days`) and `[tool.uv] exclude-newer` tracks it, closing the band where `uv.lock` could pin a version CI then refused to install.
 - Reject a dependency floor naming a release still inside the cooldown window, which would ship a package that downstream repos and `uvx` users cannot resolve.
+- Fix the `sync-*` updaters adopting a release published on the cutoff day itself, which uv then refused to resolve because it applies the window to the hour rather than the day.
+- `sync-workflow-pins` now warns when a pin already in the tree sits inside the cooldown, instead of only judging the version it is about to write.
 - A `lint-repo` check that cannot read its GitHub API response now reports one "could not query API" outcome instead of separate unreachable-API and unparsable-JSON messages.
 - Fix `prepare-release` and `sync-github-releases` reading `./changelog.md` instead of the configured `changelog.location`.
 - Fix a PR body template's `footer: false` being ignored, appending the attribution footer to a template that opted out of it.

@@ -828,7 +828,7 @@ class Config:
     """
 
     minimum_release_age: str = field(
-        default="8 days",
+        default="1 week",
         metadata={CONFIG_PATH_METADATA_KEY: "minimum-release-age"},
     )
     """Stabilization window before a new upstream release is adopted.
