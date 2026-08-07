@@ -106,8 +106,8 @@ class ItemAction(Enum):
     parallel mapping that a new member could silently miss.
     """
 
-    DRY_RUN = "\U0001f441️ Dry-run"
-    FAILED = "⚠️ Failed"
+    DRY_RUN = "\U0001f441\ufe0f Dry-run"
+    FAILED = "\u26a0\ufe0f Failed"
     UNSUBSCRIBED = "\U0001f515 Unsubscribed"
 
     @property

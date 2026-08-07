@@ -289,7 +289,7 @@ it falls back to `main` since the tag does not exist yet.
 def _pin_ref(version: str, commit_sha: str | None) -> str:
     """Build the `@`-suffix of a pinned `uses:` reference.
 
-    Returns `{sha} # {version}` (the SHA-pin-with-comment format) when
+    Returns ``{sha} # {version}`` (the SHA-pin-with-comment format) when
     *commit_sha* is provided, otherwise the bare *version*. `sync-action-pins`
     keeps these pins current. Shared by every `uses:` renderer
     (thin callers, the `publish-pypi` action, the release lanes) so the pin
@@ -1032,7 +1032,7 @@ def _rewrite_workflow_uses(job_text: str, repo: str, uses_ref: str) -> str:
     """Rewrite a job's local reusable-workflow `uses:` to the pinned cross-repo form.
 
     `uses: ./.github/workflows/X.yaml` becomes
-    `uses: {repo}/.github/workflows/X.yaml@{uses_ref}`. All other lines pass
+    ``uses: {repo}/.github/workflows/X.yaml@{uses_ref}``. All other lines pass
     through unchanged. A function replacement avoids `re` interpreting a `#` or
     digit in *uses_ref* as backreference syntax.
 

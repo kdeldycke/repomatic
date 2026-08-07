@@ -46,9 +46,9 @@ class SyncAction(Enum):
     parallel mapping that a new member could silently miss.
     """
 
-    DRY_RUN = "\U0001f441️ Dry-run"
-    FAILED = "⚠️ Failed"
-    SKIPPED = "✅ In sync"
+    DRY_RUN = "\U0001f441\ufe0f Dry-run"
+    FAILED = "\u26a0\ufe0f Failed"
+    SKIPPED = "\u2705 In sync"
     UPDATED = "\U0001f504 Updated"
 
     @property

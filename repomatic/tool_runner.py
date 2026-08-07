@@ -67,6 +67,7 @@ from .tool_registry import (
     BinarySpec,
     NativeFormat,
     ToolSpec,
+    UnsupportedPlatformError,
 )
 from .uv import uv_cmd, uvx_cmd
 from .version_sync import exclude_newer_cutoff, min_release_age_days
@@ -841,13 +842,20 @@ def _path_tools_env(
     Temporary directories are appended to *path_dirs* for the caller to clean up,
     since they must outlive this function and stay alive for the tool's run.
 
+    A companion publishing no binary for the running platform is skipped with a
+    warning rather than failing the run, since no retry can make it exist:
+    `shfmt` ships nothing for Windows ARM64, and hard-failing there would leave
+    `repomatic run mdformat` unusable on the platform instead of merely leaving
+    its shell blocks unformatted. Every other install failure still aborts.
+
     :param spec: Specification of the tool about to run.
     :param skip_checksum: Skip SHA-256 verification, as for the primary tool.
     :param no_cache: Bypass the binary cache when `True`.
     :param path_dirs: Accumulator the caller cleans up in its `finally` block.
     :return: The environment to hand the child, or `None` to inherit unchanged
         when the tool declares no companions.
-    :raises ClickException: If a companion cannot be installed.
+    :raises ClickException: If a companion fails to install for any reason other
+        than the platform having no binary at all.
     """
     if not spec.path_tools:
         return None
@@ -864,6 +872,14 @@ def _path_tools_env(
                 skip_checksum,
                 no_cache=no_cache,
             )
+        except UnsupportedPlatformError as exc:
+            # The companion publishes nothing for this platform, so no run can
+            # ever provision it here. Carrying on without it keeps the primary
+            # tool working, degraded, instead of making it unusable on the
+            # platform: mdformat still formats Markdown, leaving only its shell
+            # blocks untouched.
+            logging.warning("Skipping %s on PATH for %s: %s", tool_name, spec.name, exc)
+            continue
         except RuntimeError as exc:
             msg = f"Cannot provision {tool_name} on PATH for {spec.name}: {exc}"
             raise ClickException(msg) from exc

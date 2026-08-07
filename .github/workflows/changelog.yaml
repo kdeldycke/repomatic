@@ -23,8 +23,9 @@ name: 🆙 Changelog & versions
       # touches only these gets an immediate PR re-base instead of waiting for the
       # workflow_run backstop below (see the prepare-release job's `if:`). That
       # backstop re-bases the PR after every Build & release regardless of paths, so
-      # a commit missed here — a tests/- or packaging-only cleanup — is caught then
-      # rather than leaving the PR stale.
+      # a commit landing entirely outside this list — a skill, a composite action
+      # under .github/actions/, readme.md or claude.md — is caught then rather than
+      # leaving the PR stale.
       - "**/*.py"
       - "docs/**"
   # Trigger after release workflow completes to ensure tags exist before bump-version.
@@ -225,8 +226,8 @@ jobs:
     # workflow_run is intentionally allowed: it fires after every "🚀 Build &
     # release" (so after every push to main) and re-bases the PR onto the current
     # HEAD. That is the backstop for a push that did not match this workflow's
-    # `paths:` filter — a tests/- or packaging-only reconciliation commit — which
-    # would otherwise leave the PR stale on its prior base. It double-runs with the
+    # `paths:` filter — one touching only skills, a composite action, or an unlisted
+    # markdown file — which would otherwise leave the PR stale. It double-runs with the
     # push trigger on paths-matching commits, but create-pull-request no-ops when
     # the branch is already current, so the extra run is cheap and idempotent.
     if: github.event_name != 'schedule'

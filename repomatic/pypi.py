@@ -222,7 +222,7 @@ def get_release_dates(package: str) -> dict[str, PyPIRelease]:
 
 
 def github_repo_root(url: str) -> str | None:
-    """Reduce any GitHub URL to its `https://github.com/{owner}/{repo}` root.
+    """Reduce any GitHub URL to its `https://github.com/owner/repo` root.
 
     A `project_urls` entry often points *inside* a repository (`/issues`,
     `/releases`, `/blob/main/CHANGELOG.md`), which is fine for a human-facing

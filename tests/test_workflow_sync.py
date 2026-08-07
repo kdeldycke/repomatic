@@ -46,6 +46,7 @@ from repomatic.github.workflow_sync import (
     generate_workflows,
     identify_canonical_workflow,
     run_workflow_lint,
+    workflow_triggers,
 )
 from repomatic.init_project import get_data_content
 from repomatic.lint_repo import check_workflow_permissions
@@ -299,7 +300,7 @@ def test_mirrors_canonical_dispatch(filename: str) -> None:
     """Caller's workflow_dispatch presence mirrors canonical, no synthesis."""
     content = generate_thin_caller(filename)
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     canonical = extract_trigger_info(filename)
     canonical_has_dispatch = "workflow_dispatch" in canonical.non_call_triggers
     assert ("workflow_dispatch" in triggers) is canonical_has_dispatch
@@ -314,7 +315,7 @@ def test_release_thin_caller_synthesizes_triggers() -> None:
     """
     content = generate_thin_caller("release.yaml")
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     assert "workflow_dispatch" in triggers
     assert triggers["push"] == {"branches": ["main"]}
     # The engine lane is call-only.
@@ -1301,7 +1302,7 @@ def test_thin_caller_drops_upstream_source_paths(filename: str) -> None:
     """
     content = generate_thin_caller(filename)
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     for trigger_name, trigger_config in triggers.items():
         if not isinstance(trigger_config, dict):
             continue
@@ -1648,7 +1649,7 @@ def test_thin_caller_release_with_source_paths() -> None:
         "release.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
     )
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     push_config = triggers.get("push", {})
     # push trigger has branches but no paths.
     assert "paths" not in push_config
@@ -1665,7 +1666,7 @@ def test_thin_caller_changelog_with_source_paths() -> None:
         "changelog.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
     )
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     push_config = triggers.get("push", {})
     assert "paths" in push_config
     assert "changelog.md" in push_config["paths"]
@@ -1677,7 +1678,7 @@ def test_thin_caller_lint_no_paths_with_source_paths() -> None:
         "lint.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
     )
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     push_config = triggers.get("push", {})
     # lint.yaml has no paths filter in canonical, so none in thin caller.
     assert "paths" not in push_config
@@ -1861,7 +1862,7 @@ def test_thin_caller_paths_spec_extra_paths_appends() -> None:
     spec = PathsSpec(extra_paths=["install.sh"])
     content = generate_thin_caller("changelog.yaml", paths_spec=spec)
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     assert "install.sh" in triggers["push"]["paths"]
 
 
@@ -1870,7 +1871,7 @@ def test_thin_caller_paths_spec_ignore_strips_canonical() -> None:
     spec = PathsSpec(ignore_paths=["uv.lock"])
     content = generate_thin_caller("changelog.yaml", paths_spec=spec)
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     assert "uv.lock" not in triggers["push"]["paths"]
     # Other canonical entries survive.
     assert "changelog.md" in triggers["push"]["paths"]
@@ -1884,7 +1885,7 @@ def test_thin_caller_paths_spec_per_workflow_override_replaces_wholesale() -> No
     )
     content = generate_thin_caller("changelog.yaml", paths_spec=spec)
     data = yaml.safe_load(content)
-    triggers = data.get(True) or data.get("on") or {}
+    triggers = workflow_triggers(data)
     assert triggers["push"]["paths"] == ["only.sh", "just-this.toml"]
 
 

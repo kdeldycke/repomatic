@@ -20,19 +20,10 @@ Provides a unified interface for accessing bundled data files from
 `repomatic/data/` and orchestrates repository bootstrapping via
 `repomatic init`.
 
-Available components (`repomatic init <component>`):
-
-- `workflows` - Thin-caller workflow files
-- `labels` - Label definitions (labels.toml + labeller rules)
-- `changelog` - Minimal changelog.md
-- `uv` - Syncs the `[tool.uv]` resolver pins into pyproject.toml
-- `ruff` - Merges `[tool.ruff]` into pyproject.toml
-- `pytest` - Merges `[tool.pytest]` into pyproject.toml
-- `mypy` - Merges `[tool.mypy]` into pyproject.toml
-- `bumpversion` - Merges `[tool.bumpversion]` into pyproject.toml
-- `agents` - Claude Code agent definitions (.claude/agents/)
-- `skills` - Claude Code skill definitions (.claude/skills/)
-- `awesome-template` - Boilerplate for `awesome-*` repositories
+Every component `repomatic init` accepts is declared in
+{data}`~repomatic.registry.COMPONENTS`, which carries each one's description,
+default scope and target paths; `repomatic init --help` lists them. That tuple
+is the only roster: a list repeated here would silently fall behind it.
 
 Selectors use the same `component[/file]` syntax as the `exclude`
 config option in `[tool.repomatic]`.  Qualified entries like

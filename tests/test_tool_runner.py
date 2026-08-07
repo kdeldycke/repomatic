@@ -22,8 +22,10 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import tarfile
+import tempfile
 import zipfile
 from itertools import combinations
 from pathlib import Path
@@ -69,6 +71,7 @@ from repomatic.tool_runner import (
     _install_binary,
     _install_npm,
     _npm_supports_cooldown,
+    _path_tools_env,
     binary_tool_context,
     ensure_binary,
     find_unmodified_configs,
@@ -877,6 +880,31 @@ def test_install_binary_missing_platform():
         pytest.raises(RuntimeError, match="No binary for"),
     ):
         _install_binary(spec, Path("/tmp"))
+
+
+def test_path_tools_env_skips_platform_without_binary(caplog):
+    """A companion publishing no binary here is skipped, not fatal.
+
+    `shfmt` ships nothing for Windows ARM64, so provisioning it for mdformat
+    can never succeed there. Aborting would make `repomatic run mdformat`
+    unusable on the platform rather than merely leaving its shell blocks
+    unformatted, so the run carries on with `PATH` untouched.
+    """
+    spec = TOOL_REGISTRY["mdformat"]
+    assert "shfmt" in spec.path_tools
+    path_dirs: list[tempfile.TemporaryDirectory[str]] = []
+    with (
+        patch("repomatic.tool_registry.current_platform", return_value=WINDOWS),
+        patch("repomatic.tool_registry.current_architecture", return_value=AARCH64),
+        caplog.at_level(logging.WARNING),
+    ):
+        env = _path_tools_env(spec, False, False, path_dirs)
+
+    assert env is not None
+    assert "shfmt" in caplog.text
+    assert "No binary for" in caplog.text
+    # Nothing was prepended, so the child inherits the ambient PATH verbatim.
+    assert env["PATH"] == os.environ.get("PATH", "")
 
 
 def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):

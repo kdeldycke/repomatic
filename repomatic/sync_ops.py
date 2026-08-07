@@ -1180,8 +1180,12 @@ class SyncOperation:
         A consolidated operation must reset the working tree before it runs, so
         the previous bumper's diff never bleeds into its PR. An operation with a
         job to itself starts from a clean checkout and needs no reset.
+
+        Compared against the {attr}`job` field default rather than against a
+        repeated `"sync-deps"` literal, so renaming the shared job is a one-line
+        change.
         """
-        return self.job == "sync-deps"
+        return self.job == SyncOperation.job
 
     def is_enabled(self, config: Config) -> bool:
         """Whether this operation is enabled in *config*."""

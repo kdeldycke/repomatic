@@ -113,7 +113,9 @@ only_platforms = ["linux", "macOS", "windows"]
 exit_code = 0
 stderr_regex_matches = [
   'info: Read initial mapping from \S+\.mailmap',
-  "info: (Save updated results to|Print updated results to)",
+  # Both branches of `log_output_target`: a file destination narrates the path,
+  # a `-` destination names the stdout stream.
+  'info: (Write|Print) updated mailmap to \S+',
 ]
 
 # Every command and subcommand must render its --help screen without crashing.

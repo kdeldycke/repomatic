@@ -1903,7 +1903,7 @@ def update_docs(check: bool) -> None:
        with ``{eval-rst}`` blocks.
     3. Run the project-specific `docs/docs_update.py` script (if present)
        to generate dynamic content.
-    4. Refresh self-updating blocks (`{matrix}` compatibility tables and
+    4. Refresh self-updating blocks (``{matrix}`` compatibility tables and
        `python:render` `:mirror:` regions) found in `docs/` pages and
        `readme.md`, via `click-extra refresh-directives`.
 

@@ -45,7 +45,7 @@ repomatic does for the release process what ruff did for linting and uv did for 
 - Credential scanning with [`gitleaks`](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-lint-yaml-jobs) to prevent secret leakage
 - Single [`pyproject.toml` configuration](https://kdeldycke.github.io/repomatic/configuration.html): no extra dotfiles, no JSON configs, no YAML presets to maintain
 - The CLI itself [ships as standalone binaries](https://kdeldycke.github.io/repomatic/install.html#executables) (Linux / macOS / Windows, x86_64 / arm64): no Python environment needed to run it
-- [15+ code quality tools](https://kdeldycke.github.io/repomatic/tool-runner.html) (ruff, mypy, biome, typos, mdformat, shfmt, yamllint, actionlint, lychee, oxipng, jpegoptim, pyproject-fmt, labelmaker, gitleaks, zizmor) managed through one `repomatic run <tool>` interface with automatic installation and platform-specific binary caching
+- [15+ code quality tools](https://kdeldycke.github.io/repomatic/tool-runner.html) (ruff, mypy, biome, typos, mdformat, shfmt, yamllint, actionlint, lychee, oxipng, pyproject-fmt, labelmaker, gitleaks, zizmor) managed through one `repomatic run <tool>` interface with automatic installation and platform-specific binary caching
 
 ## Quick start
 
@@ -75,7 +75,7 @@ See the **[full documentation](https://kdeldycke.github.io/repomatic/)** for:
 - [Installation methods and executables](https://kdeldycke.github.io/repomatic/install.html)
 - [`[tool.repomatic]` configuration reference](https://kdeldycke.github.io/repomatic/configuration.html)
 - [CLI parameters](https://kdeldycke.github.io/repomatic/cli.html)
-- [Reusable workflow reference](https://kdeldycke.github.io/repomatic/workflows.html) (all 13 workflows with job descriptions)
+- [Reusable workflow reference](https://kdeldycke.github.io/repomatic/workflows.html) (all 14 workflows with job descriptions)
 - [Security practices and token setup](https://kdeldycke.github.io/repomatic/security.html)
 - [Claude Code skills](https://kdeldycke.github.io/repomatic/skills.html)
 - [API reference](https://kdeldycke.github.io/repomatic/repomatic.html)

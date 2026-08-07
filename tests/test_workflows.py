@@ -30,7 +30,7 @@ from repomatic.git_ops import (
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
 )
-from repomatic.github.workflow_sync import cooldown_env_block
+from repomatic.github.workflow_sync import cooldown_env_block, workflow_triggers
 from repomatic.prepare_release import LOCAL_CLI_INVOCATION
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
@@ -131,7 +131,7 @@ WORKFLOWS_WITH_METADATA_GATE = frozenset((
 WORKFLOWS_WITHOUT_PUSH_TRIGGER = frozenset(
     p.name
     for p in WORKFLOWS_DIR.glob("*.yaml")
-    if "push" not in (yaml.safe_load(p.read_text(encoding="UTF-8")).get("on") or {})
+    if "push" not in workflow_triggers(yaml.safe_load(p.read_text(encoding="UTF-8")))
 )
 
 # Workflows that must use conditional cancel-in-progress (excludes unique
@@ -506,10 +506,10 @@ def test_prepare_release_runs_on_workflow_run() -> None:
 
     `workflow_run` fires after every "🚀 Build & release" — so after every push to
     `main` — and re-bases the release PR onto the current HEAD. Without it, a push
-    that misses changelog.yaml's `paths:` filter (a `tests/`- or packaging-only
-    reconciliation commit) leaves the PR stale on its prior base. The job may exclude
-    `schedule` (that trigger serves bump-version only) but must not exclude
-    `workflow_run`.
+    that misses changelog.yaml's `paths:` filter (a commit touching only skills,
+    a composite action, or a markdown file the filter does not list) leaves the PR
+    stale on its prior base. The job may exclude `schedule` (that trigger serves
+    bump-version only) but must not exclude `workflow_run`.
     """
     jobs = load_workflow("changelog.yaml").get("jobs", {})
     condition = jobs.get("prepare-release", {}).get("if", "")

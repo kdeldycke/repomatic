@@ -19,11 +19,13 @@
 - Fix template and skill frontmatter truncating at a value that embeds `---`, dropping every field below it.
 - Fix the parallel test run aborting before any test executed, and add a conformance test asserting no parametrization iterates an unordered collection.
 - Trim the hand-maintained example dumps from `metadata`'s module and `nuitka_matrix` docstrings, which had drifted from the values they claimed to show.
+- Fix docstrings where a brace placeholder against a closing backtick rendered as a spurious role, swallowing the prose after it, and add a conformance test.
 - Every workflow now gates package installs behind the `minimum-release-age` cooldown, so no `uvx`, `uv pip install`, `npm install` or `npx` resolves a release published inside the window.
 - A thin caller carrying extra downstream jobs now gets a top-level `permissions: {}`, and on its managed job the union of the scopes the reusable workflow's jobs declare. Callers with no extra jobs are untouched.
 - `astral-sh/setup-uv` steps now pin the uv version, bumped by `sync-workflow-pins` once a release clears the cooldown, instead of installing the newest build satisfying `required-version`.
 - `repomatic run mdformat` provisions its own `shfmt` at the registry-pinned version, so formatting shell blocks in Markdown no longer needs a system `shfmt`.
 - New `path_tools` field on a tool spec, naming registry tools whose binary must be on `PATH` while it runs.
+- Fix `repomatic run mdformat` aborting on Windows ARM64, where `shfmt` publishes no binary: a companion missing for the platform is now skipped with a warning.
 - The `format-markdown` job drops back to the lean `ubuntu-slim` runner, and its awesome-list fixup uses `sed` instead of `gawk`.
 - `apt-get` replaces `apt` in every workflow step, with `--no-install-recommends` throughout.
 - Add `gh` to the `repomatic run` registry. The release engine's attestation check now uses it instead of adding GitHub's RPM repository to the build container and installing an unpinned `gh`.
@@ -32,11 +34,11 @@
 - New `ensure_binary()` helper returning a registry tool's verified executable, for repomatic code that shells out to a binary without going through `repomatic run`.
 - Dependency-updater reports now close on the `Held back by cooldown` section, below `Cooldown bypasses`, so a PR opens on what the run changed instead of what it left alone.
 - `sync-tool-versions` leaves `autofix.yaml` for a new upstream-only `self-maintenance.yaml`, and polls daily instead of weekly. Downstream `autofix.yaml` loses the four steps it could never run.
-- `sync-tool-versions` now also bumps the packages pinned alongside a tool in its `uvx` environment, like mdformat's plugin set, which drifted unnoticed until now.
-- Those `with_packages` bumps now carry release notes and link to their GitHub repository, like every other row in the report.
+- `sync-tool-versions` now also bumps the packages pinned alongside a tool in its `uvx` environment, like mdformat's plugin set, reporting them like every other row.
 - Fix `get_source_url` returning a bug-tracker or changelog sub-path instead of the repository root, and matching `project_urls` keys case-sensitively.
 - The bundled ruff config sets `output-prefer-rule-codes`, so diagnostics report `ISC004` instead of `implicit-string-concatenation-in-collection-literal`. Requires ruff `0.16.1`.
 - `repomatic init` holds the derived upstream workflow pin back to the newest release past the `minimum-release-age` cooldown; `--no-cooldown` pins the running version immediately.
+- Commands honoring `--output` now log their destination uniformly, always naming what is written instead of mixing `Save updated results to` and a subject-less `Write to`.
 - Align bundled skills with the [Agent Skills specification](https://agentskills.io/specification): `babysit-ci` gains its required `name` field, and `allowed-tools` moves to the spec's space-separated form.
 - Skills are now installed as whole folders, so one can ship the spec's optional `scripts/`, `references/` and `assets/` directories alongside its `SKILL.md`.
 - Add `[tool.repomatic.flavor]` with `agent` and `ci` keys, declaring the ecosystems a repository targets. Values are [extra-platforms](https://github.com/kdeldycke/extra-platforms) trait IDs.
@@ -52,6 +54,7 @@
 - Add a `history` documentation page retracing the project from its 2021 reusable-workflow origins through the `gha-utils` CLI to the `repomatic` rename.
 - Recenter the readme and the workflows page on the CLI-first design: workflows only trigger CLI commands, with local-run examples and links to the standalone binaries and history pages.
 - Document Agent Skills spec conformance, and `argument-hint` as the single accepted deviation, on the skills documentation page.
+- Correct the readme and benchmark page: both carried stale reusable-workflow counts, and listed `jpegoptim` among the tools `repomatic run` manages when it never was.
 
 ## [`7.4.1` (2026-08-01)](https://github.com/kdeldycke/repomatic/compare/v7.4.0...v7.4.1)
 
