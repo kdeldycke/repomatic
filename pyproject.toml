@@ -275,9 +275,6 @@ fix = true
 # Disabled for the reasons documented in the bundled repomatic/data/ruff.toml.
 unsafe-fixes = false
 show-fixes = true
-# Report rule codes, not the human-readable names preview mode defaults to.
-# See the bundled repomatic/data/ruff.toml for the rationale.
-output-prefer-rule-codes = true
 # Enable reformatting of code snippets in docstrings.
 # https://docs.astral.sh/ruff/formatter/#docstring-formatting
 format.docstring-code-format = true
@@ -303,6 +300,9 @@ lint.isort.combine-as-imports = true
 # this would simplify a fix or enable a new diagnostic.
 # https://docs.astral.sh/ruff/settings/#lint_future-annotations
 lint.future-annotations = true
+# Report rule codes, not the human-readable names preview mode defaults to.
+# See the bundled repomatic/data/ruff.toml for the rationale.
+output-prefer-rule-codes = true
 
 [tool.typos]
 default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "JavaScript", MacOS = "macOS", PNGs = "PNGs", PyPi = "PyPI", Typescript = "TypeScript" }
