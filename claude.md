@@ -11,9 +11,23 @@ This repository is the **canonical reference** for conventions. Repos using the 
 
 ## Cooldown on every install
 
-**Every command that resolves a package from a live registry carries a cooldown.** A cooldown refuses any version published more recently than a fixed window, so a compromised release has to survive that window before it can enter a build. Most malicious releases (stolen publishing credentials, dependency confusion, account takeover) are [caught and pulled within days of publication](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), which is what makes a window of days worth the delay it costs.
+**Every command that resolves a package from a live registry carries a cooldown, except where this section names otherwise.** A cooldown refuses any version published more recently than a fixed window, so a compromised release has to survive that window before it can enter a build. Most malicious releases (stolen publishing credentials, dependency confusion, account takeover) are [caught and pulled within days of publication](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), which is what makes a window of days worth the delay it costs.
 
-The rule has **no scratch exemption**. It binds reusable workflows, one-off CI steps, test scripts, local reproduction commands, and throwaway experiments equally: an uncooled `uvx` in a five-minute debugging step resolves the same tree from the same registry onto the same runner as a production job. If you type an install command, it carries the cooldown.
+The rule has **no scratch exemption**. It binds reusable workflows, one-off CI steps, test scripts, local reproduction commands, and throwaway experiments equally: an uncooled `uvx` in a five-minute debugging step resolves the same tree from the same registry onto the same runner as a production job. If you type an install command, it carries the cooldown. The exceptions are the three [documented exemptions](#documented-exemptions) below, and nothing else.
+
+### A cooldown is not a hash
+
+The two guarantees are independent, and most of what CI installs has only one of them. Know which you are relying on before calling something verified.
+
+| Guarantee    | What it proves                                                      | Where this repo has it                                                   |
+| :----------- | :------------------------------------------------------------------ | :----------------------------------------------------------------------- |
+| **Cooldown** | The version has been public long enough for a compromise to surface | Every `uvx`, `uv pip`, `uv tool`, `npm` and `npx` invocation, whole tree |
+| **Pin**      | Everyone resolves the same version                                  | Action SHAs, workflow version literals, `repomatic run` tools, `uv.lock` |
+| **Checksum** | The bytes are the bytes that version shipped                        | `repomatic run` binary tools, `uv.lock` hashes, digest-pinned containers |
+
+The gap worth naming: a `uvx`-resolved tree is gated by publication age but **never checked against a known digest**, because a `uvx` environment has no lockfile. That covers every `uvx --from . repomatic …` call and every uvx-backed `repomatic run` tool. `uv.lock` is the only place a Python dependency is hash-pinned, so anything resolved outside it trades hash verification for the cooldown alone.
+
+Prefer a binary from the tool registry when one exists: it is the only path that carries all three at once. When adding a tool that repomatic shells out to, register it and reach it through {func}`repomatic.tool_runner.ensure_binary` rather than `$PATH`, which carries none of the three.
 
 ### Where the window comes from
 

@@ -791,6 +791,38 @@ def _splice_config_args(
     return [*config_args, *extra_args]
 
 
+def ensure_binary(name: str) -> Path:
+    """Install a registry binary tool and return the path to its executable.
+
+    The seam for repomatic code that shells out to a third-party binary but is
+    not itself a {func}`run_tool` invocation. It buys the same guarantees every
+    `repomatic run` binary gets: the registry-pinned version, its archive
+    verified against the recorded SHA-256, and a shared cache so repeated calls
+    in one run download once.
+
+    Prefer this over looking the tool up on `PATH`. Whatever `PATH` offers is
+    whichever version the machine or CI image happens to carry, unpinned and
+    unverified, and it differs between a developer's laptop and every runner.
+
+    :param name: Registry key of a tool whose {class}`ToolSpec` declares a
+        `binary`.
+    :return: Absolute path to the cached executable.
+    :raises ClickException: If the tool is unknown, ships no binary, or cannot
+        be downloaded and verified.
+    """
+    spec = TOOL_REGISTRY.get(name)
+    if spec is None or spec.binary is None:
+        msg = f"{name!r} is not a binary tool in the repomatic registry."
+        raise ClickException(msg)
+    # The temp dir is scratch for download and extraction: _install_binary
+    # returns the path inside the persistent cache, which outlives it.
+    with tempfile.TemporaryDirectory(prefix=f"repomatic-{name}-bin-") as tmp_dir:
+        try:
+            return _install_binary(spec, Path(tmp_dir))
+        except RuntimeError as exc:
+            raise ClickException(str(exc)) from exc
+
+
 def _path_tools_env(
     spec: ToolSpec,
     skip_checksum: bool,

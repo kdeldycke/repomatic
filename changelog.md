@@ -15,6 +15,8 @@
 - `apt-get` replaces `apt` in every workflow step, with `--no-install-recommends` throughout.
 - Add `gh` to the `repomatic run` registry. The release engine's attestation check now uses it instead of adding GitHub's RPM repository to the build container and installing an unpinned `gh`.
 - A tool's `strip_components` accepts a per-platform mapping, like `archive_format` already did.
+- Add `oxipng` to the `repomatic run` registry, bumped to `10.1.1`. `format-images` now uses the pinned, checksum-verified build instead of a hand-fetched `.deb` installed with `dpkg`.
+- New `ensure_binary()` helper returning a registry tool's verified executable, for repomatic code that shells out to a binary without going through `repomatic run`.
 - Dependency-updater reports now close on the `Held back by cooldown` section, below `Cooldown bypasses`, so a PR opens on what the run changed instead of what it left alone.
 - `sync-tool-versions` leaves `autofix.yaml` for a new upstream-only `self-maintenance.yaml`, and polls daily instead of weekly. Downstream `autofix.yaml` loses the four steps it could never run.
 - `sync-tool-versions` now also bumps the packages pinned alongside a tool in its `uvx` environment, like mdformat's plugin set, which drifted unnoticed until now.

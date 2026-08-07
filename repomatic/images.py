@@ -58,6 +58,9 @@ from pathlib import Path
 
 from click_extra import format_size
 
+from .tool_registry import TOOL_REGISTRY
+from .tool_runner import ensure_binary
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -104,14 +107,43 @@ def format_file_size(size_bytes: int) -> str:
 
 
 def _check_tool(name: str) -> bool:
-    """Return `True` if *name* is found on `$PATH`."""
+    """Whether *name* can be run, from the registry or from `$PATH`.
+
+    A tool the registry ships as a binary is always obtainable, so it never
+    depends on what the machine happens to have installed:
+    {func}`~repomatic.tool_runner.ensure_binary` downloads and verifies it on
+    first use. A download that fails then raises rather than silently skipping
+    the file, which is the intent: a pinned tool that cannot be fetched is a
+    problem to surface, not to work around.
+
+    Everything else still has to be on `$PATH`. `jpegoptim` is the only such
+    tool today, because upstream publishes source tarballs rather than
+    prebuilt binaries, leaving the distro package as the sole way to get it.
+    """
+    spec = TOOL_REGISTRY.get(name)
+    if spec is not None and spec.binary is not None:
+        return True
     return shutil.which(name) is not None
 
 
 def _optimize_png(path: Path) -> None:
-    """Optimize a PNG file in-place with `oxipng`."""
+    """Optimize a PNG file in-place with `oxipng`.
+
+    The binary comes from the `repomatic run` registry rather than `$PATH`, so
+    it is the pinned version with its archive checksum verified, identical on
+    every runner and every developer machine. `jpegoptim` below cannot follow:
+    upstream publishes source tarballs only, leaving the distro package as the
+    single way to get it.
+    """
     subprocess.run(
-        ["oxipng", "--opt", OXIPNG_OPT_LEVEL, "--strip", "safe", str(path)],
+        [
+            str(ensure_binary("oxipng")),
+            "--opt",
+            OXIPNG_OPT_LEVEL,
+            "--strip",
+            "safe",
+            str(path),
+        ],
         capture_output=True,
         text=True,
         encoding="UTF-8",

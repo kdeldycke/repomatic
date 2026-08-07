@@ -956,6 +956,28 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
             X86_64,
         ): "32975d1493ee1a975d6bb41e4fb56fe419cb442ded628bb772ba2e614acfacad",
     },
+    "oxipng": {
+        (
+            LINUX,
+            AARCH64,
+        ): "a69c9dbb110463746153bf9b56488a293747e1d90dc1f30d24af3d9615165b98",
+        (
+            LINUX,
+            X86_64,
+        ): "5988392e88fc3d03f562f2d565e5c12a095223ae8bd983576f2aaff2fadf3738",
+        (
+            MACOS,
+            AARCH64,
+        ): "615a401629b5cc104bdc775ac962abd67ab2f3084f0b3b1ba9c51e9b76c3964f",
+        (
+            MACOS,
+            X86_64,
+        ): "8f23d1bc9cd5b3f88e84f1cca77b461f6900aa20f2ecbf84f729cd12530c5a53",
+        (
+            WINDOWS,
+            X86_64,
+        ): "0f57b33abb46c76258ac8e20be604a48208141d514bc2936b5200ed626976dd8",
+    },
     "shfmt": {
         (
             LINUX,
@@ -1016,6 +1038,7 @@ VERSIONS: dict[str, str] = {
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
+    "oxipng": "10.1.1",
     "shfmt": "3.13.1",
     "typos": "1.48.0",
 }
@@ -1565,6 +1588,54 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka does not read `[tool.nuitka]` natively yet ([Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)); repomatic's bridge fills the gap until it does.
 
             Binaries skip `tkinter` by default, via the `nuitka.nofollow-imports` setting of [`[tool.repomatic]`](configuration.md): set it to `[]` to bundle Tcl/Tk in a GUI project.
+            """),
+    ),
+    "oxipng": ToolSpec(
+        name="oxipng",
+        display_name="Oxipng",
+        version="10.1.1",
+        source_url="https://github.com/shssoichiro/oxipng",
+        cli_docs_url="https://github.com/shssoichiro/oxipng#usage",
+        binary=BinarySpec(
+            urls={
+                (
+                    LINUX,
+                    AARCH64,
+                ): "https://github.com/shssoichiro/oxipng/releases/download/v{version}/oxipng-{version}-aarch64-unknown-linux-gnu.tar.gz",
+                (
+                    LINUX,
+                    X86_64,
+                ): "https://github.com/shssoichiro/oxipng/releases/download/v{version}/oxipng-{version}-x86_64-unknown-linux-gnu.tar.gz",
+                (
+                    MACOS,
+                    AARCH64,
+                ): "https://github.com/shssoichiro/oxipng/releases/download/v{version}/oxipng-{version}-aarch64-apple-darwin.tar.gz",
+                (
+                    MACOS,
+                    X86_64,
+                ): "https://github.com/shssoichiro/oxipng/releases/download/v{version}/oxipng-{version}-x86_64-apple-darwin.tar.gz",
+                (
+                    WINDOWS,
+                    X86_64,
+                ): "https://github.com/shssoichiro/oxipng/releases/download/v{version}/oxipng-{version}-x86_64-pc-windows-msvc.zip",
+            },
+            checksums=CHECKSUMS["oxipng"],
+            archive_format={
+                ALL_PLATFORMS: ArchiveFormat.TAR_GZ,
+                WINDOWS: ArchiveFormat.ZIP,
+            },
+            # Every archive nests its payload under `oxipng-{version}-{triple}/`,
+            # with the executable directly inside rather than in a `bin/`.
+            strip_components=1,
+        ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run oxipng -- --opt 4 --strip safe image.png
+            ```
+
+            Lossless PNG optimizer. `repomatic format-images` reaches it through {func}`repomatic.tool_runner.ensure_binary`, so the pinned, checksum-verified build is used instead of whatever the runner image or the distro archive supplies.
             """),
     ),
     "pyproject-fmt": ToolSpec(

@@ -473,17 +473,20 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.0"
-      - name: Install image optimization tools
-        env:
-          # Version appears in both the tag path and the .deb filename,
-          # so an env var keeps both in sync. Bump by hand on a new release.
-          OXIPNG_VERSION: "10.1.0"
+      # oxipng is no longer installed here: `format-images` pulls it from the
+      # `repomatic run` registry, pinned and checksum-verified, where this step
+      # used to `dpkg --install` an unverified .deb fetched by hand. jpegoptim
+      # cannot follow, as upstream ships source tarballs rather than binaries.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/repomatic/bin
+          key: repomatic-${{ runner.os }}-${{ runner.arch }}-oxipng-${{ hashFiles('repomatic/tool_registry.py') }}
+          restore-keys: |
+            repomatic-${{ runner.os }}-${{ runner.arch }}-oxipng-
+      - name: Install jpegoptim
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends jpegoptim
-          curl --location --silent --output /tmp/oxipng.deb \
-            "https://github.com/shssoichiro/oxipng/releases/download/v${OXIPNG_VERSION}/oxipng_${OXIPNG_VERSION}-1_amd64.deb"
-          sudo dpkg --install /tmp/oxipng.deb
       - name: Format images
         id: format
         run: >

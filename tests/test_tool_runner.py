@@ -32,6 +32,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import tomlrt
 import yaml
+from click_extra import ClickException
 from extra_platforms import (
     AARCH64,
     ALL_PLATFORMS,
@@ -45,6 +46,7 @@ from extra_platforms import (
     Platform,
 )
 
+from repomatic.images import _check_tool
 from repomatic.tool_registry import (
     _DIRECTIVE_YAML_OPTIONS_RE,
     _ESCAPED_COLON_FENCE_RE,
@@ -68,6 +70,7 @@ from repomatic.tool_runner import (
     _install_npm,
     _npm_supports_cooldown,
     binary_tool_context,
+    ensure_binary,
     find_unmodified_configs,
     get_data_file_path,
     resolve_config,
@@ -2401,3 +2404,40 @@ def test_gh_spec_matches_upstream_archive_layout():
     ):
         assert binary.get_archive_format(key) is expected_fmt, key
         assert binary.get_strip_components(key) == expected_strip, key
+
+
+# ---------------------------------------------------------------------------
+# ensure_binary
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_binary_rejects_unknown_tool():
+    """An unregistered name fails loudly rather than falling back to $PATH."""
+    with pytest.raises(ClickException, match="not a binary tool"):
+        ensure_binary("definitely-not-a-registered-tool")
+
+
+def test_ensure_binary_rejects_non_binary_tool():
+    """A uvx- or npm-backed tool has no binary to place, so it is refused.
+
+    `ruff` installs through uvx; asking for its executable path would silently
+    return nothing useful, so the seam rejects it instead.
+    """
+    assert TOOL_REGISTRY["ruff"].binary is None
+    with pytest.raises(ClickException, match="not a binary tool"):
+        ensure_binary("ruff")
+
+
+def test_image_optimizers_resolve_through_registry_or_path():
+    """`oxipng` comes from the registry; `jpegoptim` still needs `$PATH`.
+
+    Guards the split documented in `_check_tool`: oxipng ships prebuilt
+    binaries and is pinned and checksummed, while jpegoptim publishes source
+    only and stays a distro package.
+    """
+    assert TOOL_REGISTRY["oxipng"].binary is not None
+    assert "jpegoptim" not in TOOL_REGISTRY
+    # Registry-backed tools report available without consulting $PATH.
+    with patch("repomatic.images.shutil.which", return_value=None):
+        assert _check_tool("oxipng") is True
+        assert _check_tool("jpegoptim") is False
