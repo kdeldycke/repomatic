@@ -31,6 +31,7 @@ from repomatic.github.workflow_sync import (
     PathsSpec,
     WorkflowTriggerInfo,
     _adapt_trigger_paths,
+    _needs_yaml_quote,
     _split_yaml_quote,
     _substitute_source_paths,
     canonical_caller_permissions,
@@ -1567,6 +1568,62 @@ def test_header_per_workflow_override_does_not_apply_to_other_files() -> None:
     header = generate_workflow_header("docs.yaml", paths_spec=spec)
     # The tests.yaml-scoped override does not leak into docs.yaml's header.
     assert "install.sh" not in header
+
+
+@pytest.mark.parametrize(
+    "entry",
+    (
+        "**/*.py",
+        "*.py",
+        "&anchor.py",
+        "!tagged.py",
+        "{flow}.py",
+        "[seq].py",
+        "yes",
+        "1.0",
+    ),
+)
+def test_header_override_quotes_entries_needing_it(entry: str) -> None:
+    """Override entries that cannot stand as plain scalars are quoted.
+
+    `tests.yaml` ships a `paths:` block whose entries are all plain, so there
+    is no quote style to inherit. Emitting one of these bare produced a header
+    that stopped parsing, which GitHub answers by ignoring the workflow.
+    """
+    spec = PathsSpec(workflow_paths={"tests.yaml": [entry, "pyproject.toml"]})
+    header = generate_workflow_header("tests.yaml", paths_spec=spec)
+    parsed = yaml.safe_load(header)
+    # Both the push and pull_request blocks round-trip to the exact strings.
+    for trigger in ("push", "pull_request"):
+        assert parsed["on"][trigger]["paths"] == [entry, "pyproject.toml"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        # Indicators that open something other than a scalar.
+        ("**/*.py", True),
+        ("*.py", True),
+        ("&anchor", True),
+        ("!tag", True),
+        ("{flow}", True),
+        ("[seq]", True),
+        # Plain but coerced away from str, which an indicator table would miss.
+        ("yes", True),
+        ("null", True),
+        ("1.0", True),
+        ("", True),
+        # Ordinary path filters stay unquoted, so canonical blocks do not churn.
+        ("pyproject.toml", False),
+        ("uv.lock", False),
+        ("content/**", False),
+        ("docs/**", False),
+        (".github/workflows/tests.yaml", False),
+    ),
+)
+def test_needs_yaml_quote(value: str, expected: bool) -> None:
+    """Only entries that would not round-trip as plain scalars are flagged."""
+    assert _needs_yaml_quote(value) is expected
 
 
 # ---------------------------------------------------------------------------

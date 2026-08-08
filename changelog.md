@@ -16,6 +16,7 @@
 - Fix a blank line accumulating before a repository's extra release jobs on every sync.
 - Fix the published plugin manifest declaring the post-release `.devN` version rather than the release it ships with.
 - Fix seven of the eight binary attestation bundles being overwritten before reaching the release, which left a single `attestation.json` covering one target.
+- Fix a `[tool.repomatic.workflow] paths` override emitting an entry unquoted when the canonical block holds no quoted entry to copy a style from. A value opening with a YAML indicator, `**/*.py` being the one anybody actually writes, parsed as an alias and left a workflow GitHub silently ignored. Quoting is now decided per entry, and also covers values that would otherwise round-trip as a bool, null or float.
 
 ## [`7.6.0` (2026-08-08)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...v7.6.0)
 

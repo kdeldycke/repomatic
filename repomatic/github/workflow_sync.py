@@ -1600,6 +1600,14 @@ def generate_workflow_header(
         new_lines = []
         for entry in adapted:
             quote = quote_by_value.get(entry, canonical_quote)
+            # Style is a preference, validity is not. A block whose entries are
+            # all plain yields an empty canonical quote, which silently breaks
+            # any override needing one: `**/*.py` emitted bare reads as an
+            # alias and the workflow stops parsing, so GitHub ignores the file
+            # outright. Fall back to a double quote whenever the inherited
+            # style cannot carry the value.
+            if not quote and _needs_yaml_quote(entry):
+                quote = '"'
             rendered = f"{quote}{entry}{quote}" if quote else entry
             new_lines.append(f"{entry_indent}- {rendered}\n")
         return f"{key_indent}paths:\n{''.join(new_lines)}"
@@ -1617,6 +1625,25 @@ def _split_yaml_quote(scalar: str) -> tuple[str, str]:
     if len(scalar) >= 2 and scalar[0] == scalar[-1] and scalar[0] in ('"', "'"):
         return scalar[1:-1], scalar[0]
     return scalar, ""
+
+
+def _needs_yaml_quote(value: str) -> bool:
+    """Whether *value* survives as a plain scalar in a block sequence entry.
+
+    Asks the parser instead of testing against a table of YAML indicators,
+    which keeps the two rule sets from drifting and covers the coercions an
+    indicator table misses: a path spelled `yes`, `null` or `1.0` parses back
+    as a non-string and so needs quoting just as much as one opening with `*`.
+
+    :param value: Unquoted entry text.
+    :return: `True` when the entry has to be quoted to round-trip.
+    """
+    try:
+        return yaml.safe_load(f"- {value}\n") != [value]
+    except yaml.YAMLError:
+        # Unparseable as a plain scalar is the strongest possible case for
+        # quoting: `*` opens an alias, `&` an anchor, `!` a tag.
+        return True
 
 
 def run_workflow_lint(
