@@ -55,15 +55,22 @@ from pathlib import Path
 import tomlrt
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
-from packaging.version import InvalidVersion, Version
+from packaging.version import Version
 
-from .dep_report import format_released, parse_iso_datetime
+from .dep_report import (
+    format_released,
+    link_name,
+    markdown_section,
+    parse_iso_datetime,
+    safe_version,
+)
 from .pypi import get_release_dates
 from .uv import (
+    LockFile,
     freeze_cutoff_after,
-    parse_lock_upload_times,
-    parse_lock_versions,
+    load_pyproject_doc,
     resolve_exclude_newer_cutoff,
+    uv_table,
 )
 
 TYPE_CHECKING = False
@@ -135,8 +142,7 @@ def tracked_git_overrides(pyproject_path: Path) -> dict[str, str]:
     """
     if not pyproject_path.exists():
         return {}
-    content = pyproject_path.read_text(encoding="UTF-8")
-    sources = tomlrt.loads(content).get("tool", {}).get("uv", {}).get("sources")
+    sources = uv_table(load_pyproject_doc(pyproject_path)).get("sources")
     if not sources:
         return {}
     tracked = {}
@@ -191,7 +197,7 @@ def dev_floor(pyproject_path: Path, name: str) -> str | None:
     """
     if not pyproject_path.exists():
         return None
-    doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+    doc = load_pyproject_doc(pyproject_path)
     canonical = canonicalize_name(name)
     floors = []
     for array in _requirement_arrays(doc):
@@ -204,11 +210,8 @@ def dev_floor(pyproject_path: Path, name: str) -> str | None:
             for spec in requirement.specifier:
                 if spec.operator not in (">=", ">"):
                     continue
-                try:
-                    version = Version(spec.version)
-                except InvalidVersion:
-                    continue
-                if version.is_devrelease:
+                version = safe_version(spec.version)
+                if version is not None and version.is_devrelease:
                     floors.append(version)
     return str(max(floors)) if floors else None
 
@@ -256,16 +259,15 @@ def floors_inside_cooldown(
     if cutoff is None or not pyproject_path.exists():
         return {}
 
+    lock = LockFile.load(lock_path)
     locked = {
-        canonicalize_name(name): version
-        for name, version in parse_lock_versions(lock_path).items()
+        canonicalize_name(name): version for name, version in lock.versions.items()
     }
     uploads = {
-        canonicalize_name(name): stamp
-        for name, stamp in parse_lock_upload_times(lock_path).items()
+        canonicalize_name(name): stamp for name, stamp in lock.upload_times.items()
     }
 
-    doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+    doc = load_pyproject_doc(pyproject_path)
     offenders: dict[str, str] = {}
     for array in _requirement_arrays(doc):
         for item in array:
@@ -282,18 +284,14 @@ def floors_inside_cooldown(
             # no floor pointing at it can need an exemption.
             if upload_dt is None or upload_dt < cutoff:
                 continue
-            try:
-                locked_parsed = Version(locked_version)
-            except InvalidVersion:
+            locked_parsed = safe_version(locked_version)
+            if locked_parsed is None:
                 continue
             for spec in requirement.specifier:
                 if spec.operator not in (">=", "=="):
                     continue
-                try:
-                    floor = Version(spec.version)
-                except InvalidVersion:
-                    continue
-                if floor >= locked_parsed:
+                floor = safe_version(spec.version)
+                if floor is not None and floor >= locked_parsed:
                     offenders[name] = str(floor)
     return offenders
 
@@ -324,11 +322,8 @@ def find_ready_swaps(pyproject_path: Path) -> list[ReleaseSwap]:
         for version_str, release in get_release_dates(name).items():
             if release.yanked:
                 continue
-            try:
-                version = Version(version_str)
-            except InvalidVersion:
-                continue
-            if version.is_prerelease or version < threshold:
+            version = safe_version(version_str)
+            if version is None or version.is_prerelease or version < threshold:
                 continue
             candidates.append((version, release.date))
         if not candidates:
@@ -364,11 +359,8 @@ def strip_dev_bounds(requirement: str, release: str) -> str:
     adopted = Version(release)
 
     def _tighten(match: re.Match[str]) -> str:
-        try:
-            version = Version(match["version"])
-        except InvalidVersion:
-            return match[0]
-        if not version.is_devrelease or version > adopted:
+        version = safe_version(match["version"])
+        if version is None or not version.is_devrelease or version > adopted:
             return match[0]
         return f"{match['op']}{version.base_version}"
 
@@ -388,9 +380,9 @@ def apply_release_swaps(pyproject_path: Path, swaps: list[ReleaseSwap]) -> None:
     :param pyproject_path: Path to the `pyproject.toml` file.
     :param swaps: Ready swaps from {func}`find_ready_swaps`.
     """
-    doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
-    uv_table = doc.get("tool", {}).get("uv", {})
-    sources = uv_table.get("sources")
+    doc = load_pyproject_doc(pyproject_path)
+    uv = uv_table(doc)
+    sources = uv.get("sources")
     for swap in swaps:
         if sources is not None and swap.source_key in sources:
             del sources[swap.source_key]
@@ -409,7 +401,7 @@ def apply_release_swaps(pyproject_path: Path, swaps: list[ReleaseSwap]) -> None:
             f" released {swap.release}."
         )
     if sources is not None and not sources:
-        del uv_table["sources"]
+        del uv["sources"]
     pyproject_path.write_text(tomlrt.dumps(doc), encoding="UTF-8")
 
 
@@ -446,21 +438,17 @@ def format_swap_section(
     """
     if not swaps:
         return ""
-    name_urls = name_urls or {}
-    lines = [
-        "## 🔀 Source swaps",
-        "",
+    return markdown_section(
+        "🔀 Source swaps",
         SWAP_SECTION_NOTE,
-        "",
-        "| Package | Tracked branch | Adopted | Released |",
-        "| :-- | :-- | :-- | :-- |",
-    ]
-    for swap in swaps:
-        link = (
-            f"[{swap.name}]({name_urls[swap.name]})"
-            if swap.name in name_urls
-            else swap.name
-        )
-        released = format_released(swap.released, reference_date)
-        lines.append(f"| {link} | `{swap.branch}` | `{swap.release}` | {released} |")
-    return "\n".join(lines)
+        ("Package", "Tracked branch", "Adopted", "Released"),
+        [
+            (
+                link_name(swap.name, name_urls),
+                f"`{swap.branch}`",
+                f"`{swap.release}`",
+                format_released(swap.released, reference_date),
+            )
+            for swap in swaps
+        ],
+    )

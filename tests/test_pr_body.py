@@ -47,6 +47,7 @@ from repomatic.github.pr_body import (
     template_args,
 )
 from repomatic.metadata import Metadata
+from repomatic.version_sync import strip_dev_suffix
 
 # Full set of GITHUB_* environment variables for testing.
 GITHUB_ENV_VARS = {
@@ -63,6 +64,17 @@ GITHUB_ENV_VARS = {
     "GITHUB_TRIGGERING_ACTOR": "dependabot[bot]",
     "GITHUB_REF_NAME": "main",
 }
+
+
+@pytest.fixture
+def github_env(monkeypatch):
+    """Populate the full `GITHUB_*` environment a workflow run would provide.
+
+    `Metadata` reads these lazily, so every test that renders a metadata block
+    or a refresh tip needs the whole set in place before it builds one.
+    """
+    for key, value in GITHUB_ENV_VARS.items():
+        monkeypatch.setenv(key, value)
 
 
 @pytest.mark.parametrize(
@@ -163,16 +175,13 @@ def test_footer_opt_out_accepts_both_spellings(tmp_path, declaration, wants_foot
     downstream template may have quoted it. Both spell the same intent.
     """
     template = tmp_path / "harvest.md"
-    template.write_text(f"---\n{declaration}\n---\nCrates packed.\n", encoding="utf-8")
+    template.write_text(f"---\n{declaration}\n---\nCrates packed.\n", encoding="UTF-8")
     rendered = render_template(template)
     assert ("Generated with" in rendered) is wants_footer
 
 
-def test_generate_metadata_block_all_vars(monkeypatch):
+def test_generate_metadata_block_all_vars(github_env):
     """Metadata block includes all expected fields when env vars are set."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
-
     block = generate_pr_metadata_block(Metadata())
 
     assert "<details>" in block
@@ -196,10 +205,8 @@ def test_generate_metadata_block_all_vars(monkeypatch):
     assert "Documentation" not in block
 
 
-def test_generate_metadata_block_rerun(monkeypatch):
+def test_generate_metadata_block_rerun(github_env, monkeypatch):
     """Re-run by entry appears when triggering actor differs from actor."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
     monkeypatch.setenv("GITHUB_TRIGGERING_ACTOR", "admin-user")
 
     block = generate_pr_metadata_block(Metadata())
@@ -207,11 +214,8 @@ def test_generate_metadata_block_rerun(monkeypatch):
     assert "- **Re-run by**: @admin-user" in block
 
 
-def test_generate_metadata_block_docs_entry(monkeypatch):
+def test_generate_metadata_block_docs_entry(github_env):
     """The documentation deep link leads the list when a template provides one."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
-
     block = generate_pr_metadata_block(
         Metadata(),
         docs_url="https://example.test/workflows.html#pack-fruit",
@@ -246,11 +250,8 @@ def test_generate_metadata_block_minimal_vars(monkeypatch):
     assert "**Trigger**" in block
 
 
-def test_generate_refresh_tip_with_workflow_ref(monkeypatch):
+def test_generate_refresh_tip_with_workflow_ref(github_env):
     """Tip includes workflow dispatch URL when env vars are set."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
-
     tip = generate_refresh_tip(Metadata())
 
     assert "> [!IMPORTANT]" in tip
@@ -512,10 +513,8 @@ def test_render_prepare_release_without_review_steps():
     assert "Review the full changes" not in result
 
 
-def test_build_release_review_steps(monkeypatch):
+def test_build_release_review_steps(github_env, monkeypatch):
     """Review steps embed the draft dev URL and the previous-version compare link."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
     monkeypatch.setattr(
         "repomatic.github.pr_body.dev_release_url_and_previous_version",
         lambda repo_url, version: (
@@ -536,10 +535,8 @@ def test_build_release_review_steps(monkeypatch):
     )
 
 
-def test_build_release_review_steps_partial(monkeypatch):
+def test_build_release_review_steps_partial(github_env, monkeypatch):
     """Each step is omitted independently when its release data is missing."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
     # Dev draft absent, previous version present.
     monkeypatch.setattr(
         "repomatic.github.pr_body.dev_release_url_and_previous_version",
@@ -552,10 +549,8 @@ def test_build_release_review_steps_partial(monkeypatch):
     assert "v1.2.2...main" in changes_review
 
 
-def test_build_release_review_steps_unavailable(monkeypatch):
+def test_build_release_review_steps_unavailable(github_env, monkeypatch):
     """Both steps collapse to empty strings when the lookup returns nothing."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
     monkeypatch.setattr(
         "repomatic.github.pr_body.dev_release_url_and_previous_version",
         lambda repo_url, version: (None, None),
@@ -564,93 +559,73 @@ def test_build_release_review_steps_unavailable(monkeypatch):
     assert build_release_review_steps(Metadata(), "1.2.3") == ("", "")
 
 
-def test_render_sync_gitignore():
-    """Sync gitignore template surfaces its config options."""
-    result = render_template("sync-gitignore")
-
-    assert "## ⚙️ Configuration" in result
-    assert "gitignore.extra-categories" in result
-    assert "gitignore.extra-content" in result
-    assert "gitignore.location" in result
-    assert "[tool.repomatic]" in result
-
-
-def test_render_fix_typos():
-    """Fix typos template points at the spell checker's config surface."""
-    result = render_template("fix-typos")
-
-    assert "[!TIP]" in result
-    assert "[tool.typos]" in result
-
-
-def test_render_format_json():
-    """Format JSON template points at Biome's config surface."""
-    result = render_template("format-json")
-
-    assert "[!TIP]" in result
-    assert "[tool.biome]" in result
-
-
-def test_render_format_markdown():
-    """Format Markdown template points at mdformat's config surface."""
-    result = render_template("format-markdown")
-
-    assert "[!TIP]" in result
-    assert "[tool.mdformat]" in result
-
-
-def test_render_format_pyproject():
-    """Format pyproject template points at pyproject-fmt's config surface."""
-    result = render_template("format-pyproject")
-
-    assert "[!TIP]" in result
-    assert "[tool.pyproject-fmt]" in result
-
-
-def test_render_format_python():
-    """Format Python template points at both formatters' config surfaces."""
-    result = render_template("format-python")
-
-    assert "[!TIP]" in result
-    assert "[tool.ruff]" in result
-    assert "[tool.autopep8]" in result
-
-
-def test_render_sync_bumpversion():
-    """Sync bumpversion template surfaces its config options."""
-    result = render_template("sync-bumpversion")
-
-    assert "## ⚙️ Configuration" in result
-    assert "bumpversion.sync" in result
-    assert "[tool.repomatic]" in result
-
-
-def test_render_update_dep_graph():
-    """Update deps graph template surfaces its config options."""
-    result = render_template("update-dep-graph")
-
-    assert "## ⚙️ Configuration" in result
-    assert "dependency-graph.output" in result
-    assert "[tool.repomatic]" in result
-
-
-def test_render_update_docs():
-    """Update docs template surfaces its config options."""
-    result = render_template("update-docs")
-
-    assert "## ⚙️ Configuration" in result
-    assert "docs.apidoc-exclude" in result
-    assert "docs.update-script" in result
-    assert "[tool.repomatic]" in result
-
-
-def test_render_sync_mailmap():
-    """Sync mailmap template surfaces its config options."""
-    result = render_template("sync-mailmap")
-
-    assert "## ⚙️ Configuration" in result
-    assert "mailmap.sync" in result
-    assert "[tool.repomatic]" in result
+@pytest.mark.parametrize(
+    ("template", "needles"),
+    [
+        # Templates whose job reads `[tool.repomatic]`: they list the keys
+        # under a Configuration section. `test_template_config_options_are_real_keys`
+        # separately proves each listed key exists and is anchored, so only the
+        # roster is asserted here.
+        pytest.param(
+            "sync-bumpversion",
+            ("## ⚙️ Configuration", "[tool.repomatic]", "bumpversion.sync"),
+            id="sync-bumpversion",
+        ),
+        pytest.param(
+            "sync-gitignore",
+            (
+                "## ⚙️ Configuration",
+                "[tool.repomatic]",
+                "gitignore.extra-categories",
+                "gitignore.extra-content",
+                "gitignore.location",
+            ),
+            id="sync-gitignore",
+        ),
+        pytest.param(
+            "sync-mailmap",
+            ("## ⚙️ Configuration", "[tool.repomatic]", "mailmap.sync"),
+            id="sync-mailmap",
+        ),
+        pytest.param(
+            "update-dep-graph",
+            ("## ⚙️ Configuration", "[tool.repomatic]", "dependency-graph.output"),
+            id="update-dep-graph",
+        ),
+        pytest.param(
+            "update-docs",
+            (
+                "## ⚙️ Configuration",
+                "[tool.repomatic]",
+                "docs.apidoc-exclude",
+                "docs.update-script",
+            ),
+            id="update-docs",
+        ),
+        # Templates whose job is driven by a third-party tool instead: they
+        # point at that tool's own config table from a tip admonition.
+        pytest.param("fix-typos", ("[!TIP]", "[tool.typos]"), id="fix-typos"),
+        pytest.param("format-json", ("[!TIP]", "[tool.biome]"), id="format-json"),
+        pytest.param(
+            "format-markdown", ("[!TIP]", "[tool.mdformat]"), id="format-markdown"
+        ),
+        pytest.param(
+            "format-pyproject",
+            ("[!TIP]", "[tool.pyproject-fmt]"),
+            id="format-pyproject",
+        ),
+        pytest.param(
+            "format-python",
+            ("[!TIP]", "[tool.ruff]", "[tool.autopep8]"),
+            id="format-python",
+        ),
+    ],
+)
+def test_render_surfaces_the_config_surface(template: str, needles: tuple[str, ...]):
+    """Each job's PR body points the reader at the knobs that job obeys."""
+    result = render_template(template)
+    for needle in needles:
+        assert needle in result, f"{template} body does not mention {needle!r}"
 
 
 # Config-option references in PR body templates, written as
@@ -709,11 +684,8 @@ def test_build_pr_body_with_prefix(monkeypatch):
     assert "\n\n\n<details>metadata</details>" in result
 
 
-def test_build_pr_body_with_tip(monkeypatch):
+def test_build_pr_body_with_tip(github_env):
     """Tip is inserted between prefix and footer when env vars are set."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
-
     result = build_pr_body(
         "Description.", FAKE_FOOTER, refresh_tip=generate_refresh_tip(Metadata())
     )
@@ -737,7 +709,7 @@ def test_build_pr_body_empty_prefix(monkeypatch):
     assert "<details>metadata</details>" in result
 
 
-def test_build_pr_body_trims_oversized_prefix(monkeypatch):
+def test_build_pr_body_trims_oversized_prefix(github_env):
     """An oversized prefix is trimmed so the tail always survives.
 
     GitHub and create-pull-request truncate oversized bodies from the end,
@@ -745,9 +717,6 @@ def test_build_pr_body_trims_oversized_prefix(monkeypatch):
     footer (the fate of huge `sync-uv-lock` tables). The prefix is trimmed
     instead, on line boundaries, with a caution admonition marking the cut.
     """
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
-
     # Astral-plane emoji make the UTF-16 length diverge from the code-point
     # length, matching real dependency tables (🆙 heading, 🆕/🗑️ labels).
     row = "| [papaya](https://pypi.org/project/papaya/) | `1.0` → `2.0` 🆙 |"
@@ -768,11 +737,8 @@ def test_build_pr_body_trims_oversized_prefix(monkeypatch):
     assert f"{row}\n\n\n> [!CAUTION]" in result
 
 
-def test_build_pr_body_under_limit_untouched(monkeypatch):
+def test_build_pr_body_under_limit_untouched(github_env):
     """A body under the limit is returned without any truncation notice."""
-    for key, value in GITHUB_ENV_VARS.items():
-        monkeypatch.setenv(key, value)
-
     result = build_pr_body("Small report.", FAKE_FOOTER)
 
     assert result.startswith("Small report.")
@@ -1035,12 +1001,20 @@ def test_frontmatter_key_ordering(filename, name):
         ("1.2.3.dev0", "1.2.3"),
         ("5.9.2.dev0", "5.9.2"),
         ("0.1.0.dev42", "0.1.0"),
+        # The match is end-anchored, so a PEP 440 local segment after the
+        # `.devN` leaves the whole version untouched.
+        ("1.2.3.dev0+abc123", "1.2.3.dev0+abc123"),
     ],
 )
 def test_version_dev_suffix_stripping(version, expected):
-    """The .dev suffix is stripped from auto-detected versions."""
-    result = re.sub(r"\.dev\d*$", "", version)
-    assert result == expected
+    """The `.devN` suffix is stripped from auto-detected versions.
+
+    Exercises the shared helper both `pr-body --version auto` and
+    `repomatic init`'s default pin route through, rather than restating its
+    regex here: a test that spells the pattern itself passes no matter what
+    the callers do.
+    """
+    assert strip_dev_suffix(version) == expected
 
 
 def test_templates_match_workflow_references():

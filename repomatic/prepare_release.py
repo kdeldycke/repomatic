@@ -58,8 +58,10 @@ from .changelog import Changelog
 from .config import load_repomatic_config
 from .metadata import Metadata
 from .plugin import ARCHIVE_NAME, MARKETPLACE_PATH
+from .registry import UPSTREAM_PACKAGE
+from .version_sync import frozen_cli_invocation
 
-SELF_PIN_COOLDOWN_EXEMPTION = "--exclude-newer-package repomatic=P0D"
+SELF_PIN_COOLDOWN_EXEMPTION = f"--exclude-newer-package {UPSTREAM_PACKAGE}=P0D"
 """uv escape hatch letting a just-published repomatic install under the cooldown.
 
 Every workflow exports a `UV_EXCLUDE_NEWER` covering all package resolution (see
@@ -219,46 +221,57 @@ class PrepareRelease:
         }
         return sorted(names)
 
-    def freeze_workflow_urls(self) -> int:
-        """Replace workflow URLs from default branch to versioned tag.
+    def _retarget_workflow_refs(self, src_ref: str, dst_ref: str) -> int:
+        """Rewrite every upstream workflow reference from *src_ref* to *dst_ref*.
 
-        This is part of the **freeze** step: it freezes workflow references to
-        the release tag so released versions reference immutable URLs.
+        The single engine behind {meth}`freeze_workflow_urls` and
+        {meth}`unfreeze_workflow_urls`, which only differ in direction. Covers
+        the raw-content URLs (`/{package}/{ref}/`) and the composite-action
+        refs (`/{package}/.github/actions/{name}@{ref}`) across every workflow
+        file under {attr}`workflow_dir`. Composite action names are discovered
+        from {attr}`composite_action_names`.
 
-        Replaces ``/repomatic/{default_branch}/`` with ``/repomatic/v{version}/``
-        and every ``/repomatic/.github/actions/{name}@{default_branch}`` with
-        ``/repomatic/.github/actions/{name}@v{version}`` across every workflow
-        file under :attr:`workflow_dir`. Composite action names are discovered
-        from :attr:`composite_action_names`.
-
+        :param src_ref: The git ref currently referenced.
+        :param dst_ref: The git ref to point at instead.
         :return: Number of files modified.
         """
         if not self.workflow_dir.exists():
             logging.debug(f"Workflow directory not found: {self.workflow_dir}")
             return 0
 
-        count = 0
-        # URL pattern: /repomatic/main/ -> /repomatic/v1.2.3/.
-        url_search = f"/repomatic/{self.default_branch}/"
-        url_replace = f"/repomatic/v{self.current_version}/"
-        # Action reference pattern: /repomatic/.github/actions/{name}@main -> @v1.2.3.
-        action_pairs = [
+        pairs = [
+            (f"/{UPSTREAM_PACKAGE}/{src_ref}/", f"/{UPSTREAM_PACKAGE}/{dst_ref}/"),
+        ]
+        pairs.extend(
             (
-                f"/repomatic/.github/actions/{name}@{self.default_branch}",
-                f"/repomatic/.github/actions/{name}@v{self.current_version}",
+                f"/{UPSTREAM_PACKAGE}/.github/actions/{name}@{src_ref}",
+                f"/{UPSTREAM_PACKAGE}/.github/actions/{name}@{dst_ref}",
             )
             for name in self.composite_action_names
-        ]
+        )
 
+        count = 0
         for yaml_file in self._workflow_files():
             original = yaml_file.read_text(encoding="UTF-8")
-            content = original.replace(url_search, url_replace)
-            for action_search, action_replace in action_pairs:
-                content = content.replace(action_search, action_replace)
+            content = original
+            for search, replace in pairs:
+                content = content.replace(search, replace)
             if self._update_file(yaml_file, content, original):
                 count += 1
 
         return count
+
+    def freeze_workflow_urls(self) -> int:
+        """Replace workflow URLs from default branch to versioned tag.
+
+        This is part of the **freeze** step: it freezes workflow references to
+        the release tag so released versions reference immutable URLs.
+
+        :return: Number of files modified.
+        """
+        return self._retarget_workflow_refs(
+            self.default_branch, f"v{self.current_version}"
+        )
 
     @staticmethod
     def _replace_skip_comments(
@@ -497,8 +510,8 @@ class PrepareRelease:
 
         count = 0
         search = LOCAL_CLI_INVOCATION
-        yaml_replace = (
-            f"uvx --no-progress {SELF_PIN_COOLDOWN_EXEMPTION} 'repomatic=={version}'"
+        yaml_replace = frozen_cli_invocation(
+            UPSTREAM_PACKAGE, version, SELF_PIN_COOLDOWN_EXEMPTION
         )
 
         for workflow_file in self._workflow_files():
@@ -533,7 +546,8 @@ class PrepareRelease:
         count = 0
         yaml_pattern = re.compile(
             r"uvx --no-progress "
-            rf"(?:{re.escape(SELF_PIN_COOLDOWN_EXEMPTION)} )?'repomatic==[\d.]+'"
+            rf"(?:{re.escape(SELF_PIN_COOLDOWN_EXEMPTION)} )?"
+            rf"'{re.escape(UPSTREAM_PACKAGE)}==[\d.]+'"
         )
         replace = LOCAL_CLI_INVOCATION
 
@@ -548,44 +562,15 @@ class PrepareRelease:
     def unfreeze_workflow_urls(self) -> int:
         """Replace workflow URLs from versioned tag back to default branch.
 
-        This is part of the **unfreeze** step: it reverts workflow references back
-        to the default branch for the next development cycle.
-
-        Replaces ``/repomatic/v{version}/`` with ``/repomatic/{default_branch}/``
-        and every ``/repomatic/.github/actions/{name}@v{version}`` with
-        ``/repomatic/.github/actions/{name}@{default_branch}`` across every
-        workflow file under :attr:`workflow_dir` (the same set as
-        :meth:`freeze_workflow_urls`). Composite action names are discovered
-        from :attr:`composite_action_names`.
+        This is part of the **unfreeze** step: it reverts workflow references
+        back to the default branch for the next development cycle, across the
+        same reference set as {meth}`freeze_workflow_urls`.
 
         :return: Number of files modified.
         """
-        if not self.workflow_dir.exists():
-            logging.debug(f"Workflow directory not found: {self.workflow_dir}")
-            return 0
-
-        count = 0
-        # URL pattern: /repomatic/v1.2.3/ -> /repomatic/main/.
-        url_search = f"/repomatic/v{self.current_version}/"
-        url_replace = f"/repomatic/{self.default_branch}/"
-        # Action reference pattern: @v1.2.3 -> @main.
-        action_pairs = [
-            (
-                f"/repomatic/.github/actions/{name}@v{self.current_version}",
-                f"/repomatic/.github/actions/{name}@{self.default_branch}",
-            )
-            for name in self.composite_action_names
-        ]
-
-        for yaml_file in self._workflow_files():
-            original = yaml_file.read_text(encoding="UTF-8")
-            content = original.replace(url_search, url_replace)
-            for action_search, action_replace in action_pairs:
-                content = content.replace(action_search, action_replace)
-            if self._update_file(yaml_file, content, original):
-                count += 1
-
-        return count
+        return self._retarget_workflow_refs(
+            f"v{self.current_version}", self.default_branch
+        )
 
     def prepare_release(self, update_workflows: bool = False) -> list[Path]:
         """Run all freeze steps to prepare the release commit.

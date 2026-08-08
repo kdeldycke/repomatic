@@ -34,7 +34,7 @@ from click.testing import CliRunner
 from repomatic.cli import repomatic as repomatic_cli
 from repomatic.github.token import PatPermissionResults
 from repomatic.lint_repo import CheckResult
-from tests.conftest import all_pass_pat_results
+from tests.conftest import pat_results
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -46,28 +46,22 @@ if TYPE_CHECKING:
 # real repository links.
 REPO_SLUG = "orchard/papaya"
 
-
-def _partial_fail_pat_results() -> PatPermissionResults:
-    """Build a PatPermissionResults with the Dependabot alerts check failing."""
-    return PatPermissionResults(
-        contents=(True, "Contents: token has access"),
-        issues=(True, "Issues: token has access"),
-        pull_requests=(True, "Pull requests: token has access"),
-        vulnerability_alerts=(
-            False,
-            (
-                "Token lacks 'Dependabot alerts: Read-only' permission."
-                " Update the PAT to include this permission."
-            ),
+MISSING_ALERTS_PAT = pat_results(
+    vulnerability_alerts=(
+        False,
+        (
+            "Token lacks 'Dependabot alerts: Read-only' permission."
+            " Update the PAT to include this permission."
         ),
-        workflows=(True, "Workflows: token has access"),
     )
+)
+"""A PAT passing every probe but the Dependabot-alerts one."""
 
 
 @contextmanager
 def _offline_setup_guide(
     *,
-    pat_results: PatPermissionResults | None = None,
+    pat: PatPermissionResults | None = None,
     branch_ok: CheckResult | None = None,
     immutable_ok: CheckResult | None = None,
     fork_pr_ok: CheckResult | None = None,
@@ -84,8 +78,8 @@ def _offline_setup_guide(
     so callers can assert on both the lifecycle decision and the rendered
     markdown.
 
-    :param pat_results: Result of the PAT permission probe (defaults to all
-        checks passing).
+    :param pat: Result of the PAT permission probe (defaults to all checks
+        passing).
     :param branch_ok: Return of the branch-ruleset check.
     :param immutable_ok: Return of the immutable-releases check.
     :param fork_pr_ok: Return of the fork-PR approval-policy check.
@@ -94,8 +88,8 @@ def _offline_setup_guide(
     :param pages_ok: Return of the Pages deployment-source check.
     :param owner_type: `.type` the org-detection `gh api users/…` call returns.
     """
-    if pat_results is None:
-        pat_results = all_pass_pat_results()
+    if pat is None:
+        pat = pat_results()
     if branch_ok is None:
         branch_ok = CheckResult(True, "Active branch rulesets found: main.")
     if immutable_ok is None:
@@ -115,7 +109,7 @@ def _offline_setup_guide(
         enter(
             patch(
                 "repomatic.github.token.check_all_pat_permissions",
-                return_value=pat_results,
+                return_value=pat,
             )
         )
         enter(
@@ -206,7 +200,7 @@ def test_setup_guide_body_contains_template():
 def test_setup_guide_disabled_skips(mock_lifecycle, _mock_token, tmp_path, monkeypatch):
     """When setup-guide is disabled in config, the command exits without action."""
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text("[tool.repomatic]\nsetup-guide = false\n", encoding="utf-8")
+    pyproject.write_text("[tool.repomatic]\nsetup-guide = false\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
     result = runner.invoke(repomatic_cli, ["setup-guide"])
@@ -235,6 +229,12 @@ def test_setup_guide_disabled_skips(mock_lifecycle, _mock_token, tmp_path, monke
             True,
             id="vt-key-missing-opens",
         ),
+        pytest.param(
+            CheckResult(None, "Branch ruleset check: skipped (could not query)."),
+            True,
+            True,
+            id="branch-indeterminate-opens",
+        ),
     ),
 )
 def test_setup_guide_lifecycle_reflects_check_outcomes(
@@ -244,7 +244,8 @@ def test_setup_guide_lifecycle_reflects_check_outcomes(
 
     All checks pass by default, so the issue closes; a failing branch ruleset
     or a missing VirusTotal key (with Nuitka active in this repo) keeps it
-    open.
+    open. An indeterminate ruleset probe (an unreadable API) counts as
+    incomplete too, so the step keeps prompting rather than quietly passing.
     """
     args = ["setup-guide", "--has-pat", "--repo", REPO_SLUG]
     if has_vt_key:
@@ -257,7 +258,7 @@ def test_setup_guide_lifecycle_reflects_check_outcomes(
 
 def test_setup_guide_pat_missing_permission_keeps_issue_open():
     """When PAT is configured but a permission is missing, the issue stays open."""
-    with _offline_setup_guide(pat_results=_partial_fail_pat_results()) as (
+    with _offline_setup_guide(pat=MISSING_ALERTS_PAT) as (
         lifecycle,
         _bodies,
     ):
@@ -269,7 +270,7 @@ def test_setup_guide_pat_missing_permission_keeps_issue_open():
 
 def test_setup_guide_pat_missing_permission_body_contains_warning():
     """When PAT has missing permissions, the issue body contains a warning section."""
-    with _offline_setup_guide(pat_results=_partial_fail_pat_results()) as (
+    with _offline_setup_guide(pat=MISSING_ALERTS_PAT) as (
         _lifecycle,
         bodies,
     ):
@@ -307,7 +308,7 @@ def test_setup_guide_nuitka_disabled_hides_vt_step(tmp_path, monkeypatch):
     pyproject.write_text(
         "[project]\nname = 'papaya'\nversion = '1.0'\n\n"
         "[tool.repomatic.nuitka]\nenabled = false\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
     with _offline_setup_guide() as (lifecycle, bodies):

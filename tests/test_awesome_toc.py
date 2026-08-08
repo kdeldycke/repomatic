@@ -132,22 +132,22 @@ def test_forbidden_headings_for_falls_back_on_a_count_mismatch(caplog):
 def test_fix_awesome_toc_strips_reference_and_translation(tmp_path):
     """The reported bug: a translated ToC keeps the entries the English one loses."""
     (tmp_path / "readme.md").write_text(
-        render_readme(ENGLISH_SECTIONS), encoding="utf-8"
+        render_readme(ENGLISH_SECTIONS), encoding="UTF-8"
     )
     (tmp_path / "readme.fr.md").write_text(
-        render_readme(FRENCH_SECTIONS), encoding="utf-8"
+        render_readme(FRENCH_SECTIONS), encoding="UTF-8"
     )
 
     report = fix_awesome_toc(tmp_path)
 
     assert report[tmp_path / "readme.md"] == ["Contents", "Contributing", "Footnotes"]
     assert report[tmp_path / "readme.fr.md"] == ["Sommaire", "Contribuer", "Notes"]
-    assert toc_entries((tmp_path / "readme.md").read_text(encoding="utf-8")) == [
+    assert toc_entries((tmp_path / "readme.md").read_text(encoding="UTF-8")) == [
         "Mango",
         "Papaya",
         "Lychee",
     ]
-    assert toc_entries((tmp_path / "readme.fr.md").read_text(encoding="utf-8")) == [
+    assert toc_entries((tmp_path / "readme.fr.md").read_text(encoding="UTF-8")) == [
         "Mangue",
         "Papaye",
         "Litchi",
@@ -158,9 +158,9 @@ def test_fix_awesome_toc_matches_an_untranslated_section_by_name(tmp_path):
     """A section left in English is still caught, positions or not."""
     mixed = ("Contents", "Mangue", "Papaye", "Litchi", "Contribuer", "Footnotes")
     (tmp_path / "readme.md").write_text(
-        render_readme(ENGLISH_SECTIONS), encoding="utf-8"
+        render_readme(ENGLISH_SECTIONS), encoding="UTF-8"
     )
-    (tmp_path / "readme.fr.md").write_text(render_readme(mixed), encoding="utf-8")
+    (tmp_path / "readme.fr.md").write_text(render_readme(mixed), encoding="UTF-8")
 
     report = fix_awesome_toc(tmp_path)
 
@@ -174,23 +174,23 @@ def test_fix_awesome_toc_matches_an_untranslated_section_by_name(tmp_path):
 def test_fix_awesome_toc_is_idempotent(tmp_path):
     """Re-running finds nothing left to remove."""
     (tmp_path / "readme.md").write_text(
-        render_readme(ENGLISH_SECTIONS), encoding="utf-8"
+        render_readme(ENGLISH_SECTIONS), encoding="UTF-8"
     )
     (tmp_path / "readme.fr.md").write_text(
-        render_readme(FRENCH_SECTIONS), encoding="utf-8"
+        render_readme(FRENCH_SECTIONS), encoding="UTF-8"
     )
 
     assert fix_awesome_toc(tmp_path)
-    before = (tmp_path / "readme.fr.md").read_text(encoding="utf-8")
+    before = (tmp_path / "readme.fr.md").read_text(encoding="UTF-8")
 
     assert fix_awesome_toc(tmp_path) == {}
-    assert (tmp_path / "readme.fr.md").read_text(encoding="utf-8") == before
+    assert (tmp_path / "readme.fr.md").read_text(encoding="UTF-8") == before
 
 
 def test_fix_awesome_toc_without_a_reference_readme(tmp_path, caplog):
     """A translation alone still loses the entries awesome-lint names."""
     mixed = ("Contents", "Mangue", "Papaye", "Litchi", "Contribuer", "Footnotes")
-    (tmp_path / "readme.fr.md").write_text(render_readme(mixed), encoding="utf-8")
+    (tmp_path / "readme.fr.md").write_text(render_readme(mixed), encoding="UTF-8")
 
     report = fix_awesome_toc(tmp_path)
 
@@ -201,7 +201,7 @@ def test_fix_awesome_toc_without_a_reference_readme(tmp_path, caplog):
 def test_fix_awesome_toc_rewrites_the_reference_first(tmp_path):
     """The reference is processed before any translation is compared to it."""
     for name in ("readme.md", "readme.fr.md", "readme.zh.md"):
-        (tmp_path / name).write_text(render_readme(ENGLISH_SECTIONS), encoding="utf-8")
+        (tmp_path / name).write_text(render_readme(ENGLISH_SECTIONS), encoding="UTF-8")
 
     assert [path.name for path in fix_awesome_toc(tmp_path)] == [
         "readme.md",

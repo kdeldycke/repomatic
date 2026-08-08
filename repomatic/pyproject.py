@@ -68,7 +68,7 @@ def derive_source_paths(
     """Derive source code directory name from `[project.name]`.
 
     Converts the project name to its importable form by replacing hyphens with
-    underscores — the universal Python convention that all build backends
+    underscores, the universal Python convention that all build backends
     (setuptools, hatchling, flit, uv) follow by default. For example,
     `name = "extra-platforms"` yields `["extra_platforms"]`.
 

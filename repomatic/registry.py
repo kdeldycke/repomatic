@@ -1060,7 +1060,8 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
     _removed_workflow(
         "renovate.yaml",
         "7.0.0.dev0",
-        successor="replaced by self-hosted sync-tool-versions, sync-action-pins, and sync-workflow-pins",
+        successor="replaced by self-hosted sync-tool-versions, sync-action-pins,"
+        " and sync-workflow-pins",
     ),
 )
 r"""Tombstones for assets repomatic has dropped (see {class}`RemovedAsset`).
@@ -1084,7 +1085,8 @@ tags = subprocess.run(
 hashes = {}
 for tag in tags:
     blob = subprocess.run(
-        ["git", "show", f"{tag}:{src}"], capture_output=True, text=True, encoding="UTF-8"
+        ["git", "show", f"{tag}:{src}"],
+        capture_output=True, text=True, encoding="UTF-8",
     )
     if blob.returncode == 0:
         normalized = blob.stdout.rstrip() + "\n"
@@ -1098,6 +1100,14 @@ the workflow's downstream path as `target` (`.github/workflows/{name}`).
 
 DEFAULT_REPO: str = "kdeldycke/repomatic"
 """Default upstream repository for reusable workflows."""
+
+UPSTREAM_PACKAGE: str = DEFAULT_REPO.rsplit("/", 1)[-1]
+"""Distribution name of the upstream toolkit, derived from {data}`DEFAULT_REPO`.
+
+The freeze, cooldown-exemption, and lint code that handles the `uses:` refs
+and the inline self-pin all key on this name: deriving it here keeps the
+writer/checker pairs in lockstep and makes a rename a one-line change.
+"""
 
 UPSTREAM_REPO_SLUGS: tuple[str, ...] = (
     "kdeldycke/repomatic",

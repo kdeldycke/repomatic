@@ -40,7 +40,7 @@ import re
 import subprocess
 from typing import NamedTuple
 
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -344,10 +344,17 @@ def get_latest_tag_version() -> Version | None:
     # Parse and find the highest version.
     versions = []
     for tag in tags:
-        # Strip the 'v' prefix and parse.
-        version = Version(tag.removeprefix("v"))
-        versions.append(version)
+        # The `--list` glob above is a shell pattern, not a PEP 440 filter, so
+        # a tag like `v1.2.3_hotfix` still matches: skip what the parser
+        # refuses rather than letting one odd tag break every metadata
+        # consumer (mirrors `releases.parse_release_version`).
+        try:
+            versions.append(Version(tag.removeprefix("v")))
+        except InvalidVersion:
+            logging.debug(f"Skipping non-PEP 440 tag: {tag}")
 
+    if not versions:
+        return None
     latest = max(versions)
     logging.debug(f"Latest tag version: {latest}")
     return latest

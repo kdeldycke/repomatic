@@ -99,6 +99,30 @@ def resolve_gh_token() -> str:
     )
 
 
+def api_headers() -> dict[str, str]:
+    """Build GitHub API request headers, authenticated when a token is present.
+
+    The one place a direct HTTP call to the GitHub API gets its headers, so
+    every such call agrees on the `Accept` media type and the authentication
+    scheme. `Bearer` is the scheme GitHub documents, and it carries both
+    classic and fine-grained tokens.
+
+    A token raises the rate limit from 60 to at least 1,000 requests/hour,
+    which matters when iterating every tool and action in CI. Resolution
+    follows the canonical {func}`resolve_gh_token` order, so a repo carrying
+    only `REPOMATIC_PAT` gets authenticated reads here too, not just through
+    the `gh` CLI.
+
+    :return: Request headers, with `Authorization` present only when a token
+        is set.
+    """
+    headers = {"Accept": "application/vnd.github+json"}
+    token = resolve_gh_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def run_gh_command(args: list[str]) -> str:
     """Run a `gh` CLI command and return stdout.
 

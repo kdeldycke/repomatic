@@ -28,6 +28,7 @@ from repomatic.github.issue import (
     close_issue,
     close_open_prs_on_branch,
     close_pr,
+    create_issue,
     list_open_prs_by_branch,
     manage_issue_lifecycle,
     reopen_issue,
@@ -100,190 +101,105 @@ def test_close_open_prs_on_branch_closes_every_match():
 # ---------------------------------------------------------------------------
 
 
+def _issue(number: int, created: str, state: str = "OPEN", title: str = TITLE) -> dict:
+    """Build one entry of the `gh issue list` payload `triage_issues` reads."""
+    return {
+        "number": number,
+        "title": title,
+        "createdAt": f"{created}T00:00:00Z",
+        "state": state,
+    }
+
+
 @pytest.mark.parametrize(
-    ("needed", "expected"),
-    [
-        (True, (True, None, None, set())),
-        (False, (False, None, None, set())),
-    ],
+    ("issues", "needed", "expected"),
+    (
+        pytest.param([], True, (True, None, None, set()), id="empty-needed"),
+        pytest.param([], False, (False, None, None, set()), id="empty-not-needed"),
+        pytest.param(
+            [_issue(1, "2025-01-01", title="Other issue")],
+            True,
+            (True, None, None, set()),
+            id="no-title-match-needed",
+        ),
+        pytest.param(
+            [_issue(1, "2025-01-01", title="Other issue")],
+            False,
+            (False, None, None, set()),
+            id="no-title-match-not-needed",
+        ),
+        pytest.param(
+            [_issue(42, "2025-01-01")],
+            True,
+            (True, 42, "OPEN", set()),
+            id="one-open-kept",
+        ),
+        pytest.param(
+            [_issue(42, "2025-01-01")],
+            False,
+            (False, None, None, {42}),
+            id="one-open-closed",
+        ),
+        # A closed match is handed back for reopening when still needed, and
+        # left alone when not: closing it twice would be a no-op API call.
+        pytest.param(
+            [_issue(42, "2025-01-01", state="CLOSED")],
+            True,
+            (True, 42, "CLOSED", set()),
+            id="one-closed-reopened",
+        ),
+        pytest.param(
+            [_issue(42, "2025-01-01", state="CLOSED")],
+            False,
+            (False, None, None, set()),
+            id="one-closed-skipped",
+        ),
+        # The most recent match survives; its older siblings are swept.
+        pytest.param(
+            [
+                _issue(10, "2024-06-01"),
+                _issue(42, "2025-01-01"),
+                _issue(5, "2024-01-01"),
+            ],
+            True,
+            (True, 42, "OPEN", {10, 5}),
+            id="newest-kept-rest-closed",
+        ),
+        pytest.param(
+            [_issue(10, "2024-06-01"), _issue(42, "2025-01-01")],
+            False,
+            (False, None, None, {10, 42}),
+            id="all-open-closed",
+        ),
+        pytest.param(
+            [_issue(10, "2024-06-01", state="CLOSED"), _issue(42, "2025-01-01")],
+            False,
+            (False, None, None, {42}),
+            id="already-closed-not-reclosed",
+        ),
+        pytest.param(
+            [
+                _issue(1, "2025-06-01", title="Other issue"),
+                _issue(42, "2025-01-01"),
+                _issue(10, "2024-06-01"),
+                _issue(2, "2025-03-01", title="Another issue"),
+            ],
+            True,
+            (True, 42, "OPEN", {10}),
+            id="foreign-titles-ignored",
+        ),
+        # A payload predating the `state` field reads as open.
+        pytest.param(
+            [{"number": 42, "title": TITLE, "createdAt": "2025-01-01T00:00:00Z"}],
+            True,
+            (True, 42, "OPEN", set()),
+            id="state-defaults-to-open",
+        ),
+    ),
 )
-def test_no_matching_issues(needed, expected):
-    """No issues match the title."""
-    issues = [
-        {
-            "number": 1,
-            "title": "Other issue",
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "OPEN",
-        },
-    ]
+def test_triage_issues(issues, needed, expected):
+    """Triage picks the surviving issue and the ones to close."""
     assert triage_issues(issues, TITLE, needed) == expected
-
-
-@pytest.mark.parametrize(
-    ("needed", "expected"),
-    [
-        (True, (True, None, None, set())),
-        (False, (False, None, None, set())),
-    ],
-)
-def test_empty_issues(needed, expected):
-    """Empty issue list returns no matches."""
-    assert triage_issues([], TITLE, needed) == expected
-
-
-def test_one_match_needed():
-    """Single matching open issue is kept when needed."""
-    issues = [
-        {
-            "number": 42,
-            "title": TITLE,
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "OPEN",
-        },
-    ]
-    assert triage_issues(issues, TITLE, needed=True) == (True, 42, "OPEN", set())
-
-
-def test_one_match_not_needed():
-    """Single matching open issue is closed when not needed."""
-    issues = [
-        {
-            "number": 42,
-            "title": TITLE,
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "OPEN",
-        },
-    ]
-    assert triage_issues(issues, TITLE, needed=False) == (False, None, None, {42})
-
-
-def test_one_closed_match_needed():
-    """Single matching closed issue is returned for reopening when needed."""
-    issues = [
-        {
-            "number": 42,
-            "title": TITLE,
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "CLOSED",
-        },
-    ]
-    assert triage_issues(issues, TITLE, needed=True) == (True, 42, "CLOSED", set())
-
-
-def test_one_closed_match_not_needed():
-    """Single matching closed issue is skipped when not needed."""
-    issues = [
-        {
-            "number": 42,
-            "title": TITLE,
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "CLOSED",
-        },
-    ]
-    assert triage_issues(issues, TITLE, needed=False) == (False, None, None, set())
-
-
-def test_multiple_matches_needed():
-    """Most recent issue is kept, older open ones are closed."""
-    issues = [
-        {
-            "number": 10,
-            "title": TITLE,
-            "createdAt": "2024-06-01T00:00:00Z",
-            "state": "OPEN",
-        },
-        {
-            "number": 42,
-            "title": TITLE,
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "OPEN",
-        },
-        {
-            "number": 5,
-            "title": TITLE,
-            "createdAt": "2024-01-01T00:00:00Z",
-            "state": "OPEN",
-        },
-    ]
-    assert triage_issues(issues, TITLE, needed=True) == (True, 42, "OPEN", {10, 5})
-
-
-def test_multiple_matches_not_needed():
-    """All open matching issues are closed when not needed."""
-    issues = [
-        {
-            "number": 10,
-            "title": TITLE,
-            "createdAt": "2024-06-01T00:00:00Z",
-            "state": "OPEN",
-        },
-        {
-            "number": 42,
-            "title": TITLE,
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "OPEN",
-        },
-    ]
-    assert triage_issues(issues, TITLE, needed=False) == (False, None, None, {10, 42})
-
-
-def test_multiple_matches_closed_not_needed():
-    """Already-closed issues are skipped when not needed."""
-    issues = [
-        {
-            "number": 10,
-            "title": TITLE,
-            "createdAt": "2024-06-01T00:00:00Z",
-            "state": "CLOSED",
-        },
-        {
-            "number": 42,
-            "title": TITLE,
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "OPEN",
-        },
-    ]
-    assert triage_issues(issues, TITLE, needed=False) == (False, None, None, {42})
-
-
-def test_mixed_titles():
-    """Non-matching issues are ignored."""
-    issues = [
-        {
-            "number": 1,
-            "title": "Other issue",
-            "createdAt": "2025-06-01T00:00:00Z",
-            "state": "OPEN",
-        },
-        {
-            "number": 42,
-            "title": TITLE,
-            "createdAt": "2025-01-01T00:00:00Z",
-            "state": "OPEN",
-        },
-        {
-            "number": 10,
-            "title": TITLE,
-            "createdAt": "2024-06-01T00:00:00Z",
-            "state": "OPEN",
-        },
-        {
-            "number": 2,
-            "title": "Another issue",
-            "createdAt": "2025-03-01T00:00:00Z",
-            "state": "OPEN",
-        },
-    ]
-    assert triage_issues(issues, TITLE, needed=True) == (True, 42, "OPEN", {10})
-
-
-def test_state_defaults_to_open():
-    """Issues without a state field default to OPEN for backward compatibility."""
-    issues = [
-        {"number": 42, "title": TITLE, "createdAt": "2025-01-01T00:00:00Z"},
-    ]
-    assert triage_issues(issues, TITLE, needed=True) == (True, 42, "OPEN", set())
 
 
 def test_fit_body_file_rewrites_oversized_body(tmp_path):
@@ -425,3 +341,56 @@ def test_locked_closed_issue_is_reopened_and_updated():
         "reopen",
         "edit",
     ]
+
+
+# -- create_issue number parsing ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    (
+        ("https://github.com/user/repo/issues/123\n", 123),
+        # A trailing slash is tolerated, as it always was.
+        ("https://github.com/user/repo/issues/7/\n", 7),
+        # gh prepends advisory lines of its own. Parsing the whole output
+        # turned those into a ValueError that read as a failed creation, even
+        # though the issue had been created.
+        (
+            "Warning: 3 uncommitted changes\nhttps://github.com/user/repo/issues/42\n",
+            42,
+        ),
+        (
+            (
+                "\nA new release of gh is available: 2.40.0 -> 2.81.0\n"
+                "https://github.com/user/repo/issues/9\n"
+            ),
+            9,
+        ),
+    ),
+)
+def test_create_issue_reads_the_number_off_the_url_line(tmp_path, output, expected):
+    """The issue number comes from the URL line, whatever gh printed above it."""
+    body_file = tmp_path / "body.md"
+    body_file.write_text("Papaya crate is empty.", encoding="UTF-8")
+    with patch("repomatic.github.issue.run_gh_command", return_value=output):
+        assert create_issue(body_file, ["🍈 fruit"], "Papaya") == expected
+
+
+@pytest.mark.parametrize(
+    "output",
+    (
+        "",
+        "   \n",
+        "Something went sideways\n",
+        "https://github.com/user/repo/issues/\n",
+    ),
+)
+def test_create_issue_rejects_unparsable_output(tmp_path, output):
+    """No readable number raises, rather than returning a bogus issue number."""
+    body_file = tmp_path / "body.md"
+    body_file.write_text("Papaya crate is empty.", encoding="UTF-8")
+    with (
+        patch("repomatic.github.issue.run_gh_command", return_value=output),
+        pytest.raises(RuntimeError, match="Could not read the issue number"),
+    ):
+        create_issue(body_file, [], "Papaya")

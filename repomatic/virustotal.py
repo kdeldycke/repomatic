@@ -59,6 +59,13 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any
 
+FREE_TIER_RATE_LIMIT = 4
+"""VirusTotal free-tier request budget, in API calls per minute.
+
+The single source for the upload and polling pace: the `scan-virustotal`
+CLI default and both client functions below derive from it.
+"""
+
 VIRUSTOTAL_GUI_URL = "https://www.virustotal.com/gui/file/{sha256}"
 """URL template for the VirusTotal file analysis page."""
 
@@ -192,7 +199,7 @@ class ScanRecord:
 def scan_files(
     api_key: str,
     file_paths: list[Path],
-    rate_limit: int = 4,
+    rate_limit: int = FREE_TIER_RATE_LIMIT,
 ) -> list[ScanResult]:
     """Upload files to VirusTotal and return scan results.
 
@@ -237,7 +244,7 @@ def scan_files(
 def poll_detection_stats(
     api_key: str,
     results: list[ScanResult],
-    rate_limit: int = 4,
+    rate_limit: int = FREE_TIER_RATE_LIMIT,
     timeout: int = 600,
 ) -> list[ScanResult]:
     """Poll VirusTotal for detection statistics of previously uploaded files.

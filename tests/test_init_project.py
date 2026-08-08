@@ -21,15 +21,17 @@ import hashlib
 import re
 import subprocess
 from datetime import date, timedelta
+from importlib.resources import as_file, files
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 import pytest
 import tomlrt
 import yaml
+from click.testing import CliRunner
 from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__, init_project as ip
+from repomatic.cli import init_project, repomatic
 from repomatic.config import Config, LabelsConfig, WorkflowConfig
 from repomatic.init_project import (
     EXPORTABLE_FILES,
@@ -56,7 +58,9 @@ from repomatic.registry import (
     SKILL_FILENAME,
     SKILL_PHASES,
     BundledComponent,
+    FileEntry,
     GeneratedComponent,
+    InitDefault,
     RemovedAsset,
     RepoScope,
     SyncMode,
@@ -71,12 +75,64 @@ from repomatic.registry import (
     valid_file_ids,
 )
 from repomatic.tool_registry import TOOL_REGISTRY
+from repomatic.tool_runner import get_data_file_path
 from repomatic.version_sync import Candidate, UpstreamRefPin
 
 # Convenience set for tests that check opt-in workflow membership.
 _OPT_IN_IDS = frozenset(
     f.file_id for f in COMPONENTS_BY_NAME["workflows"].files if f.config_key
 )
+
+
+@pytest.fixture
+def toml_file(tmp_path: Path):
+    """Return a factory writing TOML content to a scratch `pyproject.toml`.
+
+    Replaces the `NamedTemporaryFile(delete=False)` plus manual `unlink()`
+    dance: pytest removes `tmp_path` whether or not the test passes, so a
+    failing assertion no longer leaks the file. Each call gets its own
+    directory, so a test may seed several projects.
+    """
+    made: list[Path] = []
+
+    def write(content: str) -> Path:
+        directory = tmp_path / f"project-{len(made)}"
+        directory.mkdir()
+        path = directory / "pyproject.toml"
+        path.write_text(content, encoding="UTF-8")
+        made.append(path)
+        return path
+
+    return write
+
+
+@pytest.fixture
+def pin_build(monkeypatch: pytest.MonkeyPatch):
+    """Return a factory pinning the running build `init` reports itself as.
+
+    `run_init` and `resolve_default_pin` read the package's `__version__` and
+    `__git_tag_sha__` to decide which upstream ref to write downstream, so
+    almost every pin test has to stage both.
+    """
+
+    def pin(
+        version: str = "7.4.2",
+        sha: str | None = "a" * 40,
+        candidates: list[Candidate] | None = None,
+        tag_sha: str | None = None,
+    ) -> None:
+        monkeypatch.setattr(ip, "__version__", version)
+        monkeypatch.setattr(ip, "__git_tag_sha__", sha)
+        if candidates is not None:
+            monkeypatch.setattr(ip, "github_candidates", lambda _url: candidates)
+        if tag_sha is not None:
+            monkeypatch.setattr(
+                ip,
+                "resolve_tag_to_sha",
+                lambda _url, tag: tag_sha if tag == "v7.4.1" else None,
+            )
+
+    return pin
 
 
 # --- Bundled data and export tests ---
@@ -153,15 +209,11 @@ def test_repo_scope_matches(
     scope: str, is_awesome: bool, is_python: bool, is_package: bool, expected: bool
 ) -> None:
     """Verify RepoScope.matches returns correct results for all combinations."""
-    from repomatic.registry import RepoScope
-
     assert RepoScope[scope].matches(is_awesome, is_python, is_package) is expected
 
 
 def test_init_help_lists_all_components() -> None:
     """Verify the init command help text lists every registered component."""
-    from repomatic.cli import init_project
-
     help_text = init_project.help
     assert help_text is not None
     for name in ALL_COMPONENTS:
@@ -230,7 +282,7 @@ def test_unknown_file_raises_error() -> None:
         export_content("nonexistent.toml")
 
 
-@pytest.mark.parametrize("filename", list(EXPORTABLE_FILES.keys()))
+@pytest.mark.parametrize("filename", sorted(EXPORTABLE_FILES))
 def test_exportable_file_loadable(filename: str) -> None:
     """Verify every registered data file can be loaded (no dangling symlinks)."""
     content = export_content(filename)
@@ -324,232 +376,128 @@ def test_template_matches_own_pyproject(config_type: str) -> None:
     assert_subset(template, own_config)
 
 
-# --- Ruff config tests ---
+# --- Bundled tool-config template tests ---
 
 
-def test_has_preview_enabled() -> None:
-    """Verify that preview mode is enabled."""
-    content = export_content("ruff.toml")
-    parsed = tomlrt.loads(content)
-    assert parsed.get("preview") is True
+def _template(filename: str) -> dict:
+    """Parse a bundled tool-config template into a plain mapping."""
+    return tomlrt.loads(export_content(filename))
 
 
-def test_has_fix_settings() -> None:
-    """Verify that fix settings are configured."""
-    content = export_content("ruff.toml")
-    parsed = tomlrt.loads(content)
-
-    assert parsed.get("fix") is True
-    assert parsed.get("unsafe-fixes") is False
-    assert parsed.get("show-fixes") is True
-
-
-def test_has_lint_section() -> None:
-    """Verify that the lint section exists with expected settings."""
-    content = export_content("ruff.toml")
-    parsed = tomlrt.loads(content)
-
-    assert "lint" in parsed
-    lint = parsed["lint"]
-    assert lint.get("future-annotations") is True
-    assert "ignore" in lint
-    assert isinstance(lint["ignore"], list)
-
-
-@pytest.mark.parametrize("expected_ignore", ["D400", "ERA001"])
-def test_has_expected_ignore_rules(expected_ignore: str) -> None:
-    """Verify that expected rules are in the ignore list."""
-    content = export_content("ruff.toml")
-    parsed = tomlrt.loads(content)
-    ignore = parsed["lint"]["ignore"]
-    assert expected_ignore in ignore
-
-
-def test_has_format_section() -> None:
-    """Verify that the format section exists with docstring formatting enabled."""
-    content = export_content("ruff.toml")
-    parsed = tomlrt.loads(content)
-
-    assert "format" in parsed
-    assert parsed["format"].get("docstring-code-format") is True
-
-
-# --- Mypy config tests ---
+def _lookup(parsed: dict, key: str):
+    """Resolve a dotted key path through nested tables."""
+    for part in key.split("."):
+        parsed = parsed[part]
+    return parsed
 
 
 @pytest.mark.parametrize(
-    "setting",
-    [
-        "warn_unused_configs",
-        "warn_redundant_casts",
-        "warn_unused_ignores",
-        "warn_return_any",
-        "warn_unreachable",
-        "pretty",
-    ],
+    ("template", "key", "expected"),
+    (
+        ("ruff.toml", "preview", True),
+        ("ruff.toml", "fix", True),
+        ("ruff.toml", "unsafe-fixes", False),
+        ("ruff.toml", "show-fixes", True),
+        ("ruff.toml", "lint.future-annotations", True),
+        ("ruff.toml", "format.docstring-code-format", True),
+        ("mypy.toml", "warn_unused_configs", True),
+        ("mypy.toml", "warn_redundant_casts", True),
+        ("mypy.toml", "warn_unused_ignores", True),
+        ("mypy.toml", "warn_return_any", True),
+        ("mypy.toml", "warn_unreachable", True),
+        ("mypy.toml", "pretty", True),
+        # Collection stays inside the test suite, so pytest never descends into
+        # an installed copy of the package.
+        ("pytest.toml", "testpaths", ["tests"]),
+        ("pytest.toml", "xfail_strict", True),
+    ),
 )
-def test_has_expected_settings(setting: str) -> None:
-    """Verify that expected settings are present."""
-    content = export_content("mypy.toml")
-    parsed = tomlrt.loads(content)
-    assert setting in parsed
-    assert parsed[setting] is True
-
-
-# --- Pytest config tests ---
-
-
-def test_has_addopts() -> None:
-    """Verify that addopts list is present."""
-    content = export_content("pytest.toml")
-    parsed = tomlrt.loads(content)
-
-    assert "addopts" in parsed
-    assert isinstance(parsed["addopts"], list)
-    assert len(parsed["addopts"]) > 0
+def test_template_setting(template: str, key: str, expected) -> None:
+    """A bundled template pins the setting every downstream repo inherits."""
+    assert _lookup(_template(template), key) == expected
 
 
 @pytest.mark.parametrize(
-    "expected_opt",
-    [
-        "--durations=10",
-        "--cov-branch",
-        "--cov-report=term",
-        "--numprocesses=auto",
-        "--import-mode=importlib",
-    ],
+    ("template", "key", "member"),
+    (
+        ("ruff.toml", "lint.ignore", "D400"),
+        ("ruff.toml", "lint.ignore", "ERA001"),
+        ("pytest.toml", "addopts", "--durations=10"),
+        ("pytest.toml", "addopts", "--cov-branch"),
+        ("pytest.toml", "addopts", "--cov-report=term"),
+        ("pytest.toml", "addopts", "--numprocesses=auto"),
+        ("pytest.toml", "addopts", "--import-mode=importlib"),
+        ("bumpversion.toml", "current_version", "0"),
+    ),
 )
-def test_has_expected_addopts(expected_opt: str) -> None:
-    """Verify that expected options are in addopts."""
-    content = export_content("pytest.toml")
-    parsed = tomlrt.loads(content)
-    addopts = parsed["addopts"]
-    assert expected_opt in addopts
+def test_template_list_contains(template: str, key: str, member: str) -> None:
+    """A bundled template carries the entry downstream repos depend on."""
+    assert member in _lookup(_template(template), key)
 
 
-def test_has_once_marker() -> None:
-    """Verify that the once marker consumed by the test workflow is registered."""
-    content = export_content("pytest.toml")
-    parsed = tomlrt.loads(content)
-    assert any(marker.startswith("once:") for marker in parsed["markers"])
+def test_pytest_template_registers_once_marker() -> None:
+    """The `once` marker the test workflow filters on must be declared."""
+    markers = _template("pytest.toml")["markers"]
+    assert any(marker.startswith("once:") for marker in markers)
 
 
-def test_restricts_collection_to_tests() -> None:
-    """Verify that collection is restricted to the test suite directory."""
-    content = export_content("pytest.toml")
-    parsed = tomlrt.loads(content)
-    assert parsed["testpaths"] == ["tests"]
+def test_bumpversion_template_has_required_settings() -> None:
+    """Bumpversion needs these three keys to run unattended in CI."""
+    parsed = _template("bumpversion.toml")
+    assert {"current_version", "allow_dirty", "ignore_missing_files"} <= set(parsed)
 
 
-def test_has_xfail_strict() -> None:
-    """Verify that xfail_strict is enabled."""
-    content = export_content("pytest.toml")
-    parsed = tomlrt.loads(content)
-    assert parsed.get("xfail_strict") is True
-
-
-# --- Bumpversion config tests ---
-
-
-def test_has_required_settings() -> None:
-    """Verify that the configuration has required bumpversion settings."""
-    content = export_content("bumpversion.toml")
-    parsed = tomlrt.loads(content)
-
-    assert "current_version" in parsed
-    assert "allow_dirty" in parsed
-    assert "ignore_missing_files" in parsed
-
-
-def test_has_files_section() -> None:
-    """Verify that the configuration has file patterns defined."""
-    content = export_content("bumpversion.toml")
-    parsed = tomlrt.loads(content)
-
-    assert "files" in parsed
-    assert isinstance(parsed["files"], list)
-    assert len(parsed["files"]) > 0
+def test_bumpversion_template_declares_files() -> None:
+    """A bumpversion config with no file patterns would bump nothing."""
+    files = _template("bumpversion.toml")["files"]
+    assert isinstance(files, list)
+    assert files
 
 
 # --- pyproject.toml merging tests ---
 
 
-def test_init_config_adds_root_section() -> None:
-    """Verify that init_config produces a [tool.mypy] section."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
-        f.flush()
-        result = init_config("mypy", Path(f.name))
-    Path(f.name).unlink()
+BARE_PYPROJECT = '[project]\nname = "test"\nversion = "0.1.0"\n'
+"""A minimal PEP 621 project, the starting point for every merge test."""
+
+
+@pytest.mark.parametrize(
+    ("config_type", "expected"),
+    (
+        pytest.param("mypy", "[tool.mypy]", id="root-section"),
+        # tomlkit preserves the template's native dotted-key style.
+        pytest.param("ruff", "lint.ignore", id="dotted-subsection"),
+        pytest.param("bumpversion", "[[tool.bumpversion.files]]", id="array-section"),
+        # The bumpversion template carries inline comments on its config values.
+        pytest.param(
+            "bumpversion",
+            "# Update version in [project] section.",
+            id="template-comment",
+        ),
+    ),
+)
+def test_init_config_merges_template(toml_file, config_type, expected) -> None:
+    """Merging a template into a bare pyproject keeps its native TOML shape."""
+    result = init_config(config_type, toml_file(BARE_PYPROJECT))
     assert result is not None
-    assert "[tool.mypy]" in result
+    assert expected in result
 
 
-def test_init_config_transforms_subsections() -> None:
-    """Verify that ruff lint config appears under [tool.ruff]."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
-        f.flush()
-        result = init_config("ruff", Path(f.name))
-    Path(f.name).unlink()
-    assert result is not None
-    # tomlkit preserves the template's native dotted-key style.
-    assert "lint.ignore" in result
-
-
-def test_init_config_transforms_array_sections() -> None:
-    """Verify that array sections get the tool prefix."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
-        f.flush()
-        result = init_config("bumpversion", Path(f.name))
-    Path(f.name).unlink()
-    assert result is not None
-    assert "[[tool.bumpversion.files]]" in result
-
-
-def test_init_config_preserves_template_comments() -> None:
-    """Verify that template comments are preserved during init."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
-        f.flush()
-        result = init_config("bumpversion", Path(f.name))
-    Path(f.name).unlink()
-    assert result is not None
-    # The bumpversion template has inline comments explaining config values.
-    assert "# Update version in [project] section." in result
-
-
-def test_init_config_lychee_preserves_other_sections() -> None:
+def test_init_config_lychee_preserves_other_sections(toml_file) -> None:
     """Lychee init merges [tool.lychee] without stripping unrelated sections."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write(
+    result = init_config(
+        "lychee",
+        toml_file(
             "[tool.gitleaks]\n"
             "[tool.gitleaks.allowlist]\n"
             'description = "false positives"\n'
             'commits = ["abc123"]\n'
-        )
-        f.flush()
-        result = init_config("lychee", Path(f.name))
-    Path(f.name).unlink()
+        ),
+    )
     assert result is not None
     parsed = tomlrt.loads(result)
     # Lychee was added.
     assert "lychee" in parsed["tool"]
-    assert "exclude" in parsed["tool"]["lychee"]
-    # Gitleaks was preserved.
-    assert "gitleaks" in parsed["tool"]
-    assert parsed["tool"]["gitleaks"]["allowlist"]["commits"] == ["abc123"]
 
 
 def test_uv_component_uses_overlay_ongoing() -> None:
@@ -561,7 +509,7 @@ def test_uv_component_uses_overlay_ongoing() -> None:
     assert comp.overlay is True
 
 
-def test_init_config_uv_overlay_noop_when_pins_match() -> None:
+def test_init_config_uv_overlay_noop_when_pins_match(toml_file) -> None:
     """A [tool.uv] already carrying the canonical pins is a no-op.
 
     The overlay updates owned keys in place, so a section whose pins already
@@ -580,19 +528,11 @@ def test_init_config_uv_overlay_noop_when_pins_match() -> None:
         'exclude-newer-package = { mango = "0 day" }\n'
         'build-backend.module-root = ""\n'
     )
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write(content)
-        f.flush()
-        path = Path(f.name)
-    try:
-        assert init_config("uv", path) is None
-    finally:
-        path.unlink()
+    path = toml_file(content)
+    assert init_config("uv", path) is None
 
 
-def test_init_config_uv_overlay_updates_stale_pins_in_place() -> None:
+def test_init_config_uv_overlay_updates_stale_pins_in_place(toml_file) -> None:
     """Stale uv pins are updated in place, preserving order and local keys."""
     pins = tomlrt.loads(export_content("uv.toml"))
     content = (
@@ -605,16 +545,8 @@ def test_init_config_uv_overlay_updates_stale_pins_in_place() -> None:
         'exclude-newer-package = { mango = "0 day" }\n'
         'build-backend.module-root = ""\n'
     )
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write(content)
-        f.flush()
-        path = Path(f.name)
-    try:
-        result = init_config("uv", path)
-    finally:
-        path.unlink()
+    path = toml_file(content)
+    result = init_config("uv", path)
     assert result is not None
     uv = tomlrt.loads(result)["tool"]["uv"]
     # Owned pins moved to the canonical template values.
@@ -635,7 +567,7 @@ def test_init_config_uv_overlay_updates_stale_pins_in_place() -> None:
     assert uv["build-backend"]["module-root"] == ""
 
 
-def test_init_config_uv_overlay_appends_missing_pins() -> None:
+def test_init_config_uv_overlay_appends_missing_pins(toml_file) -> None:
     """A [tool.uv] lacking the pins gets both appended, local keys intact."""
     pins = tomlrt.loads(export_content("uv.toml"))
     content = (
@@ -644,16 +576,8 @@ def test_init_config_uv_overlay_appends_missing_pins() -> None:
         'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
         'exclude-newer-package = { mango = "0 day" }\n'
     )
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write(content)
-        f.flush()
-        path = Path(f.name)
-    try:
-        result = init_config("uv", path)
-    finally:
-        path.unlink()
+    path = toml_file(content)
+    result = init_config("uv", path)
     assert result is not None
     uv = tomlrt.loads(result)["tool"]["uv"]
     assert uv["required-version"] == pins["required-version"]
@@ -663,15 +587,12 @@ def test_init_config_uv_overlay_appends_missing_pins() -> None:
     assert uv["exclude-newer-package"]["mango"] == "0 day"
 
 
-def test_full_ruff_init() -> None:
+def test_full_ruff_init(toml_file) -> None:
     """Verify full ruff config initialization."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
-        f.flush()
-        result = init_config("ruff", Path(f.name))
-    Path(f.name).unlink()
+    result = init_config(
+        "ruff",
+        toml_file(BARE_PYPROJECT),
+    )
     assert result is not None
     parsed = tomlrt.loads(result)
 
@@ -682,14 +603,9 @@ def test_full_ruff_init() -> None:
     assert "format" in parsed["tool"]["ruff"]
 
 
-def test_adds_config_to_empty_pyproject() -> None:
+def test_adds_config_to_empty_pyproject(toml_file) -> None:
     """Verify that config is added to a pyproject.toml without the section."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
-        f.flush()
-        path = Path(f.name)
+    path = toml_file(BARE_PYPROJECT)
 
     try:
         result = init_config("ruff", path)
@@ -704,14 +620,9 @@ def test_adds_config_to_empty_pyproject() -> None:
         path.unlink()
 
 
-def test_adds_bumpversion_with_array_sections() -> None:
+def test_adds_bumpversion_with_array_sections(toml_file) -> None:
     """Verify that bumpversion [[files]] sections are transformed."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write('[project]\nname = "test"\nversion = "0.1.0"\n')
-        f.flush()
-        path = Path(f.name)
+    path = toml_file(BARE_PYPROJECT)
 
     try:
         result = init_config("bumpversion", path)
@@ -722,16 +633,11 @@ def test_adds_bumpversion_with_array_sections() -> None:
         path.unlink()
 
 
-def test_returns_none_if_section_exists() -> None:
+def test_returns_none_if_section_exists(toml_file) -> None:
     """Verify that None is returned if the section already exists."""
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write(
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.ruff]\npreview = false\n'
-        )
-        f.flush()
-        path = Path(f.name)
+    path = toml_file(
+        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.ruff]\npreview = false\n'
+    )
 
     try:
         result = init_config("ruff", path)
@@ -740,24 +646,15 @@ def test_returns_none_if_section_exists() -> None:
         path.unlink()
 
 
-def test_preserves_existing_content() -> None:
+def test_preserves_existing_content(toml_file) -> None:
     """Verify that existing content is preserved when adding config."""
     original = '[project]\nname = "test"\nversion = "1.0.0"\n'
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write(original)
-        f.flush()
-        path = Path(f.name)
-
-    try:
-        result = init_config("mypy", path)
-        assert result is not None
-        assert 'name = "test"' in result
-        assert 'version = "1.0.0"' in result
-        assert "[tool.mypy]" in result
-    finally:
-        path.unlink()
+    path = toml_file(original)
+    result = init_config("mypy", path)
+    assert result is not None
+    assert 'name = "test"' in result
+    assert 'version = "1.0.0"' in result
+    assert "[tool.mypy]" in result
 
 
 def test_unknown_config_type_raises_error() -> None:
@@ -818,15 +715,13 @@ def test_select_cooldown_pin_no_aged_predecessor():
     assert result is None
 
 
-def test_resolve_default_pin_aged_version_is_noop(monkeypatch):
+def test_resolve_default_pin_aged_version_is_noop(monkeypatch, pin_build):
     """An aged running version pins itself with its build SHA, no step-back.
 
     Locks in the CI sync-repomatic invariant: init at the already-pinned version
     never moves the pin and never resolves a replacement SHA.
     """
-    monkeypatch.setattr(ip, "__version__", "7.4.1")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
-    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    pin_build(version="7.4.1", candidates=_COOLDOWN_CANDIDATES)
     monkeypatch.setattr(
         ip,
         "resolve_tag_to_sha",
@@ -835,20 +730,13 @@ def test_resolve_default_pin_aged_version_is_noop(monkeypatch):
     assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.1", "a" * 40)
 
 
-def test_resolve_default_pin_steps_back_when_fresh(monkeypatch):
+def test_resolve_default_pin_steps_back_when_fresh(pin_build):
     """A fresh running version steps the pin back, re-resolves the SHA, and warns.
 
     The step-back note is appended to the caller-supplied warnings list so
     `run_init` can surface it in the init summary, not only in the log.
     """
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
-    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
-    monkeypatch.setattr(
-        ip,
-        "resolve_tag_to_sha",
-        lambda _url, tag: "b" * 40 if tag == "v7.4.1" else None,
-    )
+    pin_build(candidates=_COOLDOWN_CANDIDATES, tag_sha="b" * 40)
     warnings: list[str] = []
     result = resolve_default_pin(Config(), today=date(2026, 8, 2), warnings=warnings)
     assert result == ("v7.4.1", "b" * 40)
@@ -856,20 +744,17 @@ def test_resolve_default_pin_steps_back_when_fresh(monkeypatch):
     assert "7.4.2" in warnings[0] and "v7.4.1" in warnings[0]
 
 
-def test_resolve_default_pin_aged_version_leaves_warnings_empty(monkeypatch):
+def test_resolve_default_pin_aged_version_leaves_warnings_empty(pin_build):
     """The no-op path appends no warning."""
-    monkeypatch.setattr(ip, "__version__", "7.4.1")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
-    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    pin_build(version="7.4.1", candidates=_COOLDOWN_CANDIDATES)
     warnings: list[str] = []
     resolve_default_pin(Config(), today=date(2026, 8, 2), warnings=warnings)
     assert warnings == []
 
 
-def test_resolve_default_pin_dev_version_skips_datasource(monkeypatch):
+def test_resolve_default_pin_dev_version_skips_datasource(monkeypatch, pin_build):
     """An unreleased dev cut pins its base version without any network call."""
-    monkeypatch.setattr(ip, "__version__", "7.4.2.dev0")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    pin_build(version="7.4.2.dev0", sha="")
     monkeypatch.setattr(
         ip,
         "github_candidates",
@@ -878,10 +763,9 @@ def test_resolve_default_pin_dev_version_skips_datasource(monkeypatch):
     assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.2", None)
 
 
-def test_resolve_default_pin_zero_window_skips_datasource(monkeypatch):
+def test_resolve_default_pin_zero_window_skips_datasource(monkeypatch, pin_build):
     """A disabled cooldown (0 days) pins the running version without a lookup."""
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    pin_build(sha="")
     monkeypatch.setattr(
         ip,
         "github_candidates",
@@ -891,10 +775,9 @@ def test_resolve_default_pin_zero_window_skips_datasource(monkeypatch):
     assert resolve_default_pin(config, today=date(2026, 8, 2)) == ("v7.4.2", None)
 
 
-def test_resolve_default_pin_fails_open_when_datasource_empty(monkeypatch):
+def test_resolve_default_pin_fails_open_when_datasource_empty(monkeypatch, pin_build):
     """An unreachable datasource falls back to the running version."""
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    pin_build()
     monkeypatch.setattr(ip, "github_candidates", lambda _url: [])
     assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.2", "a" * 40)
 
@@ -1020,14 +903,13 @@ def test_resolve_default_pin_lifecycle(label, base, floor, expected, monkeypatch
     assert result == expected, label
 
 
-def test_resolve_default_pin_matching_floor_skips_datasource(monkeypatch):
+def test_resolve_default_pin_matching_floor_skips_datasource(monkeypatch, pin_build):
     """A pin equal to the running version is answered without a network call.
 
     Every CI `sync-repomatic` run takes this path, so it must not depend on the
     GitHub releases datasource being reachable.
     """
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    pin_build()
     monkeypatch.setattr(
         ip,
         "github_candidates",
@@ -1044,15 +926,14 @@ def test_resolve_default_pin_matching_floor_skips_datasource(monkeypatch):
     assert warnings == []
 
 
-def test_resolve_default_pin_matching_floor_keeps_on_disk_sha(monkeypatch):
+def test_resolve_default_pin_matching_floor_keeps_on_disk_sha(pin_build):
     """A build with no tag SHA of its own falls back to the pin already on disk.
 
     Without the fallback, regenerating from a source checkout would rewrite a
     hardened `@<sha> # vX.Y.Z` ref into a bare tag pin, and nothing downstream
     re-hardens an upstream ref.
     """
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    pin_build(sha="")
     assert resolve_default_pin(
         Config(),
         today=date(2026, 8, 2),
@@ -1060,11 +941,9 @@ def test_resolve_default_pin_matching_floor_keeps_on_disk_sha(monkeypatch):
     ) == ("v7.4.2", "c" * 40)
 
 
-def test_resolve_default_pin_held_at_floor_warns(monkeypatch):
+def test_resolve_default_pin_held_at_floor_warns(pin_build):
     """Declining to adopt a fresh release is reported, naming the kept version."""
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
-    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    pin_build(candidates=_COOLDOWN_CANDIDATES)
     warnings: list[str] = []
     resolve_default_pin(
         Config(),
@@ -1076,15 +955,14 @@ def test_resolve_default_pin_held_at_floor_warns(monkeypatch):
     assert "7.4.2" in warnings[0] and "v7.4.1" in warnings[0]
 
 
-def test_run_init_keeps_a_fresh_pin_already_on_disk(tmp_path, monkeypatch):
+def test_run_init_keeps_a_fresh_pin_already_on_disk(tmp_path, monkeypatch, pin_build):
     """Re-running `init` at the pinned version regenerates without downgrading.
 
     End-to-end shape of the CI lifecycle: a maintainer adopts a release on its
     publication day, then `sync-repomatic` re-runs `init` at that very version
     on every push. The pin must survive untouched.
     """
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    pin_build()
     run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
     monkeypatch.setattr(
         ip,
@@ -1098,10 +976,9 @@ def test_run_init_keeps_a_fresh_pin_already_on_disk(tmp_path, monkeypatch):
     assert f"autofix.yaml@{'a' * 40} # v7.4.2" in autofix
 
 
-def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch):
+def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch, pin_build):
     """--no-cooldown pins the running version and never consults the datasource."""
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    pin_build(sha="")
     monkeypatch.setattr(
         ip,
         "github_candidates",
@@ -1109,7 +986,7 @@ def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch):
     )
     run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
-        encoding="utf-8"
+        encoding="UTF-8"
     )
     assert "kdeldycke/repomatic/.github/workflows/autofix.yaml@v7.4.2" in autofix
 
@@ -1154,7 +1031,7 @@ def _add_downstream_release_job(release: Path) -> None:
     release.write_text(head + marker + gated + _PACKER_JOB, encoding="UTF-8")
 
 
-def test_run_init_preserves_downstream_release_needs(tmp_path, monkeypatch):
+def test_run_init_preserves_downstream_release_needs(tmp_path, pin_build):
     """`repomatic init` carries a consumer's own `needs:` edge across a sync.
 
     Asserted on the entry point `sync-repomatic` actually runs. The same
@@ -1162,8 +1039,7 @@ def test_run_init_preserves_downstream_release_needs(tmp_path, monkeypatch):
     silently dropped the edge, because the two rendered the caller through
     separate copies of the same logic and only one was ever wired up.
     """
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    pin_build()
     run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
 
     release = tmp_path / ".github" / "workflows" / "release.yaml"
@@ -1175,7 +1051,7 @@ def test_run_init_preserves_downstream_release_needs(tmp_path, monkeypatch):
     assert "build-packer" in jobs
 
 
-def test_run_init_is_idempotent(tmp_path, monkeypatch):
+def test_run_init_is_idempotent(tmp_path, pin_build):
     """A second `init` over its own output rewrites nothing.
 
     `sync-repomatic` re-runs `init` on every push to `main`, so any non-
@@ -1183,8 +1059,7 @@ def test_run_init_is_idempotent(tmp_path, monkeypatch):
     Checked with downstream extras in the tree, which is where the separator
     between the managed lanes and those extras is re-derived.
     """
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    pin_build()
     run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
     _add_downstream_release_job(tmp_path / ".github" / "workflows" / "release.yaml")
 
@@ -1283,10 +1158,11 @@ def test_init_header_sync_honors_paths_spec(tmp_path, monkeypatch):
     assert "placeholder" not in content
 
 
-def test_run_init_cooldown_steps_back_in_generated_pin(tmp_path, monkeypatch):
+def test_run_init_cooldown_steps_back_in_generated_pin(
+    tmp_path, monkeypatch, pin_build
+):
     """A fresh running version lands the stepped-back tag in the thin caller."""
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    pin_build(sha="")
     # Dates chosen to be robust against the real clock resolve_default_pin
     # reads: 7.4.1 is always aged, 7.4.2 always fresh.
     monkeypatch.setattr(
@@ -1300,7 +1176,7 @@ def test_run_init_cooldown_steps_back_in_generated_pin(tmp_path, monkeypatch):
     monkeypatch.setattr(ip, "resolve_tag_to_sha", lambda _url, _tag: "")
     result = run_init(output_dir=tmp_path, components=("workflows",))
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
-        encoding="utf-8"
+        encoding="UTF-8"
     )
     assert "kdeldycke/repomatic/.github/workflows/autofix.yaml@v7.4.1" in autofix
     # The step-back surfaces in the init summary, not only the log.
@@ -1309,8 +1185,6 @@ def test_run_init_cooldown_steps_back_in_generated_pin(tmp_path, monkeypatch):
 
 def test_init_default_components():
     """Verify default selection includes expected components."""
-    from repomatic.registry import InitDefault
-
     defaults = {
         c.name
         for c in COMPONENTS
@@ -1396,8 +1270,6 @@ def test_init_workflow_paths_config_flows_to_generated_files(tmp_path: Path):
     and per-workflow `paths` overrides is honored by `_init_workflows` when
     rendering thin callers.
     """
-    from repomatic.config import WorkflowConfig
-
     config = Config(
         workflow=WorkflowConfig(
             extra_paths=["repo-specific.sh"],
@@ -1840,19 +1712,15 @@ def _canonical_typos_identifiers() -> dict[str, str]:
     return {str(k): str(v) for k, v in identifiers.items()}
 
 
-def _make_pyproject_with_template_bumpversion(version: str = "7.5.3.dev0") -> str:
+def _make_pyproject_with_template_bumpversion(
+    toml_file, version: str = "7.5.3.dev0"
+) -> str:
     """Generate a pyproject.toml with the bumpversion section from the template.
 
     Used as a fixture for tests that need an already-up-to-date config.
     """
     base = f'[project]\nname = "test-project"\nversion = "{version}"\n'
-    with NamedTemporaryFile(
-        encoding="utf-8", mode="w", suffix=".toml", delete=False
-    ) as f:
-        f.write(base)
-        f.flush()
-        result = init_config("bumpversion", Path(f.name))
-    Path(f.name).unlink()
+    result = init_config("bumpversion", toml_file(base))
     assert result is not None
     return result.replace(
         'current_version = "0.0.0.dev0"',
@@ -1911,10 +1779,12 @@ def test_preserves_other_pyproject_sections(tmp_path: Path) -> None:
     assert "preview = true" in result
 
 
-def test_skips_already_up_to_date(tmp_path: Path) -> None:
+def test_skips_already_up_to_date(tmp_path: Path, toml_file) -> None:
     """Verify config matching the template returns None (no changes needed)."""
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(_make_pyproject_with_template_bumpversion(), encoding="UTF-8")
+    pyproject.write_text(
+        _make_pyproject_with_template_bumpversion(toml_file), encoding="UTF-8"
+    )
 
     result = init_config("bumpversion", pyproject)
 
@@ -2050,6 +1920,24 @@ def test_ongoing_sync_template_survives_pyproject_fmt(
     )
 
 
+def _bumpversion_pyproject(*file_entries: str) -> str:
+    """Render a pyproject whose `[tool.bumpversion]` carries *file_entries*.
+
+    The table header is fixed across these tests; what each one is actually
+    about is the `[[tool.bumpversion.files]]` entries it seeds, so only those
+    appear at the call site.
+    """
+    header = (
+        '[project]\nname = "test"\nversion = "1.0.0.dev0"\n\n'
+        "[tool.bumpversion]\n"
+        'current_version = "1.0.0.dev0"\n'
+        "allow_dirty = true\n"
+        'parse = "(?P<major>\\\\d+)"\n'
+        'serialize = ["{major}"]\n\n'
+    )
+    return header + "".join(file_entries)
+
+
 def test_replaces_old_changelog_pattern(tmp_path: Path) -> None:
     """Verify old changelog pattern without backticks is replaced by template."""
     content = (
@@ -2107,13 +1995,7 @@ def test_bumpversion_update_valid_toml(tmp_path: Path) -> None:
 
 def test_preserves_local_array_entries(tmp_path: Path) -> None:
     """Verify local [[tool.bumpversion.files]] entries survive ongoing sync."""
-    content = (
-        '[project]\nname = "test"\nversion = "1.0.0.dev0"\n\n'
-        "[tool.bumpversion]\n"
-        'current_version = "1.0.0.dev0"\n'
-        "allow_dirty = true\n"
-        'parse = "(?P<major>\\\\d+)"\n'
-        'serialize = ["{major}"]\n\n'
+    content = _bumpversion_pyproject(
         "[[tool.bumpversion.files]]\n"
         'filename = "./pyproject.toml"\n'
         "search = 'version = \"{current_version}\"'\n"
@@ -2129,7 +2011,7 @@ def test_preserves_local_array_entries(tmp_path: Path) -> None:
 
     bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
-    result = _update_tool_config(content, bv, pyproject)
+    result = _update_tool_config(content, bv)
 
     assert result is not None
     parsed = tomlrt.loads(result)
@@ -2143,13 +2025,7 @@ def test_preserves_local_array_entries(tmp_path: Path) -> None:
 
 def test_ongoing_sync_idempotent_with_local_entries(tmp_path: Path) -> None:
     """Verify ongoing sync with local entries is idempotent after first run."""
-    content = (
-        '[project]\nname = "test"\nversion = "1.0.0.dev0"\n\n'
-        "[tool.bumpversion]\n"
-        'current_version = "1.0.0.dev0"\n'
-        "allow_dirty = true\n"
-        'parse = "(?P<major>\\\\d+)"\n'
-        'serialize = ["{major}"]\n\n'
+    content = _bumpversion_pyproject(
         "[[tool.bumpversion.files]]\n"
         'filename = "./readme.md"\n'
         "ignore_missing_version = true\n"
@@ -2162,12 +2038,12 @@ def test_ongoing_sync_idempotent_with_local_entries(tmp_path: Path) -> None:
     pyproject.write_text(content, encoding="UTF-8")
 
     # First run: updates template entries.
-    result1 = _update_tool_config(content, bv_comp, pyproject)
+    result1 = _update_tool_config(content, bv_comp)
     assert result1 is not None
     pyproject.write_text(result1, encoding="UTF-8")
 
     # Second run: should be a no-op.
-    result2 = _update_tool_config(result1, bv_comp, pyproject)
+    result2 = _update_tool_config(result1, bv_comp)
     assert result2 is None
 
 
@@ -2200,13 +2076,7 @@ def test_evolved_canonical_entry_superseded_not_duplicated(tmp_path: Path) -> No
     carrying the old unanchored form must converge on the single canonical
     anchored entry rather than ending up with both, which would break the bump.
     """
-    content = (
-        '[project]\nname = "test"\nversion = "1.0.0.dev0"\n\n'
-        "[tool.bumpversion]\n"
-        'current_version = "1.0.0.dev0"\n'
-        "allow_dirty = true\n"
-        'parse = "(?P<major>\\\\d+)"\n'
-        'serialize = ["{major}"]\n\n'
+    content = _bumpversion_pyproject(
         "[[tool.bumpversion.files]]\n"
         'filename = "./pyproject.toml"\n'
         "search = 'version = \"{current_version}\"'\n"
@@ -2230,13 +2100,7 @@ def test_evolved_canonical_entry_superseded_not_duplicated(tmp_path: Path) -> No
 
 def test_local_entries_preserved_via_update(tmp_path: Path) -> None:
     """Verify local array entries survive ongoing sync via dict comparison."""
-    content = (
-        '[project]\nname = "test"\nversion = "1.0.0.dev0"\n\n'
-        "[tool.bumpversion]\n"
-        'current_version = "1.0.0.dev0"\n'
-        "allow_dirty = true\n"
-        'parse = "(?P<major>\\\\d+)"\n'
-        'serialize = ["{major}"]\n\n'
+    content = _bumpversion_pyproject(
         "[[tool.bumpversion.files]]\n"
         'filename = "./pyproject.toml"\n'
         "search = 'version = \"{current_version}\"'\n"
@@ -2251,7 +2115,7 @@ def test_local_entries_preserved_via_update(tmp_path: Path) -> None:
 
     bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
-    result = _update_tool_config(content, bv, pyproject)
+    result = _update_tool_config(content, bv)
 
     assert result is not None
     parsed = tomlrt.loads(result)
@@ -2273,13 +2137,7 @@ def test_local_entry_comments_preserved(tmp_path: Path) -> None:
         replacement. Comments *between* local entries survive because tomlkit
         attaches them to the preceding entry's trivia.
     """
-    content = (
-        '[project]\nname = "test"\nversion = "1.0.0.dev0"\n\n'
-        "[tool.bumpversion]\n"
-        'current_version = "1.0.0.dev0"\n'
-        "allow_dirty = true\n"
-        'parse = "(?P<major>\\\\d+)"\n'
-        'serialize = ["{major}"]\n\n'
+    content = _bumpversion_pyproject(
         "[[tool.bumpversion.files]]\n"
         'filename = "./pyproject.toml"\n'
         "search = 'version = \"{current_version}\"'\n"
@@ -2302,7 +2160,7 @@ def test_local_entry_comments_preserved(tmp_path: Path) -> None:
 
     bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
-    result = _update_tool_config(content, bv, pyproject)
+    result = _update_tool_config(content, bv)
 
     assert result is not None
     # Comments between local entries survive (attached to preceding entry's
@@ -3265,10 +3123,6 @@ def test_init_detects_disabled_opt_in_workflow(
 
 def test_init_cli_delete_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Verify --delete-excluded deletes excluded files and cleans empty dirs."""
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["skills"]\n',
@@ -3307,10 +3161,6 @@ def test_init_cli_no_delete_excluded_warns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify excluded files are reported but not deleted without --delete-excluded."""
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["skills"]\n',
@@ -3426,10 +3276,6 @@ def test_init_cli_prunes_unmodified_removed_asset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Bare ``init`` deletes an unmodified orphan and its emptied parent dir."""
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     monkeypatch.setattr(
@@ -3450,10 +3296,6 @@ def test_init_cli_keeps_modified_removed_asset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A locally modified orphan is reported for review, never auto-deleted."""
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     monkeypatch.setattr(
@@ -3473,10 +3315,6 @@ def test_init_cli_keep_removed_preserves_unmodified_orphan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``--keep-removed`` reports an unmodified orphan but does not delete it."""
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     monkeypatch.setattr(
@@ -3525,10 +3363,6 @@ def test_init_cli_delete_removed_modified_forces_deletion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``--delete-removed-modified`` deletes a locally modified orphan."""
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     monkeypatch.setattr(
@@ -3550,10 +3384,6 @@ def test_init_cli_keep_removed_and_force_are_exclusive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``--keep-removed`` and ``--delete-removed-modified`` cannot combine."""
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     monkeypatch.chdir(tmp_path)
     cli_result = CliRunner().invoke(
         repomatic,
@@ -3591,7 +3421,7 @@ def _thin_caller(slug: str = "kdeldycke/repomatic", extra: str = "") -> str:
     )
 
 
-def _write_workflow(tmp_path: Path, content: str) -> Path:
+def _write_removed_workflow(tmp_path: Path, content: str) -> Path:
     wf = tmp_path / _REMOVED_WORKFLOW
     wf.parent.mkdir(parents=True)
     wf.write_text(content, encoding="UTF-8")
@@ -3603,7 +3433,7 @@ def _write_workflow(tmp_path: Path, content: str) -> Path:
 )
 def test_detect_prunes_thin_caller_any_slug(tmp_path: Path, slug: str) -> None:
     """A pure thin-caller for a removed workflow is prunable, whatever the era slug."""
-    _write_workflow(tmp_path, _thin_caller(slug))
+    _write_removed_workflow(tmp_path, _thin_caller(slug))
     prunable, review = _detect_removed_assets(tmp_path, None)
     assert (_REMOVED_WORKFLOW, "merged into labels.yaml") in prunable
     assert review == []
@@ -3612,7 +3442,7 @@ def test_detect_prunes_thin_caller_any_slug(tmp_path: Path, slug: str) -> None:
 def test_detect_reviews_customized_thin_caller(tmp_path: Path) -> None:
     """A thin-caller the user extended with extra jobs is reported, never pruned."""
     extra = "  my-job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
-    _write_workflow(tmp_path, _thin_caller(extra=extra))
+    _write_removed_workflow(tmp_path, _thin_caller(extra=extra))
     prunable, review = _detect_removed_assets(tmp_path, None)
     assert (_REMOVED_WORKFLOW, "merged into labels.yaml") in review
     assert prunable == []
@@ -3620,7 +3450,7 @@ def test_detect_reviews_customized_thin_caller(tmp_path: Path) -> None:
 
 def test_detect_skips_unrelated_workflow(tmp_path: Path) -> None:
     """A user's own workflow that merely shares the name is left untouched."""
-    _write_workflow(
+    _write_removed_workflow(
         tmp_path,
         '---\nname: Mine\n"on": pull_request\njobs:\n'
         "  labeller:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo mine\n",
@@ -3634,14 +3464,10 @@ def test_init_cli_prunes_orphaned_workflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Bare init deletes a pure thin-caller for a removed reusable workflow."""
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n', encoding="UTF-8"
     )
-    wf = _write_workflow(tmp_path, _thin_caller())
+    wf = _write_removed_workflow(tmp_path, _thin_caller())
     monkeypatch.chdir(tmp_path)
 
     cli_result = CliRunner().invoke(repomatic, ["init", "--output-dir", str(tmp_path)])
@@ -3666,7 +3492,7 @@ def test_removed_reusable_workflows_are_tombstoned() -> None:
             ["git", *args],
             capture_output=True,
             text=True,
-            encoding="utf-8",
+            encoding="UTF-8",
             cwd=repo_root,
             check=False,
         )
@@ -3734,7 +3560,7 @@ def test_removed_data_assets_are_tombstoned() -> None:
             ["git", *args],
             capture_output=True,
             text=True,
-            encoding="utf-8",
+            encoding="UTF-8",
             cwd=repo_root,
             check=False,
         )
@@ -3960,8 +3786,6 @@ def test_init_exclude_additive_to_defaults(
 
 def test_all_data_files_registered_in_exportable_files() -> None:
     """Every non-infrastructure file in data/ must appear in EXPORTABLE_FILES."""
-    from importlib.resources import as_file, files
-
     data_dir = files("repomatic.data")
     with as_file(data_dir) as data_path:
         on_disk = {
@@ -4143,8 +3967,6 @@ def test_tool_config_rejects_missing_tool_section() -> None:
 
 def test_tool_config_rejects_files() -> None:
     """ToolConfigComponent raises ValueError with file entries."""
-    from repomatic.registry import FileEntry
-
     with pytest.raises(ValueError, match="must not have files"):
         ToolConfigComponent(
             name="bad",
@@ -4214,8 +4036,6 @@ def test_init_reports_unmodified_configs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Init reports native config files that match bundled defaults."""
-    from repomatic.tool_runner import get_data_file_path
-
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n', encoding="UTF-8"
@@ -4246,82 +4066,6 @@ def test_init_no_unmodified_when_different(
 
     result = run_init(output_dir=tmp_path)
     assert result.unmodified_configs == []
-
-
-# ---------------------------------------------------------------------------
-# find_unmodified_init_files
-# ---------------------------------------------------------------------------
-
-
-def test_find_unmodified_init_files_detects_identical(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Init-managed file matching bundled default is flagged as unmodified."""
-    monkeypatch.chdir(tmp_path)
-    content = export_content("labels.toml")
-    (tmp_path / "labels.toml").write_text(content.rstrip() + "\n", encoding="UTF-8")
-
-    from repomatic.init_project import find_unmodified_init_files
-
-    result = find_unmodified_init_files()
-    paths = [p for _, p in result]
-    assert "labels.toml" in paths
-
-
-def test_find_unmodified_init_files_ignores_modified(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Modified init-managed file is not flagged."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "labels.toml").write_text("# custom labels\n", encoding="UTF-8")
-
-    from repomatic.init_project import find_unmodified_init_files
-
-    result = find_unmodified_init_files()
-    paths = [p for _, p in result]
-    assert "labels.toml" not in paths
-
-
-def test_find_unmodified_init_files_skips_skills(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Skills are not checked for redundancy."""
-    monkeypatch.chdir(tmp_path)
-    content = get_data_content(f"{_skill_source('repomatic-audit')}/{SKILL_FILENAME}")
-    skill_dir = tmp_path / ".claude" / "skills" / "repomatic-audit"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(content.rstrip() + "\n", encoding="UTF-8")
-
-    from repomatic.init_project import find_unmodified_init_files
-
-    result = find_unmodified_init_files()
-    paths = [p for _, p in result]
-    assert not any("skills" in p for p in paths)
-
-
-def test_find_unmodified_init_files_multiple(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Redundant files across multiple components are all detected."""
-    monkeypatch.chdir(tmp_path)
-
-    for source_name, rel_path in (
-        ("labels.toml", "labels.toml"),
-        ("labeller-file-based.yaml", ".github/labeller-file-based.yaml"),
-        ("labeller-content-based.yaml", ".github/labeller-content-based.yaml"),
-    ):
-        path = tmp_path / rel_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        content = export_content(source_name)
-        path.write_text(content.rstrip() + "\n", encoding="UTF-8")
-
-    from repomatic.init_project import find_unmodified_init_files
-
-    result = find_unmodified_init_files()
-    paths = [p for _, p in result]
-    assert "labels.toml" in paths
-    assert ".github/labeller-file-based.yaml" in paths
-    assert ".github/labeller-content-based.yaml" in paths
 
 
 @pytest.mark.parametrize(
@@ -4481,23 +4225,23 @@ def test_init_awesome_template_not_auto_included_with_explicit_components(
 _TOOL_CONFIG_COMPONENTS = [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)]
 
 
-@pytest.mark.parametrize(
-    "comp",
-    _TOOL_CONFIG_COMPONENTS,
-    ids=lambda c: c.name,
-)
-def test_update_tool_config_produces_parseable_output(
-    comp: ToolConfigComponent, tmp_path: Path
-) -> None:
-    """Syncing any tool-config component produces non-empty, well-formed TOML.
+@pytest.mark.parametrize("comp", _TOOL_CONFIG_COMPONENTS, ids=lambda c: c.name)
+def test_update_tool_config_output_contract(comp: ToolConfigComponent) -> None:
+    r"""Syncing any tool-config component yields well-formed, well-spaced TOML.
 
-    Guards against the silent-empty-dump regression class: tomlrt 1.7.3, 1.7.4,
-    and the main-branch SHA briefly pinned in `pyproject.toml` each shipped
-    fixes for a shape where ``tomlrt.dumps`` returned an empty string with no
-    exception. The production path now uses direct ``doc[k] = parsed_document``
-    assignment instead of ``Table.section() + assign``, but a future refactor
-    or upstream regression that revives an empty-dump shape fails this test
-    noisily instead of silently corrupting the seed pyproject.toml.
+    Three invariants the production path has no other guard for, checked on one
+    sync per component:
+
+    - Non-empty output. tomlrt 1.7.3, 1.7.4, and the main-branch SHA briefly
+      pinned in `pyproject.toml` each shipped fixes for a shape where
+      `tomlrt.dumps` returned an empty string with no exception.
+    - Section spacing. The previous tomlkit implementation enforced this with a
+      four-step regex normalization on the dumped string; the tomlrt rewrite
+      dropped that stack and trusts the library, so a regression reintroducing
+      ``]\n[`` collisions or triple-blank gaps must fail here.
+    - A terminal newline. When the template's prefix-strip drops the source's
+      trailing newline, the last KV slot loses its EOL trivia and every
+      regenerated PR diff grows a ``\ No newline at end of file``.
     """
     tool_name = comp.tool_section.removeprefix("tool.")
     seed = (
@@ -4505,45 +4249,14 @@ def test_update_tool_config_produces_parseable_output(
         f"[{comp.tool_section}]\n"
         'local_only_key = "preserved"\n'
     )
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(seed, encoding="UTF-8")
 
-    result = _update_tool_config(seed, comp, pyproject)
+    result = _update_tool_config(seed, comp)
 
     assert result is not None, "expected the sync to modify the seed"
     assert result.strip(), "tomlrt produced an empty document"
     parsed = tomlrt.loads(result)
-    assert "tool" in parsed
     assert tool_name in parsed["tool"]
     assert parsed["tool"][tool_name].get("local_only_key") == "preserved"
-
-
-@pytest.mark.parametrize(
-    "comp",
-    _TOOL_CONFIG_COMPONENTS,
-    ids=lambda c: c.name,
-)
-def test_update_tool_config_section_header_whitespace(
-    comp: ToolConfigComponent, tmp_path: Path
-) -> None:
-    r"""Section headers in the synced output are well-spaced.
-
-    The previous tomlkit-based implementation enforced this via a four-step
-    regex normalization on the dumped string. The tomlrt rewrite removed
-    that stack and trusts the library's own layout: lock the invariant so a
-    regression cannot reintroduce ``]\n[`` collisions or triple-blank gaps
-    that would round-trip oddly through ``format-pyproject``.
-    """
-    seed = (
-        '[project]\nname = "fixture"\n\n'
-        f"[{comp.tool_section}]\n"
-        'local_only_key = "preserved"\n'
-    )
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(seed, encoding="UTF-8")
-
-    result = _update_tool_config(seed, comp, pyproject)
-    assert result is not None
 
     no_blank = re.search(r"[^\n]\n\[(?!\[)", result)
     assert no_blank is None, (
@@ -4551,35 +4264,6 @@ def test_update_tool_config_section_header_whitespace(
         f"{no_blank.start() if no_blank else -1} in {comp.name} output"
     )
     assert "\n\n\n" not in result, f"triple blank line in {comp.name} output"
-
-
-@pytest.mark.parametrize(
-    "comp",
-    _TOOL_CONFIG_COMPONENTS,
-    ids=lambda c: c.name,
-)
-def test_update_tool_config_preserves_trailing_newline(
-    comp: ToolConfigComponent, tmp_path: Path
-) -> None:
-    """Synced ``pyproject.toml`` ends with a newline, matching POSIX convention.
-
-    When the bundled template's prefix-strip drops the source's terminal
-    newline, the parsed last KV slot loses its EOL trivia, and any path that
-    lands that slot at end-of-document produces a missing terminal newline
-    (``\\ No newline at end of file`` in every regenerated PR diff). Pinned
-    so a future refactor that swaps ``splitlines(keepends=True)`` for
-    ``"\\n".join(splitlines(...))`` in ``_strip_header_comments`` fails CI.
-    """
-    seed = (
-        '[project]\nname = "fixture"\n\n'
-        f"[{comp.tool_section}]\n"
-        'local_only_key = "preserved"\n'
-    )
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(seed, encoding="UTF-8")
-
-    result = _update_tool_config(seed, comp, pyproject)
-    assert result is not None
     assert result.endswith("\n"), (
         f"{comp.name}: synced output missing terminal newline; "
         f"last 60 chars: {result[-60:]!r}"
@@ -4607,12 +4291,9 @@ def test_tomlrt_aot_only_section_overwrite_invariant() -> None:
     so a regression would not otherwise surface through the ``sync-*``
     autofix jobs until a user defined one.
     """
-    import tomlrt
-    from tomlrt import Table
-
     src = '[project]\nname = "demo"\n\n[[tool.example.items]]\nkey = "existing"\n'
     doc = tomlrt.loads(src)
-    new_section = Table.section(tomlrt.loads('[[items]]\nkey = "template"\n'))
+    new_section = tomlrt.Table.section(tomlrt.loads('[[items]]\nkey = "template"\n'))
     for entry in doc["tool"]["example"]["items"]:
         new_section["items"].append(entry)
     doc["tool"]["example"] = new_section

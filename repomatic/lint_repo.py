@@ -19,7 +19,7 @@
 This module provides consistency checks for repository metadata,
 including package names, website fields, descriptions, and funding configuration.
 
-Every check returns a :class:`CheckResult`, whose tri-state `passed` flag
+Every check returns a {class}`CheckResult`, whose tri-state `passed` flag
 distinguishes success, failure, and skipped/indeterminate outcomes uniformly.
 """
 
@@ -32,26 +32,35 @@ from pathlib import Path
 from typing import NamedTuple
 
 import yaml
+from click_extra import echo
 from packaging.version import Version
 
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import gh_api_json, run_gh_command
+from .github.matrix import stale_axis_values
 from .github.token import check_all_pat_permissions
 from .matrix_axes import (
     TEST_RUNNERS_FULL,
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
 )
-from .metadata import Dialect, Metadata, stale_axis_values
+from .metadata import Dialect, Metadata
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     get_latest_release_file,
     get_trusted_publishers,
     pypi_trusted_publisher_settings_url,
 )
-from .registry import DEFAULT_REPO
+from .registry import DEFAULT_REPO, WORKFLOW_TARGET_ROOT
 from .version_sync import find_upstream_ref_versions
+
+WORKFLOW_DIR = Path(WORKFLOW_TARGET_ROOT)
+"""Directory every workflow check walks.
+
+Derived from the registry constant `repomatic init` deploys against, so the
+checks and the generator can never disagree about where a workflow lives.
+"""
 
 PR_TEMPLATE_DIR = Path(".github/pr-templates")
 """Canonical home for a repository's own `pr-body --template-file` templates.
@@ -510,7 +519,7 @@ def check_fork_pr_approval_policy(repo: str) -> CheckResult:
     post: see https://astral.sh/blog/open-source-security-at-astral.
 
     Queries
-    ``GET /repos/{repo}/actions/permissions/fork-pr-contributor-approval``
+    `GET /repos/{repo}/actions/permissions/fork-pr-contributor-approval`
     and returns `False` when the policy is weaker than
     `first_time_contributors`.
 
@@ -567,7 +576,7 @@ def check_sha_pinning_required(repo: str) -> CheckResult:
     hand-edited workflow could still slip a mutable tag past review. This
     repo-level setting is the platform-enforced backstop.
 
-    Queries ``GET /repos/{repo}/actions/permissions`` and returns `False`
+    Queries `GET /repos/{repo}/actions/permissions` and returns `False`
     when `sha_pinning_required` is absent or `false`.
 
     ```{note}
@@ -641,7 +650,7 @@ def check_tag_protection_rules(repo: str) -> CheckResult:
 def check_branch_ruleset_on_default(repo: str) -> CheckResult:
     """Check that at least one active branch ruleset exists.
 
-    Queries the same ``GET /repos/{repo}/rulesets`` endpoint as
+    Queries the same `GET /repos/{repo}/rulesets` endpoint as
     {func}`check_tag_protection_rules` and looks for active rulesets with
     `target == "branch"`. The presence of any such ruleset is taken as
     evidence that the default branch is protected (restrict deletions and
@@ -657,12 +666,14 @@ def check_branch_ruleset_on_default(repo: str) -> CheckResult:
     ```
 
     :param repo: Repository in 'owner/repo' format.
-    :return: A `CheckResult`.
+    :return: A `CheckResult`. `passed` is `None` when the rulesets API could
+        not be read, matching {func}`check_tag_protection_rules`, which reads
+        the same payload.
     """
     rulesets = _fetch_rulesets(repo)
     if rulesets is None:
         return CheckResult(
-            False, "Branch ruleset check: skipped (could not query rulesets API)."
+            None, "Branch ruleset check: skipped (could not query rulesets API)."
         )
 
     branch_rulesets = [
@@ -683,7 +694,7 @@ def check_branch_ruleset_on_default(repo: str) -> CheckResult:
 def check_immutable_releases(repo: str) -> CheckResult:
     """Check that immutable releases are enabled for the repository.
 
-    Queries ``GET /repos/{repo}/immutable-releases`` and inspects the
+    Queries `GET /repos/{repo}/immutable-releases` and inspects the
     `enabled` field in the response.
 
     ```{note}
@@ -718,7 +729,7 @@ def check_pages_deployment_source(repo: str) -> CheckResult:
     **GitHub Actions** in the repository settings. Branch-based deployment
     (`legacy`) is incompatible.
 
-    Queries ``GET /repos/{repo}/pages` and inspects the `build_type``
+    Queries `GET /repos/{repo}/pages` and inspects the `build_type`
     field in the response.
 
     ```{note}
@@ -766,25 +777,25 @@ def check_pypi_trusted_publisher(
     """Check that the PyPI Trusted Publisher entry is registered for this repo.
 
     PyPI's Trusted Publisher settings are owner-only at
-    ``/manage/project/<name>/settings/publishing/`` and not exposed through
+    `/manage/project/<name>/settings/publishing/` and not exposed through
     any public API. The only public surface where the OIDC publisher is
     observable is the PEP 740 provenance attached to releases uploaded via
-    OIDC: see :func:`repomatic.pypi.get_trusted_publishers`.
+    OIDC: see {func}`repomatic.pypi.get_trusted_publishers`.
     This check probes the latest release's provenance and looks for a
-    bundle whose ``repository`` matches ``repo`` and whose ``workflow``
-    is :data:`PYPI_TRUSTED_PUBLISHER_WORKFLOW`.
+    bundle whose `repository` matches `repo` and whose `workflow`
+    is {data}`PYPI_TRUSTED_PUBLISHER_WORKFLOW`.
     A match means the publisher is wired up and a previous release uploaded
     successfully through it.
     A mismatch (provenance exists but names a different repo or workflow)
     is a misconfiguration: typical cause is registering the upstream
-    reusable workflow instead of the downstream caller's ``release.yaml``,
+    reusable workflow instead of the downstream caller's `release.yaml`,
     which fails on the first upload after migration.
-    Indeterminate (``None``) covers two cases that look identical from the
+    Indeterminate (`None`) covers two cases that look identical from the
     outside: no published release yet, and provenance missing because past
     releases were uploaded via API token. In both cases the setup guide
     nags until the next OIDC-attested upload appears.
 
-    :param repo: Repository in ``"owner/repo"`` format.
+    :param repo: Repository in `"owner/repo"` format.
     :param package_name: PyPI package name. The check is skipped when not
         provided.
     :return: A `CheckResult`.
@@ -880,50 +891,41 @@ def check_stale_gh_pages_branch(repo: str) -> CheckResult:
 
 
 def check_workflow_permissions() -> list[CheckResult]:
-    """Check workflow ``permissions`` declarations for least privilege.
+    """Check workflow `permissions` declarations for least privilege.
 
     Two failure modes are flagged:
 
-    1. A workflow that defines its own ``steps:`` should carry a top-level
-       ``permissions`` key (``permissions: {}`` for least privilege) so its
+    1. A workflow that defines its own `steps:` should carry a top-level
+       `permissions` key (`permissions: {}` for least privilege) so its
        jobs default to no scopes rather than the repository default.
-    2. A job that calls a reusable workflow (a job-level ``uses:``) hands its
+    2. A job that calls a reusable workflow (a job-level `uses:`) hands its
        own permissions *down*, and the reusable workflow's jobs are capped by
        them: they cannot escalate beyond what the caller grants. So under a
-       top-level ``permissions: {}``, a reusable-call job with no
-       ``permissions:`` block of its own passes ``{}`` to the called workflow,
+       top-level `permissions: {}`, a reusable-call job with no
+       `permissions:` block of its own passes `{}` to the called workflow,
        and GitHub aborts the run at startup the moment a nested job requests a
        scope the caller never granted. Such a job must name the union of the
        scopes its reusable workflow needs (mirror the reusable workflow's own
-       top-level ``{}`` plus per-job grants).
+       top-level `{}` plus per-job grants).
 
-    A thin caller with *no* top-level ``permissions`` key is fine: its jobs
+    A thin caller with *no* top-level `permissions` key is fine: its jobs
     inherit the repository default, which the reusable workflow's own
-    ``permissions:`` blocks then cap. The failure is specifically an empty
-    top-level ``permissions: {}`` starving an unqualified reusable call.
+    `permissions:` blocks then cap. The failure is specifically an empty
+    top-level `permissions: {}` starving an unqualified reusable call.
 
     :return: A list of `CheckResult`.
     """
     results: list[CheckResult] = []
-    workflows_dir = Path(".github/workflows")
-    if not workflows_dir.is_dir():
+    if not WORKFLOW_DIR.is_dir():
         return [
             CheckResult(
-                None, "Workflow permissions check: skipped (no .github/workflows/)"
+                None,
+                f"Workflow permissions check: skipped (no {WORKFLOW_DIR.as_posix()}/)",
             )
         ]
 
-    for wf_path in sorted(workflows_dir.glob("*.yaml")):
-        try:
-            data = yaml.safe_load(wf_path.read_text(encoding="UTF-8"))
-        except (yaml.YAMLError, OSError) as e:
-            logging.warning(f"Could not parse {wf_path}: {e}")
-            continue
-
-        if not isinstance(data, dict) or "jobs" not in data:
-            continue
-
-        jobs = data.get("jobs", {})
+    for wf_path, data in _load_workflows().items():
+        jobs = data["jobs"]
         has_custom_steps = any(
             "steps" in job for job in jobs.values() if isinstance(job, dict)
         )
@@ -1021,21 +1023,42 @@ def check_test_matrix_excludes() -> list[CheckResult]:
     return results
 
 
-def _load_workflows(
-    workflow_dir: Path = Path(".github/workflows"),
-) -> dict[Path, dict]:
-    """Parse every workflow in `workflow_dir`, skipping the unreadable ones.
+def _workflow_texts(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, str]:
+    """Read every workflow in *workflow_dir*, skipping the unreadable ones.
+
+    The raw-text half of the workflow walk, for the checks that match against
+    the file as written rather than as parsed: an argument inside a folded
+    scalar is one opaque string to a YAML parser, whichever way the file is
+    loaded.
+
+    :param workflow_dir: Directory holding the workflow files.
+    :return: A mapping of path to file content, in sorted path order.
+    """
+    texts: dict[Path, str] = {}
+    if not workflow_dir.is_dir():
+        return texts
+    for path in sorted(workflow_dir.glob("*.yaml")):
+        try:
+            texts[path] = path.read_text(encoding="UTF-8")
+        except OSError as e:
+            logging.warning(f"Could not read {path}: {e}")
+    return texts
+
+
+def _load_workflows(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, dict]:
+    """Parse every workflow in *workflow_dir*, skipping the unreadable ones.
+
+    The parsed half of the workflow walk. Documents that declare no `jobs:`
+    mapping are dropped, so every consumer can index `data["jobs"]` directly.
 
     :param workflow_dir: Directory holding the workflow files.
     :return: A mapping of path to parsed document, for documents declaring jobs.
     """
     workflows: dict[Path, dict] = {}
-    if not workflow_dir.is_dir():
-        return workflows
-    for path in sorted(workflow_dir.glob("*.yaml")):
+    for path, text in _workflow_texts(workflow_dir).items():
         try:
-            data = yaml.safe_load(path.read_text(encoding="UTF-8"))
-        except (yaml.YAMLError, OSError) as e:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError as e:
             logging.warning(f"Could not parse {path}: {e}")
             continue
         if isinstance(data, dict) and isinstance(data.get("jobs"), dict):
@@ -1490,13 +1513,13 @@ def _conditions_for(workflow: dict, name: str) -> list[str]:
 
 
 def check_inline_pins_match_upstream(
-    workflow_dir: Path = Path(".github/workflows"),
+    workflow_dir: Path = WORKFLOW_DIR,
     upstream_repo: str = DEFAULT_REPO,
 ) -> CheckResult:
     """Check inline upstream pins match the workflow `uses:` ref version.
 
     A workflow that pins the upstream toolkit in a `run:` shell command (like
-    ``uvx 'repomatic==1.2.3' metadata``) must keep that version in lockstep with
+    `uvx 'repomatic==1.2.3' metadata`) must keep that version in lockstep with
     the SHA-pinned `uses:` refs. A manual workflow sync bumps the refs but not
     the inline pin, and `sync-workflow-pins` only realigns it on its next
     scheduled run, so the pin can lag in between. When the stale version drops
@@ -1505,8 +1528,8 @@ def check_inline_pins_match_upstream(
     drift so the lint fails before a release does.
 
     :param workflow_dir: Directory holding the workflow YAML files.
-    :param upstream_repo: Upstream ``owner/repo``; its name is the inline
-        package to match (e.g. ``repomatic``).
+    :param upstream_repo: Upstream `owner/repo`; its name is the inline
+        package to match (like `repomatic`).
     :return: A `CheckResult`.
     """
     package = upstream_repo.rsplit("/", 1)[-1]
@@ -1519,11 +1542,7 @@ def check_inline_pins_match_upstream(
 
     upstream_versions: set[str] = set()
     pins_by_file: dict[str, set[str]] = {}
-    for wf in sorted(workflow_dir.glob("*.yaml")):
-        try:
-            content = wf.read_text(encoding="UTF-8")
-        except OSError:
-            continue
+    for wf, content in _workflow_texts(workflow_dir).items():
         upstream_versions.update(find_upstream_ref_versions(content, upstream_repo))
         found = {m["version"] for m in pin_re.finditer(content)}
         if found:
@@ -1550,7 +1569,7 @@ def check_inline_pins_match_upstream(
 
 
 def check_pr_templates(
-    workflow_dir: Path = Path(".github/workflows"),
+    workflow_dir: Path = WORKFLOW_DIR,
     template_dir: Path = PR_TEMPLATE_DIR,
 ) -> list[CheckResult]:
     """Check a repository's own `pr-body --template-file` templates.
@@ -1586,11 +1605,7 @@ def check_pr_templates(
     # glob below must too, or on Windows one template lands in `candidates`
     # twice and the backslash spelling loses its referencing workflow.
     referenced: dict[str, set[str]] = {}
-    for wf in sorted(workflow_dir.glob("*.yaml")):
-        try:
-            content = wf.read_text(encoding="UTF-8")
-        except OSError:
-            continue
+    for wf, content in _workflow_texts(workflow_dir).items():
         for match in TEMPLATE_FILE_ARG_RE.finditer(content):
             arg_path = match["path"].strip("\"'")
             referenced.setdefault(arg_path, set()).add(wf.name)
@@ -1670,14 +1685,14 @@ def _report_result(
         A skipped check (`passed is None`) prints `ℹ` and emits no annotation.
     """
     if result.passed is None:
-        print(f"ℹ {result.message}")
+        echo(f"ℹ {result.message}")
         return False
     if result.passed:
-        print(f"✓ {result.message}")
+        echo(f"✓ {result.message}")
         return False
     symbol = "✗" if level is AnnotationLevel.ERROR else "⚠"
     emit_annotation(level, result.message)
-    print(f"{symbol} {result.message}")
+    echo(f"{symbol} {result.message}")
     return True
 
 
@@ -1714,7 +1729,7 @@ def run_repo_lint(
     """
     fatal_error = False
 
-    # Fetch repo metadata once if we need it.
+    # Fetch repo metadata once, for the checks that compare against it.
     repo_metadata: dict[str, str | None] | None = None
     if is_sphinx or project_description:
         if repo:
@@ -1844,7 +1859,7 @@ def run_repo_lint(
     # PAT capability checks (only when REPOMATIC_PAT is configured).
     if not has_pat or not repo:
         if not has_pat:
-            print("ℹ PAT capability checks: skipped (no REPOMATIC_PAT)")
+            echo("ℹ PAT capability checks: skipped (no REPOMATIC_PAT)")
         return 1 if fatal_error else 0
 
     results = check_all_pat_permissions(repo)

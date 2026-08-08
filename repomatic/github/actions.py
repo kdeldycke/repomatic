@@ -131,6 +131,29 @@ class AnnotationLevel(Enum):
     NOTICE = "notice"
 
 
+class ReportAction(Enum):
+    """What a job did to one item, as the markdown report spells it.
+
+    Each member's value is the emoji-decorated label the report table shows,
+    so rendering reads the label straight off the action instead of consulting
+    a parallel mapping a new member could silently miss.
+
+    The members are the union of the vocabularies every report needs, and each
+    report uses the subset that applies to it: the changelog-to-release-notes
+    sync ({mod}`~repomatic.github.release_sync`) never unsubscribes, and the
+    notification sweep ({mod}`~repomatic.github.unsubscribe`) has nothing to
+    call in sync. What they share is the outcome pair every dry-runnable
+    sweep reports, which is why the vocabulary is defined once here rather
+    than re-spelled per report.
+    """
+
+    DRY_RUN = "\U0001f441\ufe0f Dry-run"
+    FAILED = "\u26a0\ufe0f Failed"
+    SKIPPED = "\u2705 In sync"
+    UNSUBSCRIBED = "\U0001f515 Unsubscribed"
+    UPDATED = "\U0001f504 Updated"
+
+
 def extract_workflow_filename(workflow_ref: str | None) -> str:
     """Extract the workflow filename from `GITHUB_WORKFLOW_REF`.
 
@@ -216,7 +239,7 @@ def get_github_event() -> dict[str, Any]:
         logging.warning(f"Event file not found: {event_path}")
         return {}
     return json.loads(  # type: ignore[no-any-return]
-        event_file.read_text(encoding="utf-8")
+        event_file.read_text(encoding="UTF-8")
     )
 
 

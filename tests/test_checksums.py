@@ -27,6 +27,21 @@ FAKE_HASH_OLD = "a" * 64
 FAKE_HASH_NEW = "b" * 64
 
 
+def _real_hash(url: str) -> str:
+    """Return the checksum the registry already records for *url*.
+
+    Feeding this to the downloader makes every hash match, so a test can single
+    out whatever else the sync is supposed to reconcile.
+    """
+    for spec in TOOL_REGISTRY.values():
+        if spec.binary is None:
+            continue
+        for platform_key, url_template in spec.binary.urls.items():
+            if url_template.format(version=spec.version) == url:
+                return spec.binary.checksums[platform_key]
+    return FAKE_HASH_OLD
+
+
 def test_update_registry_checksums_replaces_stale_hash(tmp_path):
     """update_registry_checksums replaces stale hashes in tool_registry.py."""
     spec = next(s for s in TOOL_REGISTRY.values() if s.binary is not None)
@@ -55,17 +70,7 @@ def test_update_registry_checksums_noop_when_current(tmp_path):
     content = "# no checksums to update\n"
     registry.write_text(content, encoding="UTF-8")
 
-    def same_hash(url):
-        # Return each tool's real checksum so nothing changes.
-        for spec in TOOL_REGISTRY.values():
-            if spec.binary is None:
-                continue
-            for platform_key, url_template in spec.binary.urls.items():
-                if url_template.format(version=spec.version) == url:
-                    return spec.binary.checksums[platform_key]
-        return FAKE_HASH_OLD
-
-    with patch("repomatic.checksums._download_sha256", side_effect=same_hash):
+    with patch("repomatic.checksums._download_sha256", side_effect=_real_hash):
         updated = update_registry_checksums(registry)
 
     assert updated == []
@@ -77,23 +82,12 @@ def test_update_registry_checksums_reconciles_version_stamp(tmp_path):
     name, spec = next((n, s) for n, s in TOOL_REGISTRY.items() if s.binary is not None)
     assert spec.version != "9.9.9"
 
-    def real_hash(url):
-        # Return each tool's real checksum so no hash changes; only the stale
-        # version stamp should be reconciled.
-        for s in TOOL_REGISTRY.values():
-            if s.binary is None:
-                continue
-            for pk, tmpl in s.binary.urls.items():
-                if tmpl.format(version=s.version) == url:
-                    return s.binary.checksums[pk]
-        return FAKE_HASH_OLD
-
     registry = tmp_path / "tool_registry.py"
     registry.write_text(
         f'VERSIONS = {{\n    "{name}": "9.9.9",\n}}\n', encoding="UTF-8"
     )
 
-    with patch("repomatic.checksums._download_sha256", side_effect=real_hash):
+    with patch("repomatic.checksums._download_sha256", side_effect=_real_hash):
         update_registry_checksums(registry)
 
     content = registry.read_text(encoding="UTF-8")

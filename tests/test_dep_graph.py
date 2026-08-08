@@ -170,49 +170,34 @@ def test_filter_graph_to_package() -> None:
     assert len(filtered_edges) == 2
 
 
-def test_trim_graph_to_depth_zero() -> None:
-    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
-
-    # Depth 0 = root only.
-    trimmed_packages, trimmed_edges = trim_graph_to_depth(root_name, packages, edges, 0)
-
-    assert trimmed_packages == {"my-project"}
-    assert trimmed_edges == []
-
-
-def test_trim_graph_to_depth_one() -> None:
-    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
-
-    # Depth 1 = root + primary deps.
-    trimmed_packages, trimmed_edges = trim_graph_to_depth(root_name, packages, edges, 1)
-
-    assert trimmed_packages == {"my-project", "click", "requests"}
-    # Only edges from root to primary deps.
-    assert ("my-project", "click") in trimmed_edges
-    assert ("my-project", "requests") in trimmed_edges
-    assert len(trimmed_edges) == 2
-
-
-def test_trim_graph_to_depth_two() -> None:
-    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
-
-    # Depth 2 = root + primary deps + their deps.
-    trimmed_packages, trimmed_edges = trim_graph_to_depth(root_name, packages, edges, 2)
-
-    assert trimmed_packages == {"my-project", "click", "requests", "urllib3", "certifi"}
-    assert len(trimmed_edges) == 4
-
-
-def test_trim_graph_to_depth_exceeding() -> None:
-    root_name, packages, edges = build_dependency_graph(SAMPLE_SBOM)
-
-    # Depth larger than the graph keeps everything.
+@pytest.mark.parametrize(
+    ("depth", "packages", "edge_count"),
+    (
+        pytest.param(0, {"my-project"}, 0, id="root-only"),
+        pytest.param(1, {"my-project", "click", "requests"}, 2, id="primary-deps"),
+        pytest.param(
+            2,
+            {"my-project", "click", "requests", "urllib3", "certifi"},
+            4,
+            id="transitive-deps",
+        ),
+        # A depth beyond the graph keeps everything rather than erroring.
+        pytest.param(
+            100,
+            {"my-project", "click", "requests", "urllib3", "certifi"},
+            4,
+            id="past-the-end",
+        ),
+    ),
+)
+def test_trim_graph_to_depth(depth, packages, edge_count) -> None:
+    """Trimming keeps every node within *depth* hops of the root, and no more."""
+    root_name, all_packages, edges = build_dependency_graph(SAMPLE_SBOM)
     trimmed_packages, trimmed_edges = trim_graph_to_depth(
-        root_name, packages, edges, 100
+        root_name, all_packages, edges, depth
     )
-
     assert trimmed_packages == packages
-    assert len(trimmed_edges) == len(edges)
+    assert len(trimmed_edges) == edge_count
 
 
 def test_render_mermaid() -> None:
@@ -638,7 +623,7 @@ def test_available_extras(tmp_path: Path) -> None:
         'xml = ["click-extra [xml]"]\n'
         'yaml = ["click-extra [yaml]"]\n'
         'json5 = ["click-extra [json5]"]\n',
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     assert SubgraphKind.EXTRA.available(tmp_path) == ("json5", "xml", "yaml")
     # The same file declares no dependency groups.

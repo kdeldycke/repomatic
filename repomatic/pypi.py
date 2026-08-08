@@ -25,8 +25,14 @@ from __future__ import annotations
 from typing import NamedTuple
 from urllib.parse import urlencode
 
+from packaging.version import InvalidVersion, Version
+
 from .config import load_repomatic_config
 from .http import get_cached_json, get_json_soft
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing import Any
 
 PYPI_API_URL = "https://pypi.org/pypi/{package}/json"
 """PyPI JSON API URL for fetching all release metadata for a package."""
@@ -42,11 +48,11 @@ PYPI_PROVENANCE_URL = (
 )
 """PyPI integrity API endpoint exposing PEP 740 attestation bundles for a file.
 
-The response includes a ``publisher`` object per bundle that names the OIDC
+The response includes a `publisher` object per bundle that names the OIDC
 identity used to upload (kind, repository, workflow filename, environment).
-This is the only public surface where the OIDC ``job_workflow_ref`` claim is
+This is the only public surface where the OIDC `job_workflow_ref` claim is
 observable: project-level Trusted Publisher settings live behind the owner-only
-``/manage/project/<name>/settings/publishing/`` page.
+`/manage/project/<name>/settings/publishing/` page.
 """
 
 PYPI_TRUSTED_PUBLISHER_SETTINGS_URL = (
@@ -57,11 +63,11 @@ PYPI_TRUSTED_PUBLISHER_SETTINGS_URL = (
 PYPI_TRUSTED_PUBLISHER_WORKFLOW = "release.yaml"
 """Workflow filename each downstream registers as the Trusted Publisher.
 
-The caller-side ``publish-pypi`` job is appended to ``release.yaml`` in every
+The caller-side `publish-pypi` job is appended to `release.yaml` in every
 downstream repo (reshaped from the canonical entry by
-``repomatic.github.workflow_sync._render_publish_pypi_job``), and the composite
+`repomatic.github.workflow_sync._render_publish_pypi_job`), and the composite
 action it invokes inherits the calling job's OIDC context. The OIDC
-``job_workflow_ref`` claim therefore names this file: that is what the PyPI
+`job_workflow_ref` claim therefore names this file: that is what the PyPI
 Trusted Publisher entry must match.
 """
 
@@ -79,16 +85,16 @@ def pypi_trusted_publisher_settings_url(
     Without keyword arguments, returns the bare settings URL. When any GitHub
     publisher field is provided, appends the query string PyPI's settings page
     consumes to activate the GitHub tab and pre-populate the form: see the
-    ``manage_project_oidc_publishers_prefill`` view in
+    `manage_project_oidc_publishers_prefill` view in
     [pypi/warehouse](https://github.com/pypi/warehouse/blob/main/warehouse/manage/views/oidc_publishers.py).
 
     :param package: PyPI project name.
     :param owner: GitHub owner (user or org) prefilled in the form.
     :param repository: GitHub repository name prefilled in the form.
     :param workflow_filename: Workflow filename prefilled in the form (e.g.,
-        :data:`PYPI_TRUSTED_PUBLISHER_WORKFLOW`).
+        {data}`PYPI_TRUSTED_PUBLISHER_WORKFLOW`).
     :param environment: GitHub Actions environment name prefilled in the form.
-    :return: The settings URL, optionally with a ``?provider=github&…`` suffix.
+    :return: The settings URL, optionally with a `?provider=github&…` suffix.
     """
     base = PYPI_TRUSTED_PUBLISHER_SETTINGS_URL.format(package=package)
     fields = {
@@ -109,14 +115,15 @@ def pypi_trusted_publisher_settings_url(
 PYPI_LABEL = "🐍 PyPI"
 """Display label for PyPI releases in admonitions."""
 
-# Keys in PyPI `project_urls` that typically point to a changelog,
-# checked in priority order.
+# Keys in PyPI `project_urls` that typically point to a changelog, checked in
+# priority order. Lowercase, because they are looked up in a lowercased index
+# of the project's own keys: see the note on `_SOURCE_URL_KEYS`.
 _CHANGELOG_URL_KEYS = (
-    "Changelog",
-    "Changes",
-    "Change Log",
-    "Release Notes",
-    "History",
+    "changelog",
+    "changes",
+    "change log",
+    "release notes",
+    "history",
 )
 
 # Keys in PyPI `project_urls` that typically point to a GitHub repository,
@@ -133,7 +140,7 @@ _SOURCE_URL_KEYS = (
 )
 
 
-def _fetch_json(package: str) -> dict | None:
+def _fetch_json(package: str) -> dict[str, Any] | None:
     """Fetch the full JSON metadata for a PyPI package.
 
     Results are cached under the `pypi` namespace. Freshness TTL is read
@@ -291,28 +298,33 @@ class TrustedPublisher(NamedTuple):
     """OIDC publisher metadata extracted from a PyPI provenance bundle."""
 
     kind: str
-    """Publisher kind, e.g., ``"GitHub"`` or ``"GitLab"``."""
+    """Publisher kind, e.g., `"GitHub"` or `"GitLab"`."""
 
     repository: str
-    """Repository slug (``"owner/name"`` for GitHub publishers)."""
+    """Repository slug (`"owner/name"` for GitHub publishers)."""
 
     workflow: str
-    """Workflow filename within ``.github/workflows/`` (e.g., ``"release.yaml"``)."""
+    """Workflow filename within `.github/workflows/` (e.g., `"release.yaml"`)."""
 
     environment: str | None
     """GitHub Actions environment name, when the publisher was scoped to one."""
 
 
 def get_latest_release_file(package: str) -> tuple[str, str] | None:
-    """Return ``(version, filename)`` for the latest non-yanked release on PyPI.
+    """Return `(version, filename)` for the latest non-yanked release on PyPI.
 
     Picks the version with the most recent earliest-upload time and returns
     a representative distribution file from that version. Wheels are
     preferred over sdists since wheels are guaranteed to exist for any
     package built with modern tooling.
 
+    Two releases uploaded on the same day are ordered by PEP 440, not by the
+    version string: a raw string comparison sorts `1.9.0` above `1.10.0` and
+    would return the older of the two as the latest. Versions PEP 440 cannot
+    parse are skipped, since nothing can rank them.
+
     :param package: The PyPI package name.
-    :return: Tuple of ``(version, filename)``, or ``None`` if the package
+    :return: Tuple of `(version, filename)`, or `None` if the package
         has no published releases or the request fails.
     """
     data = _fetch_json(package)
@@ -320,7 +332,7 @@ def get_latest_release_file(package: str) -> tuple[str, str] | None:
         return None
 
     releases: dict[str, list[dict]] = data.get("releases") or {}
-    candidates: list[tuple[str, str, str]] = []
+    candidates: list[tuple[str, Version, str, str]] = []
     for version, files in releases.items():
         live_files = [f for f in files if not f.get("yanked", False)]
         if not live_files:
@@ -328,15 +340,17 @@ def get_latest_release_file(package: str) -> tuple[str, str] | None:
         upload_dates = [f["upload_time"] for f in live_files if f.get("upload_time")]
         if not upload_dates:
             continue
-        candidates.append((min(upload_dates), version, ""))
+        try:
+            parsed = Version(version)
+        except InvalidVersion:
+            continue
         wheels = [f for f in live_files if f.get("filename", "").endswith(".whl")]
         chosen = wheels[0] if wheels else live_files[0]
-        candidates[-1] = (min(upload_dates), version, chosen["filename"])
+        candidates.append((min(upload_dates), parsed, version, chosen["filename"]))
 
     if not candidates:
         return None
-    candidates.sort()
-    _, version, filename = candidates[-1]
+    _date, _parsed, version, filename = max(candidates)
     return version, filename
 
 
@@ -345,16 +359,16 @@ def get_trusted_publishers(
 ) -> list[TrustedPublisher] | None:
     """Fetch PEP 740 provenance for a file and extract publisher entries.
 
-    Calls :data:`PYPI_PROVENANCE_URL` and parses the ``attestation_bundles``
-    array. Each bundle's ``publisher`` object names the OIDC identity that
+    Calls {data}`PYPI_PROVENANCE_URL` and parses the `attestation_bundles`
+    array. Each bundle's `publisher` object names the OIDC identity that
     uploaded the file.
 
     :param package: The PyPI package name.
-    :param version: The release version (e.g., ``"1.2.3"``).
+    :param version: The release version (e.g., `"1.2.3"`).
     :param filename: The distribution filename (e.g.,
-        ``"my_pkg-1.2.3-py3-none-any.whl"``).
-    :return: List of :class:`TrustedPublisher` entries (possibly empty when
-        provenance exists but no bundles are present), or ``None`` when the
+        `"my_pkg-1.2.3-py3-none-any.whl"`).
+    :return: List of {class}`TrustedPublisher` entries (possibly empty when
+        provenance exists but no bundles are present), or `None` when the
         endpoint returns 404 or any network/parse error occurs (signal that
         no provenance is available rather than that none was registered).
     """
@@ -404,7 +418,10 @@ def get_changelog_url(package: str) -> str | None:
     """Discover the changelog URL for a PyPI package.
 
     Queries the PyPI JSON API and scans `project_urls` for keys that
-    typically point to a changelog or release notes page.
+    typically point to a changelog or release notes page. Keys are matched
+    case-insensitively, for the reason spelled out on
+    {data}`_SOURCE_URL_KEYS`: PyPI preserves whatever spelling the project
+    wrote, so `Changelog`, `changelog` and `CHANGELOG` all occur in the wild.
 
     :param package: The PyPI package name.
     :return: The changelog URL, or `None` if not found.
@@ -414,8 +431,9 @@ def get_changelog_url(package: str) -> str | None:
         return None
 
     project_urls: dict[str, str] = data.get("info", {}).get("project_urls") or {}
+    by_key = {key.lower(): value for key, value in project_urls.items()}
     for key in _CHANGELOG_URL_KEYS:
-        candidate = project_urls.get(key, "")
+        candidate = by_key.get(key, "")
         if candidate:
             return candidate.rstrip("/")
     return None

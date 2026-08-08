@@ -147,22 +147,19 @@ def test_max_age_days_env_beats_config(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_cached_binary_path_structure(monkeypatch, tmp_path):
+def test_cached_binary_path_structure(cache_env):
     """Cache path follows bin/{tool}/{version}/{platform}/{executable}."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     result = cached_binary_path("ruff", "0.11.0", "linux-x64", "ruff")
-    assert result == tmp_path / "bin" / "ruff" / "0.11.0" / "linux-x64" / "ruff"
+    assert result == cache_env / "bin" / "ruff" / "0.11.0" / "linux-x64" / "ruff"
 
 
-def test_get_cached_binary_not_cached(monkeypatch, tmp_path):
+def test_get_cached_binary_not_cached(cache_env):
     """Returns None when the binary is not in the cache."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     assert get_cached_binary("ruff", "0.11.0", "linux-x64", "ruff") is None
 
 
-def test_get_cached_binary_exists(monkeypatch, tmp_path):
+def test_get_cached_binary_exists(cache_env):
     """Returns the path when the binary exists and is executable."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     path = cached_binary_path("ruff", "0.11.0", "linux-x64", "ruff")
     path.parent.mkdir(parents=True)
     path.write_bytes(b"fake-binary")
@@ -173,9 +170,8 @@ def test_get_cached_binary_exists(monkeypatch, tmp_path):
 @skip_windows(
     reason="Windows does not use Unix execute bits; os.access(..., X_OK) always returns True.",
 )
-def test_get_cached_binary_not_executable(monkeypatch, tmp_path):
+def test_get_cached_binary_not_executable(cache_env):
     """Returns None when the file exists but is not executable."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     path = cached_binary_path("ruff", "0.11.0", "linux-x64", "ruff")
     path.parent.mkdir(parents=True)
     path.write_bytes(b"fake-binary")
@@ -188,11 +184,8 @@ def test_get_cached_binary_not_executable(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_store_binary_creates_cache_entry(monkeypatch, tmp_path):
+def test_store_binary_creates_cache_entry(tmp_path, cache_env):
     """store_binary copies the source file into the cache."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")  # Disable auto-purge.
-
     source = tmp_path / "staging" / "ruff"
     source.parent.mkdir()
     source.write_bytes(b"binary-content")
@@ -206,11 +199,8 @@ def test_store_binary_creates_cache_entry(monkeypatch, tmp_path):
     assert os.access(result, os.X_OK)
 
 
-def test_store_binary_overwrites_existing(monkeypatch, tmp_path):
+def test_store_binary_overwrites_existing(tmp_path, cache_env):
     """store_binary replaces an existing cached binary atomically."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     source_v1 = tmp_path / "staging" / "ruff"
     source_v1.parent.mkdir()
     source_v1.write_bytes(b"version-1")
@@ -218,14 +208,12 @@ def test_store_binary_overwrites_existing(monkeypatch, tmp_path):
 
     source_v1.write_bytes(b"version-2")
     result = store_binary("ruff", "0.11.0", "linux-x64", source_v1)
+    assert result is not None
     assert result.read_bytes() == b"version-2"
 
 
-def test_store_binary_triggers_auto_purge(monkeypatch, tmp_path):
+def test_store_binary_triggers_auto_purge(tmp_path, cache_env):
     """store_binary calls auto_purge after storing."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")  # Disable purge.
-
     source = tmp_path / "staging" / "ruff"
     source.parent.mkdir()
     source.write_bytes(b"data")
@@ -235,7 +223,7 @@ def test_store_binary_triggers_auto_purge(monkeypatch, tmp_path):
         mock_purge.assert_called_once()
 
 
-def test_store_binary_stamps_store_time(monkeypatch, tmp_path):
+def test_store_binary_stamps_store_time(monkeypatch, tmp_path, cache_env):
     """A source carrying an old archive mtime is not self-purged on store.
 
     shutil.copy2 preserves the source mtime, which for a binary extracted
@@ -243,7 +231,6 @@ def test_store_binary_stamps_store_time(monkeypatch, tmp_path):
     entries by mtime, so without a fresh timestamp the auto_purge call
     inside store_binary would delete the entry it just stored.
     """
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "30")  # Purge enabled.
 
     source = tmp_path / "staging" / "ruff"
@@ -255,8 +242,23 @@ def test_store_binary_stamps_store_time(monkeypatch, tmp_path):
 
     result = store_binary("ruff", "0.11.0", "linux-x64", source)
 
+    assert result is not None
     assert result.is_file()
     assert abs(result.stat().st_mtime - time.time()) < 60
+
+
+def test_store_binary_unwritable_cache_returns_none(tmp_path, cache_env):
+    """An unwritable cache root degrades to `None` instead of raising.
+
+    Matches the fail-soft contract of `store_response` and `store_config`:
+    the caller falls back to its staging copy.
+    """
+    source = tmp_path / "staging" / "ruff"
+    source.parent.mkdir()
+    source.write_bytes(b"data")
+
+    with patch("repomatic.cache._atomic_write", side_effect=OSError("read-only")):
+        assert store_binary("ruff", "0.11.0", "linux-x64", source) is None
 
 
 # ---------------------------------------------------------------------------
@@ -264,17 +266,13 @@ def test_store_binary_stamps_store_time(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_cache_info_empty(monkeypatch, tmp_path):
+def test_cache_info_empty(cache_env):
     """Returns empty list when cache is empty."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     assert cache_info() == []
 
 
-def test_cache_info_lists_entries(monkeypatch, tmp_path):
+def test_cache_info_lists_entries(tmp_path, cache_env):
     """Returns all cached entries with correct metadata."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     source = tmp_path / "staging" / "ruff"
     source.parent.mkdir()
     source.write_bytes(b"binary-content-here")
@@ -300,11 +298,8 @@ def test_cache_info_lists_entries(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_clear_cache_all(monkeypatch, tmp_path):
+def test_clear_cache_all(tmp_path, cache_env):
     """clear_cache() removes all entries."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
@@ -317,11 +312,8 @@ def test_clear_cache_all(monkeypatch, tmp_path):
     assert cache_info() == []
 
 
-def test_clear_cache_specific_tool(monkeypatch, tmp_path):
+def test_clear_cache_specific_tool(tmp_path, cache_env):
     """clear_cache(tool=...) removes only matching tool."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
@@ -335,11 +327,8 @@ def test_clear_cache_specific_tool(monkeypatch, tmp_path):
     assert entries[0].tool == "biome"
 
 
-def test_clear_cache_max_age(monkeypatch, tmp_path):
+def test_clear_cache_max_age(tmp_path, cache_env):
     """clear_cache(max_age_days=...) removes only old entries."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
@@ -360,11 +349,8 @@ def test_clear_cache_max_age(monkeypatch, tmp_path):
     assert entries[0].tool == "biome"
 
 
-def test_clear_cache_prunes_empty_dirs(monkeypatch, tmp_path):
+def test_clear_cache_prunes_empty_dirs(tmp_path, cache_env):
     """clear_cache removes empty parent directories after deletion."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
@@ -372,7 +358,7 @@ def test_clear_cache_prunes_empty_dirs(monkeypatch, tmp_path):
 
     clear_cache()
     # The bin/ directory tree should be fully pruned.
-    bin_dir = tmp_path / "bin"
+    bin_dir = cache_env / "bin"
     if bin_dir.exists():
         remaining = list(bin_dir.rglob("*"))
         assert remaining == []
@@ -383,9 +369,8 @@ def test_clear_cache_prunes_empty_dirs(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_auto_purge_removes_old_entries(monkeypatch, tmp_path):
+def test_auto_purge_removes_old_entries(monkeypatch, tmp_path, cache_env):
     """auto_purge removes entries older than REPOMATIC_CACHE_MAX_AGE."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "7")
 
     source = tmp_path / "staging" / "tool"
@@ -405,11 +390,8 @@ def test_auto_purge_removes_old_entries(monkeypatch, tmp_path):
     assert cache_info() == []
 
 
-def test_auto_purge_disabled_when_zero(monkeypatch, tmp_path):
+def test_auto_purge_disabled_when_zero(tmp_path, cache_env):
     """auto_purge does nothing when REPOMATIC_CACHE_MAX_AGE=0."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
@@ -426,9 +408,8 @@ def test_auto_purge_disabled_when_zero(monkeypatch, tmp_path):
     assert len(cache_info()) == 1
 
 
-def test_auto_purge_keeps_fresh_entries(monkeypatch, tmp_path):
+def test_auto_purge_keeps_fresh_entries(monkeypatch, tmp_path, cache_env):
     """auto_purge keeps entries newer than the threshold."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "30")
 
     source = tmp_path / "staging" / "tool"
@@ -488,7 +469,7 @@ def test_prune_empty_dirs(tmp_path):
 def test_prune_empty_dirs_preserves_nonempty(tmp_path):
     """Preserves directories that contain files."""
     (tmp_path / "a").mkdir()
-    (tmp_path / "a" / "file.txt").write_text("keep", encoding="utf-8")
+    (tmp_path / "a" / "file.txt").write_text("keep", encoding="UTF-8")
     (tmp_path / "a" / "b").mkdir()
     _prune_empty_dirs(tmp_path)
     assert (tmp_path / "a").exists()
@@ -500,11 +481,8 @@ def test_prune_empty_dirs_preserves_nonempty(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_store_and_get_cached_response(monkeypatch, tmp_path):
+def test_store_and_get_cached_response(cache_env):
     """Round-trip: store a response, then retrieve it."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     data = b'{"name": "requests", "version": "2.31.0"}'
     store_response("pypi", "requests", data)
 
@@ -512,50 +490,37 @@ def test_store_and_get_cached_response(monkeypatch, tmp_path):
     assert result == data
 
 
-def test_get_cached_response_zero_ttl(monkeypatch, tmp_path):
+def test_get_cached_response_zero_ttl(cache_env):
     """TTL=0 bypasses cache entirely."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     store_response("pypi", "requests", b'{"cached": true}')
     assert get_cached_response("pypi", "requests", max_age_seconds=0) is None
 
 
-def test_get_cached_response_negative_ttl(monkeypatch, tmp_path):
+def test_get_cached_response_negative_ttl(cache_env):
     """Negative TTL bypasses cache entirely."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     store_response("pypi", "requests", b'{"cached": true}')
     assert get_cached_response("pypi", "requests", max_age_seconds=-1) is None
 
 
-def test_get_cached_response_missing(monkeypatch, tmp_path):
+def test_get_cached_response_missing(cache_env):
     """Returns None when no cached response exists."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     assert get_cached_response("pypi", "nonexistent", 3600) is None
 
 
-def test_get_cached_response_stale(monkeypatch, tmp_path):
+def test_get_cached_response_stale(cache_env):
     """Returns None when cached response is older than max_age_seconds."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     store_response("pypi", "requests", b'{"stale": true}')
 
     # Age the file.
-    cached = tmp_path / "http" / "pypi" / "requests.json"
+    cached = cache_env / "http" / "pypi" / "requests.json"
     old_time = time.time() - 7200
     os.utime(cached, (old_time, old_time))
 
     assert get_cached_response("pypi", "requests", max_age_seconds=3600) is None
 
 
-def test_store_response_nested_key(monkeypatch, tmp_path):
+def test_store_response_nested_key(cache_env):
     """Keys with slashes create nested directories."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     data = b'{"tag": "v1.0.0", "body": "release notes"}'
     store_response("github-release", "astral-sh/ruff/1.0.0", data)
 
@@ -563,16 +528,13 @@ def test_store_response_nested_key(monkeypatch, tmp_path):
     assert result == data
 
     expected_path = (
-        tmp_path / "http" / "github-release" / "astral-sh" / "ruff" / "1.0.0.json"
+        cache_env / "http" / "github-release" / "astral-sh" / "ruff" / "1.0.0.json"
     )
     assert expected_path.exists()
 
 
-def test_http_cache_info_lists_entries(monkeypatch, tmp_path):
+def test_http_cache_info_lists_entries(cache_env):
     """http_cache_info returns all cached responses."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     store_response("pypi", "requests", b'{"a": 1}')
     store_response("pypi", "flask", b'{"b": 2}')
     store_response("github-releases", "astral-sh/ruff", b'{"c": 3}')
@@ -586,17 +548,13 @@ def test_http_cache_info_lists_entries(monkeypatch, tmp_path):
     assert pypi_keys == {"flask", "requests"}
 
 
-def test_http_cache_info_empty(monkeypatch, tmp_path):
+def test_http_cache_info_empty(cache_env):
     """Returns empty list when HTTP cache is empty."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
     assert http_cache_info() == []
 
 
-def test_clear_http_cache_all(monkeypatch, tmp_path):
+def test_clear_http_cache_all(cache_env):
     """clear_http_cache() removes all HTTP entries."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     store_response("pypi", "requests", b"data1")
     store_response("github-releases", "astral-sh/ruff", b"data2")
 
@@ -606,11 +564,8 @@ def test_clear_http_cache_all(monkeypatch, tmp_path):
     assert http_cache_info() == []
 
 
-def test_clear_http_cache_by_namespace(monkeypatch, tmp_path):
+def test_clear_http_cache_by_namespace(cache_env):
     """clear_http_cache(namespace=...) removes only matching namespace."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     store_response("pypi", "requests", b"data1")
     store_response("github-releases", "astral-sh/ruff", b"data2")
 
@@ -621,13 +576,10 @@ def test_clear_http_cache_by_namespace(monkeypatch, tmp_path):
     assert entries[0].namespace == "github-releases"
 
 
-def test_clear_http_cache_by_age(monkeypatch, tmp_path):
+def test_clear_http_cache_by_age(cache_env):
     """clear_http_cache(max_age_days=...) removes only old entries."""
-    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
-
     store_response("pypi", "old-pkg", b"old")
-    cached = tmp_path / "http" / "pypi" / "old-pkg.json"
+    cached = cache_env / "http" / "pypi" / "old-pkg.json"
     old_time = time.time() - 10 * 86400
     os.utime(cached, (old_time, old_time))
 

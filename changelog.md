@@ -6,17 +6,55 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** drop the `WorkflowFormat` enum and the `generate_workflows` function, orphaned since the `workflow create` and `workflow sync` CLI commands were removed. `repomatic init` is now the only way to write a workflow file.
+- **Breaking:** drop the `check-version` command: nothing invoked it, and workflows read the `minor_bump_allowed` and `major_bump_allowed` metadata keys instead.
+- **Breaking:** drop the `clean-unmodified-configs` command, superseded by `repomatic init --delete-unmodified`.
+- **Breaking:** replace the `ItemAction` and `SyncAction` report enums with a single `github.actions.ReportAction`; read its `.value` instead of the removed `.label`.
+- **Breaking:** `repomatic metadata` no longer emits the `toml_files`, `changelog_bullet_word_threshold`, `nuitka_enabled` and `nuitka_nofollow_imports` keys. No workflow consumed them; the three config fields are read directly by their subcommands.
 - `init` no longer writes the release lane (`changelog.md`, `changelog.yaml`, `release.yaml`, the PyPI publish action) into a uv virtual project (`[tool.uv] package = false`). Dependency locking, coverage and test tooling still apply.
 - New `github-housekeeping` skill backfills and curates labels and milestones across a repository's full issue and PR history: taxonomy design, cache-backed bulk classification with review gates, AI-slop detection from closed-without-comment signals, and milestone assignment by changelog, git-tag, and release-date archaeology.
 - The changelog's `[!CAUTION]` admonition for a yanked release now quotes the reason PyPI recorded for the yank, when there is one.
-- `sync-workflow-pins` now splices the `--exclude-newer-package` cooldown exemption in beside the inline `repomatic==X.Y.Z` pin it realigns, so the freshly aligned version still resolves under a workflow's blanket `UV_EXCLUDE_NEWER`. Previously only the release freeze wrote the flag, leaving every downstream repository with a pin its own cooldown refused to install.
+- `sync-workflow-pins` now splices the `--exclude-newer-package` cooldown exemption in beside the inline `repomatic==X.Y.Z` pin it realigns, so the freshly aligned version still resolves under a workflow's blanket `UV_EXCLUDE_NEWER`. Previously only the release freeze wrote the flag.
 - Rename the Claude Code plugin release asset to `repomatic-claude-plugin.zip`, as `repomatic-plugin.zip` read as a plugin for repomatic. `/plugin install` is unaffected.
 - Attestation bundles are now named after the asset they cover (`repomatic-manpages.attestation.json`) instead of the job that produced them (`manpages.attestation.json`).
+- The VirusTotal detections chart now pins its CDN script with a Subresource Integrity digest, so a tampered copy is refused by the browser.
+- `format-images` now installs and verifies its `oxipng` binary once per run instead of once per optimized image.
+- Registry binary downloads and `update-checksums` now carry a stall timeout, and `update-checksums` rejects truncated bodies instead of recording their digest as the new canonical checksum.
+- Fix downstream tool caches frozen at their first write: the reusable workflows' cache keys hashed a file that only exists upstream. Keys now rotate with the reusable workflow's own commit SHA.
+- Fix `init` misreading a thin caller's trailing comment or odd-indented job line as extra downstream jobs, which silently flipped the file onto the explicit-permissions contract or duplicated the managed job's tail below the regenerated lanes.
+- Fix the generated `release.yaml` emitting a bare `needs:` (which GitHub rejects at startup) when every canonical edge is filtered out.
+- Fix `repomatic metadata` crashing on a repository carrying a tag the version parser refuses, like `v1.2.3_hotfix`.
+- Fix `sync-action-pins` and `sync-workflow-pins` silently reverting each other's edits when one `sync-deps` run bumps both kinds of pin in the same workflow file.
+- Fix a mid-resolve failure of `sync-uv-lock` leaving synced policy pins beside a stale lockfile for the CI job to commit: the project is now restored to its pre-run state on any error.
+- Fix the release freeze and `sync-workflow-pins` writing the cooldown-exempt self-pin in two different spellings, one of which the post-release unfreeze silently skipped.
+- Fix the sponsor labeller treating an empty `pull_request` event payload as a pull request.
+- Fix issue-filing jobs failing to record a new issue when `gh` prints a notice above the issue URL.
+- GitHub token validation now times out instead of hanging forever when the API is unreachable.
+- The `zsh_files` metadata key now lists only shell scripts whose shebang names zsh, so a bash `.sh` file is no longer linted as Zsh.
+- `repomatic metadata` no longer aborts on a src-layout project: a Nuitka entry point with no module file at the repository root is skipped with a warning.
+- Changelog links are discovered under any capitalization of the PyPI `project_urls` key, matching how source URLs were already resolved.
+- Dependency-update PR bodies omit the version comparison link when the upstream repository publishes no matching tags, instead of linking to a 404.
+- `update-dep-graph` no longer fails on Windows when a dependency's SBOM metadata contains non-ASCII characters.
+- `sync-uv-lock` parses `uv.lock` once per phase instead of once per lookup, cutting several hundred milliseconds off each run.
+- PyPI release lookups order same-day publications by PEP 440, so `1.10.0` is no longer ranked below `1.9.0`.
+- `lint-repo` now reports an unreadable rulesets API as a skipped branch-protection check rather than a failed one.
+- The broken-links issue no longer claims broken links when lychee itself failed to run.
+- Image optimization no longer leaves a `.bak` file in the working tree when interrupted.
+- `init` now lists each `awesome-template` file it writes instead of one summary line, and `init labels` no longer reports its regenerated files as unmodified configs to clean up.
+- Fix `init --output-dir` scanning the current directory for unmodified configs, which made `--delete-unmodified` act on the wrong tree.
+- `lint-changelog --fix` now exits non-zero when it could not repair every problem it reported, instead of reporting success as soon as any one fix landed.
+- `lint-changelog --fix` no longer stamps an orphaned version with a `0000-00-00` placeholder date when no source can date it: the version is reported and left out of the file.
+- Fix orphaned-version insertion filing the entry at the bottom of the changelog when the only existing headings are `.devN` development sections.
+- New `--default-branch` option on the `changelog` command, so a repository whose default branch is not `main` gets a comparison URL that round-trips through the release freeze.
+- The release freeze now warns when it finds no changelog section for the version being released, instead of silently doing nothing.
+- Fix `sync-mailmap` crashing with `UnboundLocalError` on a repository that has no `.mailmap` yet, the exact bootstrap its default `--create-if-missing` advertises.
+- Fix `cache clean` scoping: `--namespace` no longer wipes binaries and tool configs, `--tool` no longer wipes HTTP responses, and `--max-age` now applies to cached configs instead of deleting them all.
+- Fix `repomatic run mypy` aborting with `Unable to find lockfile` in a repository without a `uv.lock`: the tool now runs in an isolated, cooldown-gated environment when there is no lockfile to freeze.
+- Fix binary tools executing a just-deleted staging copy when the cache write is lost (Docker overlay runners) or the cache root is unwritable: the fallback copy now survives for the whole process.
 - Fix `init` dropping the extra `needs:` edges a consumer declares on its `release` lane, which `7.6.0` only ever carried over on a code path no command reached.
 - Fix a blank line accumulating before a repository's extra release jobs on every sync.
 - Fix the published plugin manifest declaring the post-release `.devN` version rather than the release it ships with.
 - Fix seven of the eight binary attestation bundles being overwritten before reaching the release, which left a single `attestation.json` covering one target.
-- Fix a `[tool.repomatic.workflow] paths` override emitting an entry unquoted when the canonical block holds no quoted entry to copy a style from. A value opening with a YAML indicator, `**/*.py` being the one anybody actually writes, parsed as an alias and left a workflow GitHub silently ignored. Quoting is now decided per entry, and also covers values that would otherwise round-trip as a bool, null or float.
+- Fix a `[tool.repomatic.workflow] paths` override emitting entries like `**/*.py` unquoted when the canonical block held no quoted entry to copy, which parsed as a YAML alias and left the workflow silently ignored.
 
 ## [`7.6.0` (2026-08-08)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...v7.6.0)
 

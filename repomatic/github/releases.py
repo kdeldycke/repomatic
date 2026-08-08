@@ -41,7 +41,7 @@ from packaging.version import InvalidVersion, Version
 from ..cache import get_cached_response, store_response
 from ..config import load_repomatic_config
 from ..http import FetchError, get_json
-from .gh import resolve_gh_token, run_gh_command
+from .gh import api_headers, run_gh_command
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -76,22 +76,6 @@ def owner_repo(repo_url: str) -> tuple[str, str] | None:
     return parts[-2], parts[-1]
 
 
-def _api_headers() -> dict[str, str]:
-    """Build GitHub API request headers, authenticated when a token is present.
-
-    A token raises the rate limit from 60 to at least 1,000 requests/hour,
-    which matters when iterating every tool and action in CI. Resolution
-    follows the canonical {func}`~repomatic.github.gh.resolve_gh_token`
-    order, so a repo carrying only `REPOMATIC_PAT` gets authenticated reads
-    here too, not just through the `gh` CLI.
-    """
-    headers = {"Accept": "application/vnd.github+json"}
-    token = resolve_gh_token()
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
 def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
     """Fetch every release for a repository, following pagination.
 
@@ -108,7 +92,7 @@ def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
             + f"?per_page=100&page={page}"
         )
         try:
-            data, _raw = get_json(url, headers=_api_headers())
+            data, _raw = get_json(url, headers=api_headers())
         except FetchError as exc:
             # A failed page fetch can corrupt the result in two ways: a total
             # failure on page 1 returns `{}` (indistinguishable from "repo has
@@ -293,7 +277,7 @@ def get_github_releases(repo_url: str) -> dict[str, GitHubRelease]:
     :raises GitHubReleasesUnavailable: When any page fetch fails or
         returns unparsable JSON. An empty return value from this
         function means "the repo has no releases"; a raised exception
-        means "we don't know."
+        means "the answer is unknown."
     """
     return _cached_release_map(
         "github-releases",
@@ -450,7 +434,7 @@ def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:
 
     ref_url = GITHUB_API_TAG_REF_URL.format(owner=owner, repo=repo, tag=tag)
     try:
-        data, _raw = get_json(ref_url, headers=_api_headers())
+        data, _raw = get_json(ref_url, headers=api_headers())
     except FetchError as exc:
         logging.debug(f"Tag ref lookup failed for {owner}/{repo}@{tag}: {exc}")
         return None
@@ -464,7 +448,7 @@ def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:
     # Annotated tag: dereference the tag object to its target commit.
     tag_url = GITHUB_API_TAG_OBJECT_URL.format(owner=owner, repo=repo, sha=sha)
     try:
-        data, _raw = get_json(tag_url, headers=_api_headers())
+        data, _raw = get_json(tag_url, headers=api_headers())
     except FetchError as exc:
         logging.debug(f"Annotated tag deref failed for {owner}/{repo}@{tag}: {exc}")
         return None
@@ -540,7 +524,7 @@ def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:
     for tag in (f"v{version}", version):
         url = GITHUB_API_RELEASE_BY_TAG_URL.format(owner=owner, repo=repo, tag=tag)
         try:
-            data, _raw = get_json(url, headers=_api_headers())
+            data, _raw = get_json(url, headers=api_headers())
         except FetchError:
             continue
         body = data.get("body", "")

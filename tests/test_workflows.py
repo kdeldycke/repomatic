@@ -41,6 +41,10 @@ from repomatic.registry import (
     WORKFLOW_SOURCES,
 )
 from repomatic.version_sync import find_workflow_literals
+from tests.conftest import (
+    WORKFLOWS_WITH_CONCURRENCY_BLOCK,
+    WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
+)
 
 # Common prefix for all changelog-related commits.
 CHANGELOG_COMMIT_PREFIX = "[changelog]"
@@ -62,7 +66,6 @@ WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
     "autolock.yaml",  # Scheduled only, no concurrent execution possible.
     "cancel-runs.yaml",  # Fires on PR close, must always run to completion.
-    "debug.yaml",  # Debug-only workflow, not for production use.
     # Release lanes: the push-triggered release.yaml entry owns the concurrency
     # group. A block on either reusable lane would contend with the entry's group
     # and, being reached via the caller's `needs: build` gate, would join its
@@ -152,7 +155,7 @@ WORKFLOWS_WITH_CONDITIONAL_CANCEL = tuple(
 def load_workflow(workflow_name: str) -> dict[str, Any]:
     """Load and parse a workflow YAML file."""
     workflow_path = WORKFLOWS_DIR / workflow_name
-    with workflow_path.open(encoding="utf-8") as f:
+    with workflow_path.open(encoding="UTF-8") as f:
         result: dict[str, Any] = yaml.safe_load(f)
         return result
 
@@ -271,11 +274,57 @@ def test_unique_group_protects_releases(workflow_name: str) -> None:
 
 @pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_WITHOUT_CONCURRENCY))
 def test_exempt_workflows_no_concurrency(workflow_name: str) -> None:
-    """Verify that exempt workflows do not have concurrency configured."""
+    """Verify that exempt workflows really carry no concurrency block.
+
+    The exemption list must track reality: a workflow that gains a
+    conformant block belongs in the derived `WORKFLOWS_WITH_CONCURRENCY`
+    set, where the group-format tests actually inspect it.
+    """
     workflow = load_workflow(workflow_name)
-    # These workflows are exempt and may or may not have concurrency.
-    # This test documents the exemption.
     assert workflow is not None, f"{workflow_name} should be a valid workflow"
+    assert "concurrency" not in workflow, (
+        f"{workflow_name} declares concurrency: remove it from "
+        "WORKFLOWS_WITHOUT_CONCURRENCY so the format tests cover it"
+    )
+
+
+TOOL_CACHE_KEY_SUFFIX = (
+    "${{ github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}"
+)
+"""The only valid ending for a tool-cache key derived from the registry file."""
+
+
+def test_tool_cache_keys_rotate_downstream() -> None:
+    """Every registry-derived cache key must work from a caller's workspace.
+
+    The cache steps live in reusable workflows called cross-repo, where the
+    checkout holds the caller's tree: `hashFiles('repomatic/…')` matches
+    nothing there and returns an empty string, collapsing the key to a
+    constant. `actions/cache` skips the save on an exact primary-key hit, so
+    a constant key freezes every downstream tool cache at its first write.
+    `github.job_workflow_sha` is the reusable workflow file's own commit SHA,
+    which rotates exactly when the `uses:` pin (and with it the pinned tool
+    versions) moves, and is empty on direct upstream runs, where the file
+    hash takes over.
+    """
+    checked = 0
+    for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
+        workflow = load_workflow(workflow_path.name)
+        for job_name, job in workflow.get("jobs", {}).items():
+            for step in job.get("steps", []):
+                uses = step.get("uses", "")
+                if not (isinstance(uses, str) and uses.startswith("actions/cache")):
+                    continue
+                key = step.get("with", {}).get("key", "")
+                if "hashFiles('repomatic/tool_registry.py')" not in key:
+                    continue
+                checked += 1
+                assert key.endswith(TOOL_CACHE_KEY_SUFFIX), (
+                    f"{workflow_path.name}:{job_name}: cache key must fall "
+                    f"back through github.job_workflow_sha, got: {key}"
+                )
+    # Guard the sweep against silently checking nothing.
+    assert checked >= 9
 
 
 def test_all_workflows_discovered() -> None:
@@ -323,6 +372,34 @@ def test_all_workflows_discovered() -> None:
     )
     assert not overlap_strategies, (
         f"Workflows in both unique and event-scoped categories: {overlap_strategies}"
+    )
+
+
+def test_exemption_list_matches_what_is_on_disk() -> None:
+    """Every exempt workflow really lacks a concurrency block, and vice versa.
+
+    The exemption set states an intention; `WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK`
+    reads the files. Without this tie, a workflow could sit in the exempt list
+    while carrying a block, which is how `debug.yaml` went unchecked: the
+    parametrized tests skip it, and the test that should have noticed asserted
+    only that its YAML parsed.
+    """
+    exempt_with_a_block = WORKFLOWS_WITHOUT_CONCURRENCY.intersection(
+        WORKFLOWS_WITH_CONCURRENCY_BLOCK
+    )
+    assert not exempt_with_a_block, (
+        f"Exempt from the concurrency requirement but declaring one anyway:"
+        f" {sorted(exempt_with_a_block)}. Drop them from"
+        " WORKFLOWS_WITHOUT_CONCURRENCY so their block is actually checked."
+    )
+
+    blockless_but_required = set(WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK) - (
+        WORKFLOWS_WITHOUT_CONCURRENCY
+    )
+    assert not blockless_but_required, (
+        f"Required to declare concurrency but carrying no block:"
+        f" {sorted(blockless_but_required)}. Add the block, or document the"
+        " exemption in WORKFLOWS_WITHOUT_CONCURRENCY."
     )
 
     # Verify dynamic discovery found workflows.
@@ -708,8 +785,12 @@ def iter_workflow_actions(workflow: dict):
 
 
 def iter_all_actions():
-    """Yield all action references from all workflow files."""
-    for workflow_path in WORKFLOWS_DIR.glob("*.yaml"):
+    """Yield all action references from all workflow files.
+
+    Sorted so parametrize IDs are stable across processes (xdist collects in
+    every worker and aborts on a mismatch).
+    """
+    for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
         workflow = load_workflow(workflow_path.name)
         for job_name, step_name, action in iter_workflow_actions(workflow):
             yield workflow_path.name, job_name, step_name, action
@@ -765,8 +846,12 @@ UBUNTU_2404_EXCEPTIONS = {
 
 
 def iter_jobs_with_runners():
-    """Yield all jobs with their runner configurations."""
-    for workflow_path in WORKFLOWS_DIR.glob("*.yaml"):
+    """Yield all jobs with their runner configurations.
+
+    Sorted so parametrize IDs are stable across processes (xdist collects in
+    every worker and aborts on a mismatch).
+    """
+    for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
         workflow = load_workflow(workflow_path.name)
         for job_name, job in workflow.get("jobs", {}).items():
             # Reusable-workflow calls (`uses:`) carry no `runs-on`; skip them.

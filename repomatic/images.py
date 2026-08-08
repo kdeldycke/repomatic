@@ -53,8 +53,11 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from click_extra import TableFormat, render_table
 
 from .humanize import format_file_size
 from .tool_registry import TOOL_REGISTRY
@@ -192,50 +195,54 @@ def optimize_image(
     if before_bytes == 0:
         return None
 
-    # Keep a backup so we can restore if savings are below threshold.
-    backup = path.with_suffix(path.suffix + ".bak")
-    try:
-        shutil.copy2(str(path), str(backup))
-        optimizer_fn(path)
-        after_bytes = path.stat().st_size
+    # The backup lives outside the repository: a run killed mid-optimization
+    # would otherwise strand a `.bak` beside the image, where the autofix job
+    # that called this would stage it as a new file.
+    with tempfile.TemporaryDirectory(prefix="repomatic-images-") as tmpdir:
+        backup = Path(tmpdir) / path.name
+        try:
+            shutil.copy2(str(path), str(backup))
+            optimizer_fn(path)
+            after_bytes = path.stat().st_size
 
-        result = OptimizationResult(
-            path=path,
-            before_bytes=before_bytes,
-            after_bytes=after_bytes,
-        )
+            result = OptimizationResult(
+                path=path,
+                before_bytes=before_bytes,
+                after_bytes=after_bytes,
+            )
 
-        if result.saved_pct < min_savings_pct or result.saved_bytes < min_savings_bytes:
-            # Savings too small — restore original.
-            shutil.copy2(str(backup), str(path))
-            if result.saved_bytes < min_savings_bytes:
-                logging.info(
-                    f"Skipped {path}: {format_file_size(result.saved_bytes)} saved "
-                    f"< {format_file_size(min_savings_bytes)} threshold."
-                )
-            else:
-                logging.info(
-                    f"Skipped {path}: {result.saved_pct:.1f}% savings "
-                    f"< {min_savings_pct}% threshold."
-                )
+            if (
+                result.saved_pct < min_savings_pct
+                or result.saved_bytes < min_savings_bytes
+            ):
+                # Savings too small: restore the original.
+                shutil.copy2(str(backup), str(path))
+                if result.saved_bytes < min_savings_bytes:
+                    logging.info(
+                        f"Skipped {path}: {format_file_size(result.saved_bytes)} saved "
+                        f"< {format_file_size(min_savings_bytes)} threshold."
+                    )
+                else:
+                    logging.info(
+                        f"Skipped {path}: {result.saved_pct:.1f}% savings "
+                        f"< {min_savings_pct}% threshold."
+                    )
+                return None
+
+            logging.info(
+                f"Optimized {path}: "
+                f"{format_file_size(before_bytes)} → {format_file_size(after_bytes)} "
+                f"({result.saved_pct:.1f}% savings)."
+            )
+
+        except subprocess.CalledProcessError as exc:
+            # Restore the original on failure.
+            if backup.exists():
+                shutil.copy2(str(backup), str(path))
+            logging.warning(f"Failed to optimize {path}: {exc.stderr or exc}")
             return None
-
-        logging.info(
-            f"Optimized {path}: "
-            f"{format_file_size(before_bytes)} → {format_file_size(after_bytes)} "
-            f"({result.saved_pct:.1f}% savings)."
-        )
-
-    except subprocess.CalledProcessError as exc:
-        # Restore original on failure.
-        if backup.exists():
-            shutil.copy2(str(backup), str(path))
-        logging.warning(f"Failed to optimize {path}: {exc.stderr or exc}")
-        return None
-    else:
-        return result
-    finally:
-        backup.unlink(missing_ok=True)
+        else:
+            return result
 
 
 def optimize_images(
@@ -278,22 +285,23 @@ def generate_markdown_summary(results: list[OptimizationResult]) -> str:
     total_saved = total_before - total_after
     total_pct = (total_saved / total_before * 100) if total_before else 0
 
-    lines = [
-        (
-            f"Compression reduced images by **{total_pct:.1f}%**, "
-            f"saving **{format_file_size(total_saved)}**."
-        ),
-        "",
-        "| Filename | Before | After | Improvement |",
-        "| :------- | -----: | ----: | ----------: |",
-    ]
-
-    lines.extend(
-        f"| `{r.path}` "
-        f"| {format_file_size(r.before_bytes)} "
-        f"| {format_file_size(r.after_bytes)} "
-        f"| {r.saved_pct:.1f}% |"
+    rows = [
+        [
+            f"`{r.path}`",
+            format_file_size(r.before_bytes),
+            format_file_size(r.after_bytes),
+            f"{r.saved_pct:.1f}%",
+        ]
         for r in results
+    ]
+    table = render_table(
+        rows,
+        headers=["Filename", "Before", "After", "Improvement"],
+        table_format=TableFormat.GITHUB,
+        colalign=("left", "right", "right", "right"),
     )
-
-    return "\n".join(lines)
+    headline = (
+        f"Compression reduced images by **{total_pct:.1f}%**, "
+        f"saving **{format_file_size(total_saved)}**."
+    )
+    return f"{headline}\n\n{table}"

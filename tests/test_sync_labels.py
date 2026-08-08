@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import logging
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -185,11 +184,11 @@ def captured_labelmaker(monkeypatch):
     """Record every labelmaker invocation instead of running the binary."""
     calls: list[tuple[str, ...]] = []
 
-    @contextmanager
-    def fake_tool_context(_name):
-        yield Path("/fake/labelmaker")
-
-    monkeypatch.setattr(labels_module, "binary_tool_context", fake_tool_context)
+    monkeypatch.setattr(
+        labels_module,
+        "ensure_binary",
+        lambda _name: Path("/fake/labelmaker"),
+    )
     monkeypatch.setattr(
         labels_module,
         "_run_labelmaker",

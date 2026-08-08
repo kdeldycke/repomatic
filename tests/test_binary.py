@@ -46,6 +46,7 @@ from repomatic.binary import (
 from repomatic.git_ops import VERSION_BUMP_BRANCHES
 from repomatic.github.actions import WorkflowEvent
 from repomatic.metadata import Metadata
+from tests.conftest import metadata_from_pyproject
 
 EM_AARCH64 = 183
 EM_X86_64 = 62
@@ -297,7 +298,9 @@ def test_floor_unknown_target(tmp_path):
         verify_binary_floor("unknown-platform", binary)
 
 
-@pytest.mark.parametrize("target_id, target_data", NUITKA_BUILD_TARGETS.items())
+@pytest.mark.parametrize(
+    ("target_id", "target_data"), sorted(NUITKA_BUILD_TARGETS.items())
+)
 def test_nuitka_targets(target_id: str, target_data: dict[str, str]) -> None:
     assert isinstance(target_id, str)
     assert isinstance(target_data, dict)
@@ -351,16 +354,6 @@ def test_skip_binary_build_disjoint_from_version_bumps():
     assert SKIP_BINARY_BUILD_BRANCHES.isdisjoint(VERSION_BUMP_BRANCHES)
 
 
-def test_skip_binary_build_property_is_bool():
-    """Test that skip_binary_build always returns a boolean.
-
-    The actual value depends on CI context: in push events where only
-    non-binary-affecting files changed, it is ``True``; otherwise ``False``.
-    """
-    metadata = Metadata()
-    assert isinstance(metadata.skip_binary_build, bool)
-
-
 @pytest.mark.parametrize(
     "workflow_file",
     [
@@ -405,12 +398,6 @@ my-cli = "my_package.__main__:main"
 [tool.repomatic]
 nuitka.enabled = false
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-
-    # Override the pyproject path to point to our temporary file.
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     assert metadata.config.nuitka_enabled is False
     assert metadata.nuitka_matrix is None

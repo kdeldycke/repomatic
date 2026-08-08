@@ -30,6 +30,12 @@ from repomatic.prepare_release import (
     SELF_PIN_COOLDOWN_EXEMPTION,
     PrepareRelease,
 )
+from repomatic.version_sync import apply_self_pin_exemption, frozen_cli_invocation
+from tests.conftest import PROJECT_ROOT
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture
@@ -203,26 +209,72 @@ def temp_pyproject(tmp_path: Path) -> Path:
     return pyproject
 
 
-def test_current_version_from_pyproject(
-    tmp_path: Path, temp_pyproject: Path, monkeypatch
-) -> None:
-    """Test that current version is read from pyproject.toml."""
+@pytest.fixture(autouse=True)
+def _in_project(tmp_path: Path, temp_pyproject: Path, monkeypatch) -> None:
+    """Run every test from inside a throwaway project holding a `pyproject.toml`.
+
+    `PrepareRelease` reads its version from the `pyproject.toml` of the current
+    working directory, so the file and the `chdir` are one precondition, not two.
+
+    ```{caution}
+    This is `autouse` for containment, not convenience. Every `PrepareRelease`
+    path left unset resolves against the *current directory*
+    (`Path("./docs/install.md").resolve()` and friends), so a single test in
+    this module running from the repository root points the freeze and unfreeze
+    writers at the real `docs/install.md` and `.claude-plugin/marketplace.json`
+    and rewrites them in place. Passing `workflow_dir=` is not protection: it
+    redirects one path and leaves the other three aimed at the checkout. Opting
+    a test out of this fixture re-arms that, which
+    `_repo_files_survive_the_module` is here to catch.
+    ```
+    """
     monkeypatch.chdir(tmp_path)
 
+
+# Files a stray `PrepareRelease` writes to when a test escapes `_in_project`.
+LEAK_CANARIES = ("docs/install.md", ".claude-plugin/marketplace.json")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _repo_files_survive_the_module() -> Iterator[None]:
+    """Fail loudly if this module rewrites the checkout it runs in.
+
+    A leak here is silent by construction: the tests still pass, and the damage
+    surfaces later as an unexplained dirty tree or as two unrelated
+    `test_plugin` failures. Snapshotting the files a leak would touch turns that
+    into a failure in the module that caused it.
+    """
+    before = {
+        name: (PROJECT_ROOT / name).read_bytes()
+        for name in LEAK_CANARIES
+        if (PROJECT_ROOT / name).exists()
+    }
+
+    yield
+
+    rewritten = sorted(
+        name
+        for name, content in before.items()
+        if (PROJECT_ROOT / name).read_bytes() != content
+    )
+    assert not rewritten, (
+        f"tests/test_prepare_release.py rewrote the real repository: {rewritten}."
+        " A test built PrepareRelease from a directory other than its tmp_path,"
+        " so the unset paths resolved against the checkout. Restore the files"
+        " with `git checkout --` and keep every test under the autouse"
+        " `_in_project` fixture."
+    )
+
+
+def test_current_version_from_pyproject() -> None:
+    """Test that current version is read from pyproject.toml."""
     prep = PrepareRelease()
 
     assert prep.current_version == "1.2.3"
 
 
-def test_freeze_action_reference(
-    tmp_path: Path,
-    temp_workflows_with_actions: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_action_reference(temp_workflows_with_actions: Path) -> None:
     """Test that composite action references are frozen to versioned tag."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(workflow_dir=temp_workflows_with_actions)
     count = prep.freeze_workflow_urls()
 
@@ -262,11 +314,7 @@ def test_composite_action_names_empty_when_no_actions_dir(tmp_path: Path) -> Non
     assert prep.composite_action_names == []
 
 
-def test_freeze_unfreeze_round_trip_per_action(
-    tmp_path: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_unfreeze_round_trip_per_action(tmp_path: Path) -> None:
     """Every discovered action is frozen and unfrozen idempotently.
 
     Parametrize-style conformance check: enumerate the population of
@@ -274,7 +322,6 @@ def test_freeze_unfreeze_round_trip_per_action(
     action's `@main` ↔ `@v{version}` substitution round-trips. Mirrors the
     "enumerate the population" pattern called out in `claude.md` § Testing.
     """
-    monkeypatch.chdir(tmp_path)
     workflow_dir = tmp_path / ".github" / "workflows"
     workflow_dir.mkdir(parents=True)
     actions_dir = tmp_path / ".github" / "actions"
@@ -315,15 +362,8 @@ def test_freeze_unfreeze_round_trip_per_action(
         assert f"actions/{name}@v1.2.3" not in unfrozen
 
 
-def test_freeze_cli_version(
-    tmp_path: Path,
-    temp_workflows_with_cli: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_cli_version(temp_workflows_with_cli: Path) -> None:
     """Test that the local `uv run` invocation is frozen to a PyPI version."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
     count = prep.freeze_cli_version("1.0.0")
 
@@ -334,15 +374,8 @@ def test_freeze_cli_version(
         assert "'repomatic==1.0.0'" in content
 
 
-def test_freeze_workflow_urls(
-    tmp_path: Path,
-    temp_workflows: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_workflow_urls(temp_workflows: Path) -> None:
     """Test that workflow URLs are frozen to versioned tag."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(workflow_dir=temp_workflows)
     count = prep.freeze_workflow_urls()
 
@@ -353,15 +386,8 @@ def test_freeze_workflow_urls(
         assert "/repomatic/v1.2.3/" in content
 
 
-def test_post_release(
-    tmp_path: Path,
-    temp_workflows: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_post_release(temp_workflows: Path) -> None:
     """Test post-release workflow unfreezing."""
-    monkeypatch.chdir(tmp_path)
-
     # First freeze for release.
     prep = PrepareRelease(workflow_dir=temp_workflows)
     prep.freeze_workflow_urls()
@@ -375,15 +401,8 @@ def test_post_release(
         assert "/repomatic/main/" in content
 
 
-def test_post_release_unfreezes_cli(
-    tmp_path: Path,
-    temp_workflows_with_cli: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_post_release_unfreezes_cli(temp_workflows_with_cli: Path) -> None:
     """Test that post-release unfreezes CLI invocations back to local source."""
-    monkeypatch.chdir(tmp_path)
-
     # First freeze CLI.
     prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
     prep.freeze_cli_version("1.0.0")
@@ -403,16 +422,11 @@ def test_post_release_unfreezes_cli(
 
 
 def test_prepare_release_full(
-    tmp_path: Path,
     temp_changelog: Path,
     temp_citation: Path,
     temp_workflows: Path,
-    temp_pyproject: Path,
-    monkeypatch,
 ) -> None:
     """Test full release preparation with all options."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
@@ -442,16 +456,11 @@ def test_prepare_release_full(
 
 
 def test_prepare_release_freezes_cli(
-    tmp_path: Path,
     temp_changelog: Path,
     temp_citation: Path,
     temp_workflows_with_cli: Path,
-    temp_pyproject: Path,
-    monkeypatch,
 ) -> None:
     """Test that prepare_release freezes CLI invocations to current version."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
@@ -466,15 +475,10 @@ def test_prepare_release_freezes_cli(
 
 
 def test_prepare_release_without_workflows(
-    tmp_path: Path,
     temp_changelog: Path,
     temp_citation: Path,
-    temp_pyproject: Path,
-    monkeypatch,
 ) -> None:
     """Test release preparation without workflow updates."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
@@ -486,22 +490,16 @@ def test_prepare_release_without_workflows(
     assert len(set(modified)) == 2
 
 
-def test_release_date_format(tmp_path: Path, temp_pyproject: Path, monkeypatch) -> None:
+def test_release_date_format() -> None:
     """Test that release date is in correct format."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     assert prep.release_date == today
 
 
-def test_set_citation_release_date(
-    tmp_path: Path, temp_citation: Path, temp_pyproject: Path, monkeypatch
-) -> None:
+def test_set_citation_release_date(temp_citation: Path) -> None:
     """Test that release date is set in citation file."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(citation_path=temp_citation)
     result = prep.set_citation_release_date()
 
@@ -511,27 +509,16 @@ def test_set_citation_release_date(
     assert f"date-released: {prep.release_date}" in content
 
 
-def test_set_citation_release_date_missing_file(
-    tmp_path: Path, temp_pyproject: Path, monkeypatch
-) -> None:
+def test_set_citation_release_date_missing_file(tmp_path: Path) -> None:
     """Test that missing citation file is handled gracefully."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(citation_path=tmp_path / "nonexistent.cff")
     result = prep.set_citation_release_date()
 
     assert result is False
 
 
-def test_unfreeze_action_reference(
-    tmp_path: Path,
-    temp_workflows_with_actions: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_unfreeze_action_reference(temp_workflows_with_actions: Path) -> None:
     """Test that composite action references are unfrozen to default branch."""
-    monkeypatch.chdir(tmp_path)
-
     # First freeze the version.
     prep = PrepareRelease(workflow_dir=temp_workflows_with_actions)
     prep.freeze_workflow_urls()
@@ -551,15 +538,8 @@ def test_unfreeze_action_reference(
     assert "kdeldycke/repomatic/.github/actions/pr-metadata@main" in content
 
 
-def test_unfreeze_cli_version(
-    tmp_path: Path,
-    temp_workflows_with_cli: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_unfreeze_cli_version(temp_workflows_with_cli: Path) -> None:
     """Test that frozen PyPI version is unfrozen back to local source."""
-    monkeypatch.chdir(tmp_path)
-
     # First freeze CLI.
     prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
     prep.freeze_cli_version("1.0.0")
@@ -578,15 +558,42 @@ def test_unfreeze_cli_version(
         assert LOCAL_CLI_INVOCATION in content
 
 
-def test_unfreeze_workflow_urls(
-    tmp_path: Path,
-    temp_workflows: Path,
-    temp_pyproject: Path,
-    monkeypatch,
+def test_spliced_exemption_round_trips_through_unfreeze(
+    temp_workflows_with_cli: Path,
 ) -> None:
-    """Test that workflow URLs are unfrozen back to default branch."""
-    monkeypatch.chdir(tmp_path)
+    """A pin exempted by `sync-workflow-pins` unfreezes like a frozen one.
 
+    The freeze and `apply_self_pin_exemption` are two writers of the same
+    command line: they must converge on one byte sequence, or the unfreeze
+    pattern silently skips whichever spelling it does not recognize.
+    """
+    prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
+    frozen = frozen_cli_invocation("repomatic", "1.0.0", SELF_PIN_COOLDOWN_EXEMPTION)
+
+    for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
+        # An exemption-less pin, as an older freeze wrote it, spliced by the
+        # sync path: the result must equal the current freeze spelling.
+        bare = workflow_file.read_text(encoding="UTF-8").replace(
+            LOCAL_CLI_INVOCATION, "uvx --no-progress 'repomatic==1.0.0'"
+        )
+        spliced = apply_self_pin_exemption(
+            bare, "repomatic", SELF_PIN_COOLDOWN_EXEMPTION
+        )
+        assert frozen in spliced
+        workflow_file.write_text(spliced, encoding="UTF-8")
+
+    count = prep.unfreeze_cli_version()
+
+    assert count == 2
+    for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
+        content = workflow_file.read_text(encoding="UTF-8")
+        assert "'repomatic==" not in content
+        assert SELF_PIN_COOLDOWN_EXEMPTION not in content
+        assert LOCAL_CLI_INVOCATION in content
+
+
+def test_unfreeze_workflow_urls(temp_workflows: Path) -> None:
+    """Test that workflow URLs are unfrozen back to default branch."""
     # First freeze the version.
     prep = PrepareRelease(workflow_dir=temp_workflows)
     prep.freeze_workflow_urls()
@@ -648,15 +655,8 @@ def temp_install_frozen(tmp_path: Path) -> Path:
     return install_md
 
 
-def test_freeze_install_download_urls(
-    tmp_path: Path,
-    temp_install: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_install_download_urls(temp_install: Path) -> None:
     """Test that initial ``/releases/latest/download/`` URLs are frozen."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(install_path=temp_install)
     result = prep.freeze_install_download_urls("1.2.3")
 
@@ -672,15 +672,8 @@ def test_freeze_install_download_urls(
     assert "repomatic-1.2.3-windows-x64.exe" in content
 
 
-def test_freeze_install_download_urls_already_frozen(
-    tmp_path: Path,
-    temp_install_frozen: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_install_download_urls_already_frozen(temp_install_frozen: Path) -> None:
     """Test that previously frozen URLs are re-frozen to new version."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(install_path=temp_install_frozen)
     result = prep.freeze_install_download_urls("1.2.3")
 
@@ -693,15 +686,8 @@ def test_freeze_install_download_urls_already_frozen(
     assert "repomatic-1.2.3-windows-x64.exe" in content
 
 
-def test_freeze_install_download_urls_updates_link_text(
-    tmp_path: Path,
-    temp_install: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_install_download_urls_updates_link_text(temp_install: Path) -> None:
     """Test that display text in markdown links is also updated."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(install_path=temp_install)
     prep.freeze_install_download_urls("1.2.3")
 
@@ -714,14 +700,8 @@ def test_freeze_install_download_urls_updates_link_text(
     assert "`repomatic-windows-x64.exe`" not in content
 
 
-def test_freeze_install_missing_file(
-    tmp_path: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_install_missing_file(tmp_path: Path) -> None:
     """Test that a missing install guide is handled gracefully."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(install_path=tmp_path / "nonexistent.md")
     result = prep.freeze_install_download_urls("1.2.3")
 
@@ -772,14 +752,11 @@ def _marketplace(tmp_path: Path, url_path: str, archive: str = ARCHIVE_NAME) -> 
 )
 def test_freeze_marketplace_archive_url(
     tmp_path: Path,
-    temp_pyproject: Path,
-    monkeypatch,
     url_path: str,
     archive: str,
     stale: str,
 ) -> None:
     """Both the initial and the already-frozen URL ratchet to the new release."""
-    monkeypatch.chdir(tmp_path)
     target = _marketplace(tmp_path, url_path, archive)
 
     prep = PrepareRelease(marketplace_path=target)
@@ -797,14 +774,8 @@ def test_freeze_marketplace_archive_url(
     assert entry["source"]["source"] == "archive"
 
 
-def test_freeze_marketplace_archive_url_missing_file(
-    tmp_path: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_marketplace_archive_url_missing_file(tmp_path: Path) -> None:
     """A repository with no plugin marketplace is left alone."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(marketplace_path=tmp_path / "nonexistent.json")
     assert prep.freeze_marketplace_archive_url("1.2.3") is False
 
@@ -814,8 +785,6 @@ def test_post_release_leaves_the_marketplace_url_pinned(
     temp_changelog: Path,
     temp_citation: Path,
     temp_workflows: Path,
-    temp_pyproject: Path,
-    monkeypatch,
 ) -> None:
     """The unfreeze must not walk the archive URL back to a `.devN` tag.
 
@@ -823,7 +792,6 @@ def test_post_release_leaves_the_marketplace_url_pinned(
     post-release bump would rewrite it to a `vX.Y.Z.devN` tag that never exists,
     breaking `/plugin install` for the entire development cycle.
     """
-    monkeypatch.chdir(tmp_path)
     target = _marketplace(tmp_path, "download/v1.2.3")
 
     prep = PrepareRelease(
@@ -840,17 +808,12 @@ def test_post_release_leaves_the_marketplace_url_pinned(
 
 
 def test_prepare_release_freezes_install(
-    tmp_path: Path,
     temp_changelog: Path,
     temp_citation: Path,
     temp_workflows: Path,
     temp_install: Path,
-    temp_pyproject: Path,
-    monkeypatch,
 ) -> None:
     """Test that ``prepare_release(update_workflows=True)`` freezes install URLs."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,
@@ -895,15 +858,8 @@ def temp_install_pinned(tmp_path: Path) -> Path:
     return install_md
 
 
-def test_freeze_install_cli_version(
-    tmp_path: Path,
-    temp_install_pinned: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_install_cli_version(temp_install_pinned: Path) -> None:
     """Test that pinned `@` and `==` CLI examples are bumped to the release."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(install_path=temp_install_pinned)
     result = prep.freeze_install_cli_version("1.2.3")
 
@@ -915,14 +871,9 @@ def test_freeze_install_cli_version(
 
 
 def test_freeze_install_cli_version_leaves_other_pins(
-    tmp_path: Path,
     temp_install_pinned: Path,
-    temp_pyproject: Path,
-    monkeypatch,
 ) -> None:
     """Test that prefixed package names and git refs are left untouched."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(install_path=temp_install_pinned)
     prep.freeze_install_cli_version("1.2.3")
 
@@ -931,28 +882,15 @@ def test_freeze_install_cli_version_leaves_other_pins(
     assert "git+https://example.com/repo -- test-project" in content
 
 
-def test_freeze_install_cli_version_idempotent(
-    tmp_path: Path,
-    temp_install_pinned: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_install_cli_version_idempotent(temp_install_pinned: Path) -> None:
     """Test that re-freezing to the same version is a no-op."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(install_path=temp_install_pinned)
     assert prep.freeze_install_cli_version("1.2.3") is True
     assert prep.freeze_install_cli_version("1.2.3") is False
 
 
-def test_freeze_install_cli_version_missing_file(
-    tmp_path: Path,
-    temp_pyproject: Path,
-    monkeypatch,
-) -> None:
+def test_freeze_install_cli_version_missing_file(tmp_path: Path) -> None:
     """Test that a missing install guide is handled gracefully."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(install_path=tmp_path / "nonexistent.md")
     result = prep.freeze_install_cli_version("1.2.3")
 
@@ -960,16 +898,11 @@ def test_freeze_install_cli_version_missing_file(
 
 
 def test_prepare_release_pins_install_cli(
-    tmp_path: Path,
     temp_changelog: Path,
     temp_citation: Path,
     temp_install_pinned: Path,
-    temp_pyproject: Path,
-    monkeypatch,
 ) -> None:
     """Test that ``prepare_release()`` pins CLI examples without workflows."""
-    monkeypatch.chdir(tmp_path)
-
     prep = PrepareRelease(
         changelog_path=temp_changelog,
         citation_path=temp_citation,

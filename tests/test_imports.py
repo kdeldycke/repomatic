@@ -32,17 +32,10 @@ dependency and a release consumer".
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 import pytest
 
-import repomatic
-
-SOURCE_DIR = Path(repomatic.__file__).parent
-"""Root of the repomatic package source tree."""
-
-SOURCE_FILES = sorted(SOURCE_DIR.rglob("*.py"))
-"""Every Python module shipped in the repomatic package."""
+from tests.conftest import PACKAGE_FILES, PROJECT_ROOT
 
 
 def _private_click_extra_imports(tree: ast.Module) -> list[str]:
@@ -79,7 +72,7 @@ def _private_click_extra_imports(tree: ast.Module) -> list[str]:
 @pytest.mark.once
 def test_source_tree_discovered() -> None:
     """The glob must find modules, so the scan never passes vacuously."""
-    assert SOURCE_FILES
+    assert PACKAGE_FILES
 
 
 @pytest.mark.once
@@ -102,14 +95,14 @@ def test_detector_flags_private_imports() -> None:
 @pytest.mark.once
 @pytest.mark.parametrize(
     "source_file",
-    SOURCE_FILES,
-    ids=[str(p.relative_to(SOURCE_DIR.parent)) for p in SOURCE_FILES],
+    PACKAGE_FILES,
+    ids=[str(p.relative_to(PROJECT_ROOT)) for p in PACKAGE_FILES],
 )
-def test_no_private_click_extra_imports(source_file: Path) -> None:
+def test_no_private_click_extra_imports(source_file) -> None:
     """repomatic must import only click_extra's public API."""
-    tree = ast.parse(source_file.read_text(encoding="utf-8"))
+    tree = ast.parse(source_file.read_text(encoding="UTF-8"))
     violations = _private_click_extra_imports(tree)
     assert not violations, (
-        f"{source_file.relative_to(SOURCE_DIR.parent)} imports click_extra "
+        f"{source_file.relative_to(PROJECT_ROOT)} imports click_extra "
         f"private API: {', '.join(violations)}"
     )

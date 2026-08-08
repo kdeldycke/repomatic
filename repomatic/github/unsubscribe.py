@@ -38,11 +38,11 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
 from functools import partial
 
 import arrow
 
+from .actions import ReportAction
 from .gh import iter_graphql_nodes, run_gh_command
 from .pr_body import render_template
 from .token import validate_classic_pat_scope
@@ -98,29 +98,11 @@ mutation($id: ID!) {
 """
 
 
-class ItemAction(Enum):
-    """Action taken (or to be taken) on a notification item.
-
-    Each member's value is the emoji-decorated label the report table shows for
-    it, so the rendering reads the label off the action instead of consulting a
-    parallel mapping that a new member could silently miss.
-    """
-
-    DRY_RUN = "\U0001f441\ufe0f Dry-run"
-    FAILED = "\u26a0\ufe0f Failed"
-    UNSUBSCRIBED = "\U0001f515 Unsubscribed"
-
-    @property
-    def label(self) -> str:
-        """The emoji-decorated label for the report table."""
-        return self.value
-
-
 @dataclass(frozen=True)
 class DetailRow:
     """Per-item detail for the markdown report table."""
 
-    action: ItemAction
+    action: ReportAction
     html_url: str
     number: int | None
     repo: str
@@ -419,7 +401,7 @@ def _render_detail_table(rows: list[DetailRow]) -> str:
     for row in rows:
         ago = arrow.get(row.updated_at).humanize() if row.updated_at else "-"
         lines.append(
-            f"| {row.title} | {_format_link(row)} | {ago} | {row.action.label} |"
+            f"| {row.title} | {_format_link(row)} | {ago} | {row.action.value} |"
         )
     return "\n".join(lines)
 
@@ -653,15 +635,15 @@ def unsubscribe_threads(
         logging.info(f"  {prefix}Unsubscribing from thread {thread_id} ({html_url}).")
         if dry_run:
             p1.threads_unsubscribed += 1
-            p1.rows.append(row(action=ItemAction.DRY_RUN))
+            p1.rows.append(row(action=ReportAction.DRY_RUN))
             continue
 
         if _unsubscribe_rest_thread(str(thread_id)):
             p1.threads_unsubscribed += 1
-            p1.rows.append(row(action=ItemAction.UNSUBSCRIBED))
+            p1.rows.append(row(action=ReportAction.UNSUBSCRIBED))
         else:
             p1.threads_failed += 1
-            p1.rows.append(row(action=ItemAction.FAILED))
+            p1.rows.append(row(action=ReportAction.FAILED))
 
     # Phase 2: GraphQL threadless subscriptions.
     logging.info("Phase 2: Processing GraphQL threadless subscriptions...")
@@ -723,15 +705,15 @@ def unsubscribe_threads(
             logging.info(f"  {prefix}Unsubscribing from {repo}#{number} (GraphQL).")
             if dry_run:
                 p2.graphql_unsubscribed += 1
-                p2.rows.append(row(action=ItemAction.DRY_RUN))
+                p2.rows.append(row(action=ReportAction.DRY_RUN))
                 continue
 
             if _graphql_unsubscribe(node_id):
                 p2.graphql_unsubscribed += 1
-                p2.rows.append(row(action=ItemAction.UNSUBSCRIBED))
+                p2.rows.append(row(action=ReportAction.UNSUBSCRIBED))
             else:
                 p2.graphql_failed += 1
-                p2.rows.append(row(action=ItemAction.FAILED))
+                p2.rows.append(row(action=ReportAction.FAILED))
     except RuntimeError as exc:
         logging.warning(
             "GraphQL search failed. Phase 2 may be incomplete. "

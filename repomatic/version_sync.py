@@ -83,6 +83,9 @@ The `slug/slug@<40-hex>` shape only matches `owner/repo` actions, so local
 (`owner/repo/.github/workflows/x.yaml@…`) are skipped automatically.
 """
 
+DEV_SUFFIX_RE = re.compile(r"\.dev\d*$")
+"""Match the trailing PEP 440 developmental-release segment of a version."""
+
 # npm install commands: `npm install awesome-lint@2.3.0`.
 _NPM_LITERAL_RE = re.compile(
     r"npm\s+(?:install|i|add)\s+"
@@ -493,6 +496,15 @@ def is_newer(new: str, old: str) -> bool:
         return False
 
 
+def strip_dev_suffix(version: str) -> str:
+    """Drop any PEP 440 `.devN` segment from *version*.
+
+    `"5.10.0.dev0"` becomes `"5.10.0"`. A version carrying no developmental
+    segment is returned unchanged, so the call is safe to apply blindly.
+    """
+    return DEV_SUFFIX_RE.sub("", version)
+
+
 def set_tool_version(content: str, name: str, new_version: str) -> str:
     """Rewrite a tool's `version=` field in the `tool_registry.py` source.
 
@@ -589,6 +601,18 @@ def self_pin_exemption_re(package: str) -> re.Pattern[str]:
     )
 
 
+def frozen_cli_invocation(package: str, version: str, exemption: str) -> str:
+    """Render the frozen, cooldown-exempt `uvx` invocation of *package*.
+
+    The one spelling both writers emit: the release freeze
+    (`PrepareRelease.freeze_cli_version`) writes it wholesale, and
+    {func}`apply_self_pin_exemption` converges an exemption-less command onto
+    the same byte sequence, so the unfreeze pattern has exactly one shape to
+    recognize.
+    """
+    return f"uvx --no-progress {exemption} '{package}=={version}'"
+
+
 def apply_self_pin_exemption(content: str, package: str, exemption: str) -> str:
     """Splice a cooldown exemption into every `uvx` command pinning *package*.
 
@@ -610,9 +634,13 @@ def apply_self_pin_exemption(content: str, package: str, exemption: str) -> str:
     def splice(match: re.Match[str]) -> str:
         if exemption in match.group("flags"):
             return match.group(0)
+        # The exemption lands after the existing flags, right before the pin,
+        # so the result is byte-identical to what the release freeze writes
+        # (see {func}`frozen_cli_invocation`) and the unfreeze pattern only
+        # ever meets one spelling.
         return (
-            f"{match.group('prefix')}{exemption} "
-            f"{match.group('flags')}{match.group('pin')}"
+            f"{match.group('prefix')}{match.group('flags')}"
+            f"{exemption} {match.group('pin')}"
         )
 
     return self_pin_exemption_re(package).sub(splice, content)

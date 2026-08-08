@@ -26,11 +26,10 @@ pass.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
+import tempfile
 from pathlib import Path
-from urllib.request import Request, urlopen
 
 from click_extra import (
     OperationTrail,
@@ -40,17 +39,24 @@ from click_extra import (
 )
 
 from .tool_registry import TOOL_REGISTRY, PlatformKey, ToolSpec
+from .tool_runner import download_to
 
 
 def _download_sha256(url: str) -> str:
     """Download a URL and return its SHA-256 hex digest.
 
+    Streams through {func}`~repomatic.tool_runner.download_to` into a scratch
+    file, inheriting its stall timeout and Content-Length truncation guard. A
+    short body must fail loudly here: its digest would otherwise be written
+    into `tool_registry.py` as the new canonical checksum, poisoning every
+    later verified install. Feedback is suppressed because the caller fans
+    downloads out under its own `OperationTrail`.
+
     :param url: The URL to download.
     :return: Lowercase hex SHA-256 digest of the response body.
     """
-    request = Request(url)
-    with urlopen(request) as response:
-        digest = hashlib.sha256(response.read()).hexdigest()
+    with tempfile.TemporaryDirectory(prefix="repomatic-checksum-") as scratch:
+        digest = download_to(url, Path(scratch) / "artifact", progress=False)
     logging.debug(f"SHA-256 of {url}: {digest}")
     return digest
 

@@ -79,36 +79,27 @@ def test_incident_status_parsed(indicator):
         assert "githubstatus.com" in result.annotation()
 
 
-def test_network_error_returns_none():
-    """A network error collapses to None and does not raise."""
-    with patch("repomatic.http.urlopen", side_effect=URLError("dns fail")):
-        assert get_github_status() is None
+@pytest.mark.parametrize(
+    "patch_kwargs",
+    [
+        pytest.param({"side_effect": URLError("dns fail")}, id="network-error"),
+        pytest.param({"side_effect": TimeoutError()}, id="timeout"),
+        pytest.param({"return_value": FakeResponse(b"not json")}, id="malformed-json"),
+        pytest.param({"return_value": FakeResponse(b"{}")}, id="no-status-object"),
+        pytest.param(
+            {"return_value": FakeResponse(b'{"status": {"indicator": "minor"}}')},
+            id="status-missing-description",
+        ),
+    ],
+)
+def test_unusable_response_returns_none(patch_kwargs):
+    """Every unusable response collapses to None rather than raising.
 
-
-def test_timeout_error_returns_none():
-    """A timeout collapses to None and does not raise."""
-    with patch("repomatic.http.urlopen", side_effect=TimeoutError()):
-        assert get_github_status() is None
-
-
-def test_malformed_json_returns_none():
-    """Garbage in the response body returns None instead of raising."""
-    with patch("repomatic.http.urlopen", return_value=FakeResponse(b"not json")):
-        assert get_github_status() is None
-
-
-def test_missing_status_field_returns_none():
-    """A payload without the expected status object returns None."""
-    with patch("repomatic.http.urlopen", return_value=FakeResponse(b"{}")):
-        assert get_github_status() is None
-
-
-def test_partial_status_field_returns_none():
-    """A status object missing indicator or description returns None."""
-    with patch(
-        "repomatic.http.urlopen",
-        return_value=FakeResponse(b'{"status": {"indicator": "minor"}}'),
-    ):
+    The probe is advisory: it annotates a failure message with GitHub's own
+    incident state, so anything it cannot read has to degrade quietly instead
+    of turning a diagnostic into a second failure.
+    """
+    with patch("repomatic.http.urlopen", **patch_kwargs):
         assert get_github_status() is None
 
 

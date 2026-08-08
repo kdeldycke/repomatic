@@ -23,7 +23,7 @@ live here too: GitHub models pull requests as issues (they share one number
 space), and both families are the same `gh <kind> <verb>` wrappers over
 {mod}`~repomatic.github.gh`.
 
-We need to manually manage the life-cycle of issues created in CI jobs because the
+The life-cycle of issues created in CI jobs is managed here by hand because the
 `create-issue-from-file` action blindly creates issues ad-nauseam.
 
 See:
@@ -208,6 +208,7 @@ def create_issue(body_file: Path, labels: list[str], title: str) -> int:
     :param labels: List of labels to apply.
     :param title: Issue title.
     :return: The created issue number.
+    :raises RuntimeError: When the output carries no parsable issue URL.
     """
     _fit_body_file(body_file)
     args = [
@@ -222,10 +223,18 @@ def create_issue(body_file: Path, labels: list[str], title: str) -> int:
         args.extend(["--label", label])
 
     output = run_gh_command(args)
-    # gh issue create outputs the issue URL, extract the number from it.
-    # Format: https://github.com/owner/repo/issues/123
-    issue_url = output.strip()
-    issue_number = int(issue_url.rstrip("/").split("/")[-1])
+    # `gh issue create` prints the issue URL last, in the form
+    # `https://github.com/owner/repo/issues/123`. Read the last line rather
+    # than the whole output: gh prepends advisory lines of its own (a
+    # deprecation notice, a "Warning: N uncommitted changes" banner), and
+    # parsing the joined output turns one of those into a ValueError that
+    # reads as a failed creation when the issue was in fact created.
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    tail = lines[-1].rstrip("/").rsplit("/", 1)[-1] if lines else ""
+    if not tail.isdigit():
+        msg = f"Could not read the issue number from `gh issue create`: {output!r}"
+        raise RuntimeError(msg)
+    issue_number = int(tail)
     logging.info(f"Created issue #{issue_number}")
     return issue_number
 

@@ -178,18 +178,6 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic changelog"
 
 [[cases]]
-cli_parameters = "check-version --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic check-version"
-
-[[cases]]
-cli_parameters = "clean-unmodified-configs --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic clean-unmodified-configs"
-
-[[cases]]
 cli_parameters = "close-stale-bump-pr --help"
 exit_code = 0
 strip_ansi = true

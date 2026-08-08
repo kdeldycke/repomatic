@@ -110,7 +110,7 @@ def exported_skill(tmp_path):
     source.mkdir(parents=True)
     (source / SKILL_FILENAME).write_text(
         "---\nname: papaya-report\ndescription: Chart papaya harvests.\n---\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     dest = tmp_path / "out" / "papaya-report"
     _copy_template_tree(source, dest)
@@ -236,11 +236,11 @@ def test_skill_resource_folders_are_copied_verbatim(tmp_path):
         (source / subdir).mkdir(parents=True)
     (source / SKILL_FILENAME).write_text(
         "---\nname: papaya-report\ndescription: Chart papaya harvests.\n---\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
-    (source / "references/REFERENCE.md").write_text("Yields.\n", encoding="utf-8")
-    (source / "scripts/harvest.sh").write_text("echo papaya\n", encoding="utf-8")
-    (source / "assets/template.md").write_text("Template.\n", encoding="utf-8")
+    (source / "references/REFERENCE.md").write_text("Yields.\n", encoding="UTF-8")
+    (source / "scripts/harvest.sh").write_text("echo papaya\n", encoding="UTF-8")
+    (source / "assets/template.md").write_text("Template.\n", encoding="UTF-8")
 
     dest = tmp_path / "out" / "papaya-report"
     created, updated = _copy_template_tree(source, dest)
@@ -269,18 +269,18 @@ def test_drifted_skill_is_overwritten(exported_skill):
     idempotency check above (identical content exercises neither branch).
     """
     source, dest = exported_skill
-    bundled = (source / SKILL_FILENAME).read_text(encoding="utf-8")
+    bundled = (source / SKILL_FILENAME).read_text(encoding="UTF-8")
     skill = dest / SKILL_FILENAME
     skill.write_text(
         "---\nname: papaya-report\ndescription: Old harvest charts.\n---\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
 
     created, updated = _copy_template_tree(source, dest)
 
     assert created == []
     assert updated == [skill]
-    assert skill.read_text(encoding="utf-8") == bundled
+    assert skill.read_text(encoding="UTF-8") == bundled
 
 
 def test_local_files_beside_a_skill_survive(exported_skill):
@@ -292,7 +292,7 @@ def test_local_files_beside_a_skill_survive(exported_skill):
     """
     source, dest = exported_skill
     local = dest / "harvest-notes.md"
-    local.write_text("Papaya yields, local notes.\n", encoding="utf-8")
+    local.write_text("Papaya yields, local notes.\n", encoding="UTF-8")
 
     assert _copy_template_tree(source, dest) == ([], [])
-    assert local.read_text(encoding="utf-8") == "Papaya yields, local notes.\n"
+    assert local.read_text(encoding="UTF-8") == "Papaya yields, local notes.\n"

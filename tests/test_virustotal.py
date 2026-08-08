@@ -195,7 +195,7 @@ def test_load_scan_records_missing_file(tmp_path):
 def test_load_scan_records_malformed(tmp_path):
     """A corrupt history file raises instead of being silently clobbered."""
     path = tmp_path / "scans.json"
-    path.write_text("not json", encoding="utf-8")
+    path.write_text("not json", encoding="UTF-8")
     with pytest.raises(ValueError, match="Malformed scan records"):
         load_scan_records(path)
 
@@ -211,7 +211,7 @@ def test_upsert_scan_records_empty_creates_file(tmp_path):
     """No new records still normalizes an empty history file into existence."""
     path = tmp_path / "scans.json"
     assert upsert_scan_records(path, []) is True
-    assert path.read_text(encoding="utf-8") == "[]\n"
+    assert path.read_text(encoding="UTF-8") == "[]\n"
 
 
 def test_upsert_scan_records_idempotent(tmp_path, sample_records):
@@ -293,7 +293,7 @@ def test_upsert_scan_records_sorted_and_biome_stable(tmp_path):
         "\t}\n"
         "]\n"
     )
-    assert path.read_text(encoding="utf-8") == expected
+    assert path.read_text(encoding="UTF-8") == expected
 
 
 # --- poll_detection_stats ---

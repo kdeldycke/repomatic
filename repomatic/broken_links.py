@@ -47,6 +47,15 @@ if TYPE_CHECKING:
 ISSUE_TITLE = "Broken links"
 """Issue title used for the combined broken links report."""
 
+LYCHEE_BROKEN_LINKS_EXIT = 2
+"""The one lychee exit code that reports on the links rather than on the run.
+
+Lychee exits 0 on success, 1 on an unexpected failure, 2 when it found broken
+links, and 3 on a config error. Only 2 is a verdict about the links; 1 and 3 say
+the run itself did not complete, so neither "broken links found" nor "no broken
+links" can be claimed from them.
+"""
+
 LYCHEE_DEFAULT_BODY = Path("./lychee/out.md")
 """Default output path used by the lychee-action GitHub Action."""
 
@@ -55,7 +64,7 @@ SPHINX_DEFAULT_OUTPUT = Path("./docs/_linkcheck/output.json")
 
 
 # ---------------------------------------------------------------------------
-# Sphinx linkcheck parsing, filtering, and report generation
+# Sphinx linkcheck parsing, filtering, and report generation.
 # ---------------------------------------------------------------------------
 
 
@@ -170,7 +179,7 @@ def generate_markdown_report(
 
 
 # ---------------------------------------------------------------------------
-# Label selection
+# Label selection.
 # ---------------------------------------------------------------------------
 
 
@@ -186,7 +195,7 @@ def get_label(repo_name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Combined broken links issue (Lychee + Sphinx linkcheck)
+# Combined broken links issue (Lychee + Sphinx linkcheck).
 # ---------------------------------------------------------------------------
 
 
@@ -230,7 +239,6 @@ def manage_combined_broken_links_issue(
         in the Sphinx report. Auto-composed from {attr}`Metadata.repo_url
         <repomatic.metadata.Metadata.repo_url>` and {attr}`Metadata.sha
         <repomatic.metadata.Metadata.sha>`.
-    :raises ValueError: If lychee exit code is not 0, 2, or `None`.
     :raises ValueError: If `repo_name` cannot be determined.
     """
     # Shared Metadata instance for all CI context lookups.
@@ -270,20 +278,27 @@ def manage_combined_broken_links_issue(
         sphinx_source_url = f"{md.repo_url}/blob/{md.sha}/docs"
         logging.info(f"Auto-composed source URL: {sphinx_source_url}")
 
-    # Interpret lychee exit code.
-    # Exit codes: 0 = success, 1 = unexpected failure, 2 = broken links,
-    # 3 = config error. Only treat as "broken links found" when lychee
-    # produced an output file with actual content. A non-zero exit code
-    # without output (e.g., config error, transient failure) should not
-    # create an issue that misleadingly says "No broken links found."
+    # Interpret lychee's exit code. Only LYCHEE_BROKEN_LINKS_EXIT reports on the
+    # links themselves; every other non-zero code reports that the run failed,
+    # and says nothing either way about the links.
     lychee_has_broken = False
+    lychee_failed = False
     if lychee_exit_code is not None:
-        if lychee_exit_code != 0 and lychee_body_file is not None:
-            lychee_has_broken = True
+        if lychee_exit_code == LYCHEE_BROKEN_LINKS_EXIT:
+            # An output file is required: a broken-links verdict with nothing to
+            # show would file an issue whose body claims the links are fine.
+            if lychee_body_file is not None:
+                lychee_has_broken = True
+            else:
+                logging.warning(
+                    f"Lychee exit code {lychee_exit_code} but no output file found. "
+                    "Skipping broken links report."
+                )
         elif lychee_exit_code != 0:
+            lychee_failed = True
             logging.warning(
-                f"Lychee exit code {lychee_exit_code} but no output file found. "
-                "Skipping broken links report."
+                f"Lychee failed with exit code {lychee_exit_code}, which reports a"
+                " run failure rather than broken links."
             )
         logging.info(
             f"Lychee exit code {lychee_exit_code}: "
@@ -313,6 +328,11 @@ def manage_combined_broken_links_issue(
         if lychee_has_broken and lychee_body_file is not None:
             lychee_content = sanitize_markdown_mentions(
                 lychee_body_file.read_text(encoding="UTF-8").strip(),
+            )
+        elif lychee_failed:
+            lychee_content = (
+                f"Lychee did not complete (exit code {lychee_exit_code}), so the"
+                " links it covers were not checked this run."
             )
         else:
             lychee_content = "No broken links found."

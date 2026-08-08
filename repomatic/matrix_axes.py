@@ -123,10 +123,3 @@ the default single-runner pick: the fastest measured on compute-bound parallel
 work and the cheapest tier, and free-threading targets server workloads where
 Linux/ARM is the norm (see {doc}`/test-matrix`).
 """
-
-
-MYPY_VERSION_MIN: Final = (3, 8)
-"""Earliest version supported by Mypy's `--python-version 3.x` parameter.
-
-[Sourced from Mypy original implementation](https://github.com/python/mypy/blob/master/mypy/defaults.py).
-"""

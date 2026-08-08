@@ -58,7 +58,11 @@ def test_generate_markdown_summary_empty() -> None:
 
 
 def test_generate_markdown_summary_single_result() -> None:
-    """Summary table with a single result."""
+    """Summary table with a single result.
+
+    Column padding is the renderer's business, so the header is matched on its
+    cells rather than on an exact line.
+    """
     results = [
         OptimizationResult(path=Path("logo.png"), before_bytes=10240, after_bytes=8192),
     ]
@@ -66,7 +70,13 @@ def test_generate_markdown_summary_single_result() -> None:
     assert "**20.0%**" in md
     assert "**2.0 KB**" in md
     assert "| `logo.png`" in md
-    assert "| Filename | Before | After | Improvement |" in md
+    header = next(line for line in md.splitlines() if "Filename" in line)
+    assert [cell.strip() for cell in header.strip("|").split("|")] == [
+        "Filename",
+        "Before",
+        "After",
+        "Improvement",
+    ]
 
 
 def test_generate_markdown_summary_multiple_results() -> None:

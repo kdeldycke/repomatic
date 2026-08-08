@@ -33,7 +33,7 @@ from pathlib import Path
 import tomlrt
 import yaml
 
-from .tool_runner import binary_tool_context
+from .tool_runner import ensure_binary
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -390,24 +390,23 @@ def apply_labels(
             if label_file.is_file():
                 extra_files[label_file.name] = label_file
 
-    with binary_tool_context("labelmaker") as lm:
-        # Apply default profile.
-        _run_labelmaker(lm, "apply", labels_toml, "--profile", "default", repository)
+    lm = ensure_binary("labelmaker")
 
-        # Apply awesome profile for awesome-* repos.
-        if is_awesome:
-            _run_labelmaker(
-                lm, "apply", labels_toml, "--profile", "awesome", repository
-            )
+    # Apply default profile.
+    _run_labelmaker(lm, "apply", labels_toml, "--profile", "default", repository)
 
-        # Apply extra label files.
-        for _name, label_file in sorted(extra_files.items()):
-            _run_labelmaker(lm, "apply", str(label_file), repository)
+    # Apply awesome profile for awesome-* repos.
+    if is_awesome:
+        _run_labelmaker(lm, "apply", labels_toml, "--profile", "awesome", repository)
 
-        # Apply inline label definitions from `[tool.repomatic.labels.extra]`.
-        inline_toml = serialize_inline_labels(config.labels.extra)
-        if inline_toml:
-            with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
-                inline_file = Path(tmpdir) / "inline.toml"
-                inline_file.write_text(inline_toml, encoding="UTF-8")
-                _run_labelmaker(lm, "apply", str(inline_file), repository)
+    # Apply extra label files.
+    for _name, label_file in sorted(extra_files.items()):
+        _run_labelmaker(lm, "apply", str(label_file), repository)
+
+    # Apply inline label definitions from `[tool.repomatic.labels.extra]`.
+    inline_toml = serialize_inline_labels(config.labels.extra)
+    if inline_toml:
+        with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
+            inline_file = Path(tmpdir) / "inline.toml"
+            inline_file.write_text(inline_toml, encoding="UTF-8")
+            _run_labelmaker(lm, "apply", str(inline_file), repository)

@@ -28,10 +28,35 @@ from boltons.iterutils import unique
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 
-RESERVED_MATRIX_KEYWORDS = ["include", "exclude"]
+RESERVED_MATRIX_KEYWORDS = ("include", "exclude")
+"""Keys GitHub reserves inside a `strategy.matrix` block.
+
+Neither can name a variation axis, since both already mean something to the
+matrix expander. {meth}`Matrix._check_ids` rejects them.
+"""
+
+
+def stale_axis_values(
+    entry: Mapping[str, str], axes: Mapping[str, Sequence[str]]
+) -> dict[str, str]:
+    """Return the `entry` key/value pairs absent from the matrix `axes`.
+
+    A non-empty result means an `exclude` directive can never match a
+    combination: one of its keys is not a live axis, or its value is absent
+    from that axis. {meth}`Matrix.prune` drops such a directive silently,
+    since GitHub rejects a matrix whose excludes name unknown keys; this is
+    the predicate behind that decision, exposed so callers can also *report*
+    the drift instead of only absorbing it (see
+    {attr}`repomatic.metadata.Metadata.stale_test_matrix_excludes`).
+    """
+    return {
+        key: value
+        for key, value in entry.items()
+        if key not in axes or value not in axes[key]
+    }
 
 
 class Matrix:
@@ -51,20 +76,24 @@ class Matrix:
     the pre-built matrices, rather than computing them themselves.
     ```
 
-    This Matrix behave like a `dict` and works everywhere a `dict` would. Only that
-    it is immutable and based on {class}`FrozenDict`. If you want to populate the matrix
-    you have to use the following methods:
+    A matrix starts empty and is populated through its own methods, never
+    through the constructor:
 
     - {meth}`add_variation`
     - {meth}`add_includes`
     - {meth}`add_excludes`
+
+    {meth}`matrix` renders the result as an immutable {class}`FrozenDict` for
+    serialization, and {meth}`__getitem__` reads a single axis, but the object
+    itself is not a mapping: it holds axes, includes and excludes as separate
+    state.
 
     The implementation respects the order in which items were inserted. This provides a
     natural and visual sorting that should ease the inspection and debugging of large
     matrix.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self) -> None:
         self.variations: dict[str, tuple[str, ...]] = {}
 
         # Tuples are used to keep track of the insertion order and force immutability.

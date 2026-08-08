@@ -81,15 +81,6 @@ def tool_summary() -> str:
         label = spec.display_name or spec.name
         name_link = f"[{label}]({spec.datasource_url})"
 
-        if spec.binary:
-            install_type = "Binary"
-        elif spec.npm:
-            install_type = "npm"
-        elif spec.needs_venv:
-            install_type = "PyPI (venv)"
-        else:
-            install_type = "PyPI"
-
         # Config discovery column.
         parts: list[str] = []
         if spec.native_config_files:
@@ -98,7 +89,12 @@ def tool_summary() -> str:
             parts.append(f"`[tool.{spec.name}]` in `pyproject.toml`")
         config_str = ", ".join(parts) if parts else "CLI flags only"
 
-        rows.append([name_link, f"`{spec.version}`", install_type, config_str])
+        rows.append([
+            name_link,
+            f"`{spec.version}`",
+            spec.backend.short_label,
+            config_str,
+        ])
 
     return render_table(
         rows,
@@ -134,15 +130,7 @@ def tool_reference() -> str:
         lines.append(f"**Installed version:** `{spec.version}`")
         lines.append("")
 
-        if spec.binary:
-            install_type = "Binary (downloaded from GitHub Releases)"
-        elif spec.npm:
-            install_type = "npm registry, run via `node_modules/.bin`"
-        elif spec.needs_venv:
-            install_type = "PyPI, runs in project virtualenv via `uv run`"
-        else:
-            install_type = "PyPI, installed via `uvx`"
-        lines.append(f"**Installation method:** {install_type}")
+        lines.append(f"**Installation method:** {spec.backend.long_label}")
         lines.append("")
 
         if spec.native_config_files:

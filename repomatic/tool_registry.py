@@ -268,6 +268,35 @@ Resolution order in {meth}`BinarySpec.resolve_platform`:
 """
 
 
+class ToolBackend(Enum):
+    """How a registry tool is delivered and executed.
+
+    Each member carries the display labels the documentation generators
+    render, so backends and their vocabulary live in one place: adding a
+    backend means adding a member here and a branch in
+    {meth}`ToolSpec.backend`, and every consumer (docs tables, version-sync
+    candidate sources) follows.
+
+    ```{note}
+    Code that *dereferences* a backend's payload still tests the field
+    directly (`spec.binary is not None` narrows the optional for mypy in a
+    way an enum comparison cannot); this enum serves the sites that only
+    need to know *which* backend, not its payload.
+    ```
+    """
+
+    BINARY = ("Binary", "Binary (downloaded from GitHub Releases)")
+    NPM = ("npm", "npm registry, run via `node_modules/.bin`")
+    VENV = ("PyPI (venv)", "PyPI, runs in project virtualenv via `uv run`")
+    UVX = ("PyPI", "PyPI, installed via `uvx`")
+
+    def __init__(self, short_label: str, long_label: str) -> None:
+        self.short_label = short_label
+        """Cell text for the docs summary table."""
+        self.long_label = long_label
+        """Installation-method line in the per-tool reference sections."""
+
+
 @dataclass(frozen=True)
 class BinarySpec:
     """Platform-specific binary download specification.
@@ -463,6 +492,28 @@ class BinarySpec:
         return f"{key[0].id}-{key[1].id}"
 
 
+MYPY_VERSION_MIN = (3, 8)
+"""Earliest Python dialect Mypy's `--python-version 3.x` parameter accepts.
+
+Floors the value {attr}`repomatic.metadata.Metadata.mypy_params` derives from
+the project's `requires-python`, which the `mypy` entry in
+{data}`TOOL_REGISTRY` passes through `computed_params`. A project declaring an
+older floor would otherwise hand mypy a version it rejects outright.
+
+[Sourced from Mypy's own defaults](https://github.com/python/mypy/blob/master/mypy/defaults.py).
+"""
+
+TOOL_LIST_HEADER_DEFS: tuple[tuple[str, str], ...] = (
+    ("Tool", "tool"),
+    ("Version", "version"),
+    ("Config source", "config-source"),
+)
+"""Column definitions for the `repomatic run --list` table.
+
+Lives beside the registry it renders; the CLI derives its `--sort-by`
+choices from it.
+"""
+
 NPM_MIN_VERSION_FOR_COOLDOWN = "11.10.0"
 """First npm release honoring `min-release-age`, the cooldown gate for npm tools.
 
@@ -630,7 +681,10 @@ class ToolSpec:
     needs_venv: bool = False
     """If `True`, use `uv run` (project venv) instead of `uvx` (isolated).
 
-    Required when the tool imports project code (mypy, pytest).
+    Required when the tool imports project code (mypy, pytest). The project
+    venv materializes from the frozen `uv.lock`; in a repository without one
+    the runner degrades to an isolated, cooldown-gated environment
+    (`uv run --no-project`), see `_build_install_args` in `tool_runner.py`.
     """
 
     computed_params: Callable[[Metadata], list[str]] | None = None
@@ -661,6 +715,17 @@ class ToolSpec:
     warns when a check invocation would silently bypass it. See
     {meth}`check_bypasses_post_process`.
     ```
+    """
+
+    output_flag: str | None = None
+    """Flag whose argument names the tool's report destination, when the tool
+    refuses to create missing parent directories itself.
+
+    `run_tool` pre-creates the parent directory of the path following this
+    flag (both `--flag path` and `--flag=path` forms), so a workflow can point
+    the tool into a scratch subdirectory without a separate `mkdir` step.
+    lychee is the motivating case: `docs.yaml` collects its report from a
+    dedicated subdirectory, and lychee errors out rather than creating it.
     """
 
     check_flags: tuple[str, ...] = ()
@@ -714,6 +779,22 @@ class ToolSpec:
     `repomatic.tool_runner_page.tool_reference` after the generated metadata
     lines, so the prose stays next to the spec it documents.
     """
+
+    @property
+    def backend(self) -> ToolBackend:
+        """Delivery mechanism, derived from which spec fields are set.
+
+        `binary` and `npm` win over `needs_venv`; `test_tool_spec_integrity`
+        keeps the three mutually exclusive so the order never actually
+        decides.
+        """
+        if self.binary is not None:
+            return ToolBackend.BINARY
+        if self.npm is not None:
+            return ToolBackend.NPM
+        if self.needs_venv:
+            return ToolBackend.VENV
+        return ToolBackend.UVX
 
     @property
     def pypi_name(self) -> str:
@@ -1439,6 +1520,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         cli_docs_url="https://lychee.cli.rs/guides/cli/",
         native_config_files=("lychee.toml",),
         config_flag="--config",
+        output_flag="--output",
         native_format=NativeFormat.TOML,
         # Since v0.24.0 (https://github.com/lycheeverse/lychee/issues/1930,
         # https://github.com/lycheeverse/lychee/pull/2104), lychee natively reads
@@ -1576,7 +1658,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             strict = true
             ```
 
-            mypy runs inside the project virtualenv (via `uv run`) so it can import your dependencies. repomatic derives `--python-version` from `requires-python`, so the check matches your lowest supported interpreter.
+            mypy runs inside the project virtualenv (via `uv run`) so it can import your dependencies. repomatic derives `--python-version` from `requires-python`, so the check matches your lowest supported interpreter. In a repository without a `uv.lock` there is no project virtualenv to freeze, so mypy runs in an isolated environment instead and only resolves the standard library: fine for standalone scripts, but dependency imports then report `import-not-found`.
 
             `uv run` provisions only the default dependency groups, so a module that imports a dep declared solely in a non-default group (`docs`, `typing`, …) sees it as missing and mypy reports `import-not-found`. Either move the stub/dependency somewhere mypy resolves, or silence it with an override:
 

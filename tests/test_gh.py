@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 import pytest
 
-from repomatic.github.gh import iter_graphql_nodes, run_gh_command
+from repomatic.github.gh import api_headers, iter_graphql_nodes, run_gh_command
 
 
 @pytest.fixture(autouse=True)
@@ -68,6 +68,32 @@ def _make_result(
 
 # Minimal env: no token vars at all.  Tests that need specific vars add them.
 _CLEAN_ENV = {"PATH": "/usr/bin", "HOME": "/tmp"}
+
+
+# -- api_headers -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("env", "expected_token"),
+    (
+        ({"REPOMATIC_PAT": "pat", "GH_TOKEN": "gh", "GITHUB_TOKEN": "gt"}, "pat"),
+        ({"GH_TOKEN": "gh", "GITHUB_TOKEN": "gt"}, "gh"),
+        ({"GITHUB_TOKEN": "gt"}, "gt"),
+    ),
+)
+def test_api_headers_follows_token_precedence(env, expected_token):
+    """Direct API calls authenticate with the same winner the gh CLI gets."""
+    with patch.dict("os.environ", {**_CLEAN_ENV, **env}, clear=True):
+        assert api_headers() == {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {expected_token}",
+        }
+
+
+def test_api_headers_unauthenticated_without_token():
+    """No token means no Authorization header, not an empty one."""
+    with patch.dict("os.environ", _CLEAN_ENV, clear=True):
+        assert api_headers() == {"Accept": "application/vnd.github+json"}
 
 
 # -- Token resolution: REPOMATIC_PAT > GH_TOKEN > GITHUB_TOKEN ----------------

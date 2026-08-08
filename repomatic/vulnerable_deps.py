@@ -53,6 +53,7 @@ from .dep_report import (
     format_diff_table,
     format_exclude_newer_note,
     format_release_notes,
+    markdown_section,
     pypi_name_urls,
 )
 from .github.gh import run_gh_command
@@ -66,6 +67,19 @@ from .uv import (
     parse_lock_versions,
     uv_cmd,
 )
+
+AUDIT_HEADER_DEFS: tuple[tuple[str, str], ...] = (
+    ("Package", "package"),
+    ("Version", "version"),
+    ("Advisory", "advisory"),
+    ("Fixed", "fixed"),
+    ("Sources", "sources"),
+)
+"""Column definitions for the `repomatic audit` table.
+
+Lives beside the rows' domain model so the columns and the fields they
+render cannot drift apart; the CLI derives its `--sort-by` choices from it.
+"""
 
 MIN_UV_AUDIT_JSON_VERSION = Version("0.11.15")
 """Minimum `uv` version exposing `uv audit --output-format json`.
@@ -230,12 +244,7 @@ def format_vulnerability_table(vulns: list[VulnerablePackage]) -> str:
     """
     if not vulns:
         return ""
-    lines = [
-        "## Vulnerabilities",
-        "",
-        "| Package | Advisory | Current | Fixed | Sources |",
-        "| :-- | :-- | :-- | :-- | :-- |",
-    ]
+    rows: list[tuple[str, ...]] = []
     for v in vulns:
         pkg_link = f"[{v.name}]({PYPI_PACKAGE_URL.format(package=v.name)})"
         if v.advisory_url:
@@ -251,11 +260,19 @@ def format_vulnerability_table(vulns: list[VulnerablePackage]) -> str:
             label = f"`{s.value}`"
             source_cells.append(f"[{label}]({url})" if url else label)
         sources = ", ".join(source_cells) or "—"
-        lines.append(
-            f"| {pkg_link} | {adv_link}: {v.advisory_title} "
-            f"| `{v.current_version}` | {fixed} | {sources} |"
-        )
-    return "\n".join(lines)
+        rows.append((
+            pkg_link,
+            f"{adv_link}: {v.advisory_title}",
+            f"`{v.current_version}`",
+            fixed,
+            sources,
+        ))
+    return markdown_section(
+        "Vulnerabilities",
+        "",
+        ("Package", "Advisory", "Current", "Fixed", "Sources"),
+        rows,
+    )
 
 
 def _uv_version() -> Version:
@@ -526,7 +543,7 @@ def fix_vulnerable_deps(
 def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
     """Fetch open `pip`-ecosystem Dependabot alerts for a repository.
 
-    Calls ``GET /repos/{repo}/dependabot/alerts?state=open&ecosystem=pip``
+    Calls `GET /repos/{repo}/dependabot/alerts?state=open&ecosystem=pip`
     via the `gh` CLI, then maps each alert into a
     {class}`VulnerablePackage` tagged with
     {attr}`AdvisorySource.GITHUB_ADVISORIES`.

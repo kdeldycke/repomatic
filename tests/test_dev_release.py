@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from unittest.mock import call, patch
 
+import pytest
+
 from repomatic.github.dev_release import (
     _delete_release_assets,
     cleanup_dev_releases,
@@ -59,16 +61,26 @@ RELEASED_ONLY_CHANGELOG = """\
 # --- sync_dev_release() tests ---
 
 
-def test_sync_dev_release_dry_run(tmp_path):
-    """Dry-run reports without calling gh."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
+@pytest.fixture
+def unreleased_changelog(tmp_path):
+    """A changelog on disk whose newest section is still unreleased."""
+    path = tmp_path / "changelog.md"
+    path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
+    return path
 
+
+def _delete_call(tag: str, repo: str = "user/repo") -> list[str]:
+    """The `gh release delete` argv the cleanup paths are expected to issue."""
+    return ["release", "delete", tag, "--cleanup-tag", "--yes", "--repo", repo]
+
+
+def test_sync_dev_release_dry_run(unreleased_changelog):
+    """Dry-run reports without calling gh."""
     with patch(
         "repomatic.github.dev_release.run_gh_command",
     ) as mock_gh:
         result = sync_dev_release(
-            changelog_path,
+            unreleased_changelog,
             "6.1.1.dev0",
             "user/repo",
             dry_run=True,
@@ -78,11 +90,8 @@ def test_sync_dev_release_dry_run(tmp_path):
     mock_gh.assert_not_called()
 
 
-def test_sync_dev_release_live(tmp_path):
+def test_sync_dev_release_live(unreleased_changelog):
     """Live mode creates new draft pre-release when none exists."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
-
     # gh release list returns no existing dev releases.
     # Edit fails (no existing release), then create succeeds.
     with (
@@ -99,7 +108,7 @@ def test_sync_dev_release_live(tmp_path):
         ) as mock_edit,
     ):
         result = sync_dev_release(
-            changelog_path,
+            unreleased_changelog,
             "6.1.1.dev0",
             "user/repo",
             dry_run=False,
@@ -125,11 +134,8 @@ def test_sync_dev_release_live(tmp_path):
     assert "--target" in create_call[0][0]
 
 
-def test_sync_dev_release_edits_existing(tmp_path):
+def test_sync_dev_release_edits_existing(unreleased_changelog):
     """Edits existing release to preserve assets instead of delete+recreate."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
-
     # gh release list returns the current dev release.
     release_list = json.dumps([{"tagName": "v6.1.1.dev0"}])
     with (
@@ -145,7 +151,7 @@ def test_sync_dev_release_edits_existing(tmp_path):
         ) as mock_edit,
     ):
         result = sync_dev_release(
-            changelog_path,
+            unreleased_changelog,
             "6.1.1.dev0",
             "user/repo",
             dry_run=False,
@@ -168,11 +174,8 @@ def test_sync_dev_release_edits_existing(tmp_path):
     assert create_calls == []
 
 
-def test_sync_dev_release_cleans_stale_releases(tmp_path):
+def test_sync_dev_release_cleans_stale_releases(unreleased_changelog):
     """Stale dev releases from previous versions are cleaned up."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
-
     # gh release list returns a stale dev release from a previous version.
     release_list = json.dumps([
         {"tagName": "v6.0.1.dev0"},
@@ -193,7 +196,7 @@ def test_sync_dev_release_cleans_stale_releases(tmp_path):
         ),
     ):
         result = sync_dev_release(
-            changelog_path,
+            unreleased_changelog,
             "6.1.1.dev0",
             "user/repo",
             dry_run=False,
@@ -201,15 +204,7 @@ def test_sync_dev_release_cleans_stale_releases(tmp_path):
 
     assert result is True
     # Should delete the stale dev release.
-    assert mock_gh.call_args_list[1] == call([
-        "release",
-        "delete",
-        "v6.0.1.dev0",
-        "--cleanup-tag",
-        "--yes",
-        "--repo",
-        "user/repo",
-    ])
+    assert mock_gh.call_args_list[1] == call(_delete_call("v6.0.1.dev0"))
     # Should not delete the non-dev release.
     delete_tags = [
         c[0][0][2]
@@ -239,11 +234,8 @@ def test_sync_dev_release_empty_body(tmp_path):
     mock_gh.assert_not_called()
 
 
-def test_sync_dev_release_body_content(tmp_path):
+def test_sync_dev_release_body_content(unreleased_changelog):
     """Verifies the release body includes changelog changes."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
-
     with (
         patch(
             "repomatic.github.dev_release.run_gh_command",
@@ -258,7 +250,7 @@ def test_sync_dev_release_body_content(tmp_path):
         ),
     ):
         sync_dev_release(
-            changelog_path,
+            unreleased_changelog,
             "6.1.1.dev0",
             "user/repo",
             dry_run=False,
@@ -290,24 +282,8 @@ def test_cleanup_dev_releases_deletes_all_dev_tags():
 
     # Should delete both dev releases, not the regular ones.
     assert mock_gh.call_count == 3
-    assert mock_gh.call_args_list[1] == call([
-        "release",
-        "delete",
-        "v6.2.0.dev0",
-        "--cleanup-tag",
-        "--yes",
-        "--repo",
-        "user/repo",
-    ])
-    assert mock_gh.call_args_list[2] == call([
-        "release",
-        "delete",
-        "v6.1.1.dev0",
-        "--cleanup-tag",
-        "--yes",
-        "--repo",
-        "user/repo",
-    ])
+    assert mock_gh.call_args_list[1] == call(_delete_call("v6.2.0.dev0"))
+    assert mock_gh.call_args_list[2] == call(_delete_call("v6.1.1.dev0"))
 
 
 def test_cleanup_dev_releases_no_dev_releases():
@@ -371,15 +347,7 @@ def test_cleanup_dev_releases_keeps_current_tag():
 
     # Should only delete the stale dev release, not the kept one.
     assert mock_gh.call_count == 2
-    assert mock_gh.call_args_list[1] == call([
-        "release",
-        "delete",
-        "v6.1.1.dev0",
-        "--cleanup-tag",
-        "--yes",
-        "--repo",
-        "user/repo",
-    ])
+    assert mock_gh.call_args_list[1] == call(_delete_call("v6.1.1.dev0"))
 
 
 # --- delete_dev_release() tests ---
@@ -392,15 +360,7 @@ def test_delete_dev_release_success():
     ) as mock_gh:
         delete_dev_release("6.1.1.dev0", "user/repo")
 
-    mock_gh.assert_called_once_with([
-        "release",
-        "delete",
-        "v6.1.1.dev0",
-        "--cleanup-tag",
-        "--yes",
-        "--repo",
-        "user/repo",
-    ])
+    mock_gh.assert_called_once_with(_delete_call("v6.1.1.dev0"))
 
 
 def test_delete_dev_release_missing():
@@ -417,31 +377,30 @@ def test_delete_dev_release_missing():
 
 
 def test_delete_release_by_tag_success():
-    """Calls gh release delete with the given tag."""
+    """Calls gh release delete with the given tag, and reports the deletion."""
     with patch(
         "repomatic.github.dev_release.run_gh_command",
     ) as mock_gh:
-        delete_release_by_tag("v6.1.1.dev0", "user/repo")
+        assert delete_release_by_tag("v6.1.1.dev0", "user/repo") is True
 
-    mock_gh.assert_called_once_with([
-        "release",
-        "delete",
-        "v6.1.1.dev0",
-        "--cleanup-tag",
-        "--yes",
-        "--repo",
-        "user/repo",
-    ])
+    mock_gh.assert_called_once_with(_delete_call("v6.1.1.dev0"))
 
 
 def test_delete_release_by_tag_immutable():
-    """Silently succeeds for immutable published releases."""
+    """Silently succeeds for immutable published releases, reporting no deletion."""
     with patch(
         "repomatic.github.dev_release.run_gh_command",
         side_effect=RuntimeError("HTTP 422"),
     ):
         # Should not raise.
-        delete_release_by_tag("v6.1.1.dev0", "user/repo")
+        assert delete_release_by_tag("v6.1.1.dev0", "user/repo") is False
+
+
+def test_delete_release_by_tag_leaves_naming_to_the_caller(caplog):
+    """The generic helper never calls what it deleted a "dev release"."""
+    with patch("repomatic.github.dev_release.run_gh_command"):
+        delete_release_by_tag("v1.2.3", "user/repo")
+    assert "dev release" not in caplog.text
 
 
 # --- _delete_release_assets() tests ---
@@ -595,10 +554,8 @@ def test_upload_release_assets_deletes_existing_first(tmp_path):
 # --- sync_dev_release() with assets tests ---
 
 
-def test_sync_dev_release_with_assets(tmp_path):
+def test_sync_dev_release_with_assets(unreleased_changelog, tmp_path):
     """End-to-end: metadata sync + asset upload."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
     asset_dir = tmp_path / "assets"
     asset_dir.mkdir()
     (asset_dir / "repomatic-6.1.1.dev0.tar.gz").touch()
@@ -619,7 +576,7 @@ def test_sync_dev_release_with_assets(tmp_path):
         ),
     ):
         result = sync_dev_release(
-            changelog_path,
+            unreleased_changelog,
             "6.1.1.dev0",
             "user/repo",
             dry_run=False,
@@ -632,10 +589,8 @@ def test_sync_dev_release_with_assets(tmp_path):
     assert upload_call[0][0][:3] == ["release", "upload", "v6.1.1.dev0"]
 
 
-def test_sync_dev_release_dry_run_with_assets(tmp_path):
+def test_sync_dev_release_dry_run_with_assets(unreleased_changelog, tmp_path):
     """Dry-run previews asset files without making gh calls."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(UNRELEASED_CHANGELOG, encoding="UTF-8")
     asset_dir = tmp_path / "assets"
     asset_dir.mkdir()
     (asset_dir / "repomatic-6.1.1.dev0.whl").touch()
@@ -645,7 +600,7 @@ def test_sync_dev_release_dry_run_with_assets(tmp_path):
         "repomatic.github.dev_release.run_gh_command",
     ) as mock_gh:
         result = sync_dev_release(
-            changelog_path,
+            unreleased_changelog,
             "6.1.1.dev0",
             "user/repo",
             dry_run=True,

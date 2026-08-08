@@ -38,6 +38,16 @@ if TYPE_CHECKING:
     from typing import Final
 
 
+BINARY_ASSET_SUFFIXES = (".bin", ".exe")
+"""File extensions identifying compiled binaries among release assets.
+
+The one definition of "a compiled release asset": `scan-virustotal` uploads
+this set, the release workflow downloads it (`--pattern` flags in
+`_release-engine.yaml`), `docs/binaries.md` lists it, and the dev-release
+asset globs derive from it.
+"""
+
+
 def compute_file_sha256(path: Path) -> str:
     """Compute the SHA-256 hex digest of a file.
 
@@ -112,19 +122,20 @@ NUITKA_BUILD_TARGETS = {
         "min_os": "10",
     },
 }
-"""List of GitHub-hosted runners used for Nuitka builds.
+"""GitHub-hosted runner matrix for Nuitka builds, keyed by target name.
 
-The key of the dictionary is the target name, which is used as a short name for
-user-friendlyness. As such, it is used to name the compiled binary.
+The key doubles as the compiled binary's short target identifier: it names the
+published release asset, so it is chosen for user-friendliness and must stay
+stable (download URLs and `docs/binaries.md` match on it).
 
 Values are dictionaries with the following keys:
 
 - `os`: Operating system name, as used in [GitHub-hosted runners](https://docs.github.com/en/actions/writing-workflows/choosing-where-your-workflow-runs/choosing-the-runner-for-a-job#standard-github-hosted-runners-for-public-repositories).
 
     ```{hint}
-    We choose to run the compilation only on the latest supported version of each
-    OS, for each architecture. Note that macOS and Windows do not have the latest
-    version available for each architecture.
+    Compilation only runs on the latest supported version of each OS, for each
+    architecture. macOS and Windows do not offer their latest version on every
+    architecture.
     ```
 
 - `platform_id`: Platform identifier, as defined by [Extra Platform](https://github.com/kdeldycke/extra-platforms).
@@ -248,8 +259,18 @@ MACHO_FAT_MAGICS: Final[frozenset[int]] = frozenset((0xCAFEBABE, 0xCAFEBABF))
 """Big-endian magics of universal (fat) Mach-O containers, 32- and 64-bit."""
 
 LC_VERSION_MIN_MACOSX: Final[int] = 0x24
+"""Mach-O load command carrying the minimum macOS version (pre-10.14 SDKs)."""
+
 LC_BUILD_VERSION: Final[int] = 0x32
+"""Mach-O load command carrying the platform and minimum OS (10.14+ SDKs)."""
+
 MACHO_PLATFORM_MACOS: Final[int] = 1
+"""`platform` field value naming macOS inside an `LC_BUILD_VERSION` command."""
+
+_PE_PROBE_BYTES: Final[int] = 65536
+"""Upper bound read when probing for a PE header: enough to cover any
+real-world DOS-stub offset to the COFF header without reading the whole
+binary."""
 
 
 def _version_key(version: str) -> tuple[int, ...]:
@@ -352,7 +373,7 @@ def _macho_info(path: Path) -> tuple[set[int], str | None]:
 def _pe_machine(path: Path) -> int | None:
     """Return the COFF machine type of a PE executable, `None` if not PE."""
     with path.open("rb") as stream:
-        head = stream.read(65536)
+        head = stream.read(_PE_PROBE_BYTES)
     if head[:2] != b"MZ" or len(head) < 0x40:
         return None
     pe_offset = struct.unpack_from("<I", head, 0x3C)[0]

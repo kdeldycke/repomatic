@@ -394,10 +394,12 @@ EXEMPTION = "--exclude-newer-package repomatic=P0D"
 @pytest.mark.parametrize(
     ("content", "expected"),
     (
-        # The bare downstream pin gains the exemption alongside the new version.
+        # The bare downstream pin gains the exemption alongside the new
+        # version, spelled exactly as the release freeze writes it so the
+        # unfreeze pattern has one shape to recognize.
         (
             "          uvx --no-progress 'repomatic==7.4.1' metadata\n",
-            f"          uvx {EXEMPTION} --no-progress 'repomatic==7.6.0' metadata\n",
+            f"          uvx --no-progress {EXEMPTION} 'repomatic==7.6.0' metadata\n",
         ),
         # Idempotent: a command already carrying it is left alone.
         (
@@ -407,7 +409,7 @@ EXEMPTION = "--exclude-newer-package repomatic=P0D"
         # A pin already at the target version still gets the flag backfilled.
         (
             "          uvx --no-progress 'repomatic==7.6.0' pr-body\n",
-            f"          uvx {EXEMPTION} --no-progress 'repomatic==7.6.0' pr-body\n",
+            f"          uvx --no-progress {EXEMPTION} 'repomatic==7.6.0' pr-body\n",
         ),
     ),
 )
@@ -758,7 +760,7 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
     assert "the notes" in body
 
 
-def _write_workflow(path: str, content: str) -> Path:
+def _write_workflow_at(path: str, content: str) -> Path:
     """Create a workflow file with parents inside the isolated filesystem."""
     workflow = Path(path)
     workflow.parent.mkdir(parents=True, exist_ok=True)
@@ -779,7 +781,7 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        workflow = _write_workflow(
+        workflow = _write_workflow_at(
             ".github/workflows/ci.yaml",
             "jobs:\n"
             "  lint:\n"
@@ -832,7 +834,7 @@ def test_sync_workflow_pins_upstream_pin_cooldown_without_refs():
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        workflow = _write_workflow(
+        workflow = _write_workflow_at(
             ".github/workflows/ci.yaml",
             "jobs:\n  build:\n    steps:\n"
             "      - run: uvx 'repomatic==6.31.0' metadata\n",
@@ -858,7 +860,7 @@ def test_sync_workflow_pins_upstream_pin_already_aligned():
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        workflow = _write_workflow(
+        workflow = _write_workflow_at(
             ".github/workflows/ci.yaml",
             "jobs:\n"
             "  lint:\n"
@@ -890,7 +892,7 @@ def test_sync_workflow_pins_upstream_pin_realigns_stragglers_both_ways():
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        behind = _write_workflow(
+        behind = _write_workflow_at(
             ".github/workflows/tests.yaml",
             "jobs:\n"
             "  lint:\n"
@@ -900,7 +902,7 @@ def test_sync_workflow_pins_upstream_pin_realigns_stragglers_both_ways():
             "    steps:\n"
             "      - run: uvx 'repomatic==6.31.0' metadata\n",
         )
-        ahead = _write_workflow(
+        ahead = _write_workflow_at(
             ".github/workflows/docs.yaml",
             "jobs:\n  build:\n    steps:\n"
             "      - run: uvx 'repomatic==7.1.0' changelog\n",

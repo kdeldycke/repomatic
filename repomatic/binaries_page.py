@@ -57,7 +57,8 @@ from pathlib import Path
 
 from click_extra.blocks import replace_region
 
-from .binary import NUITKA_BUILD_TARGETS
+from .binary import BINARY_ASSET_SUFFIXES, NUITKA_BUILD_TARGETS
+from .bundle import get_data_content
 from .github.releases import parse_release_version
 from .virustotal import VIRUSTOTAL_GUI_URL
 
@@ -68,11 +69,21 @@ if TYPE_CHECKING:
     from .github.releases import ReleaseAsset, ReleaseWithAssets
     from .virustotal import ScanRecord
 
-BINARY_ASSET_SUFFIXES = (".bin", ".exe")
-"""File extensions identifying compiled binaries among release assets.
+CHART_JS_URL = "https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"
+"""Pinned CDN artifact drawing the detections trend chart.
 
-Same set the `scan-virustotal` command uploads and the release workflow
-downloads (`--pattern` flags in `_release-engine.yaml`).
+The one external artifact this module publishes into every downstream
+repository's docs, so it carries a checksum beside the pin: bump the version
+by hand together with {data}`CHART_JS_SRI`.
+"""
+
+CHART_JS_SRI = "sha384-XcdcwHqIPULERb2yDEM4R0XaQKU3YnDsrTmjACBZyfdVVqjh6xQ4/DCMd7XLcA6Y"
+"""Subresource Integrity digest of {data}`CHART_JS_URL`.
+
+The browser refuses the script if the CDN bytes stop matching. Recompute on
+every version bump as the sha384 of the exact artifact, verified against the
+same file inside the npm registry tarball before trusting the CDN copy:
+`hashlib.sha384(artifact_bytes)` then base64.
 """
 
 CSV_HEADERS = (
@@ -275,6 +286,15 @@ def render_chart_section(records: Sequence[ScanRecord]) -> str:
         ],
         sort_keys=True,
     )
+    # The chart script ships as a bundled data file so it reads (and lints) as
+    # JavaScript instead of sixty quoted Python strings. Placeholder tokens are
+    # substituted with str.replace, never str.format: the script is full of
+    # literal braces.
+    script = (
+        get_data_content("vt-trend-chart.js")
+        .replace("__VT_TREND_PAYLOAD__", payload)
+        .replace("__VT_DANGER_PCT__", str(FLAGGED_DANGER_PCT))
+    )
     return (
         "## VirusTotal detections\n\n"
         "Share of antivirus engine verdicts flagging the binaries of each "
@@ -283,62 +303,9 @@ def render_chart_section(records: Sequence[ScanRecord]) -> str:
         "there up.\n\n"
         "```{raw} html\n"
         '<div style="height: 320px;"><canvas id="vt-trend"></canvas></div>\n'
-        '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/'
-        'chart.umd.min.js"></script>\n'
-        "<script>\n"
-        f"const VT_TREND = {payload};\n"
-        f"const VT_DANGER_PCT = {FLAGGED_DANGER_PCT};\n"
-        "const vtCss = getComputedStyle(document.documentElement);\n"
-        "const vtColor = (name, fallback) =>\n"
-        "    vtCss.getPropertyValue(name).trim() || fallback;\n"
-        "const vtTint = (p) => {\n"
-        '    if (p.pct === 0) { return vtColor("--sd-color-success", "#28a745"); }\n'
-        "    return p.pct >= VT_DANGER_PCT\n"
-        '        ? vtColor("--sd-color-danger", "#dc3545")\n'
-        '        : vtColor("--sd-color-warning", "#f0b37e");\n'
-        "};\n"
-        'new Chart(document.getElementById("vt-trend"), {\n'
-        '    type: "line",\n'
-        "    data: {\n"
-        "        datasets: [{\n"
-        "            data: VT_TREND.map((p) => ({x: Date.parse(p.date), y: p.pct})),\n"
-        '            borderColor: "#88888866",\n'
-        "            pointBackgroundColor: VT_TREND.map(vtTint),\n"
-        "            pointBorderColor: VT_TREND.map(vtTint),\n"
-        "            pointRadius: 4,\n"
-        "            tension: 0.2,\n"
-        "        }],\n"
-        "    },\n"
-        "    options: {\n"
-        "        maintainAspectRatio: false,\n"
-        "        plugins: {\n"
-        "            legend: {display: false},\n"
-        "            tooltip: {callbacks: {\n"
-        "                title: (items) => VT_TREND[items[0].dataIndex].tag,\n"
-        "                label: (item) => {\n"
-        "                    const p = VT_TREND[item.dataIndex];\n"
-        '                    return p.flagged + " / " + p.total\n'
-        '                        + " verdicts flagged (" + p.pct + "%)";\n'
-        "                },\n"
-        "            }},\n"
-        "        },\n"
-        "        scales: {\n"
-        "            x: {\n"
-        '                type: "linear",\n'
-        "                ticks: {\n"
-        "                    maxTicksLimit: 8,\n"
-        "                    callback: (value) =>\n"
-        "                        new Date(value).toISOString().slice(0, 10),\n"
-        "                },\n"
-        "            },\n"
-        "            y: {\n"
-        "                beginAtZero: true,\n"
-        '                title: {display: true, text: "Flagged verdicts (%)"},\n'
-        "            },\n"
-        "        },\n"
-        "    },\n"
-        "});\n"
-        "</script>\n"
+        f'<script src="{CHART_JS_URL}" integrity="{CHART_JS_SRI}" '
+        'crossorigin="anonymous"></script>\n'
+        f"<script>\n{script}</script>\n"
         "```"
     )
 

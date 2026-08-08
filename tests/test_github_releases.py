@@ -46,6 +46,12 @@ def _release_payload(version: str, date: str = "2026-01-01") -> dict:
     }
 
 
+def _paged_urlopen(*bodies: bytes):
+    """Patch `urlopen` to serve *bodies* in order, one per pagination request."""
+    responses = iter([FakeResponse(body) for body in bodies])
+    return patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses))
+
+
 def _bypass_cache(monkeypatch):
     """Force cache misses and silently swallow writes."""
     monkeypatch.setattr(
@@ -66,11 +72,7 @@ def test_get_github_releases_single_page(monkeypatch):
         _release_payload("1.0.0", "2025-12-01"),
     ]).encode()
 
-    responses = iter([FakeResponse(body), FakeResponse(b"[]")])
-    with patch(
-        "repomatic.http.urlopen",
-        side_effect=lambda *a, **kw: next(responses),
-    ):
+    with _paged_urlopen(body, b"[]"):
         result = get_github_releases("https://github.com/user/repo")
 
     assert result == {
@@ -86,15 +88,7 @@ def test_get_github_releases_multi_page_pagination(monkeypatch):
     page_2 = json.dumps([_release_payload("1.0.0", "2026-01-01")]).encode()
     page_3 = b"[]"
 
-    responses = iter([
-        FakeResponse(page_1),
-        FakeResponse(page_2),
-        FakeResponse(page_3),
-    ])
-    with patch(
-        "repomatic.http.urlopen",
-        side_effect=lambda *a, **kw: next(responses),
-    ):
+    with _paged_urlopen(page_1, page_2, page_3):
         result = get_github_releases("https://github.com/user/repo")
 
     assert set(result) == {"2.0.0", "1.0.0"}
@@ -379,8 +373,7 @@ def test_dev_release_url_and_previous_version_resolves_both():
         _asset_payload("v1.2.2"),
         _asset_payload("v1.2.1"),
     ]).encode()
-    responses = iter([FakeResponse(page), FakeResponse(b"[]")])
-    with patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses)):
+    with _paged_urlopen(page, b"[]"):
         dev_url, previous = dev_release_url_and_previous_version(
             "https://github.com/user/repo", "1.2.3"
         )
@@ -401,8 +394,7 @@ def test_dev_release_url_and_previous_version_matches_release_segment():
         ),
         _asset_payload("v2.4.0"),
     ]).encode()
-    responses = iter([FakeResponse(page), FakeResponse(b"[]")])
-    with patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses)):
+    with _paged_urlopen(page, b"[]"):
         dev_url, previous = dev_release_url_and_previous_version(
             "https://github.com/user/repo", "2.5.0"
         )
@@ -418,8 +410,7 @@ def test_dev_release_url_and_previous_version_no_draft():
         _asset_payload("v2.0.0"),
         _asset_payload("v1.9.0"),
     ]).encode()
-    responses = iter([FakeResponse(page), FakeResponse(b"[]")])
-    with patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses)):
+    with _paged_urlopen(page, b"[]"):
         dev_url, previous = dev_release_url_and_previous_version(
             "https://github.com/user/repo", "2.1.0"
         )
@@ -438,8 +429,7 @@ def test_dev_release_url_and_previous_version_first_release():
             html_url="https://github.com/user/repo/releases/tag/untagged-cafe",
         ),
     ]).encode()
-    responses = iter([FakeResponse(page), FakeResponse(b"[]")])
-    with patch("repomatic.http.urlopen", side_effect=lambda *a, **kw: next(responses)):
+    with _paged_urlopen(page, b"[]"):
         dev_url, previous = dev_release_url_and_previous_version(
             "https://github.com/user/repo", "1.0.0"
         )

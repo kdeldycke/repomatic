@@ -235,7 +235,7 @@ def fix_awesome_toc(root: Path | None = None) -> dict[Path, list[str]]:
     reference = root / REFERENCE_README
     reference_headings: list[str] | None = None
     if reference.is_file():
-        reference_headings = headings(reference.read_text(encoding="utf-8"))
+        reference_headings = headings(reference.read_text(encoding="UTF-8"))
     else:
         logging.warning(
             f"No {REFERENCE_README} in {root}: translations can only be matched "
@@ -244,13 +244,13 @@ def fix_awesome_toc(root: Path | None = None) -> dict[Path, list[str]]:
 
     report: dict[Path, list[str]] = {}
     for readme in _readmes(root):
-        content = readme.read_text(encoding="utf-8")
+        content = readme.read_text(encoding="UTF-8")
         forbidden = forbidden_headings_for(content, reference_headings)
         updated, removed = strip_toc_entries(content, forbidden)
         if not removed:
             logging.debug(f"No forbidden ToC entry in {readme}.")
             continue
-        readme.write_text(updated, encoding="utf-8")
+        readme.write_text(updated, encoding="UTF-8")
         logging.info(f"Removed {len(removed)} ToC entries from {readme}.")
         report[readme] = removed
     return report

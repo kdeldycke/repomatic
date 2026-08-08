@@ -59,9 +59,10 @@ from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 
 import pytest
+
+from tests.conftest import PACKAGE_DIR, PACKAGE_FILES, PROJECT_ROOT
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -80,15 +81,6 @@ instead of failing to collect the whole suite. `exc_type` has to widen to
 re-raises a plain `ImportError` carrying an install hint, which the default
 `ModuleNotFoundError` would let through as a collection error.
 """
-
-PROJECT_ROOT = Path(__file__).parent.parent
-"""Root of the repository."""
-
-SOURCE_DIR = PROJECT_ROOT / "repomatic"
-"""Root of the package whose docstrings Sphinx renders into the documentation."""
-
-SOURCE_FILES = sorted(SOURCE_DIR.rglob("*.py"))
-"""Every Python module of the package."""
 
 KNOWN_ROLES = frozenset((
     "abbr",
@@ -214,8 +206,8 @@ def _mangled_docstrings(tree: ast.Module) -> list[str]:
 
 def test_package_discovered() -> None:
     """The scan actually walks the package, so a green result means something."""
-    assert len(SOURCE_FILES) > 40
-    assert SOURCE_DIR / "cli.py" in SOURCE_FILES
+    assert len(PACKAGE_FILES) > 40
+    assert PACKAGE_DIR / "cli.py" in PACKAGE_FILES
 
 
 def test_detector_flags_eaten_placeholder() -> None:
@@ -238,12 +230,12 @@ def test_detector_flags_eaten_placeholder() -> None:
 
 @pytest.mark.parametrize(
     "source_file",
-    SOURCE_FILES,
+    PACKAGE_FILES,
     ids=lambda path: str(path.relative_to(PROJECT_ROOT)),
 )
-def test_no_mangled_docstrings(source_file: Path) -> None:
+def test_no_mangled_docstrings(source_file) -> None:
     """No docstring loses a placeholder to the MyST-to-reST conversion."""
-    tree = ast.parse(source_file.read_text(encoding="utf-8"))
+    tree = ast.parse(source_file.read_text(encoding="UTF-8"))
     violations = _mangled_docstrings(tree)
     assert not violations, (
         f"{source_file.relative_to(PROJECT_ROOT)} has a brace placeholder against"

@@ -72,10 +72,11 @@ import json
 import logging
 from dataclasses import dataclass, fields
 from typing import NamedTuple
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .gh import resolve_gh_token, run_gh_command
+from ..http import DEFAULT_TIMEOUT
+from .gh import api_headers, resolve_gh_token, run_gh_command
 from .status import status_annotation
 
 
@@ -293,16 +294,24 @@ def validate_gh_api_access() -> tuple[int, dict[str, str], str]:
     Calls `GET https://api.github.com/rate_limit` with the token from
     environment variables.
 
+    Does not go through {func}`~repomatic.http.get_json`, which returns only
+    the parsed body: this is the one caller that needs the *response headers*,
+    since `X-OAuth-Scopes` is what tells a classic PAT apart from a
+    fine-grained one. It still borrows that module's
+    {data}`~repomatic.http.DEFAULT_TIMEOUT`, so a stalled connection fails the
+    check instead of hanging the job that runs it.
+
     :return: Tuple of `(status_code, headers, body)`.
-    :raises RuntimeError: If the API returns a 4xx/5xx status.
+    :raises RuntimeError: If the API returns a 4xx/5xx status, or cannot be
+        reached at all (network error, timeout).
     """
-    request = Request("https://api.github.com/rate_limit")
-    token = resolve_gh_token()
-    if token:
-        request.add_header("Authorization", f"token {token}")
+    request = Request("https://api.github.com/rate_limit", headers=api_headers())
 
     try:
-        response = urlopen(request)
+        with urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
+            status = response.status
+            headers = {k.lower(): v for k, v in response.headers.items()}
+            body = response.read().decode()
     except HTTPError as exc:
         message = ""
         try:
@@ -312,11 +321,15 @@ def validate_gh_api_access() -> tuple[int, dict[str, str], str]:
         detail = f"GitHub API returned an error ({exc.code})."
         if message:
             detail += f" GitHub says: {message}"
-        raise RuntimeError(detail) from exc
+        raise RuntimeError(_with_status_annotation(detail)) from exc
+    except (URLError, TimeoutError) as exc:
+        # Unreachable rather than refused. Only possible to hit now that the
+        # request carries a timeout, and the caller's contract promises a
+        # RuntimeError for every failure, so it cannot escape raw.
+        detail = f"Could not reach the GitHub API: {exc}"
+        raise RuntimeError(_with_status_annotation(detail)) from exc
 
-    body = response.read().decode()
-    headers = {k.lower(): v for k, v in response.headers.items()}
-    return response.status, headers, body
+    return status, headers, body
 
 
 def validate_classic_pat_scope(required_scope: str) -> list[str]:

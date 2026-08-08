@@ -21,8 +21,8 @@ from unittest.mock import patch
 import pytest
 
 from repomatic.changelog import Changelog, build_expected_body
+from repomatic.github.actions import ReportAction
 from repomatic.github.release_sync import (
-    SyncAction,
     SyncResult,
     SyncRow,
     _normalize_body,
@@ -184,30 +184,61 @@ def test_normalize_body(text, expected):
     assert _normalize_body(text) == expected
 
 
-def test_sync_all_in_sync(tmp_path):
-    """No updates when all bodies match."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
+@pytest.fixture
+def changelog_path(tmp_path):
+    """A changelog file on disk holding `SAMPLE_CHANGELOG`."""
+    path = tmp_path / "changelog.md"
+    path.write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
+    return path
 
-    changelog = Changelog(SAMPLE_CHANGELOG)
-    # Use build_expected_body to get the template-rendered release body.
-    body_200 = build_expected_body(changelog, "2.0.0")
-    body_110 = build_expected_body(changelog, "1.1.0")
-    body_100 = build_expected_body(changelog, "1.0.0")
 
-    mock_releases = {
-        "2.0.0": GitHubRelease(date="2026-01-15", body=body_200),
-        "1.1.0": GitHubRelease(date="2026-01-10", body=body_110),
-        "1.0.0": GitHubRelease(date="2026-01-01", body=body_100),
-    }
+def expected_body(version: str) -> str:
+    """The release body `sync_github_releases` would render for *version*."""
+    return build_expected_body(Changelog(SAMPLE_CHANGELOG), version)
 
-    with patch(
-        "repomatic.github.release_sync.get_github_releases",
-        return_value=mock_releases,
+
+def run_sync(changelog_path, releases, *, dry_run=True, edit_result=None):
+    """Drive `sync_github_releases` against canned GitHub state.
+
+    :param changelog_path: The changelog the expected bodies are derived from.
+    :param releases: Version to `GitHubRelease`, as the API would return them.
+    :param dry_run: Passed straight through to the command.
+    :param edit_result: When set, `edit_release_notes` is patched to return it
+        and the mock is handed back beside the result so a caller can assert on
+        the calls. Left `None`, no mutation seam is installed.
+    :return: The sync result, or `(result, edit_mock)` when *edit_result* is set.
+    """
+    releases_patch = patch(
+        "repomatic.github.release_sync.get_github_releases", return_value=releases
+    )
+    if edit_result is None:
+        with releases_patch:
+            return sync_github_releases(
+                "https://github.com/user/repo", changelog_path, dry_run=dry_run
+            )
+    with (
+        releases_patch,
+        patch(
+            "repomatic.github.release_sync.edit_release_notes",
+            return_value=edit_result,
+        ) as edit_mock,
     ):
         result = sync_github_releases(
-            "https://github.com/user/repo", changelog_path, dry_run=True
+            "https://github.com/user/repo", changelog_path, dry_run=dry_run
         )
+    return result, edit_mock
+
+
+def test_sync_all_in_sync(changelog_path):
+    """No updates when all bodies match."""
+    result = run_sync(
+        changelog_path,
+        {
+            "2.0.0": GitHubRelease(date="2026-01-15", body=expected_body("2.0.0")),
+            "1.1.0": GitHubRelease(date="2026-01-10", body=expected_body("1.1.0")),
+            "1.0.0": GitHubRelease(date="2026-01-01", body=expected_body("1.0.0")),
+        },
+    )
 
     assert result.total == 3
     assert result.in_sync == 3
@@ -216,144 +247,78 @@ def test_sync_all_in_sync(tmp_path):
     assert result.failed == 0
 
 
-def test_sync_detects_drift(tmp_path):
+def test_sync_detects_drift(changelog_path):
     """Flags releases with different bodies in dry-run."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
-
-    changelog = Changelog(SAMPLE_CHANGELOG)
-    body_110 = build_expected_body(changelog, "1.1.0")
-
-    mock_releases = {
-        "2.0.0": GitHubRelease(date="2026-01-15", body="old body"),
-        "1.1.0": GitHubRelease(date="2026-01-10", body=body_110),
-        "1.0.0": GitHubRelease(date="2026-01-01", body="stale content"),
-    }
-
-    with patch(
-        "repomatic.github.release_sync.get_github_releases",
-        return_value=mock_releases,
-    ):
-        result = sync_github_releases(
-            "https://github.com/user/repo", changelog_path, dry_run=True
-        )
+    result = run_sync(
+        changelog_path,
+        {
+            "2.0.0": GitHubRelease(date="2026-01-15", body="old body"),
+            "1.1.0": GitHubRelease(date="2026-01-10", body=expected_body("1.1.0")),
+            "1.0.0": GitHubRelease(date="2026-01-01", body="stale content"),
+        },
+    )
 
     assert result.total == 3
     assert result.in_sync == 1
     assert result.drifted == 2
     # Dry-run rows should use DRY_RUN action.
-    drifted_rows = [r for r in result.rows if r.action == SyncAction.DRY_RUN]
+    drifted_rows = [r for r in result.rows if r.action == ReportAction.DRY_RUN]
     assert len(drifted_rows) == 2
 
 
-def test_sync_dry_run_no_mutations(tmp_path):
+def test_sync_dry_run_no_mutations(changelog_path):
     """Dry-run doesn't call ``gh release edit``."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
+    _result, edit_mock = run_sync(
+        changelog_path,
+        {"2.0.0": GitHubRelease(date="2026-01-15", body="old body")},
+        edit_result=True,
+    )
 
-    mock_releases = {
-        "2.0.0": GitHubRelease(date="2026-01-15", body="old body"),
-    }
-
-    with (
-        patch(
-            "repomatic.github.release_sync.get_github_releases",
-            return_value=mock_releases,
-        ),
-        patch(
-            "repomatic.github.release_sync.edit_release_notes",
-        ) as mock_edit,
-    ):
-        sync_github_releases(
-            "https://github.com/user/repo", changelog_path, dry_run=True
-        )
-
-    mock_edit.assert_not_called()
+    edit_mock.assert_not_called()
 
 
-def test_sync_live_updates(tmp_path):
+def test_sync_live_updates(changelog_path):
     """Live mode calls ``gh release edit`` with correct args."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
+    result, edit_mock = run_sync(
+        changelog_path,
+        {"2.0.0": GitHubRelease(date="2026-01-15", body="old body")},
+        dry_run=False,
+        edit_result=True,
+    )
 
-    changelog = Changelog(SAMPLE_CHANGELOG)
-    expected_body = build_expected_body(changelog, "2.0.0")
-
-    mock_releases = {
-        "2.0.0": GitHubRelease(date="2026-01-15", body="old body"),
-    }
-
-    with (
-        patch(
-            "repomatic.github.release_sync.get_github_releases",
-            return_value=mock_releases,
-        ),
-        patch(
-            "repomatic.github.release_sync.edit_release_notes",
-            return_value=True,
-        ) as mock_edit,
-    ):
-        result = sync_github_releases(
-            "https://github.com/user/repo", changelog_path, dry_run=False
-        )
-
-    mock_edit.assert_called_once_with("v2.0.0", "user/repo", expected_body)
+    edit_mock.assert_called_once_with("v2.0.0", "user/repo", expected_body("2.0.0"))
     assert result.updated == 1
     assert result.drifted == 1
 
 
-def test_sync_missing_changelog_section(tmp_path):
-    """Handles releases without changelog entries."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
+def test_sync_missing_changelog_section(changelog_path):
+    """A GitHub release with no changelog section is never iterated."""
+    result = run_sync(
+        changelog_path,
+        {
+            "2.0.0": GitHubRelease(date="2026-01-15", body="body"),
+            "1.1.0": GitHubRelease(date="2026-01-10", body="body"),
+            "1.0.0": GitHubRelease(date="2026-01-01", body="body"),
+            # Released on GitHub, absent from the changelog.
+            "3.0.0": GitHubRelease(date="2026-02-01", body="something"),
+        },
+    )
 
-    # Version 3.0.0 has a GitHub release but no changelog section.
-    mock_releases = {
-        "2.0.0": GitHubRelease(date="2026-01-15", body="body"),
-        "1.1.0": GitHubRelease(date="2026-01-10", body="body"),
-        "1.0.0": GitHubRelease(date="2026-01-01", body="body"),
-        "3.0.0": GitHubRelease(date="2026-02-01", body="something"),
-    }
-
-    with patch(
-        "repomatic.github.release_sync.get_github_releases",
-        return_value=mock_releases,
-    ):
-        result = sync_github_releases(
-            "https://github.com/user/repo", changelog_path, dry_run=True
-        )
-
-    # 3.0.0 isn't in the changelog, so it won't be iterated.
-    # Only changelog versions are iterated.
     assert result.total == 3
 
 
-def test_sync_live_failure(tmp_path):
+def test_sync_live_failure(changelog_path):
     """Records failure when ``gh release edit`` fails."""
-    changelog_path = tmp_path / "changelog.md"
-    changelog_path.write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
-
-    mock_releases = {
-        "2.0.0": GitHubRelease(date="2026-01-15", body="old body"),
-    }
-
-    with (
-        patch(
-            "repomatic.github.release_sync.get_github_releases",
-            return_value=mock_releases,
-        ),
-        patch(
-            "repomatic.github.release_sync.edit_release_notes",
-            return_value=False,
-        ),
-    ):
-        result = sync_github_releases(
-            "https://github.com/user/repo", changelog_path, dry_run=False
-        )
+    result, _edit_mock = run_sync(
+        changelog_path,
+        {"2.0.0": GitHubRelease(date="2026-01-15", body="old body")},
+        dry_run=False,
+        edit_result=False,
+    )
 
     assert result.failed == 1
     assert result.updated == 0
-    failed_rows = [r for r in result.rows if r.action == SyncAction.FAILED]
+    failed_rows = [r for r in result.rows if r.action == ReportAction.FAILED]
     assert len(failed_rows) == 1
 
 
@@ -366,17 +331,17 @@ def test_render_sync_report_dry_run():
         drifted=2,
         rows=[
             SyncRow(
-                action=SyncAction.SKIPPED,
+                action=ReportAction.SKIPPED,
                 version="1.0.0",
                 release_url="https://github.com/user/repo/releases/tag/v1.0.0",
             ),
             SyncRow(
-                action=SyncAction.DRY_RUN,
+                action=ReportAction.DRY_RUN,
                 version="2.0.0",
                 release_url="https://github.com/user/repo/releases/tag/v2.0.0",
             ),
             SyncRow(
-                action=SyncAction.DRY_RUN,
+                action=ReportAction.DRY_RUN,
                 version="3.0.0",
                 release_url="https://github.com/user/repo/releases/tag/v3.0.0",
             ),
@@ -407,12 +372,12 @@ def test_render_sync_report_live():
         failed=1,
         rows=[
             SyncRow(
-                action=SyncAction.UPDATED,
+                action=ReportAction.UPDATED,
                 version="2.0.0",
                 release_url="https://github.com/user/repo/releases/tag/v2.0.0",
             ),
             SyncRow(
-                action=SyncAction.FAILED,
+                action=ReportAction.FAILED,
                 version="3.0.0",
                 release_url="https://github.com/user/repo/releases/tag/v3.0.0",
             ),

@@ -526,8 +526,8 @@ class VulnerableDepsConfig:
 
     Sources are unioned and deduplicated per package by advisory
     identity: entries sharing an `advisory_id` or a cross-referenced
-    CVE/GHSA/PYSEC alias are merged. Repositories that distrust GHSA —
-    or have no Dependabot alerts enabled — can opt out with
+    CVE/GHSA/PYSEC alias are merged. Repositories that distrust GHSA, or
+    have no Dependabot alerts enabled, can opt out with
     `sources = ["uv-audit"]`.
     """
 
@@ -552,7 +552,7 @@ class WorkflowConfig:
 
     When `None` (default), source paths are auto-derived from
     `[project.name]` in `pyproject.toml` by replacing hyphens with
-    underscores — the universal Python convention. For example,
+    underscores, the universal Python convention. For example,
     `name = "extra-platforms"` automatically uses `["extra_platforms"]`.
     """
 
@@ -1080,6 +1080,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "bumpversion_sync",
     "cache",
     "changelog_archive_location",
+    "changelog_bullet_word_threshold",
     "changelog_location",
     "dep_sources_sync",
     "dependency_graph",
@@ -1093,6 +1094,8 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "mailmap_sync",
     "minimum_release_age",
     "notification_unsubscribe",
+    "nuitka_enabled",
+    "nuitka_nofollow_imports",
     "pypi_package_history",
     "settings_location",
     "setup_guide",

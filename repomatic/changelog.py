@@ -114,7 +114,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -138,56 +137,28 @@ from .pypi import (
 )
 from .pyproject import get_project_name
 
-CHANGELOG_HEADER = "# Changelog\n"
-"""Default changelog header for empty changelogs."""
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
-SECTION_START = "##"
-"""Markdown heading level for changelog version sections."""
+    from .config import Config
 
-VERSION_COMPARE_PATTERN = re.compile(r"v(\d+\.\d+\.\d+)\.\.\.v(\d+\.\d+\.\d+)")
-"""Pattern matching GitHub comparison URLs like `v1.0.0...v1.0.1`."""
 
-RELEASED_VERSION_PATTERN = re.compile(
-    rf"^{SECTION_START}\s*\[`?(\d+\.\d+\.\d+)`?\s+\((\d{{4}}-\d{{2}}-\d{{2}})\)\]",
-    re.MULTILINE,
-)
-"""Pattern matching released version headings with dates.
+def resolved_changelog_path(config: Config) -> Path:
+    """Absolute path of the configured changelog.
 
-Captures version and date from headings like
-``## [`5.9.1` (2026-02-14)](...)``. Skips unreleased versions which
-use `(unreleased)` instead of a date. Backticks around the version
-are optional.
-"""
+    The one derivation of `[tool.repomatic] changelog.location` into a
+    filesystem path, so every command resolves the same file the same way
+    (two call sites used to resolve the path and two did not).
+    """
+    return Path(config.changelog_location).resolve()
 
-HEADING_PARTS_PATTERN = re.compile(
-    rf"^{SECTION_START}\s*\[`?(?P<version>\d+\.\d+\.\d+(?:\.\w+)?)`?\s+"
-    rf"\((?P<date>[^)]+)\)\]"
-    rf"\((?P<url>[^)]+)\)",
-    re.MULTILINE,
-)
-"""Pattern extracting version, date/label, and URL from a heading.
-
-Used by {meth}`Changelog.decompose_version` to populate the heading
-fields of {class}`VersionElements`.
-"""
 
 AVAILABLE_VERB = "is available on"
 """Verb phrase for versions present on a platform."""
 
-FIRST_AVAILABLE_VERB = "is the *first version* available on"
-"""Verb phrase for the inaugural release on a platform."""
-
-GITHUB_LABEL = "🐙 GitHub"
-"""Display label for GitHub releases in admonitions."""
-
-GITHUB_RELEASE_URL = "{repo_url}/releases/tag/v{version}"
-"""GitHub release page URL for a specific version."""
-
-NOT_AVAILABLE_VERB = "is **not available** on"
-"""Verb phrase for versions missing from a platform."""
-
-YANKED_DEDUP_MARKER = "yanked from PyPI"
-"""Dedup marker for the yanked admonition to prevent duplicate insertion."""
+CHANGELOG_HEADER = "# Changelog\n"
+"""Default changelog header for empty changelogs."""
 
 EMPTY_PYPI_SANITY_THRESHOLD = 3
 """Minimum number of existing PyPI links in the changelog above which an
@@ -215,6 +186,117 @@ PyPI link from the changelog. Re-runs of `lint-changelog --fix` against
 a healthy API restore the file.
 """
 
+FIRST_AVAILABLE_VERB = "is the *first version* available on"
+"""Verb phrase for the inaugural release on a platform."""
+
+GITHUB_LABEL = "🐙 GitHub"
+"""Display label for GitHub releases in admonitions."""
+
+GITHUB_RELEASE_URL = "{repo_url}/releases/tag/v{version}"
+"""GitHub release page URL for a specific version."""
+
+NOT_AVAILABLE_VERB = "is **not available** on"
+"""Verb phrase for versions missing from a platform."""
+
+SECTION_START = "##"
+"""Markdown heading level for changelog version sections."""
+
+YANKED_DEDUP_MARKER = "yanked from PyPI"
+"""Dedup marker for the yanked admonition to prevent duplicate insertion."""
+
+# Patterns below are derived from the constants above, so they follow them
+# instead of joining the alphabetical block.
+
+RELEASE_VERSION_TOKEN = r"\d+\.\d+\.\d+"
+"""Regex fragment for a final release version, like `1.2.3`.
+
+The strict half of the version vocabulary: it deliberately rejects the
+`.devN` suffix {data}`VERSION_TOKEN` accepts, because a changelog documents
+only final releases. Anything keyed off a *published* version (a dated
+heading, a comparison URL) uses this one.
+"""
+
+VERSION_TOKEN = rf"{RELEASE_VERSION_TOKEN}(?:\.\w+)?"
+"""Regex fragment for any version a `##` heading may carry.
+
+Widens {data}`RELEASE_VERSION_TOKEN` with the trailing `.devN` a
+development section carries between releases. Anything enumerating or
+locating headings uses this one, so an unreleased section is never
+invisible to a scan that has to account for it.
+"""
+
+VERSION_COMPARE_PATTERN = re.compile(
+    rf"v{RELEASE_VERSION_TOKEN}\.\.\.v{RELEASE_VERSION_TOKEN}"
+)
+"""Pattern matching GitHub comparison URLs like `v1.0.0...v1.0.1`."""
+
+RELEASED_VERSION_PATTERN = re.compile(
+    rf"^{SECTION_START}\s*\[`?(?P<version>{RELEASE_VERSION_TOKEN})`?"
+    rf"\s+\((?P<date>\d{{4}}-\d{{2}}-\d{{2}})\)\]",
+    re.MULTILINE,
+)
+"""Pattern matching released version headings with dates.
+
+Captures version and date from headings like
+``## [`5.9.1` (2026-02-14)](...)``. Skips unreleased versions which
+use `(unreleased)` instead of a date. Backticks around the version
+are optional.
+"""
+
+HEADING_PARTS_PATTERN = re.compile(
+    rf"^{SECTION_START}\s*\[`?(?P<version>{VERSION_TOKEN})`?\s+"
+    rf"\((?P<date>[^)]+)\)\]"
+    rf"\((?P<url>[^)]+)\)",
+    re.MULTILINE,
+)
+"""Pattern extracting version, date/label, and URL from a heading.
+
+Used by {meth}`Changelog.decompose_version` to populate the heading
+fields of {class}`VersionElements`.
+"""
+
+
+def _heading_fragment(version: str | None = None) -> str:
+    """Regex fragment matching a `##` version heading up to its version token.
+
+    The shared prefix of every heading-keyed lookup in this module. Callers
+    append whatever trails the version: nothing (locate a heading), the rest of
+    the line plus a body (a whole section), or a comparison URL.
+
+    :param version: Match this exact version. When `None`, matches any version
+        a heading may carry and captures it as the `version` group.
+    :return: An uncompiled fragment, meant to be used with {data}`re.MULTILINE`.
+    """
+    token = re.escape(version) if version else rf"(?P<version>{VERSION_TOKEN})"
+    return rf"^{SECTION_START}\s*\[`?{token}`?\s"
+
+
+def _heading_re(version: str | None = None) -> re.Pattern[str]:
+    """Compile {func}`_heading_fragment` on its own, to locate headings.
+
+    :param version: Match this exact version, or any version when `None`.
+    :return: A compiled pattern whose `version` group holds the version, for
+        the `None` case.
+    """
+    return re.compile(_heading_fragment(version), re.MULTILINE)
+
+
+def _section_re(version: str) -> re.Pattern[str]:
+    """Compile a pattern spanning a whole version section.
+
+    Matches from the heading line of *version* down to the next `##` heading
+    or the end of the content, whichever comes first. Everything below the
+    heading line is captured as the `body` group.
+
+    :param version: The version whose section to match.
+    :return: A compiled pattern.
+    """
+    return re.compile(
+        rf"{_heading_fragment(version)}[^\n]+\n"
+        rf"(?P<body>.*?)(?=^{SECTION_START}|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+
 
 @dataclass
 class VersionElements:
@@ -239,7 +321,7 @@ class VersionElements:
     version: str = ""
     """Version string extracted from the heading (e.g. `1.2.3`)."""
 
-    # --- body fields ---
+    # Body fields.
 
     availability_admonition: str = ""
     """`[!NOTE]` or `[!WARNING]` block for platform availability."""
@@ -275,16 +357,23 @@ class Changelog:
         self.current_version = current_version
         logging.debug(f"Initial content set to:\n{self.content}")
 
-    def update(self) -> str:
+    def update(self, default_branch: str = "main") -> str:
         """Add a new unreleased entry at the top of the changelog.
 
         Decomposes the current version section, transforms it into an
         unreleased entry (date set to `unreleased`, comparison URL
-        retargeted to `main`, body replaced with the development
-        warning), and prepends it to the changelog.
+        retargeted to the default branch, body replaced with the
+        development warning), and prepends it to the changelog.
 
         Idempotent: returns the current content unchanged if an
         unreleased entry already exists.
+
+        :param default_branch: Branch name for the comparison URL. Must match
+            what {meth}`freeze` is later given, since the two halves of a
+            release cycle retarget the same URL in opposite directions: a
+            mismatch leaves the released section pointing at a branch that
+            does not exist.
+        :return: The updated changelog content.
         """
         if not self.current_version:
             return self.content.rstrip()
@@ -302,7 +391,7 @@ class Changelog:
         # Transform frozen entry into an unreleased entry.
         elements.date = "unreleased"
         elements.compare_url = VERSION_COMPARE_PATTERN.sub(
-            f"v{self.current_version}...main",
+            f"v{self.current_version}...{default_branch}",
             elements.compare_url,
         )
         elements.development_warning = render_template("development-warning")
@@ -333,19 +422,33 @@ class Changelog:
         development warning, and re-renders via the `release-notes`
         template.
 
+        Returns `False` for three different situations, only one of which is
+        benign: an already-frozen section (idempotent no-op), no version to
+        freeze, and a version whose section is missing. The last one is what a
+        release would otherwise ship an `(unreleased)` heading over, so it is
+        logged as a warning rather than left to look like the no-op.
+
         :param release_date: Date in `YYYY-MM-DD` format.
             Defaults to today (UTC).
-        :param default_branch: Branch name for comparison URL.
+        :param default_branch: Branch name for comparison URL. Must match what
+            {meth}`update` used to write it, per that method's note.
         :return: True if the content was modified.
         """
         if release_date is None:
             release_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         if not self.current_version:
+            logging.warning("No current version set: nothing to freeze.")
             return False
 
         elements = self.decompose_version(self.current_version)
         if not elements.version:
+            logging.warning(
+                f"⚠ No changelog section found for version"
+                f" {self.current_version}: nothing was frozen. The release will"
+                " ship without a dated entry unless the heading is fixed to"
+                " match the version being released."
+            )
             return False
 
         # Already frozen: nothing to do.
@@ -435,13 +538,7 @@ class Changelog:
 
         :return: Set of version strings found in headings.
         """
-        return set(
-            re.findall(
-                rf"^{SECTION_START}\s*\[`?(\d+\.\d+\.\d+(?:\.\w+)?)`?\s",
-                self.content,
-                flags=re.MULTILINE,
-            )
-        )
+        return {match["version"] for match in _heading_re().finditer(self.content)}
 
     def insert_version_section(
         self,
@@ -488,14 +585,12 @@ class Changelog:
         heading = render_template("release-notes", **asdict(elements)) + "\n"
 
         # Find the right insertion point: before the first heading whose
-        # version is lower than this one.
+        # version is lower than this one. Development headings count, so a
+        # changelog carrying only a `.devN` section still orders correctly
+        # instead of falling through to the append-at-end branch.
         insert_pos = None
-        for match in re.finditer(
-            rf"^{SECTION_START}\s*\[`?(\d+\.\d+\.\d+)`?\s",
-            self.content,
-            flags=re.MULTILINE,
-        ):
-            existing = Version(match.group(1))
+        for match in _heading_re().finditer(self.content):
+            existing = Version(match["version"])
             if existing < parsed:
                 insert_pos = match.start()
                 break
@@ -531,8 +626,8 @@ class Changelog:
         :return: True if the content was modified.
         """
         pattern = re.compile(
-            rf"(^{SECTION_START}\s*\[`?{re.escape(version)}`?\s[^\n]*"
-            rf"/compare/)v[^.]+\.[^.]+\.[^.]+(\.\.\.v{re.escape(version)}\))",
+            rf"({_heading_fragment(version)}[^\n]*/compare/)"
+            rf"v{RELEASE_VERSION_TOKEN}(\.\.\.v{re.escape(version)}\))",
             re.MULTILINE,
         )
         updated = pattern.sub(rf"\g<1>v{new_base}\g<2>", self.content, count=1)
@@ -554,18 +649,13 @@ class Changelog:
         :param version: Version string (e.g. `1.2.3`).
         :return: A {class}`VersionElements` with each field populated.
         """
-        section_pattern = re.compile(
-            rf"^{SECTION_START}\s*\[`?{re.escape(version)}`?\s[^\n]+\n"
-            rf"(.*?)(?=^{SECTION_START}|\Z)",
-            re.MULTILINE | re.DOTALL,
-        )
-        match = section_pattern.search(self.content)
-        if not match:
+        section_match = _section_re(version).search(self.content)
+        if not section_match:
             return VersionElements()
 
         # Extract heading fields.
         heading_match = HEADING_PARTS_PATTERN.search(
-            self.content[match.start() : match.end()]
+            self.content[section_match.start() : section_match.end()]
         )
         elements = VersionElements()
         if heading_match:
@@ -573,7 +663,7 @@ class Changelog:
             elements.date = heading_match.group("date")
             elements.version = heading_match.group("version")
 
-        body = match.group(1).strip()
+        body = section_match["body"].strip()
         if not body:
             return elements
         # Match GFM alert blocks: consecutive lines starting with "> ".
@@ -589,21 +679,18 @@ class Changelog:
         # Accumulate editorial (hand-written) admonitions.
         editorial_parts: list[str] = []
 
-        for match in admonition_pattern.finditer(body):
-            block_text = match.group(0)
+        for block_match in admonition_pattern.finditer(body):
+            block_text = block_match.group(0)
+            exclude_regions.append((block_match.start(), block_match.end()))
             if "not released yet" in block_text:
                 elements.development_warning = block_text.rstrip("\n")
-                exclude_regions.append((match.start(), match.end()))
             elif YANKED_DEDUP_MARKER in block_text:
                 elements.yanked_admonition = block_text.rstrip("\n")
-                exclude_regions.append((match.start(), match.end()))
             elif f"> `{version}` is " in block_text:
                 availability_parts.append(block_text.rstrip("\n"))
-                exclude_regions.append((match.start(), match.end()))
             else:
                 # Hand-written admonition, not auto-generated.
                 editorial_parts.append(block_text.rstrip("\n"))
-                exclude_regions.append((match.start(), match.end()))
 
         elements.availability_admonition = "\n\n".join(availability_parts)
         elements.editorial_admonition = "\n\n".join(editorial_parts)
@@ -632,12 +719,7 @@ class Changelog:
         :param new_section: New section content including heading.
         :return: True if the content was modified.
         """
-        section_pattern = re.compile(
-            rf"^{SECTION_START}\s*\[`?{re.escape(version)}`?\s[^\n]+\n"
-            rf"(.*?)(?=^{SECTION_START}|\Z)",
-            re.MULTILINE | re.DOTALL,
-        )
-        match = section_pattern.search(self.content)
+        match = _section_re(version).search(self.content)
         if not match:
             return False
         old_section = match.group(0)
@@ -649,6 +731,33 @@ class Changelog:
             self.content[: match.start()] + formatted + self.content[match.end() :]
         )
         return True
+
+
+def _platform_admonition(
+    template: str, version: str, verb: str, platforms: Sequence[str]
+) -> str:
+    """Render a GFM admonition naming the platforms a version stands on.
+
+    The shared body of {func}`build_release_admonition` and
+    {func}`build_unavailable_admonition`: both state the same sentence about
+    the same version over a different set of platforms, and both render nothing
+    when that set is empty.
+
+    :param template: Template name supplying the alert type and sentence.
+    :param version: Version string (e.g. `1.2.3`).
+    :param verb: Verb phrase joining the version to its platforms.
+    :param platforms: Platform labels, already linked where they should be.
+    :return: The rendered admonition block, or an empty string when
+        *platforms* is empty.
+    """
+    if not platforms:
+        return ""
+    return render_template(
+        template,
+        version=version,
+        verb=verb,
+        platforms=" and ".join(platforms),
+    )
 
 
 def build_release_admonition(
@@ -668,18 +777,16 @@ def build_release_admonition(
     :return: A `> [!NOTE]` admonition block, or empty string if neither
         URL is provided.
     """
-    links: list[str] = []
-    if pypi_url:
-        links.append(f"[{PYPI_LABEL}]({pypi_url})")
-    if github_url:
-        links.append(f"[{GITHUB_LABEL}]({github_url})")
-    if not links:
-        return ""
-
-    platforms = " and ".join(links)
-    verb = FIRST_AVAILABLE_VERB if first_on_all else AVAILABLE_VERB
-    return render_template(
-        "available-admonition", version=version, verb=verb, platforms=platforms
+    links = [
+        f"[{label}]({url})"
+        for label, url in ((PYPI_LABEL, pypi_url), (GITHUB_LABEL, github_url))
+        if url
+    ]
+    return _platform_admonition(
+        "available-admonition",
+        version,
+        FIRST_AVAILABLE_VERB if first_on_all else AVAILABLE_VERB,
+        links,
     )
 
 
@@ -697,20 +804,16 @@ def build_unavailable_admonition(
     :return: A `> [!WARNING]` admonition block, or empty string if
         neither platform is missing.
     """
-    names: list[str] = []
-    if missing_pypi:
-        names.append(PYPI_LABEL)
-    if missing_github:
-        names.append(GITHUB_LABEL)
-    if not names:
-        return ""
-
-    platforms = " and ".join(names)
-    return render_template(
-        "unavailable-admonition",
-        version=version,
-        verb=NOT_AVAILABLE_VERB,
-        platforms=platforms,
+    names = [
+        label
+        for label, missing in (
+            (PYPI_LABEL, missing_pypi),
+            (GITHUB_LABEL, missing_github),
+        )
+        if missing
+    ]
+    return _platform_admonition(
+        "unavailable-admonition", version, NOT_AVAILABLE_VERB, names
     )
 
 
@@ -913,6 +1016,11 @@ def lint_changelog_dates(
     use_pypi = bool(pypi_data)
     has_mismatch = False
     modified = False
+    # Set whenever a flagged problem is left standing: no `--fix`, a fix that
+    # could not run, or one that ran without landing. Kept apart from
+    # `has_mismatch` so a partial repair still fails, where counting any single
+    # file write as success would report green on a changelog still wrong.
+    unfixed_problem = False
 
     # Determine the first version published to PyPI for boundary detection.
     first_pypi_version: Version | None = None
@@ -998,14 +1106,30 @@ def lint_changelog_dates(
                 elif orphan in tag_versions:
                     orphan_date = tag_versions[orphan]
                 if not orphan_date:
-                    orphan_date = "0000-00-00"
-                modified |= changelog.insert_version_section(
+                    # No source agrees on a date, so there is nothing truthful
+                    # to write. A placeholder would satisfy the heading pattern
+                    # and then mismatch its reference date on every later run,
+                    # which is worse than leaving the orphan reported.
+                    logging.warning(
+                        f"⚠ {orphan}: no release date found in any source,"
+                        " skipping insertion"
+                    )
+                    unfixed_problem = True
+                    continue
+                if changelog.insert_version_section(
                     orphan, orphan_date, repo_url, list(all_versions)
-                )
+                ):
+                    modified = True
+                else:
+                    unfixed_problem = True
 
             # Re-extract releases so the admonition loop below processes
             # the newly inserted sections.
             releases = changelog.extract_all_releases()
+        else:
+            # Without `--fix`, or without a repository URL to build comparison
+            # links from, the orphans stay orphaned.
+            unfixed_problem = True
 
     date_corrections: dict[str, str] = {}
     abandoned = frozenset(abandoned_versions)
@@ -1069,6 +1193,8 @@ def lint_changelog_dates(
             has_mismatch = True
             if fix:
                 date_corrections[version] = ref_date
+            else:
+                unfixed_problem = True
 
     # Sanity gate: refuse to rewrite admonitions when an upstream data
     # source returned empty (or failed) while the existing changelog has
@@ -1123,8 +1249,9 @@ def lint_changelog_dates(
                 f"{package!r} returned no data but {existing_pypi_links} "
                 f"existing version section(s) reference a PyPI release. "
                 f"Likely a transient API failure. Re-run when PyPI is "
-                f"reachable, or set the threshold lower if the package "
-                f"genuinely no longer publishes to PyPI."
+                f"reachable. If the project genuinely no longer publishes to "
+                f"PyPI, run with an empty package name (`--package ''`) to "
+                f"check dates against git tags instead."
             )
             logging.error(msg)
             emit_annotation(AnnotationLevel.ERROR, msg)
@@ -1231,15 +1358,23 @@ def lint_changelog_dates(
             new_section = render_template("release-notes", **asdict(elements))
             modified |= changelog.replace_section(version, new_section)
 
+        # A correction only counts as applied once the rendered section carries
+        # it. `replace_section` cannot answer that on its own: it reports "no
+        # change" both for a section it failed to touch and for one that was
+        # already correct, so the date itself is the evidence.
+        for corrected_version, corrected_date in date_corrections.items():
+            if changelog.decompose_version(corrected_version).date != corrected_date:
+                unfixed_problem = True
+
     if fix and modified:
         changelog_path.write_text(changelog.content.rstrip() + "\n", encoding="UTF-8")
         logging.info(f"Updated {changelog_path}")
 
-    # In fix mode, mismatches were corrected in-place, so return success
-    # to let downstream workflow steps (e.g., PR creation) proceed.
-    if fix and modified:
-        return 0
-    return 1 if has_mismatch else 0
+    # Success needs every flagged problem repaired, not merely some file write
+    # having happened: a run that inserts one orphan but leaves another without
+    # a comparison URL to link it from has not fixed the changelog, and letting
+    # downstream steps proceed on that would publish the gap.
+    return 1 if has_mismatch and unfixed_problem else 0
 
 
 def build_expected_body(

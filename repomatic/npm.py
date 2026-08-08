@@ -26,6 +26,10 @@ from __future__ import annotations
 from .config import load_repomatic_config
 from .http import get_cached_json
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing import Any
+
 NPM_PACKAGE_URL = "https://www.npmjs.com/package/{package}"
 """npm package homepage URL. The npm counterpart to
 {data}`repomatic.pypi.PYPI_PACKAGE_URL`."""
@@ -34,7 +38,7 @@ NPM_REGISTRY_URL = "https://registry.npmjs.org/{package}"
 """npm registry metadata URL for a package."""
 
 
-def _fetch_json(package: str) -> dict | None:
+def _fetch_json(package: str) -> dict[str, Any] | None:
     """Fetch the full JSON metadata for an npm package.
 
     Results are cached under the `npm` namespace. Freshness TTL is read from

@@ -809,7 +809,7 @@ def render_thin_caller_for_target(
         version,
         paths_spec=paths_spec,
         commit_sha=commit_sha,
-        with_permissions=bool(extra),
+        with_permissions=extras_define_jobs(extra),
         existing=existing,
     )
     if extra:
@@ -1077,6 +1077,10 @@ def _merge_release_needs(
         entries = [name for name in entries if name in known]
         entries.extend(name for name in extra if name not in entries)
 
+        if not entries:
+            # Dropping the key beats emitting a bare `needs:`, which YAML
+            # reads back as null and GitHub rejects at workflow startup.
+            continue
         if len(entries) == 1:
             merged.append(f"{indent}needs: {entries[0]}")
             continue
@@ -1328,7 +1332,14 @@ def extract_extra_jobs(
         body_idx = managed_idx
         for i in range(managed_idx + 1, len(all_lines)):
             line = all_lines[i]
-            if line.startswith("    "):
+            # Anything indented deeper than the two-space job key is body,
+            # whatever its exact depth: a hand-edited 3-space line must not
+            # end the walk early, or the managed job's tail is misread as
+            # extra content and duplicated below the regenerated lanes.
+            # Mirrors `_extract_raw_job`'s boundary rule. Comments at the
+            # job indent stay outside the body, so a heading comment above a
+            # downstream job survives with that job.
+            if line and line[0] == " " and len(line) - len(line.lstrip()) > 2:
                 body_idx = i
             elif line == "":
                 continue
@@ -1348,6 +1359,19 @@ def extract_extra_jobs(
     if not extra.strip():
         return ""
     return extra
+
+
+def extras_define_jobs(extra: str) -> bool:
+    """Whether an extras fragment holds actual job definitions.
+
+    A fragment can be comments and blank lines only (a trailing note kept
+    after the managed lanes): that content is worth carrying over verbatim,
+    but it must not flip the caller into the explicit-permissions contract
+    reserved for real downstream jobs.
+    """
+    return any(
+        line.strip() and not line.strip().startswith("#") for line in extra.split("\n")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1639,7 +1663,7 @@ def _needs_yaml_quote(value: str) -> bool:
     :return: `True` when the entry has to be quoted to round-trip.
     """
     try:
-        return yaml.safe_load(f"- {value}\n") != [value]
+        return bool(yaml.safe_load(f"- {value}\n") != [value])
     except yaml.YAMLError:
         # Unparsable as a plain scalar is the strongest possible case for
         # quoting: `*` opens an alias, `&` an anchor, `!` a tag.

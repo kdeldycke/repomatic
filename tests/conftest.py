@@ -19,15 +19,64 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 
 from repomatic.github.token import PatPermissionResults
 from repomatic.metadata import Metadata
+from repomatic.tool_runner import ensure_binary
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing_extensions import Self
+
+PROJECT_ROOT = Path(__file__).parent.parent
+"""Root of the repository."""
+
+PACKAGE_DIR = PROJECT_ROOT / "repomatic"
+"""Root of the package whose sources the conformance tests scan."""
+
+PACKAGE_FILES = sorted(PACKAGE_DIR.rglob("*.py"))
+"""Every Python module shipped in the package.
+
+Sorted because `@pytest.mark.parametrize` derives test IDs from iteration
+order, and `pytest-xdist` aborts a run whose workers disagree on them.
+"""
+
+TESTS_DIR = PROJECT_ROOT / "tests"
+"""Root of the test suite."""
+
+TEST_FILES = sorted(TESTS_DIR.rglob("*.py"))
+"""Every Python module of the test suite, sorted for the same reason."""
+
+WORKFLOWS_DIR = PROJECT_ROOT / ".github" / "workflows"
+"""Directory holding this repository's own workflow files."""
+
+
+def _declares_concurrency(path: Path) -> bool:
+    """Whether a workflow file carries a top-level `concurrency:` block."""
+    return any(
+        line.startswith("concurrency:")
+        for line in path.read_text(encoding="UTF-8").splitlines()
+    )
+
+
+WORKFLOWS_WITH_CONCURRENCY_BLOCK = tuple(
+    sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml") if _declares_concurrency(p))
+)
+"""Workflows that actually define a concurrency block, read off disk.
+
+Derived rather than hand-listed because two test modules assert against it from
+opposite directions, and a hand-listed pair drifted apart once already: a
+workflow can be *exempt* from the requirement and still carry a block, which no
+list of intentions can express.
+"""
+
+WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK = tuple(
+    sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml") if not _declares_concurrency(p))
+)
+"""The complement of {data}`WORKFLOWS_WITH_CONCURRENCY_BLOCK`."""
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +89,18 @@ def _reset_metadata():
     Metadata.reset()
     yield
     Metadata.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_binary_memo():
+    """Drop `ensure_binary`'s per-process memo so tests stay independent.
+
+    The memo is keyed on tool name only, so without the reset one test's
+    installed path (often under its private `tmp_path`) would be replayed to
+    every later test asking for the same tool.
+    """
+    yield
+    ensure_binary.cache_clear()
 
 
 class FakeResponse:
@@ -62,18 +123,46 @@ class FakeResponse:
         pass
 
 
-def all_pass_pat_results() -> PatPermissionResults:
-    """Build a PatPermissionResults where every check passes."""
-    return PatPermissionResults(
-        contents=(True, "Contents: token has access"),
-        issues=(True, "Issues: token has access"),
-        pull_requests=(True, "Pull requests: token has access"),
-        vulnerability_alerts=(
+def pat_results(**overrides: tuple[bool, str]) -> PatPermissionResults:
+    """Build a `PatPermissionResults` where every check passes by default.
+
+    Each keyword names a `PatPermissionResults` field and replaces its
+    `(passed, message)` tuple, so a test spells out only the checks whose
+    outcome it cares about and the rest read as the happy path.
+
+    :param overrides: Field name to its `(passed, message)` result.
+    :return: The assembled results object.
+    """
+    return PatPermissionResults(**{
+        "contents": (True, "Contents: token has access"),
+        "issues": (True, "Issues: token has access"),
+        "pull_requests": (True, "Pull requests: token has access"),
+        "vulnerability_alerts": (
             True,
             "Dependabot alerts: token has access, alerts enabled",
         ),
-        workflows=(True, "Workflows: token has access"),
-    )
+        "workflows": (True, "Workflows: token has access"),
+        **overrides,
+    })
+
+
+def metadata_from_pyproject(tmp_path: Path, monkeypatch, content: str) -> Metadata:
+    """Build a `Metadata` reading a throwaway `pyproject.toml` holding *content*.
+
+    Repointing `Metadata.pyproject_path` is what isolates the instance from the
+    repository's own `pyproject.toml`: the class reads that path lazily, so the
+    patch has to be in place before the first property is touched. The autouse
+    `_reset_metadata` fixture clears the cached values afterwards.
+
+    :param tmp_path: Directory to write the file into.
+    :param monkeypatch: The test's monkeypatch fixture.
+    :param content: Full `pyproject.toml` source.
+    :return: A `Metadata` bound to the written file.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(content, encoding="UTF-8")
+    monkeypatch.setattr(Metadata, "pyproject_path", pyproject)
+    return Metadata()
 
 
 @pytest.fixture

@@ -216,7 +216,7 @@ def _plugin_assets(repo_root: Path) -> Iterator[tuple[Path, Path]]:
                 yield source, Path(SKILLS_DIR) / skill_dir.name / tail
 
 
-def stamped_manifest(repo_root: Path, version: str = __version__) -> bytes:
+def _stamped_manifest(repo_root: Path, version: str = __version__) -> bytes:
     """Read the manifest and stamp the packaged version into it.
 
     :param repo_root: Repository root, which is also the plugin root.
@@ -258,7 +258,7 @@ def pack_plugin(repo_root: Path, output: Path, version: str = __version__) -> li
         is missing.
     :raises TypeError: If the manifest is not a JSON object.
     """
-    payloads = {Path(MANIFEST_PATH): stamped_manifest(repo_root, version)}
+    payloads = {Path(MANIFEST_PATH): _stamped_manifest(repo_root, version)}
     for source, member in _plugin_assets(repo_root):
         payloads[member] = (repo_root / source).read_bytes()
 
@@ -276,7 +276,7 @@ def pack_plugin(repo_root: Path, output: Path, version: str = __version__) -> li
     return names
 
 
-def plugin_settings() -> dict[str, dict[str, object]]:
+def _plugin_settings() -> dict[str, dict[str, object]]:
     """Build the settings fragment that enables the plugin for a repository.
 
     Two independent keys, both required: `extraKnownMarketplaces` registers the
@@ -301,7 +301,7 @@ def plugin_settings() -> dict[str, dict[str, object]]:
 def render_plugin_settings(existing: str = "") -> str:
     """Merge the plugin wiring into an existing settings document.
 
-    Only the two keys {func}`plugin_settings` owns are touched, and within them
+    Only the two keys {func}`_plugin_settings` owns are touched, and within them
     only the entries this plugin and marketplace are named by: a repository's own
     permissions, hooks and any unrelated marketplace survive untouched.
 
@@ -320,7 +320,7 @@ def render_plugin_settings(existing: str = "") -> str:
             raise TypeError(msg)
         document = loaded
 
-    for key, entries in plugin_settings().items():
+    for key, entries in _plugin_settings().items():
         section = document.get(key)
         # A non-object value is someone else's mistake, not something to merge
         # into: replace it rather than raising, so init still converges.

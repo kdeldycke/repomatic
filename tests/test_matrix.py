@@ -23,7 +23,22 @@ import pytest
 from repomatic.github.matrix import Matrix
 
 
+def test_matrix_constructor_takes_no_arguments():
+    """A matrix is populated through its methods, never through the constructor.
+
+    The signature used to swallow `*args, **kwargs`, so `Matrix({"os": [...]})`
+    returned an empty matrix instead of raising.
+    """
+    with pytest.raises(TypeError):
+        Matrix({"os": ["ubuntu-slim"]})  # type: ignore[call-arg]
+
+
 def test_matrix():
+    """Construction, deduplicating `add_variation`, rendering, and rejections.
+
+    `include` and `exclude` are reserved: they name the directive lists, so
+    accepting them as axis names would shadow the very keys `solve` reads.
+    """
     matrix = Matrix()
 
     assert isinstance(matrix, Matrix)
@@ -70,6 +85,7 @@ def test_matrix():
 
 
 def test_replace_variation_value():
+    """`replace` swaps one axis value for another, in place."""
     matrix = Matrix()
     matrix.add_variation("os", ["ubuntu-slim", "macos-26", "windows-2025"])
     matrix.add_variation("version", ["3.10", "3.14"])
@@ -95,6 +111,7 @@ def test_replace_variation_value():
 
 
 def test_remove_variation_value():
+    """`remove` drops an axis value, and the axis once it empties."""
     matrix = Matrix()
     matrix.add_variation("os", ["ubuntu-slim", "macos-26", "windows-2025"])
     matrix.add_variation("version", ["3.10", "3.14"])
@@ -268,6 +285,7 @@ def test_replace_variation_value_solve():
 
 
 def test_includes():
+    """`add_includes` accumulates directives without touching the axes."""
     matrix = Matrix()
 
     matrix.add_variation("foo", ["a", "b", "c"])
@@ -324,6 +342,7 @@ def test_includes():
 
 
 def test_excludes():
+    """`add_excludes` accumulates directives without touching the axes."""
     matrix = Matrix()
 
     matrix.add_variation("foo", ["a", "b", "c"])
@@ -380,6 +399,7 @@ def test_excludes():
 
 
 def test_all_variations():
+    """`all_variations` reports every axis and its values."""
     matrix = Matrix()
 
     assert matrix.all_variations() == {}
@@ -500,6 +520,7 @@ def test_all_variations():
 
 
 def test_product():
+    """`product` is the plain cartesian product, before include/exclude."""
     matrix = Matrix()
 
     assert tuple(matrix.product()) == ()
@@ -664,6 +685,7 @@ def test_solve_includes_are_order_sensitive():
 
 
 def test_solve_expanded_configuration():
+    """GitHub's documented include example: a matching include expands one cell."""
     matrix = Matrix()
 
     matrix.add_variation("os", ["windows-latest", "ubuntu-latest"])
@@ -680,6 +702,7 @@ def test_solve_expanded_configuration():
 
 
 def test_solve_extended_configuration():
+    """GitHub's documented include example: a non-matching include appends a job."""
     matrix = Matrix()
 
     matrix.add_variation("os", ["macos-latest", "windows-latest"])
@@ -699,6 +722,7 @@ def test_solve_extended_configuration():
 
 
 def test_solve_empty_matrix():
+    """Includes alone define the jobs when no axis is declared."""
     matrix = Matrix()
 
     matrix.add_includes(
@@ -728,6 +752,7 @@ def test_solve_empty_matrix():
     ),
 )
 def test_solve_excludes(excludes):
+    """Excludes remove matching cells, whatever order they are declared in."""
     matrix = Matrix()
 
     matrix.add_variation("os", ["macos-latest", "windows-latest"])
@@ -768,6 +793,7 @@ def test_solve_excludes(excludes):
     ),
 )
 def test_solve_exclude_partial(excludes):
+    """A partial exclude removes every cell sharing the named values."""
     matrix = Matrix()
 
     matrix.add_variation("os", ["macos-latest", "windows-latest", "linux-latest"])
@@ -811,6 +837,7 @@ def test_solve_exclude_include_priority():
 
 
 def test_solve_exclude_include_selectivity():
+    """A fully-qualified include survives an exclude that removes its siblings."""
     matrix = Matrix()
 
     matrix.add_variation("os", ["macos-latest", "windows-latest", "linux-latest"])
@@ -830,6 +857,7 @@ def test_solve_exclude_include_selectivity():
 
 
 def test_strict_mode_unknown_exclude_key():
+    """Strict mode rejects an exclude naming an axis the matrix never declared."""
     matrix = Matrix()
 
     matrix.add_variation("os", ["macos-latest", "windows-latest", "linux-latest"])

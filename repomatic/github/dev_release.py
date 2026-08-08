@@ -45,12 +45,24 @@ import json
 import logging
 from pathlib import Path
 
+from ..binary import BINARY_ASSET_SUFFIXES
 from ..changelog import Changelog, build_expected_body
 from .gh import run_gh_command
 from .releases import edit_release_notes
 
-DEV_ASSET_PATTERNS = ("*.bin", "*.exe", "*.whl", "*.tar.gz")
+DEV_ASSET_PATTERNS = tuple(f"*{suffix}" for suffix in BINARY_ASSET_SUFFIXES) + (
+    "*.whl",
+    "*.tar.gz",
+)
 """Glob patterns for dev release assets.
+
+Two halves, and only the second one is this module's own. The compiled
+binaries are {data}`~repomatic.binary.BINARY_ASSET_SUFFIXES` spelled as
+globs, so a dev pre-release carries exactly the artifacts the release workflow
+downloads and `scan-virustotal` submits: derived rather than re-listed, because
+a dev release advertising a different set of binaries than the real one is the
+bug this pairing exists to prevent. The Python distribution extensions are what
+a dev pre-release adds on top, having no counterpart in the binaries catalog.
 
 ```{note}
 Bare extensions (no `repomatic-` prefix) keep patterns generic so
@@ -271,8 +283,12 @@ def cleanup_dev_releases(nwo: str, *, keep_tag: str | None = None) -> None:
     releases = json.loads(output)
     for release in releases:
         tag = release["tagName"]
-        if tag.endswith(".dev0") and tag != keep_tag:
-            delete_release_by_tag(tag, nwo)
+        if (
+            tag.endswith(".dev0")
+            and tag != keep_tag
+            and delete_release_by_tag(tag, nwo)
+        ):
+            logging.info(f"Deleted stale dev release {tag}.")
 
 
 def delete_dev_release(version: str, nwo: str) -> None:
@@ -285,16 +301,23 @@ def delete_dev_release(version: str, nwo: str) -> None:
     :param version: Dev version string (e.g. `6.1.1.dev0`).
     :param nwo: Repository name-with-owner (e.g. `user/repo`).
     """
-    delete_release_by_tag(f"v{version}", nwo)
+    tag = f"v{version}"
+    if delete_release_by_tag(tag, nwo):
+        logging.info(f"Deleted dev release {tag}.")
 
 
-def delete_release_by_tag(tag: str, nwo: str) -> None:
+def delete_release_by_tag(tag: str, nwo: str) -> bool:
     """Delete a release and its tag from GitHub.
 
-    Silently succeeds if the release does not exist or cannot be deleted.
+    Silently succeeds if the release does not exist or cannot be deleted. The
+    outcome is returned rather than announced: this helper deletes any release,
+    so only the caller knows what kind of release it just removed and can name
+    it accurately.
 
     :param tag: Git tag name (e.g. `v6.1.1.dev0`).
     :param nwo: Repository name-with-owner (e.g. `user/repo`).
+    :return: `True` when the release was deleted, `False` when it did not exist
+        or could not be removed.
     """
     try:
         run_gh_command([
@@ -306,6 +329,7 @@ def delete_release_by_tag(tag: str, nwo: str) -> None:
             "--repo",
             nwo,
         ])
-        logging.info(f"Deleted dev release {tag}.")
     except RuntimeError:
         logging.debug(f"Could not delete release {tag}.")
+        return False
+    return True

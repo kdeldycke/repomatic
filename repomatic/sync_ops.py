@@ -63,12 +63,12 @@ import re
 import subprocess
 import threading
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from functools import partial
 from pathlib import Path
 
 import click
-from click_extra import OperationTrail, resolve_jobs, run_jobs
+from click_extra import OperationTrail, echo, resolve_jobs, run_jobs
 
 from . import tool_registry
 from .checksums import update_registry_checksums
@@ -84,6 +84,7 @@ from .dep_report import (
     format_exclude_newer_note,
     format_held_back_table,
     format_release_notes,
+    format_released,
     pypi_name_urls,
 )
 from .dep_sources import (
@@ -103,9 +104,10 @@ from .registry import (
     BUNDLED_VERBATIM_TARGETS,
     DEFAULT_REPO,
     GITHUB_YAML_PATTERNS,
+    UPSTREAM_PACKAGE,
     UPSTREAM_REPO_SLUGS,
 )
-from .tool_registry import TOOL_REGISTRY
+from .tool_registry import TOOL_REGISTRY, ToolBackend
 from .uv import (
     compute_bypass_forecasts,
     compute_held_back_packages,
@@ -142,6 +144,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
     from datetime import timedelta
     from typing import Any
+
+    from click_extra import Context
 
     from .config import Config
     from .version_sync import Candidate
@@ -351,7 +355,23 @@ class SyncPlan:
     """Reference date for the table's relative "Released" hints (the run date)."""
 
     file_writes: dict[Path, str] = field(default_factory=dict)
-    """Path to its new full text, written verbatim by {attr}`SyncOperation.apply`."""
+    """Path to its new full text, as computed at resolve time.
+
+    Written verbatim by {attr}`SyncOperation.apply` only when {attr}`rebase`
+    is unset; otherwise it records which files the resolve touched (and what
+    it computed) while the apply replays the rewrite on current disk state.
+    """
+
+    rebase: Callable[[str], tuple[str, list[tuple[str, str, str]]]] | None = None
+    """Replay this operation's rewriter against a file's current text.
+
+    Set by {func}`_plan_file_rewrites`. Applies run serially after every
+    resolve finished, and the two `.github/` pin updaters routinely plan
+    rewrites of the same workflow files from the same pre-apply snapshot:
+    writing {attr}`file_writes` verbatim would silently revert whichever
+    sibling applied first. The closure re-runs the pure rewriter on whatever
+    is on disk at apply time instead.
+    """
 
     tool_versions: ToolVersionExtras = field(default_factory=ToolVersionExtras)
     """`sync-tool-versions` write extras (checksum recompute, matcher URL)."""
@@ -478,6 +498,13 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
         pyproject_before = (
             pyproject_path.read_bytes() if pyproject_path.exists() else None
         )
+
+        def restore() -> None:
+            if lock_before is not None:
+                lockfile.write_bytes(lock_before)
+            if pyproject_before is not None:
+                pyproject_path.write_bytes(pyproject_before)
+
         try:
             # Sync repomatic's canonical [tool.uv] policy pins from the bundled
             # template before re-locking, so a bumped exclude-newer feeds the
@@ -500,12 +527,16 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
             plan.uv_project.bypass_forecasts = result.bypass_forecasts
 
             _finish_uv_plan(plan, rc, lockfile)
+        except BaseException:
+            # A failure mid-resolve must not leave a half-mutated uv project
+            # (synced pins with a stale lock) for the CI job to commit:
+            # restore both snapshots and re-raise, matching
+            # `_resolve_dep_sources`.
+            restore()
+            raise
         finally:
             if rc.dry_run:
-                if lock_before is not None:
-                    lockfile.write_bytes(lock_before)
-                if pyproject_before is not None:
-                    pyproject_path.write_bytes(pyproject_before)
+                restore()
     return plan
 
 
@@ -641,11 +672,12 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
     changes: list[tuple[str, str, str]] = []
     overrides: dict[str, str] = {}
     for name, spec in sorted(TOOL_REGISTRY.items()):
-        if spec.binary is not None:
+        backend = spec.backend
+        if backend is ToolBackend.BINARY:
             if not spec.source_url:
                 continue
             candidates = github_candidates(spec.source_url, spec.tag_pattern)
-        elif spec.npm is not None:
+        elif backend is ToolBackend.NPM:
             candidates = npm_candidates(spec.package or spec.name)
         else:
             candidates = pypi_candidates(spec.pypi_name)
@@ -803,6 +835,7 @@ def _plan_file_rewrites(
         if file_changes:
             plan.file_writes[path] = new_content
             changes.extend(file_changes)
+    plan.rebase = lambda text: rewriter(text, resolved)
     plan.changes = _widest_changes(changes)
     plan.note_cooldown(rc.config.minimum_release_age, min_age, rc.today)
 
@@ -932,7 +965,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
                 current[key] = literal.version
 
     # Newest upstream `uses:` ref version, for the lockstep alignment.
-    upstream_package = DEFAULT_REPO.rsplit("/", 1)[-1]
+    upstream_package = UPSTREAM_PACKAGE
     lockstep_version: str | None = None
     for text in file_data.values():
         for version in find_upstream_ref_versions(text, DEFAULT_REPO):
@@ -1020,9 +1053,21 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
 
 
 def _apply_file_writes(plan: SyncPlan) -> None:
-    """Write each planned file verbatim (the version-sync trio's write phase)."""
-    for path, content in plan.file_writes.items():
-        path.write_text(content, encoding="UTF-8")
+    """Rewrite each planned file from its current on-disk text.
+
+    Each file is re-read and the operation's rewriter replayed on it (see
+    {attr}`SyncPlan.rebase`), so a sibling operation's apply landing between
+    this plan's resolve and its write survives. Plans without a rebase
+    closure fall back to writing the resolve-time text verbatim.
+    """
+    for path, planned in plan.file_writes.items():
+        if plan.rebase is None:
+            path.write_text(planned, encoding="UTF-8")
+            continue
+        current = path.read_text(encoding="UTF-8")
+        rebased, _changes = plan.rebase(current)
+        if rebased != current:
+            path.write_text(rebased, encoding="UTF-8")
 
 
 def _dep_sources_applies() -> bool:
@@ -1115,6 +1160,138 @@ def render_plan_markdown(plan: SyncPlan) -> str:
         )
         if section
     )
+
+
+def print_sync_table(
+    ctx: Context,
+    changes: list[tuple[str, str, str]],
+    dates: dict[str, str],
+    *,
+    subject: str,
+    reference_date: date,
+) -> None:
+    """Print the shared terminal table for the dependency updaters.
+
+    Columns are `{subject} | Old | New | Released`, the released date carrying a
+    relative hint. Shared by `sync-uv-lock` and the three `sync-*` commands so
+    their terminal output matches, and respects the global `--table-format`.
+    Old/New stay separate columns (not the merged `Change` cell of the markdown
+    PR body) so structured `--table-format json`/`csv` output stays parseable.
+    """
+    show_released = bool(dates)
+    headers: tuple[str, ...] = (
+        (subject, "Old", "New", "Released")
+        if show_released
+        else (subject, "Old", "New")
+    )
+    rows: list[tuple[str, ...]] = []
+    for name, old, new in changes:
+        row: tuple[str, ...] = (name, old or "(new)", new or "(removed)")
+        if show_released:
+            row = (*row, format_released(dates.get(name, ""), reference_date))
+        rows.append(row)
+    ctx.print_table(rows, headers)
+
+
+def print_held_back_table(
+    ctx: Context,
+    held_back: list[HeldBackPackage],
+    *,
+    subject: str = "Package",
+) -> None:
+    """Print the shared held-back terminal table for the cooldown-gated updaters.
+
+    Columns are `{subject} | Locked | Available | Released | Eligible`. Shared by
+    `sync-uv-lock` and the three `sync-*` commands, and respects the global
+    `--table-format`.
+    """
+    echo("Held back by cooldown:")
+    headers = (subject, "Locked", "Available", "Released", "Eligible")
+    rows = [
+        (
+            pkg.name,
+            pkg.locked_version,
+            pkg.available_version,
+            pkg.released,
+            pkg.eligible,
+        )
+        for pkg in held_back
+    ]
+    ctx.print_table(rows, headers)
+
+
+def print_bypass_table(ctx: Context, forecasts: list[BypassForecast]) -> None:
+    """Print the active cooldown-bypass freezes with their expiry forecasts.
+
+    Columns are `Package | Held at | Held until`, mirroring the markdown
+    section from {func}`~repomatic.dep_report.format_bypass_section`, and
+    respects the global `--table-format`.
+    """
+    echo("Cooldown bypasses:")
+    headers = ("Package", "Held at", "Held until")
+    rows = [
+        (forecast.name, forecast.held_version, forecast.expires)
+        for forecast in forecasts
+    ]
+    ctx.print_table(rows, headers)
+
+
+def print_plan_tables(ctx: Context, plan: SyncPlan, reference_date: date) -> None:
+    """Print a resolved plan's diff, bypass and held-back tables.
+
+    The terminal counterpart of {func}`render_plan_markdown`, deliberately
+    beside it and in the same order, so a run's terminal output and its PR
+    body read the same way and cannot drift apart. Every dependency updater
+    goes through here: the two lockfile commands, the three version-sync
+    commands, and the aggregate `sync-deps`.
+
+    Each table respects the global `--table-format`, and an empty section
+    prints nothing.
+    """
+    print_sync_table(
+        ctx,
+        plan.changes,
+        plan.dates,
+        subject=plan.subject,
+        reference_date=reference_date,
+    )
+    if plan.uv_project.bypass_forecasts:
+        print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
+    if plan.held_back:
+        print_held_back_table(ctx, plan.held_back, subject=plan.subject)
+
+
+def resolve_lockfile_plan(
+    op_name: str,
+    config: Config,
+    *,
+    lockfile: Path,
+    table: bool,
+    output: Path | None,
+    release_notes: bool,
+    held_back: bool,
+) -> tuple[SyncOperation, ResolveContext, SyncPlan]:
+    """Resolve one of the two lockfile-mutating operations.
+
+    `sync-uv-lock` and `sync-dep-sources` build the same resolve context and,
+    unlike the version-sync trio, gate the held-back probe on a consumer being
+    present: that probe costs a second full uv resolution, so a run that prints
+    no table and writes no report must not pay for it.
+
+    The apply and the narration stay with each command, whose "what happened"
+    lines differ (adopted releases for one, bypass lifecycle for the other).
+
+    :return: `(operation, resolve_context, plan)`.
+    """
+    op = OPERATIONS_BY_NAME[op_name]
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        held_back=held_back and (table or output is not None),
+        lockfile=lockfile,
+    )
+    return op, rc, op.resolve(rc)
 
 
 @dataclass(frozen=True)

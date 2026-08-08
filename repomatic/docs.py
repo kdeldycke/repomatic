@@ -65,6 +65,31 @@ def validate_docs_script_path(script: str, repo_root: Path) -> Path | None:
     return script_path
 
 
+DIRECTIVE_BLOCK_MARKERS: tuple[str, ...] = (
+    "{matrix}",
+    "<!-- matrix",
+    ":mirror:",
+    "<!-- mirror",
+)
+"""Markers of a self-updating block `click-extra refresh-directives` rewrites.
+
+Every form the refresh recognizes: the ``{matrix}`` MyST fence (live-rendered by
+Sphinx), the `<!-- matrix -->` comment region (whose embedded table renders on
+GitHub too), and the `python:render` `:mirror:` region (`<!-- mirror -->`, whose
+generator Python the refresh executes).
+"""
+
+
+def has_directive_block(path: Path) -> bool:
+    """Whether *path* carries a self-updating block worth refreshing.
+
+    :param path: Markdown file to scan.
+    :return: `True` when any {data}`DIRECTIVE_BLOCK_MARKERS` entry appears.
+    """
+    text = path.read_text(encoding="UTF-8")
+    return any(marker in text for marker in DIRECTIVE_BLOCK_MARKERS)
+
+
 def _run_docs_tool(label: str, *args: str, check: bool = False) -> int:
     """Run a tool from the `docs` dependency group through uv.
 
@@ -169,22 +194,9 @@ def update_docs(config: Config, *, check: bool = False) -> None:
     else:
         logging.info("Docs update script disabled (empty path).")
 
-    # Phase 4: self-updating blocks. Every form is refreshed: the `{matrix}`
-    # MyST fence (live-rendered by Sphinx), the `<!-- matrix -->` comment
-    # region (whose embedded table renders on GitHub too), and the
-    # `python:render` `:mirror:` region (`<!-- mirror -->`, whose generator
-    # Python is executed by the refresh). Only files already carrying a block
-    # are passed, so repositories without any stay clear of the sphinx extra
-    # that `refresh-directives` requires.
-    def has_directive_block(path: Path) -> bool:
-        text = path.read_text(encoding="UTF-8")
-        return (
-            "{matrix}" in text
-            or "<!-- matrix" in text
-            or ":mirror:" in text
-            or "<!-- mirror" in text
-        )
-
+    # Phase 4: self-updating blocks. Only files already carrying a block are
+    # passed, so repositories without any stay clear of the sphinx extra that
+    # `refresh-directives` requires.
     candidates = sorted(docs_dir.rglob("*.md")) if docs_dir.is_dir() else []
     readme_path = repo_root / "readme.md"
     if readme_path.is_file():

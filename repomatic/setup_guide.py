@@ -29,6 +29,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from click_extra import TableFormat, render_table
+
 from .github import token
 from .github.gh import run_gh_command
 from .github.issue import manage_issue_lifecycle
@@ -63,7 +65,7 @@ def _wrap_setup_step(title: str, content: str, *, passed: bool | None) -> str:
     :param title: Step heading shown in the `<summary>` line.
     :param content: Markdown body of the step.
     :param passed: Whether the step is verified complete. `None` means the
-        check could not run (e.g., insufficient token permissions).
+        check could not run, like insufficient token permissions.
     :return: HTML `<details>` block string.
     """
     if passed is None:
@@ -124,14 +126,16 @@ def manage_setup_guide(
         failures = pat_results.failed()
         if failures:
             has_permission_failures = True
-            table = "\n".join(f"| {message} |" for _field_name, message in failures)
+            table = render_table(
+                [[message] for _field_name, message in failures],
+                headers=["Permission issue"],
+                table_format=TableFormat.GITHUB,
+            )
             missing_permissions_section = (
                 "> [!WARNING]\n"
                 "> Your `REPOMATIC_PAT` secret is configured but missing"
                 " some permissions.\n"
                 "> Update the token using the pre-filled link below.\n\n"
-                "| Permission issue |\n"
-                "| :-- |\n"
                 f"{table}\n"
             )
         # Vulnerability alerts are confirmed enabled when the Dependabot
@@ -140,7 +144,10 @@ def manage_setup_guide(
 
     token_ok = has_pat and not has_permission_failures
 
-    # Branch ruleset check.
+    # Branch ruleset check. An unreadable rulesets API answers `None`, which
+    # this guide treats as incomplete: the step is the only place a maintainer
+    # is told to protect the branch, so an indeterminate probe must keep
+    # prompting rather than quietly pass.
     branch_ok: bool | None = False
     if has_pat and repo:
         branch_ok = check_branch_ruleset_on_default(repo).passed
@@ -207,7 +214,7 @@ def manage_setup_guide(
     step_branch_ruleset = _wrap_setup_step(
         "Protect the main branch",
         render_template("setup-guide-branch-ruleset", repo_url=repo_url),
-        passed=branch_ok,
+        passed=branch_ok or False,
     )
 
     step_fork_pr_approval = _wrap_setup_step(
@@ -329,7 +336,7 @@ def manage_setup_guide(
     # --- Assemble issue body ---
     # Step-skip markers: only include fork-pr approval / SHA-pinning steps
     # when the check is determinate. When skipped (None), the check could
-    # not run and we do not want to show a step the user cannot resolve.
+    # not run, and a step nobody can act on is worse than no step at all.
     if fork_pr_ok is None:
         step_fork_pr_approval = ""
     if sha_pinning_ok is None:
@@ -359,6 +366,10 @@ def manage_setup_guide(
     # failure so the setup guide reopens with the Pages step.
     vt_ok = not nuitka_active or has_virustotal_key
     notifications_ok = not config.notification_unsubscribe or has_notifications_pat
+    # Branch ruleset: an indeterminate probe (`None`) keeps the issue open, the
+    # same verdict an outright failure gets. Spelled out rather than left to
+    # `None` being falsy, so the intent survives the next edit.
+    branch_gate = bool(branch_ok)
     fork_pr_gate = fork_pr_ok is not False
     pages_gate = bool(pages_ok) if md.is_sphinx else pages_ok is not False
     # Trusted Publisher: when the project publishes to PyPI, only close once
@@ -369,7 +380,7 @@ def manage_setup_guide(
     needs_issue = not (
         token_ok
         and dependabot_ok
-        and branch_ok
+        and branch_gate
         and vt_ok
         and notifications_ok
         and fork_pr_gate

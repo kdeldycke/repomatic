@@ -145,9 +145,9 @@ def test_update_docs_check_skips_writes_and_propagates(tmp_path, monkeypatch):
     """`check=True` skips the write phases and runs the rest in check mode."""
     docs = tmp_path / "docs"
     docs.mkdir()
-    (docs / "docs_update.py").write_text("", encoding="utf-8")
+    (docs / "docs_update.py").write_text("", encoding="UTF-8")
     (docs / "page.md").write_text(
-        "<!-- mirror -->\n\n<!-- mirror-end -->\n", encoding="utf-8"
+        "<!-- mirror -->\n\n<!-- mirror-end -->\n", encoding="UTF-8"
     )
     monkeypatch.chdir(tmp_path)
     meta = SimpleNamespace(is_sphinx=True, active_autodoc=True, uses_myst=True)
@@ -175,7 +175,7 @@ def test_update_docs_check_raises_on_drift(tmp_path, monkeypatch):
     """A non-zero exit from a check phase raises with an "out of date" message."""
     docs = tmp_path / "docs"
     docs.mkdir()
-    (docs / "docs_update.py").write_text("", encoding="utf-8")
+    (docs / "docs_update.py").write_text("", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
     meta = SimpleNamespace(is_sphinx=True, active_autodoc=False, uses_myst=False)
     with (

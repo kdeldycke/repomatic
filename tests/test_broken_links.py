@@ -35,24 +35,20 @@ from repomatic.broken_links import (
 # ---------------------------------------------------------------------------
 
 
-def test_awesome_repo():
-    """Awesome repos get the fix link label."""
-    assert get_label("awesome-falsehood") == "🩹 fix link"
-
-
-def test_awesome_repo_prefix_only():
-    """Only repos starting with awesome- get the fix link label."""
-    assert get_label("awesome-") == "🩹 fix link"
-
-
-def test_regular_repo():
-    """Regular repos get the documentation label."""
-    assert get_label("workflows") == "📚 documentation"
-
-
-def test_repo_containing_awesome():
-    """Repos containing but not starting with awesome get documentation label."""
-    assert get_label("my-awesome-repo") == "📚 documentation"
+@pytest.mark.parametrize(
+    ("repo", "expected"),
+    (
+        ("awesome-falsehood", "🩹 fix link"),
+        # The prefix alone is enough, with nothing after it.
+        ("awesome-", "🩹 fix link"),
+        ("workflows", "📚 documentation"),
+        # Containing "awesome" is not the same as starting with it.
+        ("my-awesome-repo", "📚 documentation"),
+    ),
+)
+def test_get_label(repo, expected):
+    """Only a repo whose name starts with `awesome-` gets the fix-link label."""
+    assert get_label(repo) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -60,14 +56,14 @@ def test_repo_containing_awesome():
 # ---------------------------------------------------------------------------
 
 
-def test_empty_file(tmp_path):
+def test_parse_output_json_empty_file(tmp_path):
     """Empty file returns no results."""
     output = tmp_path / "output.json"
     output.write_text("", encoding="UTF-8")
     assert parse_output_json(output) == []
 
 
-def test_blank_lines_skipped(tmp_path):
+def test_parse_output_json_skips_blank_lines(tmp_path):
     """Blank lines in the file are skipped."""
     entry = {
         "filename": "index.rst",
@@ -85,7 +81,7 @@ def test_blank_lines_skipped(tmp_path):
     assert results[0].filename == "index.rst"
 
 
-def test_single_entry(tmp_path):
+def test_parse_output_json_single_entry(tmp_path):
     """Single entry is parsed correctly."""
     entry = {
         "filename": "api.rst",
@@ -109,7 +105,7 @@ def test_single_entry(tmp_path):
     )
 
 
-def test_multiple_entries(tmp_path):
+def test_parse_output_json_multiple_entries(tmp_path):
     """Multiple entries are parsed correctly."""
     entries = [
         {
@@ -136,7 +132,7 @@ def test_multiple_entries(tmp_path):
     assert len(results) == 2
 
 
-def test_missing_info_field(tmp_path):
+def test_parse_output_json_missing_info_field(tmp_path):
     """Missing info field defaults to empty string."""
     entry = {
         "filename": "index.rst",
@@ -181,7 +177,7 @@ def test_filter_by_status(status, expected_count):
     assert len(filter_broken(results)) == expected_count
 
 
-def test_mixed_statuses():
+def test_filter_broken_mixed_statuses():
     """Only broken and timeout are kept from a mixed list."""
     results = [
         LinkcheckResult("a.rst", 1, "working", 200, "https://a.com", ""),
@@ -196,7 +192,7 @@ def test_mixed_statuses():
     assert broken[1].uri == "https://d.com"
 
 
-def test_filter_empty_input():
+def test_filter_broken_empty_input():
     """Empty input returns empty list."""
     assert filter_broken([]) == []
 
@@ -324,27 +320,23 @@ ZWS = "\u200b"
 
 
 @pytest.mark.parametrize(
-    ("info", "expected_fragment"),
-    [
-        pytest.param(
-            "403 Forbidden @dependabot",
-            f"@{ZWS}dependabot",
-            id="mention_in_info",
-        ),
+    "info",
+    (
+        pytest.param("403 Forbidden @dependabot", id="mention_in_info"),
         pytest.param(
             "Redirected to https://github.com/org/repo/issues/42",
-            "redirect.github.com/org/repo/issues/42",
             id="github_url_in_info",
         ),
-        pytest.param(
-            "See #123 for details",
-            f"#{ZWS}123",
-            id="issue_ref_in_info",
-        ),
-    ],
+        pytest.param("See #123 for details", id="issue_ref_in_info"),
+    ),
 )
-def test_report_sanitizes_external_content(info, expected_fragment):
-    """Sphinx report sanitizes mentions, issue refs, and GitHub URLs."""
+def test_report_leaves_external_content_unsanitized(info):
+    """The report renderer passes tool output through; the caller sanitizes it.
+
+    Splitting the two is what lets the same report be written to a file, where
+    the mention would be inert, or posted to an issue, where it would not.
+    `test_lychee_output_sanitized` covers the caller's half.
+    """
     broken = [
         LinkcheckResult(
             filename="index.rst",
@@ -356,8 +348,7 @@ def test_report_sanitizes_external_content(info, expected_fragment):
         ),
     ]
     report = generate_markdown_report(broken)
-    # generate_markdown_report itself does not sanitize; the caller does.
-    # Verify the raw info appears unmodified.
+    # Only the table-breaking pipe is escaped; nothing else is touched.
     assert info.replace("|", "\\|") in report
 
 

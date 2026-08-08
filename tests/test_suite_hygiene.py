@@ -17,41 +17,69 @@
 """Guard the test suite against parametrizing over an unordered collection.
 
 `pytest-xdist` distributes work by test ID, so every worker must collect the same
-IDs in the same order. A `@pytest.mark.parametrize` fed a `set`, `frozenset`, or
-`dict` iterates in an order that depends on the process's string-hash seed, so
-each worker derives different IDs and the whole run aborts with "Different tests
-were collected between gw0 and gw1" before a single test executes. The failure
-names the workers rather than the parametrization, and the suite still passes
-serially, which is what makes it worth a conformance test rather than a comment.
+IDs in the same order. A `@pytest.mark.parametrize` fed a `set` or `frozenset`
+iterates in an order that depends on the process's string-hash seed, so each
+worker derives different IDs and the whole run aborts with "Different tests were
+collected between gw0 and gw1" before a single test executes. The failure names
+the workers rather than the parametrization, and the suite still passes serially,
+which is what makes it worth a conformance test rather than a comment.
 
-Wrapping the argument in `sorted()` fixes it, and is what every parametrization
-in the suite does today.
+Wrapping the argument in `sorted()` fixes it.
+
+```{note}
+A `dict` is **not** a hazard: mappings iterate in insertion order, which is a
+language guarantee and identical in every process. Only the hash-ordered
+containers qualify, so `SOME_DICT` and `SOME_DICT.items()` are both accepted.
+```
+
+Two shapes evade a naive scan, and both have already shipped a latent break:
+
+- **An imported collection.** `from repomatic.registry import NON_REUSABLE_WORKFLOWS`
+  puts a `frozenset` in scope under a name this module never sees assigned, so
+  the binding is resolved by importing it rather than by reading the source.
+- **A wrapper call.** `list(SOME_SET)` and `tuple(SOME_SET)` are as unordered as
+  the set they copy, and read as deliberate, which is worse.
 """
 
 from __future__ import annotations
 
 import ast
-from pathlib import Path
+import importlib
+import re
 
 import pytest
 
-TESTS_DIR = Path(__file__).parent
-"""Root of the test suite."""
-
-TEST_FILES = sorted(TESTS_DIR.rglob("*.py"))
-"""Every Python module in the test suite."""
+from tests.conftest import TEST_FILES, TESTS_DIR
 
 UNORDERED_CALLS = frozenset({"set", "frozenset"})
 """Builtins whose result has no stable iteration order across processes."""
 
+ORDER_PRESERVING_WRAPPERS = frozenset({"list", "tuple"})
+"""Builtins that copy an iterable without imposing an order of their own.
 
-def _unordered_names(tree: ast.Module) -> dict[str, str]:
-    """Map module-level names bound to an unordered collection to its kind.
+Applied to a set, they freeze whatever hash order that process happened to
+produce, which is exactly the failure they look like they are preventing.
+"""
+
+FILE_ENCODING = "UTF-8"
+"""The single spelling of the `encoding=` argument used across the suite.
+
+Matching production's dominant spelling. Both spellings are equally correct to
+Python, so this is purely about a reader never wondering whether the difference
+carries meaning.
+"""
+
+ENCODING_ARGUMENT_RE = re.compile(r"""encoding=["'](?!UTF-8["'])([\w-]+)["']""")
+"""Match an `encoding=` keyword whose value is not the canonical spelling."""
+
+
+def _module_level_bindings(tree: ast.Module) -> dict[str, ast.expr]:
+    """Map each module-level name to the expression it is bound to.
 
     Only module-level bindings are tracked: a parametrization can reference
     nothing narrower, since decorators are evaluated at import time.
     """
-    kinds: dict[str, str] = {}
+    bindings: dict[str, ast.expr] = {}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -59,32 +87,74 @@ def _unordered_names(tree: ast.Module) -> dict[str, str]:
             targets = [node.target]
         else:
             continue
-        value = node.value
-        kind = ""
-        if (
-            isinstance(value, ast.Call)
-            and isinstance(value.func, ast.Name)
-            and value.func.id in UNORDERED_CALLS
-        ):
-            kind = f"{value.func.id}() call"
-        elif isinstance(value, ast.Set):
-            kind = "set literal"
-        elif isinstance(value, ast.SetComp):
-            kind = "set comprehension"
-        elif isinstance(value, ast.DictComp):
-            kind = "dict comprehension"
-        elif isinstance(value, ast.Dict):
-            kind = "dict literal"
-        if kind:
-            for target in targets:
-                if isinstance(target, ast.Name):
-                    kinds[target.id] = kind
-    return kinds
+        # A bare annotation (`FRUITS: tuple[str, ...]`) binds no value.
+        if node.value is None:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                bindings[target.id] = node.value
+    return bindings
+
+
+def _imported_origins(tree: ast.Module) -> dict[str, tuple[str, str]]:
+    """Map each `from X import y` name to its `(module, attribute)` pair."""
+    origins: dict[str, tuple[str, str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for alias in node.names:
+                origins[alias.asname or alias.name] = (node.module, alias.name)
+    return origins
+
+
+def _kind_of_expression(
+    node: ast.expr,
+    bindings: dict[str, ast.expr],
+    origins: dict[str, tuple[str, str]],
+) -> str:
+    """Describe *node* when it evaluates to an unordered collection, else `""`.
+
+    Resolves one level of indirection in each of three directions: a local
+    module-level binding, an imported name, and an order-preserving wrapper
+    call. One level is enough for every shape the suite writes, and stopping
+    there keeps the scan from chasing an arbitrary expression graph.
+    """
+    if isinstance(node, ast.Set):
+        return "set literal"
+    if isinstance(node, ast.SetComp):
+        return "set comprehension"
+
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        name = node.func.id
+        if name in UNORDERED_CALLS:
+            return f"{name}() call"
+        if name in ORDER_PRESERVING_WRAPPERS and node.args:
+            inner = _kind_of_expression(node.args[0], bindings, origins)
+            if inner:
+                return f"{name}() wrapping {inner}"
+        return ""
+
+    if isinstance(node, ast.Name):
+        if node.id in bindings:
+            inner = _kind_of_expression(bindings[node.id], bindings, origins)
+            return f"{node.id} is a {inner}" if inner else ""
+        if node.id in origins:
+            module_name, attribute = origins[node.id]
+            try:
+                value = getattr(importlib.import_module(module_name), attribute)
+            except (ImportError, AttributeError):
+                # Unresolvable at scan time: judged clean rather than guessed at.
+                return ""
+            if isinstance(value, (set, frozenset)):
+                return (
+                    f"{node.id} is a {type(value).__name__} imported from {module_name}"
+                )
+    return ""
 
 
 def _unordered_parametrize(tree: ast.Module) -> list[str]:
     """Return one description per parametrization fed an unordered collection."""
-    unordered = _unordered_names(tree)
+    bindings = _module_level_bindings(tree)
+    origins = _imported_origins(tree)
     violations: list[str] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -95,14 +165,7 @@ def _unordered_parametrize(tree: ast.Module) -> list[str]:
         # into test IDs.
         if len(node.args) < 2:
             continue
-        argvalues = node.args[1]
-        kind = ""
-        if isinstance(argvalues, ast.Name) and argvalues.id in unordered:
-            kind = f"{argvalues.id} is a {unordered[argvalues.id]}"
-        elif isinstance(argvalues, (ast.Set, ast.SetComp)):
-            kind = "inline set"
-        elif isinstance(argvalues, (ast.Dict, ast.DictComp)):
-            kind = "inline dict"
+        kind = _kind_of_expression(node.args[1], bindings, origins)
         if kind:
             violations.append(f"line {node.lineno}: {kind}")
     return violations
@@ -115,40 +178,75 @@ def test_test_suite_discovered() -> None:
 
 
 def test_detector_flags_unordered_parametrize() -> None:
-    """The detector catches each unordered shape, and clears the sorted ones."""
+    """The detector catches each unordered shape, and clears the ordered ones."""
     tree = ast.parse(
+        "from repomatic.registry import NON_REUSABLE_WORKFLOWS\n"
         "FRUITS = frozenset({'papaya', 'mango'})\n"
         "CITIES = {'Lisbon', 'Oslo'}\n"
+        "CRATES = {city for city in CITIES}\n"
         "WEIGHTS = {'papaya': 2, 'mango': 1}\n"
         "SORTED = sorted(FRUITS)\n"
+        # Unordered, one way or another.
         "@pytest.mark.parametrize('fruit', FRUITS)\n"
         "@pytest.mark.parametrize('city', CITIES)\n"
-        "@pytest.mark.parametrize('fruit', WEIGHTS)\n"
+        "@pytest.mark.parametrize('crate', CRATES)\n"
         "@pytest.mark.parametrize('fruit', {'papaya', 'mango'})\n"
+        "@pytest.mark.parametrize('fruit', list(FRUITS))\n"
+        "@pytest.mark.parametrize('fruit', tuple(FRUITS))\n"
+        "@pytest.mark.parametrize('flow', NON_REUSABLE_WORKFLOWS)\n"
+        "@pytest.mark.parametrize('flow', list(NON_REUSABLE_WORKFLOWS))\n"
+        # Ordered: a mapping, a sort, and plain literals.
+        "@pytest.mark.parametrize('fruit', WEIGHTS)\n"
+        "@pytest.mark.parametrize('fruit', WEIGHTS.items())\n"
         "@pytest.mark.parametrize('fruit', SORTED)\n"
         "@pytest.mark.parametrize('fruit', sorted(FRUITS))\n"
+        "@pytest.mark.parametrize('fruit', list(sorted(FRUITS)))\n"
         "@pytest.mark.parametrize('fruit', ['papaya', 'mango'])\n"
-        "def test_harvest(fruit, city):\n"
+        "def test_harvest(fruit, city, crate, flow):\n"
         "    pass\n"
     )
     violations = _unordered_parametrize(tree)
-    # The three sorted or listed parametrizations are silent; the four unordered
-    # ones each name the shape that made them unordered.
     report = "\n".join(violations)
-    assert len(violations) == 4, report
+    # Eight unordered decorators; the six ordered ones below them stay silent.
+    assert len(violations) == 8, report
     assert "FRUITS is a frozenset() call" in report
     assert "CITIES is a set literal" in report
-    assert "WEIGHTS is a dict literal" in report
-    assert "inline set" in report
+    assert "CRATES is a set comprehension" in report
+    # An inline literal is reported on its own, with no name to attribute it to.
+    assert "line 10: set literal" in report
+    assert "list() wrapping FRUITS is a frozenset() call" in report
+    assert "tuple() wrapping FRUITS is a frozenset() call" in report
+    # The imported frozenset is caught bare and through the wrapper alike.
+    assert report.count("NON_REUSABLE_WORKFLOWS is a frozenset imported from") == 2, (
+        report
+    )
 
 
 @pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
-def test_no_unordered_parametrize(test_file: Path) -> None:
+def test_no_unordered_parametrize(test_file) -> None:
     """No parametrization iterates a collection with an unstable order."""
-    tree = ast.parse(test_file.read_text(encoding="utf-8"))
+    tree = ast.parse(test_file.read_text(encoding=FILE_ENCODING))
     violations = _unordered_parametrize(tree)
     assert not violations, (
         f"{test_file.relative_to(TESTS_DIR.parent)} parametrizes over an unordered"
         f" collection, which breaks xdist collection: {'; '.join(violations)}."
         " Wrap the argument in sorted()."
+    )
+
+
+@pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
+def test_encoding_argument_spelling_is_uniform(test_file) -> None:
+    """Every `encoding=` in the suite uses the one canonical spelling.
+
+    Python normalizes the codec name, so a mixed suite is correct but reads as
+    though the difference means something. Pinning it is what keeps a reviewer
+    from having to decide.
+    """
+    offenders = sorted(
+        set(ENCODING_ARGUMENT_RE.findall(test_file.read_text(encoding=FILE_ENCODING)))
+    )
+    assert not offenders, (
+        f"{test_file.relative_to(TESTS_DIR.parent)} spells encoding as"
+        f" {', '.join(repr(o) for o in offenders)}; the suite uses"
+        f" encoding={FILE_ENCODING!r} everywhere."
     )

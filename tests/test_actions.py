@@ -14,13 +14,85 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for :mod:`repomatic.github.actions` run cancellation."""
+"""Tests for :mod:`repomatic.github.actions` run cancellation and report labels."""
 
 from __future__ import annotations
 
 from unittest.mock import patch
 
-from repomatic.github.actions import cancel_superseded_runs
+import pytest
+
+from repomatic.github.actions import ReportAction, cancel_superseded_runs
+from repomatic.github.sponsor import (
+    get_default_author,
+    get_default_number,
+    is_pull_request,
+)
+
+# -- ReportAction -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    (
+        (ReportAction.DRY_RUN, "\U0001f441\ufe0f Dry-run"),
+        (ReportAction.FAILED, "\u26a0\ufe0f Failed"),
+        (ReportAction.SKIPPED, "\u2705 In sync"),
+        (ReportAction.UNSUBSCRIBED, "\U0001f515 Unsubscribed"),
+        (ReportAction.UPDATED, "\U0001f504 Updated"),
+    ),
+)
+def test_report_action_label(action, expected):
+    """Each action carries its own emoji-and-label string as its value."""
+    assert action.value == expected
+
+
+def test_report_action_labels_are_distinct():
+    """No two actions render the same cell, which would make a report unreadable."""
+    values = [action.value for action in ReportAction]
+    assert len(set(values)) == len(values)
+
+
+# -- Event payload readers ----------------------------------------------------
+#
+# These live in `repomatic.github.sponsor` but read `get_github_event()`, this
+# module's view of the event payload, and `sponsor` has no test module of its
+# own.
+
+
+_PR_EVENT = {"pull_request": {"number": 7, "user": {"login": "papaya"}}}
+_ISSUE_EVENT = {"issue": {"number": 12, "user": {"login": "quince"}}}
+
+
+@pytest.mark.parametrize(
+    ("event", "is_pr", "author", "number"),
+    (
+        (_PR_EVENT, True, "papaya", 7),
+        (_ISSUE_EVENT, False, "quince", 12),
+        # Both nodes present: the pull request wins, and every reader agrees
+        # on which node it read.
+        ({**_PR_EVENT, **_ISSUE_EVENT}, True, "papaya", 7),
+        ({}, False, None, None),
+        # An empty `pull_request` object is not a pull request. Key presence
+        # alone used to say otherwise, splitting `is_pull_request` from the
+        # lookups that fell through to the issue below it.
+        ({"pull_request": {}, **_ISSUE_EVENT}, False, "quince", 12),
+        # A subject with neither a user nor a number degrades to None rather
+        # than raising.
+        ({"issue": {"title": "no user, no number"}}, False, None, None),
+    ),
+)
+def test_event_subject_readers_agree(event, is_pr, author, number):
+    """All three payload readers resolve the same subject node."""
+    # Patched in `sponsor`, not `actions`: the readers bound the name at
+    # import time, and it also sidesteps the `lru_cache` on the real one.
+    with patch("repomatic.github.sponsor.get_github_event", return_value=event):
+        assert is_pull_request() is is_pr
+        assert get_default_author() == author
+        assert get_default_number() == number
+
+
+# -- cancel_superseded_runs ---------------------------------------------------
 
 
 def _dispatch(listings: dict[str, str], cancel_error: str = ""):

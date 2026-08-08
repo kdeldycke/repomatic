@@ -35,21 +35,22 @@ from repomatic.cli import repomatic
 
 
 def main():
-    """Execute the CLI but force its name to not let Click defaults to:
+    """Execute the CLI under its canonical name, whatever the entry point.
+
+    Without `prog_name`, Click derives the displayed name from the invocation:
 
     ```{code-block} shell-session
     $ python -m repomatic --version
     python -m repomatic, version 4.0.0
     ```
 
-    Indirection via this `main()` method was [required to reconcile](https://github.com/python-poetry/poetry/issues/5981):
+    The `main()` indirection lets three invocation styles share one entry
+    point rendering the same name:
 
-        - plain inline package call: `python -m repomatic`,
-        - Poetry's script entry point: `repomatic = 'repomatic.__main__:main`,
-        - Nuitka's main module invocation requirement:
-          `python -m nuitka (...) repomatic/__main__.py`
-
-    That way we can deduce all three cases from the entry point.
+    - the plain module call: `python -m repomatic`,
+    - the `[project.scripts]` console script: `repomatic = "repomatic.__main__:main"`,
+    - Nuitka's main-module compilation requirement:
+      `python -m nuitka (...) repomatic/__main__.py`.
     """
     repomatic(prog_name=repomatic.name)
 

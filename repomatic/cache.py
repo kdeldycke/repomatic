@@ -60,6 +60,19 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
+CACHE_LIST_HEADER_DEFS: tuple[tuple[str, str], ...] = (
+    ("Type", "type"),
+    ("Name", "name"),
+    ("Detail", "detail"),
+    ("Size", "size"),
+    ("Age", "age"),
+)
+"""Column definitions for the `repomatic cache show` table.
+
+Lives beside the entry dataclasses it renders; the CLI derives its
+`--sort-by` choices from it.
+"""
+
 
 def _atomic_write(dest: Path, prefix: str, write: Callable[[Path], object]) -> None:
     """Write *dest* atomically: temp file in the target directory, then rename.
@@ -216,6 +229,25 @@ def cached_binary_path(
     return _bin_dir() / name / version / platform_key / executable
 
 
+SIDECAR_SUFFIX = ".sha256"
+"""Suffix of the digest sidecar stored beside each cached binary.
+
+Part of the binary cache's on-disk layout: the listers skip sidecars and the
+purger removes them along with their entry. Computing, writing, and verifying
+the digest itself stays with the caller (`tool_runner`), per the module note
+above.
+"""
+
+
+def binary_sidecar_path(binary_path: Path) -> Path:
+    """Return the digest sidecar path for a cached binary.
+
+    :param binary_path: Path to the cached binary.
+    :return: Path of the sidecar file next to it.
+    """
+    return binary_path.with_suffix(binary_path.suffix + SIDECAR_SUFFIX)
+
+
 def get_cached_binary(
     name: str,
     version: str,
@@ -244,7 +276,7 @@ def store_binary(
     version: str,
     platform_key: str,
     source: Path,
-) -> Path:
+) -> Path | None:
     """Copy an extracted binary into the cache atomically.
 
     Writes to a temporary file in the target directory, then renames to the
@@ -257,7 +289,10 @@ def store_binary(
     :param version: Pinned version.
     :param platform_key: Platform key.
     :param source: Path to the extracted binary to cache.
-    :return: Path to the cached binary.
+    :return: Path to the cached binary, or `None` when the cache is unwritable
+        (a read-only cache root, a restricted CI mount): callers fall back to
+        their staging copy, matching {func}`store_response` and
+        {func}`store_config`.
     """
     dest = cached_binary_path(name, version, platform_key, source.name)
 
@@ -271,7 +306,11 @@ def store_binary(
         # store time instead.
         os.utime(tmp_path)
 
-    _atomic_write(dest, f".{source.name}.", fill)
+    try:
+        _atomic_write(dest, f".{source.name}.", fill)
+    except OSError as exc:
+        logging.warning("Cannot cache %s at %s: %s", name, dest, exc)
+        return None
     logging.debug("Cached %s %s for %s at %s.", name, version, platform_key, dest)
     auto_purge()
     return dest
@@ -300,8 +339,8 @@ def cache_info() -> list[CacheEntry]:
                 for binary in sorted(platform_dir.iterdir()):
                     if not binary.is_file():
                         continue
-                    # Skip .sha256 sidecar files.
-                    if binary.name.endswith(".sha256"):
+                    # Skip digest sidecar files.
+                    if binary.name.endswith(SIDECAR_SUFFIX):
                         continue
                     stat = binary.stat()
                     entries.append(
@@ -544,11 +583,14 @@ def config_cache_info() -> list[ConfigCacheEntry]:
 
 def clear_config_cache(
     tool: str | None = None,
+    max_age_days: int | None = None,
 ) -> tuple[int, int]:
     """Remove cached tool configurations.
 
     :param tool: If set, only remove entries for this tool. Otherwise remove
         all cached configurations.
+    :param max_age_days: If set, only remove entries older than this many
+        days, matching {func}`clear_cache` and {func}`clear_http_cache`.
     :return: Tuple of (files_deleted, bytes_freed).
     """
     config_root = _config_dir()
@@ -558,7 +600,9 @@ def clear_config_cache(
     return _purge(
         config_cache_info(),
         config_root,
-        keep=lambda entry: tool is not None and entry.tool != tool,
+        keep=lambda entry: (
+            (tool is not None and entry.tool != tool) or _is_fresh(entry, max_age_days)
+        ),
     )
 
 
@@ -605,7 +649,7 @@ def _purge(
             bytes_freed += entry.size
             entry.path.unlink()
             if sidecars:
-                sidecar = entry.path.with_suffix(entry.path.suffix + ".sha256")
+                sidecar = binary_sidecar_path(entry.path)
                 if sidecar.is_file():
                     sidecar.unlink()
             files_deleted += 1

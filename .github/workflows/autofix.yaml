@@ -207,7 +207,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
-          key: repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-${{ hashFiles('repomatic/tool_registry.py') }}
+          key: >-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-${{
+            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-
       - name: Auto-format Markdown
@@ -256,7 +258,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
-          key: repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-${{ hashFiles('repomatic/tool_registry.py') }}
+          key: >-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-${{
+            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-
       - name: Format shell scripts
@@ -299,7 +303,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
-          key: repomatic-${{ runner.os }}-${{ runner.arch }}-biome-${{ hashFiles('repomatic/tool_registry.py') }}
+          key: >-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-biome-${{
+            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-biome-
       - name: Format JSON
@@ -345,7 +351,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
-          key: repomatic-${{ runner.os }}-${{ runner.arch }}-typos-${{ hashFiles('repomatic/tool_registry.py') }}
+          key: >-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-typos-${{
+            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-typos-
       - name: Fix typos
@@ -468,7 +476,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
-          key: repomatic-${{ runner.os }}-${{ runner.arch }}-oxipng-${{ hashFiles('repomatic/tool_registry.py') }}
+          key: >-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-oxipng-${{
+            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-oxipng-
       - name: Install jpegoptim

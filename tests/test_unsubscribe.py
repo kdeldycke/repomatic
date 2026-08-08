@@ -25,12 +25,12 @@ from unittest.mock import patch
 
 import pytest
 
+from repomatic.github.actions import ReportAction
 from repomatic.github.unsubscribe import (
     GRAPHQL_PAGE_SIZE,
     NOTIFICATION_PAGE_SIZE,
     THREADLESS_SEARCH_QUERY,
     DetailRow,
-    ItemAction,
     UnsubscribeResult,
     _compute_cutoff,
     _fetch_notification_threads,
@@ -63,7 +63,7 @@ CUTOFF_ISO = "2026-04-16T00:00:00+00:00"
 
 def _make_row(
     *,
-    action=ItemAction.UNSUBSCRIBED,
+    action=ReportAction.UNSUBSCRIBED,
     html_url="https://example.com/apple/1",
     number=1,
     repo="fruits/apple",
@@ -248,22 +248,6 @@ def test_compute_cutoff(fixed_now, months, expected):
         assert _compute_cutoff(months) == expected
 
 
-# -- ItemAction.label --------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("action", "expected"),
-    [
-        (ItemAction.DRY_RUN, "\U0001f441\ufe0f Dry-run"),
-        (ItemAction.FAILED, "\u26a0\ufe0f Failed"),
-        (ItemAction.UNSUBSCRIBED, "\U0001f515 Unsubscribed"),
-    ],
-)
-def test_action_label(action, expected):
-    """Each action carries its own emoji-and-label string."""
-    assert action.label == expected
-
-
 # -- _format_link -------------------------------------------------------------
 
 
@@ -304,7 +288,7 @@ def test_render_detail_table_exact():
     """Rows render as a headed markdown table with one line each."""
     rows = [
         _make_row(
-            action=ItemAction.UNSUBSCRIBED,
+            action=ReportAction.UNSUBSCRIBED,
             html_url="https://example.com/apple/7",
             number=7,
             repo="fruits/apple",
@@ -312,7 +296,7 @@ def test_render_detail_table_exact():
             updated_at=None,
         ),
         _make_row(
-            action=ItemAction.FAILED,
+            action=ReportAction.FAILED,
             html_url="",
             number=None,
             repo="cities/paris",
@@ -429,7 +413,7 @@ def test_render_report_phase2_content():
     p2.graphql_total = 3
     p2.graphql_not_subscribed = 1
     p2.search_query = "involves:fruitbot is:closed updated:<2026-04-16"
-    p2.rows = [_make_row(action=ItemAction.DRY_RUN)]
+    p2.rows = [_make_row(action=ReportAction.DRY_RUN)]
     report = render_report(result)
     assert "Search details" in report
     assert "involves:fruitbot is:closed updated:<2026-04-16" in report
@@ -676,7 +660,7 @@ def test_phase1_live_unsubscribes_closed_stale():
     assert p1.threads_inspected == 1
     assert p1.threads_unsubscribed == 1
     assert p1.threads_failed == 0
-    assert p1.rows[0].action == ItemAction.UNSUBSCRIBED
+    assert p1.rows[0].action == ReportAction.UNSUBSCRIBED
     assert len(_gh_calls_matching(mock_gh, ["api", "--method", "DELETE"])) == 1
     assert len(_gh_calls_matching(mock_gh, ["api", "--method", "PATCH"])) == 1
 
@@ -694,7 +678,7 @@ def test_phase1_dry_run_records_candidate_without_mutations():
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
     assert result.phase1.threads_unsubscribed == 1
-    assert result.phase1.rows[0].action == ItemAction.DRY_RUN
+    assert result.phase1.rows[0].action == ReportAction.DRY_RUN
     assert _gh_calls_matching(mock_gh, ["api", "--method", "DELETE"]) == []
     assert _gh_calls_matching(mock_gh, ["api", "--method", "PATCH"]) == []
 
@@ -767,7 +751,7 @@ def test_phase1_delete_failure_records_failed():
     p1 = result.phase1
     assert p1.threads_failed == 1
     assert p1.threads_unsubscribed == 0
-    assert p1.rows[0].action == ItemAction.FAILED
+    assert p1.rows[0].action == ReportAction.FAILED
     assert len(_gh_calls_matching(mock_gh, ["api", "--method", "DELETE"])) == 1
     assert _gh_calls_matching(mock_gh, ["api", "--method", "PATCH"]) == []
 
@@ -857,7 +841,7 @@ def test_phase2_dry_run_no_mutation_calls():
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
     assert result.phase2.graphql_unsubscribed == 1
-    assert result.phase2.rows[0].action == ItemAction.DRY_RUN
+    assert result.phase2.rows[0].action == ReportAction.DRY_RUN
     assert _gh_calls_matching(mock_gh, ["api", "graphql"]) == []
 
 
@@ -871,7 +855,7 @@ def test_phase2_live_unsubscribes_subscribed():
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
     assert result.phase2.graphql_unsubscribed == 1
-    assert result.phase2.rows[0].action == ItemAction.UNSUBSCRIBED
+    assert result.phase2.rows[0].action == ReportAction.UNSUBSCRIBED
     gql_calls = _gh_calls_matching(mock_gh, ["api", "graphql"])
     assert len(gql_calls) == 1
     assert "id=n1" in gql_calls[0]
@@ -888,7 +872,7 @@ def test_phase2_mutation_failure_records_failed():
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
     assert result.phase2.graphql_failed == 1
     assert result.phase2.graphql_unsubscribed == 0
-    assert result.phase2.rows[0].action == ItemAction.FAILED
+    assert result.phase2.rows[0].action == ReportAction.FAILED
 
 
 def test_phase2_username_failure_skips_search():

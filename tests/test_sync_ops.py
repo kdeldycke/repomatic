@@ -49,6 +49,7 @@ from repomatic.sync_ops import (
     SyncOperation,
     SyncPlan,
     UvProjectExtras,
+    _apply_file_writes,
     _pinned_with_packages,
     _resolve_action_pins,
     _resolve_dep_sources,
@@ -784,3 +785,39 @@ def test_bundled_pin_bearing_files_are_excluded_from_pin_scan() -> None:
     assert ".github/actions/publish-pypi/action.yaml" in pinned
     for target in pinned:
         assert target in BUNDLED_VERBATIM_TARGETS
+
+
+def test_apply_file_writes_rebases_on_current_text(tmp_path):
+    """A sibling operation's apply landing between plan and write survives.
+
+    Both `.github/` pin updaters plan whole-file rewrites from the same
+    pre-apply snapshot; writing the planned text verbatim would revert
+    whichever sibling applied first.
+    """
+    target = tmp_path / "workflow.yaml"
+    target.write_text("alpha: 1\nbeta: 1\n", encoding="UTF-8")
+
+    # This plan was computed against the original text and bumps beta.
+    plan = SyncPlan(operation="sync-workflow-pins", subject="X", heading="X")
+    plan.file_writes[target] = "alpha: 1\nbeta: 2\n"
+    plan.rebase = lambda text: (text.replace("beta: 1", "beta: 2"), [])
+
+    # A sibling operation bumped alpha after this plan resolved.
+    target.write_text("alpha: 2\nbeta: 1\n", encoding="UTF-8")
+
+    _apply_file_writes(plan)
+
+    assert target.read_text(encoding="UTF-8") == "alpha: 2\nbeta: 2\n"
+
+
+def test_apply_file_writes_verbatim_without_rebase(tmp_path):
+    """A plan carrying no rebase closure still writes its planned text."""
+    target = tmp_path / "registry.py"
+    target.write_text("old\n", encoding="UTF-8")
+
+    plan = SyncPlan(operation="sync-tool-versions", subject="X", heading="X")
+    plan.file_writes[target] = "new\n"
+
+    _apply_file_writes(plan)
+
+    assert target.read_text(encoding="UTF-8") == "new\n"

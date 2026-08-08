@@ -31,6 +31,13 @@ PAYLOAD = {"time": {"1.0.0": "2026-01-02T00:00:00.000Z"}}
 RAW = json.dumps(PAYLOAD).encode()
 
 
+def _fetch(ttl: int = 3600):
+    """Call `get_cached_json` with the fixed npm/papaya coordinates."""
+    return get_cached_json(
+        "npm", "papaya", "https://example.test/papaya", ttl=ttl, log_label="papaya"
+    )
+
+
 def test_get_json_retries_incomplete_read():
     """A truncated body gets one retry before giving up."""
     with patch(
@@ -59,9 +66,7 @@ def test_get_cached_json_fetches_and_stores():
         patch("repomatic.http.get_json", return_value=(PAYLOAD, RAW)) as mock_get,
         patch("repomatic.http.store_response") as mock_store,
     ):
-        result = get_cached_json(
-            "npm", "papaya", "https://example.test/papaya", ttl=3600, log_label="papaya"
-        )
+        result = _fetch()
 
     assert result == PAYLOAD
     mock_get.assert_called_once()
@@ -74,9 +79,7 @@ def test_get_cached_json_uses_cache_when_fresh():
         patch("repomatic.http.get_cached_response", return_value=RAW.decode()),
         patch("repomatic.http.get_json") as mock_get,
     ):
-        result = get_cached_json(
-            "npm", "papaya", "https://example.test/papaya", ttl=3600, log_label="papaya"
-        )
+        result = _fetch()
 
     assert result == PAYLOAD
     mock_get.assert_not_called()
@@ -89,9 +92,7 @@ def test_get_cached_json_ignores_corrupt_cache():
         patch("repomatic.http.get_json", return_value=(PAYLOAD, RAW)) as mock_get,
         patch("repomatic.http.store_response"),
     ):
-        result = get_cached_json(
-            "npm", "papaya", "https://example.test/papaya", ttl=3600, log_label="papaya"
-        )
+        result = _fetch()
 
     assert result == PAYLOAD
     mock_get.assert_called_once()
@@ -104,16 +105,7 @@ def test_get_cached_json_returns_none_on_fetch_error():
         patch("repomatic.http.get_json", side_effect=FetchError("HTTP 404")),
         patch("repomatic.http.store_response") as mock_store,
     ):
-        assert (
-            get_cached_json(
-                "npm",
-                "papaya",
-                "https://example.test/papaya",
-                ttl=3600,
-                log_label="papaya",
-            )
-            is None
-        )
+        assert _fetch() is None
 
     # A failed fetch must never persist anything to the cache.
     mock_store.assert_not_called()
@@ -126,15 +118,6 @@ def test_get_cached_json_skips_store_when_ttl_disabled():
         patch("repomatic.http.get_json", return_value=(PAYLOAD, RAW)),
         patch("repomatic.http.store_response") as mock_store,
     ):
-        assert (
-            get_cached_json(
-                "npm",
-                "papaya",
-                "https://example.test/papaya",
-                ttl=0,
-                log_label="papaya",
-            )
-            == PAYLOAD
-        )
+        assert _fetch(ttl=0) == PAYLOAD
 
     mock_store.assert_not_called()

@@ -37,6 +37,7 @@ from .gh import iter_graphql_nodes, run_gh_command
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from typing import Any
 
 
 def get_default_owner() -> str | None:
@@ -49,40 +50,46 @@ def get_default_owner() -> str | None:
     return owner if owner else None
 
 
+def _event_pull_request() -> dict[str, Any]:
+    """Return the event payload's `pull_request` node, empty when absent.
+
+    Truthiness, not key presence, is the test every reader below shares. A
+    payload carrying `pull_request` as an empty object has no PR to act on,
+    and it has to read that way to {func}`is_pull_request` as well as to the
+    default lookups: testing `"pull_request" in event` here (as this module
+    once did) let the two disagree, so `is_pull_request` reported a pull
+    request while {func}`get_default_number` fell through to the issue branch.
+    """
+    return get_github_event().get("pull_request") or {}
+
+
+def _event_subject() -> dict[str, Any]:
+    """Return the issue or pull request the current event is about.
+
+    Pull requests win: the two nodes are mutually exclusive on the events this
+    module handles, and preferring the PR keeps these lookups reading the same
+    node {func}`is_pull_request` reports on.
+
+    :return: The subject node, or an empty dict when the event carries neither.
+    """
+    return _event_pull_request() or get_github_event().get("issue") or {}
+
+
 def get_default_author() -> str | None:
     """Get the issue/PR author from the GitHub event payload."""
-    event = get_github_event()
-    # Try PR first, then issue.
-    pr = event.get("pull_request", {})
-    if pr:
-        login = pr.get("user", {}).get("login")
-        return str(login) if login else None
-    issue = event.get("issue", {})
-    if issue:
-        login = issue.get("user", {}).get("login")
-        return str(login) if login else None
-    return None
+    login = _event_subject().get("user", {}).get("login")
+    return str(login) if login else None
 
 
 def get_default_number() -> int | None:
     """Get the issue/PR number from the GitHub event payload."""
-    event = get_github_event()
-    # Try PR first, then issue.
-    pr = event.get("pull_request", {})
-    if pr:
-        number = pr.get("number")
-        return int(number) if number else None
-    issue = event.get("issue", {})
-    if issue:
-        number = issue.get("number")
-        return int(number) if number else None
-    return None
+    number = _event_subject().get("number")
+    return int(number) if number else None
 
 
 def is_pull_request() -> bool:
     """Check if the current event is a pull request."""
-    event = get_github_event()
-    return "pull_request" in event
+    return bool(_event_pull_request())
 
 
 # GraphQL query for user sponsors.

@@ -327,13 +327,13 @@ def test_floors_inside_cooldown(
     """Only a floor demanding a release inside the window is reported."""
     upload = datetime.now(timezone.utc) - timedelta(days=age_days)
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(COOLDOWN_PYPROJECT.format(floor=floor), encoding="utf-8")
+    pyproject.write_text(COOLDOWN_PYPROJECT.format(floor=floor), encoding="UTF-8")
     lock = tmp_path / "uv.lock"
     lock.write_text(
         COOLDOWN_LOCK.format(
             locked=locked, upload=upload.isoformat().replace("+00:00", "Z")
         ),
-        encoding="utf-8",
+        encoding="UTF-8",
     )
 
     offenders = floors_inside_cooldown(pyproject, lock, "8 days")

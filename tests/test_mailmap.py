@@ -16,10 +16,44 @@
 
 from __future__ import annotations
 
+import subprocess
 from textwrap import dedent
 
-from repomatic.cli import remove_header
-from repomatic.mailmap import Mailmap, Record
+from click.testing import CliRunner
+
+from repomatic.cli import repomatic
+from repomatic.mailmap import Mailmap, Record, remove_header
+
+
+def test_sync_mailmap_bootstraps_missing_file(tmp_path, monkeypatch):
+    """A repository with no `.mailmap` yet gets one created instead of crashing.
+
+    The `--create-if-missing` default path used to read an unbound `content`
+    variable when the source file did not exist.
+    """
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "--quiet"], check=True, encoding="UTF-8")
+    subprocess.run(
+        ["git", "config", "user.email", "kiwi@example.com"],
+        check=True,
+        encoding="UTF-8",
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Kiwi Papaya"], check=True, encoding="UTF-8"
+    )
+    (tmp_path / "fruit.txt").write_text("papaya\n", encoding="UTF-8")
+    subprocess.run(["git", "add", "fruit.txt"], check=True, encoding="UTF-8")
+    subprocess.run(
+        ["git", "commit", "--quiet", "--message", "Add fruit", "--no-gpg-sign"],
+        check=True,
+        encoding="UTF-8",
+    )
+
+    result = CliRunner().invoke(repomatic, ["sync-mailmap"])
+
+    assert result.exit_code == 0, result.output
+    mailmap = (tmp_path / ".mailmap").read_text(encoding="UTF-8")
+    assert "Kiwi Papaya" in mailmap
 
 
 def test_remove_header():

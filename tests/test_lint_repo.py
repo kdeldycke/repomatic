@@ -22,11 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
-from repomatic.github.token import (
-    PAT_PERMISSION_PROBES,
-    PatPermissionResults,
-    probe_pat_permission,
-)
+from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
     check_branch_ruleset_on_default,
     check_description_matches,
@@ -51,7 +47,7 @@ from repomatic.lint_repo import (
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
 from repomatic.metadata import Metadata
 from repomatic.pypi import TrustedPublisher
-from tests.conftest import all_pass_pat_results
+from tests.conftest import metadata_from_pyproject, pat_results
 
 
 def test_successful_fetch():
@@ -186,7 +182,7 @@ def test_fetches_metadata():
         mock_get.assert_called_once_with("owner/repo")
 
 
-def test_all_checks_pass(capsys):
+def test_all_checks_pass():
     """Return 0 when all checks pass."""
     with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
         mock_get.return_value = {
@@ -267,7 +263,7 @@ def test_notifications_pat_check(
         assert expected in captured.out
 
 
-def test_minimal_run(capsys):
+def test_minimal_run():
     """Run with no checks enabled."""
     exit_code = run_repo_lint()
     assert exit_code == 0
@@ -339,7 +335,7 @@ def test_funding_file_exists(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".github").mkdir()
     (tmp_path / ".github" / "FUNDING.yml").write_text(
-        "github: owner\n", encoding="utf-8"
+        "github: owner\n", encoding="UTF-8"
     )
     result = check_funding_file("owner/repo")
     assert result.passed is True
@@ -351,7 +347,7 @@ def test_funding_file_exists_lowercase(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".github").mkdir()
     (tmp_path / ".github" / "funding.yml").write_text(
-        "github: owner\n", encoding="utf-8"
+        "github: owner\n", encoding="UTF-8"
     )
     result = check_funding_file("owner/repo")
     assert result.passed is True
@@ -438,7 +434,7 @@ def test_workflow_permissions(tmp_path, monkeypatch, workflow, expect_fail, need
     monkeypatch.chdir(tmp_path)
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
-    (workflows / "ci.yaml").write_text(workflow, encoding="utf-8")
+    (workflows / "ci.yaml").write_text(workflow, encoding="UTF-8")
     failures = [r for r in check_workflow_permissions() if r.passed is False]
     if expect_fail:
         assert failures
@@ -488,12 +484,12 @@ def _write_template_case(root, arg_path, file_path, body):
         "      - run: >\n"
         "          repomatic pr-body --output-format github-actions\n"
         f"          --template-file {arg_path}\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     if file_path is not None:
         target = root / file_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body, encoding="utf-8")
+        target.write_text(body, encoding="UTF-8")
 
 
 @pytest.mark.parametrize(
@@ -580,10 +576,10 @@ def test_pr_templates_equals_form(tmp_path, monkeypatch):
         "    steps:\n"
         "      - run: repomatic pr-body"
         " --template-file=.github/pr-sync-fruit-basket.md\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     (tmp_path / ".github" / "pr-sync-fruit-basket.md").write_text(
-        CONFORMING_TEMPLATE, encoding="utf-8"
+        CONFORMING_TEMPLATE, encoding="UTF-8"
     )
     failures = [r for r in check_pr_templates() if r.passed is False]
     assert any("outside" in r.message for r in failures)
@@ -612,7 +608,7 @@ def test_pr_templates_unreferenced_still_checked(tmp_path, monkeypatch):
     (tmp_path / ".github" / "workflows").mkdir(parents=True)
     template = tmp_path / CANONICAL_TEMPLATE_PATH
     template.parent.mkdir(parents=True)
-    template.write_text("---\ntitle: Sync fruit basket\n---\n", encoding="utf-8")
+    template.write_text("---\ntitle: Sync fruit basket\n---\n", encoding="UTF-8")
     failures = [r for r in check_pr_templates() if r.passed is False]
     assert any("no `footer` field" in r.message for r in failures)
 
@@ -846,27 +842,13 @@ def test_pat_checks_skipped_without_pat(capsys):
     assert "skipped (no REPOMATIC_PAT)" in captured.out
 
 
-def _all_fail_pat_results() -> PatPermissionResults:
-    """Build a PatPermissionResults where every check fails."""
-    return PatPermissionResults(
-        contents=(False, "Cannot access repository contents."),
-        issues=(False, "Cannot access repository issues."),
-        pull_requests=(False, "Cannot access repository pull requests."),
-        vulnerability_alerts=(
-            False,
-            "Token lacks 'Dependabot alerts: Read-only' permission.",
-        ),
-        workflows=(False, "Cannot access repository workflows."),
-    )
-
-
 def test_pat_checks_all_pass(capsys):
     """Return 0 when all PAT capability checks pass."""
     with (
         patch("repomatic.lint_repo.run_gh_command", return_value=""),
         patch(
             "repomatic.lint_repo.check_all_pat_permissions",
-            return_value=all_pass_pat_results(),
+            return_value=pat_results(),
         ),
     ):
         exit_code = run_repo_lint(
@@ -888,7 +870,16 @@ def test_pat_checks_fail_on_missing_permission(capsys):
         patch("repomatic.lint_repo.run_gh_command", return_value=""),
         patch(
             "repomatic.lint_repo.check_all_pat_permissions",
-            return_value=_all_fail_pat_results(),
+            return_value=pat_results(
+                contents=(False, "Cannot access repository contents."),
+                issues=(False, "Cannot access repository issues."),
+                pull_requests=(False, "Cannot access repository pull requests."),
+                vulnerability_alerts=(
+                    False,
+                    "Token lacks 'Dependabot alerts: Read-only' permission.",
+                ),
+                workflows=(False, "Cannot access repository workflows."),
+            ),
         ),
     ):
         exit_code = run_repo_lint(
@@ -1030,34 +1021,28 @@ def test_pypi_trusted_publisher_repository_mismatch():
     assert "upstream/orchard" in msg
 
 
-def test_check_test_matrix_excludes_flags_stale(tmp_path, monkeypatch):
-    """A stale exclude (a renamed runner) is reported as a warning."""
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
+@pytest.mark.parametrize(
+    ("runner", "stale"),
+    [
+        pytest.param("macos-15-intel", True, id="renamed-runner"),
+        pytest.param("ubuntu-slim", False, id="live-runner"),
+    ],
+)
+def test_check_test_matrix_excludes(tmp_path, monkeypatch, runner, stale):
+    """An exclude naming a runner the matrix no longer has is a warning."""
+    metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
         '[project]\nname = "p"\nversion = "1.0.0"\n\n'
         "[tool.repomatic.test-matrix]\n"
-        'exclude = [{os = "macos-15-intel"}]\n',
-        encoding="utf-8",
+        f'exclude = [{{os = "{runner}"}}]\n',
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     results = check_test_matrix_excludes()
-    assert any(r.passed is False and "macos-15-intel" in r.message for r in results)
-
-
-def test_check_test_matrix_excludes_clean(tmp_path, monkeypatch):
-    """A live exclude produces no warning."""
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
-        '[project]\nname = "p"\nversion = "1.0.0"\n\n'
-        "[tool.repomatic.test-matrix]\n"
-        'exclude = [{os = "ubuntu-slim"}]\n',
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    results = check_test_matrix_excludes()
-    assert all(r.passed is not False for r in results)
+    if stale:
+        assert any(r.passed is False and runner in r.message for r in results)
+    else:
+        assert all(r.passed is not False for r in results)
 
 
 def _write_project(tmp_path, monkeypatch, classifiers, requires_python=">= 3.11"):
@@ -1069,16 +1054,21 @@ def _write_project(tmp_path, monkeypatch, classifiers, requires_python=">= 3.11"
         '[project]\nname = "p"\nversion = "1.0.0"\n'
         f'requires-python = "{requires_python}"\n'
         f"classifiers = [\n{entries}\n]\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     monkeypatch.setattr(Metadata, "pyproject_path", tmp_path / "pyproject.toml")
     monkeypatch.chdir(tmp_path)
 
 
-def _write_workflow(tmp_path, body, name="ci.yaml"):
+def _write_ci_workflow(tmp_path, body, name="ci.yaml"):
+    """Materialize a workflow under *tmp_path*'s `.github/workflows/` directory.
+
+    The checks under test discover workflows by globbing that directory, so the
+    file has to sit at the conventional path rather than anywhere writable.
+    """
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True, exist_ok=True)
-    (workflows / name).write_text(body, encoding="utf-8")
+    (workflows / name).write_text(body, encoding="UTF-8")
 
 
 _MATRIX = (
@@ -1106,7 +1096,7 @@ def test_python_floor_disagreeing_with_classifiers(tmp_path, monkeypatch):
 def test_python_matrix_missing_an_advertised_boundary(tmp_path, monkeypatch):
     """Advertising a version the matrix never reaches is untested support."""
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12", "3.13"])
-    _write_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.12"'))
+    _write_ci_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.12"'))
     results = check_python_version_consistency()
     assert any(r.passed is False and "3.13" in r.message for r in results)
 
@@ -1114,14 +1104,14 @@ def test_python_matrix_missing_an_advertised_boundary(tmp_path, monkeypatch):
 def test_python_matrix_may_skip_intermediate_versions(tmp_path, monkeypatch):
     """Only the ends of the range are mandatory, to keep CI load a free choice."""
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12", "3.13"])
-    _write_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.13"'))
+    _write_ci_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.13"'))
     assert all(r.passed is not False for r in check_python_version_consistency())
 
 
 def test_python_matrix_testing_an_unadvertised_version(tmp_path, monkeypatch):
     """A released version tested but not advertised is support left unclaimed."""
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12"])
-    _write_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.12", "3.13"'))
+    _write_ci_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.12", "3.13"'))
     results = check_python_version_consistency()
     assert any(r.passed is False and "3.13" in r.message for r in results)
 
@@ -1130,14 +1120,16 @@ def test_python_matrix_tolerates_unreleased_versions(tmp_path, monkeypatch):
     """An in-development version cannot be advertised, so it is exempt."""
     unstable = min(UNSTABLE_PYTHON_VERSIONS)
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12"])
-    _write_workflow(tmp_path, _MATRIX.format(versions=f'"3.11", "3.12", "{unstable}"'))
+    _write_ci_workflow(
+        tmp_path, _MATRIX.format(versions=f'"3.11", "3.12", "{unstable}"')
+    )
     assert all(r.passed is not False for r in check_python_version_consistency())
 
 
 def test_python_matrix_built_at_runtime_is_skipped(tmp_path, monkeypatch):
     """A `fromJSON` matrix is opaque, and its axes are canonical already."""
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12"])
-    _write_workflow(
+    _write_ci_workflow(
         tmp_path,
         "on: push\njobs:\n  tests:\n    strategy:\n"
         "      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).test_matrix }}\n"
@@ -1159,7 +1151,7 @@ def test_python_matrix_built_at_runtime_is_skipped(tmp_path, monkeypatch):
 def test_runner_images(tmp_path, monkeypatch, runner, expect_fail, needle):
     """Floating aliases and off-axis images are flagged; expressions are not."""
     monkeypatch.chdir(tmp_path)
-    _write_workflow(
+    _write_ci_workflow(
         tmp_path,
         f"on: push\njobs:\n  build:\n    runs-on: {runner}\n"
         "    steps:\n      - run: echo apricot\n",
@@ -1175,7 +1167,7 @@ def test_runner_images(tmp_path, monkeypatch, runner, expect_fail, needle):
 def test_runner_images_ignores_thin_callers(tmp_path, monkeypatch):
     """A job with no steps delegates, and its runner is the callee's business."""
     monkeypatch.chdir(tmp_path)
-    _write_workflow(
+    _write_ci_workflow(
         tmp_path,
         "on: push\njobs:\n  build:\n    uses: ./.github/workflows/_build.yaml\n",
     )
@@ -1258,11 +1250,15 @@ def test_check_branch_ruleset_none():
 
 
 def test_check_branch_ruleset_api_error():
-    """API failure defaults to incomplete (show the step)."""
+    """An unreadable rulesets API is indeterminate, not a failure.
+
+    Matches `check_tag_protection_rules`, which reads the same payload. The
+    setup guide still treats the `None` as incomplete and keeps the step open.
+    """
 
     with patch("repomatic.lint_repo.gh_api_json", return_value=None):
         passed, msg = check_branch_ruleset_on_default("owner/repo")
-    assert passed is False
+    assert passed is None
     assert "skipped" in msg
 
 

@@ -41,6 +41,7 @@ from repomatic.github.workflow_sync import (
     check_version_pinned,
     extract_extra_jobs,
     extract_trigger_info,
+    extras_define_jobs,
     generate_thin_caller,
     generate_workflow_header,
     identify_canonical_workflow,
@@ -60,6 +61,11 @@ from repomatic.registry import (
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
+)
+from tests.conftest import (
+    PROJECT_ROOT,
+    WORKFLOWS_WITH_CONCURRENCY_BLOCK,
+    WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
 )
 
 TYPE_CHECKING = False
@@ -104,7 +110,7 @@ def test_reusable_has_workflow_call(filename: str) -> None:
     assert info.has_workflow_call is True
 
 
-@pytest.mark.parametrize("filename", list(NON_REUSABLE_WORKFLOWS))
+@pytest.mark.parametrize("filename", sorted(NON_REUSABLE_WORKFLOWS))
 def test_non_reusable_no_workflow_call(filename: str) -> None:
     """Verify non-reusable workflows lack workflow_call trigger."""
     info = extract_trigger_info(filename)
@@ -688,6 +694,45 @@ def test_extract_extra_jobs_single() -> None:
     assert "REPOMATIC_PAT" not in extra
 
 
+def test_extract_extra_jobs_odd_indent_body_stays_managed() -> None:
+    """A hand-edited 3-space body line does not truncate the managed job.
+
+    The body walk used to require exactly 4+ spaces, so a 3-space line ended
+    it early and the managed job's tail leaked into the extras, which the
+    next sync duplicated below the regenerated lanes.
+    """
+    content = (
+        f"---\nname: Release\njobs:\n\n  release:\n"
+        f"    uses: {DEFAULT_REPO}/.github/workflows/release.yaml@v6.0.0\n"
+        "   # Hand-edited three-space comment line.\n"
+        "    secrets:\n"
+        "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
+        "\n"
+        "  mine:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: echo hello\n"
+    )
+    extra = extract_extra_jobs(content)
+    assert "REPOMATIC_PAT" not in extra
+    assert "three-space comment" not in extra
+    assert "mine:" in extra
+
+
+def test_extras_define_jobs_ignores_comment_only_tail() -> None:
+    """A trailing comment after the managed lanes is not a downstream job.
+
+    `bool(extra)` used to gate the explicit-permissions contract, so a
+    repository keeping a plain trailing note below its thin caller was
+    silently flipped onto the `permissions: {}` shape it never asked for.
+    """
+    assert not extras_define_jobs("")
+    assert not extras_define_jobs("  # Trailing note about the job above.\n")
+    assert not extras_define_jobs("\n  # One.\n\n  # Two.\n")
+    assert extras_define_jobs("  mine:\n    runs-on: ubuntu-latest\n")
+    assert extras_define_jobs("  # Heading.\n  mine:\n    runs-on: ubuntu-latest\n")
+
+
 def test_extract_extra_jobs_treats_publish_pypi_as_managed() -> None:
     """Verify the caller-side publish-pypi job is recognized as managed.
 
@@ -826,56 +871,65 @@ def test_thin_caller_sync_preserves_extra_jobs(tmp_path: Path) -> None:
     assert "# Custom packaging job." in result
 
 
-def test_has_dispatch(tmp_path: Path) -> None:
-    """Pass when workflow_dispatch is present."""
-    wf = tmp_path / "test.yaml"
-    wf.write_text(
-        '---\n"on":\n  workflow_dispatch:\n  push:\n',
-        encoding="UTF-8",
-    )
+@pytest.mark.parametrize(
+    ("body", "is_issue", "needle", "level"),
+    [
+        pytest.param(
+            '---\n"on":\n  workflow_dispatch:\n  push:\n',
+            False,
+            "",
+            AnnotationLevel.WARNING,
+            id="present",
+        ),
+        pytest.param(
+            '---\n"on":\n  push:\n',
+            True,
+            "missing",
+            AnnotationLevel.WARNING,
+            id="absent",
+        ),
+        # Unparsable YAML is an error, not a warning: nothing downstream can
+        # read the file either.
+        pytest.param(
+            "{{invalid",
+            True,
+            "",
+            AnnotationLevel.ERROR,
+            id="invalid-yaml",
+        ),
+    ],
+)
+def test_check_has_workflow_dispatch(
+    tmp_path: Path, body: str, is_issue: bool, needle: str, level: AnnotationLevel
+) -> None:
+    """The `workflow_dispatch` check reports presence, absence and unreadability."""
+    wf = tmp_path / "candidate.yaml"
+    wf.write_text(body, encoding="UTF-8")
     result = check_has_workflow_dispatch(wf)
-    assert result.is_issue is False
+    assert result.is_issue is is_issue
+    assert needle in result.message
+    assert result.level == level
 
 
-def test_missing_dispatch(tmp_path: Path) -> None:
-    """Fail when workflow_dispatch is missing."""
-    wf = tmp_path / "test.yaml"
-    wf.write_text('---\n"on":\n  push:\n', encoding="UTF-8")
-    result = check_has_workflow_dispatch(wf)
-    assert result.is_issue is True
-    assert "missing" in result.message
-
-
-def test_invalid_yaml(tmp_path: Path) -> None:
-    """Error on invalid YAML."""
-    wf = tmp_path / "bad.yaml"
-    wf.write_text("{{invalid", encoding="UTF-8")
-    result = check_has_workflow_dispatch(wf)
-    assert result.is_issue is True
-    assert result.level == AnnotationLevel.ERROR
-
-
-def test_pinned_version(tmp_path: Path) -> None:
-    """Pass when using a version tag."""
+@pytest.mark.parametrize(
+    ("ref", "is_issue", "needle"),
+    [
+        pytest.param("v5.8.0", False, "", id="version-tag"),
+        pytest.param("main", True, "@main", id="floating-branch"),
+    ],
+)
+def test_check_version_pinned(
+    tmp_path: Path, ref: str, is_issue: bool, needle: str
+) -> None:
+    """A caller must pin the upstream workflow to a tag, never to a branch."""
     wf = tmp_path / "lint.yaml"
     wf.write_text(
-        f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@v5.8.0\n",
+        f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@{ref}\n",
         encoding="UTF-8",
     )
     result = check_version_pinned(wf)
-    assert result.is_issue is False
-
-
-def test_uses_main(tmp_path: Path) -> None:
-    """Fail when using @main."""
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(
-        f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@main\n",
-        encoding="UTF-8",
-    )
-    result = check_version_pinned(wf)
-    assert result.is_issue is True
-    assert "@main" in result.message
+    assert result.is_issue is is_issue
+    assert needle in result.message
 
 
 def test_matching_triggers(tmp_path: Path) -> None:
@@ -942,117 +996,118 @@ def test_caller_with_synthetic_triggers_for_call_only_canonical(
     assert result.is_issue is False
 
 
-def test_explicit_secrets_passed(tmp_path: Path) -> None:
-    """Pass when all required secrets are passed explicitly."""
-    wf = tmp_path / "release.yaml"
+ALL_RELEASE_SECRETS = (
+    "    secrets:\n"
+    "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
+    "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n"
+)
+"""Every secret `_release-engine.yaml` declares, passed explicitly."""
+
+
+@pytest.mark.parametrize(
+    ("caller", "canonical", "secrets_block", "is_issue", "needle"),
+    [
+        pytest.param(
+            "release",
+            "_release-engine.yaml",
+            ALL_RELEASE_SECRETS,
+            False,
+            "",
+            id="all-passed-explicitly",
+        ),
+        # `secrets: inherit` predates the explicit form and still satisfies it.
+        pytest.param(
+            "release",
+            "_release-engine.yaml",
+            "    secrets: inherit\n",
+            False,
+            "",
+            id="inherit",
+        ),
+        pytest.param(
+            "release",
+            "_release-engine.yaml",
+            "",
+            True,
+            "secrets",
+            id="none-passed",
+        ),
+        pytest.param(
+            "release",
+            "_release-engine.yaml",
+            "    secrets:\n"
+            "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
+            True,
+            "REPOMATIC_PAT",
+            id="partially-passed",
+        ),
+        pytest.param(
+            "lint",
+            "lint.yaml",
+            "    secrets:\n"
+            "      REPOMATIC_NOTIFICATIONS_PAT:"
+            " ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}\n"
+            "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
+            "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
+            False,
+            "",
+            id="lint-all-passed",
+        ),
+    ],
+)
+def test_check_secrets_passed(
+    tmp_path: Path,
+    caller: str,
+    canonical: str,
+    secrets_block: str,
+    is_issue: bool,
+    needle: str,
+) -> None:
+    """A caller must forward every secret its canonical workflow declares."""
+    wf = tmp_path / f"{caller}.yaml"
     wf.write_text(
-        "---\njobs:\n  release:\n"
-        f"    uses: {DEFAULT_REPO}/.github/workflows/release.yaml@v5.8.0\n"
-        "    secrets:\n"
-        "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
-        "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
+        f"---\njobs:\n  {caller}:\n"
+        f"    uses: {DEFAULT_REPO}/.github/workflows/{caller}.yaml@v5.8.0\n"
+        f"{secrets_block}",
         encoding="UTF-8",
     )
-    result = check_secrets_passed(wf, "_release-engine.yaml")
-    assert result.is_issue is False
+    result = check_secrets_passed(wf, canonical)
+    assert result.is_issue is is_issue
+    assert needle in result.message
 
 
-def test_secrets_inherit_still_accepted(tmp_path: Path) -> None:
-    """Pass when secrets: inherit is used (backwards-compatible)."""
-    wf = tmp_path / "release.yaml"
-    wf.write_text(
-        "---\njobs:\n  release:\n"
-        f"    uses: {DEFAULT_REPO}/.github/workflows/release.yaml@v5.8.0\n"
-        "    secrets: inherit\n",
-        encoding="UTF-8",
-    )
-    result = check_secrets_passed(wf, "_release-engine.yaml")
-    assert result.is_issue is False
+CLEAN_WORKFLOW = (
+    '---\n"on":\n  workflow_dispatch:\n  push:\njobs:\n'
+    "  build:\n    runs-on: ubuntu-latest\n"
+)
+"""A workflow the linter finds nothing to say about."""
+
+DISPATCHLESS_WORKFLOW = '---\n"on":\n  push:\n'
+"""A workflow missing `workflow_dispatch`, the linter's mildest complaint."""
 
 
-def test_missing_secrets(tmp_path: Path) -> None:
-    """Fail when no secrets are passed but required."""
-    wf = tmp_path / "release.yaml"
-    wf.write_text(
-        "---\njobs:\n  release:\n"
-        f"    uses: {DEFAULT_REPO}/.github/workflows/release.yaml@v5.8.0\n",
-        encoding="UTF-8",
-    )
-    result = check_secrets_passed(wf, "_release-engine.yaml")
-    assert result.is_issue is True
-    assert "secrets" in result.message
+@pytest.mark.parametrize(
+    ("body", "fatal", "exit_code"),
+    [
+        pytest.param(CLEAN_WORKFLOW, False, 0, id="clean"),
+        pytest.param(None, False, 0, id="empty-directory"),
+        # The severity knob only moves the exit code, never the diagnosis.
+        pytest.param(DISPATCHLESS_WORKFLOW, False, 0, id="issue-warning-mode"),
+        pytest.param(DISPATCHLESS_WORKFLOW, True, 1, id="issue-fatal-mode"),
+    ],
+)
+def test_run_workflow_lint(
+    tmp_path: Path, body: str | None, fatal: bool, exit_code: int
+) -> None:
+    """Lint exit codes across a clean tree, an empty one, and both severities."""
+    if body is not None:
+        (tmp_path / "candidate.yaml").write_text(body, encoding="UTF-8")
+    assert run_workflow_lint(tmp_path, fatal=fatal) == exit_code
 
 
-def test_partial_secrets_missing(tmp_path: Path) -> None:
-    """Fail when only some required secrets are passed."""
-    wf = tmp_path / "release.yaml"
-    wf.write_text(
-        "---\njobs:\n  release:\n"
-        f"    uses: {DEFAULT_REPO}/.github/workflows/release.yaml@v5.8.0\n"
-        "    secrets:\n"
-        "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
-        encoding="UTF-8",
-    )
-    result = check_secrets_passed(wf, "_release-engine.yaml")
-    assert result.is_issue is True
-    assert "REPOMATIC_PAT" in result.message
-
-
-def test_no_secrets_needed(tmp_path: Path) -> None:
-    """Pass when downstream passes all required secrets."""
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(
-        "---\njobs:\n  lint:\n"
-        f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@v5.8.0\n"
-        "    secrets:\n"
-        "      REPOMATIC_NOTIFICATIONS_PAT:"
-        " ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}\n"
-        "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
-        "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
-        encoding="UTF-8",
-    )
-    result = check_secrets_passed(wf, "lint.yaml")
-    assert result.is_issue is False
-
-
-def test_clean_directory(tmp_path: Path) -> None:
-    """Return 0 for clean workflows."""
-    wf = tmp_path / "test.yaml"
-    wf.write_text(
-        '---\n"on":\n  workflow_dispatch:\n  push:\njobs:\n'
-        "  build:\n    runs-on: ubuntu-latest\n",
-        encoding="UTF-8",
-    )
-    exit_code = run_workflow_lint(tmp_path)
-    assert exit_code == 0
-
-
-def test_missing_directory(tmp_path: Path) -> None:
-    """Return 1 for missing directory."""
-    exit_code = run_workflow_lint(tmp_path / "nonexistent")
-    assert exit_code == 1
-
-
-def test_empty_directory(tmp_path: Path) -> None:
-    """Return 0 for empty directory."""
-    exit_code = run_workflow_lint(tmp_path)
-    assert exit_code == 0
-
-
-def test_warning_mode(tmp_path: Path) -> None:
-    """Return 0 in warning mode even with issues."""
-    wf = tmp_path / "test.yaml"
-    wf.write_text('---\n"on":\n  push:\n', encoding="UTF-8")
-    exit_code = run_workflow_lint(tmp_path, fatal=False)
-    assert exit_code == 0
-
-
-def test_fatal_mode(tmp_path: Path) -> None:
-    """Return 1 in fatal mode when issues found."""
-    wf = tmp_path / "test.yaml"
-    wf.write_text('---\n"on":\n  push:\n', encoding="UTF-8")
-    exit_code = run_workflow_lint(tmp_path, fatal=True)
-    assert exit_code == 1
+def test_run_workflow_lint_missing_directory(tmp_path: Path) -> None:
+    """A directory that does not exist is an error, not an empty tree."""
+    assert run_workflow_lint(tmp_path / "nonexistent") == 1
 
 
 def test_thin_caller_exempt_from_workflow_dispatch_check(tmp_path: Path) -> None:
@@ -1128,30 +1183,32 @@ def test_custom_level() -> None:
 # Concurrency extraction tests
 # ---------------------------------------------------------------------------
 
-WORKFLOWS_WITH_CONCURRENCY = (
-    "autofix.yaml",
-    "changelog.yaml",
-    "debug.yaml",
-    "docs.yaml",
-    "labels.yaml",
-    "lint.yaml",
-    "release.yaml",
+# `extract_trigger_info` reads the *bundled* copy of a workflow, so both rosters
+# are narrowed to what ships: `self-maintenance.yaml` and `_release-build.yaml`
+# live in `.github/workflows/` but have no counterpart under `repomatic/data/`,
+# and asking for one raises FileNotFoundError rather than reporting an absent
+# concurrency block.
+BUNDLED_WORKFLOWS = frozenset(
+    p.name for p in (PROJECT_ROOT / "repomatic" / "data").glob("*.yaml")
 )
-"""Canonical workflows that define a concurrency block."""
 
-WORKFLOWS_WITHOUT_CONCURRENCY = (
-    "_release-engine.yaml",
-    "autolock.yaml",
-    "cancel-runs.yaml",
+BUNDLED_WITH_CONCURRENCY = tuple(
+    name for name in WORKFLOWS_WITH_CONCURRENCY_BLOCK if name in BUNDLED_WORKFLOWS
 )
-"""Canonical workflows that do not define a concurrency block.
+"""Bundled workflows that define a concurrency block."""
 
-`_release-engine.yaml` delegates concurrency to the push-triggered `release.yaml`
-entry that calls it (see {func}`_generate_release_caller`).
+BUNDLED_WITHOUT_CONCURRENCY = tuple(
+    name for name in WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK if name in BUNDLED_WORKFLOWS
+)
+"""Bundled workflows that do not.
+
+`_release-engine.yaml` is here by design: it delegates concurrency to the
+push-triggered `release.yaml` entry that calls it (see
+{func}`_generate_release_caller`).
 """
 
 
-@pytest.mark.parametrize("filename", WORKFLOWS_WITH_CONCURRENCY)
+@pytest.mark.parametrize("filename", BUNDLED_WITH_CONCURRENCY)
 def test_concurrency_present(filename: str) -> None:
     """Verify concurrency is extracted for workflows that define it."""
     info = extract_trigger_info(filename)
@@ -1160,7 +1217,7 @@ def test_concurrency_present(filename: str) -> None:
     assert "concurrency:" in info.raw_concurrency
 
 
-@pytest.mark.parametrize("filename", WORKFLOWS_WITHOUT_CONCURRENCY)
+@pytest.mark.parametrize("filename", BUNDLED_WITHOUT_CONCURRENCY)
 def test_concurrency_absent(filename: str) -> None:
     """Verify concurrency is None for workflows without it."""
     info = extract_trigger_info(filename)
@@ -1311,143 +1368,144 @@ def test_header_extraction_nonexistent() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_substitute_replaces_upstream_glob() -> None:
-    """Replace upstream source glob with downstream source paths."""
-    paths = [UPSTREAM_SOURCE_GLOB, "tests/**", "pyproject.toml"]
-    result = _substitute_source_paths(paths, ["extra_platforms"])
-    assert result == ["extra_platforms/**", "tests/**", "pyproject.toml"]
+@pytest.mark.parametrize(
+    ("paths", "source_paths", "expected"),
+    [
+        pytest.param(
+            [UPSTREAM_SOURCE_GLOB, "tests/**", "pyproject.toml"],
+            ["extra_platforms"],
+            ["extra_platforms/**", "tests/**", "pyproject.toml"],
+            id="glob-replaced-in-place",
+        ),
+        pytest.param(
+            [UPSTREAM_SOURCE_GLOB, "pyproject.toml"],
+            ["pkg_a", "pkg_b"],
+            ["pkg_a/**", "pkg_b/**", "pyproject.toml"],
+            id="glob-fans-out-to-several",
+        ),
+        # An upstream path that is not the source glob has no downstream
+        # counterpart to become, so it is dropped rather than translated.
+        pytest.param(
+            [
+                UPSTREAM_SOURCE_GLOB,
+                f"{UPSTREAM_SOURCE_PREFIX}data/labels.toml",
+                "config.json",
+            ],
+            ["my_pkg"],
+            ["my_pkg/**", "config.json"],
+            id="upstream-specific-dropped",
+        ),
+        pytest.param(
+            ["tests/**", "pyproject.toml", "uv.lock", "changelog.md"],
+            ["my_pkg"],
+            ["tests/**", "pyproject.toml", "uv.lock", "changelog.md"],
+            id="universal-paths-untouched",
+        ),
+        pytest.param(
+            [UPSTREAM_SOURCE_GLOB, "pyproject.toml"],
+            [],
+            ["pyproject.toml"],
+            id="no-source-paths-drops-the-glob",
+        ),
+    ],
+)
+def test_substitute_source_paths(
+    paths: list[str], source_paths: list[str], expected: list[str]
+) -> None:
+    """Upstream source globs are retargeted; everything else is kept or dropped."""
+    assert _substitute_source_paths(paths, source_paths) == expected
 
 
-def test_substitute_multiple_source_paths() -> None:
-    """Replace upstream source glob with multiple downstream paths."""
-    paths = [UPSTREAM_SOURCE_GLOB, "pyproject.toml"]
-    result = _substitute_source_paths(paths, ["pkg_a", "pkg_b"])
-    assert result == ["pkg_a/**", "pkg_b/**", "pyproject.toml"]
-
-
-def test_substitute_drops_upstream_specific() -> None:
-    """Drop upstream-specific paths that aren't the source glob."""
-    paths = [
-        UPSTREAM_SOURCE_GLOB,
-        f"{UPSTREAM_SOURCE_PREFIX}data/labels.toml",
-        "config.json",
-    ]
-    result = _substitute_source_paths(paths, ["my_pkg"])
-    assert result == ["my_pkg/**", "config.json"]
-
-
-def test_substitute_keeps_universal_paths() -> None:
-    """Keep universal paths unchanged."""
-    paths = ["tests/**", "pyproject.toml", "uv.lock", "changelog.md"]
-    result = _substitute_source_paths(paths, ["my_pkg"])
-    assert result == ["tests/**", "pyproject.toml", "uv.lock", "changelog.md"]
-
-
-def test_substitute_empty_source_paths() -> None:
-    """Return only universal paths when source_paths is empty."""
-    paths = [UPSTREAM_SOURCE_GLOB, "pyproject.toml"]
-    result = _substitute_source_paths(paths, [])
-    assert result == ["pyproject.toml"]
-
-
-def test_adapt_trigger_paths_with_source_paths() -> None:
-    """Adapt trigger config with source paths substitution."""
-    config = {
-        "branches": ["main"],
-        "paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"],
-    }
-    spec = PathsSpec(source_paths=["extra_platforms"])
-    result = _adapt_trigger_paths(config, "tests.yaml", spec)
-    assert result["branches"] == ["main"]
-    assert result["paths"] == ["extra_platforms/**", "pyproject.toml"]
-
-
-def test_adapt_trigger_paths_none_drops_upstream_keeps_universal() -> None:
-    """Drop upstream paths but keep universal entries when source_paths is None."""
-    config = {
-        "branches": ["main"],
-        "paths": [
-            UPSTREAM_SOURCE_GLOB,
-            "pyproject.toml",
-            "repomatic/data/labels.toml",
-        ],
-    }
-    result = _adapt_trigger_paths(config, "tests.yaml", PathsSpec())
-    assert result["branches"] == ["main"]
-    assert result["paths"] == ["pyproject.toml"]
-
-
-def test_adapt_trigger_paths_none_drops_paths_when_only_upstream() -> None:
-    """Drop the paths key when only upstream entries are present."""
-    config = {
-        "branches": ["main"],
-        "paths": [UPSTREAM_SOURCE_GLOB, "repomatic/data/labels.toml"],
-    }
-    result = _adapt_trigger_paths(config, "tests.yaml", PathsSpec())
-    assert "paths" not in result
-    assert result["branches"] == ["main"]
-
-
-def test_adapt_trigger_paths_no_paths_key() -> None:
-    """Pass through trigger config that has no paths key."""
-    config = {"branches": ["main"]}
-    spec = PathsSpec(source_paths=["extra_platforms"])
-    result = _adapt_trigger_paths(config, "tests.yaml", spec)
-    assert result == {"branches": ["main"]}
-
-
-def test_adapt_trigger_paths_with_extra_paths() -> None:
-    """`extra_paths` are appended to the path list, deduped."""
-    config = {
-        "paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"],
-    }
-    spec = PathsSpec(
-        source_paths=["my_pkg"],
-        extra_paths=["install.sh", "pyproject.toml"],  # already-present is deduped.
-    )
-    result = _adapt_trigger_paths(config, "tests.yaml", spec)
-    assert result["paths"] == ["my_pkg/**", "pyproject.toml", "install.sh"]
-
-
-def test_adapt_trigger_paths_with_ignore_paths() -> None:
-    """`ignore_paths` strips matching upstream entries before extras are added."""
-    config = {
-        "paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml", "uv.lock"],
-    }
-    spec = PathsSpec(
-        source_paths=["my_pkg"],
-        ignore_paths=["uv.lock"],
-    )
-    result = _adapt_trigger_paths(config, "tests.yaml", spec)
-    assert result["paths"] == ["my_pkg/**", "pyproject.toml"]
-
-
-def test_adapt_trigger_paths_per_workflow_override_replaces_wholesale() -> None:
-    """Per-workflow `paths` override ignores other knobs and replaces the list."""
-    config = {
-        "paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml", "uv.lock"],
-    }
-    spec = PathsSpec(
-        source_paths=["my_pkg"],
-        extra_paths=["never-applied.sh"],
-        ignore_paths=["pyproject.toml"],
-        workflow_paths={"tests.yaml": ["install.sh", "packages.toml"]},
-    )
-    result = _adapt_trigger_paths(config, "tests.yaml", spec)
-    assert result["paths"] == ["install.sh", "packages.toml"]
-
-
-def test_adapt_trigger_paths_per_workflow_override_does_not_leak_to_others() -> None:
-    """Per-workflow override only applies to its own filename."""
-    config = {
-        "paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"],
-    }
-    spec = PathsSpec(
-        source_paths=["my_pkg"],
-        workflow_paths={"tests.yaml": ["install.sh"]},
-    )
-    result = _adapt_trigger_paths(config, "lint.yaml", spec)
-    assert result["paths"] == ["my_pkg/**", "pyproject.toml"]
+@pytest.mark.parametrize(
+    ("config", "filename", "spec", "expected"),
+    [
+        pytest.param(
+            {"branches": ["main"], "paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"]},
+            "tests.yaml",
+            PathsSpec(source_paths=["extra_platforms"]),
+            {"branches": ["main"], "paths": ["extra_platforms/**", "pyproject.toml"]},
+            id="source-paths-substituted",
+        ),
+        pytest.param(
+            {
+                "branches": ["main"],
+                "paths": [
+                    UPSTREAM_SOURCE_GLOB,
+                    "pyproject.toml",
+                    "repomatic/data/labels.toml",
+                ],
+            },
+            "tests.yaml",
+            PathsSpec(),
+            {"branches": ["main"], "paths": ["pyproject.toml"]},
+            id="no-source-paths-keeps-universal",
+        ),
+        # Emptying the list drops the key: an empty `paths:` matches nothing,
+        # which would silently disable the trigger.
+        pytest.param(
+            {
+                "branches": ["main"],
+                "paths": [UPSTREAM_SOURCE_GLOB, "repomatic/data/labels.toml"],
+            },
+            "tests.yaml",
+            PathsSpec(),
+            {"branches": ["main"]},
+            id="all-upstream-drops-the-key",
+        ),
+        pytest.param(
+            {"branches": ["main"]},
+            "tests.yaml",
+            PathsSpec(source_paths=["extra_platforms"]),
+            {"branches": ["main"]},
+            id="no-paths-key-passes-through",
+        ),
+        pytest.param(
+            {"paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"]},
+            "tests.yaml",
+            PathsSpec(
+                source_paths=["my_pkg"],
+                # The already-present entry is deduped rather than repeated.
+                extra_paths=["install.sh", "pyproject.toml"],
+            ),
+            {"paths": ["my_pkg/**", "pyproject.toml", "install.sh"]},
+            id="extra-paths-appended",
+        ),
+        pytest.param(
+            {"paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml", "uv.lock"]},
+            "tests.yaml",
+            PathsSpec(source_paths=["my_pkg"], ignore_paths=["uv.lock"]),
+            {"paths": ["my_pkg/**", "pyproject.toml"]},
+            id="ignore-paths-stripped",
+        ),
+        pytest.param(
+            {"paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml", "uv.lock"]},
+            "tests.yaml",
+            PathsSpec(
+                source_paths=["my_pkg"],
+                extra_paths=["never-applied.sh"],
+                ignore_paths=["pyproject.toml"],
+                workflow_paths={"tests.yaml": ["install.sh", "packages.toml"]},
+            ),
+            {"paths": ["install.sh", "packages.toml"]},
+            id="override-wins-over-every-other-knob",
+        ),
+        pytest.param(
+            {"paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"]},
+            "lint.yaml",
+            PathsSpec(
+                source_paths=["my_pkg"],
+                workflow_paths={"tests.yaml": ["install.sh"]},
+            ),
+            {"paths": ["my_pkg/**", "pyproject.toml"]},
+            id="override-scoped-to-its-own-file",
+        ),
+    ],
+)
+def test_adapt_trigger_paths(
+    config: dict, filename: str, spec: PathsSpec, expected: dict
+) -> None:
+    """Every `PathsSpec` knob, applied to one trigger's config block."""
+    assert _adapt_trigger_paths(config, filename, spec) == expected
 
 
 # ---------------------------------------------------------------------------

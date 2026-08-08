@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
-from urllib.request import urlretrieve
+from urllib.request import Request, urlopen
 
 import tomlrt
 
@@ -55,6 +55,7 @@ from .github.workflow_sync import (
     identify_canonical_workflow,
     render_thin_caller_for_target,
 )
+from .http import DEFAULT_TIMEOUT
 from .labels import augment_labeller_content
 from .metadata import Metadata
 from .plugin import merge_plugin_settings
@@ -87,6 +88,7 @@ from .version_sync import (
     is_newer,
     parse_min_age,
     select_latest,
+    strip_dev_suffix,
 )
 
 TYPE_CHECKING = False
@@ -100,16 +102,18 @@ if TYPE_CHECKING:
         from importlib.abc import Traversable
 
 
-RUNTIME_FRAGMENTS: tuple[str, ...] = ("release.yaml",)
-"""Bundled YAML files loaded by `repomatic` at runtime, not deployed verbatim.
+RUNTIME_FRAGMENTS: tuple[str, ...] = ("release.yaml", "vt-trend-chart.js")
+"""Bundled files loaded by `repomatic` at runtime, not deployed verbatim.
 
 These files live in `repomatic/data/` so they ship in the wheel and are
 discoverable via {func}`get_data_content`, but `repomatic init` never copies them
 as-is. `release.yaml` is the canonical caller `repomatic.github.workflow_sync`
 reads to assemble each downstream `release.yaml`, copying its jobs and rewriting
 the local `uses:` refs (see `_generate_release_caller`); the deployed
-`release.yaml` is generated, not this bundled copy. New entries must be added
-explicitly so the data-file registry tests stay authoritative.
+`release.yaml` is generated, not this bundled copy. `vt-trend-chart.js` is the
+detections-chart script `repomatic.binaries_page.render_chart_section` splices
+into `docs/binaries.md` with its payload placeholders filled. New entries must
+be added explicitly so the data-file registry tests stay authoritative.
 """
 
 
@@ -124,7 +128,7 @@ EXPORTABLE_FILES: dict[str, str | None] = {
         for spec in TOOL_REGISTRY.values()
         if spec.default_config
     },
-    # Internal-use YAML fragments loaded by the package at runtime.
+    # Internal-use fragments loaded by the package at runtime.
     **{name: None for name in RUNTIME_FRAGMENTS},
 }
 """Registry of all exportable files: maps filename to default output path.
@@ -138,7 +142,7 @@ tool-runner default configs, and runtime fragments).
 def export_content(filename: str) -> str:
     """Get the content of any exportable bundled file.
 
-    :param filename: The filename (e.g., "ruff.toml", "labels.toml", "release.yaml").
+    :param filename: The filename (like "ruff.toml" or "release.yaml").
     :return: Content of the file as a string.
     :raises ValueError: If the file is not in the registry.
     :raises FileNotFoundError: If the file doesn't exist.
@@ -152,7 +156,7 @@ def export_content(filename: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# pyproject.toml config merging
+# pyproject.toml config merging.
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +220,7 @@ def _graft_local_additions(
     - **Keys the template does not define** are grafted verbatim, so a
       project-specific table like `[tool.typos.files]` survives untouched.
     - **Tables present in both** are merged recursively, so local keys inside a
-      table the template also defines are kept (e.g. a downstream entry in
+      table the template also defines are kept (like a downstream entry in
       `[tool.typos.default.extend-identifiers]` next to the canonical ones).
     - **Arrays present in both** gain their local-only items appended after the
       template items. Scalar arrays (`extend-ignore-re`, `serialize`) and
@@ -320,7 +324,6 @@ def _overlay_owned_keys(
 def _update_tool_config(
     content: str,
     comp: ToolConfigComponent,
-    pyproject_path: Path,
 ) -> str | None:
     """Re-derive an existing `[tool.X]` section from the bundled template.
 
@@ -328,7 +331,7 @@ def _update_tool_config(
     configuration back on via {func}`_graft_local_additions`: keys the template
     omits, extra items in shared arrays, and extra keys in shared nested
     tables. The template wins on shared scalars; `comp.preserved_keys`
-    overrides that for named top-level keys (e.g. `current_version`).
+    overrides that for named top-level keys, like `current_version`.
 
     When `comp.overlay` is set the template is partial: only its own keys are
     updated in place via {func}`_overlay_owned_keys`, leaving the rest of the
@@ -336,7 +339,6 @@ def _update_tool_config(
 
     :param content: The current pyproject.toml content.
     :param comp: The component whose config is being synced.
-    :param pyproject_path: Path to pyproject.toml (for resolving managed files).
     :return: Modified pyproject.toml content, or `None` if already up to date.
     """
     doc = tomlrt.loads(content)
@@ -378,7 +380,7 @@ def _update_tool_config(
         comp.graft_identity_keys,
     )
 
-    # `preserved_keys` are authoritative locally (e.g. `current_version`): the
+    # `preserved_keys` are authoritative locally (`current_version`): the
     # local value overrides the template placeholder.
     for key in comp.preserved_keys:
         if key in existing_section:
@@ -406,7 +408,7 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
     The template is stored in native format (without `[tool.X]` prefix) and
     is parsed by tomlrt and added under the `[tool]` table.
 
-    :param config_type: The configuration type (e.g., `"ruff"`,
+    :param config_type: The configuration type (like `"ruff"` or
         `"bumpversion"`).
     :param pyproject_path: Path to pyproject.toml. Defaults to
         `./pyproject.toml`.
@@ -437,7 +439,7 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
     tool_table = doc.get("tool")
     if tool_table and tool_name in tool_table:
         if comp.sync_mode == SyncMode.ONGOING:
-            return _update_tool_config(content, comp, pyproject_path)
+            return _update_tool_config(content, comp)
         logging.info(f"[{comp.tool_section}] already exists in {pyproject_path.name}")
         return None
 
@@ -455,7 +457,7 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
 
 
 # ---------------------------------------------------------------------------
-# Repository initialization
+# Repository initialization.
 # ---------------------------------------------------------------------------
 
 
@@ -466,7 +468,7 @@ def _base_version() -> str:
     default pin and to age-check the running version against a release
     datasource.
     """
-    return re.sub(r"\.dev\d*$", "", __version__)
+    return strip_dev_suffix(__version__)
 
 
 def default_version_pin() -> str:
@@ -710,6 +712,74 @@ class InitResult:
     """Warning messages emitted during initialization."""
 
 
+def _relative_label(target: Path, output_dir: Path | None) -> str:
+    """Render *target* for a log line, relative to the repository root.
+
+    Every `init` log line names a repository-relative POSIX path, so the output
+    of one run reads uniformly whatever wrote the file. Falls back to the path
+    as given when no root is known, or when *target* sits outside it.
+    """
+    if output_dir is None:
+        return str(target)
+    try:
+        return target.relative_to(output_dir).as_posix()
+    except ValueError:
+        return str(target)
+
+
+def _write_managed(
+    target: Path,
+    content: str,
+    result: InitResult,
+    output_dir: Path,
+    *,
+    normalize: bool = True,
+    verb: str = "",
+) -> str:
+    """Write *content* to *target* and classify the outcome on *result*.
+
+    The single writer behind every text file `init` materializes. Each caller
+    used to repeat the same five steps (compare against what is on disk, create
+    the parent directory, write, pick the `created` or `updated` bucket, log),
+    and they had drifted: only one normalized trailing whitespace, and only one
+    logged an absolute path.
+
+    Normalization matters beyond cosmetics. {func}`_detect_removed_assets` and
+    {func}`tool_runner.find_unmodified_configs` both hash the `rstrip() +
+    "\\n"` form and compare it against what `init` writes, so a caller that
+    skipped the normalization would put a file on disk those two could never
+    recognize. Both sides of the comparison are normalized, so a file
+    differing only in trailing whitespace still counts as unchanged and is
+    left alone.
+
+    :param target: Absolute path to write.
+    :param content: The new text.
+    :param result: {class}`InitResult` accumulator, mutated in place.
+    :param output_dir: Repository root, for the reported relative path.
+    :param normalize: Collapse trailing whitespace to a single newline. Off for
+        content whose exact bytes matter (a generated workflow).
+    :param verb: Overrides the log line's leading word (`Synced header`).
+    :return: `"created"`, `"updated"`, or `"unchanged"`.
+    """
+    text = content.rstrip() + "\n" if normalize else content
+    rel = _relative_label(target, output_dir)
+    existed = target.exists()
+    if existed:
+        current = target.read_text(encoding="UTF-8")
+        if (current.rstrip() + "\n" if normalize else current) == text:
+            logging.debug(f"Unchanged: {rel}")
+            return "unchanged"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="UTF-8")
+    if existed:
+        result.updated.append(rel)
+        logging.info(f"{verb or 'Updated'}: {rel}")
+        return "updated"
+    result.created.append(rel)
+    logging.info(f"{verb or 'Created'}: {rel}")
+    return "created"
+
+
 def run_init(
     output_dir: Path,
     components: Sequence[str] = (),
@@ -741,7 +811,7 @@ def run_init(
     :param output_dir: Root directory of the target repository.
     :param components: Components to initialize. Empty means all defaults.
         When non-empty, scope and user-config exclusions are bypassed.
-    :param version: Version pin for upstream workflows (e.g., `v5.10.0`). When
+    :param version: Version pin for upstream workflows (like `v5.10.0`). When
         `None`, derived from the running package version, gated by *cooldown*.
     :param cooldown: When `True` (and *version* is unset), hold the derived pin
         back to the newest release past the `[tool.repomatic]
@@ -750,11 +820,13 @@ def run_init(
     :param repo: Upstream repository containing reusable workflows.
     :param repo_slug: Repository `owner/name` slug for awesome-template URL
         rewriting. Auto-detected via {class}`Metadata` if not provided.
+    :param config: The resolved `[tool.repomatic]` configuration. Loaded from
+        the current directory when omitted, so a caller working against another
+        tree must pass the config it read from there.
     :return: Summary of created, updated, skipped, and warned items.
     """
-    # Parse CLI selection.  Entries may be bare component names (e.g.,
-    # "skills") or qualified component/file selectors (e.g.,
-    # "skills/repomatic-topics").
+    # Parse CLI selection. Entries may be bare component names ("skills")
+    # or qualified component/file selectors ("skills/repomatic-topics").
     if components:
         selected_full, selected_files = parse_component_entries(
             list(components), context="selection"
@@ -1054,8 +1126,10 @@ def run_init(
 
     # Check for native tool config files identical to bundled defaults.
     # Init-managed files (like labels) are already handled inline by
-    # _init_config_files, so only check tool_runner configs here.
-    for _tool_name, rel_path in find_unmodified_configs():
+    # _init_config_files, so only check tool_runner configs here. The scan
+    # roots at output_dir so `--delete-unmodified` (which joins these paths
+    # against output_dir) deletes from the tree it scanned.
+    for _tool_name, rel_path in find_unmodified_configs(output_dir):
         result.unmodified_configs.append(rel_path)
         logging.warning(f"Unmodified config (matches bundled default): {rel_path}")
 
@@ -1119,9 +1193,7 @@ def _init_workflows(
     # Generate thin-caller workflows for reusable workflows.
     for filename in workflows:
         target = workflows_dir / filename
-        rel = target.relative_to(output_dir).as_posix()
-        existed = target.exists()
-        content, existing_content = render_thin_caller_for_target(
+        content, _existing_content = render_thin_caller_for_target(
             filename,
             target,
             repo=repo,
@@ -1129,16 +1201,9 @@ def _init_workflows(
             paths_spec=paths_spec,
             commit_sha=commit_sha,
         )
-        if existed and existing_content == content:
-            logging.debug(f"Unchanged: {rel}")
-            continue
-        target.write_text(content, encoding="UTF-8")
-        if existed:
-            result.updated.append(rel)
-            logging.info(f"Updated: {rel}")
-        else:
-            result.created.append(rel)
-            logging.info(f"Created: {rel}")
+        # A generated workflow is written byte-for-byte: its trailing layout is
+        # the generator's business, not something to normalize here.
+        _write_managed(target, content, result, output_dir, normalize=False)
 
     # Sync headers for non-reusable workflows that already exist on disk.
     non_reusable = sorted(
@@ -1152,7 +1217,6 @@ def _init_workflows(
         target = workflows_dir / filename
         if not target.exists():
             continue
-        rel = target.relative_to(output_dir).as_posix()
         try:
             canonical_header = generate_workflow_header(filename, paths_spec=paths_spec)
         except (ValueError, FileNotFoundError):
@@ -1163,12 +1227,16 @@ def _init_workflows(
         if jobs_match is None:
             continue
         content = canonical_header + existing[jobs_match.start() :]
-        if content == existing:
-            logging.debug(f"Header already in sync: {rel}")
-            continue
-        target.write_text(content, encoding="UTF-8")
-        result.updated.append(rel)
-        logging.info(f"Synced header: {rel}")
+        # The body below `jobs:` is the downstream repository's own, so only the
+        # header is replaced and the file is written exactly as assembled.
+        _write_managed(
+            target,
+            content,
+            result,
+            output_dir,
+            normalize=False,
+            verb="Synced header",
+        )
 
 
 def is_source_repo(output_dir: Path) -> bool:
@@ -1293,7 +1361,10 @@ def _init_config_files(
 
     For components without `keep_unmodified`, files already on disk that
     are identical to the bundled template are flagged as unmodified and not
-    overwritten.
+    overwritten. An {attr}`~repomatic.registry.Component.ephemeral` component is
+    exempt: its files are scratch input a consumer regenerates before reading,
+    so finding one that matches the bundled default is the expected steady state
+    after the previous run, not drift worth reporting.
 
     :param exclude_ids: File identifiers to skip within this component.
     :param include_ids: When not `None`, only export files in this set.
@@ -1307,13 +1378,14 @@ def _init_config_files(
         if exclude_ids and entry.file_id in exclude_ids:
             continue
         target = output_dir / comp.resolve_target(entry.target, config)
-        rel = target.relative_to(output_dir).as_posix()
 
         # A tree entry is a whole folder (a skill and its optional `scripts/`,
         # `references/` and `assets/`), copied verbatim rather than rendered.
         if entry.tree:
             source_root = files("repomatic.data").joinpath(entry.source)
-            tree_created, tree_updated = _copy_template_tree(source_root, target)
+            tree_created, tree_updated = _copy_template_tree(
+                source_root, target, output_dir=output_dir
+            )
             result.created.extend(
                 p.relative_to(output_dir).as_posix() for p in tree_created
             )
@@ -1325,39 +1397,34 @@ def _init_config_files(
         content = export_content(entry.source)
         if component_name == "labels":
             content = augment_labeller_content(entry.source, content, config)
-        # Normalize trailing whitespace to a single newline, matching the
-        # convention used by sync commands (echo(content.rstrip(), ...)).
-        normalized = content.rstrip() + "\n"
 
-        if target.exists():
-            existing = target.read_text(encoding="UTF-8").rstrip() + "\n"
-            if existing == normalized:
-                if not comp.keep_unmodified:
-                    result.unmodified_configs.append(rel)
-                    logging.info(f"Unmodified (matches bundled default): {rel}")
-                else:
-                    logging.debug(f"Unchanged: {rel}")
-                continue
-            target.write_text(normalized, encoding="UTF-8")
-            result.updated.append(rel)
-            logging.info(f"Updated: {rel}")
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(normalized, encoding="UTF-8")
-            result.created.append(rel)
-            logging.info(f"Created: {rel}")
+        outcome = _write_managed(target, content, result, output_dir)
+        if outcome == "unchanged" and not comp.keep_unmodified and not comp.ephemeral:
+            rel = target.relative_to(output_dir).as_posix()
+            result.unmodified_configs.append(rel)
+            logging.info(f"Unmodified (matches bundled default): {rel}")
 
 
 AWESOME_TEMPLATE_SLUG = "kdeldycke/awesome-template"
 """Source slug embedded in bundled awesome-template files, rewritten at sync time."""
 
 
-def _copy_template_tree(root: Traversable, dest: Path) -> tuple[list[Path], list[Path]]:
+def _copy_template_tree(
+    root: Traversable, dest: Path, *, output_dir: Path | None = None
+) -> tuple[list[Path], list[Path]]:
     """Recursively copy files from a traversable resource tree to disk.
 
     Skips `__init__.py` and `__pycache__` entries, and leaves a file whose
     content already matches untouched, so re-running is a no-op.
 
+    Byte-based rather than routed through {func}`_write_managed`: a template
+    tree can carry binary assets (images), which a text round-trip would
+    corrupt. The created/updated classification is the same, so the two stay
+    worth reading side by side.
+
+    :param output_dir: Repository root the log lines are made relative to. Left
+        unset, paths are logged as-is, which is what a caller holding no
+        repository root (a test) wants.
     :return: `(created, updated)` lists of the paths actually written.
     """
     created: list[Path] = []
@@ -1366,7 +1433,7 @@ def _copy_template_tree(root: Traversable, dest: Path) -> tuple[list[Path], list
         if entry.name in ("__init__.py", "__pycache__"):
             continue
         if entry.is_dir():
-            c, u = _copy_template_tree(entry, dest / entry.name)
+            c, u = _copy_template_tree(entry, dest / entry.name, output_dir=output_dir)
             created.extend(c)
             updated.extend(u)
         else:
@@ -1377,12 +1444,13 @@ def _copy_template_tree(root: Traversable, dest: Path) -> tuple[list[Path], list
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(new_bytes)
+            label = _relative_label(target, output_dir)
             if existed:
                 updated.append(target)
-                logging.info(f"Updated: {target}")
+                logging.info(f"Updated: {label}")
             else:
                 created.append(target)
-                logging.info(f"Created: {target}")
+                logging.info(f"Created: {label}")
     return created, updated
 
 
@@ -1397,16 +1465,26 @@ def init_awesome_template(
     *output_dir* and rewrites `kdeldycke/awesome-template` URLs in
     `.github/` markdown and YAML files to match *repo_slug*.
 
+    Every copied file is recorded on *result* by its own relative path, the way
+    the skills and agents trees already are. The roll-up stays a log line: those
+    lists are consumed as paths (`--delete-excluded` joins them against
+    *output_dir*), so a `"awesome-template (12 files)"` summary sitting among
+    them would be a path that resolves nowhere.
+
     :param output_dir: Root directory of the target repository.
     :param repo_slug: Target `owner/name` slug for URL rewriting.
     :param result: {class}`InitResult` accumulator for created/updated files.
     """
     template_root = files("repomatic.data").joinpath("awesome_template")
-    created, updated = _copy_template_tree(template_root, output_dir)
-    if created:
-        result.created.append(f"awesome-template ({len(created)} files)")
-    if updated:
-        result.updated.append(f"awesome-template ({len(updated)} files)")
+    created, updated = _copy_template_tree(
+        template_root, output_dir, output_dir=output_dir
+    )
+    result.created.extend(p.relative_to(output_dir).as_posix() for p in created)
+    result.updated.extend(p.relative_to(output_dir).as_posix() for p in updated)
+    if created or updated:
+        logging.info(
+            f"awesome-template: {len(created)} file(s) created, {len(updated)} updated."
+        )
 
     # Rewrite template URLs in .github/ markdown and YAML files.
     github_dir = output_dir / ".github"
@@ -1423,49 +1501,6 @@ def init_awesome_template(
                 logging.info(f"Rewrote URLs in: {path}")
 
 
-def find_unmodified_init_files() -> list[tuple[str, str]]:
-    """Find init-managed config files identical to their bundled defaults.
-
-    Checks bundled components without `keep_unmodified` for files on disk
-    whose content matches the bundled template (via {func}`export_content`)
-    after trailing-whitespace normalization (`.rstrip() + "\\n"`).
-
-    Mirrors the API of {func}`tool_runner.find_unmodified_configs`, returning
-    `(component_name, relative_path)` tuples.
-
-    :return: List of `(component_name, relative_path)` tuples for each
-        unmodified file found.
-    """
-    unmodified: list[tuple[str, str]] = []
-    for comp in COMPONENTS:
-        if not isinstance(comp, BundledComponent):
-            continue
-        if comp.keep_unmodified or not comp.files:
-            continue
-        for entry in comp.files:
-            path = Path(entry.target)
-            if not path.exists():
-                continue
-            bundled = export_content(entry.source).rstrip() + "\n"
-            on_disk = path.read_text(encoding="UTF-8").rstrip() + "\n"
-            if on_disk == bundled:
-                unmodified.append((comp.name, entry.target))
-    return unmodified
-
-
-def find_all_unmodified_configs() -> list[tuple[str, str]]:
-    """Find all config files identical to their bundled defaults.
-
-    Combines tool configs (yamllint, zizmor, etc.) from
-    {func}`tool_runner.find_unmodified_configs` and init-managed configs
-    (like labels) from {func}`find_unmodified_init_files`.
-
-    :return: List of `(label, relative_path)` tuples for each unmodified
-        file found.
-    """
-    return find_unmodified_configs() + find_unmodified_init_files()
-
-
 def _init_changelog(
     output_dir: Path,
     result: InitResult,
@@ -1480,8 +1515,11 @@ def _init_changelog(
     """
     location = (config or Config()).changelog_location.removeprefix("./")
     changelog_path = output_dir / location
-    rel = changelog_path.relative_to(output_dir).as_posix()
+    # Guarded before writing rather than left to `_write_managed`: that helper
+    # converges a file onto the given content, which for a changelog would
+    # replace real release history with the stub.
     if changelog_path.exists():
+        rel = changelog_path.relative_to(output_dir).as_posix()
         result.skipped.append(rel)
         logging.debug(f"Skipped existing: {rel}")
         return
@@ -1490,9 +1528,7 @@ def _init_changelog(
         "\n"
         "## [Unreleased](https://github.com/USER/REPO/compare/main...main)\n"
     )
-    changelog_path.write_text(changelog_content, encoding="UTF-8")
-    result.created.append(rel)
-    logging.info(f"Created: {rel}")
+    _write_managed(changelog_path, changelog_content, result, output_dir)
 
 
 def _init_plugin_settings(
@@ -1533,6 +1569,12 @@ def _fetch_extra_labels(
     Reads `labels.extra-files` URLs and downloads each file to an
     `extra-labels/` subdirectory under `output_dir`.
     Does nothing if no URLs are configured.
+
+    Fetched the way {mod}`repomatic.gitignore` fetches its template: an explicit
+    {data}`~repomatic.http.DEFAULT_TIMEOUT` and a `repomatic/{version}`
+    User-Agent. These URLs come from a downstream repository's own config and
+    are reached on every labels sync, so an unresponsive host has to fail the
+    step rather than hang the job.
     """
     if config is None:
         config = load_repomatic_config()
@@ -1551,7 +1593,9 @@ def _fetch_extra_labels(
         target = target_dir / filename
         rel = target.relative_to(output_dir).as_posix()
         logging.info(f"Downloading {url} -> {target}")
-        urlretrieve(url, target)
+        request = Request(url, headers={"User-Agent": f"repomatic/{__version__}"})
+        with urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
+            target.write_bytes(response.read())
         result.created.append(rel)
 
 

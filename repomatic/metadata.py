@@ -126,10 +126,9 @@ from .git_ops import (
 )
 from .github.actions import NULL_SHA, WorkflowEvent, generate_delimiter
 from .github.gh import run_gh_command
-from .github.matrix import Matrix
+from .github.matrix import Matrix, stale_axis_values
 from .mailmap import MAILMAP_PATH
 from .matrix_axes import (
-    MYPY_VERSION_MIN,
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
     TEST_PYTHON_PR,
@@ -139,14 +138,46 @@ from .matrix_axes import (
 )
 from .pypi import PYPI_PROJECT_URL
 from .pyproject import is_python_project as _is_python_project
+from .tool_registry import MYPY_VERSION_MIN
 from .version_sync import min_release_age_days
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
     from typing import Any, Final, Literal
 
     from typing_extensions import Self
+
+
+GITIGNORE_PATH = Path(".gitignore")
+"""The `.gitignore` whose rules filter every file-listing metadata key.
+
+Fixed at the repository root, unlike the configurable
+`[tool.repomatic.gitignore] location` that `sync-gitignore` writes: the glob
+filter has to match what git itself honors, and git only reads this path.
+"""
+
+HEREDOC_FIELDS: Final[frozenset[str]] = frozenset((
+    "release_notes",
+    "release_notes_with_admonition",
+))
+"""Metadata fields that should always use heredoc format in GitHub Actions output.
+
+Some fields may contain special characters (brackets, parentheses, emojis, or potential
+newlines) that can break GitHub Actions parsing when using simple `key=value` format.
+These fields will use the heredoc delimiter format regardless of whether they currently
+contain multiple lines.
+"""
+
+_SCRIPT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._-]+")
+"""Allowed characters in a `[project.scripts]` entry name.
+
+Matches the rule PyPI enforces on uploaded wheels and the validation
+[uv-build performs](https://github.com/astral-sh/uv/pull/19495) before
+writing wheel metadata. Names are also required to be non-empty and to
+contain at least one non-dot character; both extra checks live next to
+the regex in {meth}`Metadata.script_entries`.
+"""
 
 
 class Dialect(StrEnum):
@@ -221,7 +252,6 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "python_files": "List of Python files in the repository.",
     "json_files": "List of JSON files in the repository.",
     "yaml_files": "List of YAML files in the repository.",
-    "toml_files": "List of TOML files in the repository.",
     "pyproject_files": "List of pyproject.toml files in the repository.",
     "workflow_files": "List of GitHub workflow files.",
     "doc_files": "List of documentation files.",
@@ -309,31 +339,6 @@ def all_metadata_keys() -> frozenset[str]:
     return frozenset(_METADATA_KEY_DESCRIPTIONS) | frozenset(_metadata_config_fields())
 
 
-GITIGNORE_PATH = Path(".gitignore")
-
-_SCRIPT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._-]+")
-"""Allowed characters in a `[project.scripts]` entry name.
-
-Matches the rule PyPI enforces on uploaded wheels and the validation
-[uv-build performs](https://github.com/astral-sh/uv/pull/19495) before
-writing wheel metadata. Names are also required to be non-empty and to
-contain at least one non-dot character; both extra checks live next to
-the regex in {meth}`Metadata.script_entries`.
-"""
-
-HEREDOC_FIELDS: Final[frozenset[str]] = frozenset((
-    "release_notes",
-    "release_notes_with_admonition",
-))
-"""Metadata fields that should always use heredoc format in GitHub Actions output.
-
-Some fields may contain special characters (brackets, parentheses, emojis, or potential
-newlines) that can break GitHub Actions parsing when using simple `key=value` format.
-These fields will use the heredoc delimiter format regardless of whether they currently
-contain multiple lines.
-"""
-
-
 # Silence overly verbose debug messages from py-walk logger.
 logging.getLogger("py_walk").setLevel(logging.WARNING)
 
@@ -413,22 +418,6 @@ def is_version_bump_allowed(part: Literal["minor", "major"]) -> bool:
     return True
 
 
-def stale_axis_values(
-    entry: Mapping[str, str], axes: Mapping[str, Sequence[str]]
-) -> dict[str, str]:
-    """Return the `entry` key/value pairs absent from the matrix `axes`.
-
-    A non-empty result means a `test-matrix.exclude` entry can never match a
-    combination: one of its keys is not a live axis, or its value is absent
-    from that axis. See {meth}`Metadata.stale_test_matrix_excludes`.
-    """
-    return {
-        key: value
-        for key, value in entry.items()
-        if key not in axes or value not in axes[key]
-    }
-
-
 class JSONMetadata(json.JSONEncoder):
     """Custom JSON encoder for metadata serialization."""
 
@@ -457,9 +446,6 @@ class Metadata:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance  # type: ignore[return-value]
-
-    def __init__(self) -> None:
-        """Initialize internal variables."""
 
     @classmethod
     def reset(cls) -> None:
@@ -554,7 +540,7 @@ class Metadata:
 
         return False
 
-    def commit_matrix(self, commits: Iterable[Commit] | None) -> Matrix | None:
+    def commit_matrix(self, commits: Sequence[Commit] | None) -> Matrix | None:
         """Pre-compute a matrix of commits.
 
         ```{danger}
@@ -597,11 +583,9 @@ class Metadata:
         current_commit = head_sha()
 
         # Check if we need to get back in time in the Git log and browse past commits.
-        if len(commits) == 1:  # type: ignore[arg-type]
+        if len(commits) == 1:
             # Is the current commit the one we're looking for?
-            past_commit_lookup = bool(
-                current_commit != commits[0].hash  # type: ignore[index]
-            )
+            past_commit_lookup = bool(current_commit != commits[0].hash)
         # If we have multiple commits then yes, we need to look for past commits.
         else:
             past_commit_lookup = True
@@ -725,8 +709,17 @@ class Metadata:
 
         This is useful to only run some jobs on human-triggered events. Or skip jobs
         triggered by bots to avoid infinite loops.
+
+        The sender type covers every GitHub App, which is how Dependabot and
+        Renovate author their pull requests today. The explicit login list is
+        kept as a second signal for downstream repositories: `sender.type` is
+        absent from the event payload outside `push` and `pull_request` (and
+        empty when the payload cannot be read at all), and the login is then
+        the only thing left to match on.
+
+        The test is deliberately not `sender.type != "User"`, which would also
+        classify an `Organization` sender as a bot.
         """
-        # XXX replace by self.event_sender_type != "User"?
         return self.event_sender_type == "Bot" or self.event_actor in (
             "dependabot[bot]",
             "dependabot-preview[bot]",
@@ -1349,11 +1342,6 @@ class Metadata:
         return self.glob_files("**/*.{yaml,yml}")
 
     @cached_property
-    def toml_files(self) -> list[Path]:
-        """Returns a list of TOML files."""
-        return self.glob_files("**/*.toml")
-
-    @cached_property
     def pyproject_files(self) -> list[Path]:
         """Returns a list of `pyproject.toml` files."""
         return self.glob_files("**/pyproject.toml")
@@ -1386,6 +1374,28 @@ class Metadata:
         """
         return self.glob_files("**/*.{jpeg,jpg,png,webp,avif}")
 
+    @staticmethod
+    def shebang_names_zsh(path: Path) -> bool | None:
+        """Whether *path* opens with a shebang line naming zsh.
+
+        The `.sh` extension is ambiguous: it says POSIX shell while the
+        shebang picks the actual interpreter. Reading that first line is what
+        keeps {attr}`shfmt_files` and {attr}`zsh_files` disjoint, so a bash
+        script is never handed to the Zsh linter and a zsh script is never
+        handed to `shfmt`.
+
+        :param path: File to probe.
+        :return: `True` when the shebang names zsh, `False` when it does not,
+            and `None` when the file cannot be read. Both callers drop an
+            unreadable file rather than guess at its dialect.
+        """
+        try:
+            with path.open("rb") as fh:
+                first_line = fh.readline(256)
+        except OSError:
+            return None
+        return first_line.startswith(b"#!") and b"zsh" in first_line
+
     @cached_property
     def shfmt_files(self) -> list[Path]:
         """Returns a list of shell files that `shfmt` can reliably format.
@@ -1399,7 +1409,7 @@ class Metadata:
 
         Zsh is excluded. `shfmt` added experimental Zsh support in v3.13.0
         but it fails on common constructs: `for var (list)` short-form loops
-        and ``for ... { }`` brace-delimited loops. See [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203) for upstream tracking.
+        and `for ... { }` brace-delimited loops. See [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203) for upstream tracking.
 
         Files are excluded by extension (`.zsh`, `.zshrc`, etc.) and by
         shebang (any `.sh` file whose first line references `zsh`).
@@ -1408,22 +1418,25 @@ class Metadata:
             "**/*.{bash,bats,ksh,mksh,sh}",
             "**/.{bash_login,bash_logout,bash_profile,bashrc,profile}",
         )
-        result = []
-        for path in candidates:
-            try:
-                with path.open("rb") as fh:
-                    first_line = fh.readline(256)
-            except OSError:
-                continue
-            if first_line.startswith(b"#!") and b"zsh" in first_line:
-                continue
-            result.append(path)
-        return result
+        # Only a file that reads cleanly *and* is not zsh qualifies: an
+        # unreadable file yields `None`, which drops it here too.
+        return [path for path in candidates if self.shebang_names_zsh(path) is False]
 
     @cached_property
     def zsh_files(self) -> list[Path]:
-        """Returns a list of Zsh files."""
-        return self.glob_files("**/*.{sh,zsh}", "**/.{zshrc,zprofile,zshenv,zlogin}")
+        """Returns a list of Zsh files.
+
+        The `.zsh` extension and the zsh dotfiles are unambiguous. A `.sh`
+        file joins the list only when its shebang names zsh: matching the
+        extension alone would claim every bash script in the repository, and
+        the Zsh lint job would then run `zsh --no-exec` over scripts `shfmt`
+        is formatting as bash. See {meth}`shebang_names_zsh`.
+        """
+        files = self.glob_files("**/*.zsh", "**/.{zshrc,zprofile,zshenv,zlogin}")
+        files.extend(
+            path for path in self.glob_files("**/*.sh") if self.shebang_names_zsh(path)
+        )
+        return sorted(files)
 
     @cached_property
     def is_python_project(self) -> bool:
@@ -1646,9 +1659,9 @@ class Metadata:
             $ bump-my-version show current_version
             ```
 
-        Reads ``current_version`` from the first TOML file found in the
-        current working directory: ``.bumpversion.toml`` (top-level table) or
-        ``pyproject.toml`` (``[tool.bumpversion]``).
+        Reads `current_version` from the first TOML file found in the
+        current working directory: `.bumpversion.toml` (top-level table) or
+        `pyproject.toml` (`[tool.bumpversion]`).
         """
         cwd = Path.cwd()
         for filename, section_path in (
@@ -1835,18 +1848,28 @@ class Metadata:
         for cli_id, module_id, callable_id in self.script_entries:
             if cli_id not in selected:
                 continue
+            # Derive CLI module path from its ID. Nuitka 4.1's
+            # `--main-entry-point` flag is unusable on its own: it skips
+            # populating `_main_paths` in `nuitka.importing.Importing` and
+            # crashes with `NuitkaCodeDeficit: Error, cannot locate modules
+            # before import mechanism is setup` inside
+            # `setStandardLibraryModules`. Falling back to a positional module
+            # path keeps `_main_paths` initialized via
+            # `addMainScriptDirectory`.
+            module_path = Path(f"{module_id.replace('.', '/')}.py")
+            # That positional path is resolved from the repository root, which
+            # a src-layout project does not expose: `mypkg.__main__` lives at
+            # `src/mypkg/__main__.py`, not `mypkg/__main__.py`. Skip the entry
+            # point instead of failing, so a project laid out that way still
+            # gets its metadata (only its binaries are unavailable).
+            if not module_path.exists():
+                logging.warning(
+                    f"Skipping Nuitka entry point {cli_id!r}: no module file "
+                    f"at {module_path}."
+                )
+                continue
             # CLI ID is supposed to be unique, we'll use that as a key.
             matrix.add_variation("entry_point", [cli_id])
-            # Derive CLI module path from its ID. Nuitka 4.1's
-            # ``--main-entry-point`` flag is unusable on its own: it skips
-            # populating ``_main_paths`` in ``nuitka.importing.Importing`` and
-            # crashes with ``NuitkaCodeDeficit: Error, cannot locate modules
-            # before import mechanism is setup`` inside
-            # ``setStandardLibraryModules``. Falling back to a positional module
-            # path keeps ``_main_paths`` initialized via
-            # ``addMainScriptDirectory``.
-            module_path = Path(f"{module_id.replace('.', '/')}.py")
-            assert module_path.exists()
 
             # When the entry point is a `__main__.py` inside a package,
             # Nuitka expects the package directory (not the file) along
@@ -1868,6 +1891,16 @@ class Metadata:
                 "module_path": str(module_path),
                 "nuitka_python_flags": python_flags,
             })
+
+        # Every selected entry point was skipped above. The `bin_name` template
+        # below interpolates `cli_id`, so carrying on would raise instead of
+        # reporting "nothing to compile".
+        if "entry_point" not in matrix.variations:
+            logging.warning(
+                "No Nuitka entry point resolves to a module file."
+                " Skipping binary compilation."
+            )
+            return None
 
         # For releases, only build binaries for the release (freeze) commits. The
         # post-release bump commit doesn't need binaries — only the freeze commit
@@ -2080,6 +2113,25 @@ class Metadata:
         ]
 
     @cached_property
+    def _release_changelog(self) -> tuple[str, Changelog] | None:
+        """The version to write release notes for, and the parsed changelog.
+
+        Shared by {attr}`release_notes` and
+        {attr}`release_notes_with_admonition`, which need the same two inputs
+        and would otherwise read and parse `changelog.md` twice per run.
+
+        :return: `(version, changelog)`, or `None` when there is no version to
+            release or the changelog file is missing.
+        """
+        version = self.released_version or self.current_version
+        if not version:
+            return None
+        changelog_path = Path(self.config.changelog_location)
+        if not changelog_path.exists():
+            return None
+        return version, Changelog(changelog_path.read_text(encoding="UTF-8"))
+
+    @cached_property
     def release_notes(self) -> str | None:
         """Generate notes to be attached to the GitHub release.
 
@@ -2087,19 +2139,9 @@ class Metadata:
         content for the version. The template is the single place
         that defines the release body layout.
         """
-        version = self.released_version
-        if not version:
-            version = self.current_version
-        if not version:
+        if self._release_changelog is None:
             return None
-
-        changelog_path = Path(self.config.changelog_location)
-        if not changelog_path.exists():
-            return None
-
-        changelog = Changelog(
-            changelog_path.read_text(encoding="UTF-8"),
-        )
+        version, changelog = self._release_changelog
         notes = build_expected_body(changelog, version)
         return notes or None
 
@@ -2125,19 +2167,9 @@ class Metadata:
         has no version to release, in which case `create-release` falls back to
         the plain {attr}`release_notes`.
         """
-        version = self.released_version
-        if not version:
-            version = self.current_version
-        if not version or not self.package_name:
+        if self._release_changelog is None or not self.package_name:
             return None
-
-        changelog_path = Path(self.config.changelog_location)
-        if not changelog_path.exists():
-            return None
-
-        changelog = Changelog(
-            changelog_path.read_text(encoding="UTF-8"),
-        )
+        version, changelog = self._release_changelog
 
         repo_url = changelog.extract_repo_url()
         if not repo_url:
@@ -2193,7 +2225,11 @@ class Metadata:
                 value = str(value)
 
             elif isinstance(value, dict):
-                raise NotImplementedError
+                raise NotImplementedError(
+                    f"GitHub formatting for mapping: {value!r}. Wrap it in a "
+                    "Matrix, or expose it to its subcommand directly through "
+                    "SUBCOMMAND_CONFIG_FIELDS instead of as a metadata key."
+                )
 
             elif isinstance(value, Iterable):
                 # Cast all items to strings, wrapping Path items with double-quotes.
@@ -2215,26 +2251,29 @@ class Metadata:
                     value = json.dumps(value)
 
             else:
-                raise NotImplementedError(f"GitHub formatting for: {value!r}")
+                raise NotImplementedError(
+                    f"GitHub formatting for {type(value).__name__}: {value!r}. "
+                    "A nested config dataclass belongs in "
+                    "SUBCOMMAND_CONFIG_FIELDS, not in the metadata output."
+                )
 
         return str(value)
 
-    def dump(
-        self,
-        dialect: Dialect = Dialect.github,
-        keys: tuple[str, ...] = (),
-    ) -> str:
-        """Returns metadata in the specified format.
+    def dump_factories(self) -> dict[str, Callable[[], Any]]:
+        """Lazy value factories for every metadata key, in output order.
 
-        Defaults to GitHub dialect. When *keys* is non-empty, only the
-        requested keys are computed and included in the output. Filtered-out
-        keys are never accessed, so callers requesting a small subset avoid
-        triggering expensive dependent computations (git history walks, file
-        system scans, build matrix expansion).
+        Each value is computed only when its key is included, so
+        `keys=("is_python_project",)` skips {attr}`nuitka_matrix` and the git
+        history walk it pulls in.
+
+        Split out of {meth}`dump` so the key inventory is inspectable without
+        computing anything: `tests/test_metadata.py` asserts these names match
+        {data}`_METADATA_KEY_DESCRIPTIONS` plus
+        {func}`_metadata_config_fields`, which is what keeps `--list-keys`,
+        {func}`all_metadata_keys` and the emitted output from drifting apart.
+
+        :return: Key name to a zero-argument callable producing its value.
         """
-        # Lazy factories: each value is computed only when the key is included.
-        # This lets ``keys=("is_python_project",)`` skip ``nuitka_matrix`` and
-        # the git history walk it pulls in.
         factories: dict[str, Callable[[], Any]] = {
             "is_bot": lambda: self.is_bot,
             "skip_binary_build": lambda: self.skip_binary_build,
@@ -2248,7 +2287,6 @@ class Metadata:
             "python_files": lambda: self.python_files,
             "json_files": lambda: self.json_files,
             "yaml_files": lambda: self.yaml_files,
-            "toml_files": lambda: self.toml_files,
             "pyproject_files": lambda: self.pyproject_files,
             "workflow_files": lambda: self.workflow_files,
             "doc_files": lambda: self.doc_files,
@@ -2287,8 +2325,25 @@ class Metadata:
         # Exclude nuitka internal config (dedicated properties with validation logic)
         # and subcommand config fields (read directly by dep-graph).
         for name in _metadata_config_fields():
-            # `partial` binds ``name`` eagerly, dodging the late-binding pitfall.
+            # `partial` binds `name` eagerly, dodging the late-binding pitfall.
             factories[name] = partial(getattr, self.config, name)
+
+        return factories
+
+    def dump(
+        self,
+        dialect: Dialect = Dialect.github,
+        keys: tuple[str, ...] = (),
+    ) -> str:
+        """Returns metadata in the specified format.
+
+        Defaults to GitHub dialect. When *keys* is non-empty, only the
+        requested keys are computed and included in the output. Filtered-out
+        keys are never accessed, so callers requesting a small subset avoid
+        triggering expensive dependent computations (git history walks, file
+        system scans, build matrix expansion). See {meth}`dump_factories`.
+        """
+        factories = self.dump_factories()
 
         keys_set = set(keys)
         metadata: dict[str, Any] = {

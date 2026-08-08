@@ -37,78 +37,63 @@ from repomatic.git_ops import (
 from repomatic.metadata import Metadata, is_version_bump_allowed
 
 
-def test_tag_exists_true():
-    """Return True when tag exists."""
+@pytest.mark.parametrize(
+    ("call", "expected_argv"),
+    (
+        pytest.param(
+            lambda: tag_exists("v1.0.0"),
+            ["git", "show-ref", "--tags", "v1.0.0", "--quiet"],
+            id="tag-exists",
+        ),
+        pytest.param(
+            lambda: create_tag("v1.0.0"), ["git", "tag", "v1.0.0"], id="create-at-head"
+        ),
+        pytest.param(
+            lambda: create_tag("v1.0.0", "abc123"),
+            ["git", "tag", "v1.0.0", "abc123"],
+            id="create-at-commit",
+        ),
+        pytest.param(
+            lambda: push_tag("v1.0.0"),
+            ["git", "push", "origin", "v1.0.0"],
+            id="push-default-remote",
+        ),
+        pytest.param(
+            lambda: push_tag("v1.0.0", remote="upstream"),
+            ["git", "push", "upstream", "v1.0.0"],
+            id="push-custom-remote",
+        ),
+    ),
+)
+def test_tag_command_argv(call, expected_argv):
+    """Each tag helper shells out to exactly the git command it names."""
     with patch("repomatic.git_ops.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
-        assert tag_exists("v1.0.0") is True
+        call()
         mock_run.assert_called_once()
-        assert mock_run.call_args.args[0] == [
-            "git",
-            "show-ref",
-            "--tags",
-            "v1.0.0",
-            "--quiet",
-        ]
+        assert mock_run.call_args.args[0] == expected_argv
 
 
 def test_tag_exists_false():
-    """Return False when tag does not exist."""
+    """A non-zero exit from `git show-ref` reads as a missing tag."""
     with patch("repomatic.git_ops.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=1)
         assert tag_exists("v1.0.0") is False
 
 
-def test_create_tag_head():
-    """Create tag at HEAD."""
-    with patch("repomatic.git_ops.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
-        create_tag("v1.0.0")
-        mock_run.assert_called_once()
-        assert mock_run.call_args.args[0] == ["git", "tag", "v1.0.0"]
-
-
-def test_create_tag_at_commit():
-    """Create tag at specific commit."""
-    with patch("repomatic.git_ops.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
-        create_tag("v1.0.0", "abc123")
-        mock_run.assert_called_once()
-        assert mock_run.call_args.args[0] == ["git", "tag", "v1.0.0", "abc123"]
-
-
-def test_create_tag_failure():
-    """Raise exception on git failure."""
+@pytest.mark.parametrize(
+    "call",
+    (
+        pytest.param(lambda: create_tag("v1.0.0"), id="create"),
+        pytest.param(lambda: push_tag("v1.0.0"), id="push"),
+    ),
+)
+def test_tag_command_propagates_git_failure(call):
+    """A failed git invocation surfaces rather than being swallowed."""
     with patch("repomatic.git_ops.subprocess.run") as mock_run:
         mock_run.side_effect = subprocess.CalledProcessError(1, "git")
         with pytest.raises(subprocess.CalledProcessError):
-            create_tag("v1.0.0")
-
-
-def test_push_tag_default_remote():
-    """Push tag to default origin remote."""
-    with patch("repomatic.git_ops.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
-        push_tag("v1.0.0")
-        mock_run.assert_called_once()
-        assert mock_run.call_args.args[0] == ["git", "push", "origin", "v1.0.0"]
-
-
-def test_push_tag_custom_remote():
-    """Push tag to custom remote."""
-    with patch("repomatic.git_ops.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
-        push_tag("v1.0.0", remote="upstream")
-        mock_run.assert_called_once()
-        assert mock_run.call_args.args[0] == ["git", "push", "upstream", "v1.0.0"]
-
-
-def test_push_tag_failure():
-    """Raise exception on push failure."""
-    with patch("repomatic.git_ops.subprocess.run") as mock_run:
-        mock_run.side_effect = subprocess.CalledProcessError(1, "git")
-        with pytest.raises(subprocess.CalledProcessError):
-            push_tag("v1.0.0")
+            call()
 
 
 # --- commit_and_push_files ---
@@ -129,7 +114,7 @@ def _run_git(*args: str, cwd) -> str:
 
 def _seed_commit(workdir, filename: str, content: str, message: str) -> None:
     """Create a file and commit it with a throwaway identity."""
-    (workdir / filename).write_text(content, encoding="utf-8")
+    (workdir / filename).write_text(content, encoding="UTF-8")
     _run_git("add", "--", filename, cwd=workdir)
     _run_git(
         "-c",
@@ -170,7 +155,7 @@ def test_commit_and_push_files_no_changes(git_workdir):
 
 def test_commit_and_push_files_pushes(git_workdir, tmp_path):
     """A changed file is committed with the bot identity and pushed."""
-    (git_workdir / "seed.txt").write_text("updated\n", encoding="utf-8")
+    (git_workdir / "seed.txt").write_text("updated\n", encoding="UTF-8")
     assert commit_and_push_files(["seed.txt"], "Record update") is True
     remote_log = _run_git("log", "--format=%s|%an", "main", cwd=tmp_path / "remote.git")
     assert f"Record update|{COMMIT_IDENTITY_NAME}" in remote_log
@@ -183,7 +168,7 @@ def test_commit_and_push_files_rebases_on_rejection(git_workdir, tmp_path):
     _seed_commit(other, "other.txt", "other\n", "Concurrent commit")
     _run_git("push", "origin", "main", cwd=other)
 
-    (git_workdir / "seed.txt").write_text("updated\n", encoding="utf-8")
+    (git_workdir / "seed.txt").write_text("updated\n", encoding="UTF-8")
     assert commit_and_push_files(["seed.txt"], "Record update") is True
     remote_log = _run_git("log", "--format=%s", "main", cwd=tmp_path / "remote.git")
     assert "Record update" in remote_log
@@ -197,7 +182,7 @@ def test_commit_and_push_files_conflict_raises(git_workdir, tmp_path):
     _seed_commit(other, "seed.txt", "theirs\n", "Concurrent conflicting commit")
     _run_git("push", "origin", "main", cwd=other)
 
-    (git_workdir / "seed.txt").write_text("ours\n", encoding="utf-8")
+    (git_workdir / "seed.txt").write_text("ours\n", encoding="UTF-8")
     with pytest.raises(RuntimeError, match="conflicted"):
         commit_and_push_files(["seed.txt"], "Record update")
 
@@ -349,27 +334,50 @@ def test_is_version_bump_allowed_current_repo():
     assert major_allowed == (not expected_major_blocked)
 
 
-def test_minor_bump_allowed_property() -> None:
-    """Test that minor_bump_allowed property returns a boolean."""
-    metadata = Metadata()
-    assert isinstance(metadata.minor_bump_allowed, bool)
+@pytest.mark.parametrize(
+    ("current", "released", "part", "allowed"),
+    (
+        # Only the patch moved since the release: neither part has been bumped
+        # in this cycle, so both are still on the table.
+        ("5.0.2", "5.0.1", "minor", True),
+        ("5.0.2", "5.0.1", "major", True),
+        # The minor was already bumped: bumping it again would double-increment,
+        # but the major is untouched and still allowed.
+        ("5.1.0", "5.0.1", "minor", False),
+        ("5.1.0", "5.0.1", "major", True),
+        # The major was already bumped, which blocks both parts.
+        ("6.0.0", "5.0.1", "minor", False),
+        ("6.0.0", "5.0.1", "major", False),
+    ),
+)
+def test_is_version_bump_allowed_uses_commit_fallback(
+    monkeypatch, current, released, part, allowed
+):
+    """With no tag reachable, the verdict comes from the release commit.
 
-
-def test_major_bump_allowed_property() -> None:
-    """Test that major_bump_allowed property returns a boolean."""
-    metadata = Metadata()
-    assert isinstance(metadata.major_bump_allowed, bool)
-
-
-def test_is_version_bump_allowed_uses_commit_fallback():
-    """Test that is_version_bump_allowed still works when tags might not be available.
-
-    This test verifies the function returns a boolean regardless of whether
-    tags are found, as it now has a fallback to parse commit messages.
+    The release workflow pushes its tag after the bump job starts, so a shallow
+    clone or a plain race leaves `get_latest_tag_version` empty. Parsing the
+    release commit is what keeps the guard working through that window; without
+    the fallback the check fails open and allows a double increment.
     """
-    # The function should always return a boolean, even if tags aren't available.
-    result = is_version_bump_allowed("minor")
-    assert isinstance(result, bool)
+    monkeypatch.setattr(
+        "repomatic.metadata.Metadata.get_current_version", lambda: current
+    )
+    monkeypatch.setattr("repomatic.metadata.get_latest_tag_version", lambda: None)
+    monkeypatch.setattr(
+        "repomatic.metadata.get_release_version_from_commits",
+        lambda: Version(released),
+    )
+    assert is_version_bump_allowed(part) is allowed
 
-    result = is_version_bump_allowed("major")
-    assert isinstance(result, bool)
+
+def test_is_version_bump_allowed_without_tags_or_commits(monkeypatch):
+    """Nothing to compare against fails open, so a release is never blocked."""
+    monkeypatch.setattr(
+        "repomatic.metadata.Metadata.get_current_version", lambda: "5.0.2"
+    )
+    monkeypatch.setattr("repomatic.metadata.get_latest_tag_version", lambda: None)
+    monkeypatch.setattr(
+        "repomatic.metadata.get_release_version_from_commits", lambda: None
+    )
+    assert is_version_bump_allowed("minor") is True

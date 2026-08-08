@@ -289,7 +289,7 @@ def test_update_binaries_csv_creates_file(tmp_path):
     """The CSV and its parent directories are created on demand."""
     path = tmp_path / "assets" / "binaries.csv"
     assert update_binaries_csv(path, "Version\n1.0.0\n") is True
-    assert path.read_text(encoding="utf-8") == "Version\n1.0.0\n"
+    assert path.read_text(encoding="UTF-8") == "Version\n1.0.0\n"
 
 
 def test_update_binaries_csv_idempotent(tmp_path):
@@ -306,7 +306,7 @@ def test_update_binaries_page_creates_from_template(tmp_path):
     """A missing page is created with frontmatter, prose, and directives."""
     page = tmp_path / "docs" / "binaries.md"
     assert update_binaries_page(page, "chart content", REPO) is True
-    text = page.read_text(encoding="utf-8")
+    text = page.read_text(encoding="UTF-8")
     assert text.startswith("---\norphan: true\n---\n")
     assert "# Binaries" in text
     assert f"https://github.com/{REPO}/actions/workflows/release.yaml" in text
@@ -323,7 +323,7 @@ def test_update_binaries_page_empty_chart(tmp_path):
     page = tmp_path / "binaries.md"
     assert update_binaries_page(page, "", REPO) is True
     assert f"{PAGE_START_MARKER}\n\n{PAGE_END_MARKER}" in page.read_text(
-        encoding="utf-8"
+        encoding="UTF-8"
     )
 
 
@@ -333,10 +333,10 @@ def test_update_binaries_page_preserves_prose(tmp_path):
     page.write_text(
         f"# Custom intro\n\nHand-written context.\n\n{PAGE_START_MARKER}\n\n"
         f"old chart\n\n{PAGE_END_MARKER}\n\nTrailing prose.\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     assert update_binaries_page(page, "new chart", REPO) is True
-    text = page.read_text(encoding="utf-8")
+    text = page.read_text(encoding="UTF-8")
     assert "Hand-written context." in text
     assert "Trailing prose." in text
     assert "old chart" not in text
@@ -359,10 +359,10 @@ def test_update_binaries_page_migrates_legacy_markers(
     page = tmp_path / "binaries.md"
     page.write_text(
         f"# Intro\n\n{legacy_open}\n\nold chart\n\n{close_marker}\n\nTrailing prose.\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     assert update_binaries_page(page, "new chart", REPO) is True
-    text = page.read_text(encoding="utf-8")
+    text = page.read_text(encoding="UTF-8")
     assert legacy_open not in text
     assert PAGE_START_MARKER in text
     assert PAGE_END_MARKER in text
@@ -381,7 +381,7 @@ def test_update_binaries_page_idempotent(tmp_path):
 def test_update_binaries_page_refuses_markerless_file(tmp_path):
     """An existing page without markers is never overwritten."""
     page = tmp_path / "binaries.md"
-    page.write_text("# Not ours\n", encoding="utf-8")
+    page.write_text("# Not ours\n", encoding="UTF-8")
     with pytest.raises(ValueError, match="markers"):
         update_binaries_page(page, "chart", REPO)
 
@@ -390,7 +390,7 @@ def test_docs_floor_table_matches_build_targets():
     """The Minimum OS requirements table in docs/binaries.md reflects the
     floors declared in NUITKA_BUILD_TARGETS, which verify-binary enforces.
     """
-    text = (REPO_ROOT / "docs" / "binaries.md").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "docs" / "binaries.md").read_text(encoding="UTF-8")
     assert "## Minimum OS requirements" in text
 
     for target, target_data in NUITKA_BUILD_TARGETS.items():

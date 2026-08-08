@@ -86,7 +86,12 @@ def _get_cyclonedx_sbom_cached(
             cmd.extend(["--extra", extra])
 
     logging.debug(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    # The SBOM carries package descriptions and author names, so the decoding
+    # is pinned: `text=True` alone would fall back to the platform default and
+    # raise UnicodeDecodeError on Windows.
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="UTF-8", check=True
+    )
     return result.stdout
 
 
@@ -492,8 +497,6 @@ def _compute_subtree_sizes(edges: list[tuple[str, str]]) -> dict[str, int]:
         all_nodes.add(from_name)
         all_nodes.add(to_name)
 
-    cache: dict[str, int] = {}
-
     def _dfs(node: str, visited: set[str]) -> set[str]:
         """Return the set of all reachable descendants of `node`."""
         if node in visited:
@@ -505,10 +508,11 @@ def _compute_subtree_sizes(edges: list[tuple[str, str]]) -> dict[str, int]:
             reachable.update(_dfs(child, visited))
         return reachable
 
-    for node in all_nodes:
-        if node not in cache:
-            cache[node] = len(_dfs(node, set()))
-    return cache
+    # Each node gets its own traversal: a dependency graph is a DAG whose
+    # subtrees overlap, so a descendant set cannot be reused as a partial
+    # result of its parent's without merging the two, which costs as much as
+    # walking it again at this graph's size.
+    return {node: len(_dfs(node, set())) for node in all_nodes}
 
 
 def _compute_node_depths(
@@ -783,15 +787,15 @@ def attribute_subgraph_packages(
     package depends on: the dependent counts tie at zero, `carapace` owns the
     node by declaration order, and `yaml` carries `pyyaml` as a duplicate.
 
-    :param subgraph_closures: Ordered ``(name, closure_package_names)`` pairs.
+    :param subgraph_closures: Ordered `(name, closure_package_names)` pairs.
         Order is the last-resort tie-break for shared packages (first wins).
     :param base_packages: Packages in the base set, excluded from every box.
     :param direct_packages: Map of subgraph name to the package names it declares
         directly (from `uv.lock`), keyed by SBOM-normalized name.
-    :param edges: ``(from_name, to_name)`` dependency edges from the full SBOM,
+    :param edges: `(from_name, to_name)` dependency edges from the full SBOM,
         used to count each declaring subgraph's local dependents.
     :param root_name: The root package name, excluded from dependent counts.
-    :return: ``(owned, duplicates)``. *owned* maps each subgraph to the declared
+    :return: `(owned, duplicates)`. *owned* maps each subgraph to the declared
         packages it renders as real nodes; *duplicates* maps it to declared
         packages owned by a sibling box.
     """

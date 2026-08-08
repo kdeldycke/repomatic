@@ -35,6 +35,7 @@ Config resolution precedence (first match wins, no merging):
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import logging
 import os
@@ -44,7 +45,7 @@ import sys
 import tarfile
 import tempfile
 import zipfile
-from contextlib import contextmanager
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -57,7 +58,12 @@ from packaging.version import Version
 
 from .binary import compute_file_sha256
 from .bundle import get_data_file_path
-from .cache import get_cached_binary, store_binary, store_config
+from .cache import (
+    binary_sidecar_path,
+    get_cached_binary,
+    store_binary,
+    store_config,
+)
 from .config import load_repomatic_config
 from .metadata import Metadata
 from .tool_registry import (
@@ -74,13 +80,8 @@ from .version_sync import exclude_newer_cutoff, min_release_age_days
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Sequence
     from typing import Any
-
-
-# ---------------------------------------------------------------------------
-# Bundled data file access
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +152,7 @@ def _store_config_to_cache(
         spec.name,
     )
     with tempfile.NamedTemporaryFile(
-        encoding="utf-8",
+        encoding="UTF-8",
         mode="w",
         suffix=f".{spec.native_format.value}",
         prefix=f"repomatic-{spec.name}-",
@@ -285,6 +286,88 @@ def resolve_config(
 # ---------------------------------------------------------------------------
 
 
+DOWNLOAD_TIMEOUT = 30
+"""Socket-level timeout for artifact downloads, in seconds.
+
+A stall guard, not a transfer budget: `urlopen` applies it to each blocking
+socket operation, so a healthy multi-minute download is unaffected while a dead
+connection fails in seconds instead of hanging a CI job to the runner ceiling.
+Deliberately larger than {data}`repomatic.http.DEFAULT_TIMEOUT`, which is sized
+for small JSON API responses.
+"""
+
+_DOWNLOAD_CHUNK_SIZE = 65536
+"""Read size for streaming downloads and incremental hashing."""
+
+
+def download_to(
+    url: str,
+    dest_path: Path,
+    *,
+    label: str | None = None,
+    progress: bool = True,
+) -> str:
+    """Stream *url* into *dest_path* and return its SHA-256 hex digest.
+
+    Chunked download with incremental hash computation, so large binaries never
+    load fully into memory. Shows a progress bar on interactive terminals when
+    the server provides a `Content-Length` header; pass `progress=False` from
+    concurrent callers whose fan-out draws its own progress display.
+
+    The single download seam for every artifact repomatic fetches by hand:
+    whatever consumes the digest (verification in {func}`_download_and_verify`,
+    checksum harvesting in `checksums.py`) builds on this so the truncation
+    guard below applies to all of them. A short body (proxy hiccup, dropped
+    connection) hashes to a wrong digest, so without the guard it would surface
+    later as a checksum mismatch: that reads as a stale pin or a tampered
+    artifact when nothing is wrong upstream. Name the real failure instead.
+
+    :param url: URL to download.
+    :param dest_path: Where to write the downloaded file.
+    :param label: Progress bar label. Defaults to the destination filename.
+    :param progress: Draw per-download feedback on interactive terminals.
+    :return: Lowercase hex SHA-256 digest of the downloaded bytes.
+    :raises OSError: If the body is shorter than the advertised `Content-Length`.
+    """
+    request = Request(url)
+    sha256 = hashlib.sha256()
+    bytes_read = 0
+    with (
+        urlopen(request, timeout=DOWNLOAD_TIMEOUT) as response,
+        dest_path.open("wb") as f,
+    ):
+        content_length = response.headers.get("Content-Length")
+        total = int(content_length) if content_length else 0
+        # Determinate vs indeterminate feedback, both silent off a TTY (CI logs,
+        # pipes, captured test output): with a Content-Length, click_extra's
+        # progressbar draws a percentage bar; without one there is nothing to
+        # measure, so a Spinner just signals the download is still alive.
+        feedback: Any
+        if not progress:
+            feedback = nullcontext()
+        elif total:
+            feedback = progressbar(
+                length=total, label=label or dest_path.name, file=sys.stderr
+            )
+        else:
+            feedback = Spinner(label or dest_path.name)
+        with feedback as bar:
+            while chunk := response.read(_DOWNLOAD_CHUNK_SIZE):
+                f.write(chunk)
+                sha256.update(chunk)
+                bytes_read += len(chunk)
+                # Only the determinate progressbar advances per chunk; the
+                # Spinner animates on its own background thread and the
+                # nullcontext yields None, neither exposing update().
+                if bar is not None and not isinstance(bar, Spinner):
+                    bar.update(len(chunk))
+    if total and bytes_read != total:
+        dest_path.unlink(missing_ok=True)
+        msg = f"Truncated download for {url}: got {bytes_read} of {total} bytes."
+        raise OSError(msg)
+    return sha256.hexdigest()
+
+
 def _download_and_verify(
     url: str,
     expected_sha256: str | None,
@@ -294,11 +377,6 @@ def _download_and_verify(
 ) -> None:
     """Download a file and verify its SHA-256 checksum.
 
-    Uses streaming download with chunked hash computation to handle large
-    binaries without loading the entire file into memory. Shows a progress
-    bar on interactive terminals when the server provides a
-    `Content-Length` header.
-
     :param url: URL to download.
     :param expected_sha256: Expected lowercase hex SHA-256 digest.
         `None` skips verification (logs the computed digest for reference).
@@ -307,40 +385,7 @@ def _download_and_verify(
     :raises OSError: If the body is shorter than the advertised `Content-Length`.
     :raises ValueError: If the checksum does not match.
     """
-    request = Request(url)
-    sha256 = hashlib.sha256()
-    bytes_read = 0
-    with urlopen(request) as response, dest_path.open("wb") as f:
-        content_length = response.headers.get("Content-Length")
-        total = int(content_length) if content_length else 0
-        # Determinate vs indeterminate feedback, both silent off a TTY (CI logs,
-        # pipes, captured test output): with a Content-Length, click_extra's
-        # progressbar draws a percentage bar; without one there is nothing to
-        # measure, so a Spinner just signals the download is still alive.
-        progress = (
-            progressbar(length=total, label=label or dest_path.name, file=sys.stderr)
-            if total
-            else Spinner(label or dest_path.name)
-        )
-        with progress as bar:
-            while chunk := response.read(65536):
-                f.write(chunk)
-                sha256.update(chunk)
-                bytes_read += len(chunk)
-                # Only the determinate progressbar advances per chunk; the
-                # Spinner animates on its own background thread and exposes no
-                # update(). The isinstance check also narrows the union for mypy.
-                if not isinstance(bar, Spinner):
-                    bar.update(len(chunk))
-    # A short body (proxy hiccup, dropped connection) hashes to a wrong digest,
-    # so without this check it surfaces below as a checksum mismatch: that reads
-    # as a stale pin or a tampered artifact when nothing is wrong upstream. Name
-    # the real failure instead.
-    if total and bytes_read != total:
-        dest_path.unlink(missing_ok=True)
-        msg = f"Truncated download for {url}: got {bytes_read} of {total} bytes."
-        raise OSError(msg)
-    actual = sha256.hexdigest()
+    actual = download_to(url, dest_path, label=label)
     if expected_sha256 is None:
         logging.info("SHA-256 of %s: %s (not verified).", url, actual)
         return
@@ -387,8 +432,8 @@ def _extract_binary(
     spec: BinarySpec,
     dest_dir: Path,
     tool_name: str,
-    archive_format: ArchiveFormat | None = None,
-    strip_components: int | None = None,
+    archive_format: ArchiveFormat,
+    strip_components: int,
 ) -> Path:
     """Extract the tool executable from a downloaded archive.
 
@@ -396,49 +441,31 @@ def _extract_binary(
     :param spec: Binary specification with format and executable info.
     :param dest_dir: Directory to extract into.
     :param tool_name: Tool name, used as default for `archive_executable`.
-    :param archive_format: Override the spec's default archive format.
-        Used by `_install_binary` to pass the per-platform format from
+    :param archive_format: Per-platform archive format, from
         `BinarySpec.get_archive_format`.
-    :param strip_components: Override the spec's default strip count. Used by
-        `_install_binary` to pass the per-platform value from
-        `BinarySpec.get_strip_components`; falls back to the spec when omitted,
-        which only works if the spec declares a plain `int`.
+    :param strip_components: Per-platform strip count, from
+        `BinarySpec.get_strip_components`.
     :return: Path to the extracted executable.
     :raises FileNotFoundError: If the executable is not found in the archive.
     """
-    if archive_format is not None:
-        fmt = archive_format
-    elif isinstance(spec.archive_format, ArchiveFormat):
-        fmt = spec.archive_format
-    else:
-        msg = "archive_format is required when spec.archive_format is a dict"
-        raise TypeError(msg)
-    if strip_components is None:
-        if not isinstance(spec.strip_components, int):
-            msg = "strip_components is required when spec.strip_components is a dict"
-            raise TypeError(msg)
-        strip_components = spec.strip_components
     executable = spec.archive_executable or tool_name
     # Dispatch by archive format. A RAW download is the executable itself,
     # renamed into place; the archive formats delegate to their extractors.
-    if fmt is ArchiveFormat.RAW:
+    if archive_format is ArchiveFormat.RAW:
         dest = dest_dir / executable
         archive_path.rename(dest)
         dest.chmod(0o755)
         return dest
-    if fmt is ArchiveFormat.ZIP:
-        return _extract_from_zip(
-            archive_path, spec, dest_dir, executable, strip_components
-        )
+    if archive_format is ArchiveFormat.ZIP:
+        return _extract_from_zip(archive_path, dest_dir, executable, strip_components)
     return _extract_from_tar(
-        archive_path, fmt, spec, dest_dir, executable, strip_components
+        archive_path, archive_format, dest_dir, executable, strip_components
     )
 
 
 def _extract_from_tar(
     archive_path: Path,
     fmt: ArchiveFormat,
-    spec: BinarySpec,
     dest_dir: Path,
     executable: str,
     strip_components: int,
@@ -464,7 +491,6 @@ def _extract_from_tar(
 
 def _extract_from_zip(
     archive_path: Path,
-    spec: BinarySpec,
     dest_dir: Path,
     executable: str,
     strip_components: int,
@@ -490,26 +516,19 @@ def _extract_from_zip(
     raise FileNotFoundError(msg)
 
 
-def _binary_sidecar_path(binary_path: Path) -> Path:
-    """Return the `.sha256` sidecar path for a cached binary.
-
-    The sidecar stores the SHA-256 digest of the extracted binary, computed
-    after a verified archive download. This is distinct from the archive
-    checksum in the registry: the archive checksum defends against supply-chain
-    tampering at download time, while the sidecar defends against local cache
-    tampering between runs.
-    """
-    return binary_path.with_suffix(binary_path.suffix + ".sha256")
-
-
 def _write_binary_sidecar(binary_path: Path) -> None:
     """Compute and write the SHA-256 sidecar for a cached binary.
 
     Called after a verified archive download + extraction + cache store.
-    The sidecar is the trust anchor for subsequent cache hits.
+    The sidecar is the trust anchor for subsequent cache hits: it stores the
+    digest of the *extracted* binary, distinct from the archive checksum in
+    the registry. The archive checksum defends against supply-chain tampering
+    at download time; the sidecar defends against local cache tampering
+    between runs. The sidecar's location is cache layout, so
+    {func}`~repomatic.cache.binary_sidecar_path` owns it.
     """
     digest = compute_file_sha256(binary_path)
-    sidecar = _binary_sidecar_path(binary_path)
+    sidecar = binary_sidecar_path(binary_path)
     sidecar.write_text(digest, encoding="UTF-8")
     logging.debug("Wrote binary sidecar: %s (%s).", sidecar, digest)
 
@@ -520,7 +539,7 @@ def _verify_cached_binary(path: Path) -> bool:
     :param path: Path to the cached binary.
     :return: `True` if the sidecar exists and the digest matches.
     """
-    sidecar = _binary_sidecar_path(path)
+    sidecar = binary_sidecar_path(path)
     if not sidecar.is_file():
         return False
     expected = sidecar.read_text(encoding="UTF-8").strip()
@@ -559,7 +578,14 @@ def _install_binary(
     cache_key = BinarySpec.platform_cache_key(key)
 
     executable = binary.archive_executable or spec.name
-    checksum = binary.checksums.get(key, "")
+    # Fail closed on a spec that maps the platform to a URL but records no
+    # digest for it (only reachable through hand-built specs: the registry
+    # enforces URL/checksum key parity). Falling through with an empty digest
+    # would report a nonsensical "expected , got abc…" mismatch instead.
+    checksum = None if skip_checksum else binary.checksums.get(key)
+    if not skip_checksum and checksum is None:
+        msg = f"No SHA-256 recorded for {spec.name} {spec.version} on {cache_key}."
+        raise RuntimeError(msg)
 
     # Check cache (unless --no-cache).
     if not no_cache:
@@ -588,7 +614,7 @@ def _install_binary(
                 spec.version,
             )
             cached.unlink(missing_ok=True)
-            _binary_sidecar_path(cached).unlink(missing_ok=True)
+            binary_sidecar_path(cached).unlink(missing_ok=True)
 
     url = binary.urls[key].format(version=spec.version)
 
@@ -601,7 +627,7 @@ def _install_binary(
         logging.warning("Checksum verification skipped for %s.", spec.name)
     _download_and_verify(
         url,
-        None if skip_checksum else checksum,
+        checksum,
         archive_path,
         label=f"{spec.name} {spec.version}",
     )
@@ -614,39 +640,18 @@ def _install_binary(
     # Store in cache for future use. Verify the cached copy is accessible
     # before returning it; fall back to the temp directory copy otherwise.
     # Docker-based CI runners (e.g., ubuntu-slim) can silently lose cached
-    # files due to overlay filesystem or mount restrictions.
+    # files due to overlay filesystem or mount restrictions, and an unwritable
+    # cache root makes store_binary return None.
     if not no_cache:
         cached = store_binary(spec.name, spec.version, cache_key, extracted)
-        if cached.is_file():
+        if cached is not None and cached.is_file():
             _write_binary_sidecar(cached)
             return cached
         logging.warning(
-            "Cached binary missing after store at %s, using temp path.",
-            cached,
+            "Cached binary unavailable after store at %s, using temp path.",
+            cached if cached is not None else "cache",
         )
     return extracted
-
-
-@contextmanager
-def binary_tool_context(
-    name: str,
-    no_cache: bool = False,
-) -> Iterator[Path]:
-    """Download a binary tool and yield its executable path.
-
-    For tools invoked indirectly by repomatic commands (e.g., labelmaker
-    called by `sync-labels`) rather than via `run_tool()`. Downloads
-    once; the binary stays valid for the context's duration. On a cache hit
-    the yielded path points to the cache and the staging directory is empty.
-
-    :param name: Tool name (must be in `TOOL_REGISTRY` with `binary` set).
-    :param no_cache: Bypass the binary cache when `True`.
-    :yields: Path to the ready-to-run executable.
-    """
-    spec = TOOL_REGISTRY[name]
-    assert spec.binary is not None, f"{name} has no binary spec"
-    with tempfile.TemporaryDirectory(prefix=f"repomatic-{name}-bin-") as bin_dir:
-        yield _install_binary(spec, Path(bin_dir), no_cache=no_cache)
 
 
 def _npm_supports_cooldown(npm: str) -> bool:
@@ -750,16 +755,29 @@ def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
 def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> list[str]:
     """Build the command prefix for installing and running a tool.
 
-    *exclude_newer* (a `YYYY-MM-DD` date) gates the isolated `uvx` resolution by
+    *exclude_newer* (a `YYYY-MM-DD` date) gates the isolated resolution by
     upload date, applying the `minimum-release-age` cooldown to the tool's
-    transitive dependencies. It is ignored for `needs_venv` tools, whose tree is
-    already pinned by the frozen `uv.lock`.
+    transitive dependencies. It is ignored for `needs_venv` tools running from a
+    lockfile, whose tree the frozen `uv.lock` already pins.
+
+    ```{note}
+    A `needs_venv` tool gets the project virtualenv only when the working
+    directory holds a `uv.lock` to freeze it from. Without one, `uv run
+    --frozen` aborts before the tool starts, and an unfrozen run would resolve
+    the project live and write a brand-new `uv.lock` as a side effect. So the
+    tool falls back to an isolated, cooldown-gated environment
+    (`--no-project`), the same guarantee the `uvx` path provides: the tool
+    still runs, it just cannot import the project's dependencies.
+    ```
     """
     package_pin = f"{spec.package or spec.name}=={spec.version}"
     executable = spec.executable or spec.name
 
     if spec.needs_venv:
-        cmd = uv_cmd("run", frozen=True)
+        if Path("uv.lock").is_file():
+            cmd = uv_cmd("run", frozen=True)
+        else:
+            cmd = uv_cmd("run", no_project=True, exclude_newer=exclude_newer)
         if spec.module:
             cmd.extend(["--with", package_pin, "--", "python", "-m", spec.module])
         else:
@@ -792,6 +810,18 @@ def _splice_config_args(
     return [*config_args, *extra_args]
 
 
+_STAGING_DIRS: list[tempfile.TemporaryDirectory[str]] = []
+"""Staging directories still backing a path {func}`ensure_binary` handed out.
+
+Only populated when the cache store fell back to the staging copy (a Docker
+overlay mount losing the cache write, an unwritable cache root). Keeping the
+objects referenced pins the directories until interpreter exit, when their
+finalizers reclaim them; dropping them at function return would delete the
+binary the caller is about to exec.
+"""
+
+
+@functools.cache
 def ensure_binary(name: str) -> Path:
     """Install a registry binary tool and return the path to its executable.
 
@@ -805,9 +835,14 @@ def ensure_binary(name: str) -> Path:
     whichever version the machine or CI image happens to carry, unpinned and
     unverified, and it differs between a developer's laptop and every runner.
 
+    Memoized per tool name: callers in a loop (`format-images` optimizing one
+    PNG per call) hit the install-and-verify path once per process, not once
+    per file. Failures are not memoized, so a transient download error can be
+    retried.
+
     :param name: Registry key of a tool whose
         {class}`~repomatic.tool_registry.ToolSpec` declares a `binary`.
-    :return: Absolute path to the cached executable.
+    :return: Absolute path to the ready-to-run executable.
     :raises ClickException: If the tool is unknown, ships no binary, or cannot
         be downloaded and verified.
     """
@@ -815,13 +850,21 @@ def ensure_binary(name: str) -> Path:
     if spec is None or spec.binary is None:
         msg = f"{name!r} is not a binary tool in the repomatic registry."
         raise ClickException(msg)
-    # The temp dir is scratch for download and extraction: _install_binary
-    # returns the path inside the persistent cache, which outlives it.
-    with tempfile.TemporaryDirectory(prefix=f"repomatic-{name}-bin-") as tmp_dir:
-        try:
-            return _install_binary(spec, Path(tmp_dir))
-        except RuntimeError as exc:
-            raise ClickException(str(exc)) from exc
+    # The staging dir is scratch for download and extraction. On the happy path
+    # _install_binary returns the path inside the persistent cache and staging
+    # is deleted right away; on the cache-store fallback it returns the staging
+    # copy itself, which must then live as long as the process.
+    staging = tempfile.TemporaryDirectory(prefix=f"repomatic-{name}-bin-")
+    try:
+        binary_path = _install_binary(spec, Path(staging.name))
+    except RuntimeError as exc:
+        staging.cleanup()
+        raise ClickException(str(exc)) from exc
+    if Path(staging.name) in binary_path.parents:
+        _STAGING_DIRS.append(staging)
+    else:
+        staging.cleanup()
+    return binary_path
 
 
 def _path_tools_env(
@@ -1035,10 +1078,17 @@ def run_tool(
         # Config args from resolution (cache path or empty).
         cmd.extend(_splice_config_args(config_args, extra_args, spec))
 
-        # Ensure parent directories exist for output file paths.
-        for i, arg in enumerate(extra_args):
-            if arg == "--output" and i + 1 < len(extra_args):
-                Path(extra_args[i + 1]).parent.mkdir(parents=True, exist_ok=True)
+        # Pre-create parent directories for the tool's declared report
+        # destination; see `ToolSpec.output_flag` for why.
+        if spec.output_flag:
+            for i, arg in enumerate(extra_args):
+                if arg == spec.output_flag and i + 1 < len(extra_args):
+                    destination = Path(extra_args[i + 1])
+                elif arg.startswith(f"{spec.output_flag}="):
+                    destination = Path(arg.split("=", 1)[1])
+                else:
+                    continue
+                destination.parent.mkdir(parents=True, exist_ok=True)
 
         env = _path_tools_env(spec, skip_checksum, no_cache, path_dirs)
 
@@ -1116,7 +1166,7 @@ def resolve_config_source(spec: ToolSpec) -> str:
     return _detect_config_level(spec)[1]
 
 
-def find_unmodified_configs() -> list[tuple[str, str]]:
+def find_unmodified_configs(root: Path | None = None) -> list[tuple[str, str]]:
     """Find native config files identical to their bundled defaults.
 
     Iterates over every tool in {data}`TOOL_REGISTRY` that has a
@@ -1127,9 +1177,14 @@ def find_unmodified_configs() -> list[tuple[str, str]]:
     The normalization (`rstrip() + "\\n"`) matches the convention
     used by `_init_config_files` when writing files during `init`.
 
+    :param root: Directory the relative config paths resolve against.
+        Defaults to the working directory; `run_init` passes its
+        `output_dir` so the scan and the deletion the CLI derives from it
+        (`--delete-unmodified`) agree on one tree.
     :return: List of `(tool_name, relative_path)` tuples for each
         unmodified file found.
     """
+    base = root or Path()
     unmodified: list[tuple[str, str]] = []
 
     for name, spec in sorted(TOOL_REGISTRY.items()):
@@ -1140,7 +1195,7 @@ def find_unmodified_configs() -> list[tuple[str, str]]:
             bundled = bundled_path.read_text(encoding="UTF-8").rstrip() + "\n"
 
         for config_file in spec.native_config_files:
-            path = Path(config_file)
+            path = base / config_file
             if not path.exists():
                 continue
             native = path.read_text(encoding="UTF-8").rstrip() + "\n"

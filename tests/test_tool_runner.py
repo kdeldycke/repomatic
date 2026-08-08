@@ -27,6 +27,7 @@ import re
 import tarfile
 import tempfile
 import zipfile
+from contextlib import contextmanager
 from itertools import combinations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -59,6 +60,7 @@ from repomatic.tool_registry import (
     ArchiveFormat,
     BinarySpec,
     NativeFormat,
+    ToolBackend,
     ToolSpec,
     UnsupportedPlatformError,
     _fix_myst_directives,
@@ -75,7 +77,6 @@ from repomatic.tool_runner import (
     _install_npm,
     _npm_supports_cooldown,
     _path_tools_env,
-    binary_tool_context,
     ensure_binary,
     find_unmodified_configs,
     get_data_file_path,
@@ -304,18 +305,50 @@ def test_tool_spec_integrity(name, spec):
             )
 
 
+def test_tool_backend_labels_unique():
+    """Every backend resolves distinct display labels for the docs tables."""
+    shorts = {backend.short_label for backend in ToolBackend}
+    longs = {backend.long_label for backend in ToolBackend}
+    assert len(shorts) == len(ToolBackend)
+    assert len(longs) == len(ToolBackend)
+
+
+@pytest.mark.parametrize(("name", "spec"), sorted(TOOL_REGISTRY.items()))
+def test_tool_backend_matches_payload_fields(name, spec):
+    """Each registry entry maps onto exactly one delivery backend."""
+    backend = spec.backend
+    assert (backend is ToolBackend.BINARY) == (spec.binary is not None)
+    assert (backend is ToolBackend.NPM) == (spec.npm is not None)
+    assert (backend is ToolBackend.VENV) == (
+        spec.binary is None and spec.npm is None and spec.needs_venv
+    )
+
+
 @pytest.mark.parametrize(
     ("name", "spec"),
     [(n, s) for n, s in TOOL_REGISTRY.items() if s.binary is None],
 )
-def test_build_install_args_cooldown(name, spec):
-    """uvx tools carry `--exclude-newer`; frozen-lock (needs_venv) tools never do."""
+def test_build_install_args_cooldown(name, spec, tmp_path, monkeypatch):
+    """uvx tools carry `--exclude-newer`; needs_venv tools only when unlocked."""
+    monkeypatch.chdir(tmp_path)
     cutoff = "2026-06-23"
     with_cutoff = _build_install_args(spec, exclude_newer=cutoff)
 
     if spec.needs_venv:
-        # `uv run --frozen` resolves from the lock, which already pins the tree.
-        assert "--exclude-newer" not in with_cutoff
+        # Without a uv.lock the project venv cannot freeze: the tool falls back
+        # to an isolated `uv run --no-project`, cooldown-gated like uvx.
+        assert "--no-project" in with_cutoff
+        assert "--frozen" not in with_cutoff
+        idx = with_cutoff.index("--exclude-newer")
+        assert with_cutoff[idx + 1] == cutoff
+
+        # `uv run --frozen` resolves from the lock, which already pins the
+        # tree, so the cutoff is dropped.
+        (tmp_path / "uv.lock").touch()
+        locked = _build_install_args(spec, exclude_newer=cutoff)
+        assert "--frozen" in locked
+        assert "--no-project" not in locked
+        assert "--exclude-newer" not in locked
     else:
         # uvx resolves fresh: the cutoff gates the transitive tree, before --from.
         idx = with_cutoff.index("--exclude-newer")
@@ -367,7 +400,7 @@ def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
     # Pre-create the executable the (mocked) install would produce.
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("", encoding="utf-8")
+    (bin_dir / "awesome-lint").write_text("", encoding="UTF-8")
 
     bin_path = _install_npm(spec, tmp_path, cooldown_days=8)
 
@@ -392,7 +425,7 @@ def test_install_npm_zero_cooldown_omits_flag(mock_which, mock_run, tmp_path):
     mock_run.return_value = MagicMock(returncode=0)
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("", encoding="utf-8")
+    (bin_dir / "awesome-lint").write_text("", encoding="UTF-8")
 
     _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
 
@@ -435,7 +468,7 @@ def test_install_npm_warns_when_npm_too_old(mock_which, mock_run, tmp_path, capl
     ]
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("", encoding="utf-8")
+    (bin_dir / "awesome-lint").write_text("", encoding="UTF-8")
 
     with caplog.at_level(logging.WARNING):
         _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=8)
@@ -521,7 +554,9 @@ def test_resolve_platform_group_match():
         checksums={(LINUX, X86_64): "a" * 64},
         archive_format=ArchiveFormat.RAW,
     )
-    # Simulate an Ubuntu system (member of LINUX group).
+    # Simulate an Ubuntu system (member of LINUX group). Spelled out rather
+    # than borrowed from `_on_linux_x86_64`, since the group-membership pass
+    # is the behavior under test here, not a precondition of it.
     with (
         patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
         patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
@@ -630,19 +665,35 @@ def test_platform_cache_key():
     assert BinarySpec.platform_cache_key((WINDOWS, X86_64)) == "windows-x86_64"
 
 
+def _urlopen_response(content: bytes, *, advertised_length: int | None = -1):
+    """Build a `urlopen` double delivering *content* in one read.
+
+    :param content: The body bytes, served before the terminating empty read.
+    :param advertised_length: What `Content-Length` reports. The default
+        derives it from *content*; `None` omits the header, which sends the
+        download path down its indeterminate-progress branch; any other value
+        is advertised verbatim, which is how a truncated transfer is staged.
+    """
+    response = MagicMock()
+    length = len(content) if advertised_length == -1 else advertised_length
+    response.headers.get = MagicMock(
+        return_value=None if length is None else str(length)
+    )
+    response.read = MagicMock(side_effect=[content, b""])
+    response.__enter__ = MagicMock(return_value=response)
+    response.__exit__ = MagicMock(return_value=False)
+    return response
+
+
 def test_download_and_verify_success(tmp_path):
     """Successful download with matching checksum writes the file."""
     content = b"hello binary world"
     expected = hashlib.sha256(content).hexdigest()
     dest = tmp_path / "downloaded"
 
-    mock_response = MagicMock()
-    mock_response.headers.get = MagicMock(return_value=str(len(content)))
-    mock_response.read = MagicMock(side_effect=[content, b""])
-    mock_response.__enter__ = MagicMock(return_value=mock_response)
-    mock_response.__exit__ = MagicMock(return_value=False)
-
-    with patch("repomatic.tool_runner.urlopen", return_value=mock_response):
+    with patch(
+        "repomatic.tool_runner.urlopen", return_value=_urlopen_response(content)
+    ):
         _download_and_verify("https://example.com/file", expected, dest)
 
     assert dest.exists()
@@ -655,15 +706,12 @@ def test_download_and_verify_no_content_length(tmp_path):
     expected = hashlib.sha256(content).hexdigest()
     dest = tmp_path / "downloaded"
 
-    mock_response = MagicMock()
     # No Content-Length: total stays 0, so the download path uses a Spinner
     # instead of a determinate progress bar.
-    mock_response.headers.get = MagicMock(return_value=None)
-    mock_response.read = MagicMock(side_effect=[content, b""])
-    mock_response.__enter__ = MagicMock(return_value=mock_response)
-    mock_response.__exit__ = MagicMock(return_value=False)
-
-    with patch("repomatic.tool_runner.urlopen", return_value=mock_response):
+    with patch(
+        "repomatic.tool_runner.urlopen",
+        return_value=_urlopen_response(content, advertised_length=None),
+    ):
         _download_and_verify("https://example.com/file", expected, dest)
 
     assert dest.exists()
@@ -675,14 +723,8 @@ def test_download_and_verify_mismatch(tmp_path):
     content = b"hello binary world"
     dest = tmp_path / "downloaded"
 
-    mock_response = MagicMock()
-    mock_response.headers.get = MagicMock(return_value=str(len(content)))
-    mock_response.read = MagicMock(side_effect=[content, b""])
-    mock_response.__enter__ = MagicMock(return_value=mock_response)
-    mock_response.__exit__ = MagicMock(return_value=False)
-
     with (
-        patch("repomatic.tool_runner.urlopen", return_value=mock_response),
+        patch("repomatic.tool_runner.urlopen", return_value=_urlopen_response(content)),
         pytest.raises(ValueError, match="SHA-256 mismatch"),
     ):
         _download_and_verify("https://example.com/file", "bad" * 16, dest)
@@ -700,15 +742,12 @@ def test_download_and_verify_truncated(tmp_path):
     content = b"hello binary world"
     dest = tmp_path / "downloaded"
 
-    mock_response = MagicMock()
-    # Advertise more bytes than the body delivers.
-    mock_response.headers.get = MagicMock(return_value=str(len(content) + 7))
-    mock_response.read = MagicMock(side_effect=[content, b""])
-    mock_response.__enter__ = MagicMock(return_value=mock_response)
-    mock_response.__exit__ = MagicMock(return_value=False)
-
     with (
-        patch("repomatic.tool_runner.urlopen", return_value=mock_response),
+        patch(
+            "repomatic.tool_runner.urlopen",
+            # Advertise more bytes than the body delivers.
+            return_value=_urlopen_response(content, advertised_length=len(content) + 7),
+        ),
         pytest.raises(OSError, match="Truncated download .* got 18 of 25 bytes"),
     ):
         _download_and_verify(
@@ -731,7 +770,7 @@ def test_extract_binary_raw(tmp_path):
         archive_format=ArchiveFormat.RAW,
         archive_executable="biome",
     )
-    result = _extract_binary(archive, spec, tmp_path, "testtool")
+    result = _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.RAW, 0)
 
     assert result == tmp_path / "biome"
     assert result.exists()
@@ -760,7 +799,9 @@ def test_extract_binary_tar_gz(tmp_path):
         archive_format=ArchiveFormat.TAR_GZ,
         archive_executable="actionlint",
     )
-    result = _extract_binary(archive, spec, tmp_path, "testtool")
+    result = _extract_binary(
+        archive, spec, tmp_path, "testtool", ArchiveFormat.TAR_GZ, 0
+    )
 
     assert result == tmp_path / "actionlint"
     assert result.exists()
@@ -778,7 +819,9 @@ def test_extract_binary_tar_gz_with_strip_components(tmp_path):
         archive_executable="bin/mytool",
         strip_components=1,
     )
-    result = _extract_binary(archive, spec, tmp_path, "testtool")
+    result = _extract_binary(
+        archive, spec, tmp_path, "testtool", ArchiveFormat.TAR_GZ, 1
+    )
 
     assert result.name == "mytool"
     assert result.exists()
@@ -802,7 +845,9 @@ def test_extract_binary_tar_xz(tmp_path):
         archive_format=ArchiveFormat.TAR_XZ,
         archive_executable="lychee",
     )
-    result = _extract_binary(archive_path, spec, tmp_path, "testtool")
+    result = _extract_binary(
+        archive_path, spec, tmp_path, "testtool", ArchiveFormat.TAR_XZ, 0
+    )
 
     assert result == tmp_path / "lychee"
     assert result.exists()
@@ -819,7 +864,7 @@ def test_extract_binary_tar_missing_executable(tmp_path):
         archive_executable="nonexistent",
     )
     with pytest.raises(FileNotFoundError, match="not found in archive"):
-        _extract_binary(archive, spec, tmp_path, "testtool")
+        _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.TAR_GZ, 0)
 
 
 def test_extract_binary_tar_unsafe_path(tmp_path):
@@ -833,7 +878,7 @@ def test_extract_binary_tar_unsafe_path(tmp_path):
         archive_executable="../../../etc/passwd",
     )
     with pytest.raises(ValueError, match="Unsafe archive member"):
-        _extract_binary(archive, spec, tmp_path, "testtool")
+        _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.TAR_GZ, 0)
 
 
 def _create_zip(tmp_path, member_name, content=b"MZ fake exe"):
@@ -853,7 +898,9 @@ def test_extract_binary_zip(tmp_path):
         checksums={},
         archive_format=ArchiveFormat.ZIP,
     )
-    result = _extract_binary(archive, spec, tmp_path, "actionlint")
+    result = _extract_binary(
+        archive, spec, tmp_path, "actionlint", ArchiveFormat.ZIP, 0
+    )
 
     assert result == tmp_path / "actionlint.exe"
     assert result.exists()
@@ -871,7 +918,7 @@ def test_extract_binary_zip_with_strip_components(tmp_path):
         archive_executable="bin/mytool.exe",
         strip_components=1,
     )
-    result = _extract_binary(archive, spec, tmp_path, "testtool")
+    result = _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.ZIP, 1)
 
     assert result.name == "mytool.exe"
     assert result.exists()
@@ -888,7 +935,7 @@ def test_extract_binary_zip_missing_executable(tmp_path):
         archive_format=ArchiveFormat.ZIP,
     )
     with pytest.raises(FileNotFoundError, match="not found in archive"):
-        _extract_binary(archive, spec, tmp_path, "nonexistent")
+        _extract_binary(archive, spec, tmp_path, "nonexistent", ArchiveFormat.ZIP, 0)
 
 
 def test_extract_binary_zip_unsafe_path(tmp_path):
@@ -902,7 +949,7 @@ def test_extract_binary_zip_unsafe_path(tmp_path):
         archive_executable="../../../etc/passwd",
     )
     with pytest.raises(ValueError, match="Unsafe archive member"):
-        _extract_binary(archive, spec, tmp_path, "testtool")
+        _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.ZIP, 0)
 
 
 def test_extract_binary_format_override(tmp_path):
@@ -920,7 +967,7 @@ def test_extract_binary_format_override(tmp_path):
         },
     )
     # _install_binary resolves the format and passes it explicitly.
-    result = _extract_binary(archive, spec, tmp_path, "gitleaks", ArchiveFormat.ZIP)
+    result = _extract_binary(archive, spec, tmp_path, "gitleaks", ArchiveFormat.ZIP, 0)
 
     assert result == tmp_path / "gitleaks.exe"
     assert result.exists()
@@ -1041,6 +1088,47 @@ def test_dereference_data_dir_symlinks_passes_through_plain_dirs(tmp_path):
     assert path_dirs == []
 
 
+TARBALL_URL = "https://example.com/{version}/tool.tar.gz"
+"""Download URL for the tests that go through the extract step."""
+
+
+def _binary_spec(
+    *,
+    version: str = "1.0.0",
+    checksum: str = "a" * 64,
+    url: str = "https://example.com/{version}/tool",
+) -> ToolSpec:
+    """A single-platform `ToolSpec` for the Linux x86_64 cache tests.
+
+    Every caller pairs it with `_on_linux_x86_64`, so one URL key is enough:
+    resolution never reaches a second.
+    """
+    return ToolSpec(
+        name="testtool",
+        version=version,
+        binary=BinarySpec(
+            urls={(LINUX, X86_64): url},
+            checksums={(LINUX, X86_64): checksum},
+            archive_format=ArchiveFormat.RAW,
+        ),
+    )
+
+
+@contextmanager
+def _on_linux_x86_64():
+    """Pin platform detection to Linux x86_64 for the duration of the block.
+
+    `UBUNTU` rather than `LINUX` on purpose: reporting a real distribution is
+    what sends resolution through the group-membership pass, the way an actual
+    runner does.
+    """
+    with (
+        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
+    ):
+        yield
+
+
 def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
     """_install_binary returns cached path when cache hit and sidecar matches."""
 
@@ -1048,15 +1136,7 @@ def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
     fake_binary = b"cached-binary-content"
     binary_checksum = hashlib.sha256(fake_binary).hexdigest()
 
-    spec = ToolSpec(
-        name="testtool",
-        version="1.0.0",
-        binary=BinarySpec(
-            urls={(LINUX, X86_64): "https://example.com/{version}/tool"},
-            checksums={(LINUX, X86_64): "archive-checksum-not-used-for-cache"},
-            archive_format=ArchiveFormat.RAW,
-        ),
-    )
+    spec = _binary_spec(checksum="archive-checksum-not-used-for-cache")
 
     from repomatic.cache import cached_binary_path
 
@@ -1068,10 +1148,7 @@ def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
     sidecar = cache_path.with_suffix(cache_path.suffix + ".sha256")
     sidecar.write_text(binary_checksum, encoding="UTF-8")
 
-    with (
-        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
-    ):
+    with _on_linux_x86_64():
         result = _install_binary(spec, tmp_path / "staging")
 
     assert result == cache_path
@@ -1083,22 +1160,13 @@ def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
     fake_binary = b"downloaded-binary"
     checksum = hashlib.sha256(fake_binary).hexdigest()
 
-    spec = ToolSpec(
-        name="testtool",
-        version="2.0.0",
-        binary=BinarySpec(
-            urls={(LINUX, X86_64): "https://example.com/{version}/tool.tar.gz"},
-            checksums={(LINUX, X86_64): checksum},
-            archive_format=ArchiveFormat.RAW,
-        ),
-    )
+    spec = _binary_spec(version="2.0.0", checksum=checksum, url=TARBALL_URL)
 
     staging = tmp_path / "staging"
     staging.mkdir()
 
     with (
-        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
+        _on_linux_x86_64(),
         patch("repomatic.tool_runner._download_and_verify"),
         patch("repomatic.tool_runner._extract_binary") as mock_extract,
     ):
@@ -1125,22 +1193,13 @@ def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
 def test_install_binary_no_cache_flag(tmp_path, monkeypatch, cache_env):
     """_install_binary with no_cache=True bypasses cache entirely."""
 
-    spec = ToolSpec(
-        name="testtool",
-        version="1.0.0",
-        binary=BinarySpec(
-            urls={(LINUX, X86_64): "https://example.com/{version}/tool.tar.gz"},
-            checksums={(LINUX, X86_64): "a" * 64},
-            archive_format=ArchiveFormat.RAW,
-        ),
-    )
+    spec = _binary_spec(url=TARBALL_URL)
 
     staging = tmp_path / "staging"
     staging.mkdir()
 
     with (
-        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
+        _on_linux_x86_64(),
         patch("repomatic.tool_runner._download_and_verify"),
         patch("repomatic.tool_runner._extract_binary") as mock_extract,
         patch("repomatic.tool_runner.store_binary") as mock_store,
@@ -1173,22 +1232,13 @@ def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch, cache_env
         hashlib.sha256(b"original-content").hexdigest(), encoding="UTF-8"
     )
 
-    spec = ToolSpec(
-        name="testtool",
-        version="1.0.0",
-        binary=BinarySpec(
-            urls={(LINUX, X86_64): "https://example.com/{version}/tool.tar.gz"},
-            checksums={(LINUX, X86_64): "archive-checksum"},
-            archive_format=ArchiveFormat.RAW,
-        ),
-    )
+    spec = _binary_spec(checksum="archive-checksum", url=TARBALL_URL)
 
     staging = tmp_path / "staging"
     staging.mkdir()
 
     with (
-        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
+        _on_linux_x86_64(),
         patch("repomatic.tool_runner._download_and_verify"),
         patch("repomatic.tool_runner._extract_binary") as mock_extract,
     ):
@@ -1211,15 +1261,7 @@ def test_install_binary_cache_store_fallback(tmp_path, monkeypatch, cache_env):
     fake_binary = b"downloaded-binary"
     checksum = hashlib.sha256(fake_binary).hexdigest()
 
-    spec = ToolSpec(
-        name="testtool",
-        version="2.0.0",
-        binary=BinarySpec(
-            urls={(LINUX, X86_64): "https://example.com/{version}/tool.tar.gz"},
-            checksums={(LINUX, X86_64): checksum},
-            archive_format=ArchiveFormat.RAW,
-        ),
-    )
+    spec = _binary_spec(version="2.0.0", checksum=checksum, url=TARBALL_URL)
 
     staging = tmp_path / "staging"
     staging.mkdir()
@@ -1229,8 +1271,7 @@ def test_install_binary_cache_store_fallback(tmp_path, monkeypatch, cache_env):
         return cache_env / "bin" / "ghost" / "binary"
 
     with (
-        patch("repomatic.tool_registry.current_platform", return_value=UBUNTU),
-        patch("repomatic.tool_registry.current_architecture", return_value=X86_64),
+        _on_linux_x86_64(),
         patch("repomatic.tool_runner._download_and_verify"),
         patch("repomatic.tool_runner._extract_binary") as mock_extract,
         patch("repomatic.tool_runner.store_binary", side_effect=fake_store),
@@ -1353,7 +1394,7 @@ def test_run_tool_ruff_reads_pyproject_natively(
     """ruff gets no --config flag when [tool.ruff] exists in pyproject.toml."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n', encoding="utf-8"
+        '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n', encoding="UTF-8"
     )
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -1385,29 +1426,58 @@ def test_run_tool_bump_my_version_via_uvx(mock_ci, mock_run, tmp_path, monkeypat
 
 
 # ---------------------------------------------------------------------------
-# binary_tool_context
+# ensure_binary memoization and staging lifetime
 # ---------------------------------------------------------------------------
 
 
 @patch("repomatic.tool_runner._install_binary")
-def test_binary_tool_context_yields_path(mock_install, tmp_path):
-    """binary_tool_context yields the installed binary path."""
-    bin_path = tmp_path / "labelmaker"
-    bin_path.touch()
-    mock_install.return_value = bin_path
+def test_ensure_binary_memoizes_per_tool(mock_install, tmp_path):
+    """Repeated calls install once and return the same path.
 
-    with binary_tool_context("labelmaker") as lm:
-        assert lm == bin_path
-        assert lm.exists()
+    Callers in a loop (`format-images` optimizing one PNG per call) must not
+    pay the install-and-verify path once per file.
+    """
+    cached = tmp_path / "labelmaker"
+    cached.touch()
+    mock_install.return_value = cached
+
+    assert ensure_binary("labelmaker") == cached
+    assert ensure_binary("labelmaker") == cached
+    assert mock_install.call_count == 1
 
 
-def test_binary_tool_context_no_binary_spec():
-    """binary_tool_context raises for tools without a binary spec."""
-    with (
-        pytest.raises(AssertionError, match="no binary spec"),
-        binary_tool_context("ruff"),
-    ):
-        pass
+@patch("repomatic.tool_runner._install_binary")
+def test_ensure_binary_cleans_staging_on_cache_hit(mock_install, tmp_path):
+    """When the install lands in the cache, the staging directory is removed."""
+    cached = tmp_path / "labelmaker"
+    cached.touch()
+    mock_install.return_value = cached
+
+    ensure_binary("labelmaker")
+
+    staging = mock_install.call_args[0][1]
+    assert not staging.exists()
+
+
+@patch("repomatic.tool_runner._install_binary")
+def test_ensure_binary_keeps_staging_fallback_alive(mock_install):
+    """A staging-path fallback survives the call instead of dangling.
+
+    When the cache store fails (unwritable root, Docker overlay losing the
+    write), `_install_binary` returns the staging copy: the staging directory
+    must then outlive the call, or the caller would exec a just-deleted file.
+    """
+
+    def install(spec, staging_dir, **kwargs):
+        path = staging_dir / "labelmaker"
+        path.touch()
+        return path
+
+    mock_install.side_effect = install
+
+    binary = ensure_binary("labelmaker")
+
+    assert binary.is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -1452,7 +1522,7 @@ def test_resolve_config_reads_pyproject_falls_through_to_bundled(
 def test_resolve_config_native_file_wins(tmp_path, monkeypatch):
     """Native config file takes precedence over everything else."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".yamllint.yaml").write_text("rules: {}", encoding="utf-8")
+    (tmp_path / ".yamllint.yaml").write_text("rules: {}", encoding="UTF-8")
 
     spec = TOOL_REGISTRY["yamllint"]
     args, tmp = resolve_config(
@@ -1707,64 +1777,48 @@ def test_resolve_config_empty_tool_config_is_not_match(
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_config_source_native_file(tmp_path, monkeypatch):
-    """Reports native config file when it exists."""
+BARE_TOOL = ToolSpec(name="sometool", version="1.0.0", package="sometool")
+"""A tool with no bundled default, no native file and no pyproject section."""
+
+
+@pytest.mark.parametrize(
+    ("tool", "files", "expected"),
+    [
+        pytest.param(
+            "zizmor",
+            {"zizmor.yaml": "rules: {}"},
+            "zizmor.yaml",
+            id="native-file",
+        ),
+        pytest.param("yamllint", {}, "bundled default", id="bundled-default"),
+        pytest.param(
+            "yamllint",
+            {"pyproject.toml": "[tool.yamllint]\nrules = {line-length = {max = 80}}\n"},
+            "[tool.yamllint] in pyproject.toml",
+            id="pyproject-section",
+        ),
+        # A `reads_pyproject` tool resolves the same two ways, but reaches its
+        # section natively rather than through a translated temp file.
+        pytest.param("ruff", {}, "bundled default", id="reads-pyproject-fallback"),
+        pytest.param(
+            "ruff",
+            {
+                "pyproject.toml": '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n'
+            },
+            "[tool.ruff] in pyproject.toml",
+            id="reads-pyproject-native",
+        ),
+        pytest.param(BARE_TOOL, {}, "(bare)", id="bare"),
+    ],
+)
+def test_resolve_config_source(tmp_path, monkeypatch, tool, files, expected):
+    """The reported config source names where the tool's settings came from."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "zizmor.yaml").write_text("rules: {}", encoding="utf-8")
+    for name, content in files.items():
+        (tmp_path / name).write_text(content, encoding="UTF-8")
 
-    result = resolve_config_source(TOOL_REGISTRY["zizmor"])
-    assert result == "zizmor.yaml"
-
-
-def test_resolve_config_source_bundled_default(tmp_path, monkeypatch):
-    """Reports bundled default when no other config exists."""
-    monkeypatch.chdir(tmp_path)
-
-    result = resolve_config_source(TOOL_REGISTRY["yamllint"])
-    assert result == "bundled default"
-
-
-def test_resolve_config_source_pyproject_section(tmp_path, monkeypatch):
-    """Reports [tool.X] when pyproject.toml has the section."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "pyproject.toml").write_text(
-        "[tool.yamllint]\nrules = {line-length = {max = 80}}\n", encoding="utf-8"
-    )
-
-    result = resolve_config_source(TOOL_REGISTRY["yamllint"])
-    assert result == "[tool.yamllint] in pyproject.toml"
-
-
-def test_resolve_config_source_reads_pyproject_bundled_fallback(tmp_path, monkeypatch):
-    """Reports bundled default for reads_pyproject tool when no config exists."""
-    monkeypatch.chdir(tmp_path)
-
-    result = resolve_config_source(TOOL_REGISTRY["ruff"])
-    assert result == "bundled default"
-
-
-def test_resolve_config_source_reads_pyproject_native(tmp_path, monkeypatch):
-    """Reports [tool.X] for reads_pyproject tool when pyproject section exists."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n', encoding="utf-8"
-    )
-
-    result = resolve_config_source(TOOL_REGISTRY["ruff"])
-    assert result == "[tool.ruff] in pyproject.toml"
-
-
-def test_resolve_config_source_bare(tmp_path, monkeypatch):
-    """Reports (bare) for tool with no config anywhere."""
-    monkeypatch.chdir(tmp_path)
-
-    spec = ToolSpec(
-        name="sometool",
-        version="1.0.0",
-        package="sometool",
-    )
-    result = resolve_config_source(spec)
-    assert result == "(bare)"
+    spec = tool if isinstance(tool, ToolSpec) else TOOL_REGISTRY[tool]
+    assert resolve_config_source(spec) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -1826,7 +1880,7 @@ def test_run_tool_native_config_no_extra_flags(
 ):
     """Tool with native config file gets no config flags from repomatic."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "zizmor.yaml").write_text("rules: {}", encoding="utf-8")
+    (tmp_path / "zizmor.yaml").write_text("rules: {}", encoding="UTF-8")
     mock_run.return_value = MagicMock(returncode=0)
 
     run_tool("zizmor", extra_args=(".",))
@@ -1850,7 +1904,7 @@ def test_run_tool_pyproject_section_cached_config(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
         "[tool.zizmor]\n[tool.zizmor.rules.artipacked]\ndisable = true\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -1948,6 +2002,7 @@ def test_run_tool_mypy_with_computed_params(
 ):
     """mypy runs via uv run with computed --python-version param."""
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "uv.lock").touch()
     mock_metadata_cls.return_value.mypy_params = ["--python-version", "3.10"]
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -1988,12 +2043,47 @@ def test_run_tool_mypy_without_computed_params(
 
 
 @patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.Metadata")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_mypy_no_lockfile_falls_back_isolated(
+    mock_ci,
+    mock_metadata_cls,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+):
+    """Without a uv.lock, mypy runs isolated instead of demanding `--frozen`.
+
+    A repository holding a `pyproject.toml` with only `[tool.*]` tables (a
+    dotfiles repo linting standalone scripts) has no lockfile, so
+    `uv run --frozen` aborts with "Unable to find lockfile at `uv.lock`"
+    before mypy ever starts.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text("[tool.mypy]\n", encoding="UTF-8")
+    mock_metadata_cls.return_value.mypy_params = None
+    mock_run.return_value = MagicMock(returncode=0)
+
+    run_tool("mypy", extra_args=("script.py",))
+
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "uv"
+    assert "run" in cmd
+    assert "--no-project" in cmd
+    assert "--frozen" not in cmd
+    # The unlocked resolution still honors the minimum-release-age cooldown.
+    assert "--exclude-newer" in cmd
+    assert "script.py" in cmd
+
+
+@patch("repomatic.tool_runner.subprocess.run")
 @patch("repomatic.tool_runner.is_github_ci", return_value=False)
 def test_run_tool_nuitka_uses_module_invocation(
     mock_ci, mock_run, tmp_path, monkeypatch
 ):
     """nuitka runs via `python -m nuitka` to avoid Windows script resolution issues."""
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "uv.lock").touch()
     mock_run.return_value = MagicMock(returncode=0)
 
     run_tool("nuitka", extra_args=("repomatic",))
@@ -2032,7 +2122,7 @@ def test_run_tool_nuitka_nofollow_imports_override(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
         '[tool.repomatic]\nnuitka.nofollow-imports = ["test.*"]\n',
-        encoding="utf-8",
+        encoding="UTF-8",
     )
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -2067,6 +2157,29 @@ def test_run_tool_creates_output_parent_directory(
 
     output_path = tmp_path / "subdir" / "nested" / "out.md"
     run_tool("lychee", extra_args=("--output", str(output_path), "readme.md"))
+
+    assert output_path.parent.is_dir()
+
+
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner._install_binary")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_creates_output_parent_equals_form(
+    mock_ci,
+    mock_install,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+):
+    """The `--output=path` spelling gets its parent directory created too."""
+    monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "lychee"
+    bin_path.touch()
+    mock_install.return_value = bin_path
+    mock_run.return_value = MagicMock(returncode=0)
+
+    output_path = tmp_path / "scratch" / "report.md"
+    run_tool("lychee", extra_args=(f"--output={output_path}", "readme.md"))
 
     assert output_path.parent.is_dir()
 
@@ -2163,6 +2276,27 @@ def test_find_unmodified_configs_trailing_whitespace(tmp_path, monkeypatch):
     result = find_unmodified_configs()
     paths = [p for _, p in result]
     assert ".yamllint.yaml" in paths
+
+
+def test_find_unmodified_configs_honors_root(tmp_path, monkeypatch):
+    """Detection reads under `root`, never the current directory.
+
+    `run_init` joins the returned paths against its `output_dir`, so a scan
+    anchored elsewhere would report on one tree and let `--delete-unmodified`
+    delete from another.
+    """
+    with get_data_file_path("yamllint.yaml") as bundled:
+        bundled_content = bundled.read_text(encoding="UTF-8")
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / ".yamllint.yaml").write_text(bundled_content, encoding="UTF-8")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    assert find_unmodified_configs() == []
+    assert ".yamllint.yaml" in [p for _, p in find_unmodified_configs(elsewhere)]
 
 
 def test_find_unmodified_configs_modified_content(tmp_path, monkeypatch):
@@ -2288,19 +2422,19 @@ def test_fix_myst_directives_in_place(tmp_path):
     affected = tmp_path / "affected.md"
     affected.write_text(
         "# Title\n\n```{py:module} mymod\n---\nno-typesetting:\n---\n```\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
 
     untouched = tmp_path / "untouched.md"
     original = "# Plain markdown\n\nNo directives here.\n"
-    untouched.write_text(original, encoding="utf-8")
+    untouched.write_text(original, encoding="UTF-8")
 
     _fix_myst_directives([str(affected), str(untouched), "/nonexistent/path"])
 
-    assert affected.read_text(encoding="utf-8") == (
+    assert affected.read_text(encoding="UTF-8") == (
         "# Title\n\n```{py:module} mymod\n:no-typesetting:\n```\n"
     )
-    assert untouched.read_text(encoding="utf-8") == original
+    assert untouched.read_text(encoding="UTF-8") == original
 
 
 def test_fix_myst_directives_multiple_directives(tmp_path):
@@ -2321,12 +2455,12 @@ def test_fix_myst_directives_multiple_directives(tmp_path):
         "no-typesetting:\n"
         "---\n"
         "```\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
 
     _fix_myst_directives([str(md)])
 
-    assert md.read_text(encoding="utf-8") == (
+    assert md.read_text(encoding="UTF-8") == (
         "```{py:module} mod_a\n"
         ":no-typesetting:\n"
         ":no-contents-entry:\n"
@@ -2399,12 +2533,12 @@ def test_fix_myst_directives_colon_fence_in_place(tmp_path):
         "\\:class: tip\n"
         "Body.\n"
         "\\:::\n",
-        encoding="utf-8",
+        encoding="UTF-8",
     )
 
     _fix_myst_directives([str(md)])
 
-    assert md.read_text(encoding="utf-8") == (
+    assert md.read_text(encoding="UTF-8") == (
         "```{python:render}\n"
         ":mirror:\n"
         "print(table())\n"
@@ -2526,24 +2660,6 @@ def test_strip_components_plain_int_applies_everywhere():
     spec = BinarySpec(urls={}, checksums={}, archive_format=ArchiveFormat.ZIP)
     assert spec.get_strip_components((LINUX, X86_64)) == 0
     assert spec.get_strip_components((WINDOWS, X86_64)) == 0
-
-
-def test_extract_binary_rejects_dict_strip_without_resolution(tmp_path):
-    """Extracting without a resolved count fails loudly on a dict spec.
-
-    `_install_binary` always passes the resolved value; a direct caller that
-    forgets would otherwise silently strip nothing.
-    """
-    archive = _create_zip(tmp_path, "subdir/bin/mytool.exe")
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.ZIP,
-        archive_executable="bin/mytool.exe",
-        strip_components={ALL_PLATFORMS: 1},
-    )
-    with pytest.raises(TypeError, match="strip_components is required"):
-        _extract_binary(archive, spec, tmp_path, "testtool")
 
 
 def test_gh_spec_matches_upstream_archive_layout():

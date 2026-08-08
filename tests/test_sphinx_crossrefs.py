@@ -89,39 +89,34 @@ def read_html(built_docs: Path, filename: str) -> str:
     """Read a built HTML page."""
     html_path = built_docs / filename
     assert html_path.exists(), f"HTML file not found: {html_path}"
-    return html_path.read_text(encoding="utf-8")
+    return html_path.read_text(encoding="UTF-8")
 
 
 @pytest.mark.parametrize(
-    "option",
+    ("page", "anchor"),
     (
-        "abandoned-versions",
-        "changelog-archive-location",
-        "exclude",
-        "nuitka-enabled",
-        "nuitka-nofollow-imports",
+        # `{click:config}` options, on the configuration reference.
+        ("configuration.html", "abandoned-versions"),
+        ("configuration.html", "changelog-archive-location"),
+        ("configuration.html", "exclude"),
+        ("configuration.html", "nuitka-enabled"),
+        ("configuration.html", "nuitka-nofollow-imports"),
+        # `{click:tree}` commands, on the CLI reference.
+        ("cli.html", "repomatic-audit"),
+        ("cli.html", "repomatic-cache"),
+        ("cli.html", "repomatic-changelog"),
     ),
 )
-def test_config_summary_links_to_option_sections(built_docs, option):
-    """The `{click:config}` summary table deep-links each option to its section."""
-    html = read_html(built_docs, "configuration.html")
-    assert f'id="{option}"' in html, f"missing section anchor for {option}"
-    assert f'href="#{option}"' in html, f"summary table does not link to {option}"
+def test_summary_table_links_to_its_sections(built_docs, page, anchor):
+    """Each generated summary table deep-links every row to its own section.
 
-
-@pytest.mark.parametrize(
-    "command",
-    (
-        "repomatic-audit",
-        "repomatic-cache",
-        "repomatic-changelog",
-    ),
-)
-def test_cli_tree_links_to_command_sections(built_docs, command):
-    """The `{click:tree}` summary table deep-links each command to its section."""
-    html = read_html(built_docs, "cli.html")
-    assert f'id="{command}"' in html, f"missing section anchor for {command}"
-    assert f'href="#{command}"' in html, f"summary table does not link to {command}"
+    Both directives render a table of contents above the detail sections, so
+    a row whose target never materialized leaves a dead link on the published
+    page rather than failing the build.
+    """
+    html = read_html(built_docs, page)
+    assert f'id="{anchor}"' in html, f"{page}: missing section anchor for {anchor}"
+    assert f'href="#{anchor}"' in html, f"{page}: summary table has no link to {anchor}"
 
 
 def test_intersphinx_click_resolves(built_docs):

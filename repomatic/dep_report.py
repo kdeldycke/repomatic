@@ -50,6 +50,82 @@ RELEASE_NOTES_MAX_LENGTH = 2000
 
 
 # ---------------------------------------------------------------------------
+# Shared primitives
+# ---------------------------------------------------------------------------
+
+
+def safe_version(value: str) -> Version | None:
+    """Parse a PEP 440 version, returning `None` for anything unparsable.
+
+    Every version this package reads comes from somewhere it does not control
+    (a lock file, a package index, a git tag), so the parse has to tolerate
+    junk. Collapsing the `try`/`except InvalidVersion` into one helper keeps
+    the callers reading as the filters they are.
+
+    ```{note}
+    This belongs next to {func}`repomatic.version_sync.is_newer` in
+    {mod}`repomatic.version_sync`, which owns version comparison. It lives
+    here because that module imports nothing from this one and the dependency
+    would have to run the other way; move it when the two are next touched
+    together.
+    ```
+
+    :param value: A version string.
+    :return: The parsed {class}`~packaging.version.Version`, or `None` when
+        *value* is empty or not PEP 440.
+    """
+    if not value:
+        return None
+    try:
+        return Version(value)
+    except InvalidVersion:
+        return None
+
+
+def link_name(name: str, name_urls: dict[str, str] | None) -> str:
+    """Render a table's subject cell, linked when a URL is known for it.
+
+    :param name: Package, action or tool name.
+    :param name_urls: Mapping of names to their URL. Names absent from it (or
+        a `None` mapping) render as plain text.
+    :return: A markdown link, or the bare name.
+    """
+    if name_urls and name in name_urls:
+        return f"[{name}]({name_urls[name]})"
+    return name
+
+
+def markdown_section(
+    heading: str,
+    note: str,
+    headers: tuple[str, ...],
+    rows: list[tuple[str, ...]],
+) -> str:
+    """Assemble a report section: heading, optional intro, and a table.
+
+    The one place the section layout is defined, so every updater's PR body
+    keeps the same shape. The alignment row is derived from *headers* rather
+    than written out, which is what stops a column from being added to one
+    and not the other.
+
+    :param heading: Full heading line, emoji included, without the `## `.
+    :param note: Intro paragraph shown between heading and table. Omitted
+        when empty.
+    :param headers: Column titles.
+    :param rows: One tuple of pre-rendered cells per row, each as long as
+        *headers*.
+    :return: The rendered markdown, with no trailing newline.
+    """
+    lines = [f"## {heading}", ""]
+    if note:
+        lines += [note, ""]
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("| " + " | ".join([":--"] * len(headers)) + " |")
+    lines.extend("| " + " | ".join(cells) + " |" for cells in rows)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Date parsing and formatting
 # ---------------------------------------------------------------------------
 
@@ -217,24 +293,13 @@ def format_diff_table(
     """
     if not changes:
         return ""
-    name_urls = name_urls or {}
     released_overrides = released_overrides or {}
     changed_names = {name for name, _old, _new in changes}
     show_uploaded = bool(upload_times) or bool(
         changed_names & released_overrides.keys()
     )
-    lines = [f"## 🆙 {heading}", ""]
-    if cooldown_note:
-        lines.append(cooldown_note)
-        lines.append("")
-    if show_uploaded:
-        lines.append(f"| {subject} | Change | Released |")
-        lines.append("| :-- | :-- | :-- |")
-    else:
-        lines.append(f"| {subject} | Change |")
-        lines.append("| :-- | :-- |")
+    rows: list[tuple[str, ...]] = []
     for name, old, new in changes:
-        link = f"[{name}]({name_urls[name]})" if name in name_urls else name
         if old and new:
             change = f"`{old}` \u2192 `{new}`"
             if comparison_urls and name in comparison_urls:
@@ -243,16 +308,18 @@ def format_diff_table(
             change = f"🆕 new: `{new}`"
         else:
             change = f"🗑️ removed: `{old}`"
+        cells = [link_name(name, name_urls), change]
         if show_uploaded:
             if name in released_overrides:
                 uploaded = released_overrides[name]
             else:
                 raw_time = upload_times.get(name, "") if upload_times else ""
                 uploaded = format_released(raw_time, reference_date)
-            lines.append(f"| {link} | {change} | {uploaded} |")
-        else:
-            lines.append(f"| {link} | {change} |")
-    return "\n".join(lines)
+            cells.append(uploaded)
+        rows.append(tuple(cells))
+
+    headers = (subject, "Change", "Released") if show_uploaded else (subject, "Change")
+    return markdown_section(f"🆙 {heading}", cooldown_note, headers, rows)
 
 
 # ---------------------------------------------------------------------------
@@ -362,26 +429,21 @@ def format_held_back_table(
     """
     if not held_back:
         return ""
-    name_urls = name_urls or {}
-    lines = [
-        "## ⏸️ Held back by cooldown",
-        "",
+    return markdown_section(
+        "⏸️ Held back by cooldown",
         note,
-        "",
-        f"| {subject} | Locked | Available | Released | Eligible |",
-        "| :-- | :-- | :-- | :-- | :-- |",
-    ]
-    for pkg in held_back:
-        link = (
-            f"[{pkg.name}]({name_urls[pkg.name]})"
-            if pkg.name in name_urls
-            else pkg.name
-        )
-        lines.append(
-            f"| {link} | `{pkg.locked_version}` | `{pkg.available_version}` |"
-            f" {pkg.released} | {pkg.eligible} |"
-        )
-    return "\n".join(lines)
+        (subject, "Locked", "Available", "Released", "Eligible"),
+        [
+            (
+                link_name(pkg.name, name_urls),
+                f"`{pkg.locked_version}`",
+                f"`{pkg.available_version}`",
+                pkg.released,
+                pkg.eligible,
+            )
+            for pkg in held_back
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +528,7 @@ def format_bypass_section(
         table, or an empty string when there is no row to report.
     """
     frozen_names = set(frozen or [])
-    rows = sorted(
+    entries = sorted(
         [(forecast, "cleared") for forecast in pruned or []]
         + [
             (forecast, "frozen" if forecast.name in frozen_names else "")
@@ -474,22 +536,11 @@ def format_bypass_section(
         ],
         key=lambda row: row[0].name,
     )
-    if not rows:
+    if not entries:
         return ""
-    name_urls = name_urls or {}
 
-    def link(name: str) -> str:
-        return f"[{name}]({name_urls[name]})" if name in name_urls else name
-
-    lines = [
-        "## ❄️ Cooldown bypasses",
-        "",
-        BYPASS_SECTION_NOTE,
-        "",
-        "| Package | Held at | Held until |",
-        "| :-- | :-- | :-- |",
-    ]
-    for forecast, marker in rows:
+    rows: list[tuple[str, ...]] = []
+    for forecast, marker in entries:
         held = f"`{forecast.held_version}`"
         if marker == "cleared":
             held = f"🧹 cleared: {held}"
@@ -500,8 +551,14 @@ def format_bypass_section(
         expires = forecast.expires
         if expires == BYPASS_NEEDS_RELEASE:
             expires = f"*{expires}*"
-        lines.append(f"| {link(forecast.name)} | {held} | {expires} |")
-    return "\n".join(lines)
+        rows.append((link_name(forecast.name, name_urls), held, expires))
+
+    return markdown_section(
+        "❄️ Cooldown bypasses",
+        BYPASS_SECTION_NOTE,
+        ("Package", "Held at", "Held until"),
+        rows,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -518,16 +575,14 @@ def _versions_in_range(package: str, old: str, new: str) -> list[str]:
     releases = get_pypi_release_dates(package)
     if not releases:
         return [new]
-    try:
-        old_v = Version(old)
-        new_v = Version(new)
-    except InvalidVersion:
+    old_v = safe_version(old)
+    new_v = safe_version(new)
+    if old_v is None or new_v is None:
         return [new]
     intermediate = []
     for version_str in releases:
-        try:
-            v = Version(version_str)
-        except InvalidVersion:
+        v = safe_version(version_str)
+        if v is None:
             continue
         if old_v < v <= new_v:
             intermediate.append((v, version_str))
@@ -645,6 +700,12 @@ def build_comparison_urls(
     comparison URLs. Only packages with both old and new versions and a known
     GitHub repository are included.
 
+    A package whose notes carry no tag at all is skipped. That happens when
+    {func}`fetch_release_notes` found no GitHub release for the range and fell
+    back to a changelog link, which is positive evidence that the tags this
+    URL would name do not exist: guessing a `v` prefix there yields a 404 in
+    the PR body.
+
     :param changes: List of `(name, old_version, new_version)` tuples.
     :param notes: Release notes dict as returned by {func}`fetch_release_notes`.
     :return: Dict mapping package names to GitHub comparison URLs.
@@ -655,10 +716,9 @@ def build_comparison_urls(
             continue
         repo_url, versions = notes[name]
         # Determine tag prefix from the first discovered tag.
-        prefix = "v"
-        for tag, _ in versions:
-            if tag:
-                prefix = "v" if tag.startswith("v") else ""
-                break
+        tags = [tag for tag, _ in versions if tag]
+        if not tags:
+            continue
+        prefix = "v" if tags[0].startswith("v") else ""
         urls[name] = f"{repo_url}/compare/{prefix}{old}...{prefix}{new}"
     return urls

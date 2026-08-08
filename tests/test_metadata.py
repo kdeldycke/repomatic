@@ -39,7 +39,15 @@ from repomatic.matrix_axes import (
     TEST_PYTHON_FULL,
     UNSTABLE_PYTHON_VERSIONS,
 )
-from repomatic.metadata import Dialect, Metadata
+from repomatic.metadata import (
+    _METADATA_KEY_DESCRIPTIONS,
+    Dialect,
+    Metadata,
+    _metadata_config_fields,
+    all_metadata_keys,
+    metadata_keys_reference,
+)
+from tests.conftest import metadata_from_pyproject
 
 
 def regex(pattern: str) -> re.Pattern:
@@ -397,6 +405,120 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
         assert type(metadata) is type(expected)
 
 
+MARKDOWN_INVENTORY = [
+    ".claude/agents/grunt-qa.md",
+    ".claude/agents/qa-engineer.md",
+    ".claude/agents/sphinx-docs.md",
+    ".claude/skills/av-false-positive/SKILL.md",
+    ".claude/skills/awesome-triage/SKILL.md",
+    ".claude/skills/babysit-ci/SKILL.md",
+    ".claude/skills/benchmark-update/SKILL.md",
+    ".claude/skills/brand-assets/SKILL.md",
+    ".claude/skills/file-bug-report/SKILL.md",
+    ".claude/skills/github-housekeeping/SKILL.md",
+    ".claude/skills/repomatic-audit/SKILL.md",
+    ".claude/skills/repomatic-changelog/SKILL.md",
+    ".claude/skills/repomatic-deps/SKILL.md",
+    ".claude/skills/repomatic-init/SKILL.md",
+    ".claude/skills/repomatic-ship/SKILL.md",
+    ".claude/skills/repomatic-topics/SKILL.md",
+    ".claude/skills/sphinx-docs-sync/SKILL.md",
+    ".claude/skills/translation-sync/SKILL.md",
+    ".claude/skills/upstream-audit/SKILL.md",
+    ".github/code-of-conduct.md",
+    "changelog.md",
+    "claude.md",
+    "docs/agents.md",
+    "docs/benchmark.md",
+    "docs/binaries.md",
+    "docs/changelog-archive.md",
+    "docs/changelog.md",
+    "docs/cli.md",
+    "docs/code-of-conduct.md",
+    "docs/configuration.md",
+    "docs/contributing.md",
+    "docs/dependencies.md",
+    "docs/history.md",
+    "docs/index.md",
+    "docs/install.md",
+    "docs/license.md",
+    "docs/operation-contracts.md",
+    "docs/packaging.md",
+    "docs/plugin.md",
+    "docs/repomatic.data.awesome_template.md",
+    "docs/repomatic.data.md",
+    "docs/repomatic.github.md",
+    "docs/repomatic.md",
+    "docs/repomatic.templates.md",
+    "docs/security.md",
+    "docs/skills.md",
+    "docs/test-matrix.md",
+    "docs/tests.md",
+    "docs/todolist.md",
+    "docs/tool-runner.md",
+    "docs/upstream-development.md",
+    "docs/workflows.md",
+    "readme.md",
+    "repomatic/data/awesome_template/.github/code-of-conduct.md",
+    "repomatic/data/awesome_template/.github/contributing.md",
+    "repomatic/data/awesome_template/.github/contributing.zh.md",
+    "repomatic/data/awesome_template/.github/pull_request_template.md",
+    "repomatic/templates/available-admonition.md",
+    "repomatic/templates/broken-links-issue.md",
+    "repomatic/templates/bump-version.md",
+    "repomatic/templates/detect-squash-merge.md",
+    "repomatic/templates/development-warning.md",
+    "repomatic/templates/fix-changelog.md",
+    "repomatic/templates/fix-typos.md",
+    "repomatic/templates/fix-vulnerable-deps.md",
+    "repomatic/templates/format-images.md",
+    "repomatic/templates/format-json.md",
+    "repomatic/templates/format-markdown.md",
+    "repomatic/templates/format-pyproject.md",
+    "repomatic/templates/format-python.md",
+    "repomatic/templates/format-shell.md",
+    "repomatic/templates/generated-footer.md",
+    "repomatic/templates/github-releases.md",
+    "repomatic/templates/immutable-releases.md",
+    "repomatic/templates/refresh-tip.md",
+    "repomatic/templates/release-notes.md",
+    "repomatic/templates/release-sync-report.md",
+    "repomatic/templates/setup-guide-branch-ruleset.md",
+    "repomatic/templates/setup-guide-dependabot.md",
+    "repomatic/templates/setup-guide-fork-pr-approval.md",
+    "repomatic/templates/setup-guide-notifications-pat.md",
+    "repomatic/templates/setup-guide-pages-source.md",
+    "repomatic/templates/setup-guide-pypi-trusted-publisher.md",
+    "repomatic/templates/setup-guide-sha-pinning-required.md",
+    "repomatic/templates/setup-guide-token.md",
+    "repomatic/templates/setup-guide-verify.md",
+    "repomatic/templates/setup-guide-virustotal.md",
+    "repomatic/templates/setup-guide.md",
+    "repomatic/templates/sync-action-pins.md",
+    "repomatic/templates/sync-bumpversion.md",
+    "repomatic/templates/sync-dep-sources.md",
+    "repomatic/templates/sync-gitignore.md",
+    "repomatic/templates/sync-mailmap.md",
+    "repomatic/templates/sync-repomatic.md",
+    "repomatic/templates/sync-tool-versions.md",
+    "repomatic/templates/sync-uv-lock.md",
+    "repomatic/templates/sync-workflow-pins.md",
+    "repomatic/templates/unavailable-admonition.md",
+    "repomatic/templates/unsubscribe-phase1.md",
+    "repomatic/templates/unsubscribe-phase2.md",
+    "repomatic/templates/update-dep-graph.md",
+    "repomatic/templates/update-docs.md",
+    "repomatic/templates/yanked-admonition.md",
+]
+"""Every Markdown file tracked in the repository, in `glob_files` order.
+
+Backs both `doc_files` and `markdown_files`. The two metadata keys glob
+different extension sets: `doc_files` also takes `.rst` and `.tex`. They
+coincide only because the repository currently ships neither, so the day one
+lands this constant has to split back into two lists.
+"""
+
+
 expected: dict[str, Any] = {
     "is_bot": AnyBool(),
     # skip_binary_build depends on the event type and changed files. In CI push events
@@ -490,6 +612,7 @@ expected: dict[str, Any] = {
         "tests/test_checksums.py",
         "tests/test_config.py",
         "tests/test_dep_graph.py",
+        "tests/test_dep_report.py",
         "tests/test_dep_sources.py",
         "tests/test_dev_release.py",
         "tests/test_docs.py",
@@ -569,19 +692,6 @@ expected: dict[str, Any] = {
         "repomatic/data/yamllint.yaml",
         "repomatic/data/zizmor.yaml",
     ],
-    "toml_files": [
-        "pyproject.toml",
-        "repomatic/data/bumpversion.toml",
-        "repomatic/data/labels.toml",
-        "repomatic/data/lychee.toml",
-        "repomatic/data/mdformat.toml",
-        "repomatic/data/mypy.toml",
-        "repomatic/data/pytest.toml",
-        "repomatic/data/ruff.toml",
-        "repomatic/data/typos.toml",
-        "repomatic/data/uv.toml",
-        "tests/cli-test-suite.toml",
-    ],
     "pyproject_files": [
         "pyproject.toml",
     ],
@@ -601,216 +711,8 @@ expected: dict[str, Any] = {
         ".github/workflows/tests.yaml",
         ".github/workflows/unsubscribe.yaml",
     ],
-    "doc_files": [
-        ".claude/agents/grunt-qa.md",
-        ".claude/agents/qa-engineer.md",
-        ".claude/agents/sphinx-docs.md",
-        ".claude/skills/av-false-positive/SKILL.md",
-        ".claude/skills/awesome-triage/SKILL.md",
-        ".claude/skills/babysit-ci/SKILL.md",
-        ".claude/skills/benchmark-update/SKILL.md",
-        ".claude/skills/brand-assets/SKILL.md",
-        ".claude/skills/file-bug-report/SKILL.md",
-        ".claude/skills/github-housekeeping/SKILL.md",
-        ".claude/skills/repomatic-audit/SKILL.md",
-        ".claude/skills/repomatic-changelog/SKILL.md",
-        ".claude/skills/repomatic-deps/SKILL.md",
-        ".claude/skills/repomatic-init/SKILL.md",
-        ".claude/skills/repomatic-ship/SKILL.md",
-        ".claude/skills/repomatic-topics/SKILL.md",
-        ".claude/skills/sphinx-docs-sync/SKILL.md",
-        ".claude/skills/translation-sync/SKILL.md",
-        ".claude/skills/upstream-audit/SKILL.md",
-        ".github/code-of-conduct.md",
-        "changelog.md",
-        "claude.md",
-        "docs/agents.md",
-        "docs/benchmark.md",
-        "docs/binaries.md",
-        "docs/changelog-archive.md",
-        "docs/changelog.md",
-        "docs/cli.md",
-        "docs/code-of-conduct.md",
-        "docs/configuration.md",
-        "docs/contributing.md",
-        "docs/dependencies.md",
-        "docs/history.md",
-        "docs/index.md",
-        "docs/install.md",
-        "docs/license.md",
-        "docs/operation-contracts.md",
-        "docs/packaging.md",
-        "docs/plugin.md",
-        "docs/repomatic.data.awesome_template.md",
-        "docs/repomatic.data.md",
-        "docs/repomatic.github.md",
-        "docs/repomatic.md",
-        "docs/repomatic.templates.md",
-        "docs/security.md",
-        "docs/skills.md",
-        "docs/test-matrix.md",
-        "docs/tests.md",
-        "docs/todolist.md",
-        "docs/tool-runner.md",
-        "docs/upstream-development.md",
-        "docs/workflows.md",
-        "readme.md",
-        "repomatic/data/awesome_template/.github/code-of-conduct.md",
-        "repomatic/data/awesome_template/.github/contributing.md",
-        "repomatic/data/awesome_template/.github/contributing.zh.md",
-        "repomatic/data/awesome_template/.github/pull_request_template.md",
-        "repomatic/templates/available-admonition.md",
-        "repomatic/templates/broken-links-issue.md",
-        "repomatic/templates/bump-version.md",
-        "repomatic/templates/detect-squash-merge.md",
-        "repomatic/templates/development-warning.md",
-        "repomatic/templates/fix-changelog.md",
-        "repomatic/templates/fix-typos.md",
-        "repomatic/templates/fix-vulnerable-deps.md",
-        "repomatic/templates/format-images.md",
-        "repomatic/templates/format-json.md",
-        "repomatic/templates/format-markdown.md",
-        "repomatic/templates/format-pyproject.md",
-        "repomatic/templates/format-python.md",
-        "repomatic/templates/format-shell.md",
-        "repomatic/templates/generated-footer.md",
-        "repomatic/templates/github-releases.md",
-        "repomatic/templates/immutable-releases.md",
-        "repomatic/templates/refresh-tip.md",
-        "repomatic/templates/release-notes.md",
-        "repomatic/templates/release-sync-report.md",
-        "repomatic/templates/setup-guide-branch-ruleset.md",
-        "repomatic/templates/setup-guide-dependabot.md",
-        "repomatic/templates/setup-guide-fork-pr-approval.md",
-        "repomatic/templates/setup-guide-notifications-pat.md",
-        "repomatic/templates/setup-guide-pages-source.md",
-        "repomatic/templates/setup-guide-pypi-trusted-publisher.md",
-        "repomatic/templates/setup-guide-sha-pinning-required.md",
-        "repomatic/templates/setup-guide-token.md",
-        "repomatic/templates/setup-guide-verify.md",
-        "repomatic/templates/setup-guide-virustotal.md",
-        "repomatic/templates/setup-guide.md",
-        "repomatic/templates/sync-action-pins.md",
-        "repomatic/templates/sync-bumpversion.md",
-        "repomatic/templates/sync-dep-sources.md",
-        "repomatic/templates/sync-gitignore.md",
-        "repomatic/templates/sync-mailmap.md",
-        "repomatic/templates/sync-repomatic.md",
-        "repomatic/templates/sync-tool-versions.md",
-        "repomatic/templates/sync-uv-lock.md",
-        "repomatic/templates/sync-workflow-pins.md",
-        "repomatic/templates/unavailable-admonition.md",
-        "repomatic/templates/unsubscribe-phase1.md",
-        "repomatic/templates/unsubscribe-phase2.md",
-        "repomatic/templates/update-dep-graph.md",
-        "repomatic/templates/update-docs.md",
-        "repomatic/templates/yanked-admonition.md",
-    ],
-    "markdown_files": [
-        ".claude/agents/grunt-qa.md",
-        ".claude/agents/qa-engineer.md",
-        ".claude/agents/sphinx-docs.md",
-        ".claude/skills/av-false-positive/SKILL.md",
-        ".claude/skills/awesome-triage/SKILL.md",
-        ".claude/skills/babysit-ci/SKILL.md",
-        ".claude/skills/benchmark-update/SKILL.md",
-        ".claude/skills/brand-assets/SKILL.md",
-        ".claude/skills/file-bug-report/SKILL.md",
-        ".claude/skills/github-housekeeping/SKILL.md",
-        ".claude/skills/repomatic-audit/SKILL.md",
-        ".claude/skills/repomatic-changelog/SKILL.md",
-        ".claude/skills/repomatic-deps/SKILL.md",
-        ".claude/skills/repomatic-init/SKILL.md",
-        ".claude/skills/repomatic-ship/SKILL.md",
-        ".claude/skills/repomatic-topics/SKILL.md",
-        ".claude/skills/sphinx-docs-sync/SKILL.md",
-        ".claude/skills/translation-sync/SKILL.md",
-        ".claude/skills/upstream-audit/SKILL.md",
-        ".github/code-of-conduct.md",
-        "changelog.md",
-        "claude.md",
-        "docs/agents.md",
-        "docs/benchmark.md",
-        "docs/binaries.md",
-        "docs/changelog-archive.md",
-        "docs/changelog.md",
-        "docs/cli.md",
-        "docs/code-of-conduct.md",
-        "docs/configuration.md",
-        "docs/contributing.md",
-        "docs/dependencies.md",
-        "docs/history.md",
-        "docs/index.md",
-        "docs/install.md",
-        "docs/license.md",
-        "docs/operation-contracts.md",
-        "docs/packaging.md",
-        "docs/plugin.md",
-        "docs/repomatic.data.awesome_template.md",
-        "docs/repomatic.data.md",
-        "docs/repomatic.github.md",
-        "docs/repomatic.md",
-        "docs/repomatic.templates.md",
-        "docs/security.md",
-        "docs/skills.md",
-        "docs/test-matrix.md",
-        "docs/tests.md",
-        "docs/todolist.md",
-        "docs/tool-runner.md",
-        "docs/upstream-development.md",
-        "docs/workflows.md",
-        "readme.md",
-        "repomatic/data/awesome_template/.github/code-of-conduct.md",
-        "repomatic/data/awesome_template/.github/contributing.md",
-        "repomatic/data/awesome_template/.github/contributing.zh.md",
-        "repomatic/data/awesome_template/.github/pull_request_template.md",
-        "repomatic/templates/available-admonition.md",
-        "repomatic/templates/broken-links-issue.md",
-        "repomatic/templates/bump-version.md",
-        "repomatic/templates/detect-squash-merge.md",
-        "repomatic/templates/development-warning.md",
-        "repomatic/templates/fix-changelog.md",
-        "repomatic/templates/fix-typos.md",
-        "repomatic/templates/fix-vulnerable-deps.md",
-        "repomatic/templates/format-images.md",
-        "repomatic/templates/format-json.md",
-        "repomatic/templates/format-markdown.md",
-        "repomatic/templates/format-pyproject.md",
-        "repomatic/templates/format-python.md",
-        "repomatic/templates/format-shell.md",
-        "repomatic/templates/generated-footer.md",
-        "repomatic/templates/github-releases.md",
-        "repomatic/templates/immutable-releases.md",
-        "repomatic/templates/refresh-tip.md",
-        "repomatic/templates/release-notes.md",
-        "repomatic/templates/release-sync-report.md",
-        "repomatic/templates/setup-guide-branch-ruleset.md",
-        "repomatic/templates/setup-guide-dependabot.md",
-        "repomatic/templates/setup-guide-fork-pr-approval.md",
-        "repomatic/templates/setup-guide-notifications-pat.md",
-        "repomatic/templates/setup-guide-pages-source.md",
-        "repomatic/templates/setup-guide-pypi-trusted-publisher.md",
-        "repomatic/templates/setup-guide-sha-pinning-required.md",
-        "repomatic/templates/setup-guide-token.md",
-        "repomatic/templates/setup-guide-verify.md",
-        "repomatic/templates/setup-guide-virustotal.md",
-        "repomatic/templates/setup-guide.md",
-        "repomatic/templates/sync-action-pins.md",
-        "repomatic/templates/sync-bumpversion.md",
-        "repomatic/templates/sync-dep-sources.md",
-        "repomatic/templates/sync-gitignore.md",
-        "repomatic/templates/sync-mailmap.md",
-        "repomatic/templates/sync-repomatic.md",
-        "repomatic/templates/sync-tool-versions.md",
-        "repomatic/templates/sync-uv-lock.md",
-        "repomatic/templates/sync-workflow-pins.md",
-        "repomatic/templates/unavailable-admonition.md",
-        "repomatic/templates/unsubscribe-phase1.md",
-        "repomatic/templates/unsubscribe-phase2.md",
-        "repomatic/templates/update-dep-graph.md",
-        "repomatic/templates/update-docs.md",
-        "repomatic/templates/yanked-admonition.md",
-    ],
+    "doc_files": MARKDOWN_INVENTORY,
+    "markdown_files": MARKDOWN_INVENTORY,
     "image_files": [
         "docs/assets/banner-social-dark.png",
         "docs/assets/banner-social-light.png",
@@ -821,16 +723,16 @@ expected: dict[str, Any] = {
         "docs/assets/logo-square-light.png",
     ],
     "shfmt_files": [".claude/package-skills.sh"],
-    "zsh_files": [".claude/package-skills.sh"],
+    # Empty: the repository's only shell script is bash, and a `.sh` file
+    # joins zsh_files only when its shebang names zsh.
+    "zsh_files": [],
     "is_python_project": True,
     "binaries_sync": True,
     "manpages_script": "repomatic.cli:repomatic",
     "manpages_asset_name": "",
     # Plain strings, not Path objects, so GitHub format joins them unquoted.
     "release_assets": StringList(["repomatic-claude-plugin.zip"]),
-    "nuitka_enabled": True,
     "nuitka_extras": [],
-    "nuitka_nofollow_imports": StringList(["tkinter"]),
     "package_name": "repomatic",
     "cli_scripts": StringList(["repomatic"]),
     "project_description": "🏭 Automate repository maintenance, releases, and CI/CD workflows",
@@ -1113,7 +1015,6 @@ expected: dict[str, Any] = {
         "windows-2025|3.10",
         "windows-2025|3.14",
     ]),
-    "changelog_bullet_word_threshold": 40,
     # Bump allowed values depend on comparing current version vs latest git tag.
     # These can be True or False depending on the current development cycle state.
     "minor_bump_allowed": AnyBool(),
@@ -1121,6 +1022,50 @@ expected: dict[str, Any] = {
     # `minimum-release-age` default "1 week", rendered as whole days for npm.
     "npm_min_release_age_days": 7,
 }
+
+
+def test_dump_factories_match_key_descriptions():
+    """The three views of the key inventory must name the same keys.
+
+    `_METADATA_KEY_DESCRIPTIONS` (what `--list-keys` and the docs table show),
+    `Metadata.dump_factories` (what the command emits) and
+    `all_metadata_keys` (what the command accepts as an argument) are three
+    hand-maintained lists sitting far apart in the module. A description
+    without a factory makes `repomatic metadata <key>` accept the key and then
+    emit nothing; a factory without a description drops the key from
+    `--list-keys` and the rendered docs.
+    """
+    factories = set(Metadata().dump_factories())
+    config_keys = set(_metadata_config_fields())
+
+    assert set(_METADATA_KEY_DESCRIPTIONS) == factories - config_keys
+    assert all_metadata_keys() == factories
+
+
+def test_metadata_keys_reference_documents_every_key():
+    """Every emitted key needs a non-empty description in the reference table."""
+    rows = dict(metadata_keys_reference())
+    assert set(rows) == all_metadata_keys()
+
+    undocumented = sorted(key for key, text in rows.items() if not text.strip())
+    assert not undocumented, (
+        f"Metadata keys with no description: {undocumented}. Add one to "
+        "_METADATA_KEY_DESCRIPTIONS, or an attribute docstring to the Config "
+        "field."
+    )
+
+
+@pytest.mark.parametrize("field_name", sorted(_metadata_config_fields()))
+def test_config_defaults_render_as_github_values(field_name):
+    """Every config field exposed as metadata must survive GitHub encoding.
+
+    A nested config dataclass has no GitHub encoding, so adding one without
+    listing it in `SUBCOMMAND_CONFIG_FIELDS` makes `repomatic metadata` raise
+    `NotImplementedError` on every run. Checking the dataclass defaults rather
+    than this repository's own values keeps the guard on the declared surface.
+    """
+    value = getattr(Config(), field_name)
+    assert isinstance(Metadata.format_github_value(value), str)
 
 
 def test_metadata_github_json_format():
@@ -1493,14 +1438,45 @@ def test_repo_name_derived_from_slug(monkeypatch):
     assert metadata.repo_name == "repomatic"
 
 
-def test_repo_name_fallback_to_gh_cli(monkeypatch):
-    """Test that repo_name falls back to gh CLI when env var is unset."""
+@pytest.mark.parametrize(
+    ("gh_slug", "remote_slug", "expected"),
+    [
+        pytest.param("owner/papaya", "owner/ignored", "owner/papaya", id="gh-cli"),
+        pytest.param(None, "owner/mango", "owner/mango", id="git-remote"),
+        pytest.param(None, None, None, id="neither"),
+    ],
+)
+def test_repo_slug_fallback_chain(monkeypatch, gh_slug, remote_slug, expected):
+    """Without `GITHUB_REPOSITORY`, the slug falls back to gh, then the remote.
+
+    Both fallbacks are stubbed rather than probed: on a runner with no `gh`
+    auth the real chain yields `None`, which is what made the original pair of
+    tests assert nothing at all on CI.
+    """
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
-    metadata = Metadata()
-    # The gh CLI fallback detects the current repo when available.
-    # In CI environments without gh auth, repo_slug may be None.
-    if metadata.repo_slug is not None:
-        assert metadata.repo_name is not None
+
+    def fake_gh(args, **kwargs):
+        if gh_slug is None:
+            msg = "gh is not authenticated"
+            raise RuntimeError(msg)
+        return f"{gh_slug}\n"
+
+    monkeypatch.setattr("repomatic.metadata.run_gh_command", fake_gh)
+    monkeypatch.setattr(
+        "repomatic.metadata.get_repo_slug_from_remote", lambda: remote_slug
+    )
+
+    assert Metadata().repo_slug == expected
+
+
+def test_repo_name_fallback_to_gh_cli(monkeypatch):
+    """`repo_name` is the trailing segment of a gh-resolved slug."""
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.setattr(
+        "repomatic.metadata.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
+    )
+
+    assert Metadata().repo_name == "papaya"
 
 
 @pytest.mark.parametrize(
@@ -1542,14 +1518,22 @@ def test_repo_url_composed(monkeypatch):
 
 
 def test_repo_url_fallback(monkeypatch):
-    """Test that repo_url falls back to gh CLI when env var is unset."""
+    """`repo_url` composes the default server with a gh-resolved slug."""
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.delenv("GITHUB_SERVER_URL", raising=False)
-    metadata = Metadata()
-    # The gh CLI fallback detects the current repo when available.
-    # In CI environments without gh auth, repo_url may be None.
-    if metadata.repo_url is not None:
-        assert "github.com" in metadata.repo_url
+    monkeypatch.setattr(
+        "repomatic.metadata.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
+    )
+
+    assert Metadata().repo_url == "https://github.com/owner/papaya"
+
+
+def test_repo_url_none_without_a_slug(monkeypatch):
+    """No slug from any source leaves the URL undefined rather than malformed."""
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.setattr(Metadata, "repo_slug", None)
+
+    assert Metadata().repo_url is None
 
 
 def test_server_url_default(monkeypatch):
@@ -1561,12 +1545,11 @@ def test_server_url_default(monkeypatch):
 
 def test_repomatic_config_defaults(tmp_path, monkeypatch):
     """Test that [tool.repomatic] config properties return sensible defaults."""
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
-        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    metadata = metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n',
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
     assert metadata.config.gitignore.location == "./.gitignore"
     assert metadata.config.gitignore.extra_categories == []
     assert metadata.config.gitignore.extra_content == (
@@ -1615,8 +1598,9 @@ def test_full_include_flattens_matrix(tmp_path, monkeypatch):
     combination, and the matrix must serialize as a flat ``{"include": [...]}``
     list so GitHub runs the rows verbatim.
     """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
+    metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
         """\
 [project]
 name = "test-project"
@@ -1628,9 +1612,7 @@ test-matrix.full-include = [
   { "os" = "ubuntu-24.04-arm", "python-version" = "3.10", "click-version" = "8.3.1" },
 ]
 """,
-        encoding="utf-8",
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     emitted = Metadata().test_matrix.matrix()
 
     # Flat form: base axes live only inside the include rows, no cross-product.
@@ -1665,8 +1647,9 @@ def test_full_include_backfills_probe_defaults(tmp_path, monkeypatch):
     emits an empty ``click-version``/``cloup-version`` that GitHub would expand
     to ``""`` and a downstream run step would mishandle.
     """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
+    metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
         """\
 [project]
 name = "test-project"
@@ -1681,9 +1664,7 @@ test-matrix.full-include = [
   { "os" = "ubuntu-24.04-arm", "python-version" = "3.14", "click-version" = "main" },
 ]
 """,
-        encoding="utf-8",
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
     # `.include` is the flat job list, typed as tuple[dict[str, str], ...]; the
     # equivalent matrix()["include"] widens to a union that defeats indexing.
     rows = Metadata().test_matrix.include
@@ -1777,11 +1758,7 @@ include = [
 os = ["custom-runner"]
 click-version = ["released", "stable", "main"]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="UTF-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     assert metadata.config.gitignore.location == "./custom/.gitignore"
     assert metadata.config.gitignore.extra_categories == [
         "terraform",
@@ -1870,10 +1847,7 @@ exclude = [
     {os = "windows-11-arm"},
 ]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
     # Full matrix: config exclude is present alongside the upstream default.
     full = metadata.test_matrix.matrix()
@@ -1888,12 +1862,11 @@ exclude = [
 
 def test_coverage_cells_match_pr_matrix(tmp_path, monkeypatch):
     """coverage_cells lists the PR-matrix cells as `os|python-version` tokens."""
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
-        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    metadata = metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n',
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
 
     assert set(metadata.coverage_cells) == {
         "ubuntu-24.04-arm|3.10",
@@ -1914,12 +1887,11 @@ def test_coverage_cells_are_full_matrix_subset(tmp_path, monkeypatch):
     run the suite but produce coverage already captured elsewhere, so they are
     never in coverage_cells.
     """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
-        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    metadata = metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n',
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
 
     full_cells = {
         f"{cell['os']}|{cell['python-version']}"
@@ -1946,10 +1918,7 @@ version = "1.0.0"
 os = ["custom-runner"]
 click-version = ["released", "stable"]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
     # Full matrix: custom-runner added to OS, click-version is a new axis.
     full = metadata.test_matrix.matrix()
@@ -1975,10 +1944,7 @@ include = [
     {state = "unstable", python-version = "3.99"},
 ]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
     # Full matrix: custom include added.
     full_includes = metadata.test_matrix.matrix()["include"]
@@ -1999,10 +1965,7 @@ version = "1.0.0"
 [tool.repomatic.test-matrix.replace]
 os = { "ubuntu-24.04-arm" = "ubuntu-24.04" }
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
     # Full matrix: ubuntu-24.04-arm replaced with ubuntu-24.04.
     full = metadata.test_matrix.matrix()
@@ -2025,10 +1988,7 @@ version = "1.0.0"
 [tool.repomatic.test-matrix.remove]
 os = ["windows-11-arm"]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
     # Full matrix: windows-11-arm removed from the axis entirely.
     full = metadata.test_matrix.matrix()
@@ -2056,10 +2016,7 @@ unstable = [
     {click-version = "colorama"},
 ]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
     # Full matrix: every colorama combo is flagged unstable, on every OS/Python.
     full_jobs = list(metadata.test_matrix.solve())
@@ -2098,12 +2055,11 @@ def test_single_runner_python_versions_are_stable_and_pinned(tmp_path, monkeypat
     free-threaded build is a single-runner smoke test, not the full
     cross-platform spread, and not an unstable probe.
     """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
-        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    metadata = metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n',
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
 
     full_jobs = list(metadata.test_matrix.solve())
     pr_jobs = list(metadata.test_matrix_pr.solve())
@@ -2135,10 +2091,7 @@ exclude = [
     {python-version = "9.99"},
 ]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
     # ubuntu-slim is a live runner, so its exclude is honored. The renamed
     # macos-15-intel and the bogus Python version match no axis and are flagged.
@@ -2150,12 +2103,11 @@ exclude = [
 
 def test_unstable_targets_default(tmp_path, monkeypatch):
     """Test that unstable_targets defaults to an empty set."""
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(
-        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="utf-8"
+    metadata = metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n',
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-    metadata = Metadata()
     assert metadata.unstable_targets == set()
 
 
@@ -2169,11 +2121,7 @@ version = "1.0.0"
 [tool.repomatic]
 nuitka.unstable-targets = ["linux-arm64", "unknown-target"]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     # Only known targets are kept.
     assert metadata.unstable_targets == {"linux-arm64"}
 
@@ -2189,11 +2137,7 @@ version = "1.0.0"
 short = "my_pkg.__main__:main"
 long-name = "my_pkg.__main__:main"
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     assert metadata.config.nuitka_entry_points == []
     # Both point to the same callable, so only the first is kept.
     assert metadata.nuitka_entry_points == ["short"]
@@ -2211,11 +2155,7 @@ cli-a = "my_pkg.cli:main_a"
 cli-b = "my_pkg.cli:main_b"
 cli-a-alias = "my_pkg.cli:main_a"
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     # cli-a and cli-b have different callables, both kept.
     # cli-a-alias duplicates cli-a's callable, dropped.
     assert metadata.nuitka_entry_points == ["cli-a", "cli-b"]
@@ -2235,11 +2175,7 @@ long-name = "my_pkg.__main__:main"
 [tool.repomatic]
 nuitka.entry-points = ["long-name"]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     assert metadata.nuitka_entry_points == ["long-name"]
 
 
@@ -2257,11 +2193,7 @@ long-name = "my_pkg.__main__:main"
 [tool.repomatic]
 nuitka.entry-points = ["short", "long-name"]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     assert metadata.nuitka_entry_points == ["short", "long-name"]
 
 
@@ -2278,11 +2210,7 @@ short = "my_pkg.__main__:main"
 [tool.repomatic]
 nuitka.entry-points = ["nonexistent"]
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     # All configured entries are invalid, so falls back to first.
     assert metadata.nuitka_entry_points == ["short"]
 
@@ -2298,11 +2226,7 @@ version = "1.0.0"
 mdedup = "mail_deduplicate.cli:mdedup"
 mpm = "meta_package_manager.__main__:main"
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     assert metadata.script_entries == [
         ("mdedup", "mail_deduplicate.cli", "mdedup"),
         ("mpm", "meta_package_manager.__main__", "main"),
@@ -2330,11 +2254,7 @@ version = "1.0.0"
 [project.scripts]
 "{name}" = "my_pkg.cli:main"
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     with pytest.raises(ValueError, match=r"\[project\.scripts\] name"):
         _ = metadata.script_entries
 
@@ -2359,11 +2279,7 @@ version = "1.0.0"
 [project.scripts]
 cli = "{value}"
 """
-    pyproject_file = tmp_path / "pyproject.toml"
-    pyproject_file.write_text(pyproject_content, encoding="utf-8")
-    monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
-
-    metadata = Metadata()
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     with pytest.raises(ValueError, match=r"\[project\.scripts\] value"):
         _ = metadata.script_entries
 
@@ -2400,7 +2316,7 @@ version = "1.0.0"
 dependency-graph.output = "./custom/deps.mmd"
 nuitka.enabled = false
 """
-    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
     config = load_repomatic_config()
@@ -2433,7 +2349,7 @@ version = "1.0.0"
 [tool.repomatic]
 nonexistent-option = true
 """
-    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
     config = load_repomatic_config()
@@ -2457,7 +2373,7 @@ version = "1.0.0"
 [tool.repomatic]
 nonexistent-option = true
 """
-    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
     load_repomatic_config()
