@@ -9,6 +9,8 @@ Both distribution paths are supported and neither replaces the other:
 | **Files**  | `repomatic init skills agents`        | A copy of every skill and agent, committed to your repo |
 | **Plugin** | `/plugin install repomatic@kdeldycke` | Nothing: Claude Code caches the plugin outside the repo |
 
+The plugin also reaches further than the files do. Claude Code discovers skills in `~/.claude/skills/` and a repository's `.claude/skills/`, but [Cowork and cloud sessions do not read either](https://code.claude.com/docs/en/skills#skills-in-cowork-and-cloud-sessions): they load what is enabled for your account. A plugin is the only form those surfaces accept, so `init skills` cannot reach them by design. See [§ Install in Claude Desktop](#install-in-claude-desktop).
+
 ## Install
 
 Register the marketplace, then install the plugin:
@@ -82,6 +84,16 @@ $ claude plugin validate /tmp/plugins/repomatic --strict
 $ claude --plugin-dir /tmp/plugins/repomatic
 ```
 
+`--plugin-dir` also takes the archive itself, so checking what a build actually exposes needs no unpacking. This is the quickest way to catch a manifest that loads fewer components than intended:
+
+```shell-session
+$ claude --plugin-dir /tmp/repomatic-claude-plugin.zip plugin details repomatic
+```
+
+```{caution}
+`claude plugin validate` does **not** accept an archive. Handed one, it parses the zip header as JSON and fails with `Invalid JSON syntax: JSON Parse error: Unexpected identifier "PK"`. Unpack first, as above.
+```
+
 ## Wire it into a repository
 
 `repomatic init plugin` writes the marketplace and enablement keys into your repository's `.claude/settings.json`, so collaborators are prompted to install the plugin when they trust the folder:
@@ -98,6 +110,20 @@ Like `skills` and `agents`, this component is **opt-in**: a bare `repomatic init
 Claude Code only *prompts* each collaborator to install a plugin a project declares; it never installs one on their behalf. So declaring the plugin does not guarantee every collaborator has it, which is why `repomatic init skills` and `init agents` remain available and unchanged.
 ```
 
-## Not the same as a Desktop skill upload
+## Install in Claude Desktop
 
-Claude Desktop's **Settings > Customize > Skills** panel takes one ZIP per skill, not a plugin. [`.claude/package-skills.sh`](https://github.com/kdeldycke/repomatic/blob/main/.claude/package-skills.sh) produces those, and its header documents why the two cannot be merged. See [kdeldycke/repomatic#2540](https://github.com/kdeldycke/repomatic/issues/2540).
+The same archive installs into the Claude Desktop app, covering its **Chat** tab, [Cowork](https://claude.com/product/cowork), and claude.ai. None of those read the skill directories on your machine, so the plugin is the only way to reach them.
+
+Grab the asset from a release, then in the app open **Customize > Plugins** and choose **Add > Upload plugin**:
+
+```shell-session
+$ gh release download --repo kdeldycke/repomatic --pattern repomatic-claude-plugin.zip
+```
+
+Every skill and agent arrives in that single upload, listed under the plugin's **Skills** and **Agents** tabs and invocable by typing `/` in chat.
+
+```{note}
+An uploaded plugin reports its source as `Uploaded from file` and carries no update channel, so each new release needs a fresh upload. That is the cost of this route compared to the marketplace one, which Claude Code keeps current on its own.
+```
+
+This supersedes the per-skill archives [`.claude/package-skills.sh`](https://github.com/kdeldycke/repomatic/blob/main/.claude/package-skills.sh) builds for the **Customize > Skills** panel: one plugin upload carries every skill *and* every agent, which separate skill archives cannot do. See [kdeldycke/repomatic#2540](https://github.com/kdeldycke/repomatic/issues/2540).
