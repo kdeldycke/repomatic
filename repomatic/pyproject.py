@@ -150,3 +150,42 @@ def is_python_project(
     except ConfigurationError:
         return False
     return True
+
+
+def is_python_package(
+    project_root: Path | None = None,
+    pyproject_data: dict[str, Any] | None = None,
+) -> bool:
+    """Detect whether *project_root* builds a distributable Python package.
+
+    Strictly narrower than {func}`is_python_project`: every package is a Python
+    project, but not every Python project is a package. A uv *virtual project*
+    declares a PEP 621 `[project]` table purely to carry dependencies, and opts
+    out of being built or installed with `[tool.uv] package = false`. Blogs,
+    docs sites and dotfiles repos that lean on uv for dependency management all
+    look like this.
+
+    The distinction matters because the two traits gate different things. A
+    virtual project still has dependencies to lock, a `uv.lock` to sync and
+    tests to cover, so it wants everything scoped to
+    {attr}`~repomatic.registry.RepoScope.PYTHON_ONLY`. It has nothing to
+    publish, tag or write release notes for, so it wants nothing scoped to
+    {attr}`~repomatic.registry.RepoScope.PACKAGE_ONLY`.
+
+    ```{note}
+    Only uv's opt-out is recognized. Poetry's `[tool.poetry] package-mode`
+    equivalent is deliberately ignored: repomatic dropped Poetry support in
+    `4.0.0` and expects standard `pyproject.toml` conventions.
+    ```
+
+    :param project_root: Directory to probe. Ignored when *pyproject_data* is
+        supplied; otherwise defaults to the current working directory.
+    :param pyproject_data: Pre-parsed `pyproject.toml`. Pass this when the
+        caller has already parsed the file.
+    :return: `True` for a PEP 621 project that is not a uv virtual project.
+    """
+    if pyproject_data is None:
+        pyproject_data = read_pyproject_toml(project_root)
+    if not is_python_project(pyproject_data=pyproject_data):
+        return False
+    return pyproject_data.get("tool", {}).get("uv", {}).get("package") is not False

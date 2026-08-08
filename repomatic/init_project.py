@@ -58,7 +58,7 @@ from .github.workflow_sync import (
 from .labels import augment_labeller_content
 from .metadata import Metadata
 from .plugin import merge_plugin_settings
-from .pyproject import is_python_project, resolve_source_paths
+from .pyproject import is_python_package, is_python_project, resolve_source_paths
 from .registry import (
     COMPONENTS,
     COMPONENTS_BY_NAME,
@@ -780,7 +780,13 @@ def run_init(
         repo_slug = Metadata().repo_slug
     is_awesome = bool(repo_slug and repo_slug.split("/")[-1].startswith("awesome-"))
     is_python = is_python_project(output_dir)
-    logging.debug("Repository traits: awesome=%s python=%s", is_awesome, is_python)
+    is_package = is_python_package(output_dir)
+    logging.debug(
+        "Repository traits: awesome=%s python=%s package=%s",
+        is_awesome,
+        is_python,
+        is_package,
+    )
     if is_awesome and not components:
         selected.add("awesome-template")
 
@@ -887,14 +893,15 @@ def run_init(
         scope_bypassed = bool(components) or reg_comp.name in include_full
 
         # --- Component-level scope ---
-        if not reg_comp.scope.matches(is_awesome, is_python):
+        if not reg_comp.scope.matches(is_awesome, is_python, is_package):
             logging.debug(
                 "Scope exclusion: %s (%s) not applicable to repo "
-                "(awesome=%s, python=%s).",
+                "(awesome=%s, python=%s, package=%s).",
                 reg_comp.name,
                 reg_comp.scope.name,
                 is_awesome,
                 is_python,
+                is_package,
             )
             if not scope_bypassed and reg_comp.name not in include_files:
                 selected.discard(reg_comp.name)
@@ -917,15 +924,16 @@ def run_init(
 
         # --- File-level scope and config_key ---
         for entry in reg_comp.files:
-            if not entry.scope.matches(is_awesome, is_python):
+            if not entry.scope.matches(is_awesome, is_python, is_package):
                 logging.debug(
                     "Scope exclusion: %s/%s (%s) not applicable to repo "
-                    "(awesome=%s, python=%s).",
+                    "(awesome=%s, python=%s, package=%s).",
                     reg_comp.name,
                     entry.file_id,
                     entry.scope.name,
                     is_awesome,
                     is_python,
+                    is_package,
                 )
                 if (
                     not scope_bypassed

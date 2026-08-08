@@ -114,6 +114,26 @@ Unsupported [tool.repomatic] flavor.ci = 'gitlab_ci'. repomatic targets: github_
 
 `flavor.agent` drives where assets land: leave `skills.location` and `agents.location` unset and they follow the agent's own layout, while setting either explicitly overrides it. Defaults are static and never auto-detected: deriving them from the running agent would make a repository's effective configuration depend on which tool last invoked repomatic, and `repomatic metadata` would stop being reproducible.
 
+### Repository scope
+
+A bare `repomatic init` writes only what a repository can actually use. Three traits, all read from the repository itself, decide what that means:
+
+| Trait          | Detected from                                        | Gates                                                                   |
+| :------------- | :--------------------------------------------------- | :---------------------------------------------------------------------- |
+| Awesome list   | A repository name starting with `awesome-`           | `awesome-template`, the awesome-only skills, `lychee`                   |
+| Python project | A PEP 621 `[project]` table that validates           | `codecov`, `debug.yaml`, dependency locking                             |
+| Distributable  | A Python project without `[tool.uv] package = false` | `changelog.md`, `changelog.yaml`, `release.yaml`, `publish-pypi-action` |
+
+The last two come apart for a **uv virtual project**: a repository that declares `[project]` purely to carry dependencies and opts out of being built with `[tool.uv] package = false`. Blogs, docs sites and dotfiles repositories managed with uv all look like this. They keep everything a Python project needs (a `uv.lock` to sync, coverage config, the test matrix) and skip the release lane, which has nothing to publish or tag.
+
+A `pyproject.toml` carrying only `[tool.*]` sections is not a Python project at all, so it gets neither group.
+
+Scope is a default, not a rule. Naming a component on the command line, or listing it in `include`, materializes it regardless:
+
+```shell-session
+$ repomatic init changelog
+```
+
 ## `[tool.X]` bridge and tool runner
 
 `repomatic run` also bridges the gap for tools that can't read `pyproject.toml` natively: write your config in `[tool.<name>]` and repomatic translates it to the tool's native format at invocation time. See the [tool runner](tool-runner.md) page for the full list of supported tools, config resolution precedence, binary caching, and a tutorial.

@@ -102,10 +102,18 @@ class SyncMode(Enum):
 class RepoScope(Enum):
     """Which repository types a component or file entry applies to.
 
-    The classification has two axes: whether the repo is an `awesome-*` list
-    and whether it carries a PEP 621 `pyproject.toml`. In practice these are
-    mutually exclusive (awesome repos are content lists, not Python packages),
-    so a single scope value suffices.
+    The classification has three axes: whether the repo is an `awesome-*` list,
+    whether it carries a PEP 621 `pyproject.toml`, and whether that project is
+    a distributable package. The first is mutually exclusive with the other two
+    (awesome repos are content lists, not Python projects), so a single scope
+    value suffices.
+
+    The Python axis is deliberately split in two. `PYTHON_ONLY` covers anything
+    that needs Python code to be useful; `PACKAGE_ONLY` covers only what needs
+    something to publish. A uv virtual project (`[tool.uv] package = false`)
+    sits between the two: it locks dependencies and runs tests, but never
+    ships a release. Collapsing the pair would hand every blog and docs site a
+    PyPI publish action and a release workflow it can never run.
 
     Scope restrictions are defaults: they apply during bare `repomatic init`
     but are bypassed when components are explicitly named on the CLI or
@@ -119,19 +127,36 @@ class RepoScope(Enum):
     """Only for `awesome-*` repositories."""
 
     PYTHON_ONLY = auto()
-    """Only for Python projects (PEP 621 `[project].name` present)."""
+    """Only for Python projects (PEP 621 `[project].name` present).
 
-    def matches(self, is_awesome: bool, is_python: bool) -> bool:
+    Use for anything a uv virtual project still wants: dependency locking,
+    coverage config, test tooling.
+    """
+
+    PACKAGE_ONLY = auto()
+    """Only for Python projects that build a distributable package.
+
+    Strictly narrower than {attr}`PYTHON_ONLY`, excluding uv virtual projects.
+    Use for the release lane: publishing, tagging, changelog upkeep.
+    """
+
+    def matches(self, is_awesome: bool, is_python: bool, is_package: bool) -> bool:
         """Whether this scope applies to the given repository traits.
 
         :param is_awesome: `True` for `awesome-*` repositories.
         :param is_python: `True` for repositories whose `pyproject.toml`
-            declares a PEP 621 `[project].name`.
+            declares a PEP 621 `[project].name`, per
+            {func}`repomatic.pyproject.is_python_project`.
+        :param is_package: `True` when that project is also distributable, per
+            {func}`repomatic.pyproject.is_python_package`. Always implies
+            *is_python*.
         """
         if self is RepoScope.ALL:
             return True
         if self is RepoScope.AWESOME_ONLY:
             return is_awesome
+        if self is RepoScope.PACKAGE_ONLY:
+            return is_package
         return is_python
 
 
@@ -618,7 +643,7 @@ COMPONENTS: tuple[Component, ...] = (
             "Composite action that publishes to PyPI via Trusted Publishing"
             " (.github/actions/publish-pypi/)"
         ),
-        scope=RepoScope.PYTHON_ONLY,
+        scope=RepoScope.PACKAGE_ONLY,
         # GitHub Actions resolves `uses: ./.github/actions/publish-pypi` and
         # `uses: kdeldycke/repomatic/.github/actions/publish-pypi@vX.Y.Z`
         # directly from the repo path; the file must stay on disk even when
@@ -681,7 +706,7 @@ COMPONENTS: tuple[Component, ...] = (
             _workflow_entry("autofix.yaml"),
             _workflow_entry("autolock.yaml"),
             _workflow_entry("cancel-runs.yaml"),
-            _workflow_entry("changelog.yaml", scope=RepoScope.PYTHON_ONLY),
+            _workflow_entry("changelog.yaml", scope=RepoScope.PACKAGE_ONLY),
             _workflow_entry("debug.yaml", scope=RepoScope.PYTHON_ONLY),
             _workflow_entry("docs.yaml"),
             _workflow_entry("labels.yaml"),
@@ -694,7 +719,7 @@ COMPONENTS: tuple[Component, ...] = (
             _workflow_entry(
                 "_release-engine.yaml",
                 target="release.yaml",
-                scope=RepoScope.PYTHON_ONLY,
+                scope=RepoScope.PACKAGE_ONLY,
             ),
             _workflow_entry("tests.yaml", reusable=False),
             _workflow_entry("unsubscribe.yaml", config_key="notification.unsubscribe"),
@@ -710,7 +735,7 @@ COMPONENTS: tuple[Component, ...] = (
     GeneratedComponent(
         name="changelog",
         description="Minimal changelog.md",
-        scope=RepoScope.PYTHON_ONLY,
+        scope=RepoScope.PACKAGE_ONLY,
         target=Config.changelog_location.removeprefix("./"),
     ),
     GeneratedComponent(

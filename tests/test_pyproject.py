@@ -18,8 +18,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from repomatic.pyproject import (
     get_project_name,
+    is_python_package,
     is_python_project,
     read_pyproject_toml,
 )
@@ -102,6 +105,71 @@ def test_is_python_project_accepts_preloaded_data():
     """`is_python_project` accepts a pre-parsed `pyproject.toml` dict."""
     data = {"project": {"name": "preloaded", "version": "0.1.0"}}
     assert is_python_project(pyproject_data=data) is True
+
+
+PEP621_TABLE = '[project]\nname = "melon-stand"\nversion = "0.1.0"\n'
+"""Minimal valid PEP 621 header the `is_python_package` cases build on."""
+
+
+@pytest.mark.parametrize(
+    ("tool_table", "expected"),
+    [
+        # No [tool.uv] table at all: a plain package.
+        ("", True),
+        # A [tool.uv] table that says nothing about packaging.
+        ('[tool.uv]\nrequired-version = ">=0.11.15"\n', True),
+        # The explicit opt-in is still a package.
+        ("[tool.uv]\npackage = true\n", True),
+        # The virtual-project opt-out.
+        ("[tool.uv]\npackage = false\n", False),
+        # A sibling tool's `package` key must not be mistaken for uv's.
+        ("[tool.hatch]\npackage = false\n", True),
+    ],
+)
+def test_is_python_package_reads_uv_opt_out(tmp_path, tool_table: str, expected: bool):
+    """Only `[tool.uv] package = false` demotes a PEP 621 project."""
+    (tmp_path / "pyproject.toml").write_text(
+        PEP621_TABLE + tool_table, encoding="UTF-8"
+    )
+    assert is_python_project(tmp_path) is True
+    assert is_python_package(tmp_path) is expected
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        # Not a Python project at all.
+        "[tool.ruff]\nline-length = 88\n",
+        # Invalid PEP 621, even though uv would build it.
+        '[project]\nname = "incomplete"\n\n[tool.uv]\npackage = true\n',
+        # Malformed TOML.
+        "not = valid = toml\n",
+    ],
+)
+def test_is_python_package_implies_is_python_project(tmp_path, content: str):
+    """A non-Python repo is never a package, whatever `[tool.uv]` claims.
+
+    Locks in the narrowing relation the `PACKAGE_ONLY` scope depends on:
+    `is_python_package` can never be `True` where `is_python_project` is
+    `False`, so a `PACKAGE_ONLY` entry can never outlive a `PYTHON_ONLY` one.
+    """
+    (tmp_path / "pyproject.toml").write_text(content, encoding="UTF-8")
+    assert is_python_project(tmp_path) is False
+    assert is_python_package(tmp_path) is False
+
+
+def test_is_python_package_false_for_missing_pyproject(tmp_path):
+    """A directory with no `pyproject.toml` builds no package."""
+    assert is_python_package(tmp_path) is False
+
+
+def test_is_python_package_accepts_preloaded_data():
+    """`is_python_package` accepts a pre-parsed `pyproject.toml` dict."""
+    data = {
+        "project": {"name": "preloaded", "version": "0.1.0"},
+        "tool": {"uv": {"package": False}},
+    }
+    assert is_python_package(pyproject_data=data) is False
 
 
 def test_read_pyproject_toml_survives_file_vanishing_after_check(tmp_path, monkeypatch):

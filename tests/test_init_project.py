@@ -58,6 +58,7 @@ from repomatic.registry import (
     BundledComponent,
     GeneratedComponent,
     RemovedAsset,
+    RepoScope,
     SyncMode,
     TemplateComponent,
     ToolConfigComponent,
@@ -124,32 +125,37 @@ def test_composite_actions_keep_unmodified() -> None:
 
 
 @pytest.mark.parametrize(
-    ("scope", "is_awesome", "is_python", "expected"),
+    ("scope", "is_awesome", "is_python", "is_package", "expected"),
     [
         # ALL matches every trait combination.
-        ("ALL", False, False, True),
-        ("ALL", False, True, True),
-        ("ALL", True, False, True),
-        ("ALL", True, True, True),
+        ("ALL", False, False, False, True),
+        ("ALL", False, True, False, True),
+        ("ALL", False, True, True, True),
+        ("ALL", True, False, False, True),
         # AWESOME_ONLY matches awesome repos regardless of Python status.
-        ("AWESOME_ONLY", False, False, False),
-        ("AWESOME_ONLY", False, True, False),
-        ("AWESOME_ONLY", True, False, True),
-        ("AWESOME_ONLY", True, True, True),
-        # PYTHON_ONLY matches Python repos regardless of awesome status.
-        ("PYTHON_ONLY", False, False, False),
-        ("PYTHON_ONLY", False, True, True),
-        ("PYTHON_ONLY", True, False, False),
-        ("PYTHON_ONLY", True, True, True),
+        ("AWESOME_ONLY", False, False, False, False),
+        ("AWESOME_ONLY", False, True, False, False),
+        ("AWESOME_ONLY", False, True, True, False),
+        ("AWESOME_ONLY", True, False, False, True),
+        # PYTHON_ONLY matches any Python repo, virtual project included.
+        ("PYTHON_ONLY", False, False, False, False),
+        ("PYTHON_ONLY", False, True, False, True),
+        ("PYTHON_ONLY", False, True, True, True),
+        ("PYTHON_ONLY", True, False, False, False),
+        # PACKAGE_ONLY additionally rejects the virtual project.
+        ("PACKAGE_ONLY", False, False, False, False),
+        ("PACKAGE_ONLY", False, True, False, False),
+        ("PACKAGE_ONLY", False, True, True, True),
+        ("PACKAGE_ONLY", True, False, False, False),
     ],
 )
 def test_repo_scope_matches(
-    scope: str, is_awesome: bool, is_python: bool, expected: bool
+    scope: str, is_awesome: bool, is_python: bool, is_package: bool, expected: bool
 ) -> None:
     """Verify RepoScope.matches returns correct results for all combinations."""
     from repomatic.registry import RepoScope
 
-    assert RepoScope[scope].matches(is_awesome, is_python) is expected
+    assert RepoScope[scope].matches(is_awesome, is_python, is_package) is expected
 
 
 def test_init_help_lists_all_components() -> None:
@@ -2694,6 +2700,60 @@ def test_bare_init_applies_scope_exclusion(
     assert ".github/workflows/release.yaml" not in created_set
     # Non-scoped workflows are still created.
     assert ".github/workflows/lint.yaml" in created_set
+
+
+def _scoped_targets(scope: RepoScope) -> set[str]:
+    """Collect every output path the registry gates behind *scope*.
+
+    Covers both granularities: a component whose own ``scope`` matches (all of
+    its files ride along) and an individual ``FileEntry`` that opts in.
+    """
+    targets: set[str] = set()
+    for comp in COMPONENTS:
+        comp_matches = comp.scope is scope
+        if comp_matches and isinstance(comp, GeneratedComponent) and comp.target:
+            targets.add(comp.target)
+        for entry in comp.files:
+            if comp_matches or entry.scope is scope:
+                targets.add(entry.target)
+    return targets
+
+
+def test_virtual_project_init_drops_exactly_the_release_lane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A uv virtual project loses the release lane and keeps everything else.
+
+    Conformance test for the ``PYTHON_ONLY``/``PACKAGE_ONLY`` split. Rather
+    than naming the affected files (which would go stale the moment an entry
+    moves between the two scopes), it inits the same repository twice, once as
+    a distributable package and once as a virtual project, and asserts the
+    difference is *exactly* the registry's ``PACKAGE_ONLY`` population.
+
+    That pins both directions at once: nothing from the release lane survives
+    into a repo that can never publish, and no ``PYTHON_ONLY`` entry gets
+    dragged out with it. A virtual project still locks dependencies and runs
+    tests, so over-narrowing is as much a bug as under-narrowing.
+    """
+    pep621 = '[project]\nname = "melon-stand"\nversion = "0.1.0"\n'
+    created = {}
+    for label, extra in (
+        ("package", ""),
+        ("virtual", "\n[tool.uv]\npackage = false\n"),
+    ):
+        target_dir = tmp_path / label
+        target_dir.mkdir()
+        (target_dir / "pyproject.toml").write_text(pep621 + extra, encoding="UTF-8")
+        monkeypatch.chdir(target_dir)
+        result = run_init(output_dir=target_dir, repo_slug="user/melon-stand")
+        created[label] = set(result.created)
+
+    package_only = _scoped_targets(RepoScope.PACKAGE_ONLY)
+    # Guard against the enumeration silently going empty and passing by default.
+    assert package_only
+
+    assert created["package"] - created["virtual"] == package_only
+    assert created["virtual"] - created["package"] == set()
 
 
 def test_file_level_include_bypasses_scope(

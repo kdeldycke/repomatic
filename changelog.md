@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** drop the `WorkflowFormat` enum and the `generate_workflows` function, orphaned since the `workflow create` and `workflow sync` CLI commands were removed. `repomatic init` is now the only way to write a workflow file.
+- `init` no longer writes the release lane (`changelog.md`, `changelog.yaml`, `release.yaml`, the PyPI publish action) into a uv virtual project (`[tool.uv] package = false`). Dependency locking, coverage and test tooling still apply.
 - New `github-housekeeping` skill backfills and curates labels and milestones across a repository's full issue and PR history: taxonomy design, cache-backed bulk classification with review gates, AI-slop detection from closed-without-comment signals, and milestone assignment by changelog, git-tag, and release-date archaeology.
 - The changelog's `[!CAUTION]` admonition for a yanked release now quotes the reason PyPI recorded for the yank, when there is one.
 - `sync-workflow-pins` now splices the `--exclude-newer-package` cooldown exemption in beside the inline `repomatic==X.Y.Z` pin it realigns, so the freshly aligned version still resolves under a workflow's blanket `UV_EXCLUDE_NEWER`. Previously only the release freeze wrote the flag, leaving every downstream repository with a pin its own cooldown refused to install.
