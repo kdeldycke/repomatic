@@ -43,7 +43,7 @@ from .matrix_axes import (
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
 )
-from .metadata import Metadata, stale_axis_values
+from .metadata import Dialect, Metadata, stale_axis_values
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     get_latest_release_file,
@@ -1275,6 +1275,220 @@ def check_runner_images() -> list[CheckResult]:
     return results
 
 
+class ReleaseGate(NamedTuple):
+    """A release-only step or job, and the project capability it needs.
+
+    `metadata_key` names the {class}`~repomatic.metadata.Metadata` field that
+    both decides whether the step runs and supplies what it consumes. `None`
+    marks a step that needs nothing beyond being on a release commit.
+    """
+
+    name: str
+    workflow: str
+    metadata_key: str | None
+    needs: str
+
+
+RELEASE_ONLY_GATES: tuple[ReleaseGate, ...] = (
+    ReleaseGate(
+        "Pre-bake tag SHA",
+        "_release-build.yaml",
+        "cli_scripts",
+        "a `[project.scripts]` entry, since click-extra's prebake finds the"
+        " module to stamp through it",
+    ),
+    ReleaseGate(
+        "📌 Tag release",
+        "_release-engine.yaml",
+        None,
+        "nothing beyond the release commit",
+    ),
+    ReleaseGate(
+        # Lives in the caller, not the engine, and reaches its capability gate
+        # transitively: the build lane only sets `package_built` when
+        # `build-package` ran, and that job is the one gated on
+        # `is_python_project`. So there is no key of its own to check.
+        "🐍 Publish to PyPI",
+        "release.yaml",
+        None,
+        "a wheel from the build lane",
+    ),
+    ReleaseGate(
+        "🐙 Create GitHub release draft",
+        "_release-engine.yaml",
+        None,
+        "nothing beyond the release commit",
+    ),
+    ReleaseGate(
+        "📖 Man pages",
+        "_release-engine.yaml",
+        "manpages_script",
+        "a configured man-page script",
+    ),
+    ReleaseGate(
+        "📎 Extra release assets",
+        "_release-engine.yaml",
+        "release_assets",
+        "at least one configured extra asset",
+    ),
+    ReleaseGate(
+        "🎉 Publish GitHub release",
+        "_release-engine.yaml",
+        None,
+        "nothing beyond the release commit",
+    ),
+)
+"""Every step and job that runs only on a release commit.
+
+These are invisible on an ordinary push: each is gated behind a condition that
+holds open only for the one commit that tags, publishes and releases. A project
+can therefore build green for its entire life and meet them for the first time
+on release day, where a failure costs a reverted release rather than a red push.
+
+`VirusTotal scan` is deliberately absent: it gates on a repository secret rather
+than a project capability, so there is nothing in the tree to check it against.
+"""
+
+
+def check_release_path() -> list[CheckResult]:
+    """Resolve the release path against this project, on an ordinary push.
+
+    Two arms, because the two failure modes live in different repositories.
+
+    The first runs everywhere, including downstream. It resolves each entry of
+    {data}`RELEASE_ONLY_GATES` against the local project and reports which
+    release-only steps a release commit would actually run. That turns a surface
+    nothing exercises until release day into a line of output on every push, so
+    the answer is known long before it is expensive.
+
+    The second runs only where the reusable workflows live, since a downstream
+    repository holds a thin caller and not the steps themselves. It asserts each
+    gate's `if:` really does test the metadata key its step depends on. That
+    invariant is what a release-only step gets wrong: the condition looks
+    complete because it correctly waits for a release, while saying nothing
+    about the capability the step consumes. `Pre-bake tag SHA` shipped that way,
+    gated on the version alone, and every project with no `[project.scripts]`
+    built green until the release commit ran prebake against a module that was
+    not there.
+
+    :return: A list of `CheckResult`.
+    """
+    metadata = Metadata()
+    if not metadata.is_python_project:
+        return [
+            CheckResult(None, "Release path check: skipped (not a Python project).")
+        ]
+
+    # Resolved through `dump`, not `getattr`: several of these keys are assembled
+    # by the dump factories or come from `Config`, so they are not attributes at
+    # all and `getattr` would quietly return None for every one of them. Going
+    # through `dump` also reads them exactly as the workflow's `fromJSON` does.
+    wanted = tuple({g.metadata_key for g in RELEASE_ONLY_GATES if g.metadata_key})
+    resolved = json.loads(metadata.dump(Dialect.json, keys=wanted))
+
+    results: list[CheckResult] = []
+
+    for gate in RELEASE_ONLY_GATES:
+        if gate.metadata_key is None:
+            results.append(CheckResult(True, f"Release path: `{gate.name}` will run."))
+            continue
+        if gate.metadata_key not in resolved:
+            results.append(
+                CheckResult(
+                    False,
+                    f"`{gate.name}` is registered against metadata key"
+                    f" `{gate.metadata_key}`, which no longer exists. The"
+                    f" workflow gate reading it resolves to empty, so the step"
+                    f" silently never runs.",
+                )
+            )
+            continue
+        value = resolved[gate.metadata_key]
+        verb = "will run" if value else "will be skipped"
+        results.append(
+            CheckResult(
+                True,
+                f"Release path: `{gate.name}` {verb} (`{gate.metadata_key}`"
+                f" is {'set' if value else 'empty'}; it needs {gate.needs}).",
+            )
+        )
+
+    # Second arm. Absent the reusable workflows there is nothing to read, which is
+    # the normal downstream case rather than a failure.
+    workflows = _load_workflows()
+    engine = {
+        path.name: data
+        for path, data in workflows.items()
+        if path.name in {gate.workflow for gate in RELEASE_ONLY_GATES}
+    }
+    if not engine:
+        return results
+
+    for gate in RELEASE_ONLY_GATES:
+        if gate.metadata_key is None:
+            continue
+        data = engine.get(gate.workflow)
+        if data is None:
+            continue
+        conditions = _conditions_for(data, gate.name)
+        if not conditions:
+            results.append(
+                CheckResult(
+                    False,
+                    f"`{gate.name}` is registered as release-only but no step or"
+                    f" job of that name carries an `if:` in {gate.workflow}."
+                    f" Either the name drifted or the gate was dropped.",
+                )
+            )
+        elif not any(gate.metadata_key in cond for cond in conditions):
+            results.append(
+                CheckResult(
+                    False,
+                    f"`{gate.name}` in {gate.workflow} needs {gate.needs}, but its"
+                    f" `if:` never tests `{gate.metadata_key}`. It will fire on the"
+                    f" release commit of a project that has none, which is the one"
+                    f" run no ordinary push rehearses.",
+                )
+            )
+        else:
+            results.append(
+                CheckResult(
+                    True,
+                    f"`{gate.name}` gates on `{gate.metadata_key}`.",
+                )
+            )
+
+    return results
+
+
+def _conditions_for(workflow: dict, name: str) -> list[str]:
+    """Collect the `if:` expressions attached to a named job or step.
+
+    A job is matched on its `name:`, a step on its `name:` too, so the registry
+    can address both by the label that shows up in the Actions UI. A job's own
+    condition is returned alongside its steps', since either can be where the
+    gate lives.
+
+    :param workflow: Parsed workflow document.
+    :param name: Job or step name, matched on its rendered prefix so a name
+        carrying a `${{ }}` suffix still matches.
+    :return: Every `if:` expression found, as strings.
+    """
+    found: list[str] = []
+    for job in workflow.get("jobs", {}).values():
+        if not isinstance(job, dict):
+            continue
+        job_name = job.get("name", "")
+        if isinstance(job_name, str) and job_name.startswith(name):
+            found.append(str(job.get("if", "")))
+        for step in job.get("steps", []) or ():
+            if not isinstance(step, dict):
+                continue
+            if step.get("name") == name:
+                found.append(str(step.get("if", "")))
+    return [cond for cond in found if cond]
+
+
 def check_inline_pins_match_upstream(
     workflow_dir: Path = Path(".github/workflows"),
     upstream_repo: str = DEFAULT_REPO,
@@ -1579,6 +1793,11 @@ def run_repo_lint(
 
     # Check 10b-ter: Runner images are pinned, and known to the matrix axes.
     for result in check_runner_images():
+        _report_result(result)
+
+    # Check 10b-quater: Release-only steps resolved against this project, and
+    # gated on the capability each one consumes.
+    for result in check_release_path():
         _report_result(result)
 
     # Check 10c: Inline upstream pins match the workflow uses: ref version (error).
