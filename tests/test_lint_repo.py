@@ -35,6 +35,7 @@ from repomatic.lint_repo import (
     check_inline_pins_match_upstream,
     check_package_name_vs_repo,
     check_pat_stale_statuses_permission,
+    check_pr_templates,
     check_pypi_trusted_publisher,
     check_sha_pinning_required,
     check_stale_draft_releases,
@@ -451,6 +452,166 @@ def test_funding_unreadable_payload(tmp_path, monkeypatch):
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
         assert "skipped" in msg
+
+
+# --- Repository-local PR body template check unit tests ---
+
+
+CANONICAL_TEMPLATE_PATH = ".github/pr-templates/sync-fruit-basket.md"
+"""Where a repository-local PR body template is expected to live."""
+
+CONFORMING_TEMPLATE = "---\ntitle: Sync fruit basket\nfooter: false\n---\n\nBody.\n"
+"""A template passing every frontmatter rule."""
+
+
+def _write_template_case(root, arg_path, file_path, body):
+    """Write a workflow referencing *arg_path*, and *body* at *file_path*.
+
+    :param root: Repository root to populate.
+    :param arg_path: Path the workflow passes to `--template-file`.
+    :param file_path: Where the template is actually written, or `None` to
+        leave the referenced path dangling.
+    :param body: Template content.
+    """
+    workflows = root / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "autofix.yaml").write_text(
+        "on: push\n"
+        "permissions: {}\n"
+        "jobs:\n"
+        "  sync-fruit-basket:\n"
+        "    runs-on: ubuntu-slim\n"
+        "    steps:\n"
+        "      - run: >\n"
+        "          repomatic pr-body --output-format github-actions\n"
+        f"          --template-file {arg_path}\n",
+        encoding="utf-8",
+    )
+    if file_path is not None:
+        target = root / file_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("arg_path", "file_path", "body", "needle"),
+    [
+        pytest.param(
+            CANONICAL_TEMPLATE_PATH,
+            CANONICAL_TEMPLATE_PATH,
+            CONFORMING_TEMPLATE,
+            None,
+            id="conforming",
+        ),
+        pytest.param(
+            ".github/pr-templates/sync-fruit-baskets.md",
+            CANONICAL_TEMPLATE_PATH,
+            CONFORMING_TEMPLATE,
+            "does not exist",
+            id="dangling-reference",
+        ),
+        pytest.param(
+            ".github/pr-sync-fruit-basket.md",
+            ".github/pr-sync-fruit-basket.md",
+            CONFORMING_TEMPLATE,
+            "outside",
+            id="flat-github-dir",
+        ),
+        pytest.param(
+            "pr-templates/sync-fruit-basket.md",
+            "pr-templates/sync-fruit-basket.md",
+            CONFORMING_TEMPLATE,
+            "outside",
+            id="repo-root-dir",
+        ),
+        pytest.param(
+            CANONICAL_TEMPLATE_PATH,
+            CANONICAL_TEMPLATE_PATH,
+            "---\nfooter: false\n---\n\nBody.\n",
+            "`title`",
+            id="no-title",
+        ),
+        pytest.param(
+            CANONICAL_TEMPLATE_PATH,
+            CANONICAL_TEMPLATE_PATH,
+            "---\ntitle: Sync fruit basket\nfooter: 'false'\n---\n\nBody.\n",
+            "bare boolean",
+            id="quoted-footer",
+        ),
+        pytest.param(
+            CANONICAL_TEMPLATE_PATH,
+            CANONICAL_TEMPLATE_PATH,
+            "---\ntitle: Sync fruit basket\nfooter: 'False'\n---\n\nBody.\n",
+            "bare boolean",
+            id="capitalized-footer",
+        ),
+        pytest.param(
+            CANONICAL_TEMPLATE_PATH,
+            CANONICAL_TEMPLATE_PATH,
+            "---\ntitle: Sync fruit basket\n---\n\nBody.\n",
+            "no `footer` field",
+            id="missing-footer",
+        ),
+    ],
+)
+def test_pr_templates(tmp_path, monkeypatch, arg_path, file_path, body, needle):
+    """Flag misplaced, missing, and malformed repository-local PR templates."""
+    monkeypatch.chdir(tmp_path)
+    _write_template_case(tmp_path, arg_path, file_path, body)
+    failures = [r for r in check_pr_templates() if r.passed is False]
+    if needle is None:
+        assert not failures
+    else:
+        assert any(needle in r.message for r in failures)
+
+
+def test_pr_templates_equals_form(tmp_path, monkeypatch):
+    """`--template-file=path` is matched the same as the space-separated form."""
+    monkeypatch.chdir(tmp_path)
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "autofix.yaml").write_text(
+        "on: push\n"
+        "jobs:\n"
+        "  sync-fruit-basket:\n"
+        "    steps:\n"
+        "      - run: repomatic pr-body"
+        " --template-file=.github/pr-sync-fruit-basket.md\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".github" / "pr-sync-fruit-basket.md").write_text(
+        CONFORMING_TEMPLATE, encoding="utf-8"
+    )
+    failures = [r for r in check_pr_templates() if r.passed is False]
+    assert any("outside" in r.message for r in failures)
+
+
+def test_pr_templates_unreferenced_still_checked(tmp_path, monkeypatch):
+    """A template no workflow names is still validated, so drift stays visible."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    template = tmp_path / CANONICAL_TEMPLATE_PATH
+    template.parent.mkdir(parents=True)
+    template.write_text("---\ntitle: Sync fruit basket\n---\n", encoding="utf-8")
+    failures = [r for r in check_pr_templates() if r.passed is False]
+    assert any("no `footer` field" in r.message for r in failures)
+
+
+@pytest.mark.parametrize(
+    ("make_workflows_dir", "needle"),
+    [
+        pytest.param(False, "no .github/workflows", id="no-workflow-dir"),
+        pytest.param(True, "no repository-local templates", id="nothing-to-check"),
+    ],
+)
+def test_pr_templates_skipped(tmp_path, monkeypatch, make_workflows_dir, needle):
+    """Skip cleanly when there is no workflow directory, or nothing to check."""
+    monkeypatch.chdir(tmp_path)
+    if make_workflows_dir:
+        (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    results = check_pr_templates()
+    assert all(r.passed is None for r in results)
+    assert any(needle in r.message for r in results)
 
 
 # --- Stale draft releases check unit tests ---

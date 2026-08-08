@@ -33,6 +33,7 @@ from typing import NamedTuple
 
 import yaml
 
+from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import gh_api_json, run_gh_command
 from .github.token import check_all_pat_permissions
@@ -45,6 +46,25 @@ from .pypi import (
 )
 from .registry import DEFAULT_REPO
 from .version_sync import find_upstream_ref_versions
+
+PR_TEMPLATE_DIR = Path(".github/pr-templates")
+"""Canonical home for a repository's own `pr-body --template-file` templates.
+
+`.github/` already namespaces by subdirectory (`ISSUE_TEMPLATE/`, `workflows/`,
+`actions/`), and a dedicated one leaves each template's basename free to carry
+the operation name, so it can match its job ID and PR branch. Templates sitting
+flat in `.github/` need a `pr-` prefix purely to disambiguate, which breaks that
+identity and puts them next to GitHub's own `pull_request_template.md`, an
+unrelated human-facing file.
+"""
+
+TEMPLATE_FILE_ARG_RE = re.compile(r"--template-file[=\s]+(?P<path>\S+)")
+"""A `repomatic pr-body --template-file` argument inside a workflow `run:` block.
+
+Matched against the raw YAML text rather than the parsed document: the argument
+sits inside a folded scalar, so the surrounding `run:` value is one opaque
+string whichever way the file is parsed.
+"""
 
 
 class CheckResult(NamedTuple):
@@ -1040,6 +1060,108 @@ def check_inline_pins_match_upstream(
     )
 
 
+def check_pr_templates(
+    workflow_dir: Path = Path(".github/workflows"),
+    template_dir: Path = PR_TEMPLATE_DIR,
+) -> list[CheckResult]:
+    """Check a repository's own `pr-body --template-file` templates.
+
+    A repo with a custom PR-opening job ships the body as a file of its own
+    rather than adding a template upstream. Three failure modes are flagged:
+
+    1. The file sits outside *template_dir*. See {data}`PR_TEMPLATE_DIR`.
+    2. A workflow references a path that does not exist, which the job only
+       discovers when it runs and `pr-body` rejects the missing file.
+    3. The frontmatter lacks a `title`, or does not set `footer` to the bare
+       boolean `false`. Both `false` and the quoted `'false'` opt out, but an
+       absent field, `'False'`, and every other value do not, and the failure
+       is silent: the rendered body carries the attribution footer twice.
+
+    A `docs` field is not required. It deep-links the hosted workflows
+    reference, which documents upstream jobs only.
+
+    :param workflow_dir: Directory holding the workflow YAML files.
+    :param template_dir: Directory the templates are expected to live in.
+    :return: A list of `CheckResult`.
+    """
+    if not workflow_dir.is_dir():
+        return [CheckResult(None, f"PR template check: skipped (no {workflow_dir}).")]
+
+    # Map each referenced path to the workflows naming it, so a misplaced
+    # template is reported against the file someone has to edit.
+    referenced: dict[str, set[str]] = {}
+    for wf in sorted(workflow_dir.glob("*.yaml")):
+        try:
+            content = wf.read_text(encoding="UTF-8")
+        except OSError:
+            continue
+        for match in TEMPLATE_FILE_ARG_RE.finditer(content):
+            arg_path = match["path"].strip("\"'")
+            referenced.setdefault(arg_path, set()).add(wf.name)
+
+    # Templates already in the canonical directory are checked even when no
+    # workflow names them, so a body built by a script is covered too.
+    candidates = set(referenced)
+    if template_dir.is_dir():
+        candidates.update(str(found) for found in template_dir.glob("*.md"))
+
+    if not candidates:
+        return [
+            CheckResult(None, "PR template check: no repository-local templates found.")
+        ]
+
+    results: list[CheckResult] = []
+    for raw_path in sorted(candidates):
+        path = Path(raw_path)
+        callers = ", ".join(
+            f"`{name}`" for name in sorted(referenced.get(raw_path, ()))
+        )
+        origin = f" (referenced by {callers})" if callers else ""
+        failures: list[str] = []
+
+        if path.parent != template_dir:
+            failures.append(
+                f"PR template `{raw_path}`{origin} lives outside"
+                f" `{template_dir}/`. Move it there and drop any `pr-` prefix"
+                f" from its name, so the basename can match its job ID and PR"
+                f" branch."
+            )
+
+        if not path.is_file():
+            failures.append(
+                f"PR template `{raw_path}`{origin} does not exist. The job"
+                f" fails when it runs."
+            )
+        else:
+            meta, _body = split_frontmatter(path.read_text(encoding="UTF-8"))
+            if not meta.get("title"):
+                failures.append(
+                    f"PR template `{raw_path}` has no `title` in its"
+                    f" frontmatter, so the PR and its commit are left unnamed."
+                )
+            if "footer" not in meta:
+                failures.append(
+                    f"PR template `{raw_path}` declares no `footer` field, so"
+                    f" it opts in to an attribution footer the metadata block"
+                    f" already appends. Add `footer: false`."
+                )
+            elif meta["footer"] is not False:
+                failures.append(
+                    f"PR template `{raw_path}` sets `footer:"
+                    f" {meta['footer']!r}` instead of the bare boolean"
+                    f" `false`. Only `false` and the quoted `'false'` opt out;"
+                    f" every other value silently duplicates the attribution"
+                    f" footer."
+                )
+
+        if failures:
+            results.extend(CheckResult(False, msg) for msg in failures)
+        else:
+            results.append(CheckResult(True, f"PR template `{raw_path}`: conforms."))
+
+    return results
+
+
 def _report_result(
     result: CheckResult, level: AnnotationLevel = AnnotationLevel.WARNING
 ) -> bool:
@@ -1172,6 +1294,10 @@ def run_repo_lint(
     # Check 10c: Inline upstream pins match the workflow uses: ref version (error).
     if _report_result(check_inline_pins_match_upstream(), AnnotationLevel.ERROR):
         fatal_error = True
+
+    # Check 10d: Repository-local PR body templates (warning).
+    for result in check_pr_templates():
+        _report_result(result)
 
     # Check 11: VIRUSTOTAL_API_KEY secret (warning, only when Nuitka builds are active).
     if nuitka_active:
