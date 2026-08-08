@@ -19,6 +19,7 @@
 - `init` no longer closes with "commit the generated files and push" on a run that produced nothing but ephemeral output.
 - Fix the broken-links and setup-guide jobs dying on a recurring issue that the `autolock` workflow had locked. A conversation lock blocking a close or reopen comment is now cleared and the write retried.
 - Fix `repomatic run` finding no binary on a Linux distribution `extra-platforms` cannot name, which broke every registry tool inside the AlmaLinux-based manylinux build container.
+- Fix a crash when `pyproject.toml` is removed while being read, which now falls back to an empty configuration as documented.
 - Re-lock `uv.lock` in the release freeze commit, so a release no longer ships with its version ahead of its own lock entry. The desync made the Windows binary builds fail.
 
 ## [`7.5.0` (2026-08-07)](https://github.com/kdeldycke/repomatic/compare/v7.4.1...v7.5.0)
