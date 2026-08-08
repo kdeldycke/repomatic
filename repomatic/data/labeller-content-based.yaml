@@ -1,37 +1,31 @@
 ---
+# One pattern per label, always.
+#
+# `github/issue-labeler` AND-joins a label's patterns: its `checkRegexes()`
+# returns false on the first entry that does not match, so a label listing
+# several bare keywords fires only when *every* one of them appears in the same
+# issue, which in practice means never. "Any of these keywords" must therefore
+# be a single alternation, not a list.
+#
+# Each pattern is written in the `/…/i` form so it is matched case-insensitively
+# (a bare entry is case-sensitive, and users capitalize freely: `Bug`, `README`),
+# and anchored with `\b` on every edge that closes on a word character, so `fix`
+# no longer fires on `prefix`. Single-quoted so YAML keeps the backslashes
+# literal.
 "🐛 bug":
-  - "bug"
-  - "error"
-  - "traceback"
-  - "fix"
-  - "exception"
+  - '/\bbug\b|\berror\b|\btraceback\b|\bfix\b|\bexception\b/i'
 
 "🆙 changelog":
-  - "change-log"
-  - "changelog"
+  - '/\bchange-log\b|\bchangelog\b/i'
 
 "🤖 ci":
-  - "ci-cd"
-  - "cicd"
-  - ".github"
-  - "coverage"
-  - "workflow"
-  - "actions"
-  - "gitignore"
+  - '/\bci-cd\b|\bcicd\b|\.github\b|\bcoverage\b|\bworkflow\b|\bactions\b|\bgitignore\b/i'
 
 "🔗 dependencies":
-  - ".lock"
-  - "pyproject.toml"
+  - '/\.lock\b|\bpyproject\.toml\b/i'
 
 "📚 documentation":
-  - "sphinx"
-  - "readme"
-  - "markdown"
-  - "typo"
-  - "docstring"
-  - "mailmap"
-  - "license"
+  - '/\bsphinx\b|\breadme\b|\bmarkdown\b|\btypo\b|\bdocstring\b|\bmailmap\b|\blicense\b/i'
 
 "💖 sponsor":
-  - "sponsor"
-  - "funding"
+  - '/\bsponsor\b|\bfunding\b/i'

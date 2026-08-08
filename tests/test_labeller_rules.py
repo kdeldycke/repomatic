@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+from importlib.resources import files
 
 import pytest
 import yaml
@@ -269,10 +270,10 @@ def test_serialize_content_rules_empty():
 def test_serialize_content_rules_basic():
     """Label plus patterns round-trip to the issue-labeler shape."""
     output = serialize_content_rules([
-        {"label": "🔌 bar-plugin", "patterns": ["xbar", "swiftbar"]},
+        {"label": "🔌 bar-plugin", "patterns": [r"/\bxbar\b|\bswiftbar\b/i"]},
     ])
     parsed = yaml.safe_load(output)
-    assert parsed == {"🔌 bar-plugin": ["xbar", "swiftbar"]}
+    assert parsed == {"🔌 bar-plugin": [r"/\bxbar\b|\bswiftbar\b/i"]}
 
 
 def test_serialize_content_rules_same_label_merged():
@@ -284,6 +285,48 @@ def test_serialize_content_rules_same_label_merged():
     ])
     parsed = yaml.safe_load(output)
     assert parsed == {"x": ["a", "b", "c"], "y": ["d"]}
+
+
+@pytest.mark.parametrize(
+    ("rules", "expected_count"),
+    (
+        # A single entry listing several keywords.
+        (({"label": "x", "patterns": ["alpha", "beta"]},), 2),
+        # The sneakier shape: each entry is fine alone, only the
+        # concatenation of a repeated label crosses into AND.
+        (
+            (
+                {"label": "x", "patterns": ["alpha"]},
+                {"label": "x", "patterns": ["beta"]},
+            ),
+            2,
+        ),
+    ),
+    ids=("single-entry", "repeated-label"),
+)
+def test_serialize_content_rules_warns_on_and_join(caplog, rules, expected_count):
+    """A label left with several patterns can never fire, so it is warned about.
+
+    `github/issue-labeler` requires every pattern to match the same issue, so a
+    keyword list reads as "all of these" rather than "any of these".
+    """
+    caplog.set_level(logging.WARNING)
+    output = serialize_content_rules(list(rules))
+    # The patterns are still emitted: AND is a real capability, and the
+    # serializer cannot tell a deliberate conjunction from the mistake.
+    assert yaml.safe_load(output) == {"x": ["alpha", "beta"]}
+    assert any(
+        f"lists {expected_count} patterns" in r.message
+        and "never be applied" in r.message
+        for r in caplog.records
+    )
+
+
+def test_serialize_content_rules_single_pattern_is_silent(caplog):
+    """The correct shape, one alternation per label, warns about nothing."""
+    caplog.set_level(logging.WARNING)
+    serialize_content_rules([{"label": "x", "patterns": [r"/\ba\b|\bb\b/i"]}])
+    assert not [r for r in caplog.records if "never be applied" in r.message]
 
 
 def test_serialize_content_rules_skips_empty_patterns(caplog):
@@ -356,4 +399,31 @@ def test_augment_none_config():
     bundled = "bundled: yes\n"
     assert (
         augment_labeller_content("labeller-file-based.yaml", bundled, None) == bundled
+    )
+
+
+def test_bundled_content_rules_are_single_alternations():
+    """Every bundled content rule must carry exactly one pattern.
+
+    These defaults ship to every downstream repository, so an AND-joined list
+    here is a dead label everywhere at once: `github/issue-labeler` requires
+    all of a label's patterns to match the same issue. All six bundled rules
+    were once keyword lists and fired for nobody.
+    """
+    bundled = (
+        files("repomatic.data")
+        .joinpath("labeller-content-based.yaml")
+        .read_text(encoding="UTF-8")
+    )
+    parsed = yaml.safe_load(bundled)
+    assert parsed, "bundled content rules must not be empty"
+    multi = {label: patterns for label, patterns in parsed.items() if len(patterns) > 1}
+    assert not multi, (
+        f"AND-joined bundled rules can never fire: {multi}. "
+        r"Collapse each into one alternation, like /\bfoo\b|\bbar\b/i."
+    )
+    # A bare pattern is matched case-sensitively, so the `/…/i` form is what
+    # makes `Bug` and `README` reachable.
+    assert all(patterns[0].endswith("/i") for patterns in parsed.values()), (
+        "every bundled pattern should be a case-insensitive /…/i regex"
     )

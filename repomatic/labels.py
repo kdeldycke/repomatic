@@ -199,6 +199,14 @@ def serialize_content_rules(rules: list[dict[str, Any]]) -> str:
     Encode a rule only for terms that unambiguously name the subject and that the
     project never prints in its own output; see the labeller principle in
     `claude.md`.
+
+    Because that trap is silent (the rule is well-formed, emits valid YAML, and
+    simply never fires), any label left holding more than one pattern is warned
+    about. The patterns are still emitted rather than dropped: AND is a real,
+    if rarely useful, capability, and this serializer cannot tell a deliberate
+    conjunction from the far more common mistake. Note the warning also catches
+    the sneakier shape, where each entry looks correct on its own and only the
+    concatenation of a repeated `label` crosses into AND.
     """
     grouped: dict[str, list[str]] = {}
     for rule in rules:
@@ -222,6 +230,18 @@ def serialize_content_rules(rules: list[dict[str, Any]]) -> str:
             )
             continue
         grouped.setdefault(label, []).extend(patterns)
+    for label, patterns in grouped.items():
+        if len(patterns) > 1:
+            logging.warning(
+                "Content rule for label %r lists %d patterns, so the labeller "
+                "requires all of them in the same issue and the label will "
+                "never be applied: %r. Collapse them into one anchored, "
+                "case-insensitive alternation instead, like %r.",
+                label,
+                len(patterns),
+                patterns,
+                r"/\bfoo\b|\bbar\b/i",
+            )
     return _dump_labeller_yaml(grouped)
 
 
