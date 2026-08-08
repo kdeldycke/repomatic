@@ -17,11 +17,15 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 import tomlrt
 
-from repomatic.labels import serialize_inline_labels
+from repomatic import labels as labels_module
+from repomatic.config import Config
+from repomatic.labels import apply_labels, serialize_inline_labels
 
 
 def test_serialize_inline_labels_empty():
@@ -171,3 +175,107 @@ def test_serialize_inline_labels_escapes_special_characters(name, description):
     label = parsed["profiles"]["default"]["labels"][0]
     assert label["name"] == name
     assert label["description"] == description
+
+
+# --- apply_labels path handling ---
+
+
+@pytest.fixture
+def captured_labelmaker(monkeypatch):
+    """Record every labelmaker invocation instead of running the binary."""
+    calls: list[tuple[str, ...]] = []
+
+    @contextmanager
+    def fake_tool_context(_name):
+        yield Path("/fake/labelmaker")
+
+    monkeypatch.setattr(labels_module, "binary_tool_context", fake_tool_context)
+    monkeypatch.setattr(
+        labels_module,
+        "_run_labelmaker",
+        lambda _lm, *args: calls.append(args),
+    )
+    return calls
+
+
+def test_apply_labels_reads_labels_toml_from_labels_dir(
+    tmp_path, monkeypatch, captured_labelmaker
+):
+    """`labels_dir` decides where `labels.toml` is read from, not the CWD."""
+    monkeypatch.chdir(tmp_path)
+    export = tmp_path / "export"
+    export.mkdir()
+
+    apply_labels(Config(), "owner/repo", is_awesome=False, labels_dir=export)
+
+    assert captured_labelmaker == [
+        ("apply", str(export / "labels.toml"), "--profile", "default", "owner/repo")
+    ]
+
+
+def test_apply_labels_defaults_to_current_directory(
+    tmp_path, monkeypatch, captured_labelmaker
+):
+    """Omitting `labels_dir` keeps the historical CWD-relative behaviour."""
+    monkeypatch.chdir(tmp_path)
+
+    apply_labels(Config(), "owner/repo", is_awesome=False)
+
+    assert captured_labelmaker[0][1] == "labels.toml"
+
+
+def test_apply_labels_applies_awesome_profile_from_labels_dir(
+    tmp_path, monkeypatch, captured_labelmaker
+):
+    """The awesome profile reads the same relocated `labels.toml`."""
+    monkeypatch.chdir(tmp_path)
+    export = tmp_path / "export"
+    export.mkdir()
+
+    apply_labels(Config(), "owner/awesome-list", is_awesome=True, labels_dir=export)
+
+    profiles = [call[3] for call in captured_labelmaker]
+    assert profiles == ["default", "awesome"]
+    assert {call[1] for call in captured_labelmaker} == {str(export / "labels.toml")}
+
+
+def test_apply_labels_merges_extra_label_directories(
+    tmp_path, monkeypatch, captured_labelmaker
+):
+    """Committed and downloaded `extra-labels/` files are both applied."""
+    monkeypatch.chdir(tmp_path)
+    committed = tmp_path / "extra-labels"
+    committed.mkdir()
+    (committed / "hand-written.toml").write_text("", encoding="UTF-8")
+
+    export = tmp_path / "export"
+    (export / "extra-labels").mkdir(parents=True)
+    (export / "extra-labels" / "downloaded.toml").write_text("", encoding="UTF-8")
+
+    apply_labels(Config(), "owner/repo", is_awesome=False, labels_dir=export)
+
+    applied = [call[1] for call in captured_labelmaker[1:]]
+    # The committed directory stays CWD-relative, the download absolute.
+    assert applied == [
+        str(export / "extra-labels" / "downloaded.toml"),
+        "extra-labels/hand-written.toml",
+    ]
+
+
+def test_apply_labels_download_shadows_committed_file_of_same_name(
+    tmp_path, monkeypatch, captured_labelmaker
+):
+    """A download wins over a committed file of the same name, applied once."""
+    monkeypatch.chdir(tmp_path)
+    committed = tmp_path / "extra-labels"
+    committed.mkdir()
+    (committed / "shared.toml").write_text("", encoding="UTF-8")
+
+    export = tmp_path / "export"
+    (export / "extra-labels").mkdir(parents=True)
+    (export / "extra-labels" / "shared.toml").write_text("", encoding="UTF-8")
+
+    apply_labels(Config(), "owner/repo", is_awesome=False, labels_dir=export)
+
+    applied = [call[1] for call in captured_labelmaker[1:]]
+    assert applied == [str(export / "extra-labels" / "shared.toml")]

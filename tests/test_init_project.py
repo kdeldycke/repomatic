@@ -958,18 +958,21 @@ def test_init_creates_all_default_files(
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n'
         "[tool.repomatic]\n"
-        'include = ["agents", "labels", "skills"]\n',
+        'include = ["agents", "skills"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
 
     result = run_init(output_dir=tmp_path)
 
-    # All components: agents, changelog, labels, skills, workflows.
-    # Opt-in workflows are excluded by default. Awesome-only skills are
-    # included because ``include = ["skills"]`` bypasses scope filtering.
+    # All components: agents, changelog, skills, workflows. Opt-in workflows
+    # are excluded by default, and ephemeral components never materialize on a
+    # bare init. Awesome-only skills are included because ``include =
+    # ["skills"]`` bypasses scope filtering.
     config_file_count = sum(
-        len(c.files) for c in COMPONENTS if isinstance(c, BundledComponent)
+        len(c.files)
+        for c in COMPONENTS
+        if isinstance(c, BundledComponent) and not c.ephemeral
     )
     opt_in_count = sum(1 for f in COMPONENTS_BY_NAME["workflows"].files if f.config_key)
     default_workflows = len(REUSABLE_WORKFLOWS) - opt_in_count
@@ -983,10 +986,10 @@ def test_init_creates_all_default_files(
         if filename not in _OPT_IN_IDS:
             assert (tmp_path / ".github" / "workflows" / filename).exists()
 
-    # Verify config files exist.
-    assert (tmp_path / "labels.toml").exists()
-    assert (tmp_path / ".github" / "labeller-file-based.yaml").exists()
-    assert (tmp_path / ".github" / "labeller-content-based.yaml").exists()
+    # Ephemeral label files stay out of the tree until named explicitly.
+    assert not (tmp_path / "labels.toml").exists()
+    assert not (tmp_path / ".github" / "labeller-file-based.yaml").exists()
+    assert not (tmp_path / ".github" / "labeller-content-based.yaml").exists()
 
     # Verify changelog exists.
     assert (tmp_path / "changelog.md").exists()
@@ -2481,13 +2484,15 @@ def test_init_respects_exclude_label_files(
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n'
         "[tool.repomatic]\n"
-        'include = ["labels"]\n'
         'exclude = ["labels/labeller-content-based.yaml"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    # `labels` is ephemeral, so only naming it explicitly writes it out. This
+    # is the path the labeller jobs take to stage a config for the actions
+    # that read it from the checkout.
+    result = run_init(output_dir=tmp_path, components=("labels",))
 
     created_set = set(result.created)
     # Excluded label file should not be created.
@@ -2526,24 +2531,20 @@ def test_init_detects_excluded_component_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify init reports excluded component files that still exist on disk."""
-    # First init with labels included to create all files.
+    # Stage the label files the way the labeller jobs do, by naming the
+    # ephemeral component explicitly.
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["labels"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path)
-
-    labels_toml = tmp_path / "labels.toml"
-    assert labels_toml.exists()
-
-    # Now re-run without include — labels falls back to default exclusion.
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n',
         encoding="UTF-8",
     )
+    monkeypatch.chdir(tmp_path)
+    run_init(output_dir=tmp_path, components=("labels",))
 
+    labels_toml = tmp_path / "labels.toml"
+    assert labels_toml.exists()
+
+    # A bare init leaves them out, so the staged copies read as excluded.
     result = run_init(output_dir=tmp_path)
 
     # File is detected but not deleted (deletion requires --delete-excluded).
@@ -3443,7 +3444,7 @@ def test_init_include_overrides_default_exclusions(
     """Verify include overrides default exclusions additively."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["labels"]\n',
+        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["agents"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -3451,17 +3452,48 @@ def test_init_include_overrides_default_exclusions(
     result = run_init(output_dir=tmp_path)
 
     created_set = set(result.created)
-    # Labels included via include; agents, skills still excluded by default.
-    assert "labels.toml" in created_set
+    # Agents included via include; labels, skills still excluded by default.
     for _, rel_path in (
         (e.source, e.target) for e in COMPONENTS_BY_NAME["agents"].files
     ):
-        assert rel_path not in created_set
+        assert rel_path in created_set
     for _, rel_path in (
         (e.source, e.target) for e in COMPONENTS_BY_NAME["skills"].files
     ):
         assert rel_path not in created_set
-    assert result.excluded == ["agents", "skills"]
+    assert "labels.toml" not in created_set
+    assert result.excluded == ["labels", "skills"]
+
+
+def test_init_include_cannot_materialize_ephemeral(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    """Verify `include` cannot opt a bare init into an ephemeral component."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["labels"]\n',
+        encoding="UTF-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = run_init(output_dir=tmp_path)
+
+    assert "labels.toml" not in set(result.created)
+    assert not (tmp_path / "labels.toml").exists()
+    assert "labels" in result.excluded
+    # The override is refused out loud, naming the way to write them out.
+    assert "ephemeral component 'labels'" in caplog.text
+    assert "repomatic init labels" in caplog.text
+
+
+def test_init_explicit_selection_materializes_ephemeral(tmp_path: Path):
+    """Verify naming an ephemeral component explicitly still writes its files."""
+    result = run_init(output_dir=tmp_path, components=("labels",))
+
+    created_set = set(result.created)
+    assert "labels.toml" in created_set
+    assert ".github/labeller-file-based.yaml" in created_set
+    assert ".github/labeller-content-based.yaml" in created_set
 
 
 def test_init_exclude_additive_to_defaults(

@@ -71,6 +71,24 @@ patterns = ["(CVE|vulnerability)"]
 from repomatic.cli import repomatic
 ```
 
+### Ephemeral components
+
+Most components write files a repository is meant to commit. The `labels` component does not: `labels.toml` and the two labeller YAMLs under `.github/` are inputs that `sync-labels` and the two labeller jobs each regenerate from this configuration right before reading, so a copy sitting in the working tree is never the one that gets used.
+
+Those files are therefore staged only when the component is named explicitly:
+
+```shell-session
+$ repomatic init labels
+```
+
+which is how the labeller jobs put a config where `actions/labeler` and `github/issue-labeler` can read it from the checkout. A bare `repomatic init` leaves them out, and listing `labels` in `include` does not change that: the override is refused with a warning rather than silently honored. Everything downstream repositories customize (`labels.extra`, `labels.file-rules`, `labels.content-rules`, `labels.extra-files`) is read straight from `pyproject.toml` by those commands, so no generated label file needs committing.
+
+A repository that committed them before will see them reported as excluded files still on disk. Clear them with:
+
+```shell-session
+$ repomatic init --delete-excluded
+```
+
 ### Flavors
 
 `[tool.repomatic.flavor]` declares which ecosystems a repository targets, giving every present and future ecosystem decision one place to live instead of a new flag per feature.

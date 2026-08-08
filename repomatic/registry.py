@@ -220,6 +220,19 @@ class Component:
     When `False`, unmodified copies are flagged for cleanup by
     `--delete-unmodified`."""
 
+    ephemeral: bool = False
+    """Whether this component's files are inputs regenerated on demand rather
+    than repository content.
+
+    Every consumer of an ephemeral component dumps it right before reading it,
+    so a copy in the working tree is never the one that gets used. Bare
+    `repomatic init` therefore skips these components, and `[tool.repomatic]
+    include` cannot opt into materializing them: only naming the component
+    explicitly on the CLI (`repomatic init labels`) writes its files out, which
+    is how the labeller jobs stage a config for the GitHub Actions that read it
+    from the checkout.
+    """
+
     location_field: str = ""
     """{class}`~repomatic.config.Config` field holding this component's
     destination directory, when the user can move it.
@@ -557,6 +570,7 @@ COMPONENTS: tuple[Component, ...] = (
         name="labels",
         description="Label config files (labels.toml + labeller rules)",
         init_default=InitDefault.EXCLUDE,
+        ephemeral=True,
         files=(
             FileEntry(
                 "labeller-content-based.yaml",
@@ -1071,6 +1085,20 @@ SKILL_PHASE_ORDER: tuple[str, ...] = (
 
 ALL_COMPONENTS: dict[str, str] = {c.name: c.description for c in COMPONENTS}
 """All available init components."""
+
+EPHEMERAL_TARGETS: frozenset[str] = frozenset(
+    entry.target
+    for component in COMPONENTS
+    if component.ephemeral
+    for entry in component.files
+)
+"""Target paths belonging to {attr}`Component.ephemeral` components.
+
+Written only when the component is named explicitly on the CLI, and never worth
+committing: whatever reads them regenerates them first. `init` uses this to keep
+its closing "commit the generated files" advice off a run that produced nothing
+but scratch output.
+"""
 
 BUNDLED_VERBATIM_TARGETS: frozenset[str] = frozenset(
     entry.target

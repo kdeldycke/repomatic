@@ -331,36 +331,58 @@ def _run_labelmaker(labelmaker_path: Path, *args: str) -> None:
         logging.debug(result.stdout)
 
 
-def apply_labels(config: Config, repository: str, *, is_awesome: bool) -> None:
+def apply_labels(
+    config: Config,
+    repository: str,
+    *,
+    is_awesome: bool,
+    labels_dir: Path | None = None,
+) -> None:
     """Apply every configured label source to *repository* via `labelmaker`.
 
     Applies, in order: the exported `labels.toml` under the `default` profile,
     the `awesome` profile for `awesome-*` repositories, any hand-written or
     downloaded files under `extra-labels/`, and the inline
-    `[tool.repomatic.labels.extra]` definitions. The label files are expected
-    on disk already (exported by `repomatic init labels`).
+    `[tool.repomatic.labels.extra]` definitions. The exported files are
+    expected to exist already (written by {func}`~repomatic.init_project.run_init`
+    for the `labels` component).
 
     :param config: The resolved `[tool.repomatic]` configuration.
     :param repository: GitHub repository in `owner/name` form.
     :param is_awesome: Whether the repository is an `awesome-*` list.
+    :param labels_dir: Directory holding the exported `labels.toml` and the
+        `extra-labels/` downloads. Defaults to the current directory. Point it
+        at a scratch directory to keep the export out of the working tree.
     :raises RuntimeError: When a labelmaker invocation fails.
     """
+    base = Path() if labels_dir is None else labels_dir
+    labels_toml = str(base / "labels.toml")
+
+    # Hand-written files committed under `extra-labels/` in the repository,
+    # plus any downloaded from `labels.extra-files` into the export directory.
+    # Keyed by filename so a download shadows a committed file of the same
+    # name, which is what happened when both landed in the same directory.
+    extra_files: dict[str, Path] = {}
+    for extra_dir in (Path("extra-labels"), base / "extra-labels"):
+        if not extra_dir.is_dir():
+            continue
+        for label_file in sorted(extra_dir.iterdir()):
+            if label_file.is_file():
+                extra_files[label_file.name] = label_file
+
     with binary_tool_context("labelmaker") as lm:
         # Apply default profile.
-        _run_labelmaker(lm, "apply", "labels.toml", "--profile", "default", repository)
+        _run_labelmaker(lm, "apply", labels_toml, "--profile", "default", repository)
 
         # Apply awesome profile for awesome-* repos.
         if is_awesome:
             _run_labelmaker(
-                lm, "apply", "labels.toml", "--profile", "awesome", repository
+                lm, "apply", labels_toml, "--profile", "awesome", repository
             )
 
         # Apply extra label files.
-        extra_dir = Path("extra-labels")
-        if extra_dir.is_dir():
-            for label_file in sorted(extra_dir.iterdir()):
-                if label_file.is_file():
-                    _run_labelmaker(lm, "apply", str(label_file), repository)
+        for _name, label_file in sorted(extra_files.items()):
+            _run_labelmaker(lm, "apply", str(label_file), repository)
 
         # Apply inline label definitions from `[tool.repomatic.labels.extra]`.
         inline_toml = serialize_inline_labels(config.labels.extra)

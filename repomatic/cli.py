@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from shutil import rmtree
@@ -168,6 +169,7 @@ from .registry import (
     COMPONENT_HELP_TABLE,
     COMPONENTS_BY_NAME,
     DEFAULT_REPO,
+    EPHEMERAL_TARGETS,
     FILE_SELECTOR_COMPONENTS,
     SKILL_FILENAME,
     SKILL_PHASE_ORDER,
@@ -851,7 +853,10 @@ def init_project(
         for warning in result.warnings:
             echo(style("Warning: ", fg="yellow", bold=True) + warning)
 
-    has_changes = result.created or result.updated
+    touched = [*result.created, *result.updated]
+    # A run that only staged ephemeral files (`init labels`) produced scratch
+    # input for the command about to read it, so there is nothing to commit.
+    has_changes = bool(set(touched) - EPHEMERAL_TARGETS)
     if has_changes:
         echo("")
         echo(style("Next steps:", bold=True))
@@ -3081,9 +3086,9 @@ def clean_unmodified_configs() -> None:
 def sync_labels(ctx: Context, repository: str | None) -> None:
     """Sync repository labels from bundled definitions using labelmaker.
 
-    Exports label definitions via repomatic init labels, then applies them
-    to the repository using labelmaker. Applies the default profile to
-    all repositories, plus the awesome profile for awesome-* repos.
+    Exports label definitions to a scratch directory, then applies them to the
+    repository using labelmaker. Applies the default profile to all
+    repositories, plus the awesome profile for awesome-* repos.
 
     Requires GITHUB_TOKEN in the environment. Downloads labelmaker
     automatically via the tool registry.
@@ -3098,15 +3103,20 @@ def sync_labels(ctx: Context, repository: str | None) -> None:
     if not repository:
         raise ClickException("Cannot detect repository.")
 
-    # Dump label files.
-    result = run_init(output_dir=Path("."), components=("labels",), config=config)
-    for path in [*result.created, *result.updated]:
-        logging.info(f"Exported: {path}")
+    # Dump label files somewhere disposable: they are labelmaker inputs, not
+    # repository content, so syncing labels leaves the working tree untouched.
+    with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
+        labels_dir = Path(tmpdir)
+        result = run_init(output_dir=labels_dir, components=("labels",), config=config)
+        for path in [*result.created, *result.updated]:
+            logging.info(f"Exported: {path}")
 
-    try:
-        apply_labels(config, repository, is_awesome=meta.is_awesome)
-    except RuntimeError as e:
-        raise ClickException(str(e))
+        try:
+            apply_labels(
+                config, repository, is_awesome=meta.is_awesome, labels_dir=labels_dir
+            )
+        except RuntimeError as e:
+            raise ClickException(str(e))
 
     echo("Labels synced.")
 

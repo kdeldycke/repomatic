@@ -5,6 +5,9 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** the `labels` component is now ephemeral: `labels.toml` and the two labeller YAMLs are staged only when the component is named explicitly (`repomatic init labels`), and `[tool.repomatic] include` can no longer opt a bare `init` into writing them. Every consumer regenerates them before reading, so a copy in the working tree was never the one that got used. A repository that committed them sees them reported as excluded files still on disk, removable with `init --delete-excluded`.
+- `sync-labels` exports to a scratch directory instead of the repository root, so syncing labels no longer leaves three untracked files behind. `apply_labels()` gained a `labels_dir` argument, and now applies both the committed `extra-labels/` files and any downloaded into the export directory, a download still shadowing a committed file of the same name.
+- `init` no longer closes with "commit the generated files and push" on a run that produced nothing but ephemeral output.
 - The generated downstream `release.yaml` now carries the canonical deny-by-default `permissions: {}`. The multi-lane renderer skipped it, so a consumer job appended below the managed lanes ran with the repository's default token scopes.
 - The generated `release.yaml` keeps the extra `needs:` edges a consumer declares on its `release` lane, instead of resetting them to a bare `build` on every sync. This is what gates the engine on a caller-side `release-assets` build job. An edge naming a managed lane, or a job that no longer exists, is still dropped.
 - `lint-repo` now checks a repository's own `pr-body --template-file` templates: they belong in `.github/pr-templates/`, must exist, and must carry a `title` and a bare `footer: false`.
