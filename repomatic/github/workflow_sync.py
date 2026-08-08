@@ -1641,7 +1641,7 @@ def _needs_yaml_quote(value: str) -> bool:
     try:
         return yaml.safe_load(f"- {value}\n") != [value]
     except yaml.YAMLError:
-        # Unparseable as a plain scalar is the strongest possible case for
+        # Unparsable as a plain scalar is the strongest possible case for
         # quoting: `*` opens an alias, `&` an anchor, `!` a tag.
         return True
 
