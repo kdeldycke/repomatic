@@ -309,8 +309,9 @@ output-prefer-rule-codes = true
 
 [tool.typos]
 default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "JavaScript", MacOS = "macOS", PNGs = "PNGs", PyPi = "PyPI", Typescript = "TypeScript" }
-# False positives.
-default.extend-words = { astroid = "astroid", oject = "oject", PNGs = "PNGs", sur = "sur" }
+# False positives. "Contribuer" is the French for "Contributing", part of the
+# translated-readme fixture in tests/test_awesome_toc.py.
+default.extend-words = { astroid = "astroid", Contribuer = "Contribuer", oject = "oject", PNGs = "PNGs", sur = "sur" }
 # Skip content between <!-- typos:off --> and <!-- typos:on --> markers.
 default.extend-ignore-re = [
   "(?s)<!-- typos:off -->.*?<!-- typos:on -->",

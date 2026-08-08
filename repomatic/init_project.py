@@ -63,6 +63,7 @@ from .registry import (
     COMPONENTS,
     COMPONENTS_BY_NAME,
     DEFAULT_REPO,
+    GITHUB_YAML_PATTERNS,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
     UPSTREAM_REPO_SLUGS,
@@ -535,13 +536,12 @@ def _note_cooldown(warnings: list[str] | None, note: str) -> None:
 def _highest_upstream_pin(output_dir: Path, repo: str) -> UpstreamRefPin | None:
     """The highest upstream `uses:` pin already committed under *output_dir*.
 
-    Scans the same `.github/` workflow and composite-action files as
-    `sync_ops._workflow_and_action_files`, resolved against *output_dir*
-    instead of the current working directory, and returns the winning
-    {class}`~repomatic.version_sync.UpstreamRefPin`. Stragglers left behind at
-    an older pin therefore converge upward onto the repository-wide maximum,
-    matching how `sync-action-pins` treats a slug pinned at more than one
-    version.
+    Scans {data}`~repomatic.registry.GITHUB_YAML_PATTERNS` resolved against
+    *output_dir*, the same files `sync-workflow-pins` bumps, and returns the
+    winning {class}`~repomatic.version_sync.UpstreamRefPin`. Stragglers left
+    behind at an older pin therefore converge upward onto the repository-wide
+    maximum, matching how `sync-action-pins` treats a slug pinned at more than
+    one version.
 
     Only *repo* is matched, not every slug in
     {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`: a caller still naming a
@@ -552,12 +552,7 @@ def _highest_upstream_pin(output_dir: Path, repo: str) -> UpstreamRefPin | None:
     :return: The highest pin found, or `None` for a repository carrying none.
     """
     best: UpstreamRefPin | None = None
-    for pattern in (
-        ".github/workflows/*.yaml",
-        ".github/workflows/*.yml",
-        ".github/actions/**/*.yaml",
-        ".github/actions/**/*.yml",
-    ):
+    for pattern in GITHUB_YAML_PATTERNS:
         for path in sorted(output_dir.glob(pattern)):
             try:
                 content = path.read_text(encoding="UTF-8")

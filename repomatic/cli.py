@@ -4310,7 +4310,6 @@ def format_images_cmd(
 
 
 @repomatic.command(
-    name="fix-awesome-toc",
     short_help="Remove the ToC entries awesome-lint forbids",
     section=_section_lint,
 )

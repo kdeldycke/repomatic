@@ -77,7 +77,7 @@ See the **[full documentation](https://kdeldycke.github.io/repomatic/)** for:
 - [CLI parameters](https://kdeldycke.github.io/repomatic/cli.html)
 - [Reusable workflow reference](https://kdeldycke.github.io/repomatic/workflows.html) (all 14 workflows with job descriptions)
 - [Security practices and token setup](https://kdeldycke.github.io/repomatic/security.html)
-- [Claude Code skills](https://kdeldycke.github.io/repomatic/skills.html)
+- [Claude Code skills](https://kdeldycke.github.io/repomatic/skills.html) and [agents](https://kdeldycke.github.io/repomatic/agents.html), also installable as a [Claude Code plugin](https://kdeldycke.github.io/repomatic/plugin.html)
 - [API reference](https://kdeldycke.github.io/repomatic/repomatic.html)
 - [Project history](https://kdeldycke.github.io/repomatic/history.html)
 

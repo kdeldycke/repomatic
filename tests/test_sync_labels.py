@@ -255,10 +255,12 @@ def test_apply_labels_merges_extra_label_directories(
     apply_labels(Config(), "owner/repo", is_awesome=False, labels_dir=export)
 
     applied = [call[1] for call in captured_labelmaker[1:]]
-    # The committed directory stays CWD-relative, the download absolute.
+    # The committed directory stays CWD-relative, the download absolute. Both
+    # are built from `Path`, as the production code does, so the expectation
+    # carries the native separator on every platform.
     assert applied == [
         str(export / "extra-labels" / "downloaded.toml"),
-        "extra-labels/hand-written.toml",
+        str(Path("extra-labels") / "hand-written.toml"),
     ]
 
 

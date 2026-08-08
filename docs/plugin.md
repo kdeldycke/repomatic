@@ -51,7 +51,7 @@ Every GitHub release carries a `repomatic-plugin.zip` asset, and the marketplace
 The entry's URL is pinned to a release tag, not a `latest` redirect, and **ratchets forward**: each release's freeze commit rewrites it to that release's tag and nothing walks it back. Two consequences worth knowing:
 
 - The default branch always names the newest *published* release, so `/plugin marketplace add kdeldycke/repomatic` is always installable.
-- Adding the catalog at a tag installs that tag's plugin: `/plugin marketplace add kdeldycke/repomatic@v7.6.0` gives you v7.6.0's skills and agents, which a moving redirect could not offer.
+- Adding the catalog at a tag installs that tag's plugin: `/plugin marketplace add kdeldycke/repomatic@vX.Y.Z` gives you `vX.Y.Z`'s skills and agents, which a moving redirect could not offer. Tags older than the release that introduced the plugin carry no marketplace entry.
 
 The entry carries no `sha256` pin. Integrity comes from the release attestation instead:
 

@@ -97,7 +97,12 @@ from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .init_project import init_config, is_source_repo
 from .npm import NPM_PACKAGE_URL
 from .pypi import PYPI_PACKAGE_URL, get_source_url
-from .registry import BUNDLED_VERBATIM_TARGETS, DEFAULT_REPO, UPSTREAM_REPO_SLUGS
+from .registry import (
+    BUNDLED_VERBATIM_TARGETS,
+    DEFAULT_REPO,
+    GITHUB_YAML_PATTERNS,
+    UPSTREAM_REPO_SLUGS,
+)
 from .tool_registry import TOOL_REGISTRY
 from .uv import (
     compute_bypass_forecasts,
@@ -161,15 +166,9 @@ whole duration.
 
 def _workflow_and_action_files() -> list[Path]:
     """Collect workflow and composite-action YAML files under `.github/`."""
-    github_dir = Path(".github")
     files: list[Path] = []
-    for pattern in (
-        "workflows/*.yaml",
-        "workflows/*.yml",
-        "actions/**/*.yaml",
-        "actions/**/*.yml",
-    ):
-        files.extend(github_dir.glob(pattern))
+    for pattern in GITHUB_YAML_PATTERNS:
+        files.extend(Path().glob(pattern))
     return sorted(set(files))
 
 

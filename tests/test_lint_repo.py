@@ -589,6 +589,23 @@ def test_pr_templates_equals_form(tmp_path, monkeypatch):
     assert any("outside" in r.message for r in failures)
 
 
+def test_pr_templates_referenced_and_on_disk_reported_once(tmp_path, monkeypatch):
+    """A template both referenced and on disk is one candidate, not two.
+
+    A workflow always spells the path with `/`, while the directory glob
+    yields the native separator, so a naive union of the two reports the same
+    template twice on Windows, the second time without its referencing
+    workflow.
+    """
+    monkeypatch.chdir(tmp_path)
+    _write_template_case(
+        tmp_path, CANONICAL_TEMPLATE_PATH, CANONICAL_TEMPLATE_PATH, CONFORMING_TEMPLATE
+    )
+    assert [r.message for r in check_pr_templates()] == [
+        f"PR template `{CANONICAL_TEMPLATE_PATH}`: conforms."
+    ]
+
+
 def test_pr_templates_unreferenced_still_checked(tmp_path, monkeypatch):
     """A template no workflow names is still validated, so drift stays visible."""
     monkeypatch.chdir(tmp_path)

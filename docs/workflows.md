@@ -16,11 +16,11 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.4.1
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.5.0
 ```
 
 > [!IMPORTANT]
-> [Concurrency is already configured](security.md#concurrency-and-cancellation) in the reusable workflows—you don't need to re-specify it in your calling workflow.
+> [Concurrency is already configured](security.md#concurrency-and-cancellation) in the reusable workflows: you don't need to re-specify it in your calling workflow.
 
 ### GitHub Actions limitations
 
@@ -152,6 +152,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 - Runs [`repomatic init --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init_project.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
+- Holds the upstream `uses:` pin back through the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown, but only when it would *adopt* a release newer than the one the repository already pins. A pin at or above the running version is left untouched, and a step-back never lands below the pin already committed, so a repository that deliberately moved to a fresh release is never dragged back and a rollback to an older repomatic is honored. Pass `--no-cooldown` to adopt the running version immediately, or `--version` to pin an exact tag
 - Prunes orphans of assets repomatic has dropped (renamed or removed skills, agents, or workflows), so an upstream rename propagates automatically instead of leaving a stale file behind. A skill or agent copy is deleted when its content matches any version repomatic shipped; a removed reusable workflow's thin-caller is deleted when its `uses:` line still points at the dropped upstream workflow. A locally modified copy (edited content, or a thin-caller with extra jobs) is reported for manual review, never deleted. Pass `--keep-removed` to report these without deleting, or `--delete-removed-modified` to also delete locally modified ones
 - In the upstream repository, regenerates bundled data files from the project's own config (workflows are excluded via `[tool.repomatic]`)
 
@@ -300,7 +301,8 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 - Creates a release PR with two commits: a **freeze commit** that freezes everything to the release version, and an **unfreeze commit** that reverts to development references and bumps the patch version
 - The PR body's `How-to release` checklist opens with two review links, the draft dev pre-release and the full changes against `main`, before the merge instructions; each is omitted when its GitHub data is unavailable (no dev pre-release, no prior release, or an unauthenticated run)
 - Uses [`bump-my-version`](https://github.com/callowayproject/bump-my-version) and [`repomatic changelog`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/changelog.py)
-- Must be merged with "Rebase and merge" (not squash) — the auto-tagging job needs both commits separate
+- Re-locks `uv.lock` in both commits with a plain `uv lock` (never `--upgrade`: a version bump refreshes only the project's own entry, never its dependencies), so a tag never ships with `pyproject.toml` ahead of its own lock entry
+- Must be merged with "Rebase and merge" (not squash): the auto-tagging job needs both commits separate
 - **Requires**:
   - `bump-my-version` configuration in `pyproject.toml`
   - A `changelog.md` file
@@ -350,6 +352,8 @@ docs = [
 (github-workflows-labels-yaml-jobs)=
 
 ### 🏷️ [`.github/workflows/labels.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/labels.yaml)
+
+None of these jobs read a label config committed to the repository. `labels.toml` and the two labeller YAMLs are [ephemeral](configuration.md#ephemeral-components): each job regenerates them from `[tool.repomatic]` right before reading, so the only thing a downstream repository maintains is its `pyproject.toml`.
 
 #### 🔄 Sync labels (`sync-labels`)
 
@@ -457,6 +461,11 @@ docs = [
 This is the **entry** workflow. It owns the `push` and `workflow_dispatch` triggers and wires three jobs: a `build` call to the `_release-build.yaml` fast lane, the `publish-pypi` job, and a `release` call to the `_release-engine.yaml` engine. Both `publish-pypi` and the engine lane depend on `build`. Because `publish-pypi` needs only the build lane, the wheel reaches PyPI as soon as it is built instead of after the whole engine (binary compilation, scanning) completes. The engine also waits on `build` so its `create-release` and `sync-dev-release` jobs can download the run-scoped wheel. Every downstream repo (repomatic included) has its own `release.yaml` that follows this same shape.
 
 The `publish-pypi` job lives here rather than inside a reusable lane so each repo's OIDC `job_workflow_ref` claim resolves to its own `release.yaml`: the exact filename each repo registers with PyPI as a Trusted Publisher. A job inside `_release-build.yaml` or `_release-engine.yaml` would mint a token pointing at the upstream path, breaking the publisher match on every downstream. See [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096).
+
+`repomatic init` regenerates this file on every sync, and unlike a single-job thin caller it has jobs of its own, so two properties are worth knowing:
+
+- It carries the same deny-by-default top-level `permissions: {}` as every other generated workflow, with each managed lane declaring only the scopes its reusable workflow needs. Without it, a consumer job appended below the managed lanes would run with the repository's default token scopes.
+- Extra `needs:` edges a consumer declares on the `release` lane survive the sync. That is what lets a caller-side asset build job gate the engine, as [§ Extra release assets](#extra-release-assets-extra-assets) instructs. An edge naming a managed lane (already in the canonical set), a job that no longer exists, or a job that exists only in the upstream workflow is dropped: the last would make GitHub reject the workflow at startup.
 
 #### 🐍 Publish to PyPI (`publish-pypi`)
 
@@ -887,8 +896,8 @@ If any item is missing, the release is incomplete.
 
 The [`prepare-release`](#github-workflows-changelog-yaml-jobs) job creates a PR with exactly **two commits** that must be merged via "Rebase and merge" (never squash):
 
-1. **Freeze commit** (`[changelog] Release vX.Y.Z`): finalizes the changelog date and comparison URL, removes the "unreleased" warning, freezes workflow action references to `@vX.Y.Z`, and freezes CLI invocations to a PyPI version.
-2. **Unfreeze commit** (`[changelog] Post-release bump`): reverts action references back to `@main`, reverts CLI invocations to local source, adds a new unreleased changelog section, and bumps the version to the next patch.
+1. **Freeze commit** (`[changelog] Release vX.Y.Z`): finalizes the changelog date and comparison URL, removes the "unreleased" warning, freezes workflow action references to `@vX.Y.Z`, freezes CLI invocations to a PyPI version, and re-locks `uv.lock` so the tag carries a lock entry matching its own version.
+2. **Unfreeze commit** (`[changelog] Post-release bump`): reverts action references back to `@main`, reverts CLI invocations to local source, adds a new unreleased changelog section, bumps the version to the next patch, and re-locks again.
 
 Not everything the freeze pins is reverted. Release-asset URLs (the binary downloads in `docs/install.md`, the plugin archive in `.claude-plugin/marketplace.json`) **ratchet forward** instead: the freeze moves them to the new tag and the unfreeze leaves them there, so `main` names the newest published release rather than a tag that does not exist yet.
 

@@ -37,6 +37,26 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+GITHUB_YAML_PATTERNS: tuple[str, ...] = (
+    ".github/workflows/*.yaml",
+    ".github/workflows/*.yml",
+    ".github/actions/**/*.yaml",
+    ".github/actions/**/*.yml",
+)
+"""Globs matching every workflow and composite-action file of a repository.
+
+Rooted at the repository root rather than at `.github/`, so the same patterns
+work against the current directory and against an arbitrary target tree. Both
+`.yml` and `.yaml` are listed because GitHub accepts either, whatever this
+project's own [long-extension convention](https://kdeldycke.github.io/repomatic)
+prefers: a downstream repository is free to have picked the short one.
+
+Shared by `sync_ops._workflow_and_action_files`, which reads the pins to bump,
+and `init_project._highest_upstream_pin`, which reads them to floor a new pin.
+The two must agree on which files carry a pin, or `init` would floor against a
+file `sync-workflow-pins` never bumps.
+"""
+
 
 def _config_enabled(config: object, config_key: str, config_default: bool) -> bool:
     """Resolve a `[tool.repomatic]` gate against a `Config` object.

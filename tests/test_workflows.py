@@ -32,6 +32,7 @@ from repomatic.git_ops import (
     VERSION_BUMP_COMMIT_PREFIXES,
 )
 from repomatic.github.workflow_sync import cooldown_env_block, workflow_triggers
+from repomatic.plugin import ARCHIVE_NAME
 from repomatic.prepare_release import LOCAL_CLI_INVOCATION
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
@@ -1325,6 +1326,19 @@ def _declared_release_assets() -> list[str]:
     pyproject = tomlrt.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="UTF-8"))
     assets = pyproject.get("tool", {}).get("repomatic", {}).get("release-assets", [])
     return [str(name) for name in assets]
+
+
+def test_plugin_archive_is_a_declared_release_asset() -> None:
+    """The packed plugin's filename is one of the declared release assets.
+
+    `pack-plugin` writes {data}`~repomatic.plugin.ARCHIVE_NAME` by default and
+    `release.yaml` passes no `--output`, so renaming the constant on its own
+    would leave `release-assets` and the upload `path:` naming a file no job
+    produces. The test below then holds that filename equal to the run-artifact
+    name and the `needs:` edge, which is what makes the handover checkable end
+    to end from a Python constant TOML and YAML cannot read.
+    """
+    assert ARCHIVE_NAME in _declared_release_assets()
 
 
 def test_declared_release_assets_are_space_free() -> None:

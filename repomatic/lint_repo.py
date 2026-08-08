@@ -1298,7 +1298,7 @@ def check_inline_pins_match_upstream(
     package = upstream_repo.rsplit("/", 1)[-1]
     if not workflow_dir.is_dir():
         return CheckResult(
-            None, f"Inline {package} pin check: skipped (no {workflow_dir})."
+            None, f"Inline {package} pin check: skipped (no {workflow_dir.as_posix()})."
         )
 
     pin_re = re.compile(rf"\b{re.escape(package)}==(?P<version>[0-9]+(?:\.[0-9]+)*)")
@@ -1360,10 +1360,17 @@ def check_pr_templates(
     :return: A list of `CheckResult`.
     """
     if not workflow_dir.is_dir():
-        return [CheckResult(None, f"PR template check: skipped (no {workflow_dir}).")]
+        return [
+            CheckResult(
+                None, f"PR template check: skipped (no {workflow_dir.as_posix()})."
+            )
+        ]
 
     # Map each referenced path to the workflows naming it, so a misplaced
-    # template is reported against the file someone has to edit.
+    # template is reported against the file someone has to edit. Keys stay
+    # POSIX throughout: a workflow always spells the path with `/`, so the
+    # glob below must too, or on Windows one template lands in `candidates`
+    # twice and the backslash spelling loses its referencing workflow.
     referenced: dict[str, set[str]] = {}
     for wf in sorted(workflow_dir.glob("*.yaml")):
         try:
@@ -1378,7 +1385,7 @@ def check_pr_templates(
     # workflow names them, so a body built by a script is covered too.
     candidates = set(referenced)
     if template_dir.is_dir():
-        candidates.update(str(found) for found in template_dir.glob("*.md"))
+        candidates.update(found.as_posix() for found in template_dir.glob("*.md"))
 
     if not candidates:
         return [
@@ -1397,9 +1404,9 @@ def check_pr_templates(
         if path.parent != template_dir:
             failures.append(
                 f"PR template `{raw_path}`{origin} lives outside"
-                f" `{template_dir}/`. Move it there and drop any `pr-` prefix"
-                f" from its name, so the basename can match its job ID and PR"
-                f" branch."
+                f" `{template_dir.as_posix()}/`. Move it there and drop any"
+                f" `pr-` prefix from its name, so the basename can match its"
+                f" job ID and PR branch."
             )
 
         if not path.is_file():
