@@ -45,7 +45,6 @@ from repomatic.lint_repo import (
     run_repo_lint,
 )
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
-from repomatic.metadata import Metadata
 from repomatic.pypi import TrustedPublisher
 from tests.conftest import metadata_from_pyproject, pat_results
 
@@ -1050,13 +1049,13 @@ def _write_project(tmp_path, monkeypatch, classifiers, requires_python=">= 3.11"
     entries = "\n".join(
         f'  "Programming Language :: Python :: {c}",' for c in classifiers
     )
-    (tmp_path / "pyproject.toml").write_text(
+    metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
         '[project]\nname = "p"\nversion = "1.0.0"\n'
         f'requires-python = "{requires_python}"\n'
         f"classifiers = [\n{entries}\n]\n",
-        encoding="UTF-8",
     )
-    monkeypatch.setattr(Metadata, "pyproject_path", tmp_path / "pyproject.toml")
     monkeypatch.chdir(tmp_path)
 
 

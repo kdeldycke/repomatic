@@ -40,7 +40,7 @@ from repomatic.binary import (
     _pe_machine,
     _version_key,
     compute_file_sha256,
-    stage_binary_assets,
+    pack_binary_assets,
     verify_binary_arch,
     verify_binary_floor,
 )
@@ -111,7 +111,7 @@ def test_all_targets_present(target):
     assert target in NUITKA_BUILD_TARGETS
 
 
-def test_stage_binary_assets(tmp_path):
+def test_pack_binary_assets(tmp_path):
     """Aliases are byte-identical copies; Python distributions are skipped."""
     (tmp_path / "repomatic-1.2.3-linux-arm64.bin").write_bytes(b"elf-bytes")
     (tmp_path / "repomatic-1.2.3-windows-x64.exe").write_bytes(b"pe-bytes")
@@ -119,7 +119,7 @@ def test_stage_binary_assets(tmp_path):
     (tmp_path / "repomatic-1.2.3.tar.gz").write_bytes(b"sdist")
     (tmp_path / "repomatic-1.2.3-py3-none-any.whl").write_bytes(b"wheel")
 
-    uploads = stage_binary_assets(tmp_path, "1.2.3")
+    uploads = pack_binary_assets(tmp_path, "1.2.3")
 
     assert [path.name for path in uploads] == [
         "repomatic-1.2.3-linux-arm64.bin",
@@ -131,7 +131,7 @@ def test_stage_binary_assets(tmp_path):
     assert (tmp_path / "repomatic-linux-arm64.bin").read_bytes() == b"elf-bytes"
     assert (tmp_path / "repomatic-windows-x64.exe").read_bytes() == b"pe-bytes"
     # Idempotent: a second run returns the same list with the same bytes.
-    assert stage_binary_assets(tmp_path, "1.2.3") == uploads
+    assert pack_binary_assets(tmp_path, "1.2.3") == uploads
 
 
 def test_version_key_ordering():

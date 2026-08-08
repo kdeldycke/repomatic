@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.5.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.6.0
 ```
 
 > [!IMPORTANT]
@@ -97,7 +97,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 - Auto-formats shell scripts using [`shfmt`](https://github.com/mvdan/sh)
 - **Requires**:
-  - Shell files (`**/*.{bash,bats,ksh,mksh,sh,zsh}`) or shell dotfiles (`.bashrc`, `.zshrc`, etc.) in the repository
+  - Shell files (`**/*.{bash,bats,ksh,mksh,sh}`) or bash dotfiles (`.bashrc`, `.bash_profile`, `.profile`, etc.) in the repository. A file whose shebang names zsh is excluded and goes to [`lint-zsh`](#lint-zsh-lint-zsh) instead, since `shfmt` misparses common Zsh constructs
 
 #### 🔧 Format JSON (`format-json`)
 
@@ -416,7 +416,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 - Syntax-checks Zsh scripts using `zsh --no-exec`
 - **Requires**:
-  - Zsh files (`**/*.zsh`) in the repository
+  - Zsh files in the repository: `**/*.zsh`, the zsh dotfiles (`.zshrc`, `.zprofile`, `.zshenv`, `.zlogin`), and any `**/*.sh` whose shebang names zsh. Claiming `.sh` by extension alone would hand every bash script to `zsh --no-exec`, so the shebang keeps this job and [`format-shell`](#format-shell-format-shell) from ever seeing the same file
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
@@ -548,7 +548,7 @@ flowchart TD
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x64`/`arm64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
 - Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)
-- On release pushes, each binary generates an attestation and uploads itself to the GitHub release as its build completes, alongside its own `<binary-name>.attestation.json` sigstore bundle
+- On release pushes, each binary is attested and its sigstore bundle renamed after the binary it covers (`<binary-name>.attestation.json`), so no two targets collide once the bundles are merged. Binaries and bundles leave the job as run artifacts, and [`publish-release`](#publish-release-publish-release) attaches them to the release
 - **Requires**:
   - Python package with [CLI entry points](https://docs.astral.sh/uv/concepts/projects/config/#entry-points) defined in `pyproject.toml`
 - **Skipped if** `[tool.repomatic] nuitka = false` is set in `pyproject.toml` (for projects with CLI entry points that don't need standalone binaries)
@@ -614,6 +614,7 @@ flowchart TD
 #### 🎉 Publish release (`publish-release`)
 
 - Publishes the draft GitHub release after all assets (Python package, binaries, man pages, extra assets) have been uploaded
+- Attaches the compiled binaries and their attestation bundles itself, from the run artifacts [`compile-binaries`](#compile-binaries-compile-binaries) left behind. [`repomatic pack-binaries`](cli.md) copies each versioned binary to a versionless alias (`repomatic-linux-x64.bin`) so the `releases/latest/download` URLs keep resolving, then prints the upload list, leaving out the Python distributions `create-release` already attached
 - Supports [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases): once published, tags and assets are locked, so flipping `--draft=false` is the terminal step of the release engine and every asset-uploading job must run upstream of it
 - Uses `always()` so it runs even when `compile-binaries`, `manpages` or `extra-assets` is skipped (non-binary projects, no man pages, no extra assets), and still publishes when `compile-binaries` or `manpages` partially fails (unstable platforms): a missing binary is a visible, re-runnable gap
 - A **failed** `extra-assets` is the one blocker: a file the consumer declared in `release-assets` must be on the release before it locks, or it never can be. The release is left as a draft instead

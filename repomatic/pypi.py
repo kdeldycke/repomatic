@@ -176,6 +176,28 @@ def _fetch_json(package: str) -> dict[str, Any] | None:
     )
 
 
+def _project_urls(package: str) -> dict[str, str]:
+    """Fetch a package's `project_urls`, or an empty mapping.
+
+    Shared by the `project_urls` scanners ({func}`get_source_url` and
+    {func}`get_changelog_url`), which each look the same keys up in a
+    lowercased index of whatever spelling the project wrote: see the note on
+    {data}`_SOURCE_URL_KEYS`.
+
+    An unreachable or unknown package yields `{}` rather than `None`, so a
+    caller scanning for a key finds nothing and reports it the same way it
+    reports a package that simply declares no matching URL.
+
+    :param package: The PyPI package name.
+    :return: The declared `project_urls` mapping, keys untouched.
+    """
+    data = _fetch_json(package)
+    if data is None:
+        return {}
+    urls: dict[str, str] = data.get("info", {}).get("project_urls") or {}
+    return urls
+
+
 class PyPIRelease(NamedTuple):
     """Release metadata for a single version from PyPI."""
 
@@ -276,11 +298,7 @@ def get_source_url(package: str) -> str | None:
     :param package: The PyPI package name.
     :return: The GitHub repository URL, or `None` if not found.
     """
-    data = _fetch_json(package)
-    if data is None:
-        return None
-
-    project_urls: dict[str, str] = data.get("info", {}).get("project_urls") or {}
+    project_urls = _project_urls(package)
     by_key = {key.lower(): value for key, value in project_urls.items()}
     for key in _SOURCE_URL_KEYS:
         root = github_repo_root(by_key.get(key, ""))
@@ -426,12 +444,7 @@ def get_changelog_url(package: str) -> str | None:
     :param package: The PyPI package name.
     :return: The changelog URL, or `None` if not found.
     """
-    data = _fetch_json(package)
-    if data is None:
-        return None
-
-    project_urls: dict[str, str] = data.get("info", {}).get("project_urls") or {}
-    by_key = {key.lower(): value for key, value in project_urls.items()}
+    by_key = {key.lower(): value for key, value in _project_urls(package).items()}
     for key in _CHANGELOG_URL_KEYS:
         candidate = by_key.get(key, "")
         if candidate:

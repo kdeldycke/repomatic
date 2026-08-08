@@ -247,6 +247,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic metadata"
 
 [[cases]]
+cli_parameters = "pack-binaries --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic pack-binaries"
+
+[[cases]]
 cli_parameters = "pack-plugin --help"
 exit_code = 0
 strip_ansi = true
@@ -302,12 +308,6 @@ skip_platforms = "windows"
 exit_code = 0
 strip_ansi = true
 stdout_contains = "Usage: repomatic sponsor-label"
-
-[[cases]]
-cli_parameters = "stage-binaries --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic stage-binaries"
 
 [[cases]]
 cli_parameters = "sync-action-pins --help"

@@ -73,7 +73,9 @@ from click_extra import OperationTrail, echo, resolve_jobs, run_jobs
 from . import tool_registry
 from .checksums import update_registry_checksums
 from .dep_report import (
+    BYPASS_COLUMNS,
     EXCLUDE_NEWER_HELD_BACK_NOTE,
+    HELD_BACK_COLUMNS,
     BypassForecast,
     HeldBackPackage,
     build_comparison_urls,
@@ -1201,12 +1203,12 @@ def print_held_back_table(
 ) -> None:
     """Print the shared held-back terminal table for the cooldown-gated updaters.
 
-    Columns are `{subject} | Locked | Available | Released | Eligible`. Shared by
-    `sync-uv-lock` and the three `sync-*` commands, and respects the global
-    `--table-format`.
+    Columns are *subject* followed by
+    {data}`~repomatic.dep_report.HELD_BACK_COLUMNS`. Shared by `sync-uv-lock`
+    and the three `sync-*` commands, and respects the global `--table-format`.
     """
     echo("Held back by cooldown:")
-    headers = (subject, "Locked", "Available", "Released", "Eligible")
+    headers = (subject, *HELD_BACK_COLUMNS)
     rows = [
         (
             pkg.name,
@@ -1223,12 +1225,12 @@ def print_held_back_table(
 def print_bypass_table(ctx: Context, forecasts: list[BypassForecast]) -> None:
     """Print the active cooldown-bypass freezes with their expiry forecasts.
 
-    Columns are `Package | Held at | Held until`, mirroring the markdown
-    section from {func}`~repomatic.dep_report.format_bypass_section`, and
-    respects the global `--table-format`.
+    Columns are {data}`~repomatic.dep_report.BYPASS_COLUMNS`, mirroring the
+    markdown section from {func}`~repomatic.dep_report.format_bypass_section`,
+    and respects the global `--table-format`.
     """
     echo("Cooldown bypasses:")
-    headers = ("Package", "Held at", "Held until")
+    headers = BYPASS_COLUMNS
     rows = [
         (forecast.name, forecast.held_version, forecast.expires)
         for forecast in forecasts

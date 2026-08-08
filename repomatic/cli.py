@@ -67,7 +67,7 @@ from .binaries_page import (
 from .binary import (
     BINARY_ASSET_SUFFIXES,
     NUITKA_BUILD_TARGETS,
-    stage_binary_assets,
+    pack_binary_assets,
     verify_binary_arch,
     verify_binary_floor,
 )
@@ -2099,7 +2099,7 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
 
 
 @repomatic.command(
-    short_help="Stage compiled binaries and their versionless aliases",
+    short_help="Pack compiled binaries and their versionless aliases",
     section=_section_release,
 )
 @option(
@@ -2115,7 +2115,7 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
     required=True,
     help="Directory holding the compiled binaries and attestation bundles.",
 )
-def stage_binaries(version_str: str, dist_dir: Path) -> None:
+def pack_binaries(version_str: str, dist_dir: Path) -> None:
     """Materialize versionless binary aliases and print the upload list.
 
     Copies each versioned binary (`repomatic-1.2.3-linux-arm64.bin`) to its
@@ -2129,9 +2129,9 @@ def stage_binaries(version_str: str, dist_dir: Path) -> None:
 
     \b
     Examples:
-        repomatic stage-binaries --version 1.2.3 --dir ./compile-assets
+        repomatic pack-binaries --version 1.2.3 --dir ./compile-assets
     """
-    for path in stage_binary_assets(dist_dir, version_str):
+    for path in pack_binary_assets(dist_dir, version_str):
         echo(path)
 
 
@@ -3381,7 +3381,11 @@ def show(ctx):
 
 
 @cache.command(short_help="Remove cached entries")
-@option("--tool", default=None, help="Only remove binary entries for this tool.")
+@option(
+    "--tool",
+    default=None,
+    help="Only remove the binary and config entries for this tool.",
+)
 @option(
     "--namespace",
     default=None,
@@ -3395,11 +3399,11 @@ def show(ctx):
 )
 @pass_context
 def clean(ctx, tool, namespace, max_age):
-    """Remove cached binaries and HTTP responses.
+    """Remove cached binaries, tool configs and HTTP responses.
 
     Without options, removes everything. Use --tool to target a specific
-    binary tool, --namespace for a specific HTTP namespace, or --max-age
-    for entries older than a threshold.
+    binary tool and its cached config, --namespace for a specific HTTP
+    namespace, or --max-age for entries older than a threshold.
 
     \b
     Examples:
@@ -4100,8 +4104,10 @@ def format_images_cmd(
     running the command twice produces no further changes.
 
     \b
-    Required tools (install via apt):
-        sudo apt-get install oxipng jpegoptim
+    Required tools:
+        oxipng is downloaded and checksum-verified from the pinned tool
+        registry, once per run. jpegoptim has to be on $PATH:
+        sudo apt-get install jpegoptim
 
     \b
     Examples:

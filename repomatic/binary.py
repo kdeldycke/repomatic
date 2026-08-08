@@ -49,6 +49,15 @@ this set, the release workflow downloads it (`--pattern` flags in
 asset globs derive from it.
 """
 
+PYTHON_DIST_SUFFIXES = (".tar.gz", ".whl")
+"""File extensions identifying Python distributions among release assets.
+
+The counterpart of {data}`BINARY_ASSET_SUFFIXES`, and the same kind of single
+definition: {func}`pack_binary_assets` excludes this set from the binary
+upload list (`create-release` already attached those), and the dev-release
+asset globs add it on top of the compiled binaries.
+"""
+
 
 def compute_file_sha256(path: Path) -> str:
     """Compute the SHA-256 hex digest of a file.
@@ -228,8 +237,8 @@ def binary_filename_re(package: str) -> re.Pattern[str]:
     )
 
 
-def stage_binary_assets(dist_dir: Path, version: str) -> list[Path]:
-    """Stage a release's upload list, materializing the versionless aliases.
+def pack_binary_assets(dist_dir: Path, version: str) -> list[Path]:
+    """Pack a release's upload list, materializing the versionless aliases.
 
     Mirrors what the release engine's upload step needs: every file in
     *dist_dir* except the Python distributions (`create-release` already
@@ -249,7 +258,7 @@ def stage_binary_assets(dist_dir: Path, version: str) -> list[Path]:
     uploads = {
         path
         for path in dist_dir.iterdir()
-        if path.is_file() and not path.name.endswith((".tar.gz", ".whl"))
+        if path.is_file() and not path.name.endswith(PYTHON_DIST_SUFFIXES)
     }
     for path in sorted(uploads):
         alias = versionless_alias(path.name, version)

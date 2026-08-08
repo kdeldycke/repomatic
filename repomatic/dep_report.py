@@ -367,6 +367,14 @@ The {mod}`repomatic.version_sync` updaters pass their own `minimum-release-age`
 wording to {func}`format_held_back_table` instead.
 """
 
+HELD_BACK_COLUMNS = ("Locked", "Available", "Released", "Eligible")
+"""Held-back columns following the caller-supplied subject column.
+
+Shared with {func}`repomatic.sync_ops.print_held_back_table`, so a run's
+markdown PR body and its terminal table name the same columns in the same
+order instead of drifting apart as two hand-kept literals.
+"""
+
 
 def build_held_back(
     name: str,
@@ -432,7 +440,7 @@ def format_held_back_table(
     return markdown_section(
         "⏸️ Held back by cooldown",
         note,
-        (subject, "Locked", "Available", "Released", "Eligible"),
+        (subject, *HELD_BACK_COLUMNS),
         [
             (
                 link_name(pkg.name, name_urls),
@@ -497,6 +505,13 @@ BYPASS_SECTION_NOTE = (
 )
 """Intro paragraph for the `sync-uv-lock` cooldown-bypasses section."""
 
+BYPASS_COLUMNS = ("Package", "Held at", "Held until")
+"""Columns of the cooldown-bypass table.
+
+Shared with {func}`repomatic.sync_ops.print_bypass_table` for the reason
+{data}`HELD_BACK_COLUMNS` is.
+"""
+
 
 def format_bypass_section(
     forecasts: list[BypassForecast],
@@ -556,7 +571,7 @@ def format_bypass_section(
     return markdown_section(
         "❄️ Cooldown bypasses",
         BYPASS_SECTION_NOTE,
-        ("Package", "Held at", "Held until"),
+        BYPASS_COLUMNS,
         rows,
     )
 

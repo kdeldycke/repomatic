@@ -61,7 +61,7 @@ any-glob-to-any-file = ["docs/**"]
 
 [[tool.repomatic.labels.content-rules]]
 label = "🛡️ security"
-patterns = ["(CVE|vulnerability)"]
+patterns = ['/\bCVE\b|\bvulnerability\b/i']
 
 [tool.repomatic.workflow.paths]
 "tests.yaml" = ["install.sh", "packages.toml", ".github/workflows/tests.yaml"]
@@ -88,6 +88,10 @@ A repository that committed them before will see them reported as excluded files
 ```shell-session
 $ repomatic init --delete-excluded
 ```
+
+### Labeller rules
+
+`labels.file-rules` match a pull request's changed paths through `actions/labeler`, which OR-joins repeated globs for the same label. `labels.content-rules` match issue and pull request prose through `github/issue-labeler`, which does the opposite: it **AND-joins** a label's `patterns`, so a list of bare keywords fires only when every one of them shows up in the same issue. Give each label a single pattern that ORs its keywords into one alternation, written in the `/…/i` form so it matches case-insensitively, and anchored with `\b` so `fix` does not fire on `prefix`. `sync-labels` warns when a label carries more than one pattern.
 
 ### Flavors
 

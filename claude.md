@@ -283,15 +283,15 @@ Jobs default to `ubuntu-slim` (a lean image), and downstream workflows inherit i
 
 CLI commands, workflow job IDs, PR branch names, and PR body template names must share the same verb prefix, keeping the conventions learnable and grepable.
 
-| Prefix     | Semantics                                         | Source of truth      | Idempotent? | Examples                                          |
-| :--------- | :------------------------------------------------ | :------------------- | :---------- | :------------------------------------------------ |
-| `sync-X`   | Regenerate from a canonical or external source.   | Template, API, repo  | Yes         | `sync-gitignore`, `sync-mailmap`, `sync-uv-lock`  |
-| `update-X` | Compute from project state.                       | Lockfile, git log    | Yes         | `update-dep-graph`, `update-checksums`            |
-| `format-X` | Rewrite to enforce canonical style.               | Formatter rules      | Yes         | `format-json`, `format-markdown`, `format-python` |
-| `fix-X`    | Correct content (auto-fix).                       | Linter/checker rules | Yes         | `fix-typos`                                       |
-| `lint-X`   | Check content without modifying it.               | Linter rules         | Yes         | `lint-changelog`                                  |
-| `pack-X`   | Assemble a distributable archive from repo files. | Repository tree      | Yes         | `pack-plugin`                                     |
-| `scan-X`   | Submit artifacts to an external analysis service. | External API         | Yes         | `scan-virustotal`                                 |
+| Prefix     | Semantics                                          | Source of truth      | Idempotent? | Examples                                          |
+| :--------- | :------------------------------------------------- | :------------------- | :---------- | :------------------------------------------------ |
+| `sync-X`   | Regenerate from a canonical or external source.    | Template, API, repo  | Yes         | `sync-gitignore`, `sync-mailmap`, `sync-uv-lock`  |
+| `update-X` | Compute from project state.                        | Lockfile, git log    | Yes         | `update-dep-graph`, `update-checksums`            |
+| `format-X` | Rewrite to enforce canonical style.                | Formatter rules      | Yes         | `format-json`, `format-markdown`, `format-python` |
+| `fix-X`    | Correct content (auto-fix).                        | Linter/checker rules | Yes         | `fix-typos`                                       |
+| `lint-X`   | Check content without modifying it.                | Linter rules         | Yes         | `lint-changelog`                                  |
+| `pack-X`   | Assemble a distributable artifact set for release. | Repository tree      | Yes         | `pack-binaries`, `pack-plugin`                    |
+| `scan-X`   | Submit artifacts to an external analysis service.  | External API         | Yes         | `scan-virustotal`                                 |
 
 **Rules:**
 

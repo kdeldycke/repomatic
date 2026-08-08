@@ -655,7 +655,7 @@ jobs:
         # Python distributions live in the CLI; the shell only feeds the
         # printed list to `gh release upload`.
         run: |
-          uv --no-progress run --frozen -- repomatic stage-binaries \
+          uv --no-progress run --frozen -- repomatic pack-binaries \
             --version "${CURRENT_VERSION}" --dir ./compile-assets > upload-list.txt
           if [[ -s upload-list.txt ]]; then
             xargs gh release upload "v${CURRENT_VERSION}" \

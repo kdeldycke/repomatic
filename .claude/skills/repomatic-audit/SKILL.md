@@ -16,7 +16,7 @@ argument-hint: '[all|workflows|configs|claude]'
 
 ## Instructions
 
-You perform a comprehensive audit of a downstream repository against the upstream `kdeldycke/repomatic` reference. This goes **beyond** what `repomatic workflow sync` handles — it catches stale action versions in custom job content, missing workarounds, outdated configs, and conventions that can be borrowed from upstream.
+You perform a comprehensive audit of a downstream repository against the upstream `kdeldycke/repomatic` reference. This goes **beyond** what `repomatic init workflows` handles: it catches stale action versions in custom job content, missing workarounds, outdated configs, and conventions that can be borrowed from upstream.
 
 **This skill is for downstream repos only.** If the context shows `CANONICAL_REPO`, tell the user this skill is not applicable.
 

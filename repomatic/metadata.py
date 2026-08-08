@@ -90,6 +90,7 @@ from .binary import (
     FLAT_BUILD_TARGETS,
     NUITKA_BUILD_TARGETS,
     SKIP_BINARY_BUILD_BRANCHES,
+    binary_name,
 )
 from .changelog import (
     GITHUB_RELEASE_URL,
@@ -1918,16 +1919,18 @@ class Metadata:
         matrix.add_variation("commit", build_commit_matrix["commit"])
         matrix.add_includes(*build_commit_matrix.include)
 
-        # Augment each variation set of the matrix with a the binary name to be
-        # produced by Nuitka. Itererate over all matrix variation sets so we have all
-        # metadata necessary to generate a unique name specific to these variations.
+        # Augment each variation set of the matrix with the binary name Nuitka
+        # produces. Iterate over all matrix variation sets so we have all the
+        # metadata needed to generate a name unique to these variations.
         for variations in matrix.solve():
-            # We will re-attach back this binary name to the with an include directive,
-            # so we need a copy the main variants it corresponds to.
+            # We re-attach the binary name with an include directive, so we need a
+            # copy of the main variants it corresponds to.
             bin_name_include = {k: variations[k] for k in matrix.variations}
-            bin_name_include["bin_name"] = (
-                "{cli_id}-{current_version}-{target}.{extension}"
-            ).format(**variations)
+            bin_name_include["bin_name"] = binary_name(
+                variations["cli_id"],
+                variations["target"],
+                variations["current_version"],
+            )
             matrix.add_includes(bin_name_include)
 
         # All jobs are stable by default, unless marked otherwise by specific

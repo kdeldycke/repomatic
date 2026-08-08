@@ -86,11 +86,11 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    ```shell-session
    $ uv run pytest --no-header -q &
-   $ uv run --group typing repomatic run mypy -- repomatic tests docs &
+   $ git ls-files '*.py' | xargs uv run --group typing repomatic run mypy -- &
    $ uv run repomatic run ruff -- check repomatic tests docs &
    ```
 
-   The mypy and ruff commands must cover **every directory holding tracked Python** — `repomatic`, `tests`, and `docs`. CI's `lint.yaml` type-checks every tracked Python file, so a narrower local scope misses errors that fail only in CI (see § mypy scope mismatch below).
+   The mypy command must cover **every tracked Python file**, which is why it pipes `git ls-files` rather than naming directories: CI's `lint.yaml` feeds `metadata`'s `python_files` through `xargs` into the same command, so this form matches it exactly, while a directory list silently misses any tracked `.py` living outside them (see § mypy scope mismatch below).
 
    **Gate 1 (local, ~30s):** if any local check fails, you already have the diagnosis: skip straight to step 5 without waiting for CI.
 
@@ -145,7 +145,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    ```shell-session
    $ uv run pytest --no-header -q
-   $ uv run --group typing repomatic run mypy -- repomatic tests docs
+   $ git ls-files '*.py' | xargs uv run --group typing repomatic run mypy --
    $ uv run repomatic run ruff -- check repomatic tests docs
    $ uv run repomatic run ruff -- format repomatic tests docs
    ```
@@ -216,7 +216,7 @@ When the same lines toggle between fixes across iterations, stop and apply a com
 
 ### mypy scope mismatch (local vs CI)
 
-The most common false-green scenario: mypy passes locally because you checked a subset of directories, while CI's `lint.yaml` runs mypy on **every tracked Python file** (`tests/` and `docs/` included). Always run `repomatic run mypy -- repomatic tests docs` locally: an error only in a test or docs file still blocks CI.
+The most common false-green scenario: mypy passes locally because you checked a subset of directories, while CI's `lint.yaml` runs mypy on **every tracked Python file** (`tests/` and `docs/` included). Always drive it from the file list locally, `git ls-files '*.py' | xargs repomatic run mypy --`, which is what CI pipes in: an error only in a test or docs file still blocks CI, and a tracked `.py` outside `repomatic/`, `tests/` and `docs/` is invisible to a directory list.
 
 ### Platform-specific test skips
 

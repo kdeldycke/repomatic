@@ -30,7 +30,7 @@ Installing needs **Claude Code 2.1.224 or later**. The marketplace fetches the p
 
 ## What it ships
 
-Every skill and agent, and nothing else: the 15 skills listed on the [skills page](skills.md) and the 3 agents on the [agents page](agents.md), read straight from `.claude/skills/` and `.claude/agents/` on `main`. Those directories stay the single source of truth, so there is no second copy of any skill in the repository and what you install is what you can read there.
+Every skill and agent, and nothing else: the 16 skills listed on the [skills page](skills.md) and the 3 agents on the [agents page](agents.md), read straight from `.claude/skills/` and `.claude/agents/` on `main`. Those directories stay the single source of truth, so there is no second copy of any skill in the repository and what you install is what you can read there.
 
 The archive places them at the plugin spec's default `skills/` and `agents/` directories, so the manifest at [`.claude-plugin/plugin.json`](https://github.com/kdeldycke/repomatic/blob/main/.claude-plugin/plugin.json) declares metadata only and no component paths:
 

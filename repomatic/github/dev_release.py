@@ -45,24 +45,23 @@ import json
 import logging
 from pathlib import Path
 
-from ..binary import BINARY_ASSET_SUFFIXES
+from ..binary import BINARY_ASSET_SUFFIXES, PYTHON_DIST_SUFFIXES
 from ..changelog import Changelog, build_expected_body
 from .gh import run_gh_command
 from .releases import edit_release_notes
 
-DEV_ASSET_PATTERNS = tuple(f"*{suffix}" for suffix in BINARY_ASSET_SUFFIXES) + (
-    "*.whl",
-    "*.tar.gz",
+DEV_ASSET_PATTERNS = tuple(
+    f"*{suffix}" for suffix in BINARY_ASSET_SUFFIXES + PYTHON_DIST_SUFFIXES
 )
 """Glob patterns for dev release assets.
 
-Two halves, and only the second one is this module's own. The compiled
-binaries are {data}`~repomatic.binary.BINARY_ASSET_SUFFIXES` spelled as
-globs, so a dev pre-release carries exactly the artifacts the release workflow
-downloads and `scan-virustotal` submits: derived rather than re-listed, because
-a dev release advertising a different set of binaries than the real one is the
-bug this pairing exists to prevent. The Python distribution extensions are what
-a dev pre-release adds on top, having no counterpart in the binaries catalog.
+Both halves are spelled as globs from the sets that define them:
+{data}`~repomatic.binary.BINARY_ASSET_SUFFIXES` for the compiled binaries, so a
+dev pre-release carries exactly the artifacts the release workflow downloads and
+`scan-virustotal` submits, and {data}`~repomatic.binary.PYTHON_DIST_SUFFIXES`
+for what a dev pre-release adds on top. Derived rather than re-listed, because a
+dev release advertising a different set of assets than the real one is the bug
+this pairing exists to prevent.
 
 ```{note}
 Bare extensions (no `repomatic-` prefix) keep patterns generic so

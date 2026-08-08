@@ -198,7 +198,7 @@ def _binary_assets(release: ReleaseWithAssets) -> list[ReleaseAsset]:
 
     Releases also carry versionless alias copies of each binary, backing the
     stable ``releases/latest/download`` URLs (created by
-    {func}`~repomatic.binary.stage_binary_assets`, which
+    {func}`~repomatic.binary.pack_binary_assets`, which
     `release-assets` runs in the release engine). An alias shares its digest
     with its versioned sibling: collapse each digest group onto its longest
     name (the versioned one, since {func}`~repomatic.binary.versionless_alias`

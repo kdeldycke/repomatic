@@ -310,8 +310,11 @@ output-prefer-rule-codes = true
 [tool.typos]
 default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "JavaScript", MacOS = "macOS", PNGs = "PNGs", PyPi = "PyPI", Typescript = "TypeScript" }
 # False positives. "Contribuer" is the French for "Contributing", part of the
-# translated-readme fixture in tests/test_awesome_toc.py.
-default.extend-words = { astroid = "astroid", Contribuer = "Contribuer", oject = "oject", PNGs = "PNGs", sur = "sur" }
+# translated-readme fixture in tests/test_awesome_toc.py. "quater" is the fourth
+# term of the Latin ordinal series numbering the repo-lint checks (bis, ter,
+# quater), not a misspelling of "quarter": the unattended fix-typos job rewrote
+# it once already and had to be reverted by hand.
+default.extend-words = { astroid = "astroid", Contribuer = "Contribuer", oject = "oject", PNGs = "PNGs", quater = "quater", sur = "sur" }
 # Skip content between <!-- typos:off --> and <!-- typos:on --> markers.
 default.extend-ignore-re = [
   "(?s)<!-- typos:off -->.*?<!-- typos:on -->",
@@ -523,3 +526,20 @@ pypi-package-history = [ "gha-utils", "repokit" ]
 # marketplace at .claude-plugin/marketplace.json installs the plugin straight
 # from this asset, so a release missing it breaks `/plugin install`.
 release-assets = [ "repomatic-claude-plugin.zip" ]
+
+[tool.actionlint]
+# actionlint reads no pyproject section of its own: repomatic serializes this one
+# to a temporary YAML config and passes it via `--config-file`. `paths` keys are
+# globs relative to the repository root, and each `ignore` entry is a regular
+# expression matched against the error message.
+#
+# `github.job_workflow_sha` is a real context property, holding the commit SHA of
+# the reusable workflow file itself, which the tool-cache keys read so they do not
+# rotate on every caller commit. GitHub documents it only as an OIDC token claim,
+# never on the `github` context reference page, so actionlint's schema lacks it.
+# Drop this entry once rhysd/actionlint#671 ships in a release.
+#
+# The glob carries no dot on purpose: click-extra expands every dotted key of
+# `pyproject.toml`, and one starting with a dot makes it warn on each repomatic
+# invocation. `**` matches dot-directories, so `.github/workflows/` is covered.
+paths."**/workflows/*".ignore = [ 'property "job_workflow_sha" is not defined' ]
