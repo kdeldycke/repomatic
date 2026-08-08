@@ -6,9 +6,11 @@
 > This version is **not released yet** and is under active development.
 
 - The generated downstream `release.yaml` now carries the canonical deny-by-default `permissions: {}`. The multi-lane renderer skipped it, so a consumer job appended below the managed lanes ran with the repository's default token scopes.
+
 - The generated `release.yaml` keeps the extra `needs:` edges a consumer declares on its `release` lane, instead of resetting them to a bare `build` on every sync. This is what gates the engine on a caller-side `release-assets` build job. An edge naming a managed lane, or a job that no longer exists, is still dropped.
 
 - Fix `repomatic run` finding no binary on a Linux distribution `extra-platforms` cannot name, which broke every registry tool inside the AlmaLinux-based manylinux build container.
+
 - Re-lock `uv.lock` in the release freeze commit, so a release no longer ships with its version ahead of its own lock entry. The desync made the Windows binary builds fail.
 
 ## [`7.5.0` (2026-08-07)](https://github.com/kdeldycke/repomatic/compare/v7.4.1...v7.5.0)
