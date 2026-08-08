@@ -10,10 +10,10 @@ name: 🏷️ Labels
   pull_request:
     branches-ignore:
       # This filter matches the PR's *base* branch (always `main`), not its
-      # head, so it does not actually exclude these PRs — see
-      # https://github.com/actions/runner/issues/1591. The real skip is the
-      # `github.head_ref` check in the `metadata` job's `if:` below. Kept
-      # here as documentation of intent.
+      # head, so it does not actually exclude these PRs: see
+      # https://github.com/actions/runner/issues/1591. Kept here as
+      # documentation of intent, since the skip only becomes real through a
+      # `github.head_ref` check on a job's `if:`, propagated through `needs:`.
       - major-version-increment
       - minor-version-increment
       - prepare-release
