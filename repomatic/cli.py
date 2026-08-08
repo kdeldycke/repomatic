@@ -3186,13 +3186,13 @@ def pack_plugin_cmd(output: Path) -> None:
 
     \b
     Examples:
-        # Pack into the default ./repomatic-plugin.zip
+        # Pack into the default ./repomatic-claude-plugin.zip
         repomatic pack-plugin
 
     \b
         # Install the packed plugin locally, without a marketplace
-        repomatic pack-plugin --output /tmp/repomatic-plugin.zip
-        unzip /tmp/repomatic-plugin.zip -d /tmp/plugin
+        repomatic pack-plugin --output /tmp/repomatic-claude-plugin.zip
+        unzip /tmp/repomatic-claude-plugin.zip -d /tmp/plugin
         claude --plugin-dir /tmp/plugin/repomatic
     """
     members = pack_plugin(Path.cwd(), output)

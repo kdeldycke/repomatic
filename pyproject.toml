@@ -522,4 +522,4 @@ pypi-package-history = [ "gha-utils", "repokit" ]
 # attached to every GitHub release by the engine's extra-assets job. The
 # marketplace at .claude-plugin/marketplace.json installs the plugin straight
 # from this asset, so a release missing it breaks `/plugin install`.
-release-assets = [ "repomatic-plugin.zip" ]
+release-assets = [ "repomatic-claude-plugin.zip" ]

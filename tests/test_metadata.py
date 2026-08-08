@@ -825,7 +825,7 @@ expected: dict[str, Any] = {
     "manpages_script": "repomatic.cli:repomatic",
     "manpages_asset_name": "",
     # Plain strings, not Path objects, so GitHub format joins them unquoted.
-    "release_assets": StringList(["repomatic-plugin.zip"]),
+    "release_assets": StringList(["repomatic-claude-plugin.zip"]),
     "nuitka_enabled": True,
     "nuitka_extras": [],
     "nuitka_nofollow_imports": StringList(["tkinter"]),

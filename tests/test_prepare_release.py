@@ -24,6 +24,7 @@ from textwrap import dedent
 
 import pytest
 
+from repomatic.plugin import ARCHIVE_NAME
 from repomatic.prepare_release import (
     LOCAL_CLI_INVOCATION,
     SELF_PIN_COOLDOWN_EXEMPTION,
@@ -727,7 +728,7 @@ def test_freeze_install_missing_file(
     assert result is False
 
 
-def _marketplace(tmp_path: Path, url_path: str) -> Path:
+def _marketplace(tmp_path: Path, url_path: str, archive: str = ARCHIVE_NAME) -> Path:
     """Write a minimal plugin marketplace whose archive URL uses *url_path*."""
     target = tmp_path / "marketplace.json"
     target.write_text(
@@ -741,7 +742,7 @@ def _marketplace(tmp_path: Path, url_path: str) -> Path:
                         "source": "archive",
                         "url": (
                             "https://github.com/kdeldycke/repomatic"
-                            f"/releases/{url_path}/repomatic-plugin.zip"
+                            f"/releases/{url_path}/{archive}"
                         ),
                     },
                 }
@@ -753,10 +754,20 @@ def _marketplace(tmp_path: Path, url_path: str) -> Path:
 
 
 @pytest.mark.parametrize(
-    ("url_path", "stale"),
+    ("url_path", "archive", "stale"),
     (
-        pytest.param("latest/download", "latest/download", id="never-frozen"),
-        pytest.param("download/v1.2.2", "v1.2.2", id="already-frozen"),
+        pytest.param(
+            "latest/download", ARCHIVE_NAME, "latest/download", id="never-frozen"
+        ),
+        pytest.param("download/v1.2.2", ARCHIVE_NAME, "v1.2.2", id="already-frozen"),
+        # A release that renames the asset: the freeze must move the filename too,
+        # or the pinned URL keeps naming a file the new tag no longer publishes.
+        pytest.param(
+            "download/v1.2.2",
+            "repomatic-plugin.zip",
+            "repomatic-plugin.zip",
+            id="renamed-archive",
+        ),
     ),
 )
 def test_freeze_marketplace_archive_url(
@@ -764,11 +775,12 @@ def test_freeze_marketplace_archive_url(
     temp_pyproject: Path,
     monkeypatch,
     url_path: str,
+    archive: str,
     stale: str,
 ) -> None:
     """Both the initial and the already-frozen URL ratchet to the new release."""
     monkeypatch.chdir(tmp_path)
-    target = _marketplace(tmp_path, url_path)
+    target = _marketplace(tmp_path, url_path, archive)
 
     prep = PrepareRelease(marketplace_path=target)
     assert prep.freeze_marketplace_archive_url("1.2.3") is True
@@ -777,7 +789,7 @@ def test_freeze_marketplace_archive_url(
     assert stale not in content
     assert (
         "https://github.com/kdeldycke/repomatic"
-        "/releases/download/v1.2.3/repomatic-plugin.zip"
+        f"/releases/download/v1.2.3/{ARCHIVE_NAME}"
     ) in content
     # Still valid JSON, and only the URL moved.
     entry = json.loads(content)["plugins"][0]
@@ -822,7 +834,7 @@ def test_post_release_leaves_the_marketplace_url_pinned(
     )
     prep.post_release(update_workflows=True)
 
-    assert "/releases/download/v1.2.3/repomatic-plugin.zip" in target.read_text(
+    assert "/releases/download/v1.2.3/repomatic-claude-plugin.zip" in target.read_text(
         encoding="UTF-8"
     )
 

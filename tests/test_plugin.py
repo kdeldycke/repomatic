@@ -55,6 +55,7 @@ from repomatic.plugin import (
     pack_plugin,
     render_plugin_settings,
 )
+from repomatic.prepare_release import PrepareRelease
 from repomatic.registry import COMPONENTS_BY_NAME
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -114,6 +115,12 @@ def manifest() -> dict[str, Any]:
 def marketplace() -> dict[str, Any]:
     """The checked-in marketplace catalog, parsed."""
     return _load(MARKETPLACE_PATH)
+
+
+@pytest.fixture
+def marketplace_raw() -> str:
+    """The checked-in marketplace catalog, as text the freeze can rewrite."""
+    return (PROJECT_ROOT / MARKETPLACE_PATH).read_text(encoding="UTF-8")
 
 
 def test_manifest_identity(manifest) -> None:
@@ -182,10 +189,8 @@ Anything else, notably a `vX.Y.Z.devN` tag that was never created, would leave
 def test_marketplace_installs_from_the_release_archive(marketplace) -> None:
     """The single entry fetches the archive the release lane attaches.
 
-    Ties the marketplace URL to {data}`~repomatic.plugin.ARCHIVE_NAME` and to the
-    repository, so renaming the asset cannot leave the catalog pointing at a
-    filename no release publishes, and pins the URL to a shape that always
-    resolves.
+    Ties the marketplace URL to the repository and pins it to a shape that always
+    resolves, so the catalog cannot point at a `.devN` tag that was never created.
     """
     source = marketplace["plugins"][0]["source"]
     assert source["source"] == "archive"
@@ -197,6 +202,29 @@ def test_marketplace_installs_from_the_release_archive(marketplace) -> None:
         "vX.Y.Z/ pin, never a .devN tag."
     )
     assert match["repo"] == MARKETPLACE_REPO
+
+
+def test_marketplace_url_converges_on_the_current_archive_name(
+    tmp_path: Path, marketplace_raw: str
+) -> None:
+    """The next release freeze lands the URL on {data}`ARCHIVE_NAME`.
+
+    Asserted by running the freeze rather than by comparing against the
+    checked-in filename, because the two legitimately differ for exactly one
+    cycle after the asset is renamed: the URL pins the *last published* release,
+    which still carries the old filename, and only the next freeze can move both
+    together. Comparing the literal here would force a choice between a red test
+    and a URL that 404s until the next release.
+    """
+    target = tmp_path / "marketplace.json"
+    target.write_text(marketplace_raw, encoding="UTF-8")
+
+    PrepareRelease(marketplace_path=target).freeze_marketplace_archive_url("9.9.9")
+
+    match = ARCHIVE_URL_RE.match(
+        json.loads(target.read_text(encoding="UTF-8"))["plugins"][0]["source"]["url"]
+    )
+    assert match
     assert match["asset"] == ARCHIVE_NAME
 
 

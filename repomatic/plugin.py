@@ -133,13 +133,23 @@ every existing install.
 MARKETPLACE_REPO = "kdeldycke/repomatic"
 """Repository a consumer registers to reach {data}`MARKETPLACE_PATH`."""
 
-ARCHIVE_NAME = "repomatic-plugin.zip"
+ARCHIVE_NAME = "repomatic-claude-plugin.zip"
 """Filename of the release asset {func}`pack_plugin` produces.
+
+Carries `claude` because a bare `repomatic-plugin.zip` reads backwards: packaging
+names an extension after its host first (`pytest-cov`, `mdformat-gfm`), so that
+filename announces a plugin *for* repomatic on a release page, which is also what
+"plugin" means for the mdformat entries of
+{mod}`~repomatic.tool_registry`. The name mirrors the spec's own
+`.claude-plugin/` directory instead.
 
 Also the default `--output` of `repomatic pack-plugin`, so the release job never
 spells it. It still appears in `[tool.repomatic] release-assets` and in the
 `release-asset-` run-artifact name the engine matches, which TOML and YAML cannot
 read from here; `tests/test_workflows.py` holds all three equal.
+{meth}`~repomatic.prepare_release.PrepareRelease.freeze_marketplace_archive_url`
+rewrites the marketplace URL's trailing filename from here too, so a rename
+reaches every consumer through one constant.
 """
 
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)

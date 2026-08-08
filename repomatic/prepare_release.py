@@ -57,7 +57,7 @@ from pathlib import Path
 from .changelog import Changelog
 from .config import load_repomatic_config
 from .metadata import Metadata
-from .plugin import MARKETPLACE_PATH
+from .plugin import ARCHIVE_NAME, MARKETPLACE_PATH
 
 SELF_PIN_COOLDOWN_EXEMPTION = "--exclude-newer-package repomatic=P0D"
 """uv escape hatch letting a just-published repomatic install under the cooldown.
@@ -371,19 +371,31 @@ class PrepareRelease:
         """Pin the plugin marketplace's archive URL to this release.
 
         This is part of the **freeze** step. The `archive` source in
-        `.claude-plugin/marketplace.json` points at the `repomatic-plugin.zip`
-        asset of a GitHub release, and pinning the tag is what makes a marketplace
-        ref meaningful: adding the catalog at `kdeldycke/repomatic@v6.0.0` then
-        installs v6.0.0's plugin, where a `latest` redirect would hand over
-        whatever shipped most recently regardless of the ref asked for.
+        `.claude-plugin/marketplace.json` points at the release asset named by
+        {data}`~repomatic.plugin.ARCHIVE_NAME`, and pinning the tag is what makes
+        a marketplace ref meaningful: adding the catalog at
+        `kdeldycke/repomatic@v6.0.0` then installs v6.0.0's plugin, where a
+        `latest` redirect would hand over whatever shipped most recently
+        regardless of the ref asked for.
 
         Handles the same two input forms as
         {meth}`freeze_install_download_urls`:
 
         - **Initial** (never frozen):
-          `/releases/latest/download/repomatic-plugin.zip`
+          `/releases/latest/download/repomatic-claude-plugin.zip`
         - **Previously frozen**:
-          `/releases/download/v6.0.0/repomatic-plugin.zip`
+          `/releases/download/v6.0.0/repomatic-claude-plugin.zip`
+
+        ```{note}
+        The trailing filename is rewritten too, not just the tag, so
+        {data}`~repomatic.plugin.ARCHIVE_NAME` is the single source of truth for
+        the whole URL. Renaming the asset would otherwise leave the checked-in URL
+        naming a file the next release no longer publishes, and the mismatch would
+        only surface as a failed `/plugin install`. Rewriting both together also
+        keeps the default branch installable across the rename: the URL still
+        names the asset the *last published* release actually carries until this
+        method flips tag and filename in the same commit.
+        ```
 
         ```{note}
         No unfreeze method, for the same reason download URLs have none: the URL
@@ -403,8 +415,8 @@ class PrepareRelease:
 
         original = self.marketplace_path.read_text(encoding="UTF-8")
         content = re.sub(
-            r"/releases/(?:latest/download|download/v[\d.]+)/",
-            f"/releases/download/v{version}/",
+            r"/releases/(?:latest/download|download/v[\d.]+)/[\w.-]+\.zip",
+            f"/releases/download/v{version}/{ARCHIVE_NAME}",
             original,
         )
         return self._update_file(self.marketplace_path, content, original)

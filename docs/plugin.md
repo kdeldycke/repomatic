@@ -33,7 +33,7 @@ Every skill and agent, and nothing else: the 15 skills listed on the [skills pag
 The archive places them at the plugin spec's default `skills/` and `agents/` directories, so the manifest at [`.claude-plugin/plugin.json`](https://github.com/kdeldycke/repomatic/blob/main/.claude-plugin/plugin.json) declares metadata only and no component paths:
 
 ```text
-repomatic-plugin.zip
+repomatic-claude-plugin.zip
 └── repomatic/
     ├── .claude-plugin/plugin.json
     ├── agents/<name>.md
@@ -46,7 +46,7 @@ Do not add an `agents` path to the manifest to keep the `.claude/` layout inside
 
 ## Where the archive comes from
 
-Every GitHub release carries a `repomatic-plugin.zip` asset, and the marketplace entry installs from it. The archive is built by `repomatic pack-plugin` in the release workflow's `pack-plugin` job and attached by the release engine's [`extra-assets`](workflows.md#extra-release-assets-extra-assets) job, which also attests it.
+Every GitHub release carries a `repomatic-claude-plugin.zip` asset, and the marketplace entry installs from it. The archive is built by `repomatic pack-plugin` in the release workflow's `pack-plugin` job and attached by the release engine's [`extra-assets`](workflows.md#extra-release-assets-extra-assets) job, which also attests it.
 
 The entry's URL is pinned to a release tag, not a `latest` redirect, and **ratchets forward**: each release's freeze commit rewrites it to that release's tag and nothing walks it back. Two consequences worth knowing:
 
@@ -56,8 +56,8 @@ The entry's URL is pinned to a release tag, not a `latest` redirect, and **ratch
 The entry carries no `sha256` pin. Integrity comes from the release attestation instead:
 
 ```shell-session
-$ gh release download --pattern repomatic-plugin.zip
-$ gh attestation verify repomatic-plugin.zip \
+$ gh release download --pattern repomatic-claude-plugin.zip
+$ gh attestation verify repomatic-claude-plugin.zip \
     --repo kdeldycke/repomatic --signer-repo kdeldycke/repomatic
 ```
 
@@ -68,16 +68,16 @@ The version Claude Code compares against your installed copy is stamped into the
 The archive is a plain plugin directory, so it works offline and without git:
 
 ```shell-session
-$ gh release download --pattern repomatic-plugin.zip
-$ unzip repomatic-plugin.zip -d ./plugins
+$ gh release download --pattern repomatic-claude-plugin.zip
+$ unzip repomatic-claude-plugin.zip -d ./plugins
 $ claude --plugin-dir ./plugins/repomatic
 ```
 
 `--plugin-dir` lasts for the session only, which also makes it the way to try a change to a skill before releasing it:
 
 ```shell-session
-$ repomatic pack-plugin --output /tmp/repomatic-plugin.zip
-$ unzip /tmp/repomatic-plugin.zip -d /tmp/plugins
+$ repomatic pack-plugin --output /tmp/repomatic-claude-plugin.zip
+$ unzip /tmp/repomatic-claude-plugin.zip -d /tmp/plugins
 $ claude plugin validate /tmp/plugins/repomatic --strict
 $ claude --plugin-dir /tmp/plugins/repomatic
 ```

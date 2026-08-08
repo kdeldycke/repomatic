@@ -236,6 +236,20 @@ jobs:
           attestation verify "${BIN_NAME}"
           --repo "${{ github.repository }}"
           --signer-repo kdeldycke/repomatic
+      - name: Name the attestation bundle after its binary
+        # actions/attest writes every bundle to the same basename, so all matrix targets produce an `attestation.json`.
+        # The run artifacts keep them apart, but publish-release downloads them with `merge-multiple: true` into one
+        # directory, where identical filenames overwrite each other and only the last target's bundle reaches the
+        # release. Naming each after its subject fixes that, and makes the sidecar say which binary it covers.
+        if: >-
+          github.ref == 'refs/heads/main'
+          && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+          && steps.attest-binary.outputs.bundle-path
+        env:
+          BIN_NAME: ${{ matrix.bin_name }}
+          BUNDLE_PATH: ${{ steps.attest-binary.outputs.bundle-path }}
+        shell: bash
+        run: cp "${BUNDLE_PATH}" "${BIN_NAME}.attestation.json"
       - name: Upload attestation bundle
         if: >-
           github.ref == 'refs/heads/main'
@@ -244,7 +258,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: attestation-${{ matrix.bin_name }}-${{ matrix.short_sha }}
-          path: ${{ steps.attest-binary.outputs.bundle-path }}
+          path: ${{ matrix.bin_name }}.attestation.json
 
   test-binaries:
     name: "${{ matrix.state == 'stable' && '✅' || '⁉️' }} ${{ matrix.os }}, ${{ matrix.short_sha }} test"
@@ -498,9 +512,9 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          cp "${BUNDLE_PATH}" manpages.attestation.json &&
+          cp "${BUNDLE_PATH}" "${ASSET_NAME}.attestation.json" &&
           gh release upload "v${CURRENT_VERSION}"
-          "${ASSET_NAME}.tar.gz" manpages.attestation.json
+          "${ASSET_NAME}.tar.gz" "${ASSET_NAME}.attestation.json"
           --repo "${{ github.repository }}"
           --clobber
 
@@ -564,13 +578,17 @@ jobs:
               --signer-repo kdeldycke/repomatic
           done
       - name: Attach assets to release draft
+        # The bundle is named after the package rather than this job, so it sorts beside the assets it covers instead of
+        # landing under `e` on a release page listed alphabetically. Copied after the attest step, so it never ends up
+        # as a subject of itself.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
           BUNDLE_PATH: ${{ steps.attest-assets.outputs.bundle-path }}
+          PACKAGE_NAME: ${{ fromJSON(needs.metadata.outputs.metadata).package_name }}
         shell: bash
         run: |
-          cp "${BUNDLE_PATH}" release-assets/extra-assets.attestation.json
+          cp "${BUNDLE_PATH}" "release-assets/${PACKAGE_NAME}-extra-assets.attestation.json"
           gh release upload "v${CURRENT_VERSION}" \
             release-assets/* \
             --repo "${{ github.repository }}" \

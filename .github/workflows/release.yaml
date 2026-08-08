@@ -136,13 +136,23 @@ jobs:
   # Unconditional, with no `if:` and no matrix, because `release` needs this job:
   # a skip here would cascade into skipping the whole engine on regular pushes,
   # taking sync-dev-release with it. The artifact is only ever consumed on a
-  # release commit, where `main` HEAD is the freeze commit carrying the version
-  # the manifest declares.
+  # release commit, so a non-release run just packs a throwaway archive.
   pack-plugin:
     name: 🧩 Pack Claude Code plugin
+    # Only for `release_commits_matrix`, which the checkout below resolves the freeze commit from.
+    needs: build
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A release push carries the freeze commit *and* the post-release `.devN` bump, so `main` HEAD declares the
+          # version after the one being released. `pack-plugin` stamps `__version__` into the manifest it archives, so
+          # it has to run on the freeze commit or the published plugin advertises a `.devN` that was never released.
+          # Most recent release commit first, matching the version the marketplace URL is frozen to.
+          ref: >-
+            ${{ needs.build.outputs.release_commits_matrix
+            && fromJSON(needs.build.outputs.release_commits_matrix).commit[0]
+            || github.sha }}
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.1"
@@ -154,5 +164,5 @@ jobs:
       - name: Upload plugin artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-asset-repomatic-plugin.zip
-          path: repomatic-plugin.zip
+          name: release-asset-repomatic-claude-plugin.zip
+          path: repomatic-claude-plugin.zip

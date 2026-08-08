@@ -486,7 +486,7 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
 Repomatic-only. This job is not part of the shape `repomatic init` generates: it exists in the upstream `release.yaml` alone, as the reference consumer of the `release-assets` handoff described under [§ Extra release assets](#extra-release-assets-extra-assets). A downstream repository that wants its own extra asset writes an equivalent job of its own.
 ```
 
-- Runs `repomatic pack-plugin`, which assembles `.claude-plugin/plugin.json` and every skill and agent the component registry declares into `repomatic-plugin.zip`, then uploads it as the `release-asset-repomatic-plugin.zip` run artifact the engine's `extra-assets` job collects. See [§ Claude Code plugin](plugin.md).
+- Runs `repomatic pack-plugin`, which assembles `.claude-plugin/plugin.json` and every skill and agent the component registry declares into `repomatic-claude-plugin.zip`, then uploads it as the `release-asset-repomatic-claude-plugin.zip` run artifact the engine's `extra-assets` job collects. See [§ Claude Code plugin](plugin.md).
 - Deliberately unconditional, with no `if:` and no matrix. The `release` job gates on it, so a skip here would cascade into skipping the whole engine on ordinary pushes, taking `sync-dev-release` with it. Packing a zip is cheap enough to pay on every push.
 - The artifact is only ever consumed on a release commit, where `main` HEAD is the freeze commit whose version `pack-plugin` stamps into the packaged manifest.
 - Runs on `ubuntu-slim`.
@@ -548,7 +548,7 @@ flowchart TD
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x64`/`arm64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
 - Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)
-- On release pushes, each binary generates an attestation and uploads itself to the GitHub release as its build completes
+- On release pushes, each binary generates an attestation and uploads itself to the GitHub release as its build completes, alongside its own `<binary-name>.attestation.json` sigstore bundle
 - **Requires**:
   - Python package with [CLI entry points](https://docs.astral.sh/uv/concepts/projects/config/#entry-points) defined in `pyproject.toml`
 - **Skipped if** `[tool.repomatic] nuitka = false` is set in `pyproject.toml` (for projects with CLI entry points that don't need standalone binaries)
@@ -589,7 +589,7 @@ flowchart TD
 
 - Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
 - Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release **draft** via `gh release upload --clobber`, before `publish-release` publishes and locks the release
-- The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as a `manpages.attestation.json` asset, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`
+- The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as an `<asset-name>.attestation.json` asset, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`
 - **Requires**:
   - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra wrap --man SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
   - The consumer's `click-extra` floor is `>= 8`: the `--output-dir DIR` option to `click-extra wrap --man` writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing
@@ -602,7 +602,7 @@ flowchart TD
 
 - Attaches consumer-built assets declared by the `release-assets` filename list in `[tool.repomatic]`: each file must be uploaded as a `release-asset-<filename>` run artifact by a job the consumer defines in its own release workflow, the same caller-side handoff the wheel's `build` lane uses
 - The build code therefore stays in the downstream repository as regular workflow code, reviewed and linted there: the engine never executes consumer-supplied commands, it only downloads, attests, verifies, and uploads
-- Assets are attested with the same provenance chain as the compiled binaries and uploaded to the GitHub release **draft** together with their sigstore bundle (`extra-assets.attestation.json`), before `publish-release` publishes and locks the release; provenance verifies with `gh attestation verify <file> --repo <consumer> --signer-repo kdeldycke/repomatic`
+- Assets are attested with the same provenance chain as the compiled binaries and uploaded to the GitHub release **draft** together with their sigstore bundle (`<package-name>-extra-assets.attestation.json`), before `publish-release` publishes and locks the release; provenance verifies with `gh attestation verify <file> --repo <consumer> --signer-repo kdeldycke/repomatic`
 - A declared asset whose artifact never landed fails the job loudly, and that failure blocks `publish-release`, so a broken consumer build lane cannot silently ship a release without its asset. The release stays a draft, which is the recoverable state: re-run the lane, or attach the file by hand, then publish. Once published the release is immutable and the asset can never be added
 - **Requires**:
   - A non-empty `release-assets` list in the consumer's `pyproject.toml`, with space-free filenames
@@ -866,11 +866,11 @@ The block sits at workflow level rather than on each job or each command because
 
 Three installs opt out, each as narrowly as it can:
 
-| Install                          | Scope       | Why                                                                                                                                                       |
-| :------------------------------- | :---------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Install                          | Scope       | Why                                                                                                                                                                                            |
+| :------------------------------- | :---------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The frozen `repomatic` self-pin  | One package | Moves in lockstep with the `uses:` refs, so it names a release published minutes earlier. Both the release freeze and `sync-workflow-pins` splice `--exclude-newer-package` in beside the pin. |
-| A security fix inside the window | One package | `audit --fix` reaches the fix through an `exclude-newer-package` entry rather than lifting `exclude-newer` for everything.                                |
-| The `test-package-install` job   | One job     | Its subject *is* the fresh release, so a cooldown makes the question it answers unanswerable. It holds no secrets and inherits `permissions: {}`.         |
+| A security fix inside the window | One package | `audit --fix` reaches the fix through an `exclude-newer-package` entry rather than lifting `exclude-newer` for everything.                                                                     |
+| The `test-package-install` job   | One job     | Its subject *is* the fresh release, so a cooldown makes the question it answers unanswerable. It holds no secrets and inherits `permissions: {}`.                                              |
 
 The handful of `apt-get install` steps are not a fourth exemption: a distro archive is not a live registry. It is frozen at release and moves only through the distribution's own staging, so the delay a cooldown adds is already built in one layer down, and a distro version string names the maintainer's build rather than an upstream publish date, leaving a publish-date filter nothing to filter on. [meta-package-manager's inventory](https://kdeldycke.github.io/meta-package-manager/cooldown.html#supported-managers) marks these managers N/A rather than unsupported for that reason. A third-party repository added by hand (a PPA, a vendor `.repo` file) is the real exception, since it is a single-publisher registry with none of that staging behind it.
 
