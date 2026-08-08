@@ -51,9 +51,9 @@ from .github.releases import resolve_tag_to_sha
 from .github.workflow_sync import (
     PathsSpec,
     extract_extra_jobs,
-    generate_thin_caller,
     generate_workflow_header,
     identify_canonical_workflow,
+    render_thin_caller_for_target,
 )
 from .labels import augment_labeller_content
 from .metadata import Metadata
@@ -1113,25 +1113,13 @@ def _init_workflows(
         target = workflows_dir / filename
         rel = target.relative_to(output_dir).as_posix()
         existed = target.exists()
-        # Extra downstream jobs are read before generating, not after: their
-        # presence is what decides whether the caller spells out a permissions
-        # contract. Those jobs carry custom `steps:`, which is what makes a
-        # top-level `permissions: {}` worth pinning.
-        existing_content: str | None = None
-        extra = ""
-        if existed:
-            existing_content = target.read_text(encoding="UTF-8")
-            extra = extract_extra_jobs(existing_content, repo)
-        content = (
-            generate_thin_caller(
-                filename,
-                repo,
-                version,
-                paths_spec=paths_spec,
-                commit_sha=commit_sha,
-                with_permissions=bool(extra),
-            )
-            + extra
+        content, existing_content = render_thin_caller_for_target(
+            filename,
+            target,
+            repo=repo,
+            version=version,
+            paths_spec=paths_spec,
+            commit_sha=commit_sha,
         )
         if existed and existing_content == content:
             logging.debug(f"Unchanged: {rel}")

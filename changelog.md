@@ -5,7 +5,10 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** drop the `WorkflowFormat` enum and the `generate_workflows` function, orphaned since the `workflow create` and `workflow sync` CLI commands were removed. `repomatic init` is now the only way to write a workflow file.
 - `sync-workflow-pins` now splices the `--exclude-newer-package` cooldown exemption in beside the inline `repomatic==X.Y.Z` pin it realigns, so the freshly aligned version still resolves under a workflow's blanket `UV_EXCLUDE_NEWER`. Previously only the release freeze wrote the flag, leaving every downstream repository with a pin its own cooldown refused to install.
+- Fix `init` dropping the extra `needs:` edges a consumer declares on its `release` lane, which `7.6.0` only ever carried over on a code path no command reached.
+- Fix a blank line accumulating before a repository's extra release jobs on every sync.
 
 ## [`7.6.0` (2026-08-08)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...v7.6.0)
 

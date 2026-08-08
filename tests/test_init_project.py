@@ -1108,6 +1108,175 @@ def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch):
     assert "kdeldycke/repomatic/.github/workflows/autofix.yaml@v7.4.2" in autofix
 
 
+_PACKER_JOB = """
+  # Pack the recipe archive and hand it to the release engine.
+  build-packer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: echo pack
+"""
+"""A downstream asset-building job, appended below the managed lanes.
+
+Its `uses:` names no upstream workflow, so `extract_extra_jobs` reads it as a
+consumer addition rather than a managed lane.
+"""
+
+
+def _workflow_tree(root: Path) -> dict[str, bytes]:
+    """Every generated workflow file under *root*, keyed by relative path."""
+    workflows = root / ".github" / "workflows"
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(workflows.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _add_downstream_release_job(release: Path) -> None:
+    """Append {data}`_PACKER_JOB` to *release* and gate the engine lane on it.
+
+    Rewrites the `release` lane's `needs:` only: `publish-pypi` declares the
+    same `needs: build` earlier in the file, so a blind replace would hit it.
+    """
+    head, marker, tail = release.read_text(encoding="UTF-8").partition("  release:\n")
+    gated = tail.replace(
+        "    needs: build\n",
+        "    needs:\n      - build\n      - build-packer\n",
+        1,
+    )
+    release.write_text(head + marker + gated + _PACKER_JOB, encoding="UTF-8")
+
+
+def test_run_init_preserves_downstream_release_needs(tmp_path, monkeypatch):
+    """`repomatic init` carries a consumer's own `needs:` edge across a sync.
+
+    Asserted on the entry point `sync-repomatic` actually runs. The same
+    invariant held for {meth}`WorkflowFormat.write_workflow` while this path
+    silently dropped the edge, because the two rendered the caller through
+    separate copies of the same logic and only one was ever wired up.
+    """
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+
+    release = tmp_path / ".github" / "workflows" / "release.yaml"
+    _add_downstream_release_job(release)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+
+    jobs = yaml.safe_load(release.read_text(encoding="UTF-8"))["jobs"]
+    assert jobs["release"]["needs"] == ["build", "build-packer"]
+    assert "build-packer" in jobs
+
+
+def test_run_init_is_idempotent(tmp_path, monkeypatch):
+    """A second `init` over its own output rewrites nothing.
+
+    `sync-repomatic` re-runs `init` on every push to `main`, so any non-
+    convergent render becomes an unbounded drift that opens a fresh PR forever.
+    Checked with downstream extras in the tree, which is where the separator
+    between the managed lanes and those extras is re-derived.
+    """
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    _add_downstream_release_job(tmp_path / ".github" / "workflows" / "release.yaml")
+
+    # First re-run absorbs the hand edit; every run after it must be a no-op.
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    settled = _workflow_tree(tmp_path)
+
+    result = run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    drifted = sorted(
+        name
+        for name, content in _workflow_tree(tmp_path).items()
+        if settled.get(name) != content
+    )
+    assert not drifted, f"non-convergent render: {drifted}"
+    assert not result.updated
+
+
+# ---------------------------------------------------------------------------
+# Header-only sync of non-reusable workflows
+# ---------------------------------------------------------------------------
+
+
+_DOWNSTREAM_TESTS_YAML = (
+    '---\nname: Old Name\n"on":\n  push:\n\njobs:\n\n'
+    "  my-tests:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hello\n"
+)
+"""A downstream `tests.yaml`: canonical header gone stale, own jobs below it."""
+
+
+def _init_workflow(tmp_path, monkeypatch, filename: str, config=None):
+    """Run `init` for a single workflow file and return its content, if written."""
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    run_init(
+        output_dir=tmp_path,
+        components=(f"workflows/{filename}",),
+        cooldown=False,
+        config=config,
+    )
+    target = tmp_path / ".github" / "workflows" / filename
+    return target.read_text(encoding="UTF-8") if target.exists() else None
+
+
+def test_init_syncs_header_and_keeps_downstream_jobs(tmp_path, monkeypatch):
+    """A non-reusable workflow gets the canonical header, keeping its own jobs.
+
+    `tests.yaml` has no `workflow_call` trigger, so it is never rendered as a
+    caller: only everything above its `jobs:` line is replaced.
+    """
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(_DOWNSTREAM_TESTS_YAML, encoding="UTF-8")
+
+    content = _init_workflow(tmp_path, monkeypatch, "tests.yaml")
+
+    assert content is not None
+    assert "Old Name" not in content
+    assert "concurrency:" in content
+    assert "my-tests:" in content
+    assert "echo hello" in content
+
+
+def test_init_skips_a_non_reusable_workflow_absent_downstream(tmp_path, monkeypatch):
+    """Header-only sync never creates a file, it only updates one already there.
+
+    The downstream repo owns the jobs of a non-reusable workflow, so there is
+    nothing to write when it has not adopted the workflow at all.
+    """
+    assert _init_workflow(tmp_path, monkeypatch, "tests.yaml") is None
+
+
+def test_init_leaves_a_headerless_workflow_untouched(tmp_path, monkeypatch):
+    """Without a `jobs:` line there is no boundary to splice the header onto."""
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("---\nname: No Jobs\n", encoding="UTF-8")
+
+    assert _init_workflow(tmp_path, monkeypatch, "tests.yaml") == "---\nname: No Jobs\n"
+
+
+def test_init_header_sync_honors_paths_spec(tmp_path, monkeypatch):
+    """The synced header carries the repository's own `paths:` filters."""
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        '---\nname: stub\n"on":\n  push:\n    paths:\n      - placeholder\njobs:\n'
+        "  stub:\n    runs-on: ubuntu-latest\n",
+        encoding="UTF-8",
+    )
+    config = Config(workflow=WorkflowConfig(extra_paths=["recipe-specific.sh"]))
+
+    content = _init_workflow(tmp_path, monkeypatch, "tests.yaml", config=config)
+
+    assert content is not None
+    assert "recipe-specific.sh" in content
+    assert "placeholder" not in content
+
+
 def test_run_init_cooldown_steps_back_in_generated_pin(tmp_path, monkeypatch):
     """A fresh running version lands the stepped-back tag in the thin caller."""
     monkeypatch.setattr(ip, "__version__", "7.4.2")

@@ -21,7 +21,8 @@ manually write caller workflows that often miss triggers like
 `workflow_dispatch`. This module provides tools to generate, synchronize, and
 lint those callers by parsing the canonical workflow definitions.
 
-See {class}`WorkflowFormat` for available output formats and their behavior.
+{func}`render_thin_caller_for_target` is the single entry point that turns a
+canonical workflow into a downstream file on disk; `repomatic init` drives it.
 
 Generating and reshaping workflow content in Python, rather than
 hand-maintaining YAML, keeps logic out of the platform-specific GitHub Actions
@@ -43,20 +44,15 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import yaml
 
 from .. import __version__
 from ..bundle import get_data_content
-from ..compat import StrEnum
 from ..config import Config
 from ..registry import (
-    ALL_WORKFLOW_FILES,
     DEFAULT_REPO,
-    NON_REUSABLE_WORKFLOWS,
-    REUSABLE_WORKFLOWS,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
@@ -108,165 +104,6 @@ def cooldown_env_block() -> str:
         f"  NPM_CONFIG_MIN_RELEASE_AGE: {min_release_age_days(window)}\n"
         f'  UV_EXCLUDE_NEWER: "{window}"\n'
     )
-
-
-class WorkflowFormat(StrEnum):
-    """Output format for generated workflow files."""
-
-    FULL_COPY = "full-copy"
-    """Verbatim copy of the canonical workflow file.
-
-    Creates or overwrites the target with the full upstream content. Useful for
-    workflows that need no downstream customization.
-    """
-
-    HEADER_ONLY = "header-only"
-    """Sync only the header (`name`, `on`, `concurrency`) from upstream.
-
-    Replaces everything before the `jobs:` line in an existing downstream file
-    with the canonical header. The downstream `jobs:` section is preserved.
-    Requires the target file to already exist; does not create new files.
-    """
-
-    SYMLINK = "symlink"
-    """Create a symbolic link to the canonical workflow file.
-
-    Creates or overwrites the target as a symlink pointing to the upstream
-    workflow in the bundled data directory.
-    """
-
-    THIN_CALLER = "thin-caller"
-    """Generate a minimal caller that delegates to the reusable upstream workflow.
-
-    Creates or overwrites the target with a lightweight workflow containing only
-    `name`, `on` triggers, and a `jobs:` section that calls the upstream
-    workflow via `workflow_call`. Only works for reusable workflows (those with
-    a `workflow_call` trigger).
-
-    When the target file already exists and contains extra jobs beyond the
-    managed caller job, those jobs are preserved and appended after the
-    regenerated content.
-    """
-
-    def default_names(self) -> tuple[str, ...]:
-        """The workflow set a bare `create` or `sync` targets in this format.
-
-        Thin callers cover every reusable workflow, header-only syncs cover
-        the non-reusable ones, and the copy modes cover everything.
-        """
-        if self is WorkflowFormat.THIN_CALLER:
-            return REUSABLE_WORKFLOWS
-        if self is WorkflowFormat.HEADER_ONLY:
-            return tuple(sorted(NON_REUSABLE_WORKFLOWS))
-        return ALL_WORKFLOW_FILES
-
-    def write_workflow(
-        self,
-        filename: str,
-        target: Path,
-        *,
-        repo: str,
-        version: str,
-        spec: PathsSpec,
-        commit_sha: str | None,
-    ) -> bool:
-        """Write *target* in this format from the canonical *filename*.
-
-        Benign skips (a non-reusable workflow in thin-caller mode, a missing
-        downstream file in header-only mode) log a warning and count as
-        success; failures log an error.
-
-        :param filename: Canonical workflow filename (e.g. `tests.yaml`).
-        :param target: Destination path to write.
-        :param repo: Upstream repository for thin-caller `uses:` refs.
-        :param version: Version reference for thin-caller `uses:` refs.
-        :param spec: Paths-adaptation spec for thin callers and headers.
-        :param commit_sha: Full commit SHA for SHA-pinned `uses:` refs.
-        :return: `False` when the file could not be written, `True` otherwise.
-        """
-        if self is WorkflowFormat.THIN_CALLER:
-            if filename in NON_REUSABLE_WORKFLOWS:
-                logging.warning(
-                    f"Skipping {filename}: no workflow_call trigger"
-                    " (not reusable). Use full-copy or symlink mode instead."
-                )
-                return True
-
-            # Extra downstream jobs are read before generating, not after: their
-            # presence is what decides whether the caller spells out a
-            # permissions contract. Those jobs carry custom `steps:`, which is
-            # what makes a top-level `permissions: {}` worth pinning.
-            existing = target.read_text(encoding="UTF-8") if target.exists() else None
-            extra = extract_extra_jobs(existing, repo) if existing else ""
-
-            try:
-                content = generate_thin_caller(
-                    filename,
-                    repo,
-                    version,
-                    paths_spec=spec,
-                    commit_sha=commit_sha,
-                    with_permissions=bool(extra),
-                    existing=existing,
-                )
-            except ValueError as e:
-                logging.error(str(e))
-                return False
-
-            target.write_text(content + extra, encoding="UTF-8")
-            logging.info(f"Generated thin caller: {target}")
-            return True
-
-        if self is WorkflowFormat.HEADER_ONLY:
-            if not target.exists():
-                logging.warning(f"{target} does not exist. Skipping header-only sync.")
-                return True
-
-            try:
-                canonical_header = generate_workflow_header(filename, paths_spec=spec)
-            except (ValueError, FileNotFoundError) as e:
-                logging.error(f"Failed to extract header for {filename}: {e}")
-                return False
-
-            existing = target.read_text(encoding="UTF-8")
-            jobs_match = re.search(r"^jobs:", existing, re.MULTILINE)
-            if jobs_match is None:
-                logging.error(f"{target} has no 'jobs:' line to preserve.")
-                return False
-
-            content = canonical_header + existing[jobs_match.start() :]
-            target.write_text(content, encoding="UTF-8")
-            logging.info(f"Synced header: {target}")
-            return True
-
-        if self is WorkflowFormat.FULL_COPY:
-            try:
-                content = get_data_content(filename)
-            except FileNotFoundError as e:
-                logging.error(f"Failed to export {filename}: {e}")
-                return False
-
-            target.write_text(content, encoding="UTF-8")
-            logging.info(f"Exported full copy: {target}")
-            return True
-
-        assert self is WorkflowFormat.SYMLINK
-        try:
-            data_files = files("repomatic.data")
-            with as_file(data_files.joinpath(filename)) as source:
-                if not source.exists():
-                    logging.error(f"Bundled file not found: {filename}")
-                    return False
-                source_resolved = source.resolve()
-
-            if target.exists() or target.is_symlink():
-                target.unlink()
-            target.symlink_to(source_resolved)
-            logging.info(f"Created symlink: {target} -> {source_resolved}")
-        except OSError as e:
-            logging.error(f"Failed to create symlink for {filename}: {e}")
-            return False
-        return True
 
 
 PERMISSION_RANK: Final[dict[str, int]] = {"none": 0, "read": 1, "write": 2}
@@ -906,6 +743,78 @@ def generate_thin_caller(
     lines.append("")
 
     return "\n".join(lines)
+
+
+EXTRA_JOBS_SEPARATOR: Final[str] = "\n\n"
+"""Gap between the last managed lane and the downstream extras below it.
+
+Exactly one blank line, matching how {func}`_generate_release_caller` separates
+its own jobs. Both sides are trimmed before it is applied, because neither end
+is stable on its own: the release caller ends on a trailing blank line where a
+plain thin caller does not, and {func}`extract_extra_jobs` slices from the end
+of the last managed job body, so it returns however many blank lines the file
+already had. Joining those two as-is added one blank line per sync, without
+bound.
+"""
+
+
+def render_thin_caller_for_target(
+    filename: str,
+    target: Path,
+    *,
+    repo: str = DEFAULT_REPO,
+    version: str = DEFAULT_VERSION,
+    commit_sha: str | None = None,
+    paths_spec: PathsSpec | None = None,
+) -> tuple[str, str | None]:
+    """Render the complete downstream content of *target*, extras included.
+
+    The single seam between a canonical workflow and a file on disk: read what
+    is already there, carry over what only the downstream copy knows, render the
+    managed lanes, and re-attach the extras. `repomatic init` is the only
+    caller, so a preservation argument can only ever be wired up once.
+
+    ```{caution}
+    Do not inline this back into a caller. It previously existed as two
+    near-identical copies, and the `existing` argument that carries a consumer's
+    `needs:` edges across a sync reached only one of them: every downstream
+    `repomatic init` silently dropped the edge while the test suite, which drove
+    the other copy, stayed green. `tests/test_workflow_sync.py` pins the seam to
+    a single call site.
+    ```
+
+    Reads *target* itself rather than taking its content, so a caller cannot
+    forget to hand over the state that preservation depends on.
+
+    :param filename: Canonical workflow filename (e.g. `release.yaml`).
+    :param target: Destination path, read when it already exists.
+    :param repo: Upstream repository for the `uses:` refs.
+    :param version: Version reference for the `uses:` refs.
+    :param commit_sha: Full 40-character commit SHA for SHA-pinned refs.
+    :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
+    :return: The content to write, and the current content of *target* (`None`
+        when it does not exist yet) so a caller can skip an unchanged write.
+    :raises ValueError: If *filename* declares no `workflow_call` trigger.
+    """
+    existing = target.read_text(encoding="UTF-8") if target.exists() else None
+    # Extra downstream jobs are read before generating, not after: their presence
+    # is what decides whether the caller spells out a permissions contract. Those
+    # jobs carry custom `steps:`, which is what makes a top-level
+    # `permissions: {}` worth pinning.
+    extra = extract_extra_jobs(existing, repo) if existing else ""
+
+    content = generate_thin_caller(
+        filename,
+        repo,
+        version,
+        paths_spec=paths_spec,
+        commit_sha=commit_sha,
+        with_permissions=bool(extra),
+        existing=existing,
+    )
+    if extra:
+        content = content.rstrip("\n") + EXTRA_JOBS_SEPARATOR + extra.lstrip("\n")
+    return content, existing
 
 
 def _extract_raw_job(content: str, job_name: str) -> str | None:
@@ -1781,63 +1690,3 @@ def _emit_lint_result(result: LintResult) -> None:
         print(f"{prefix} {result.message}")
     else:
         logging.info(f"✓ {result.message}")
-
-
-def generate_workflows(
-    names: tuple[str, ...],
-    output_format: WorkflowFormat,
-    version: str,
-    repo: str,
-    output_dir: Path,
-    overwrite: bool,
-    commit_sha: str | None = None,
-    paths_spec: PathsSpec | None = None,
-) -> int:
-    """Generate workflow files in the specified format.
-
-    Shared logic for the `create` and `sync` subcommands.
-
-    :param names: Workflow filenames to generate. Empty tuple means all.
-    :param output_format: See {class}`WorkflowFormat` for available formats.
-    :param version: Version reference for thin callers.
-    :param repo: Upstream repository.
-    :param output_dir: Directory to write files to.
-    :param overwrite: Whether to overwrite existing files.
-    :param commit_sha: Full 40-character commit SHA for SHA-pinned
-        `uses:` references. Passed through to {func}`generate_thin_caller`.
-    :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
-    :return: Exit code (0 for success, 1 for errors).
-    """
-    spec = paths_spec if paths_spec is not None else PathsSpec()
-    names_defaulted = not names
-    if not names:
-        names = output_format.default_names()
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # For header-only with defaulted names, filter to existing files.
-    # Downstream repos may not have all non-reusable workflows.
-    if names_defaulted and output_format == WorkflowFormat.HEADER_ONLY:
-        names = tuple(n for n in names if (output_dir / n).exists())
-
-    errors = 0
-
-    for filename in names:
-        target = output_dir / filename
-
-        if not overwrite and target.exists():
-            logging.error(f"{target} already exists. Use sync to overwrite.")
-            errors += 1
-            continue
-
-        if not output_format.write_workflow(
-            filename,
-            target,
-            repo=repo,
-            version=version,
-            spec=spec,
-            commit_sha=commit_sha,
-        ):
-            errors += 1
-
-    return 1 if errors else 0

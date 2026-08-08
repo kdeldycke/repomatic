@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-import logging
+import ast
 from pathlib import Path
 
 import pytest
@@ -29,7 +29,6 @@ from repomatic.github.actions import AnnotationLevel
 from repomatic.github.workflow_sync import (
     LintResult,
     PathsSpec,
-    WorkflowFormat,
     WorkflowTriggerInfo,
     _adapt_trigger_paths,
     _split_yaml_quote,
@@ -43,8 +42,8 @@ from repomatic.github.workflow_sync import (
     extract_trigger_info,
     generate_thin_caller,
     generate_workflow_header,
-    generate_workflows,
     identify_canonical_workflow,
+    render_thin_caller_for_target,
     run_workflow_lint,
     workflow_triggers,
 )
@@ -770,6 +769,31 @@ def test_extract_extra_jobs_invalid_yaml() -> None:
     assert extract_extra_jobs("{{invalid yaml") == ""
 
 
+def sync_caller(
+    filename: str,
+    target: Path,
+    version: str = "v1.2.3",
+    commit_sha: str | None = None,
+    paths_spec: PathsSpec | None = None,
+) -> None:
+    """Render *filename* onto *target*, the way `repomatic init` syncs one file.
+
+    Wraps the single render seam so a test never re-implements the read-render-
+    write dance that `_init_workflows` performs, which is how the two used to
+    drift apart.
+    """
+    content, _existing = render_thin_caller_for_target(
+        filename,
+        target,
+        repo=DEFAULT_REPO,
+        version=version,
+        commit_sha=commit_sha,
+        paths_spec=paths_spec,
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="UTF-8")
+
+
 def test_thin_caller_sync_preserves_extra_jobs(tmp_path: Path) -> None:
     """End-to-end: sync overwrites the managed job but preserves extras."""
     extra_job = (
@@ -783,31 +807,15 @@ def test_thin_caller_sync_preserves_extra_jobs(tmp_path: Path) -> None:
         "      - run: echo hello\n"
     )
     # Generate the initial thin caller, then append an extra job.
-    exit_code = generate_workflows(
-        names=("release.yaml",),
-        output_format=WorkflowFormat.THIN_CALLER,
-        version="v6.0.0",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=False,
-    )
-    assert exit_code == 0
     target = tmp_path / "release.yaml"
+    sync_caller("release.yaml", target, version="v6.0.0")
     target.write_text(
         target.read_text(encoding="UTF-8") + extra_job,
         encoding="UTF-8",
     )
 
     # Re-sync with a new version. The extra job must survive.
-    exit_code = generate_workflows(
-        names=("release.yaml",),
-        output_format=WorkflowFormat.THIN_CALLER,
-        version="v7.0.0",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=True,
-    )
-    assert exit_code == 0
+    sync_caller("release.yaml", target, version="v7.0.0")
     result = target.read_text(encoding="UTF-8")
     # Managed job was updated.
     assert "v7.0.0" in result
@@ -1072,127 +1080,35 @@ def test_release_thin_caller_lints_clean(tmp_path: Path) -> None:
     assert exit_code == 0
 
 
-def test_create_thin_callers(tmp_path: Path) -> None:
-    """Generate thin callers for all reusable workflows."""
-    exit_code = generate_workflows(
-        names=(),
-        output_format=WorkflowFormat.THIN_CALLER,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=False,
-    )
-    assert exit_code == 0
-    for filename in REUSABLE_WORKFLOWS:
-        assert (tmp_path / filename).exists()
-
-
-def test_create_specific_workflow(tmp_path: Path) -> None:
-    """Generate a single thin caller."""
-    exit_code = generate_workflows(
-        names=("lint.yaml",),
-        output_format=WorkflowFormat.THIN_CALLER,
-        version="v5.8.0",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=False,
-    )
-    assert exit_code == 0
-    assert (tmp_path / "lint.yaml").exists()
-    content = (tmp_path / "lint.yaml").read_text(encoding="UTF-8")
-    assert "v5.8.0" in content
-
-
-def test_create_errors_if_exists(tmp_path: Path) -> None:
-    """Error in create mode if file exists."""
-    (tmp_path / "lint.yaml").write_text("existing", encoding="UTF-8")
-    exit_code = generate_workflows(
-        names=("lint.yaml",),
-        output_format=WorkflowFormat.THIN_CALLER,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=False,
-    )
-    assert exit_code == 1
+@pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
+def test_every_reusable_workflow_renders(tmp_path: Path, filename: str) -> None:
+    """Each reusable workflow renders into a caller carrying the version ref."""
+    target = tmp_path / filename
+    sync_caller(filename, target, version="v5.8.0")
+    assert "v5.8.0" in target.read_text(encoding="UTF-8")
 
 
 def test_sync_overwrites(tmp_path: Path) -> None:
-    """Overwrite in sync mode."""
-    (tmp_path / "lint.yaml").write_text("old content", encoding="UTF-8")
-    exit_code = generate_workflows(
-        names=("lint.yaml",),
-        output_format=WorkflowFormat.THIN_CALLER,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=True,
-    )
-    assert exit_code == 0
-    content = (tmp_path / "lint.yaml").read_text(encoding="UTF-8")
-    assert content != "old content"
+    """A file that is not a caller at all is replaced wholesale.
+
+    Nothing in it parses as a managed lane, so there are no extras to carry
+    over and the render starts from the canonical workflow.
+    """
+    target = tmp_path / "lint.yaml"
+    target.write_text("old content", encoding="UTF-8")
+    sync_caller("lint.yaml", target)
+    assert "old content" not in target.read_text(encoding="UTF-8")
 
 
-def test_skip_non_reusable_thin_caller(tmp_path: Path) -> None:
-    """Skip non-reusable workflows in thin-caller mode."""
-    exit_code = generate_workflows(
-        names=("tests.yaml",),
-        output_format=WorkflowFormat.THIN_CALLER,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=False,
-    )
-    assert exit_code == 0
-    assert not (tmp_path / "tests.yaml").exists()
+def test_non_reusable_workflow_refuses_to_render(tmp_path: Path) -> None:
+    """A workflow with no `workflow_call` trigger cannot become a caller.
 
-
-def test_full_copy(tmp_path: Path) -> None:
-    """Generate full copy of a workflow."""
-    exit_code = generate_workflows(
-        names=("lint.yaml",),
-        output_format=WorkflowFormat.FULL_COPY,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=False,
-    )
-    assert exit_code == 0
-    assert (tmp_path / "lint.yaml").exists()
-    content = (tmp_path / "lint.yaml").read_text(encoding="UTF-8")
-    # Full copy should contain the original workflow content.
-    assert "jobs:" in content
-
-
-def test_creates_output_dir(tmp_path: Path) -> None:
-    """Create output directory if it doesn't exist."""
-    output_dir = tmp_path / "sub" / "dir"
-    exit_code = generate_workflows(
-        names=("lint.yaml",),
-        output_format=WorkflowFormat.THIN_CALLER,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=output_dir,
-        overwrite=False,
-    )
-    assert exit_code == 0
-    assert (output_dir / "lint.yaml").exists()
-
-
-def test_values() -> None:
-    """Verify expected enum values."""
-    assert WorkflowFormat.FULL_COPY.value == "full-copy"
-    assert WorkflowFormat.HEADER_ONLY.value == "header-only"
-    assert WorkflowFormat.SYMLINK.value == "symlink"
-    assert WorkflowFormat.THIN_CALLER.value == "thin-caller"
-
-
-def test_from_string() -> None:
-    """Verify construction from string."""
-    assert WorkflowFormat("full-copy") == WorkflowFormat.FULL_COPY
-    assert WorkflowFormat("header-only") == WorkflowFormat.HEADER_ONLY
-    assert WorkflowFormat("symlink") == WorkflowFormat.SYMLINK
-    assert WorkflowFormat("thin-caller") == WorkflowFormat.THIN_CALLER
+    `tests.yaml` is copied downstream header-first by `_init_workflows`, never
+    rendered as a caller, so asking for one is a programming error rather than
+    a file to write.
+    """
+    with pytest.raises(ValueError, match="workflow_call"):
+        sync_caller("tests.yaml", tmp_path / "tests.yaml")
 
 
 def test_default_level() -> None:
@@ -1387,107 +1303,6 @@ def test_header_extraction_nonexistent() -> None:
     """Raise FileNotFoundError for missing workflow."""
     with pytest.raises(FileNotFoundError):
         generate_workflow_header("nonexistent.yaml")
-
-
-# ---------------------------------------------------------------------------
-# Header-only format tests
-# ---------------------------------------------------------------------------
-
-
-def test_header_only_syncs_header(tmp_path: Path) -> None:
-    """Verify header-only syncs header and preserves downstream jobs."""
-    target = tmp_path / "tests.yaml"
-    target.write_text(
-        '---\nname: Old Name\n"on":\n  push:\n\njobs:\n\n'
-        "  my-tests:\n    runs-on: ubuntu-latest\n"
-        "    steps:\n      - run: echo hello\n",
-        encoding="UTF-8",
-    )
-    exit_code = generate_workflows(
-        names=("tests.yaml",),
-        output_format=WorkflowFormat.HEADER_ONLY,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=True,
-    )
-    assert exit_code == 0
-    content = target.read_text(encoding="UTF-8")
-    # Header should come from canonical tests.yaml.
-    assert "Tests" in content
-    assert "concurrency:" in content
-    # Downstream jobs section should be preserved.
-    assert "my-tests:" in content
-    assert "echo hello" in content
-
-
-def test_header_only_warns_on_missing_file(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Warning when target file does not exist in header-only mode."""
-    with caplog.at_level(logging.WARNING):
-        exit_code = generate_workflows(
-            names=("tests.yaml",),
-            output_format=WorkflowFormat.HEADER_ONLY,
-            version="main",
-            repo=DEFAULT_REPO,
-            output_dir=tmp_path,
-            overwrite=True,
-        )
-    assert exit_code == 0
-    assert "does not exist" in caplog.text
-
-
-def test_header_only_errors_on_no_jobs(tmp_path: Path) -> None:
-    """Error when target file has no jobs: line."""
-    target = tmp_path / "tests.yaml"
-    target.write_text("---\nname: No Jobs\n", encoding="UTF-8")
-    exit_code = generate_workflows(
-        names=("tests.yaml",),
-        output_format=WorkflowFormat.HEADER_ONLY,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=True,
-    )
-    assert exit_code == 1
-
-
-def test_header_only_defaults_filter_to_existing(tmp_path: Path) -> None:
-    """Header-only defaults skip non-existent workflows silently."""
-    exit_code = generate_workflows(
-        names=(),
-        output_format=WorkflowFormat.HEADER_ONLY,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=True,
-    )
-    assert exit_code == 0
-
-
-def test_header_only_defaults_to_non_reusable(tmp_path: Path) -> None:
-    """Verify header-only defaults to non-reusable workflows."""
-    # Create target files for non-reusable workflows.
-    for filename in NON_REUSABLE_WORKFLOWS:
-        target = tmp_path / filename
-        target.write_text(
-            '---\nname: Old\n"on":\n  push:\n\njobs:\n\n'
-            "  test:\n    runs-on: ubuntu-latest\n",
-            encoding="UTF-8",
-        )
-    exit_code = generate_workflows(
-        names=(),
-        output_format=WorkflowFormat.HEADER_ONLY,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=True,
-    )
-    assert exit_code == 0
-    for filename in NON_REUSABLE_WORKFLOWS:
-        content = (tmp_path / filename).read_text(encoding="UTF-8")
-        assert "concurrency:" in content
 
 
 # ---------------------------------------------------------------------------
@@ -1969,49 +1784,6 @@ def test_header_preserves_canonical_quote_style() -> None:
     assert '      - "my_pkg/**"' not in header
 
 
-# ---------------------------------------------------------------------------
-# generate_workflows with paths_spec
-# ---------------------------------------------------------------------------
-
-
-def test_generate_workflows_honors_paths_spec(tmp_path: Path) -> None:
-    """`generate_workflows` applies the given `paths_spec` to header syncs."""
-    spec = PathsSpec(
-        source_paths=["from_spec"],
-        extra_paths=["repo-specific.sh"],
-    )
-    exit_code = generate_workflows(
-        names=("tests.yaml",),
-        output_format=WorkflowFormat.HEADER_ONLY,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=True,
-        paths_spec=spec,
-    )
-    # `tests.yaml` is non-reusable so the function attempts a header-only sync
-    # but the destination doesn't exist, so it should warn and skip without
-    # erroring. Stage a stub destination first to exercise the rewrite path.
-    (tmp_path / "tests.yaml").write_text(
-        '---\nname: stub\n"on":\n  push:\n    paths:\n      - placeholder\njobs:\n'
-        "  stub:\n    runs-on: ubuntu-latest\n",
-        encoding="UTF-8",
-    )
-    exit_code = generate_workflows(
-        names=("tests.yaml",),
-        output_format=WorkflowFormat.HEADER_ONLY,
-        version="main",
-        repo=DEFAULT_REPO,
-        output_dir=tmp_path,
-        overwrite=True,
-        paths_spec=spec,
-    )
-    assert exit_code == 0
-    written = (tmp_path / "tests.yaml").read_text(encoding="UTF-8")
-    assert "from_spec/**" in written
-    assert "repo-specific.sh" in written
-
-
 @pytest.mark.parametrize(
     ("filename", "expected"),
     (
@@ -2111,18 +1883,8 @@ def test_thin_caller_permissions_track_extra_jobs(tmp_path: Path) -> None:
     """Add the contract when extra jobs appear, drop it when they go away."""
     target = tmp_path / "autofix.yaml"
 
-    def sync() -> bool:
-        return WorkflowFormat.THIN_CALLER.write_workflow(
-            "autofix.yaml",
-            target,
-            repo=DEFAULT_REPO,
-            version="v1.2.3",
-            spec=PathsSpec(),
-            commit_sha=None,
-        )
-
     # First sync, no downstream file yet: a bare thin caller.
-    assert sync()
+    sync_caller("autofix.yaml", target)
     assert yaml.safe_load(target.read_text(encoding="UTF-8")).get("permissions") is None
 
     # Author adds a custom job, then re-syncs.
@@ -2131,7 +1893,7 @@ def test_thin_caller_permissions_track_extra_jobs(tmp_path: Path) -> None:
         + "\n  custom:\n    runs-on: ubuntu-slim\n    steps:\n      - run: echo hi\n",
         encoding="UTF-8",
     )
-    assert sync()
+    sync_caller("autofix.yaml", target)
     data = yaml.safe_load(target.read_text(encoding="UTF-8"))
     assert data["permissions"] == {}
     assert data["jobs"]["autofix"]["permissions"]["contents"] == "write"
@@ -2141,7 +1903,7 @@ def test_thin_caller_permissions_track_extra_jobs(tmp_path: Path) -> None:
     target.write_text(
         generate_thin_caller("autofix.yaml", DEFAULT_REPO, "v1.2.3"), encoding="UTF-8"
     )
-    assert sync()
+    sync_caller("autofix.yaml", target)
     assert yaml.safe_load(target.read_text(encoding="UTF-8")).get("permissions") is None
 
 
@@ -2171,24 +1933,14 @@ def test_release_caller_always_denies_permissions(tmp_path: Path) -> None:
     """
     target = tmp_path / "release.yaml"
 
-    def sync() -> bool:
-        return WorkflowFormat.THIN_CALLER.write_workflow(
-            "release.yaml",
-            target,
-            repo=DEFAULT_REPO,
-            version="v1.2.3",
-            spec=PathsSpec(),
-            commit_sha=None,
-        )
-
-    assert sync()
+    sync_caller("release.yaml", target)
     assert yaml.safe_load(target.read_text(encoding="UTF-8"))["permissions"] == {}
 
     # A downstream job appended below the managed lanes must not loosen it.
     target.write_text(
         target.read_text(encoding="UTF-8") + _PACKER_JOB, encoding="UTF-8"
     )
-    assert sync()
+    sync_caller("release.yaml", target)
     data = yaml.safe_load(target.read_text(encoding="UTF-8"))
     assert data["permissions"] == {}
     assert "packer" in data["jobs"]
@@ -2216,14 +1968,7 @@ def test_release_caller_preserves_downstream_needs(
     target = tmp_path / "release.yaml"
     target.write_text(_downstream_release(downstream_needs), encoding="UTF-8")
 
-    assert WorkflowFormat.THIN_CALLER.write_workflow(
-        "release.yaml",
-        target,
-        repo=DEFAULT_REPO,
-        version="v1.2.3",
-        spec=PathsSpec(),
-        commit_sha=None,
-    )
+    sync_caller("release.yaml", target)
 
     data = yaml.safe_load(target.read_text(encoding="UTF-8"))
     assert data["jobs"]["release"]["needs"] == expected
@@ -2277,14 +2022,47 @@ def test_generated_caller_with_extra_jobs_satisfies_lint(
         + "\n  custom:\n    runs-on: ubuntu-slim\n    steps:\n      - run: echo hi\n",
         encoding="UTF-8",
     )
-    assert WorkflowFormat.THIN_CALLER.write_workflow(
-        "autofix.yaml",
-        target,
-        repo=DEFAULT_REPO,
-        version="v1.2.3",
-        spec=PathsSpec(),
-        commit_sha=None,
-    )
+    sync_caller("autofix.yaml", target)
 
     monkeypatch.chdir(tmp_path)
     assert [r for r in check_workflow_permissions() if r.passed is False] == []
+
+
+def _thin_caller_call_sites() -> set[tuple[str, str]]:
+    """Every production call of `generate_thin_caller`, as (module, function).
+
+    Walks the AST rather than grepping, so a call spread over several lines or
+    reached through an alias is still seen.
+    """
+    package = Path(__file__).parent.parent / "repomatic"
+    sites: set[tuple[str, str]] = set()
+    for module in sorted(package.rglob("*.py")):
+        tree = ast.parse(module.read_text(encoding="UTF-8"))
+        for parent in ast.walk(tree):
+            if not isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in ast.walk(parent):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = getattr(func, "attr", None) or getattr(func, "id", None)
+                if name == "generate_thin_caller":
+                    sites.add((module.name, parent.name))
+    return sites
+
+
+def test_thin_caller_rendering_has_a_single_seam() -> None:
+    """Only `render_thin_caller_for_target` may render a caller for a file.
+
+    That helper is where the downstream state a sync must carry over (extra
+    jobs, the consumer's own `needs:` edges) is read and passed on. A second
+    call site is a second place to forget one, which is exactly how the
+    `needs:` edge came to be dropped on the `repomatic init` path while the
+    suite driving the other copy stayed green.
+
+    Reach the renderer through the helper. If a caller genuinely needs raw
+    output with no file behind it, it is not a sync and should say so here.
+    """
+    assert _thin_caller_call_sites() == {
+        ("workflow_sync.py", "render_thin_caller_for_target")
+    }
