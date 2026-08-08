@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.6.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.6.0` (2026-08-08)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...v7.6.0)
 
 - **Breaking:** the `labels` component is now ephemeral: `labels.toml` and the two labeller YAMLs are staged only when named explicitly (`repomatic init labels`). A repository that committed them sees them reported as excluded files on disk, removable with `init --delete-excluded`.
 - New `fix-awesome-toc` command deletes the table-of-contents entries awesome-lint forbids from `readme.md` and every `readme.{lang}.md` beside it, matching translated sections by position rather than by their English name.
