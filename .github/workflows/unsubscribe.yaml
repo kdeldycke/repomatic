@@ -73,7 +73,7 @@ jobs:
           # invalidate.
           enable-cache: false
           ignore-empty-workdir: true
-          version: "0.12.0"
+          version: "0.12.1"
       - name: Unsubscribe from closed threads
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}

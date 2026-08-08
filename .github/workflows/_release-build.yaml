@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "0.12.0"
+          version: "0.12.1"
       - name: Extract PR reference
         id: extract
         env:
@@ -123,7 +123,7 @@ jobs:
         run: git log --decorate=full --oneline
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "0.12.0"
+          version: "0.12.1"
       - name: Run repomatic metadata
         id: metadata
         run: >
@@ -151,13 +151,13 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "0.12.0"
+          version: "0.12.1"
       - name: Pre-bake tag SHA
         if: "!contains(matrix.current_version, '.dev')"
         env:
           COMMIT: ${{ matrix.commit }}
         run: >
-          uvx --no-progress 'click-extra==8.7.0'
+          uvx --no-progress 'click-extra==8.8.0'
           prebake field git_tag_sha "${COMMIT}"
       - name: Build package
         run: uv --no-progress build
