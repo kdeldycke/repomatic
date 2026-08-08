@@ -216,24 +216,12 @@ jobs:
         run: >
           echo "${MARKDOWN_FILES}" | xargs -n1
           uv --no-progress run --frozen -- repomatic run mdformat --
+      # Runs inside this job, not its own: it corrects what mdformat just wrote,
+      # so a separate job would fight this one across two PRs. See
+      # repomatic/awesome_toc.py for rationale.
       - name: Markdown fixes for Awesome Lists
         if: startsWith(github.event.repository.name, 'awesome-')
-        # Remove forbidden TOC entries: https://github.com/sindresorhus/awesome-lint/blob/v2.2.2/rules/toc.js#L14-L18
-        # Also remove the title of the section containing the TOC (i.e. "Contents") to fix the following error:
-        # ✖  26:1  ToC item "Contents" does not match corresponding heading "Meta"  remark-lint:awesome-toc
-        #
-        # mdformat-toc has pending PRs to support this feature:
-        # https://github.com/hukkin/mdformat-toc/issues/17
-        # https://github.com/hukkin/mdformat-toc/pull/20
-        #
-        # `sed -i`, not `gawk -i inplace`: sed is a Debian Essential package and
-        # gawk is not, so gawk would need an apt install on the lean image this
-        # job runs on. The step only fires on awesome-* repos, so a missing gawk
-        # would break downstream without ever failing repomatic's own CI. Both
-        # take the same ERE and delete the same lines.
-        run: >
-          find ./ -type f \( -name 'readme.md' -or -name 'readme.*.md' \) -print
-          -exec sed -i -E '/^- \[(Contents|Contributing|Footnotes|Related Lists)\]\(#.+\)$/d' "{}" \;
+        run: uv --no-progress run --frozen -- repomatic fix-awesome-toc
       - id: pr-metadata
         run: >
           uv --no-progress run --frozen -- repomatic

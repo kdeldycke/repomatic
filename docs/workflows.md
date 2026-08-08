@@ -89,6 +89,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 #### ✍️ Format Markdown (`format-markdown`)
 
 - Auto-formats Markdown files using [`mdformat`](https://github.com/hukkin/mdformat) and its plugins
+- On an `awesome-*` repository, follows up with `repomatic fix-awesome-toc` to delete the table-of-contents entries [awesome-lint forbids](https://github.com/sindresorhus/awesome-lint/blob/v2.2.2/rules/toc.js#L14-L18), from `readme.md` and from every `readme.{lang}.md` translation beside it
 - **Requires**:
   - Markdown files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx}`) in the repository
 

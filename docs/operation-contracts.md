@@ -50,6 +50,14 @@ Every `format-*` and `fix-*` operation rewrites files using a pinned external to
 - No config toggle. Format jobs gate on metadata file-detection outputs (e.g., `python_files`, `markdown_files`, `json_files`) making them self-skipping when irrelevant. Fix jobs may run unconditionally when the tool applies to all file types.
 - The external tool version must be pinned in the CLI command for reproducibility.
 
+(fix-steps-inside-another-job)=
+
+### Fix steps inside another job
+
+`fix-awesome-toc` is the one operation with no job, branch or template of its own. It corrects the table of contents that `format-markdown` has just regenerated, so the two have to share a working tree: given its own job, they would land in separate PRs and undo each other on every push, `format-markdown` re-adding the entries `fix-awesome-toc` had removed. It therefore runs as a step of `format-markdown`, gated on an `awesome-*` repository name, and its changes ship in that job's PR.
+
+Reach for this shape only when a correction is inseparable from the operation that produced the content. A fix that merely runs *after* another one, without contending for the same lines, gets a job.
+
 ## Lint job contract
 
 Every `lint-*` operation checks content without modifying it. Lint operations are **read-only**.

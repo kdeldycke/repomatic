@@ -36,6 +36,15 @@
    :undoc-members:
 ```
 
+## `tests.test_awesome_toc` module
+
+```{eval-rst}
+.. automodule:: tests.test_awesome_toc
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_binaries_page` module
 
 ```{eval-rst}

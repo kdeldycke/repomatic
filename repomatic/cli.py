@@ -57,6 +57,7 @@ from click_extra import (
 )
 from extra_platforms import is_github_ci
 
+from .awesome_toc import fix_awesome_toc
 from .binaries_page import (
     BINARY_ASSET_SUFFIXES,
     render_binaries_csv,
@@ -4270,3 +4271,37 @@ def format_images_cmd(
     log_output_target("image optimization summary", output)
 
     emit_report(markdown, output, output_format, key="markdown")
+
+
+@repomatic.command(
+    name="fix-awesome-toc",
+    short_help="Remove the ToC entries awesome-lint forbids",
+    section=_section_lint,
+)
+def fix_awesome_toc_cmd() -> None:
+    """Remove the table-of-contents entries awesome-lint forbids.
+
+    Deletes the Contents, Contributing, Footnotes and Related Lists entries
+    from the mdformat-toc block of readme.md and of every readme.{lang}.md
+    translation beside it.
+
+    \b
+    A translation names those sections in its own language, so they are
+    matched by their position in the heading sequence of readme.md rather
+    than by name.
+
+    \b
+    Run it right after mdformat regenerates the ToC: mdformat-toc lists every
+    heading it finds and has no way to leave one out.
+
+    \b
+    Example:
+        repomatic fix-awesome-toc
+    """
+    report = fix_awesome_toc()
+    if not report:
+        echo("No forbidden ToC entry found.")
+        return
+
+    for readme, removed in report.items():
+        echo(f"{readme}: removed {', '.join(removed)}")
