@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
+import shutil
 import struct
 from pathlib import Path
 
@@ -177,6 +179,86 @@ FLAT_BUILD_TARGETS = [
     for target_id, target_data in NUITKA_BUILD_TARGETS.items()
 ]
 """List of build targets in a flat format, suitable for matrix inclusion."""
+
+
+def binary_name(package: str, target: str, version: str | None = None) -> str:
+    """Compose a compiled binary's release-asset filename.
+
+    The one definition of the naming convention:
+    ``{package}-{version}-{target}.{ext}`` for the versioned upload, and with
+    no *version* the stable alias (``{package}-{target}.{ext}``) backing the
+    `releases/latest/download` URLs. The extension comes from
+    {data}`NUITKA_BUILD_TARGETS`.
+    """
+    extension = NUITKA_BUILD_TARGETS[target]["extension"]
+    middle = f"-{version}" if version else ""
+    return f"{package}{middle}-{target}.{extension}"
+
+
+def versionless_alias(filename: str, version: str) -> str | None:
+    """Map a versioned binary filename to its stable alias, or `None`.
+
+    Strips the `-{version}-` segment (`papaya-1.2.3-linux-arm64.bin` becomes
+    `papaya-linux-arm64.bin`). Returns `None` for filenames that carry no such
+    segment or are not compiled binaries, so callers can filter and map in one
+    pass.
+    """
+    marked = f"-{version}-"
+    if marked not in filename or not filename.endswith(BINARY_ASSET_SUFFIXES):
+        return None
+    return filename.replace(marked, "-", 1)
+
+
+def binary_filename_re(package: str) -> re.Pattern[str]:
+    """Match a *package* binary filename, versioned or versionless.
+
+    Captures `target` and `ext`, both alternations derived from
+    {data}`NUITKA_BUILD_TARGETS` so a new build target extends the pattern
+    without anyone editing a regex. The release freeze rewrites both spellings
+    onto the versioned form through this; `tests/test_platform_keys.py` pins
+    the pattern against every target.
+    """
+    targets = "|".join(sorted(NUITKA_BUILD_TARGETS))
+    extensions = "|".join(
+        sorted({data["extension"] for data in NUITKA_BUILD_TARGETS.values()})
+    )
+    return re.compile(
+        rf"{re.escape(package)}(?:-[\d.]+)?-"
+        rf"(?P<target>{targets})\.(?P<ext>{extensions})"
+    )
+
+
+def stage_binary_assets(dist_dir: Path, version: str) -> list[Path]:
+    """Stage a release's upload list, materializing the versionless aliases.
+
+    Mirrors what the release engine's upload step needs: every file in
+    *dist_dir* except the Python distributions (`create-release` already
+    uploaded those), plus a byte-identical versionless alias copied beside
+    each versioned binary so the stable `releases/latest/download` URLs always
+    resolve. Aliases share their sibling's digest, which is what lets artifact
+    attestations verify them unchanged and the binaries catalog collapse them
+    (see `binaries_page._binary_assets`).
+
+    Idempotent: re-running overwrites the same aliases with the same bytes.
+
+    :param dist_dir: Directory holding the compiled binaries and attestation
+        bundles downloaded from the build jobs.
+    :param version: The release version whose binaries earn aliases.
+    :return: Sorted paths to upload, aliases included.
+    """
+    uploads = {
+        path
+        for path in dist_dir.iterdir()
+        if path.is_file() and not path.name.endswith((".tar.gz", ".whl"))
+    }
+    for path in sorted(uploads):
+        alias = versionless_alias(path.name, version)
+        if alias is None:
+            continue
+        alias_path = dist_dir / alias
+        shutil.copy2(path, alias_path)
+        uploads.add(alias_path)
+    return sorted(uploads)
 
 
 BINARY_AFFECTING_PATHS: Final[tuple[str, ...]] = (

@@ -67,6 +67,7 @@ from .binaries_page import (
 from .binary import (
     BINARY_ASSET_SUFFIXES,
     NUITKA_BUILD_TARGETS,
+    stage_binary_assets,
     verify_binary_arch,
     verify_binary_floor,
 )
@@ -2095,6 +2096,43 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
     """
     cancelled = cancel_superseded_runs(branch, current_run_id)
     echo(f"Cancelled {cancelled} run(s) for branch {branch!r}.")
+
+
+@repomatic.command(
+    short_help="Stage compiled binaries and their versionless aliases",
+    section=_section_release,
+)
+@option(
+    "--version",
+    "version_str",
+    required=True,
+    help="Release version whose binaries earn versionless aliases.",
+)
+@option(
+    "--dir",
+    "dist_dir",
+    type=dir_path(exists=True, resolve_path=True),
+    required=True,
+    help="Directory holding the compiled binaries and attestation bundles.",
+)
+def stage_binaries(version_str: str, dist_dir: Path) -> None:
+    """Materialize versionless binary aliases and print the upload list.
+
+    Copies each versioned binary (`repomatic-1.2.3-linux-arm64.bin`) to its
+    versionless alias (`repomatic-linux-arm64.bin`) so the stable
+    releases/latest/download URLs always resolve, then prints every file the
+    release upload step should attach, one path per line. Python
+    distributions (.tar.gz, .whl) are skipped: create-release already
+    uploaded them.
+
+    Idempotent: re-running overwrites the same aliases with the same bytes.
+
+    \b
+    Examples:
+        repomatic stage-binaries --version 1.2.3 --dir ./compile-assets
+    """
+    for path in stage_binary_assets(dist_dir, version_str):
+        echo(path)
 
 
 @repomatic.command(

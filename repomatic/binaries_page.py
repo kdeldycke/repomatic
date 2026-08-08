@@ -197,13 +197,14 @@ def _binary_assets(release: ReleaseWithAssets) -> list[ReleaseAsset]:
     """Return the release's compiled binaries, sorted by filename.
 
     Releases also carry versionless alias copies of each binary, backing the
-    stable ``releases/latest/download`` URLs (see the upload step in
-    ``_release-engine.yaml``). An alias shares its digest with its versioned
-    sibling: collapse each digest group onto its longest name (the versioned
-    one, since the alias is that same name minus the version segment) so the
-    catalog lists each binary once. Assets without a recorded digest
-    (uploaded before GitHub started recording them, mid-2025) predate the
-    aliases and are kept as-is.
+    stable ``releases/latest/download`` URLs (created by
+    {func}`~repomatic.binary.stage_binary_assets`, which
+    `release-assets` runs in the release engine). An alias shares its digest
+    with its versioned sibling: collapse each digest group onto its longest
+    name (the versioned one, since {func}`~repomatic.binary.versionless_alias`
+    only ever strips the version segment) so the catalog lists each binary
+    once. Assets without a recorded digest (uploaded before GitHub started
+    recording them, mid-2025) predate the aliases and are kept as-is.
     """
     binaries = [a for a in release.assets if a.name.endswith(BINARY_ASSET_SUFFIXES)]
     digest_groups: dict[str, list[ReleaseAsset]] = {}

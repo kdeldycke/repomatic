@@ -12,6 +12,7 @@
 - **Breaking:** `repomatic metadata` no longer emits the `toml_files`, `changelog_bullet_word_threshold`, `nuitka_enabled` and `nuitka_nofollow_imports` keys. No workflow consumed them; the three config fields are read directly by their subcommands.
 - `init` no longer writes the release lane (`changelog.md`, `changelog.yaml`, `release.yaml`, the PyPI publish action) into a uv virtual project (`[tool.uv] package = false`). Dependency locking, coverage and test tooling still apply.
 - New `github-housekeeping` skill backfills and curates labels and milestones across a repository's full issue and PR history: taxonomy design, cache-backed bulk classification with review gates, AI-slop detection from closed-without-comment signals, and milestone assignment by changelog, git-tag, and release-date archaeology.
+- New `stage-binaries` command materializes the versionless binary aliases and prints the release upload list, replacing the release engine's shell loop: the asset naming convention now has one Python definition, shared with the install-guide freeze.
 - The changelog's `[!CAUTION]` admonition for a yanked release now quotes the reason PyPI recorded for the yank, when there is one.
 - `sync-workflow-pins` now splices the `--exclude-newer-package` cooldown exemption in beside the inline `repomatic==X.Y.Z` pin it realigns, so the freshly aligned version still resolves under a workflow's blanket `UV_EXCLUDE_NEWER`. Previously only the release freeze wrote the flag.
 - Rename the Claude Code plugin release asset to `repomatic-claude-plugin.zip`, as `repomatic-plugin.zip` read as a plugin for repomatic. `/plugin install` is unaffected.
@@ -47,6 +48,7 @@
 - New `--default-branch` option on the `changelog` command, so a repository whose default branch is not `main` gets a comparison URL that round-trips through the release freeze.
 - The release freeze now warns when it finds no changelog section for the version being released, instead of silently doing nothing.
 - Fix `sync-mailmap` crashing with `UnboundLocalError` on a repository that has no `.mailmap` yet, the exact bootstrap its default `--create-if-missing` advertises.
+- The test suite now derives its file inventories from `git ls-files` instead of four hundred hand-typed lines, so adding a tracked file no longer needs a fixture edit.
 - Fix `cache clean` scoping: `--namespace` no longer wipes binaries and tool configs, `--tool` no longer wipes HTTP responses, and `--max-age` now applies to cached configs instead of deleting them all.
 - Fix `repomatic run mypy` aborting with `Unable to find lockfile` in a repository without a `uv.lock`: the tool now runs in an isolated, cooldown-gated environment when there is no lockfile to freeze.
 - Fix binary tools executing a just-deleted staging copy when the cache write is lost (Docker overlay runners) or the cache root is unwritable: the fallback copy now survives for the whole process.

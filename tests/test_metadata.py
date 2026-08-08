@@ -21,6 +21,7 @@ import logging
 import re
 import subprocess
 from dataclasses import MISSING, fields as dc_fields
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -405,117 +406,82 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
         assert type(metadata) is type(expected)
 
 
-MARKDOWN_INVENTORY = [
-    ".claude/agents/grunt-qa.md",
-    ".claude/agents/qa-engineer.md",
-    ".claude/agents/sphinx-docs.md",
-    ".claude/skills/av-false-positive/SKILL.md",
-    ".claude/skills/awesome-triage/SKILL.md",
-    ".claude/skills/babysit-ci/SKILL.md",
-    ".claude/skills/benchmark-update/SKILL.md",
-    ".claude/skills/brand-assets/SKILL.md",
-    ".claude/skills/file-bug-report/SKILL.md",
-    ".claude/skills/github-housekeeping/SKILL.md",
-    ".claude/skills/repomatic-audit/SKILL.md",
-    ".claude/skills/repomatic-changelog/SKILL.md",
-    ".claude/skills/repomatic-deps/SKILL.md",
-    ".claude/skills/repomatic-init/SKILL.md",
-    ".claude/skills/repomatic-ship/SKILL.md",
-    ".claude/skills/repomatic-topics/SKILL.md",
-    ".claude/skills/sphinx-docs-sync/SKILL.md",
-    ".claude/skills/translation-sync/SKILL.md",
-    ".claude/skills/upstream-audit/SKILL.md",
-    ".github/code-of-conduct.md",
-    "changelog.md",
-    "claude.md",
-    "docs/agents.md",
-    "docs/benchmark.md",
-    "docs/binaries.md",
-    "docs/changelog-archive.md",
-    "docs/changelog.md",
-    "docs/cli.md",
-    "docs/code-of-conduct.md",
-    "docs/configuration.md",
-    "docs/contributing.md",
-    "docs/dependencies.md",
-    "docs/history.md",
-    "docs/index.md",
-    "docs/install.md",
-    "docs/license.md",
-    "docs/operation-contracts.md",
-    "docs/packaging.md",
-    "docs/plugin.md",
-    "docs/repomatic.data.awesome_template.md",
-    "docs/repomatic.data.md",
-    "docs/repomatic.github.md",
-    "docs/repomatic.md",
-    "docs/repomatic.templates.md",
-    "docs/security.md",
-    "docs/skills.md",
-    "docs/test-matrix.md",
-    "docs/tests.md",
-    "docs/todolist.md",
-    "docs/tool-runner.md",
-    "docs/upstream-development.md",
-    "docs/workflows.md",
-    "readme.md",
-    "repomatic/data/awesome_template/.github/code-of-conduct.md",
-    "repomatic/data/awesome_template/.github/contributing.md",
-    "repomatic/data/awesome_template/.github/contributing.zh.md",
-    "repomatic/data/awesome_template/.github/pull_request_template.md",
-    "repomatic/templates/available-admonition.md",
-    "repomatic/templates/broken-links-issue.md",
-    "repomatic/templates/bump-version.md",
-    "repomatic/templates/detect-squash-merge.md",
-    "repomatic/templates/development-warning.md",
-    "repomatic/templates/fix-changelog.md",
-    "repomatic/templates/fix-typos.md",
-    "repomatic/templates/fix-vulnerable-deps.md",
-    "repomatic/templates/format-images.md",
-    "repomatic/templates/format-json.md",
-    "repomatic/templates/format-markdown.md",
-    "repomatic/templates/format-pyproject.md",
-    "repomatic/templates/format-python.md",
-    "repomatic/templates/format-shell.md",
-    "repomatic/templates/generated-footer.md",
-    "repomatic/templates/github-releases.md",
-    "repomatic/templates/immutable-releases.md",
-    "repomatic/templates/refresh-tip.md",
-    "repomatic/templates/release-notes.md",
-    "repomatic/templates/release-sync-report.md",
-    "repomatic/templates/setup-guide-branch-ruleset.md",
-    "repomatic/templates/setup-guide-dependabot.md",
-    "repomatic/templates/setup-guide-fork-pr-approval.md",
-    "repomatic/templates/setup-guide-notifications-pat.md",
-    "repomatic/templates/setup-guide-pages-source.md",
-    "repomatic/templates/setup-guide-pypi-trusted-publisher.md",
-    "repomatic/templates/setup-guide-sha-pinning-required.md",
-    "repomatic/templates/setup-guide-token.md",
-    "repomatic/templates/setup-guide-verify.md",
-    "repomatic/templates/setup-guide-virustotal.md",
-    "repomatic/templates/setup-guide.md",
-    "repomatic/templates/sync-action-pins.md",
-    "repomatic/templates/sync-bumpversion.md",
-    "repomatic/templates/sync-dep-sources.md",
-    "repomatic/templates/sync-gitignore.md",
-    "repomatic/templates/sync-mailmap.md",
-    "repomatic/templates/sync-repomatic.md",
-    "repomatic/templates/sync-tool-versions.md",
-    "repomatic/templates/sync-uv-lock.md",
-    "repomatic/templates/sync-workflow-pins.md",
-    "repomatic/templates/unavailable-admonition.md",
-    "repomatic/templates/unsubscribe-phase1.md",
-    "repomatic/templates/unsubscribe-phase2.md",
-    "repomatic/templates/update-dep-graph.md",
-    "repomatic/templates/update-docs.md",
-    "repomatic/templates/yanked-admonition.md",
-]
+_ALL_TRACKED = tuple(
+    subprocess.run(
+        ["git", "ls-files"],
+        capture_output=True,
+        text=True,
+        encoding="UTF-8",
+        check=True,
+    ).stdout.splitlines()
+)
+"""Every path in the git index, snapshotted once at collection time.
+
+The independent oracle behind the file-inventory expectations below:
+`Metadata.glob_files` walks the disk under gitignore filtering, while this
+reads the index, so their agreement proves the two views of the tree match. A
+stray untracked file (or a tracked file missing on disk) still fails the
+comparison, deliberately: the metadata a workflow consumes must describe the
+committed tree, and enumerating drift by name is the test's job.
+"""
+
+
+def _tracked_inventory(
+    *extensions: str,
+    subdir: str = "",
+    names: tuple[str, ...] = (),
+    exclude: tuple[str, ...] = (),
+) -> list[str]:
+    """Filter {data}`_ALL_TRACKED` the way one `glob_files` pattern would.
+
+    *extensions* mirror a brace set (`**/*.{py,pyi}`), *names* match exact
+    basenames (`**/pyproject.toml`), *subdir* prefixes the walk
+    (`.github/workflows/**`), and *exclude* mirrors a `!**/{name}` negation.
+
+    Symlinked twins collapse onto their target's spelling exactly like
+    `glob_files`, which resolves every path and drops duplicates: the
+    `repomatic/data/` symlinks to workflows, agents and skills never surface
+    under their link names.
+    """
+    repo_root = Path.cwd()
+    seen = set()
+    for line in _ALL_TRACKED:
+        if subdir and not line.startswith(subdir):
+            continue
+        basename = line.rsplit("/", 1)[-1]
+        if basename in exclude:
+            continue
+        suffix = basename.rsplit(".", 1)[-1] if "." in basename else ""
+        if not (suffix in extensions or basename in names):
+            continue
+        resolved = (repo_root / line).resolve()
+        try:
+            seen.add(resolved.relative_to(repo_root).as_posix())
+        except ValueError:
+            seen.add(line)
+    return sorted(seen)
+
+
+MARKDOWN_EXTENSIONS = (
+    "markdown",
+    "mdown",
+    "mkdn",
+    "mdwn",
+    "mkd",
+    "md",
+    "mdtxt",
+    "mdtext",
+    "mdx",
+)
+"""The `markdown_files` brace set, mirroring `Metadata.markdown_files`."""
+
+MARKDOWN_INVENTORY = _tracked_inventory(*MARKDOWN_EXTENSIONS)
 """Every Markdown file tracked in the repository, in `glob_files` order.
 
 Backs both `doc_files` and `markdown_files`. The two metadata keys glob
 different extension sets: `doc_files` also takes `.rst` and `.tex`. They
 coincide only because the repository currently ships neither, so the day one
-lands this constant has to split back into two lists.
+lands the two expectations below have to diverge.
 """
 
 
@@ -536,192 +502,19 @@ expected: dict[str, Any] = {
     "release_commits": OptionalList(regex(r"[a-f0-9]{40}")),
     "mailmap_exists": True,
     "gitignore_exists": True,
-    "python_files": [
-        "docs/conf.py",
-        "repomatic/__init__.py",
-        "repomatic/__main__.py",
-        "repomatic/awesome_toc.py",
-        "repomatic/binaries_page.py",
-        "repomatic/binary.py",
-        "repomatic/broken_links.py",
-        "repomatic/bundle.py",
-        "repomatic/cache.py",
-        "repomatic/changelog.py",
-        "repomatic/checksums.py",
-        "repomatic/cli.py",
-        "repomatic/compat.py",
-        "repomatic/config.py",
-        "repomatic/data/__init__.py",
-        "repomatic/data/awesome_template/__init__.py",
-        "repomatic/dep_graph.py",
-        "repomatic/dep_report.py",
-        "repomatic/dep_sources.py",
-        "repomatic/docs.py",
-        "repomatic/frontmatter.py",
-        "repomatic/git_ops.py",
-        "repomatic/github/__init__.py",
-        "repomatic/github/actions.py",
-        "repomatic/github/dev_release.py",
-        "repomatic/github/gh.py",
-        "repomatic/github/issue.py",
-        "repomatic/github/matrix.py",
-        "repomatic/github/pr_body.py",
-        "repomatic/github/release_sync.py",
-        "repomatic/github/releases.py",
-        "repomatic/github/sponsor.py",
-        "repomatic/github/status.py",
-        "repomatic/github/token.py",
-        "repomatic/github/unsubscribe.py",
-        "repomatic/github/workflow_sync.py",
-        "repomatic/gitignore.py",
-        "repomatic/http.py",
-        "repomatic/humanize.py",
-        "repomatic/images.py",
-        "repomatic/init_project.py",
-        "repomatic/labels.py",
-        "repomatic/lint_repo.py",
-        "repomatic/mailmap.py",
-        "repomatic/matrix_axes.py",
-        "repomatic/metadata.py",
-        "repomatic/npm.py",
-        "repomatic/plugin.py",
-        "repomatic/prepare_release.py",
-        "repomatic/pypi.py",
-        "repomatic/pyproject.py",
-        "repomatic/registry.py",
-        "repomatic/setup_guide.py",
-        "repomatic/sync_ops.py",
-        "repomatic/templates/__init__.py",
-        "repomatic/tool_registry.py",
-        "repomatic/tool_runner.py",
-        "repomatic/tool_runner_page.py",
-        "repomatic/uv.py",
-        "repomatic/version_sync.py",
-        "repomatic/virustotal.py",
-        "repomatic/vulnerable_deps.py",
-        "tests/__init__.py",
-        "tests/conftest.py",
-        "tests/test_actions.py",
-        "tests/test_awesome_template.py",
-        "tests/test_awesome_toc.py",
-        "tests/test_binaries_page.py",
-        "tests/test_binary.py",
-        "tests/test_broken_links.py",
-        "tests/test_cache.py",
-        "tests/test_changelog.py",
-        "tests/test_checksums.py",
-        "tests/test_config.py",
-        "tests/test_dep_graph.py",
-        "tests/test_dep_report.py",
-        "tests/test_dep_sources.py",
-        "tests/test_dev_release.py",
-        "tests/test_docs.py",
-        "tests/test_docstrings.py",
-        "tests/test_frontmatter.py",
-        "tests/test_gh.py",
-        "tests/test_git_ops.py",
-        "tests/test_github_releases.py",
-        "tests/test_gitignore.py",
-        "tests/test_help.py",
-        "tests/test_http.py",
-        "tests/test_humanize.py",
-        "tests/test_images.py",
-        "tests/test_imports.py",
-        "tests/test_init_project.py",
-        "tests/test_issue.py",
-        "tests/test_labeller_rules.py",
-        "tests/test_lint_repo.py",
-        "tests/test_mailmap.py",
-        "tests/test_matrix.py",
-        "tests/test_metadata.py",
-        "tests/test_npm.py",
-        "tests/test_platform_keys.py",
-        "tests/test_plugin.py",
-        "tests/test_pr_body.py",
-        "tests/test_prepare_release.py",
-        "tests/test_pypi.py",
-        "tests/test_pyproject.py",
-        "tests/test_readme.py",
-        "tests/test_release_sync.py",
-        "tests/test_setup_guide.py",
-        "tests/test_skills.py",
-        "tests/test_sphinx_crossrefs.py",
-        "tests/test_status.py",
-        "tests/test_suite_hygiene.py",
-        "tests/test_sync_labels.py",
-        "tests/test_sync_ops.py",
-        "tests/test_tool_runner.py",
-        "tests/test_unsubscribe.py",
-        "tests/test_uv.py",
-        "tests/test_version_sync.py",
-        "tests/test_virustotal.py",
-        "tests/test_vulnerable_deps.py",
-        "tests/test_workflow_sync.py",
-        "tests/test_workflows.py",
-    ],
-    "json_files": [
-        ".claude-plugin/marketplace.json",
-        ".claude-plugin/plugin.json",
-        "docs/assets/virustotal-scans.json",
-    ],
-    "yaml_files": [
-        ".github/ISSUE_TEMPLATE/bug-report.yml",
-        ".github/actions/publish-pypi/action.yaml",
-        ".github/codecov.yaml",
-        ".github/funding.yml",
-        ".github/workflows/_release-build.yaml",
-        ".github/workflows/_release-engine.yaml",
-        ".github/workflows/autofix.yaml",
-        ".github/workflows/autolock.yaml",
-        ".github/workflows/cancel-runs.yaml",
-        ".github/workflows/changelog.yaml",
-        ".github/workflows/debug.yaml",
-        ".github/workflows/docs.yaml",
-        ".github/workflows/labels.yaml",
-        ".github/workflows/lint.yaml",
-        ".github/workflows/release.yaml",
-        ".github/workflows/self-maintenance.yaml",
-        ".github/workflows/tests.yaml",
-        ".github/workflows/unsubscribe.yaml",
-        "repomatic/data/awesome_template/.github/ISSUE_TEMPLATE/config.yml",
-        "repomatic/data/awesome_template/.github/ISSUE_TEMPLATE/new-link.yaml",
-        "repomatic/data/awesome_template/.github/funding.yml",
-        "repomatic/data/codecov.yaml",
-        "repomatic/data/labeller-content-based.yaml",
-        "repomatic/data/labeller-file-based.yaml",
-        "repomatic/data/yamllint.yaml",
-        "repomatic/data/zizmor.yaml",
-    ],
-    "pyproject_files": [
-        "pyproject.toml",
-    ],
-    "workflow_files": [
-        ".github/workflows/_release-build.yaml",
-        ".github/workflows/_release-engine.yaml",
-        ".github/workflows/autofix.yaml",
-        ".github/workflows/autolock.yaml",
-        ".github/workflows/cancel-runs.yaml",
-        ".github/workflows/changelog.yaml",
-        ".github/workflows/debug.yaml",
-        ".github/workflows/docs.yaml",
-        ".github/workflows/labels.yaml",
-        ".github/workflows/lint.yaml",
-        ".github/workflows/release.yaml",
-        ".github/workflows/self-maintenance.yaml",
-        ".github/workflows/tests.yaml",
-        ".github/workflows/unsubscribe.yaml",
-    ],
+    "python_files": _tracked_inventory("py", "pyi", "pyw", "pyx", "ipynb"),
+    "json_files": _tracked_inventory(
+        "json",
+        "jsonc",
+        names=(".code-workspace",),
+        exclude=("package-lock.json",),
+    ),
+    "yaml_files": _tracked_inventory("yaml", "yml"),
+    "pyproject_files": _tracked_inventory(names=("pyproject.toml",)),
+    "workflow_files": _tracked_inventory("yaml", "yml", subdir=".github/workflows/"),
     "doc_files": MARKDOWN_INVENTORY,
     "markdown_files": MARKDOWN_INVENTORY,
-    "image_files": [
-        "docs/assets/banner-social-dark.png",
-        "docs/assets/banner-social-light.png",
-        "docs/assets/icon.png",
-        "docs/assets/logo-banner-dark.png",
-        "docs/assets/logo-banner-light.png",
-        "docs/assets/logo-square-dark.png",
-        "docs/assets/logo-square-light.png",
-    ],
+    "image_files": _tracked_inventory("jpeg", "jpg", "png", "webp", "avif"),
     "shfmt_files": [".claude/package-skills.sh"],
     # Empty: the repository's only shell script is bash, and a `.sh` file
     # joins zsh_files only when its shebang names zsh.
@@ -1115,6 +908,28 @@ def test_metadata_github_json_format_key_filtering():
     metadata = json.loads(json_str)
 
     assert set(metadata.keys()) == {"is_python_project", "current_version"}
+
+
+def test_file_inventories_are_not_vacuous():
+    """The git-derived inventories really enumerate the tree.
+
+    Guards the `_tracked_inventory` derivations against a filter typo
+    silently emptying a list: each inventory must contain a signature file
+    that will exist for the life of the project, and the symlink collapse
+    must keep targets, never link names.
+    """
+    assert "repomatic/cli.py" in expected["python_files"]
+    assert "tests/test_metadata.py" in expected["python_files"]
+    assert ".github/workflows/tests.yaml" in expected["workflow_files"]
+    assert ".github/workflows/autofix.yaml" in expected["yaml_files"]
+    assert expected["pyproject_files"] == ["pyproject.toml"]
+    assert ".claude-plugin/plugin.json" in expected["json_files"]
+    assert "changelog.md" in MARKDOWN_INVENTORY
+    assert "readme.md" in MARKDOWN_INVENTORY
+    assert "docs/assets/icon.png" in expected["image_files"]
+    # Symlink twins collapse onto their targets, like `glob_files` resolves.
+    assert "repomatic/data/autofix.yaml" not in expected["yaml_files"]
+    assert "repomatic/data/agent-grunt-qa.md" not in MARKDOWN_INVENTORY
 
 
 def test_metadata_json_format():

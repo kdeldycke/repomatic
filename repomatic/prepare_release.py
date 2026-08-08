@@ -54,6 +54,7 @@ from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
 
+from .binary import binary_filename_re
 from .changelog import Changelog
 from .config import load_repomatic_config
 from .metadata import Metadata
@@ -370,11 +371,9 @@ class PrepareRelease:
 
         # Pass 2: Rewrite binary filenames (in both URL and display text)
         # from repomatic-target.ext or repomatic-X.Y.Z-target.ext to
-        # repomatic-{version}-target.ext.
-        content = re.sub(
-            r"repomatic(?:-[\d.]+)?-"
-            r"((?:linux|macos|windows)-(?:arm64|x64))\.(bin|exe)",
-            f"repomatic-{version}-\\1.\\2",
+        # repomatic-{version}-target.ext, through the shared naming pattern.
+        content = binary_filename_re(UPSTREAM_PACKAGE).sub(
+            rf"{UPSTREAM_PACKAGE}-{version}-\g<target>.\g<ext>",
             content,
         )
 

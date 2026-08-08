@@ -631,6 +631,13 @@ jobs:
           pattern: "*-${{ matrix.short_sha }}"
           path: ./compile-assets
           merge-multiple: true
+      # No checkout: on the release commit the freeze has rewritten the CLI
+      # invocation below to its `uvx 'repomatic==X.Y.Z'` form, which resolves
+      # from PyPI and only needs uv itself.
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        if: needs.compile-binaries.result != 'skipped'
+        with:
+          version: "0.12.1"
       - name: Upload binaries and attestation bundles to release
         # Exclude Python packages (.tar.gz, .whl) already uploaded by create-release.
         # Each versioned binary is also uploaded under a versionless alias
@@ -644,19 +651,16 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
         shell: bash
+        # The alias materialization and the exclusion of already-uploaded
+        # Python distributions live in the CLI; the shell only feeds the
+        # printed list to `gh release upload`.
         run: |
-          shopt -s nullglob extglob
-          files=(./compile-assets/!(*.tar.gz|*.whl))
-          for binary in ./compile-assets/*-"${CURRENT_VERSION}"-*.@(bin|exe); do
-            versionless="${binary/-"${CURRENT_VERSION}"-/-}"
-            cp "${binary}" "${versionless}"
-            files+=("${versionless}")
-          done
-          if [[ ${#files[@]} -gt 0 ]]; then
-            gh release upload "v${CURRENT_VERSION}" \
-              "${files[@]}" \
+          uv --no-progress run --frozen -- repomatic stage-binaries \
+            --version "${CURRENT_VERSION}" --dir ./compile-assets > upload-list.txt
+          if [[ -s upload-list.txt ]]; then
+            xargs gh release upload "v${CURRENT_VERSION}" \
               --repo "${{ github.repository }}" \
-              --clobber
+              --clobber < upload-list.txt
           fi
       - name: Publish release
         env:
