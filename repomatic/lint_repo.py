@@ -1810,7 +1810,7 @@ def run_repo_lint(
     for result in check_runner_images():
         _report_result(result)
 
-    # Check 10b-quater: Release-only steps resolved against this project, and
+    # Check 10b-quarter: Release-only steps resolved against this project, and
     # gated on the capability each one consumes.
     for result in check_release_path():
         _report_result(result)
