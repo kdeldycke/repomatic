@@ -64,6 +64,7 @@ import subprocess
 import threading
 from dataclasses import dataclass, field
 from datetime import date
+from functools import partial
 from pathlib import Path
 
 import click
@@ -96,6 +97,7 @@ from .github.pr_body import template_docs_url
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .init_project import init_config, is_source_repo
 from .npm import NPM_PACKAGE_URL
+from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .pypi import PYPI_PACKAGE_URL, get_source_url
 from .registry import (
     BUNDLED_VERBATIM_TARGETS,
@@ -995,7 +997,16 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         plan.dates[package] = latest.date
         plan.name_urls[package] = package_url
 
-    _plan_file_rewrites(plan, rc, file_data, apply_workflow_literals, resolved, min_age)
+    # The lockstep alignment above ignores the cooldown, so the pin it writes can
+    # name a release published minutes ago. Downstream workflows export a
+    # blanket `UV_EXCLUDE_NEWER` that `uvx` cannot override per package from the
+    # environment, so the exemption has to ride on the command line, exactly as
+    # the release freeze splices it into this repository's own workflows.
+    rewriter = partial(
+        apply_workflow_literals,
+        self_pin=(upstream_package, SELF_PIN_COOLDOWN_EXEMPTION),
+    )
+    _plan_file_rewrites(plan, rc, file_data, rewriter, resolved, min_age)
     if rc.release_notes:
         # Only PyPI literals resolve to a source repo, reusing sync-uv-lock's
         # path: PyPI `project_urls` to GitHub releases, with a changelog-link

@@ -388,6 +388,50 @@ def test_apply_workflow_literals():
     assert "codecov-cli==12.0.0" in new_content
 
 
+EXEMPTION = "--exclude-newer-package repomatic=P0D"
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    (
+        # The bare downstream pin gains the exemption alongside the new version.
+        (
+            "          uvx --no-progress 'repomatic==7.4.1' metadata\n",
+            f"          uvx {EXEMPTION} --no-progress 'repomatic==7.6.0' metadata\n",
+        ),
+        # Idempotent: a command already carrying it is left alone.
+        (
+            f"          uvx --no-progress {EXEMPTION} 'repomatic==7.4.1' metadata\n",
+            f"          uvx --no-progress {EXEMPTION} 'repomatic==7.6.0' metadata\n",
+        ),
+        # A pin already at the target version still gets the flag backfilled.
+        (
+            "          uvx --no-progress 'repomatic==7.6.0' pr-body\n",
+            f"          uvx {EXEMPTION} --no-progress 'repomatic==7.6.0' pr-body\n",
+        ),
+    ),
+)
+def test_apply_workflow_literals_self_pin_exemption(content, expected):
+    new_content, _changes = vs.apply_workflow_literals(
+        content,
+        {("pypi", "repomatic"): "7.6.0"},
+        self_pin=("repomatic", EXEMPTION),
+    )
+    assert new_content == expected
+
+
+def test_apply_workflow_literals_leaves_other_packages_unexempted():
+    """Only the self-pin bypasses the cooldown, so only it earns the flag."""
+    content = "          uvx --no-progress 'codecov-cli==11.2.8' upload\n"
+    new_content, _changes = vs.apply_workflow_literals(
+        content,
+        {("pypi", "codecov-cli"): "12.0.0"},
+        self_pin=("repomatic", EXEMPTION),
+    )
+    assert EXEMPTION not in new_content
+    assert "codecov-cli==12.0.0" in new_content
+
+
 def test_find_upstream_ref_versions():
     content = (
         "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
@@ -758,10 +802,16 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
         content = workflow.read_text(encoding="UTF-8")
         body = Path("out.md").read_text(encoding="UTF-8")
 
-    # The upstream pin aligned to the ref version, not to PyPI's fresh 9.0.0.
-    assert "repomatic==7.0.0" in content
-    # The regular literal stayed put: its only release is inside the cooldown.
-    assert "mango==1.0.0" in content
+    # The upstream pin aligned to the ref version, not to PyPI's fresh 9.0.0,
+    # and carries the exemption that lets `uvx` resolve a version the workflow's
+    # own `UV_EXCLUDE_NEWER` would otherwise withhold.
+    assert (
+        "uvx --exclude-newer-package repomatic=P0D 'repomatic==7.0.0' metadata"
+        in content
+    )
+    # The regular literal stayed put: its only release is inside the cooldown,
+    # and it is cooldown-governed, so it earns no exemption.
+    assert "uvx 'mango==1.0.0'" in content
     # The refs themselves are never rewritten by this updater.
     assert "lint.yaml@36523e5a56f287e814210042ca7b852147a95498 # v7.0.0" in content
     # No PyPI release listing was consulted for the pin, so its "Released"

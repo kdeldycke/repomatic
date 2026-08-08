@@ -211,7 +211,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 - Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
 - Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; npm installs and `uvx` pins are handled here)
-- The upstream toolkit's own pin (like `uvx 'repomatic==x.y.z'`) is exempt from the cooldown: the repomatic `uses:` refs are its source of truth (kept current by `repomatic init`'s thin-caller regeneration), and the `lint-repo` job fails on any drift between them, so the pin aligns to those refs in lockstep. Its PR table row shows a `⛓️ lockstep` marker in the `Released` column instead of a PyPI upload date, since no cooldown-checked release listing was consulted
+- The upstream toolkit's own pin (like `uvx 'repomatic==x.y.z'`) is exempt from the cooldown: the repomatic `uses:` refs are its source of truth (kept current by `repomatic init`'s thin-caller regeneration), and the `lint-repo` job fails on any drift between them, so the pin aligns to those refs in lockstep. Because that alignment ignores the cooldown, the rewrite also splices `--exclude-newer-package {package}=P0D` in ahead of the pin: `uvx` reads no per-package exemption from the environment or from `pyproject.toml`, so the flag has to ride on the command line for the workflow's own `UV_EXCLUDE_NEWER` not to withhold the version just written. Its PR table row shows a `⛓️ lockstep` marker in the `Released` column instead of a PyPI upload date, since no cooldown-checked release listing was consulted
 - PR body lists each updated pin with old and new versions
 - **Requires**:
   - Workflow files (`.github/workflows/**/*.yaml`) in the repository
@@ -868,7 +868,7 @@ Three installs opt out, each as narrowly as it can:
 
 | Install                          | Scope       | Why                                                                                                                                                       |
 | :------------------------------- | :---------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The frozen `repomatic` self-pin  | One package | Moves in lockstep with the `uses:` refs, so it names a release published minutes earlier. The freeze splices `--exclude-newer-package` in beside the pin. |
+| The frozen `repomatic` self-pin  | One package | Moves in lockstep with the `uses:` refs, so it names a release published minutes earlier. Both the release freeze and `sync-workflow-pins` splice `--exclude-newer-package` in beside the pin. |
 | A security fix inside the window | One package | `audit --fix` reaches the fix through an `exclude-newer-package` entry rather than lifting `exclude-newer` for everything.                                |
 | The `test-package-install` job   | One job     | Its subject *is* the fresh release, so a cooldown makes the question it answers unanswerable. It holds no secrets and inherits `permissions: {}`.         |
 

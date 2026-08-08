@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `sync-workflow-pins` now splices the `--exclude-newer-package` cooldown exemption in beside the inline `repomatic==X.Y.Z` pin it realigns, so the freshly aligned version still resolves under a workflow's blanket `UV_EXCLUDE_NEWER`. Previously only the release freeze wrote the flag, leaving every downstream repository with a pin its own cooldown refused to install.
+
 ## [`7.6.0` (2026-08-08)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...v7.6.0)
 
 - **Breaking:** the `labels` component is now ephemeral: `labels.toml` and the two labeller YAMLs are staged only when named explicitly (`repomatic init labels`). A repository that committed them sees them reported as excluded files on disk, removable with `init --delete-excluded`.
