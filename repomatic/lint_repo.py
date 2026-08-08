@@ -32,11 +32,17 @@ from pathlib import Path
 from typing import NamedTuple
 
 import yaml
+from packaging.version import Version
 
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import gh_api_json, run_gh_command
 from .github.token import check_all_pat_permissions
+from .matrix_axes import (
+    TEST_RUNNERS_FULL,
+    TEST_RUNNERS_PR,
+    UNSTABLE_PYTHON_VERSIONS,
+)
 from .metadata import Metadata, stale_axis_values
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
@@ -56,6 +62,21 @@ the operation name, so it can match its job ID and PR branch. Templates sitting
 flat in `.github/` need a `pr-` prefix purely to disambiguate, which breaks that
 identity and puts them next to GitHub's own `pull_request_template.md`, an
 unrelated human-facing file.
+"""
+
+PYTHON_CLASSIFIER_PREFIX = "Programming Language :: Python :: "
+"""Prefix of the classifiers naming a supported interpreter version.
+
+Only the dotted ones carry a version: the bare `3` and `3 :: Only` state the
+major series, and `Implementation :: CPython` the interpreter.
+"""
+
+KNOWN_RUNNERS = frozenset(TEST_RUNNERS_FULL) | frozenset(TEST_RUNNERS_PR)
+"""Every runner image the test matrix axes draw from.
+
+The closest thing to a curated list of images a project should be running on,
+and the one place carrying measured guidance on their relative speed and cost.
+A job naming something outside it has been picked without that guidance.
 """
 
 TEMPLATE_FILE_ARG_RE = re.compile(r"--template-file[=\s]+(?P<path>\S+)")
@@ -1000,6 +1021,260 @@ def check_test_matrix_excludes() -> list[CheckResult]:
     return results
 
 
+def _load_workflows(
+    workflow_dir: Path = Path(".github/workflows"),
+) -> dict[Path, dict]:
+    """Parse every workflow in `workflow_dir`, skipping the unreadable ones.
+
+    :param workflow_dir: Directory holding the workflow files.
+    :return: A mapping of path to parsed document, for documents declaring jobs.
+    """
+    workflows: dict[Path, dict] = {}
+    if not workflow_dir.is_dir():
+        return workflows
+    for path in sorted(workflow_dir.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(path.read_text(encoding="UTF-8"))
+        except (yaml.YAMLError, OSError) as e:
+            logging.warning(f"Could not parse {path}: {e}")
+            continue
+        if isinstance(data, dict) and isinstance(data.get("jobs"), dict):
+            workflows[path] = data
+    return workflows
+
+
+def _advertised_python_versions(metadata: Metadata) -> list[tuple[int, int]]:
+    """`(major, minor)` pairs from the project's Python version classifiers.
+
+    `3` and `3 :: Only` carry no minor version, and `Implementation :: CPython`
+    is not a version at all, so only dotted numeric suffixes are kept.
+
+    :param metadata: The repository metadata to read the classifiers from.
+    :return: A sorted list of `(major, minor)` pairs, empty when none are set.
+    """
+    versions: set[tuple[int, int]] = set()
+    for classifier in metadata.pyproject.classifiers if metadata.pyproject else []:
+        suffix = classifier.removeprefix(PYTHON_CLASSIFIER_PREFIX)
+        if suffix == classifier:
+            continue
+        major, _, minor = suffix.partition(".")
+        if major.isdigit() and minor.isdigit():
+            versions.add((int(major), int(minor)))
+    return sorted(versions)
+
+
+def _literal_python_axes(workflows: dict[Path, dict]) -> dict[str, list[str]]:
+    """Test matrix `python-version` axes spelled out as a literal list.
+
+    A matrix assembled at runtime, as repomatic's own
+    `${{ fromJSON(...).test_matrix }}` is, reads back as an opaque string. Those
+    are skipped: their axes come from {mod}`repomatic.matrix_axes` and are
+    canonical by construction, so there is nothing left to reconcile.
+
+    :param workflows: Parsed workflows, keyed by path.
+    :return: A mapping of `<file>:<job>` to the versions that job names.
+    """
+    axes: dict[str, list[str]] = {}
+    for path, data in workflows.items():
+        for job_id, job in data["jobs"].items():
+            if not isinstance(job, dict):
+                continue
+            matrix = job.get("strategy", {}).get("matrix")
+            if not isinstance(matrix, dict):
+                continue
+            versions = matrix.get("python-version")
+            if isinstance(versions, list) and versions:
+                axes[f"{path.name}:{job_id}"] = [str(v) for v in versions]
+    return axes
+
+
+def check_python_version_consistency() -> list[CheckResult]:
+    """Reconcile the Python versions a project requires, advertises and tests.
+
+    The same fact is stated in up to three places, and nothing else holds them
+    together: the `requires-python` lower bound, the
+    `Programming Language :: Python :: X.Y` classifiers PyPI renders, and any
+    test matrix naming its versions literally.
+
+    Two failure modes are flagged:
+
+    1. The lowest classifier disagrees with the `requires-python` floor. One of
+       the two is then lying to resolvers about what installs.
+    2. A literal test matrix does not reach both ends of the advertised range,
+       or names a released version the classifiers never claim. Coverage of the
+       *ends* is the invariant rather than of every version in between, so that
+       a matrix testing the floor, the latest release and the development
+       version stays conformant: skipping intermediate releases is a deliberate
+       way to cut CI load, advertising an untested boundary is not.
+
+    Versions in {data}`~repomatic.matrix_axes.UNSTABLE_PYTHON_VERSIONS` are
+    exempt from the second rule, being tested precisely because they are not
+    released yet and so cannot be advertised. Build flavors carrying a suffix
+    (the free-threaded `3.14t`) count as their base version.
+
+    :return: A list of `CheckResult`.
+    """
+    metadata = Metadata()
+    advertised = _advertised_python_versions(metadata)
+    if not advertised:
+        return [
+            CheckResult(
+                None, "Python version consistency: skipped (no version classifiers)."
+            )
+        ]
+
+    results: list[CheckResult] = []
+
+    floor = min(advertised)
+    required = (
+        [s for s in metadata.pyproject.requires_python if s.operator in (">=", ">")]
+        if metadata.pyproject and metadata.pyproject.requires_python
+        else []
+    )
+    if not required:
+        results.append(
+            CheckResult(
+                None, "Python floor check: skipped (no requires-python lower bound)."
+            )
+        )
+    else:
+        release = Version(required[0].version).release
+        declared = (release[0], release[1])
+        floor_str = ".".join(map(str, floor))
+        if declared != floor:
+            results.append(
+                CheckResult(
+                    False,
+                    f"requires-python floor is"
+                    f" {'.'.join(map(str, declared))} but the lowest"
+                    f" `Programming Language :: Python` classifier is"
+                    f" {floor_str}. Resolvers read the first and humans read"
+                    f" the second, so they have to agree.",
+                )
+            )
+        else:
+            results.append(
+                CheckResult(
+                    True,
+                    f"Python floor check: requires-python and classifiers"
+                    f" agree on {floor_str}.",
+                )
+            )
+
+    axes = _literal_python_axes(_load_workflows())
+    if not axes:
+        results.append(
+            CheckResult(None, "Python test matrix: skipped (no literal axis found).")
+        )
+        return results
+
+    advertised_labels = {".".join(map(str, v)) for v in advertised}
+    boundaries = {
+        ".".join(map(str, min(advertised))),
+        ".".join(map(str, max(advertised))),
+    }
+    for location, versions in sorted(axes.items()):
+        # A build flavor ("3.14t") exercises its base version's interpreter.
+        tested = {v.rstrip("t") for v in versions}
+        unadvertised = sorted(
+            (tested - advertised_labels) - set(UNSTABLE_PYTHON_VERSIONS)
+        )
+        missing = sorted(boundaries - tested)
+        if unadvertised:
+            results.append(
+                CheckResult(
+                    False,
+                    f"{location} tests Python {', '.join(unadvertised)}, which"
+                    f" the classifiers do not advertise. Add the classifier, or"
+                    f" drop the version from the matrix.",
+                )
+            )
+        if missing:
+            results.append(
+                CheckResult(
+                    False,
+                    f"{location} never tests Python {', '.join(missing)}, at the"
+                    f" edge of the advertised range. Testing between the ends is"
+                    f" optional, reaching them is not.",
+                )
+            )
+        if not unadvertised and not missing:
+            results.append(
+                CheckResult(True, f"{location}: matrix spans the advertised range.")
+            )
+    return results
+
+
+def check_runner_images() -> list[CheckResult]:
+    """Flag runner images that move on their own, or that no axis knows about.
+
+    Neither Dependabot nor `sync-workflow-pins` touches a `runs-on:` value:
+    the first only rewrites `uses:` references, the second only the
+    `uvx '<pkg>==X.Y.Z'` and `npm install pkg@X.Y.Z` literals. So a runner is
+    the one dependency in a workflow that nothing bumps, and the only defence
+    is keeping the set small and named.
+
+    Two failure modes are flagged:
+
+    1. A `-latest` alias. GitHub repoints those to a new image on its own
+       schedule, so the build changes underneath the repository with no commit
+       to review, and a breakage arrives unattached to any change.
+    2. An image outside the curated axes in {mod}`repomatic.matrix_axes`. Those
+       carry measured guidance on speed and cost; an image picked outside them
+       is one nobody has weighed, and is usually a leftover.
+
+    Values built from an expression (`${{ matrix.os }}`) name no image here and
+    are left alone: the axis they draw from is checked at its definition.
+
+    :return: A list of `CheckResult`.
+    """
+    workflows = _load_workflows()
+    if not workflows:
+        return [CheckResult(None, "Runner images check: skipped (no workflows).")]
+
+    seen: dict[str, list[str]] = {}
+    for path, data in workflows.items():
+        for job_id, job in data["jobs"].items():
+            if not isinstance(job, dict) or "steps" not in job:
+                # A thin caller's runner is the reusable workflow's business.
+                continue
+            runner = job.get("runs-on")
+            if not isinstance(runner, str) or "${{" in runner:
+                continue
+            seen.setdefault(runner, []).append(f"{path.name}:{job_id}")
+
+    if not seen:
+        return [
+            CheckResult(None, "Runner images check: skipped (none named literally).")
+        ]
+
+    results: list[CheckResult] = []
+    for runner, locations in sorted(seen.items()):
+        where = ", ".join(sorted(locations))
+        if runner.endswith("-latest"):
+            results.append(
+                CheckResult(
+                    False,
+                    f"{where} run on `{runner}`, which GitHub repoints without"
+                    f" a commit here. Pin the image instead.",
+                )
+            )
+        elif runner not in KNOWN_RUNNERS:
+            known = ", ".join(f"`{r}`" for r in sorted(KNOWN_RUNNERS))
+            results.append(
+                CheckResult(
+                    False,
+                    f"{where} run on `{runner}`, which is not one of the images"
+                    f" the test matrix axes are drawn from ({known}). Nothing"
+                    f" bumps a runner literal, so an image off that list is one"
+                    f" nobody is tracking.",
+                )
+            )
+        else:
+            results.append(CheckResult(True, f"{where}: runner `{runner}` is known."))
+    return results
+
+
 def check_inline_pins_match_upstream(
     workflow_dir: Path = Path(".github/workflows"),
     upstream_repo: str = DEFAULT_REPO,
@@ -1289,6 +1564,14 @@ def run_repo_lint(
 
     # Check 10b: Test matrix excludes reference values present in a live axis.
     for result in check_test_matrix_excludes():
+        _report_result(result)
+
+    # Check 10b-bis: Python versions required, advertised and tested agree.
+    for result in check_python_version_consistency():
+        _report_result(result)
+
+    # Check 10b-ter: Runner images are pinned, and known to the matrix axes.
+    for result in check_runner_images():
         _report_result(result)
 
     # Check 10c: Inline upstream pins match the workflow uses: ref version (error).

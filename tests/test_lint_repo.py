@@ -37,6 +37,8 @@ from repomatic.lint_repo import (
     check_pat_stale_statuses_permission,
     check_pr_templates,
     check_pypi_trusted_publisher,
+    check_python_version_consistency,
+    check_runner_images,
     check_sha_pinning_required,
     check_stale_draft_releases,
     check_test_matrix_excludes,
@@ -46,6 +48,7 @@ from repomatic.lint_repo import (
     get_repo_metadata,
     run_repo_lint,
 )
+from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
 from repomatic.metadata import Metadata
 from repomatic.pypi import TrustedPublisher
 from tests.conftest import all_pass_pat_results
@@ -1037,6 +1040,129 @@ def test_check_test_matrix_excludes_clean(tmp_path, monkeypatch):
     monkeypatch.setattr(Metadata, "pyproject_path", pyproject_file)
 
     results = check_test_matrix_excludes()
+    assert all(r.passed is not False for r in results)
+
+
+def _write_project(tmp_path, monkeypatch, classifiers, requires_python=">= 3.11"):
+    """Lay out a project declaring the given Python support, and chdir into it."""
+    entries = "\n".join(
+        f'  "Programming Language :: Python :: {c}",' for c in classifiers
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "p"\nversion = "1.0.0"\n'
+        f'requires-python = "{requires_python}"\n'
+        f"classifiers = [\n{entries}\n]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(Metadata, "pyproject_path", tmp_path / "pyproject.toml")
+    monkeypatch.chdir(tmp_path)
+
+
+def _write_workflow(tmp_path, body, name="ci.yaml"):
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True, exist_ok=True)
+    (workflows / name).write_text(body, encoding="utf-8")
+
+
+_MATRIX = (
+    "on: push\n"
+    "jobs:\n"
+    "  tests:\n"
+    "    strategy:\n"
+    "      matrix:\n"
+    "        python-version: [{versions}]\n"
+    "    runs-on: ubuntu-slim\n"
+    "    steps:\n"
+    "      - run: echo apricot\n"
+)
+
+
+def test_python_floor_disagreeing_with_classifiers(tmp_path, monkeypatch):
+    """A floor below the lowest classifier misreports what installs."""
+    _write_project(tmp_path, monkeypatch, ["3.11", "3.12"], requires_python=">= 3.9")
+    results = check_python_version_consistency()
+    assert any(
+        r.passed is False and "requires-python floor" in r.message for r in results
+    )
+
+
+def test_python_matrix_missing_an_advertised_boundary(tmp_path, monkeypatch):
+    """Advertising a version the matrix never reaches is untested support."""
+    _write_project(tmp_path, monkeypatch, ["3.11", "3.12", "3.13"])
+    _write_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.12"'))
+    results = check_python_version_consistency()
+    assert any(r.passed is False and "3.13" in r.message for r in results)
+
+
+def test_python_matrix_may_skip_intermediate_versions(tmp_path, monkeypatch):
+    """Only the ends of the range are mandatory, to keep CI load a free choice."""
+    _write_project(tmp_path, monkeypatch, ["3.11", "3.12", "3.13"])
+    _write_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.13"'))
+    assert all(r.passed is not False for r in check_python_version_consistency())
+
+
+def test_python_matrix_testing_an_unadvertised_version(tmp_path, monkeypatch):
+    """A released version tested but not advertised is support left unclaimed."""
+    _write_project(tmp_path, monkeypatch, ["3.11", "3.12"])
+    _write_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.12", "3.13"'))
+    results = check_python_version_consistency()
+    assert any(r.passed is False and "3.13" in r.message for r in results)
+
+
+def test_python_matrix_tolerates_unreleased_versions(tmp_path, monkeypatch):
+    """An in-development version cannot be advertised, so it is exempt."""
+    unstable = min(UNSTABLE_PYTHON_VERSIONS)
+    _write_project(tmp_path, monkeypatch, ["3.11", "3.12"])
+    _write_workflow(tmp_path, _MATRIX.format(versions=f'"3.11", "3.12", "{unstable}"'))
+    assert all(r.passed is not False for r in check_python_version_consistency())
+
+
+def test_python_matrix_built_at_runtime_is_skipped(tmp_path, monkeypatch):
+    """A `fromJSON` matrix is opaque, and its axes are canonical already."""
+    _write_project(tmp_path, monkeypatch, ["3.11", "3.12"])
+    _write_workflow(
+        tmp_path,
+        "on: push\njobs:\n  tests:\n    strategy:\n"
+        "      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).test_matrix }}\n"
+        "    runs-on: ubuntu-slim\n    steps:\n      - run: echo apricot\n",
+    )
+    results = check_python_version_consistency()
+    assert any(r.passed is None and "no literal axis" in r.message for r in results)
+
+
+@pytest.mark.parametrize(
+    ("runner", "expect_fail", "needle"),
+    [
+        pytest.param("ubuntu-latest", True, "repoints", id="floating-alias"),
+        pytest.param("ubuntu-24.04", True, "not one of the images", id="unknown-image"),
+        pytest.param("ubuntu-slim", False, None, id="known-image"),
+        pytest.param("${{ matrix.os }}", False, None, id="expression"),
+    ],
+)
+def test_runner_images(tmp_path, monkeypatch, runner, expect_fail, needle):
+    """Floating aliases and off-axis images are flagged; expressions are not."""
+    monkeypatch.chdir(tmp_path)
+    _write_workflow(
+        tmp_path,
+        f"on: push\njobs:\n  build:\n    runs-on: {runner}\n"
+        "    steps:\n      - run: echo apricot\n",
+    )
+    failures = [r for r in check_runner_images() if r.passed is False]
+    if expect_fail:
+        assert failures
+        assert any(needle in r.message for r in failures)
+    else:
+        assert not failures
+
+
+def test_runner_images_ignores_thin_callers(tmp_path, monkeypatch):
+    """A job with no steps delegates, and its runner is the callee's business."""
+    monkeypatch.chdir(tmp_path)
+    _write_workflow(
+        tmp_path,
+        "on: push\njobs:\n  build:\n    uses: ./.github/workflows/_build.yaml\n",
+    )
+    results = check_runner_images()
     assert all(r.passed is not False for r in results)
 
 
