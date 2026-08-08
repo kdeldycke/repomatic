@@ -904,27 +904,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909",
+        ): "73ea440ecad9c9e284429997ee6f93577bc6f7bc6fba357ef62c53ad8fb641a5",
         (
             LINUX,
             X86_64,
-        ): "83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60",
+        ): "a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112",
         (
             MACOS,
             AARCH64,
-        ): "f23a0c37d963aacc3bed703ccbd59b41c5ca22101fab7f00eb2b7cad23aba463",
+        ): "a58b8fd77b417a38f47a0b54d1370c59b0fcdb324ccc9ca002b0998f7c4c999e",
         (
             MACOS,
             X86_64,
-        ): "4bd449df9ad639391bc62b8032546f0fe9edcd8526e06682a4f88abd8c5d163c",
+        ): "63298c998cc2a924c9e254c6af6a1caad6ece281122687a91f079bc0a462700e",
         (
             WINDOWS,
             AARCH64,
-        ): "c517e0b32c98a4ba90ac95af8d12cc3ac55781ab4ab72f9a91ce3de0541d2b09",
+        ): "3e2d4a166da4ee5020c592737b65eec0e724946d5d5b962f5fe59d99116dc4bf",
         (
             WINDOWS,
             X86_64,
-        ): "c2d6acc935cd2f00e2144d7e036d5cd82e6b6bd5594e8c75aa75ef2a4ed6aac3",
+        ): "35d7fe05c4dd1411ffda1e73dfc7c6f44b75c936ca51fa6595c657fdc0350cec",
     },
     "gitleaks": {
         (
@@ -1070,7 +1070,7 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
     "biome": "2.5.6",
-    "gh": "2.96.0",
+    "gh": "2.97.0",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
@@ -1275,7 +1275,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "gh": ToolSpec(
         name="gh",
         display_name="GitHub CLI",
-        version="2.96.0",
+        version="2.97.0",
         source_url="https://github.com/cli/cli",
         cli_docs_url="https://cli.github.com/manual/",
         binary=BinarySpec(
