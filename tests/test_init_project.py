@@ -1578,12 +1578,12 @@ def test_init_only_skills(tmp_path: Path):
     """Verify only skill files are created.
 
     Scope exclusions are bypassed when components are explicitly requested,
-    so all 15 skills (including awesome-only ones) are created.
+    so all 16 skills (including awesome-only ones) are created.
     """
     result = run_init(output_dir=tmp_path, components=("skills",))
 
     created_set = set(result.created)
-    assert len(created_set) == 15
+    assert len(created_set) == 16
 
     # Verify all skill files are created, including awesome-only ones.
     for name in (
@@ -1593,6 +1593,7 @@ def test_init_only_skills(tmp_path: Path):
         "benchmark-update",
         "brand-assets",
         "file-bug-report",
+        "github-housekeeping",
         "repomatic-audit",
         "repomatic-changelog",
         "repomatic-deps",

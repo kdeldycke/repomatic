@@ -1217,10 +1217,15 @@ def lint_changelog_dates(
             elements.availability_admonition = "\n\n".join(admonitions)
 
             if is_yanked:
+                # PyPI accepts a yank with no reason, so the clause carrying
+                # it is rendered only when there is one. Its own trailing
+                # period is dropped: the template supplies the sentence's.
+                reason = pypi_data[version].yanked_reason.strip().rstrip(".")
                 elements.yanked_admonition = render_template(
                     "yanked-admonition",
                     version=version,
                     package=pypi_data[version].package,
+                    reason=f": {reason}" if reason else "",
                 )
 
             new_section = render_template("release-notes", **asdict(elements))

@@ -31,6 +31,7 @@ from repomatic.pypi import (
     PYPI_TRUSTED_PUBLISHER_SETTINGS_URL,
     TrustedPublisher,
     get_latest_release_file,
+    get_release_dates,
     get_source_url,
     get_trusted_publishers,
     github_repo_root,
@@ -191,6 +192,41 @@ def test_latest_release_file_api_failure():
     """Return None when the metadata fetch itself failed."""
     with _patch_pypi_json(None):
         assert get_latest_release_file("cherries") is None
+
+
+def test_release_dates_capture_yank_reason():
+    """The first non-empty per-file yank reason rides along with the release."""
+    payload = {
+        "releases": {
+            "0.9.0": [
+                {
+                    "filename": "cherries-0.9.0-py3-none-any.whl",
+                    "upload_time": "2025-12-01T00:00:00",
+                },
+            ],
+            "1.0.0": [
+                {
+                    "filename": "cherries-1.0.0-py3-none-any.whl",
+                    "upload_time": "2026-01-01T00:00:00",
+                    "yanked": True,
+                    "yanked_reason": None,
+                },
+                {
+                    "filename": "cherries-1.0.0.tar.gz",
+                    "upload_time": "2026-01-01T00:00:00",
+                    "yanked": True,
+                    "yanked_reason": "Superseded by a corrected upload.",
+                },
+            ],
+        },
+    }
+    with _patch_pypi_json(payload):
+        releases = get_release_dates("cherries")
+    assert releases["1.0.0"].yanked is True
+    assert releases["1.0.0"].yanked_reason == "Superseded by a corrected upload."
+    # A live release records no reason at all.
+    assert releases["0.9.0"].yanked is False
+    assert releases["0.9.0"].yanked_reason == ""
 
 
 def test_get_trusted_publishers_match():

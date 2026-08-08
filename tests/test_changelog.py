@@ -466,12 +466,18 @@ def test_extract_all_releases(content, expected):
 def _pypi_mock(releases, package="my-package"):
     """Build a monkeypatch-compatible mock for ``get_pypi_release_dates``.
 
-    Each value in *releases* is a ``(date, yanked)`` tuple. The *package*
-    argument is injected as the third ``PyPIRelease`` field so callers
-    don't need to repeat it in every entry.
+    Each value in *releases* is a ``(date, yanked)`` tuple, optionally
+    extended with a yank reason. The *package* argument is injected as the
+    third ``PyPIRelease`` field so callers don't need to repeat it in every
+    entry.
     """
     return lambda pkg: {
-        v: PyPIRelease(date=args[0], yanked=args[1], package=package)
+        v: PyPIRelease(
+            date=args[0],
+            yanked=args[1],
+            package=package,
+            yanked_reason=args[2] if len(args) > 2 else "",
+        )
         for v, args in releases.items()
     }
 
@@ -1191,6 +1197,41 @@ def test_lint_fix_adds_yanked_admonition(tmp_path, monkeypatch):
     # NOTE should show GitHub only, not PyPI (yanked release excluded).
     assert "[🐍 PyPI](https://pypi.org/project/my-package/1.1.0/)" not in content
     assert "[🐙 GitHub](https://github.com/user/repo/releases/tag/v1.1.0)" in content
+
+
+def test_lint_fix_yanked_admonition_carries_reason(tmp_path, monkeypatch):
+    """PyPI's yank reason lands in the CAUTION admonition."""
+    path = tmp_path / "changelog.md"
+    path.write_text(MULTI_RELEASE_CHANGELOG, encoding="UTF-8")
+
+    monkeypatch.setattr(
+        "repomatic.changelog.get_pypi_release_dates",
+        _pypi_mock({
+            "1.1.0": ("2026-02-10", True, "Superseded by a corrected upload."),
+            "1.0.0": ("2025-12-01", False),
+        }),
+    )
+    monkeypatch.setattr(
+        "repomatic.changelog.get_project_name",
+        lambda: "my-package",
+    )
+    monkeypatch.setattr(
+        "repomatic.changelog.get_github_releases",
+        _github_mock(["1.1.0", "1.0.0"]),
+    )
+    _patch_tags(monkeypatch)
+
+    lint_changelog_dates(path, fix=True)
+    content = path.read_text(encoding="UTF-8")
+
+    # The reason follows the link, and its own period does not double up with
+    # the one closing the sentence.
+    assert (
+        "`1.1.0` has been [yanked from PyPI]"
+        "(https://pypi.org/project/my-package/1.1.0/):"
+        " Superseded by a corrected upload."
+    ) in content
+    assert "upload.." not in content
 
 
 def test_lint_fix_no_admonition_when_nowhere(tmp_path, monkeypatch):

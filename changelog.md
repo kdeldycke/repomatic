@@ -6,6 +6,8 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** drop the `WorkflowFormat` enum and the `generate_workflows` function, orphaned since the `workflow create` and `workflow sync` CLI commands were removed. `repomatic init` is now the only way to write a workflow file.
+- New `github-housekeeping` skill backfills and curates labels and milestones across a repository's full issue and PR history: taxonomy design, cache-backed bulk classification with review gates, AI-slop detection from closed-without-comment signals, and milestone assignment by changelog, git-tag, and release-date archaeology.
+- The changelog's `[!CAUTION]` admonition for a yanked release now quotes the reason PyPI recorded for the yank, when there is one.
 - `sync-workflow-pins` now splices the `--exclude-newer-package` cooldown exemption in beside the inline `repomatic==X.Y.Z` pin it realigns, so the freshly aligned version still resolves under a workflow's blanket `UV_EXCLUDE_NEWER`. Previously only the release freeze wrote the flag, leaving every downstream repository with a pin its own cooldown refused to install.
 - Rename the Claude Code plugin release asset to `repomatic-claude-plugin.zip`, as `repomatic-plugin.zip` read as a plugin for repomatic. `/plugin install` is unaffected.
 - Attestation bundles are now named after the asset they cover (`repomatic-manpages.attestation.json`) instead of the job that produced them (`manpages.attestation.json`).

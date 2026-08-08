@@ -186,6 +186,13 @@ class PyPIRelease(NamedTuple):
     the current one.
     """
 
+    yanked_reason: str = ""
+    """Why the release was yanked, empty when PyPI records no reason.
+
+    PyPI stores the reason per file and accepts a yank with none at all, so
+    this carries the first non-empty one across the version's files.
+    """
+
 
 def get_release_dates(package: str) -> dict[str, PyPIRelease]:
     """Get upload dates and yanked status for all versions from PyPI.
@@ -193,7 +200,8 @@ def get_release_dates(package: str) -> dict[str, PyPIRelease]:
     Fetches the package metadata in a single API call. For each version,
     selects the **earliest** upload time across all distribution files as
     the canonical release date. A version is considered yanked only if
-    **all** of its files are yanked.
+    **all** of its files are yanked, and carries the first yank reason any
+    of them records.
 
     :param package: The PyPI package name.
     :return: Dict mapping version strings to {class}`PyPIRelease` tuples.
@@ -214,8 +222,16 @@ def get_release_dates(package: str) -> dict[str, PyPIRelease]:
         earliest_date = min(dates)
         # A version is yanked only if every file is yanked.
         all_yanked = all(f.get("yanked", False) for f in files)
+        # The reason is per-file and optional: keep the first non-empty one.
+        reason = next(
+            (str(f["yanked_reason"]) for f in files if f.get("yanked_reason")),
+            "",
+        )
         result[version] = PyPIRelease(
-            date=earliest_date, yanked=all_yanked, package=package
+            date=earliest_date,
+            yanked=all_yanked,
+            package=package,
+            yanked_reason=reason,
         )
 
     return result
