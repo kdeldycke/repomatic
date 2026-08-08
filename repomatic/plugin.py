@@ -54,7 +54,7 @@ pointing `claude --plugin-dir` at the unpacked archive.
 
 ```{note}
 The checked-in manifest carries no `version`: {func}`pack_plugin` injects the
-running {data}`repomatic.__version__` into the copy it writes to the archive.
+running `__version__` into the copy it writes to the archive.
 Claude Code compares that string against a user's installed copy to decide
 whether an update is due, so a hand-maintained value that went stale would
 silently strand everyone on the plugin they already had. Deriving it at pack time
@@ -64,15 +64,27 @@ makes it impossible to forget, and keeps the one repomatic-specific
 downstream repository.
 ```
 
+```{note}
+The marketplace entry is an `archive` source pointing at the release asset, and
+its URL **ratchets forward**: {meth}`.PrepareRelease.freeze_marketplace_archive_url`
+rewrites it to `/releases/download/v{X.Y.Z}/` on each release commit, and nothing
+walks it back. So the default branch always names the newest published release,
+and a catalog added at a tag installs that tag's plugin. The URL is never a
+`latest` redirect except before the very first release, and never a `.devN` tag.
+```
+
 ```{caution}
-The marketplace entry fetches the plugin from
-`releases/latest/download/repomatic-plugin.zip`, an `archive` source with no
-`sha256` pin: the URL moves with every release, so no digest can be committed
-beside it. Integrity comes from the attestation the release engine's
-`extra-assets` job generates instead. The consequence to keep in mind when
-touching the release lane is that a release published without this asset breaks
-`/plugin install` for everyone until the next one, because `latest` has already
-moved past it.
+The entry still carries no `sha256`. The archive is byte-deterministic, so a
+digest could in principle be committed alongside the pin, but only if the release
+runner reproduces those bytes exactly: `ZIP_DEFLATED` output depends on the zlib
+build behind CPython, and a one-byte difference would fail *every* install with
+`Plugin archive integrity check failed` rather than degrading. Integrity comes
+from the attestation the engine's `extra-assets` job generates instead. Switching
+to `ZIP_STORED` would make a committed digest safe, at the cost of a larger asset.
+
+Independently of that: a release that publishes without this asset breaks
+`/plugin install` until the next one, which is why a failed `extra-assets` now
+blocks `publish-release`.
 ```
 """
 

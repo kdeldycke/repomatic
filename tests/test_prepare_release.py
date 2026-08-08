@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -724,6 +725,106 @@ def test_freeze_install_missing_file(
     result = prep.freeze_install_download_urls("1.2.3")
 
     assert result is False
+
+
+def _marketplace(tmp_path: Path, url_path: str) -> Path:
+    """Write a minimal plugin marketplace whose archive URL uses *url_path*."""
+    target = tmp_path / "marketplace.json"
+    target.write_text(
+        json.dumps({
+            "name": "kdeldycke",
+            "owner": {"name": "Kevin Deldycke"},
+            "plugins": [
+                {
+                    "name": "repomatic",
+                    "source": {
+                        "source": "archive",
+                        "url": (
+                            "https://github.com/kdeldycke/repomatic"
+                            f"/releases/{url_path}/repomatic-plugin.zip"
+                        ),
+                    },
+                }
+            ],
+        }),
+        encoding="UTF-8",
+    )
+    return target
+
+
+@pytest.mark.parametrize(
+    ("url_path", "stale"),
+    (
+        pytest.param("latest/download", "latest/download", id="never-frozen"),
+        pytest.param("download/v1.2.2", "v1.2.2", id="already-frozen"),
+    ),
+)
+def test_freeze_marketplace_archive_url(
+    tmp_path: Path,
+    temp_pyproject: Path,
+    monkeypatch,
+    url_path: str,
+    stale: str,
+) -> None:
+    """Both the initial and the already-frozen URL ratchet to the new release."""
+    monkeypatch.chdir(tmp_path)
+    target = _marketplace(tmp_path, url_path)
+
+    prep = PrepareRelease(marketplace_path=target)
+    assert prep.freeze_marketplace_archive_url("1.2.3") is True
+
+    content = target.read_text(encoding="UTF-8")
+    assert stale not in content
+    assert (
+        "https://github.com/kdeldycke/repomatic"
+        "/releases/download/v1.2.3/repomatic-plugin.zip"
+    ) in content
+    # Still valid JSON, and only the URL moved.
+    entry = json.loads(content)["plugins"][0]
+    assert entry["name"] == "repomatic"
+    assert entry["source"]["source"] == "archive"
+
+
+def test_freeze_marketplace_archive_url_missing_file(
+    tmp_path: Path,
+    temp_pyproject: Path,
+    monkeypatch,
+) -> None:
+    """A repository with no plugin marketplace is left alone."""
+    monkeypatch.chdir(tmp_path)
+
+    prep = PrepareRelease(marketplace_path=tmp_path / "nonexistent.json")
+    assert prep.freeze_marketplace_archive_url("1.2.3") is False
+
+
+def test_post_release_leaves_the_marketplace_url_pinned(
+    tmp_path: Path,
+    temp_changelog: Path,
+    temp_citation: Path,
+    temp_workflows: Path,
+    temp_pyproject: Path,
+    monkeypatch,
+) -> None:
+    """The unfreeze must not walk the archive URL back to a `.devN` tag.
+
+    The ratchet is the whole reason this URL is not a bump-my-version entry: the
+    post-release bump would rewrite it to a `vX.Y.Z.devN` tag that never exists,
+    breaking `/plugin install` for the entire development cycle.
+    """
+    monkeypatch.chdir(tmp_path)
+    target = _marketplace(tmp_path, "download/v1.2.3")
+
+    prep = PrepareRelease(
+        changelog_path=temp_changelog,
+        citation_path=temp_citation,
+        workflow_dir=temp_workflows,
+        marketplace_path=target,
+    )
+    prep.post_release(update_workflows=True)
+
+    assert "/releases/download/v1.2.3/repomatic-plugin.zip" in target.read_text(
+        encoding="UTF-8"
+    )
 
 
 def test_prepare_release_freezes_install(

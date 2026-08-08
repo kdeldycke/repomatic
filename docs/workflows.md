@@ -890,6 +890,8 @@ The [`prepare-release`](#github-workflows-changelog-yaml-jobs) job creates a PR 
 1. **Freeze commit** (`[changelog] Release vX.Y.Z`): finalizes the changelog date and comparison URL, removes the "unreleased" warning, freezes workflow action references to `@vX.Y.Z`, and freezes CLI invocations to a PyPI version.
 2. **Unfreeze commit** (`[changelog] Post-release bump`): reverts action references back to `@main`, reverts CLI invocations to local source, adds a new unreleased changelog section, and bumps the version to the next patch.
 
+Not everything the freeze pins is reverted. Release-asset URLs (the binary downloads in `docs/install.md`, the plugin archive in `.claude-plugin/marketplace.json`) **ratchet forward** instead: the freeze moves them to the new tag and the unfreeze leaves them there, so `main` names the newest published release rather than a tag that does not exist yet.
+
 The auto-tagging job depends on these being **separate commits**: it uses `release_commits_matrix` to identify and tag only the freeze commit. Squashing would merge both into one, breaking the tagging logic.
 
 On `main`, workflows run the CLI with `uv --no-progress run --frozen -- repomatic`, which installs the project from `uv.lock` (dogfooding). The freeze commit rewrites these to `uvx --no-progress 'repomatic==X.Y.Z'` so tagged releases resolve a published package from PyPI, which is what a downstream repo needs: it has no lockfile for this project. The unfreeze commit reverts them for the next development cycle.

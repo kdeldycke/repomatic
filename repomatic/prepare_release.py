@@ -57,6 +57,7 @@ from pathlib import Path
 from .changelog import Changelog
 from .config import load_repomatic_config
 from .metadata import Metadata
+from .plugin import MARKETPLACE_PATH
 
 SELF_PIN_COOLDOWN_EXEMPTION = "--exclude-newer-package repomatic=P0D"
 """uv escape hatch letting a just-published repomatic install under the cooldown.
@@ -113,6 +114,7 @@ class PrepareRelease:
         citation_path: Path | None = None,
         workflow_dir: Path | None = None,
         install_path: Path | None = None,
+        marketplace_path: Path | None = None,
         default_branch: str = "main",
     ) -> None:
         self.changelog_path = (
@@ -121,6 +123,7 @@ class PrepareRelease:
         self.citation_path = citation_path or Path("./citation.cff").resolve()
         self.workflow_dir = workflow_dir or Path("./.github/workflows").resolve()
         self.install_path = install_path or Path("./docs/install.md").resolve()
+        self.marketplace_path = marketplace_path or Path(MARKETPLACE_PATH).resolve()
         self.default_branch = default_branch
         self.modified_files: list[Path] = []
 
@@ -364,6 +367,48 @@ class PrepareRelease:
 
         return self._update_file(self.install_path, content, original)
 
+    def freeze_marketplace_archive_url(self, version: str) -> bool:
+        """Pin the plugin marketplace's archive URL to this release.
+
+        This is part of the **freeze** step. The `archive` source in
+        `.claude-plugin/marketplace.json` points at the `repomatic-plugin.zip`
+        asset of a GitHub release, and pinning the tag is what makes a marketplace
+        ref meaningful: adding the catalog at `kdeldycke/repomatic@v6.0.0` then
+        installs v6.0.0's plugin, where a `latest` redirect would hand over
+        whatever shipped most recently regardless of the ref asked for.
+
+        Handles the same two input forms as
+        {meth}`freeze_install_download_urls`:
+
+        - **Initial** (never frozen):
+          `/releases/latest/download/repomatic-plugin.zip`
+        - **Previously frozen**:
+          `/releases/download/v6.0.0/repomatic-plugin.zip`
+
+        ```{note}
+        No unfreeze method, for the same reason download URLs have none: the URL
+        ratchets forward. The post-release `.devN` bump leaves it alone, so the
+        default branch keeps pointing at the newest *published* release rather
+        than at a `vX.Y.Z.dev0` tag that was never created. That is what makes
+        every state of this file installable, which a bump-my-version entry
+        rewriting it on both commits could not achieve.
+        ```
+
+        :param version: The release version to freeze to.
+        :return: True if the file was modified.
+        """
+        if not self.marketplace_path.exists():
+            logging.debug(f"Plugin marketplace not found: {self.marketplace_path}")
+            return False
+
+        original = self.marketplace_path.read_text(encoding="UTF-8")
+        content = re.sub(
+            r"/releases/(?:latest/download|download/v[\d.]+)/",
+            f"/releases/download/v{version}/",
+            original,
+        )
+        return self._update_file(self.marketplace_path, content, original)
+
     def freeze_install_cli_version(self, version: str) -> bool:
         """Pin the install guide's versioned CLI examples to the release.
 
@@ -558,6 +603,7 @@ class PrepareRelease:
             self.freeze_workflow_urls()
             self.freeze_cli_version(self.current_version)
             self.freeze_install_download_urls(self.current_version)
+            self.freeze_marketplace_archive_url(self.current_version)
 
         return self.modified_files
 

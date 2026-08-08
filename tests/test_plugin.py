@@ -34,6 +34,7 @@ the shape that was verified to actually load.
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -91,8 +92,8 @@ misspelling of a real one rather than a deliberate addition.
 """
 
 ARCHIVE_VERSION = "1.2.3"
-"""Stand-in version for the packing tests, distinct from {data}`__version__` so a
-stamped manifest cannot pass by coincidence."""
+"""Stand-in version for the packing tests, distinct from the package's own
+`__version__` so a stamped manifest cannot pass by coincidence."""
 
 
 def _load(relative: str) -> dict[str, Any]:
@@ -164,17 +165,39 @@ def test_marketplace_declares_no_plugin_version(marketplace) -> None:
         assert "version" not in entry
 
 
+ARCHIVE_URL_RE = re.compile(
+    r"^https://github\.com/(?P<repo>[\w.-]+/[\w.-]+)"
+    r"/releases/(?:latest/download|download/v\d+\.\d+\.\d+)"
+    r"/(?P<asset>[\w.-]+)$"
+)
+"""The two shapes the marketplace archive URL is ever allowed to take.
+
+`latest/download` is the never-yet-frozen state; `download/vX.Y.Z` is what
+`PrepareRelease.freeze_marketplace_archive_url` ratchets it to on every release.
+Anything else, notably a `vX.Y.Z.devN` tag that was never created, would leave
+`/plugin install` broken.
+"""
+
+
 def test_marketplace_installs_from_the_release_archive(marketplace) -> None:
     """The single entry fetches the archive the release lane attaches.
 
-    Ties the marketplace URL to {data}`ARCHIVE_NAME`, so renaming the asset
-    cannot leave the catalog pointing at a filename no release publishes.
+    Ties the marketplace URL to {data}`~repomatic.plugin.ARCHIVE_NAME` and to the
+    repository, so renaming the asset cannot leave the catalog pointing at a
+    filename no release publishes, and pins the URL to a shape that always
+    resolves.
     """
     source = marketplace["plugins"][0]["source"]
     assert source["source"] == "archive"
-    assert source["url"] == (
-        f"https://github.com/{MARKETPLACE_REPO}/releases/latest/download/{ARCHIVE_NAME}"
+
+    match = ARCHIVE_URL_RE.match(source["url"])
+    assert match, (
+        f"{source['url']!r} is not a release-asset URL that resolves. Expected "
+        "either the /releases/latest/download/ form or a /releases/download/"
+        "vX.Y.Z/ pin, never a .devN tag."
     )
+    assert match["repo"] == MARKETPLACE_REPO
+    assert match["asset"] == ARCHIVE_NAME
 
 
 def test_pack_plugin_layout(tmp_path: Path) -> None:
