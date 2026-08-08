@@ -196,9 +196,8 @@ class WorkflowFormat(StrEnum):
             # presence is what decides whether the caller spells out a
             # permissions contract. Those jobs carry custom `steps:`, which is
             # what makes a top-level `permissions: {}` worth pinning.
-            extra = ""
-            if target.exists():
-                extra = extract_extra_jobs(target.read_text(encoding="UTF-8"), repo)
+            existing = target.read_text(encoding="UTF-8") if target.exists() else None
+            extra = extract_extra_jobs(existing, repo) if existing else ""
 
             try:
                 content = generate_thin_caller(
@@ -208,6 +207,7 @@ class WorkflowFormat(StrEnum):
                     paths_spec=spec,
                     commit_sha=commit_sha,
                     with_permissions=bool(extra),
+                    existing=existing,
                 )
             except ValueError as e:
                 logging.error(str(e))
@@ -770,6 +770,7 @@ def generate_thin_caller(
     commit_sha: str | None = None,
     paths_spec: PathsSpec | None = None,
     with_permissions: bool = False,
+    existing: str | None = None,
 ) -> str:
     """Generate a thin caller workflow for a reusable canonical workflow.
 
@@ -801,6 +802,9 @@ def generate_thin_caller(
         together: the top-level `{}` alone would starve the managed call, which
         GitHub aborts at startup the moment a nested job asks for a scope the
         caller never granted.
+    :param existing: Current content of the downstream file, when it already
+        exists. Only `release.yaml` reads it, to carry over the extra `needs:`
+        edges of its `release` lane; every other caller regenerates whole.
     :return: Complete YAML content for the thin caller workflow.
     :raises ValueError: If the workflow does not support `workflow_call`.
     """
@@ -809,7 +813,7 @@ def generate_thin_caller(
     # caller and rewriting its local `uses:` refs. See _generate_release_caller.
     if filename == "release.yaml":
         return _generate_release_caller(
-            repo=repo, version=version, commit_sha=commit_sha
+            repo=repo, version=version, commit_sha=commit_sha, existing=existing
         )
 
     spec = paths_spec if paths_spec is not None else PathsSpec()
@@ -1061,10 +1065,92 @@ def _strip_comment_lines(text: str) -> str:
     )
 
 
+def _downstream_release_needs(existing: str | None, repo: str) -> tuple[str, ...]:
+    """`needs:` edges the downstream `release` job adds to the canonical set.
+
+    A consumer that builds its own release asset must gate the engine call on
+    the job producing it, the same way the wheel gates on `build` (see the
+    `release-assets` handoff in docs/workflows.md). That edge lives on a job
+    this renderer regenerates, so it has to be carried across a sync or every
+    `repomatic init` would silently drop it.
+
+    Only edges pointing at downstream-defined jobs survive: an entry naming a
+    managed lane is already in the canonical `needs:`, and one naming a job that
+    no longer exists would abort the run at startup.
+
+    :param existing: Current downstream `release.yaml`, or `None` when creating.
+    :param repo: Upstream repository owning the managed lanes.
+    :return: Extra job names, in the order the downstream file lists them.
+    """
+    if not existing:
+        return ()
+    try:
+        data = yaml.safe_load(existing)
+    except yaml.YAMLError:
+        return ()
+    if not isinstance(data, dict):
+        return ()
+    jobs = data.get("jobs")
+    if not isinstance(jobs, dict):
+        return ()
+    release = jobs.get("release")
+    if not isinstance(release, dict):
+        return ()
+
+    needs = release.get("needs")
+    if isinstance(needs, str):
+        needs = [needs]
+    if not isinstance(needs, list):
+        return ()
+
+    upstream_pattern = _upstream_uses_pattern(repo)
+    return tuple(
+        name
+        for name in needs
+        if isinstance(name, str)
+        and name in jobs
+        and not _is_managed_job(jobs[name], upstream_pattern)
+    )
+
+
+def _merge_release_needs(job_lines: list[str], extra: tuple[str, ...]) -> list[str]:
+    """Append *extra* entries to the release job's `needs:`, as a block sequence.
+
+    Normalizes the canonical scalar (`needs: build`) into a list so the added
+    entries stay one-per-line and diffable.
+    """
+    if not extra:
+        return job_lines
+
+    merged: list[str] = []
+    index = 0
+    while index < len(job_lines):
+        line = job_lines[index]
+        index += 1
+        if not line.strip().startswith("needs:"):
+            merged.append(line)
+            continue
+
+        indent = line[: len(line) - len(line.lstrip())]
+        value = line.strip()[len("needs:") :].strip()
+        entries = [value] if value else []
+        # Absorb an existing block sequence before appending to it.
+        while index < len(job_lines) and job_lines[index].strip().startswith("- "):
+            entries.append(job_lines[index].strip()[2:].strip())
+            index += 1
+        entries.extend(name for name in extra if name not in entries)
+
+        merged.append(f"{indent}needs:")
+        merged.extend(f"{indent}  - {entry}" for entry in entries)
+
+    return merged
+
+
 def _generate_release_caller(
     repo: str,
     version: str,
     commit_sha: str | None,
+    existing: str | None = None,
 ) -> str:
     """Generate the downstream `release.yaml` caller from the canonical entry.
 
@@ -1079,6 +1165,12 @@ def _generate_release_caller(
       superseded non-release runs cancel downstream too. The block must sit on
       this push-triggered caller (not the engine lane it calls via `needs:`,
       whose group joins too late to cancel queued runs); see docs/workflows.md.
+    - **Deny-by-default `permissions: {}`** emitted like the canonical entry
+      carries it, so a downstream job added below the managed lanes starts with
+      no scopes instead of inheriting the repository default.
+    - **Downstream `needs:` edges preserved** on the `release` lane (see
+      :func:`_downstream_release_needs`), so a consumer gating the engine on its
+      own asset-building job keeps that edge across a sync.
     - **Local `uses: ./` refs rewritten** to the pinned cross-repo form
       (`{repo}/.github/workflows/{name}@{ref}`) for the `build` and `release`
       lanes, with their repomatic-specific comments stripped.
@@ -1094,6 +1186,8 @@ def _generate_release_caller(
     :param version: Version reference for the pinned refs.
     :param commit_sha: Optional 40-character SHA for pin-style refs (renders as
         `@sha # version`).
+    :param existing: Current downstream `release.yaml`, read before generating so
+        its extra `needs:` edges survive; `None` when creating the file.
     :return: Complete YAML content for the downstream `release.yaml` caller.
     :raises RuntimeError: If the canonical `release.yaml` no longer exposes the
         expected `build` and `release` jobs, meaning the entry changed in a way
@@ -1130,6 +1224,11 @@ def _generate_release_caller(
         f"name: {info.name}",
         _render_triggers(triggers),
         "",
+        # Deny by default, mirroring the canonical entry: each lane below grants
+        # itself the scopes it needs, and a downstream job appended after them
+        # starts with none instead of the repository default.
+        "permissions: {}",
+        "",
     ]
     # Carry the entry workflow's concurrency group downstream verbatim (comments
     # included). It must live on this push-triggered caller, not the reusable
@@ -1152,7 +1251,11 @@ def _generate_release_caller(
         _render_publish_pypi_job(repo=repo, version=version, commit_sha=commit_sha)
     )
     lines.append("")
-    lines.extend(lane_lines(release_job))
+    lines.extend(
+        _merge_release_needs(
+            lane_lines(release_job), _downstream_release_needs(existing, repo)
+        )
+    )
     lines.append("")
 
     return "\n".join(lines)
@@ -1201,6 +1304,30 @@ def identify_canonical_workflow(
     return canonical
 
 
+def _upstream_uses_pattern(repo: str) -> re.Pattern[str]:
+    """Match a `uses:` reference pointing at *repo*'s workflows or actions."""
+    return re.compile(rf"{re.escape(repo)}/\.github/(workflows|actions)/")
+
+
+def _is_managed_job(config: Any, upstream_pattern: re.Pattern[str]) -> bool:
+    """Whether a job body is one repomatic owns.
+
+    A job is managed when it references the upstream repository, either at the
+    job-level `uses:` (reusable workflow) or at any `steps[*].uses:` (composite
+    action like `kdeldycke/repomatic/.github/actions/publish-pypi`). Everything
+    else was written downstream.
+    """
+    if not isinstance(config, dict):
+        return False
+    if upstream_pattern.search(config.get("uses", "")):
+        return True
+    steps = config.get("steps") or []
+    return isinstance(steps, list) and any(
+        isinstance(step, dict) and upstream_pattern.search(step.get("uses", ""))
+        for step in steps
+    )
+
+
 def extract_extra_jobs(
     content: str,
     repo: str = DEFAULT_REPO,
@@ -1233,20 +1360,12 @@ def extract_extra_jobs(
     if not isinstance(jobs, dict):
         return ""
 
-    upstream_pattern = re.compile(rf"{re.escape(repo)}/\.github/(workflows|actions)/")
-    managed_keys: list[str] = []
-    for key, config in jobs.items():
-        if not isinstance(config, dict):
-            continue
-        if upstream_pattern.search(config.get("uses", "")):
-            managed_keys.append(str(key))
-            continue
-        steps = config.get("steps") or []
-        if isinstance(steps, list) and any(
-            isinstance(step, dict) and upstream_pattern.search(step.get("uses", ""))
-            for step in steps
-        ):
-            managed_keys.append(str(key))
+    upstream_pattern = _upstream_uses_pattern(repo)
+    managed_keys = [
+        str(key)
+        for key, config in jobs.items()
+        if _is_managed_job(config, upstream_pattern)
+    ]
     if not managed_keys:
         return ""
 

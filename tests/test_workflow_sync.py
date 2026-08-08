@@ -2145,6 +2145,92 @@ def test_thin_caller_permissions_track_extra_jobs(tmp_path: Path) -> None:
     assert yaml.safe_load(target.read_text(encoding="UTF-8")).get("permissions") is None
 
 
+_PACKER_JOB = (
+    "\n  packer:\n    runs-on: ubuntu-slim\n    steps:\n      - run: echo pack\n"
+)
+"""A downstream asset-building job, appended below the managed lanes."""
+
+
+def _downstream_release(needs: list[str]) -> str:
+    """A downstream `release.yaml` carrying {data}`_PACKER_JOB` and *needs*.
+
+    Rewrites the `release` lane's `needs:` only: `publish-pypi` declares the
+    same `needs: build` earlier in the file, so a blind replace would hit it.
+    """
+    content = generate_thin_caller("release.yaml", DEFAULT_REPO, "v1.2.3")
+    head, marker, tail = content.partition("  release:\n")
+    block = "    needs:\n" + "".join(f"      - {name}\n" for name in needs)
+    return head + marker + tail.replace("    needs: build\n", block, 1) + _PACKER_JOB
+
+
+def test_release_caller_always_denies_permissions(tmp_path: Path) -> None:
+    """The canonical entry's deny-by-default reaches every downstream copy.
+
+    Unlike a plain thin caller, whose contract only appears once extra jobs do,
+    `release.yaml` is copied from an entry that always carries the key.
+    """
+    target = tmp_path / "release.yaml"
+
+    def sync() -> bool:
+        return WorkflowFormat.THIN_CALLER.write_workflow(
+            "release.yaml",
+            target,
+            repo=DEFAULT_REPO,
+            version="v1.2.3",
+            spec=PathsSpec(),
+            commit_sha=None,
+        )
+
+    assert sync()
+    assert yaml.safe_load(target.read_text(encoding="UTF-8"))["permissions"] == {}
+
+    # A downstream job appended below the managed lanes must not loosen it.
+    target.write_text(
+        target.read_text(encoding="UTF-8") + _PACKER_JOB, encoding="UTF-8"
+    )
+    assert sync()
+    data = yaml.safe_load(target.read_text(encoding="UTF-8"))
+    assert data["permissions"] == {}
+    assert "packer" in data["jobs"]
+
+
+@pytest.mark.parametrize(
+    ("downstream_needs", "expected"),
+    (
+        pytest.param(["build", "packer"], ["build", "packer"], id="extra-edge-kept"),
+        pytest.param(["build"], "build", id="canonical-only-stays-scalar"),
+        pytest.param(["build", "ghost"], "build", id="stale-edge-dropped"),
+        pytest.param(["build", "publish-pypi"], "build", id="managed-lane-not-echoed"),
+    ),
+)
+def test_release_caller_preserves_downstream_needs(
+    tmp_path: Path, downstream_needs: list[str], expected: str | list[str]
+) -> None:
+    """Carry the consumer's own `needs:` edges across a sync.
+
+    A repo building a `release-assets` file gates the engine on the job packing
+    it. That edge sits on a lane this renderer regenerates, so without carrying
+    it over every `repomatic init` would silently drop the gate. Edges naming a
+    managed lane or a vanished job are dropped instead of echoed back.
+    """
+    target = tmp_path / "release.yaml"
+    target.write_text(_downstream_release(downstream_needs), encoding="UTF-8")
+
+    assert WorkflowFormat.THIN_CALLER.write_workflow(
+        "release.yaml",
+        target,
+        repo=DEFAULT_REPO,
+        version="v1.2.3",
+        spec=PathsSpec(),
+        commit_sha=None,
+    )
+
+    data = yaml.safe_load(target.read_text(encoding="UTF-8"))
+    assert data["jobs"]["release"]["needs"] == expected
+    # The packing job itself always survives, whatever the edge resolved to.
+    assert "packer" in data["jobs"]
+
+
 def test_generated_caller_with_extra_jobs_satisfies_lint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
