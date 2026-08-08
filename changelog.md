@@ -20,6 +20,9 @@
 
 ## [`7.6.0` (2026-08-08)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...v7.6.0)
 
+> [!NOTE]
+> `7.6.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.6.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.6.0).
+
 - **Breaking:** the `labels` component is now ephemeral: `labels.toml` and the two labeller YAMLs are staged only when named explicitly (`repomatic init labels`). A repository that committed them sees them reported as excluded files on disk, removable with `init --delete-excluded`.
 - New `fix-awesome-toc` command deletes the table-of-contents entries awesome-lint forbids from `readme.md` and every `readme.{lang}.md` beside it, matching translated sections by position rather than by their English name.
 - The bundled skills and agents are now published as a Claude Code plugin: `/plugin marketplace add kdeldycke/repomatic` then `/plugin install repomatic@kdeldycke`. Needs Claude Code 2.1.224 or later. Addresses [#2378](https://github.com/kdeldycke/repomatic/issues/2378).
