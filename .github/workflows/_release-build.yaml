@@ -130,7 +130,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
-          is_python_project package_name current_version released_version
+          is_python_project cli_scripts package_name current_version released_version
           release_notes release_notes_with_admonition skip_binary_build
 
   build-package:
@@ -152,8 +152,17 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.1"
+      # Bakes the tag SHA into the CLI module so a built artifact can report the
+      # commit it came from. Gated on `cli_scripts` because click-extra locates that
+      # module through `[project.scripts]`, and hard-errors with "No __init__.py
+      # found" on a project that declares none. The `.dev` guard alone does not
+      # catch it: it holds on every ordinary push and only opens on the release
+      # commit, so a CLI-less project builds green for its whole life and fails the
+      # one run that tags, publishes and releases it.
       - name: Pre-bake tag SHA
-        if: "!contains(matrix.current_version, '.dev')"
+        if: >-
+          !contains(matrix.current_version, '.dev')
+          && fromJSON(needs.metadata.outputs.metadata).cli_scripts
         env:
           COMMIT: ${{ matrix.commit }}
         run: >
