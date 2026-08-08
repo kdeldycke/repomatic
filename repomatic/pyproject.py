@@ -52,7 +52,12 @@ def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
         return {}
     try:
         data: dict[str, Any] = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
-    except tomlrt.TOMLParseError:
+    # `OSError` covers the window between the check above and this read: the
+    # default *project_root* is relative, so the file it names can be gone (or
+    # the working directory itself removed) by the time it is opened. The
+    # missing-file outcome this promises is the same either way, so the check
+    # stays as the cheap common path and this catches the race.
+    except (tomlrt.TOMLParseError, OSError):
         return {}
     return data
 

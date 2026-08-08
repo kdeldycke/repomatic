@@ -18,7 +18,11 @@
 
 from __future__ import annotations
 
-from repomatic.pyproject import get_project_name, is_python_project
+from repomatic.pyproject import (
+    get_project_name,
+    is_python_project,
+    read_pyproject_toml,
+)
 
 
 def test_get_project_name_from_cwd(tmp_path, monkeypatch):
@@ -98,3 +102,21 @@ def test_is_python_project_accepts_preloaded_data():
     """`is_python_project` accepts a pre-parsed `pyproject.toml` dict."""
     data = {"project": {"name": "preloaded", "version": "0.1.0"}}
     assert is_python_project(pyproject_data=data) is True
+
+
+def test_read_pyproject_toml_survives_file_vanishing_after_check(tmp_path, monkeypatch):
+    """A file disappearing between the existence check and the read yields `{}`.
+
+    The default `project_root` is relative, so the file can be deleted, or the
+    working directory itself removed, in the window between the two. Both land
+    on the missing-file outcome the docstring already promises, rather than
+    escaping as `OSError`.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "papaya"\n', encoding="UTF-8")
+
+    def vanish(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "pyproject.toml")
+
+    monkeypatch.setattr("pathlib.Path.read_text", vanish)
+    assert read_pyproject_toml(tmp_path) == {}
