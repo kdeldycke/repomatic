@@ -155,6 +155,22 @@ class ActionPin(NamedTuple):
     """The version in the trailing `# vX.Y.Z` comment."""
 
 
+class UpstreamRefPin(NamedTuple):
+    """An upstream thin-caller `uses:` ref found in a workflow file.
+
+    The counterpart of {class}`ActionPin` for the upstream repo's own reusable
+    workflows and composite actions. Those refs carry a subpath
+    (`owner/repo/.github/workflows/x.yaml@…`), which {data}`ACTION_PIN_RE`
+    deliberately does not match, so they need their own parser.
+    """
+
+    version: str
+    """The bare version in the trailing `# vX.Y.Z` comment, or in the tag ref."""
+
+    sha: str | None
+    """The pinned 40-character commit SHA, or `None` for a bare tag pin."""
+
+
 class WorkflowLiteral(NamedTuple):
     """A version literal embedded in a workflow command."""
 
@@ -610,20 +626,29 @@ def apply_workflow_literals(
     return content, changes
 
 
-def find_upstream_ref_versions(content: str, upstream_repo: str) -> set[str]:
-    """Extract the `uses:` ref versions of the upstream repo's workflows.
+def find_upstream_ref_pins(content: str, upstream_repo: str) -> list[UpstreamRefPin]:
+    """Extract the `uses:` refs of the upstream repo's workflows, with their SHAs.
 
     Matches reusable-workflow and composite-action refs of *upstream_repo*,
     both SHA-pinned with a trailing version comment
     (``owner/repo/.github/workflows/lint.yaml@abc123 # v1.2.3``) and directly
-    tag-pinned (``...@v1.2.3``), and returns the bare version strings.
+    tag-pinned (``...@v1.2.3``, which yields a `None` SHA).
 
-    Shared by `lint-repo`'s inline-pin lockstep check and
-    `sync-workflow-pins`' upstream-pin alignment, so both read the refs the
-    same way.
+    Shared by `lint-repo`'s inline-pin lockstep check, `sync-workflow-pins`'
+    upstream-pin alignment and `init`'s pin floor
+    ({func}`~repomatic.init_project._highest_upstream_pin`), so all three read
+    the refs the same way.
     """
     ref_re = re.compile(
         rf"{re.escape(upstream_repo)}/\.github/(?:workflows|actions)/[^@\s]+"
-        r"@(?:[0-9a-f]+\s+#\s+)?v(?P<version>[0-9]+(?:\.[0-9]+)*)"
+        r"@(?:(?P<sha>[0-9a-f]+)\s+#\s+)?v(?P<version>[0-9]+(?:\.[0-9]+)*)"
     )
-    return {m["version"] for m in ref_re.finditer(content)}
+    return [UpstreamRefPin(m["version"], m["sha"]) for m in ref_re.finditer(content)]
+
+
+def find_upstream_ref_versions(content: str, upstream_repo: str) -> set[str]:
+    """Extract the bare `uses:` ref versions of the upstream repo's workflows.
+
+    The version-only view of {func}`find_upstream_ref_pins`.
+    """
+    return {pin.version for pin in find_upstream_ref_pins(content, upstream_repo)}

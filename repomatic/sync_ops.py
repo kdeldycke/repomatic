@@ -907,11 +907,12 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
 
     The upstream toolkit's inline pin (``repomatic==X.Y.Z``) is the exception:
     it is aligned to the newest `uses:` ref version instead of the newest
-    cooldown-eligible PyPI release. The refs are its source of truth (bumped
-    by a separate, already-decided sync, see `_resolve_action_pins`), and
-    `lint-repo`'s lockstep check fails on any drift, so honoring the
-    `minimum-release-age` cooldown here would leave the lint red for a full
-    cooldown window after every refs bump.
+    cooldown-eligible PyPI release. The refs are its source of truth: they are
+    written by `repomatic init` alone, which weighs the cooldown itself (see
+    {func}`~repomatic.init_project.resolve_default_pin`) and is skipped here and
+    in :func:`_resolve_action_pins`. Re-judging their outcome against PyPI would
+    leave `lint-repo`'s lockstep check red for a full cooldown window after
+    every refs bump.
     """
     min_age = parse_min_age(rc.config.minimum_release_age)
     today = rc.today

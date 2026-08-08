@@ -626,9 +626,11 @@ def _prune_paths(
 @option(
     "--cooldown/--no-cooldown",
     default=True,
-    help="Hold the derived upstream pin back to the newest release past the "
-    "[tool.repomatic] minimum-release-age window. --no-cooldown pins the "
-    "running repomatic version immediately. Ignored when --version is set.",
+    help="When adopting a repomatic release newer than the one this repository "
+    "already pins, hold the upstream pin back to the newest release past the "
+    "[tool.repomatic] minimum-release-age window. Never moves a pin at or above "
+    "the running version. --no-cooldown pins the running repomatic version "
+    "immediately. Ignored when --version is set.",
 )
 @option(
     "--repo",
@@ -694,10 +696,12 @@ def init_project(
     component/file entries select a single file.
 
     The derived upstream pin honors the [tool.repomatic] minimum-release-age
-    cooldown: if the running repomatic version is still inside that window, the
-    workflow pin steps back to the newest release that has cleared it. Pass
-    --no-cooldown to pin the running version immediately, or --version to pin an
-    exact tag.
+    cooldown when it would adopt a release newer than the one already pinned in
+    this repository: if the running repomatic version is still inside that
+    window, the workflow pin steps back to the newest release that has cleared
+    it, and never below the pin already on disk. Re-running init at the pinned
+    version leaves it untouched. Pass --no-cooldown to pin the running version
+    immediately, or --version to pin an exact tag.
 
     \b
     Components:

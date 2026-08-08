@@ -402,6 +402,20 @@ def test_find_upstream_ref_versions():
     assert versions == {"7.0.0", "6.31.0"}
 
 
+def test_find_upstream_ref_pins_carries_the_sha():
+    """A tag-only ref yields a `None` SHA, which `init`'s floor must not invent."""
+    content = (
+        "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
+        "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
+        "      - uses: kdeldycke/repomatic/.github/actions/publish-pypi@v6.31.0\n"
+        "    uses: other/repo/.github/workflows/tests.yaml@deadbeef # v9.9.9\n"
+    )
+    assert vs.find_upstream_ref_pins(content, "kdeldycke/repomatic") == [
+        vs.UpstreamRefPin("7.0.0", "36523e5a56f287e814210042ca7b852147a95498"),
+        vs.UpstreamRefPin("6.31.0", None),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Datasource adapters (mocked: no network)
 # ---------------------------------------------------------------------------

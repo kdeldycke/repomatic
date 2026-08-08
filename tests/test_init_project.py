@@ -35,6 +35,7 @@ from repomatic.init_project import (
     EXPORTABLE_FILES,
     RUNTIME_FRAGMENTS,
     _detect_removed_assets,
+    _highest_upstream_pin,
     _select_cooldown_pin,
     _update_tool_config,
     default_version_pin,
@@ -69,7 +70,7 @@ from repomatic.registry import (
     valid_file_ids,
 )
 from repomatic.tool_registry import TOOL_REGISTRY
-from repomatic.version_sync import Candidate
+from repomatic.version_sync import Candidate, UpstreamRefPin
 
 # Convenience set for tests that check opt-in workflow membership.
 _OPT_IN_IDS = frozenset(
@@ -890,6 +891,205 @@ def test_resolve_default_pin_fails_open_when_datasource_empty(monkeypatch):
     monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
     monkeypatch.setattr(ip, "github_candidates", lambda _url: [])
     assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.2", "a" * 40)
+
+
+def _write_caller(path: Path, version: str, sha: str | None = None) -> None:
+    """Drop a minimal upstream thin-caller `uses:` ref at *path*."""
+    ref = f"{sha} # v{version}" if sha else f"v{version}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"jobs:\n"
+        f"  lint:\n"
+        f"    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@{ref}\n",
+        encoding="UTF-8",
+    )
+
+
+def test_highest_upstream_pin_none_without_refs(tmp_path):
+    """A repository carrying no upstream ref has no floor."""
+    assert _highest_upstream_pin(tmp_path, "kdeldycke/repomatic") is None
+
+
+def test_highest_upstream_pin_converges_stragglers(tmp_path):
+    """The repository-wide maximum wins, so a lagging file cannot drag the pin down."""
+    workflows = tmp_path / ".github" / "workflows"
+    _write_caller(workflows / "lint.yaml", "7.4.2", "a" * 40)
+    _write_caller(workflows / "docs.yaml", "7.0.0", "b" * 40)
+    assert _highest_upstream_pin(tmp_path, "kdeldycke/repomatic") == UpstreamRefPin(
+        "7.4.2", "a" * 40
+    )
+
+
+def test_highest_upstream_pin_prefers_a_hardened_ref(tmp_path):
+    """At equal versions the SHA-pinned ref wins, so the floor never unpins one."""
+    workflows = tmp_path / ".github" / "workflows"
+    _write_caller(workflows / "autolock.yaml", "7.4.2")
+    _write_caller(workflows / "lint.yaml", "7.4.2", "a" * 40)
+    assert _highest_upstream_pin(tmp_path, "kdeldycke/repomatic") == UpstreamRefPin(
+        "7.4.2", "a" * 40
+    )
+
+
+def test_highest_upstream_pin_reads_composite_actions(tmp_path):
+    """Composite-action refs count too: `release.yaml` pins one alongside the lanes."""
+    action = tmp_path / ".github" / "actions" / "publish-pypi" / "action.yaml"
+    _write_caller(action, "7.4.2", "a" * 40)
+    assert _highest_upstream_pin(tmp_path, "kdeldycke/repomatic") == UpstreamRefPin(
+        "7.4.2", "a" * 40
+    )
+
+
+# The pin `init` resolves across the whole downstream lifecycle. `7.4.2` is
+# inside the cooldown window on the reference date, `7.4.1` and `7.4.0` have
+# cleared it, and the running build carries SHA `a…`.
+@pytest.mark.parametrize(
+    ("label", "base", "floor", "expected"),
+    [
+        (
+            "bootstrap on an aged release pins it",
+            "7.4.1",
+            None,
+            ("v7.4.1", "a" * 40),
+        ),
+        (
+            "bootstrap on a fresh release steps back",
+            "7.4.2",
+            None,
+            ("v7.4.1", "b" * 40),
+        ),
+        (
+            "steady state on an aged pin is a no-op",
+            "7.4.1",
+            UpstreamRefPin("7.4.1", "c" * 40),
+            ("v7.4.1", "a" * 40),
+        ),
+        (
+            "steady state on a fresh pin is a no-op too",
+            "7.4.2",
+            UpstreamRefPin("7.4.2", "c" * 40),
+            ("v7.4.2", "a" * 40),
+        ),
+        (
+            "adopting an aged release moves the pin up",
+            "7.4.1",
+            UpstreamRefPin("7.4.0", "c" * 40),
+            ("v7.4.1", "a" * 40),
+        ),
+        (
+            "adopting a fresh release holds at the floor",
+            "7.4.2",
+            UpstreamRefPin("7.4.1", "c" * 40),
+            ("v7.4.1", "c" * 40),
+        ),
+        (
+            "adopting a fresh release still clears a lower floor",
+            "7.4.2",
+            UpstreamRefPin("7.4.0", "c" * 40),
+            ("v7.4.1", "b" * 40),
+        ),
+        (
+            "a deliberate rollback is honored",
+            "7.4.0",
+            UpstreamRefPin("7.4.2", "c" * 40),
+            ("v7.4.0", "a" * 40),
+        ),
+    ],
+)
+def test_resolve_default_pin_lifecycle(label, base, floor, expected, monkeypatch):
+    """The cooldown gates an adoption and never regresses a committed pin.
+
+    The steady-state rows are the ones that matter in CI: `sync-repomatic` runs
+    `init` at the pinned version on every push, so a cooldown verdict recomputed
+    there would downgrade the repository for a full window after each bump.
+    """
+    monkeypatch.setattr(ip, "__version__", base)
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    monkeypatch.setattr(
+        ip,
+        "resolve_tag_to_sha",
+        lambda _url, tag: "b" * 40 if tag == "v7.4.1" else None,
+    )
+    result = resolve_default_pin(Config(), today=date(2026, 8, 2), floor=floor)
+    assert result == expected, label
+
+
+def test_resolve_default_pin_matching_floor_skips_datasource(monkeypatch):
+    """A pin equal to the running version is answered without a network call.
+
+    Every CI `sync-repomatic` run takes this path, so it must not depend on the
+    GitHub releases datasource being reachable.
+    """
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(
+        ip,
+        "github_candidates",
+        lambda _url: pytest.fail("a pin equal to the running version needs no lookup"),
+    )
+    warnings: list[str] = []
+    result = resolve_default_pin(
+        Config(),
+        today=date(2026, 8, 2),
+        warnings=warnings,
+        floor=UpstreamRefPin("7.4.2", "c" * 40),
+    )
+    assert result == ("v7.4.2", "a" * 40)
+    assert warnings == []
+
+
+def test_resolve_default_pin_matching_floor_keeps_on_disk_sha(monkeypatch):
+    """A build with no tag SHA of its own falls back to the pin already on disk.
+
+    Without the fallback, regenerating from a source checkout would rewrite a
+    hardened `@<sha> # vX.Y.Z` ref into a bare tag pin, and nothing downstream
+    re-hardens an upstream ref.
+    """
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "")
+    assert resolve_default_pin(
+        Config(),
+        today=date(2026, 8, 2),
+        floor=UpstreamRefPin("7.4.2", "c" * 40),
+    ) == ("v7.4.2", "c" * 40)
+
+
+def test_resolve_default_pin_held_at_floor_warns(monkeypatch):
+    """Declining to adopt a fresh release is reported, naming the kept version."""
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    warnings: list[str] = []
+    resolve_default_pin(
+        Config(),
+        today=date(2026, 8, 2),
+        warnings=warnings,
+        floor=UpstreamRefPin("7.4.1", "c" * 40),
+    )
+    assert len(warnings) == 1
+    assert "7.4.2" in warnings[0] and "v7.4.1" in warnings[0]
+
+
+def test_run_init_keeps_a_fresh_pin_already_on_disk(tmp_path, monkeypatch):
+    """Re-running `init` at the pinned version regenerates without downgrading.
+
+    End-to-end shape of the CI lifecycle: a maintainer adopts a release on its
+    publication day, then `sync-repomatic` re-runs `init` at that very version
+    on every push. The pin must survive untouched.
+    """
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    monkeypatch.setattr(
+        ip,
+        "github_candidates",
+        lambda _url: pytest.fail("a pin equal to the running version needs no lookup"),
+    )
+    run_init(output_dir=tmp_path, components=("workflows",))
+    autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
+        encoding="UTF-8"
+    )
+    assert f"autofix.yaml@{'a' * 40} # v7.4.2" in autofix
 
 
 def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch):

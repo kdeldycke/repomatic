@@ -79,6 +79,8 @@ from .tool_registry import TOOL_REGISTRY
 from .tool_runner import find_unmodified_configs
 from .version_sync import (
     Candidate,
+    UpstreamRefPin,
+    find_upstream_ref_pins,
     github_candidates,
     is_newer,
     parse_min_age,
@@ -522,41 +524,110 @@ def _select_cooldown_pin(
     return latest
 
 
+def _note_cooldown(warnings: list[str] | None, note: str) -> None:
+    """Log a cooldown decision and surface it in the `init` summary."""
+    if warnings is not None:
+        warnings.append(note)
+    logging.warning(note)
+
+
+def _highest_upstream_pin(output_dir: Path, repo: str) -> UpstreamRefPin | None:
+    """The highest upstream `uses:` pin already committed under *output_dir*.
+
+    Scans the same `.github/` workflow and composite-action files as
+    `sync_ops._workflow_and_action_files`, resolved against *output_dir*
+    instead of the current working directory, and returns the winning
+    {class}`~repomatic.version_sync.UpstreamRefPin`. Stragglers left behind at
+    an older pin therefore converge upward onto the repository-wide maximum,
+    matching how `sync-action-pins` treats a slug pinned at more than one
+    version.
+
+    Only *repo* is matched, not every slug in
+    {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`: a caller still naming a
+    pre-rename slug is a tombstone `init` rewrites, not a pin to preserve.
+
+    :param output_dir: Root of the target repository.
+    :param repo: Upstream `owner/repo` whose refs are read.
+    :return: The highest pin found, or `None` for a repository carrying none.
+    """
+    best: UpstreamRefPin | None = None
+    for pattern in (
+        ".github/workflows/*.yaml",
+        ".github/workflows/*.yml",
+        ".github/actions/**/*.yaml",
+        ".github/actions/**/*.yml",
+    ):
+        for path in sorted(output_dir.glob(pattern)):
+            try:
+                content = path.read_text(encoding="UTF-8")
+            except OSError:
+                continue
+            for pin in find_upstream_ref_pins(content, repo):
+                if best is None:
+                    best = pin
+                    continue
+                # At equal versions a SHA-pinned ref beats a bare tag one, so
+                # the floor never unpins a hardened ref.
+                hardens = pin.version == best.version and best.sha is None
+                if hardens or is_newer(pin.version, best.version):
+                    best = pin
+    return best
+
+
 def resolve_default_pin(
     config: Config,
     *,
     repo: str = DEFAULT_REPO,
     today: date | None = None,
     warnings: list[str] | None = None,
+    floor: UpstreamRefPin | None = None,
 ) -> tuple[str, str | None]:
-    """Resolve the default upstream pin, holding fresh releases back by cooldown.
+    """Resolve the upstream pin, holding a fresh release back by cooldown.
 
     Returns the `(version, commit_sha)` `init` stamps into thin-caller `uses:`
     refs. In the common case, and on any datasource failure, this is the running
-    repomatic version paired with its build-time SHA, identical to the
-    pre-cooldown behavior. Only when the running version is still inside the
-    `[tool.repomatic] minimum-release-age` window does it step the pin back to
-    the newest cooldown-cleared release (see {func}`_select_cooldown_pin`),
-    resolving that tag's SHA afresh.
+    repomatic version paired with its build-time SHA. Only when adopting a
+    release still inside the `[tool.repomatic] minimum-release-age` window does
+    the pin step back to the newest cooldown-cleared release (see
+    {func}`_select_cooldown_pin`), resolving that tag's SHA afresh.
 
-    ```{note}
-    This activates only for a manual `uvx --refresh -- repomatic init` that
-    lands on a bleeding-edge release. The CI `sync-repomatic` job runs `init` at
-    the already-pinned version, which `sync-workflow-pins` selected under the
-    same cooldown, so `base` is always aged there and the pin never moves: an
-    idempotent no-op.
+    ```{important}
+    The cooldown may hold back an *adoption*. It may never rewrite a pin the
+    repository already carries, which is what *floor* records.
+
+    `init` is the only writer of these refs: `sync-action-pins` skips every slug
+    in {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`, and
+    {data}`~repomatic.version_sync.ACTION_PIN_RE` does not even match a
+    subpath-carrying reusable-workflow ref. So a downstream repository adopts a
+    new repomatic release exactly one way: a human moves the pin, by hand or by
+    running a newer `init`. Two things follow.
+
+    A pin equal to the running version is not a decision to gate. The CI
+    `sync-repomatic` job runs `init` at the pinned version itself, so `base`
+    equals *floor* on every sync; re-judging it there downgrades the repository
+    once a week after each hand-bump, and fights the only upgrade path there is.
+
+    A pin below the running version is a skew. `init` renders caller *content*
+    from the running version, so a ref naming an older release ships that
+    content against an older reusable-workflow surface, which GitHub rejects as
+    soon as the two disagree (see
+    `test_thin_caller_workflow_call_inputs_stay_minimal`). Confining the
+    step-back to a first-time adoption keeps that skew where no alternative
+    exists.
     ```
 
     :param config: Repomatic config supplying the `minimum-release-age` window.
     :param repo: Upstream `owner/repo` whose releases gate the pin.
     :param today: Reference date for the cooldown; defaults to the current UTC
         date.
-    :param warnings: When provided, a step-back note is appended here (in
+    :param warnings: When provided, a cooldown note is appended here (in
         addition to being logged), so `run_init` can surface it in the final
         `init` summary rather than only mid-run.
+    :param floor: The highest upstream pin already committed downstream, from
+        {func}`_highest_upstream_pin`. `None` for a repository carrying none,
+        the one case the cooldown may step back freely.
     :return: `(version_pin, commit_sha)`. `commit_sha` is `None` when no SHA can
-        be resolved, leaving a bare tag pin the next `sync-action-pins` run
-        re-hardens.
+        be resolved, leaving a bare tag pin.
     """
     base = _base_version()
     build_sha = __git_tag_sha__ or None
@@ -564,6 +635,18 @@ def resolve_default_pin(
     # sparing the source repo's own `--from .` runs a pointless lookup.
     if base != __version__:
         return f"v{base}", build_sha
+    if floor is not None:
+        # Regeneration, not adoption: the repository already pins this exact
+        # version. Answered without a datasource round-trip, which is what
+        # every CI sync does. Falls back to the on-disk SHA so a build carrying
+        # no tag SHA of its own never unpins a hardened ref.
+        if base == floor.version:
+            return f"v{base}", build_sha or floor.sha
+        # A deliberate rollback (`uvx repomatic==<older> init`). Honor it: pin
+        # and content stay coherent, and holding the newer floor here would
+        # make the rollback silently fail.
+        if is_newer(floor.version, base):
+            return f"v{base}", build_sha
     min_age = parse_min_age(config.minimum_release_age)
     if not min_age:
         return f"v{base}", build_sha
@@ -575,16 +658,24 @@ def resolve_default_pin(
     )
     if stepped_back is None:
         return f"v{base}", build_sha
-    note = (
+    # The cleared release is no better than what the repository already runs:
+    # decline the adoption instead of regressing to it.
+    if floor is not None and not is_newer(stepped_back.version, floor.version):
+        _note_cooldown(
+            warnings,
+            f"repomatic {base} is inside the {config.minimum_release_age} "
+            f"minimum-release-age window; keeping the release this repository "
+            f"already pins, v{floor.version}. Pass --no-cooldown to adopt "
+            f"{base} now.",
+        )
+        return f"v{floor.version}", floor.sha
+    _note_cooldown(
+        warnings,
         f"repomatic {base} is inside the {config.minimum_release_age} "
         f"minimum-release-age window; pinning the newest cleared release "
-        f"v{stepped_back.version} instead. Pass --no-cooldown to pin {base}."
+        f"v{stepped_back.version} instead. Pass --no-cooldown to pin {base}.",
     )
-    if warnings is not None:
-        warnings.append(note)
-    logging.warning(note)
-    # Fall back to a bare tag pin when the SHA lookup fails; the next
-    # sync-action-pins run re-hardens it.
+    # Fall back to a bare tag pin when the SHA lookup fails.
     return f"v{stepped_back.version}", resolve_tag_to_sha(repo_url, stepped_back.ref)
 
 
@@ -883,7 +974,8 @@ def run_init(
     # Resolve the upstream version pin (and its SHA) only when a workflow is
     # actually generated: config-only inits (labels, bumpversion) need no pin
     # and must not pay for the cooldown datasource lookup. An explicit --version
-    # keeps its build-time SHA and bypasses the cooldown.
+    # keeps its build-time SHA and bypasses the cooldown. The pin already on
+    # disk is the floor: the cooldown gates an adoption, never a regeneration.
     commit_sha: str | None = __git_tag_sha__ or None
     if version is None:
         workflows_selected = any(
@@ -892,7 +984,10 @@ def run_init(
         )
         if cooldown and workflows_selected:
             version, commit_sha = resolve_default_pin(
-                config, repo=repo, warnings=result.warnings
+                config,
+                repo=repo,
+                warnings=result.warnings,
+                floor=_highest_upstream_pin(output_dir, repo),
             )
         else:
             version = default_version_pin()
