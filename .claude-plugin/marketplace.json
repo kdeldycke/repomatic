@@ -14,7 +14,7 @@
 			"name": "repomatic",
 			"source": {
 				"source": "archive",
-				"url": "https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-plugin.zip"
+				"url": "https://github.com/kdeldycke/repomatic/releases/download/v7.6.0/repomatic-plugin.zip"
 			},
 			"tags": [
 				"changelog",
