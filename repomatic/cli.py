@@ -28,6 +28,7 @@ from pathlib import Path
 from shutil import rmtree
 
 from click_extra import (
+    STDOUT_SENTINEL,
     UNPROCESSED,
     Choice,
     ClickException,
@@ -285,7 +286,7 @@ version_report_output_option = option(
 stdout_output_option = option(
     "--output",
     type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default="-",
+    default=STDOUT_SENTINEL,
     help="Output file path. Defaults to stdout.",
 )
 dry_run_option = option(
@@ -914,7 +915,7 @@ _metadata_sort = SortByOption(*METADATA_KEYS_HEADER_DEFS, default="key")
     "-o",
     "--output",
     type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default="-",
+    default=STDOUT_SENTINEL,
     help="Output file path. Defaults to stdout.",
 )
 @option(
@@ -1080,7 +1081,7 @@ def show_test_matrix(ctx, emoji, matrix_name):
 @argument(
     "changelog_path",
     type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default="-",
+    default=STDOUT_SENTINEL,
 )
 @pass_context
 def changelog(ctx, source, changelog_path):
@@ -1849,7 +1850,7 @@ def dep_graph(
         if config.dependency_graph.output:
             output = Path(config.dependency_graph.output).resolve()
         else:
-            output = Path("-")
+            output = Path(STDOUT_SENTINEL)
 
     if level is None:
         level = config.dependency_graph.level

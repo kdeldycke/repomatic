@@ -93,8 +93,8 @@ dependencies = [
   "boltons>=25",
   # click-extra 8.8.0 is the floor: repomatic delegates to the utilities absorbed
   # there — `format_size` (byte sizes in the image and cache reports), the
-  # `parse_duration`/`parse_friendly_duration`/`parse_iso8601_duration` family
-  # (uv cooldown spans in `uv.py`/`version_sync.py`), `prep_path`/`is_stdout`
+  # `parse_friendly_duration`/`parse_iso8601_duration` pair (uv cooldown spans
+  # in `uv.py`/`version_sync.py`), `prep_path`/`is_stdout`/`STDOUT_SENTINEL`
   # (CLI `--output` handling), and `config_table_to_flags` (tool flag
   # translation). Earlier floors remain in play: `binaries_page` imports
   # `click_extra.blocks` (`replace_region`, 8.7.1) to splice the binaries page

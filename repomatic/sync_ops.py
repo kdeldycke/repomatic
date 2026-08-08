@@ -1322,8 +1322,9 @@ def run_sync_operations(
     `DEBUG` verbosity the fan-out also collapses to sequential so per-operation
     log narration stays coherent, and a Ctrl+C drops queued resolves instead of
     waiting for them. When labelled, an {class}`click_extra.OperationTrail`
-    reports each resolve as a `✓`/`✘` line and closes with a timed summary, its
-    rendering tracking the resolved worker count. The apply phase runs in
+    reports each resolve as a `✓`/`✘` line and closes with a summary, its
+    rendering tracking the resolved worker count and its elapsed times following
+    `--time` (click-extra's own default). The apply phase runs in
     {data}`SYNC_OPERATIONS` order because three of the five rewrite the same
     workflow files. In `--dry-run` no apply runs. An operation whose resolve
     raises is logged and reported with a `None` plan so one failure never blocks
@@ -1352,6 +1353,7 @@ def run_sync_operations(
     # forced-silent, so only the CLI's `spinner_label` lights it up.
     trail = OperationTrail(
         label=spinner_label or "",
+        unit="operations",
         total=len(operations),
         jobs=jobs,
         enabled=None if spinner_label else False,
