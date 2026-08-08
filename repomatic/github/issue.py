@@ -46,8 +46,17 @@ from .pr_body import fit_issue_body, generate_pr_metadata_block
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
     from typing import Any
+
+
+LOCKED_CONVERSATION_MARKER = "is locked"
+"""Substring GitHub returns when a write is refused on a locked conversation.
+
+The full message is `GraphQL: Unable to create comment because issue is locked
+(addComment)`. Matching the tail alone also covers the pull-request phrasing,
+which names the other kind in the same slot.
+"""
 
 
 def list_issues(title: str = "") -> list[dict[str, Any]]:
@@ -85,24 +94,84 @@ def list_issues(title: str = "") -> list[dict[str, Any]]:
     return issues
 
 
+def unlock_issue(number: int) -> None:
+    """Unlock an issue's conversation.
+
+    :param number: The issue number to unlock.
+    """
+    run_gh_command([
+        "issue",
+        "unlock",
+        str(number),
+    ])
+    logging.info(f"Unlocked issue #{number}")
+
+
+def _run_unlocking(args: Sequence[str], number: int) -> str:
+    """Run a commenting `gh issue` command, clearing a conversation lock if it blocks.
+
+    GitHub refuses `addComment` on a locked conversation, which is how the
+    autolock workflow this project ships breaks the recurring issues this module
+    manages: `dessant/lock-threads` locks a closed issue after 90 days of
+    inactivity, and the next run that needs to reopen it (because the condition
+    recurred) has its reopen comment rejected. Nothing downstream distinguishes
+    that from a real failure, so the job dies and the report is never filed.
+
+    Unlocking is deliberate rather than incidental. A conversation that repomatic
+    is reopening is one it is about to comment on again, so the lock has outlived
+    its purpose; autolock re-applies it 90 days after the issue next closes.
+
+    ```{note}
+    The lock is cleared only *after* a write actually fails, never
+    speculatively. An unlocked conversation therefore costs no extra API call,
+    and a lock set by hand on an issue repomatic never writes to is left alone.
+    `gh issue list --json` and `gh issue view --json` both omit the `locked`
+    field, so a pre-flight check would need a REST round-trip on every run to
+    buy nothing.
+    ```
+
+    :param args: The `gh` command arguments to run.
+    :param number: The issue number the command targets, used to unlock.
+    :return: The command's standard output.
+    :raises RuntimeError: When the command fails for any reason other than a
+        conversation lock, or when it still fails after unlocking.
+    """
+    try:
+        return run_gh_command(list(args))
+    except RuntimeError as error:
+        if LOCKED_CONVERSATION_MARKER not in str(error):
+            raise
+        logging.warning(
+            f"Issue #{number} conversation is locked, unlocking to write to it."
+        )
+        unlock_issue(number)
+        return run_gh_command(list(args))
+
+
 def close_issue(number: int, comment: str) -> None:
     """Close an issue with a comment.
 
     :param number: The issue number to close.
     :param comment: The comment to add when closing.
     """
-    run_gh_command([
-        "issue",
-        "close",
-        str(number),
-        "--comment",
-        comment,
-    ])
+    _run_unlocking(
+        [
+            "issue",
+            "close",
+            str(number),
+            "--comment",
+            comment,
+        ],
+        number,
+    )
     logging.info(f"Closed issue #{number}")
 
 
 def reopen_issue(number: int, comment: str = "") -> None:
     """Reopen a previously closed issue.
+
+    A closed issue old enough to reopen is old enough to have been autolocked,
+    so the write goes through {func}`_run_unlocking`.
 
     :param number: The issue number to reopen.
     :param comment: Optional comment to add when reopening.
@@ -114,7 +183,7 @@ def reopen_issue(number: int, comment: str = "") -> None:
     ]
     if comment:
         args.extend(["--comment", comment])
-    run_gh_command(args)
+    _run_unlocking(args, number)
     logging.info(f"Reopened issue #{number}")
 
 
@@ -265,7 +334,10 @@ def manage_issue_lifecycle(
        `gh issue edit`, or `gh issue reopen`.
 
     When `has_issues` is `True` and the most recent matching issue is
-    closed, it is reopened and updated rather than creating a duplicate.
+    closed, it is reopened and updated rather than creating a duplicate. A
+    conversation lock standing in the way of that reopen is cleared first, so a
+    recurring issue survives the autolock workflow that closes over it; see
+    {func}`_run_unlocking`.
 
     :param has_issues: Whether issues were found that warrant an open issue.
     :param body: The rendered markdown issue body. Written to a temporary file

@@ -25,9 +25,12 @@ import pytest
 
 from repomatic.github.issue import (
     _fit_body_file,
+    close_issue,
     close_open_prs_on_branch,
     close_pr,
     list_open_prs_by_branch,
+    manage_issue_lifecycle,
+    reopen_issue,
     triage_issues,
 )
 from repomatic.github.pr_body import GITHUB_BODY_MAX_CHARS
@@ -302,3 +305,123 @@ def test_fit_body_file_rewrites_oversized_body(tmp_path):
     fitted = body_file.read_text(encoding="UTF-8")
     assert len(fitted.encode("utf-16-le")) // 2 <= GITHUB_BODY_MAX_CHARS
     assert "> Report truncated to fit GitHub's body size limit." in fitted
+
+
+# ---------------------------------------------------------------------------
+# Locked conversations
+# ---------------------------------------------------------------------------
+
+LOCKED_ERROR_MESSAGE = (
+    "GraphQL: Unable to create comment because issue is locked (addComment)"
+)
+"""Verbatim `gh` failure when GitHub refuses a comment on a locked conversation."""
+
+COMMENTING_OPERATIONS = (
+    pytest.param(lambda: close_issue(42, "Superseded."), "close", id="close_issue"),
+    pytest.param(
+        lambda: reopen_issue(42, "Condition recurred."), "reopen", id="reopen_issue"
+    ),
+)
+"""Every wrapper that posts a comment, and the `gh issue` verb it invokes."""
+
+
+@pytest.mark.parametrize(("operation", "verb"), COMMENTING_OPERATIONS)
+def test_locked_conversation_is_unlocked_then_retried(operation, verb):
+    """A lock blocking a comment is cleared, then the original write replayed."""
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
+        mock_gh.side_effect = [RuntimeError(LOCKED_ERROR_MESSAGE), "", ""]
+        operation()
+
+    commands = [call.args[0] for call in mock_gh.call_args_list]
+    assert commands[0][:3] == ["issue", verb, "42"]
+    assert commands[1] == ["issue", "unlock", "42"]
+    assert commands[2] == commands[0]
+
+
+@pytest.mark.parametrize(("operation", "verb"), COMMENTING_OPERATIONS)
+def test_unlocked_conversation_costs_no_extra_call(operation, verb):
+    """The common path stays a single `gh` call: no speculative unlock."""
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
+        mock_gh.return_value = ""
+        operation()
+
+    commands = [call.args[0] for call in mock_gh.call_args_list]
+    assert len(commands) == 1
+    assert commands[0][:3] == ["issue", verb, "42"]
+
+
+@pytest.mark.parametrize(("operation", "verb"), COMMENTING_OPERATIONS)
+def test_unrelated_failure_propagates_without_unlocking(operation, verb):
+    """Only a lock triggers the unlock: every other failure surfaces as-is."""
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
+        mock_gh.side_effect = RuntimeError("GraphQL: Could not resolve to an Issue")
+        with pytest.raises(RuntimeError, match="Could not resolve"):
+            operation()
+
+    commands = [call.args[0] for call in mock_gh.call_args_list]
+    assert len(commands) == 1
+    assert commands[0][1] == verb
+
+
+@pytest.mark.parametrize(("operation", "verb"), COMMENTING_OPERATIONS)
+def test_lock_surviving_the_unlock_still_raises(operation, verb):
+    """The retry is bounded to one: a lock that outlives the unlock is fatal."""
+    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
+        mock_gh.side_effect = [
+            RuntimeError(LOCKED_ERROR_MESSAGE),
+            "",
+            RuntimeError(LOCKED_ERROR_MESSAGE),
+        ]
+        with pytest.raises(RuntimeError, match="is locked"):
+            operation()
+
+    commands = [call.args[0] for call in mock_gh.call_args_list]
+    assert [command[1] for command in commands] == [verb, "unlock", verb]
+
+
+def test_locked_closed_issue_is_reopened_and_updated():
+    """A closed issue locked by the autolock workflow still gets reopened.
+
+    Reproduces the deadlock between two components this project ships: the
+    autolock job locks a recurring issue 90 days after it closes, then the
+    checker that owns the issue needs to reopen it when the condition recurs
+    and has its reopen comment refused.
+    """
+    listing = json.dumps([
+        {
+            "number": 42,
+            "title": TITLE,
+            "createdAt": "2025-01-01T00:00:00Z",
+            "state": "CLOSED",
+        },
+    ])
+    calls: list[list[str]] = []
+
+    def fake_gh(args):
+        calls.append(list(args))
+        if args[:2] == ["issue", "list"]:
+            return listing
+        # The lock only lifts once the unlock has actually been issued.
+        if args[:2] == ["issue", "reopen"] and ["issue", "unlock", "42"] not in calls:
+            raise RuntimeError(LOCKED_ERROR_MESSAGE)
+        return ""
+
+    with (
+        patch("repomatic.github.issue.run_gh_command", side_effect=fake_gh),
+        patch("repomatic.github.issue.Metadata"),
+        patch("repomatic.github.issue.generate_pr_metadata_block", return_value=""),
+    ):
+        manage_issue_lifecycle(
+            has_issues=True,
+            body="## Papaya\n\nThe crate is empty.",
+            labels=["🍈 fruit"],
+            title=TITLE,
+        )
+
+    assert [command[1] for command in calls] == [
+        "list",
+        "reopen",
+        "unlock",
+        "reopen",
+        "edit",
+    ]
