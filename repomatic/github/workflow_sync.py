@@ -1113,15 +1113,42 @@ def _downstream_release_needs(existing: str | None, repo: str) -> tuple[str, ...
     )
 
 
-def _merge_release_needs(job_lines: list[str], extra: tuple[str, ...]) -> list[str]:
-    """Append *extra* entries to the release job's `needs:`, as a block sequence.
+GENERATED_CALLER_JOBS: Final[frozenset[str]] = frozenset({
+    "build",
+    "publish-pypi",
+    "release",
+})
+"""Every job the generated downstream `release.yaml` defines.
 
-    Normalizes the canonical scalar (`needs: build`) into a list so the added
-    entries stay one-per-line and diffable.
+The canonical entry may hold repomatic-local jobs beyond these three (its own
+`pack-plugin`, for one), and only these three are copied downstream. Anything
+the canonical `release` lane names in `needs:` outside this set has to be
+dropped, or the generated file would reference a job that does not exist there.
+See {func}`_merge_release_needs`.
+"""
+
+
+def _merge_release_needs(
+    job_lines: list[str],
+    extra: tuple[str, ...],
+    known: frozenset[str] = GENERATED_CALLER_JOBS,
+) -> list[str]:
+    """Rewrite the release job's `needs:` for the generated downstream caller.
+
+    Two filters, one in each direction. Canonical entries are kept only when
+    *known* contains them, dropping an edge on a repomatic-local job that has no
+    downstream counterpart. Then *extra* is appended, carrying the edges a
+    consumer declared on its own asset-building job.
+
+    Normalizes the canonical scalar (`needs: build`) into a block sequence so the
+    entries stay one-per-line and diffable, and collapses back to the scalar form
+    when only one survives, so the common case reads exactly as it did before.
+
+    :param job_lines: The canonical `release` job, comment-stripped.
+    :param extra: Downstream edges to add, from {func}`_downstream_release_needs`.
+    :param known: Job names the generated file defines.
+    :return: The job lines with `needs:` rewritten.
     """
-    if not extra:
-        return job_lines
-
     merged: list[str] = []
     index = 0
     while index < len(job_lines):
@@ -1134,12 +1161,16 @@ def _merge_release_needs(job_lines: list[str], extra: tuple[str, ...]) -> list[s
         indent = line[: len(line) - len(line.lstrip())]
         value = line.strip()[len("needs:") :].strip()
         entries = [value] if value else []
-        # Absorb an existing block sequence before appending to it.
+        # Absorb an existing block sequence before filtering and appending.
         while index < len(job_lines) and job_lines[index].strip().startswith("- "):
             entries.append(job_lines[index].strip()[2:].strip())
             index += 1
+        entries = [name for name in entries if name in known]
         entries.extend(name for name in extra if name not in entries)
 
+        if len(entries) == 1:
+            merged.append(f"{indent}needs: {entries[0]}")
+            continue
         merged.append(f"{indent}needs:")
         merged.extend(f"{indent}  - {entry}" for entry in entries)
 

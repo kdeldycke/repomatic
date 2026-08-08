@@ -14,6 +14,8 @@ $ uvx -- repomatic init skills/repomatic-topics
 
 Selectors use the same `component[/file]` syntax as the `exclude` config option in [`[tool.repomatic]`](configuration.md).
 
+These same skills are also published as a Claude Code plugin, which installs them without committing any copy to your repository: see [§ Claude Code plugin](plugin.md).
+
 To list all available skills with descriptions:
 
 ```{click:run}

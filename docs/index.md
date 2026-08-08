@@ -18,6 +18,7 @@ test-matrix
 security
 skills
 agents
+plugin
 benchmark
 ```
 

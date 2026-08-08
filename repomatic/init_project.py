@@ -57,6 +57,7 @@ from .github.workflow_sync import (
 )
 from .labels import augment_labeller_content
 from .metadata import Metadata
+from .plugin import merge_plugin_settings
 from .pyproject import is_python_project, resolve_source_paths
 from .registry import (
     COMPONENTS,
@@ -1034,7 +1035,12 @@ def run_init(
                 init_awesome_template(output_dir, repo_slug, result)
 
         elif isinstance(comp, GeneratedComponent):
-            _init_changelog(output_dir, result, config=config)
+            # Each generated component has its own producer, so dispatch by name:
+            # the class alone no longer identifies one.
+            if comp.name == "changelog":
+                _init_changelog(output_dir, result, config=config)
+            elif comp.name == "plugin":
+                _init_plugin_settings(output_dir, result, config=config)
 
         elif isinstance(comp, ToolConfigComponent):
             tool_configs_to_merge.append(comp.name)
@@ -1496,6 +1502,34 @@ def _init_changelog(
     changelog_path.write_text(changelog_content, encoding="UTF-8")
     result.created.append(rel)
     logging.info(f"Created: {rel}")
+
+
+def _init_plugin_settings(
+    output_dir: Path,
+    result: InitResult,
+    *,
+    config: Config | None = None,
+) -> None:
+    """Wire the repomatic Claude Code plugin into the project settings.
+
+    Unlike the changelog stub, an existing file is merged into rather than
+    skipped: it is a live settings document the repository keeps editing, and
+    only the marketplace and enablement keys the plugin owns are touched. That
+    also makes a re-run a no-op, reported as unchanged.
+    """
+    location = (config or Config()).settings_location.removeprefix("./")
+    settings_path = output_dir / location
+    rel = settings_path.relative_to(output_dir).as_posix()
+    existed = settings_path.is_file()
+    if not merge_plugin_settings(settings_path):
+        logging.debug(f"Unchanged: {rel}")
+        return
+    if existed:
+        result.updated.append(rel)
+        logging.info(f"Updated: {rel}")
+    else:
+        result.created.append(rel)
+        logging.info(f"Created: {rel}")
 
 
 def _fetch_extra_labels(

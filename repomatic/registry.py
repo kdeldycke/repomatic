@@ -692,6 +692,19 @@ COMPONENTS: tuple[Component, ...] = (
         scope=RepoScope.PYTHON_ONLY,
         target=Config.changelog_location.removeprefix("./"),
     ),
+    GeneratedComponent(
+        name="plugin",
+        description="Claude Code plugin marketplace wiring (.claude/settings.json)",
+        # Opt-in like its `skills` and `agents` siblings, and for a stronger
+        # reason: this one asks every collaborator to install something. A bare
+        # `repomatic init` never touches it.
+        init_default=InitDefault.EXCLUDE,
+        # The wiring is merged into a file the repository owns, so an unchanged
+        # document is the steady state rather than a stale copy to clean up.
+        keep_unmodified=True,
+        location_field="settings_location",
+        target=Config.settings_location.removeprefix("./"),
+    ),
     # --- Tool config components (merged into pyproject.toml) ---
     ToolConfigComponent(
         name="uv",

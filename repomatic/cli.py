@@ -164,6 +164,7 @@ from .metadata import (
     is_version_bump_allowed,
     metadata_keys_reference,
 )
+from .plugin import ARCHIVE_NAME, pack_plugin
 from .prepare_release import PrepareRelease
 from .pyproject import get_project_name
 from .registry import (
@@ -3161,6 +3162,41 @@ def list_skills() -> None:
             echo(f"  /{name:<24s} {description}")
 
     echo("")
+
+
+@repomatic.command(
+    short_help="Pack the skills and agents as a Claude Code plugin",
+    section=_section_release,
+)
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True),
+    default=f"./{ARCHIVE_NAME}",
+    show_default=True,
+    help="Destination path of the plugin archive.",
+)
+def pack_plugin_cmd(output: Path) -> None:
+    """Pack the bundled skills and agents into a Claude Code plugin archive.
+
+    Assembles `.claude-plugin/plugin.json` and every skill and agent the
+    component registry declares into a zip holding a single top-level folder,
+    which the release lane attaches to each GitHub release. The archive is
+    byte-deterministic, so re-packing an unchanged tree produces an identical
+    file.
+
+    \b
+    Examples:
+        # Pack into the default ./repomatic-plugin.zip
+        repomatic pack-plugin
+
+    \b
+        # Install the packed plugin locally, without a marketplace
+        repomatic pack-plugin --output /tmp/repomatic-plugin.zip
+        unzip /tmp/repomatic-plugin.zip -d /tmp/plugin
+        claude --plugin-dir /tmp/plugin/repomatic
+    """
+    members = pack_plugin(Path.cwd(), output)
+    echo(f"Packed {len(members)} files into {output}")
 
 
 @repomatic.command(

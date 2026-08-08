@@ -272,6 +272,15 @@
    :undoc-members:
 ```
 
+## `repomatic.plugin` module
+
+```{eval-rst}
+.. automodule:: repomatic.plugin
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.prepare_release` module
 
 ```{eval-rst}

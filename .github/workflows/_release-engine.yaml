@@ -585,12 +585,19 @@ jobs:
       - manpages
       - extra-assets
     # Terminal step: flips the draft to a published (immutable) release, so it must wait for every asset-upload job
-    # (binaries below, man pages in `manpages`, consumer-built files in `extra-assets`). Gates only on create-release
-    # so the release still publishes when any of those is skipped or fails; always() lets it run despite an upstream
-    # job's non-success.
+    # (binaries below, man pages in `manpages`, consumer-built files in `extra-assets`). always() lets it run despite
+    # an upstream job's non-success, and a skipped or failed `compile-binaries`/`manpages` still publishes: a missing
+    # binary is a visible, re-runnable gap.
+    #
+    # A failed `extra-assets` is the one exception, because the release is immutable the instant this job succeeds:
+    # every file `release-assets` declares has to be on it by then or it never can be. Leaving the release as a draft
+    # is the recoverable state (re-run the lane, or attach the file by hand), so the gate blocks only on 'failure' and
+    # lets the 'skipped' of a repository that declared no extra assets through. This is what makes the promise
+    # `extra-assets` and docs/workflows.md already state true.
     if: >-
       always()
       && needs.create-release.result == 'success'
+      && needs.extra-assets.result != 'failure'
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-slim

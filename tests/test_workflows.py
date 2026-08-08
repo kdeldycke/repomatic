@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import tomlrt
 import yaml
 
 from repomatic.git_ops import (
@@ -1309,3 +1310,66 @@ def test_setup_uv_pins_agree() -> None:
         if lit.package == "uv"
     }
     assert len(versions) == 1, f"setup-uv pins disagree: {sorted(versions)}"
+
+
+# ---------------------------------------------------------------------------
+# Extra release assets
+# ---------------------------------------------------------------------------
+
+RELEASE_ASSET_ARTIFACT_PREFIX = "release-asset-"
+"""Prefix the engine's `extra-assets` job matches run artifacts on."""
+
+
+def _declared_release_assets() -> list[str]:
+    """Filenames `[tool.repomatic] release-assets` declares for this repository."""
+    pyproject = tomlrt.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="UTF-8"))
+    assets = pyproject.get("tool", {}).get("repomatic", {}).get("release-assets", [])
+    return [str(name) for name in assets]
+
+
+def test_declared_release_assets_are_space_free() -> None:
+    """No declared filename can contain a space.
+
+    The engine passes the list through a space-separated environment variable and
+    word-splits it in bash, so a space silently turns one filename into two and
+    the completeness check passes vacuously.
+    """
+    for name in _declared_release_assets():
+        assert " " not in name, f"release-assets entry {name!r} contains a space"
+
+
+@pytest.mark.parametrize("asset", _declared_release_assets())
+def test_declared_release_asset_has_a_producing_job(asset: str) -> None:
+    """Every declared asset is produced and handed over by a job in release.yaml.
+
+    Three spellings have to agree for the handover to work, in three files no
+    single tool reads at once: the filename in `[tool.repomatic] release-assets`,
+    the `release-asset-<filename>` run-artifact name, and the `needs:` edge that
+    makes the artifact exist before the engine looks for it. Any one of them
+    drifting fails the release at `extra-assets`, or worse, publishes an immutable
+    release without the asset.
+    """
+    jobs = yaml.safe_load((WORKFLOWS_DIR / "release.yaml").read_text(encoding="UTF-8"))[
+        "jobs"
+    ]
+
+    artifact = f"{RELEASE_ASSET_ARTIFACT_PREFIX}{asset}"
+    producers = [
+        job_id
+        for job_id, config in jobs.items()
+        for step in config.get("steps") or ()
+        if (step.get("with") or {}).get("name") == artifact
+    ]
+    assert producers, (
+        f"No job in release.yaml uploads a {artifact!r} artifact for the "
+        f"{asset!r} entry in [tool.repomatic] release-assets."
+    )
+
+    release_needs = jobs["release"].get("needs") or []
+    if isinstance(release_needs, str):
+        release_needs = [release_needs]
+    for producer in producers:
+        assert producer in release_needs, (
+            f"release.yaml's `release` job must list {producer!r} in `needs:`, or "
+            f"the engine's extra-assets job can run before {artifact!r} exists."
+        )

@@ -16,6 +16,8 @@ $ uvx -- repomatic init agents/grunt-qa
 
 Selectors use the same `component[/file]` syntax as the `exclude` config option in [`[tool.repomatic]`](configuration.md).
 
+These same agents are also published as a Claude Code plugin, which installs them without committing any copy to your repository: see [§ Claude Code plugin](plugin.md).
+
 To deploy agents to a non-default directory (like a dotfiles repository where `.claude/` is not at the root), set `agents.location` in `[tool.repomatic]`:
 
 ```toml

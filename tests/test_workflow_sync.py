@@ -2231,6 +2231,35 @@ def test_release_caller_preserves_downstream_needs(
     assert "packer" in data["jobs"]
 
 
+def test_release_caller_drops_repomatic_local_needs() -> None:
+    """A canonical `needs:` edge on a repomatic-only job never reaches downstream.
+
+    The canonical entry gates its engine lane on `pack-plugin`, a job that exists
+    only upstream: the renderer copies the three managed lanes and leaves it
+    behind. Echoing the edge would emit a `needs:` on a job the generated file
+    does not define, which GitHub rejects at startup, breaking the release
+    workflow of every consumer at once.
+    """
+    generated = generate_thin_caller("release.yaml", DEFAULT_REPO, "v1.2.3")
+    data = yaml.safe_load(generated)
+
+    canonical = yaml.safe_load(get_data_content("release.yaml"))
+    local_jobs = set(canonical["jobs"]) - set(data["jobs"])
+    assert local_jobs, (
+        "The canonical release.yaml no longer holds a repomatic-only job, so this "
+        "test has stopped covering anything. Drop it, or gate it on a new one."
+    )
+
+    needs = data["jobs"]["release"]["needs"]
+    needs = [needs] if isinstance(needs, str) else needs
+    assert not local_jobs.intersection(needs), (
+        f"Generated release.yaml gates `release` on {sorted(local_jobs.intersection(needs))}, "
+        "which it does not define."
+    )
+    # Every surviving edge names a job the generated file actually has.
+    assert set(needs) <= set(data["jobs"])
+
+
 def test_generated_caller_with_extra_jobs_satisfies_lint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

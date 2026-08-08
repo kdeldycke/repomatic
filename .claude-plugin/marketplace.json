@@ -1,0 +1,28 @@
+{
+	"$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+	"description": "Claude Code plugins maintained by Kevin Deldycke",
+	"name": "kdeldycke",
+	"owner": {
+		"email": "kevin@deldycke.com",
+		"name": "Kevin Deldycke",
+		"url": "https://github.com/kdeldycke"
+	},
+	"plugins": [
+		{
+			"category": "development-workflows",
+			"description": "Skills and agents to automate repository maintenance, releases, and CI/CD workflows",
+			"name": "repomatic",
+			"source": {
+				"source": "archive",
+				"url": "https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-plugin.zip"
+			},
+			"tags": [
+				"changelog",
+				"ci-cd",
+				"dependencies",
+				"github-actions",
+				"release-automation"
+			]
+		}
+	]
+}

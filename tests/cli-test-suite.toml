@@ -259,6 +259,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic metadata"
 
 [[cases]]
+cli_parameters = "pack-plugin --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic pack-plugin"
+
+[[cases]]
 cli_parameters = "pr-body --help"
 exit_code = 0
 strip_ansi = true

@@ -107,8 +107,14 @@ jobs:
     # Local reusable call: repomatic releases with its own current engine rather
     # than a published ref. Gated on the build lane so create-release and
     # sync-dev-release can download the run-scoped wheel the build lane uploaded.
+    # Also gated on pack-plugin, whose artifact the engine's extra-assets job
+    # downloads: run artifacts are run-scoped, so it must exist before the engine
+    # starts. That edge is repomatic's own and never reaches a downstream caller,
+    # which has no pack-plugin job (see _generate_release_caller).
     uses: ./.github/workflows/_release-engine.yaml
-    needs: build
+    needs:
+      - build
+      - pack-plugin
     # Union of the engine jobs' scopes (the top-level `{}` grants nothing on its
     # own): compile-binaries needs id-token + attestations (plus contents:read),
     # and create-tag / create-release / manpages / publish-release /
@@ -120,3 +126,33 @@ jobs:
     secrets:
       REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
       VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+
+  # Pack the bundled skills and agents as a Claude Code plugin and hand it to the
+  # release engine's extra-assets job as a `release-asset-*` run artifact (see
+  # `release-assets` in [tool.repomatic]). Placed after the `release` caller on
+  # purpose: repomatic-local jobs belong below the managed lanes, which is also
+  # where `repomatic init` keeps a downstream repo's own jobs.
+  #
+  # Unconditional, with no `if:` and no matrix, because `release` needs this job:
+  # a skip here would cascade into skipping the whole engine on regular pushes,
+  # taking sync-dev-release with it. The artifact is only ever consumed on a
+  # release commit, where `main` HEAD is the freeze commit carrying the version
+  # the manifest declares.
+  pack-plugin:
+    name: 🧩 Pack Claude Code plugin
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.1"
+      # No --output: its default is the same filename `release-assets` declares,
+      # and spelling it here would push the line past yamllint's cap once the
+      # release freeze splices the pinned invocation in.
+      - name: Pack plugin
+        run: uv --no-progress run --frozen -- repomatic pack-plugin
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-asset-repomatic-plugin.zip
+          path: repomatic-plugin.zip

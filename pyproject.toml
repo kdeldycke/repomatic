@@ -517,3 +517,8 @@ exclude = [ "workflows" ]
 # the HTML docs site stay in lockstep.
 manpages.script = "repomatic.cli:repomatic"
 pypi-package-history = [ "gha-utils", "repokit" ]
+# Claude Code plugin archive packed by release.yaml's pack-plugin job and
+# attached to every GitHub release by the engine's extra-assets job. The
+# marketplace at .claude-plugin/marketplace.json installs the plugin straight
+# from this asset, so a release missing it breaks `/plugin install`.
+release-assets = [ "repomatic-plugin.zip" ]

@@ -178,9 +178,21 @@ class AgentLayout:
     agents: str
     """Directory holding subagent definitions."""
 
+    settings: str
+    """File holding the agent's project-scoped settings.
+
+    A file rather than a directory, unlike its siblings: it is the one asset
+    repomatic merges into rather than writes whole, so the path has to name the
+    document itself.
+    """
+
 
 AGENT_LAYOUTS: Final[dict[str, AgentLayout]] = {
-    "claude_code": AgentLayout(skills="./.claude/skills/", agents="./.claude/agents/"),
+    "claude_code": AgentLayout(
+        skills="./.claude/skills/",
+        agents="./.claude/agents/",
+        settings="./.claude/settings.json",
+    ),
 }
 """Asset layout per agent, keyed by `extra_platforms.ALL_AGENTS` trait ID.
 
@@ -971,6 +983,19 @@ class Config:
     dotfiles repos that store configs under a subdirectory).
     """
 
+    settings_location: str = field(
+        default=AGENT_LAYOUTS[DEFAULT_AGENT].settings,
+        metadata={CONFIG_PATH_METADATA_KEY: "settings.location"},
+    )
+    """Path to the agent's project settings file, relative to the repository root.
+
+    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
+    explicitly overrides that.
+
+    Only the `plugin` component writes here, merging the marketplace and
+    enablement keys it owns into whatever the file already holds.
+    """
+
     test_matrix: TestMatrixConfig = field(
         default_factory=TestMatrixConfig,
         metadata={
@@ -1034,8 +1059,8 @@ class Config:
         """Point the asset locations at the selected agent's layout.
 
         Only a location still sitting at its default is derived, so an
-        explicit `skills.location` or `agents.location` always wins over the
-        flavor.
+        explicit `skills.location`, `agents.location` or `settings.location`
+        always wins over the flavor.
         """
         default = AGENT_LAYOUTS[DEFAULT_AGENT]
         layout = self.flavor.layout
@@ -1043,6 +1068,8 @@ class Config:
             self.skills_location = layout.skills
         if self.agents_location == default.agents:
             self.agents_location = layout.agents
+        if self.settings_location == default.settings:
+            self.settings_location = layout.settings
 
 
 SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
@@ -1067,6 +1094,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "minimum_release_age",
     "notification_unsubscribe",
     "pypi_package_history",
+    "settings_location",
     "setup_guide",
     "skills_location",
     "test_matrix",

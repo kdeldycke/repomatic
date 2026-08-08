@@ -471,6 +471,17 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
 - The job touches only PyPI; it does not edit the GitHub release. The PyPI availability admonition is baked into the release notes by the engine's `create-release` job at draft creation, which removes the cross-lane race where editing the release from this fast lane ran before the engine had created it (and silently dropped the admonition under `continue-on-error`).
 - Runs on `ubuntu-slim`.
 
+#### 🧩 Pack Claude Code plugin (`pack-plugin`)
+
+```{note}
+Repomatic-only. This job is not part of the shape `repomatic init` generates: it exists in the upstream `release.yaml` alone, as the reference consumer of the `release-assets` handoff described under [§ Extra release assets](#extra-release-assets-extra-assets). A downstream repository that wants its own extra asset writes an equivalent job of its own.
+```
+
+- Runs `repomatic pack-plugin`, which assembles `.claude-plugin/plugin.json` and every skill and agent the component registry declares into `repomatic-plugin.zip`, then uploads it as the `release-asset-repomatic-plugin.zip` run artifact the engine's `extra-assets` job collects. See [§ Claude Code plugin](plugin.md).
+- Deliberately unconditional, with no `if:` and no matrix. The `release` job gates on it, so a skip here would cascade into skipping the whole engine on ordinary pushes, taking `sync-dev-release` with it. Packing a zip is cheap enough to pay on every push.
+- The artifact is only ever consumed on a release commit, where `main` HEAD is the freeze commit whose version `pack-plugin` stamps into the packaged manifest.
+- Runs on `ubuntu-slim`.
+
 (github-workflows-release-build-yaml-jobs)=
 
 ### 📦 [`.github/workflows/_release-build.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-build.yaml)
@@ -583,7 +594,7 @@ flowchart TD
 - Attaches consumer-built assets declared by the `release-assets` filename list in `[tool.repomatic]`: each file must be uploaded as a `release-asset-<filename>` run artifact by a job the consumer defines in its own release workflow, the same caller-side handoff the wheel's `build` lane uses
 - The build code therefore stays in the downstream repository as regular workflow code, reviewed and linted there: the engine never executes consumer-supplied commands, it only downloads, attests, verifies, and uploads
 - Assets are attested with the same provenance chain as the compiled binaries and uploaded to the GitHub release **draft** together with their sigstore bundle (`extra-assets.attestation.json`), before `publish-release` publishes and locks the release; provenance verifies with `gh attestation verify <file> --repo <consumer> --signer-repo kdeldycke/repomatic`
-- A declared asset whose artifact never landed fails the job loudly, so a broken consumer build lane cannot silently ship a release without its asset
+- A declared asset whose artifact never landed fails the job loudly, and that failure blocks `publish-release`, so a broken consumer build lane cannot silently ship a release without its asset. The release stays a draft, which is the recoverable state: re-run the lane, or attach the file by hand, then publish. Once published the release is immutable and the asset can never be added
 - **Requires**:
   - A non-empty `release-assets` list in the consumer's `pyproject.toml`, with space-free filenames
   - A consumer-side job uploading each `release-asset-<filename>` artifact; gate the engine call on it (like `needs: build` for the wheel) so the artifact exists before the engine reaches this job
@@ -595,7 +606,8 @@ flowchart TD
 
 - Publishes the draft GitHub release after all assets (Python package, binaries, man pages, extra assets) have been uploaded
 - Supports [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases): once published, tags and assets are locked, so flipping `--draft=false` is the terminal step of the release engine and every asset-uploading job must run upstream of it
-- Uses `always()` so it runs even when `compile-binaries`, `manpages` or `extra-assets` is skipped (non-binary projects, no man pages, no extra assets) or partially fails (unstable platforms)
+- Uses `always()` so it runs even when `compile-binaries`, `manpages` or `extra-assets` is skipped (non-binary projects, no man pages, no extra assets), and still publishes when `compile-binaries` or `manpages` partially fails (unstable platforms): a missing binary is a visible, re-runnable gap
+- A **failed** `extra-assets` is the one blocker: a file the consumer declared in `release-assets` must be on the release before it locks, or it never can be. The release is left as a draft instead
 - **Requires**:
   - Successful `create-release` job (draft must exist)
   - Waits for `compile-binaries`, `manpages` and `extra-assets` so every asset is attached before the release locks

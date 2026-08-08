@@ -95,36 +95,73 @@ def test_flavor_rejects_unsupported_ecosystem(field, value):
 # -- Derived asset locations --------------------------------------------------
 
 
+CURSOR_LAYOUT = AgentLayout(
+    skills="./.cursor/skills/",
+    agents="./.cursor/agents/",
+    settings="./.cursor/settings.json",
+)
+"""Stand-in layout for an agent repomatic does not target, used to prove the
+flavor actually drives the locations rather than the Claude Code defaults
+coinciding with them."""
+
+
 def test_default_locations_come_from_the_agent_layout():
-    """The layout table is the single source of truth for both defaults."""
+    """The layout table is the single source of truth for every default."""
     config = Config()
     layout = AGENT_LAYOUTS[DEFAULT_AGENT]
     assert config.skills_location == layout.skills
     assert config.agents_location == layout.agents
+    assert config.settings_location == layout.settings
 
 
 def test_locations_follow_the_agent_flavor(monkeypatch):
     """Selecting another agent moves the assets to that agent's layout."""
-    monkeypatch.setitem(
-        config_mod.AGENT_LAYOUTS,
-        "cursor",
-        AgentLayout(skills="./.cursor/skills/", agents="./.cursor/agents/"),
-    )
+    monkeypatch.setitem(config_mod.AGENT_LAYOUTS, "cursor", CURSOR_LAYOUT)
     config = Config(flavor=FlavorConfig(agent="cursor"))
     assert config.skills_location == "./.cursor/skills/"
     assert config.agents_location == "./.cursor/agents/"
+    assert config.settings_location == "./.cursor/settings.json"
 
 
-def test_explicit_locations_override_the_flavor(monkeypatch):
-    """An explicit `skills.location` outranks whatever the agent prefers."""
-    monkeypatch.setitem(
-        config_mod.AGENT_LAYOUTS,
-        "cursor",
-        AgentLayout(skills="./.cursor/skills/", agents="./.cursor/agents/"),
-    )
-    config = Config(
-        flavor=FlavorConfig(agent="cursor"), skills_location="./custom/skills/"
-    )
-    assert config.skills_location == "./custom/skills/"
-    # The unset one still follows the agent.
-    assert config.agents_location == "./.cursor/agents/"
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    (
+        pytest.param(
+            {"skills_location": "./custom/skills/"},
+            {
+                "skills_location": "./custom/skills/",
+                "agents_location": "./.cursor/agents/",
+                "settings_location": "./.cursor/settings.json",
+            },
+            id="skills",
+        ),
+        pytest.param(
+            {"agents_location": "./custom/agents/"},
+            {
+                "skills_location": "./.cursor/skills/",
+                "agents_location": "./custom/agents/",
+                "settings_location": "./.cursor/settings.json",
+            },
+            id="agents",
+        ),
+        pytest.param(
+            {"settings_location": "./custom/settings.json"},
+            {
+                "skills_location": "./.cursor/skills/",
+                "agents_location": "./.cursor/agents/",
+                "settings_location": "./custom/settings.json",
+            },
+            id="settings",
+        ),
+    ),
+)
+def test_explicit_locations_override_the_flavor(monkeypatch, overrides, expected):
+    """An explicit location outranks whatever the agent prefers.
+
+    Each location is checked on its own, so overriding one never drags the
+    others off the flavor's layout.
+    """
+    monkeypatch.setitem(config_mod.AGENT_LAYOUTS, "cursor", CURSOR_LAYOUT)
+    config = Config(flavor=FlavorConfig(agent="cursor"), **overrides)
+    for field_name, value in expected.items():
+        assert getattr(config, field_name) == value

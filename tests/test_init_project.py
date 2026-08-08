@@ -2253,7 +2253,7 @@ def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     result = run_init(output_dir=tmp_path)
 
     created_set = set(result.created)
-    # Agents, labels, and skills are excluded by default.
+    # Agents, labels, plugin, and skills are excluded by default.
     assert "labels.toml" not in created_set
     for _, rel_path in (
         (e.source, e.target) for e in COMPONENTS_BY_NAME["agents"].files
@@ -2267,7 +2267,7 @@ def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Other default components should still be created.
     assert "changelog.md" in created_set
 
-    assert result.excluded == ["agents", "labels", "skills"]
+    assert result.excluded == ["agents", "labels", "plugin", "skills"]
 
 
 def test_init_respects_exclude_components(
@@ -2296,7 +2296,7 @@ def test_init_respects_exclude_components(
     # Other default components should still be created.
     assert "changelog.md" in created_set
 
-    assert result.excluded == ["agents", "labels", "skills"]
+    assert result.excluded == ["agents", "labels", "plugin", "skills"]
 
 
 def test_init_respects_exclude_workflow_files(
@@ -3662,7 +3662,7 @@ def test_init_include_overrides_default_exclusions(
     ):
         assert rel_path not in created_set
     assert "labels.toml" not in created_set
-    assert result.excluded == ["labels", "skills"]
+    assert result.excluded == ["labels", "plugin", "skills"]
 
 
 def test_init_include_cannot_materialize_ephemeral(
