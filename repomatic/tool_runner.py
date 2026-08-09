@@ -954,7 +954,9 @@ def _dereference_data_dir_symlinks(
     crashes: `signDistributionMacOS` calls `withMadeWritableFileMode` to make
     every distribution file writable, which runs a plain `os.stat` on each
     one; `os.stat` follows the dangling link, and the target was never
-    copied.
+    copied. Reported upstream as https://github.com/Nuitka/Nuitka/issues/3994,
+    which also covers the quieter half: platforms that do not sign exit zero
+    and ship the dangling link.
 
     Staging a plain copy sidesteps the bug regardless of its root cause:
     `shutil.copytree(..., symlinks=False)` resolves every symlink to its

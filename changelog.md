@@ -114,7 +114,7 @@
 - `repomatic run mdformat` provisions its own `shfmt` at the registry-pinned version, so formatting shell blocks in Markdown no longer needs a system `shfmt`.
 - New `path_tools` field on a tool spec, naming registry tools whose binary must be on `PATH` while it runs.
 - Fix `repomatic run mdformat` aborting on Windows ARM64, where `shfmt` publishes no binary: a companion missing for the platform is now skipped with a warning.
-- Fix the macOS binary builds, which crashed in code signing once skills joined the bundled data: an `--include-data-dir` source holding symlinks is now staged symlink-free.
+- Fix the macOS binary builds, which crashed in code signing once skills joined the bundled data: an `--include-data-dir` source holding symlinks is now staged symlink-free. Reported upstream as [Nuitka/Nuitka#3994](https://github.com/Nuitka/Nuitka/issues/3994).
 - The `format-markdown` job drops back to the lean `ubuntu-slim` runner, and its awesome-list fixup uses `sed` instead of `gawk`.
 - `apt-get` replaces `apt` in every workflow step, with `--no-install-recommends` throughout.
 - Add `gh` to the `repomatic run` registry. The release engine's attestation check now uses it instead of adding GitHub's RPM repository to the build container and installing an unpinned `gh`.
