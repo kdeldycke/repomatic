@@ -354,8 +354,11 @@ class PrepareRelease:
         This is part of the **freeze** step: it freezes the install guide's
         download links to a specific GitHub release so users get explicit,
         versioned URLs instead of the `/releases/latest/download/` redirect.
-        The versionless redirect cannot resolve because release assets are
-        version-stamped (`repomatic-{version}-linux-arm64.bin`).
+        Both spellings resolve, since every release also carries versionless
+        alias copies of its binaries (see
+        {func}`~repomatic.binary.pack_binary_assets`); the frozen URL is
+        preferred because it names the version the reader is installing, and
+        keeps working once a later release moves `latest`.
 
         Handles two input forms:
 
