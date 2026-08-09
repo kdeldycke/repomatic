@@ -92,8 +92,11 @@ Check these projects to get real-life examples of usage and inspiration:
 - ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/meta-package-manager?label=%E2%AD%90&style=flat-square) [Meta Package Manager](https://github.com/kdeldycke/meta-package-manager) - A unifying CLI for multiple package managers.
 - ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/mail-deduplicate?label=%E2%AD%90&style=flat-square) [Mail Deduplicate](https://github.com/kdeldycke/mail-deduplicate) - A CLI to deduplicate similar emails.
 - ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/dotfiles?label=%E2%AD%90&style=flat-square) [dotfiles](https://github.com/kdeldycke/dotfiles) - macOS dotfiles for Python developers.
-- ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/click-extra?label=%E2%AD%90&style=flat-square) [Click Extra](https://github.com/kdeldycke/click-extra) - Extra colorization and configuration loading for Click.
+- ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/click-extra?label=%E2%AD%90&style=flat-square) [Click Extra](https://github.com/kdeldycke/click-extra) - Drop-in replacement for Click to make user-friendly and colorful CLI.
 - ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/repomatic?label=%E2%AD%90&style=flat-square) [repomatic](https://github.com/kdeldycke/repomatic) - Itself. Eat your own dog-food.
-- ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/extra-platforms?label=%E2%AD%90&style=flat-square) [Extra Platforms](https://github.com/kdeldycke/extra-platforms) - Detect platforms and group them by family.
+- ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/plumage?label=%E2%AD%90&style=flat-square) [Plumage](https://github.com/kdeldycke/plumage) - Clean and tidy theme for Pelican, the static site generator.
+- ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/kevin-deldycke-blog?label=%E2%AD%90&style=flat-square) [Kevin Deldycke's blog](https://github.com/kdeldycke/kevin-deldycke-blog) - My personal blog, based on Pelican.
+- ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/extra-platforms?label=%E2%AD%90&style=flat-square) [Extra Platforms](https://github.com/kdeldycke/extra-platforms) - Detect architectures, platforms, shells, terminals, CI systems and agents, grouped by family.
+- ![GitHub stars](https://img.shields.io/github/stars/kdeldycke/kdeldycke?label=%E2%AD%90&style=flat-square) [GitHub profile](https://github.com/kdeldycke/kdeldycke) - My GitHub profile page and short bio.
 
 Send a PR to add your project if you use repomatic.
