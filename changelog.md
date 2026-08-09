@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix the broken-links issue never being filed. `docs.yaml` ran lychee through `xargs`, which answers any child status in 1..125 with 123 of its own, so lychee's `2` for "broken links found" reached `broken-links` looking like a crash and was recorded as a tool failure instead of a report. lychee now runs once, directly, with `xargs` demoted to splitting the file list. That also stops a list long enough to batch from overwriting `--output` once per batch and keeping only the last batch's findings.
+
 ## [`7.8.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.7.0...v7.8.0)
 
 - **Breaking:** the Codecov integration is removed, along with the `codecov` component, its `.github/codecov.yaml`, and the `coverage_cells` metadata key. `repomatic init` prunes an untouched orphaned config; delete the `CODECOV_TOKEN` secret and coverage badge by hand.

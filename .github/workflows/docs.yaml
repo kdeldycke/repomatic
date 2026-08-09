@@ -166,12 +166,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DOC_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).doc_files }}
+        # xargs splits the list and does nothing else. It must not be what launches
+        # lychee: xargs answers any child status in 1..125 with 123 of its own, so
+        # lychee's 2 ("broken links found") reaches `repomatic broken-links` looking
+        # exactly like a crash, and a real report gets filed as a tool failure and
+        # dropped. Batching is the second casualty, since each batch writes the same
+        # --output path and only the last one survives. Handing the split to `printf
+        # '%s\0'` keeps xargs on an operation that cannot fail, and the single
+        # invocation below then carries back both the status and the whole report.
+        #
+        # The split cannot be `eval "set -- ${DOC_FILES}"`: metadata wraps each path
+        # in bare double quotes with no escaping, so a filename containing $(...)
+        # would execute. xargs expands neither that nor backticks.
         run: |
           exit_code=0
-          echo "${DOC_FILES}" | xargs \
-            uv --no-progress run --frozen -- repomatic run lychee -- \
+          files=()
+          while IFS= read -r -d '' f; do files+=("$f"); done \
+            < <(echo "${DOC_FILES}" | xargs printf '%s\0')
+          uv --no-progress run --frozen -- repomatic run lychee -- \
             --format markdown --output ./lychee/out.md \
             --hidden --suggest --no-progress --include-fragments --exclude-all-private \
+            "${files[@]}" \
             || exit_code=$?
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
       - name: Manage broken links issue
