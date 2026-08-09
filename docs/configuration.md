@@ -109,13 +109,19 @@ docs/_linkcheck/
 '''
 ```
 
-When no knob covers the change, take the file out of repomatic's hands with a qualified `exclude` entry. A repository whose `tests.yaml` runs something other than the upstream Python matrix, and therefore needs its own triggers and `timeout-minutes`, has no option to reach for:
+When no knob covers the change, reach for `exclude` only if you understand what it means, because it is not an opt-out from syncing: it declares that the repository has no such file. The `sync-repomatic` job runs `repomatic init --delete-unmodified --delete-excluded`, so the first sync after the entry lands opens a pull request **deleting** the file rather than leaving the local version alone. Excluding a workflow to protect your edits to it removes your CI instead.
+
+Keeping a customized file therefore means keeping it out of the managed set entirely, by giving it a name repomatic does not own:
 
 ```toml
+# The repository has no upstream tests.yaml: its own check lives unmanaged in
+# workflows/install.yaml, which repomatic never generates and never deletes.
 exclude = ["workflows/tests.yaml"]
 ```
 
-This is deliberately all-or-nothing. There is no per-section preservation, so an excluded file stops receiving upstream fixes along with the unwanted overwrites, and its content becomes the repository's own responsibility. Prefer a knob whenever one exists, and reserve `exclude` for files whose purpose genuinely diverges from the template.
+The rename is what preserves the file; the `exclude` entry merely stops repomatic from recreating the managed one beside it. A repository that wants to freeze workflows under their existing names has the blunter `workflow.sync = false`, which returns before any workflow is written and leaves every file on disk untouched, at the cost of ending upstream fixes for all of them, not just the customized one.
+
+Prefer a knob whenever one exists. Reach for a rename when a file's purpose genuinely diverges from the template, and for `workflow.sync = false` when a repository has taken over its workflows wholesale.
 
 Workflow triggers deserve particular care, because a reverted trigger restores itself. GitHub builds a `pull_request` run from the [merge commit](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows) rather than from either branch alone, so removing a `pull_request:` trigger on the default branch takes effect immediately for open pull requests: their merge commits pick up the new file and stop firing. The sync pull request restoring that trigger is the exception, since it is the one merge commit where the trigger still exists, and it re-enables the workflow for itself. A repository that removes a trigger and then watches a single pull request keep running it is usually looking at the sync that puts it back, and excluding the file settles both halves at once.
 
