@@ -1375,9 +1375,7 @@ def test_local_cli_job_checks_out_repo(workflow_name: str, job_name: str) -> Non
 CHECKOUT_AND_DOWNLOAD_JOBS = [
     (workflow_name, job_name)
     for workflow_name, job_name, steps in iter_jobs_with_steps()
-    if any(
-        str(step.get("uses", "")).startswith("actions/checkout@") for step in steps
-    )
+    if any(str(step.get("uses", "")).startswith("actions/checkout@") for step in steps)
     and any(
         str(step.get("uses", "")).startswith("actions/download-artifact@")
         for step in steps
@@ -1413,9 +1411,10 @@ def test_checkout_precedes_artifact_download(workflow_name: str, job_name: str) 
         if str(step.get("uses", "")).startswith("actions/checkout@")
         else "download"
         for step in steps
-        if str(step.get("uses", "")).startswith(
-            ("actions/checkout@", "actions/download-artifact@")
-        )
+        if str(step.get("uses", "")).startswith((
+            "actions/checkout@",
+            "actions/download-artifact@",
+        ))
     ]
     assert kinds.index("checkout") < kinds.index("download"), (
         f"{workflow_name} ({job_name}): downloads a run artifact before "
