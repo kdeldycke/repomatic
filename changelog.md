@@ -14,10 +14,8 @@
 > [!NOTE]
 > `7.7.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.7.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.7.0).
 
-- **Breaking:** drop the `WorkflowFormat` enum and the `generate_workflows` function, orphaned since the `workflow create` and `workflow sync` CLI commands were removed. `repomatic init` is now the only way to write a workflow file.
 - **Breaking:** drop the `check-version` command: nothing invoked it, and workflows read the `minor_bump_allowed` and `major_bump_allowed` metadata keys instead.
 - **Breaking:** drop the `clean-unmodified-configs` command, superseded by `repomatic init --delete-unmodified`.
-- **Breaking:** replace the `ItemAction` and `SyncAction` report enums with a single `github.actions.ReportAction`; read its `.value` instead of the removed `.label`.
 - **Breaking:** `repomatic metadata` no longer emits the `toml_files`, `changelog_bullet_word_threshold`, `nuitka_enabled` and `nuitka_nofollow_imports` keys. No workflow consumed them; the three config fields are read directly by their subcommands.
 - New `github-housekeeping` skill backfills and curates labels and milestones across a repository's full issue and PR history: taxonomy design, cache-backed bulk classification with review gates, AI-slop detection from closed-without-comment signals, and milestone assignment by changelog, git-tag, and release-date archaeology.
 - New `pack-binaries` command materializes the versionless binary aliases and prints the release upload list, replacing the release engine's shell loop: the asset naming convention now has one Python definition, shared with the install-guide freeze.
@@ -61,7 +59,6 @@
 - Fix binary tools executing a just-deleted staging copy when the cache write is lost (Docker overlay runners) or the cache root is unwritable: the fallback copy now survives for the whole process.
 - Fix the published plugin manifest declaring the post-release `.devN` version rather than the release it ships with.
 - Fix image optimization leaving a `.bak` file in the working tree when interrupted.
-- The test suite now derives its file inventories from `git ls-files` instead of four hundred hand-typed lines, so adding a tracked file no longer needs a fixture edit.
 
 ## [`7.6.0` (2026-08-08)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...v7.6.0)
 
@@ -91,8 +88,6 @@
 > `7.5.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.5.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.5.0).
 
 - **Breaking:** bundled skills drop `model` and `disable-model-invocation`, so every skill is now model-invocable and runs on the session model. The recommended model moved to the spec's `compatibility` field.
-- **Breaking:** `manage_issue_lifecycle()` takes the rendered `body` string instead of a `body_file` path, and writes the temporary file `gh` needs itself.
-- **Breaking:** `format_file_size` moves from `images` to a new `humanize` module, joined there by `format_age`. Frontmatter parsing moves to a new `frontmatter` module.
 - **Breaking:** workflows now run the CLI from `uv.lock` with `uv run --frozen` instead of `uvx --from .`, so installs are hash-verified. The release freeze still pins downstream to `uvx 'repomatic==X.Y.Z'`.
 - `minimum-release-age` now defaults to `1 week` (was `8 days`) and `[tool.uv] exclude-newer` tracks it, closing the band where `uv.lock` could pin a version CI then refused to install.
 - Reject a dependency floor naming a release still inside the cooldown window, which would ship a package that downstream repos and `uvx` users cannot resolve.
@@ -102,9 +97,8 @@
 - Fix `prepare-release` and `sync-github-releases` reading `./changelog.md` instead of the configured `changelog.location`.
 - Fix a PR body template's `footer: false` being ignored, appending the attribution footer to a template that opted out of it.
 - Fix template and skill frontmatter truncating at a value that embeds `---`, dropping every field below it.
-- Fix the parallel test run aborting before any test executed, and add a conformance test asserting no parametrization iterates an unordered collection.
 - Trim the hand-maintained example dumps from `metadata`'s module and `nuitka_matrix` docstrings, which had drifted from the values they claimed to show.
-- Fix docstrings where a brace placeholder against a closing backtick rendered as a spurious role, swallowing the prose after it, and add a conformance test.
+- Fix docstrings where a brace placeholder against a closing backtick rendered as a spurious role, swallowing the prose after it.
 - Every workflow now gates package installs behind the `minimum-release-age` cooldown, so no `uvx`, `uv pip install`, `npm install` or `npx` resolves a release published inside the window.
 - A thin caller carrying extra downstream jobs now gets a top-level `permissions: {}`, and on its managed job the union of the scopes the reusable workflow's jobs declare. Callers with no extra jobs are untouched.
 - `astral-sh/setup-uv` steps now pin the uv version, bumped by `sync-workflow-pins` once a release clears the cooldown, instead of installing the newest build satisfying `required-version`.
@@ -117,7 +111,6 @@
 - Add `gh` to the `repomatic run` registry. The release engine's attestation check now uses it instead of adding GitHub's RPM repository to the build container and installing an unpinned `gh`.
 - A tool's `strip_components` accepts a per-platform mapping, like `archive_format` already did.
 - Add `oxipng` to the `repomatic run` registry, bumped to `10.1.1`. `format-images` now uses the pinned, checksum-verified build instead of a hand-fetched `.deb` installed with `dpkg`.
-- New `ensure_binary()` helper returning a registry tool's verified executable, for repomatic code that shells out to a binary without going through `repomatic run`.
 - Dependency-updater reports now close on the `Held back by cooldown` section, below `Cooldown bypasses`, so a PR opens on what the run changed instead of what it left alone.
 - `sync-tool-versions` leaves `autofix.yaml` for a new upstream-only `self-maintenance.yaml`, and polls daily instead of weekly. Downstream `autofix.yaml` loses the four steps it could never run.
 - `sync-tool-versions` now also bumps the packages pinned alongside a tool in its `uvx` environment, like mdformat's plugin set, reporting them like every other row.
@@ -157,7 +150,6 @@
 > [!NOTE]
 > `7.4.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.4.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.4.0).
 
-- **Breaking:** Regroup the internal module layout: the tool catalog to `tool_registry.py`, dep-report rendering to `dep_report.py`, labels to `labels.py`, bundled data to `bundle.py`, matrix axes to `matrix_axes.py` (formerly `test_matrix.py`), PR helpers to `github/issue.py`. Import paths change; the CLI surface does not.
 - **Breaking:** Rename `update-deps-graph` to `update-dep-graph` across the CLI command, autofix job, PR branch, and body template, aligning with the `dependency-graph` config key. Close any open `update-deps-graph` pull request; the next run reopens it on the new branch.
 - **Breaking:** `repomatic init` component selectors are now case-sensitive, validated by the same code path as the `exclude` and `include` configuration entries.
 - Lower the compiled-binary OS floors: Linux glibc `2.28`, built and self-tested in `manylinux_2_28` containers (RHEL 8, Debian 10, Ubuntu 20.04 and later), and macOS `11.0` (Apple silicon) / `10.15` (Intel) via uv's embedded python-build-standalone interpreter.
@@ -222,9 +214,7 @@
 - Expose `GITHUB_TOKEN` to the Sphinx linkcheck step of the docs workflow, so a repo's `conf.py` can authenticate its github.com checks via `linkcheck_request_headers`.
 - Space out the Windows exiftool install with step-level retries, absorbing Chocolatey community-feed outages that punch through choco's own `--retry-count`.
 - Fix the `exclude` and `include` configuration reference to list `agents` among the default-excluded components.
-- Skip directories and hidden files when validating packaged PR templates, so local tool droppings no longer fail the suite.
 - Exclude `once`-marked tests from every test-matrix cell and run them in a dedicated single-runner `once-tests` job with its own coverage upload.
-- Run the CLI self-test suite through `python -m` in addition to the console script.
 - Teach the `repomatic-ship` and `babysit-ci` skills that the Nuitka binary matrix only exists on projects enabling `[tool.repomatic] nuitka.enabled`, and how to verify binary-less releases.
 - Fix the `repomatic-ship` local-gate tool recipes: pass `biome` and `shfmt` their args forms, and smoke checksum-pinned tools with no matching files via `--version` only.
 - Broaden the `repomatic-ship` review scopes: version samples are audited against the last freeze commit's file list, and platform-gated tests are reviewed with the inputs they consume.
@@ -236,20 +226,12 @@
 > [!NOTE]
 > `7.2.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.2.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.2.0).
 
-- **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives; its module moves to `repomatic.prepare_release` and its class becomes `PrepareRelease`.
+- **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives.
 - **Breaking:** the `version-check` command is renamed `check-version`.
-- **Breaking:** the vulnerability audit domain moves from `repomatic.uv` into the new `repomatic.vulnerable_deps` module, which also absorbs `repomatic.github.advisories`.
-- **Breaking:** `repomatic.sponsor` moves under `repomatic.github`.
-- **Breaking:** the PR-body helpers (`generate_pr_metadata_block`, `generate_refresh_tip`, `build_pr_body`) now take their CI context as arguments; `current_repo_url` is removed.
-- **Breaking:** `build_expected_body` moves from `repomatic.github.release_sync` to `repomatic.changelog`.
-- **Breaking:** the five `check_pat_*` probe functions are replaced by the `PAT_PERMISSION_PROBES` table and `probe_pat_permission`.
-- **Breaking:** the workflow generation API (`generate_thin_caller`, `generate_workflow_header`, `generate_workflows`) drops its legacy `source_paths` argument; pass a `PathsSpec` instead.
 - Add `cancel-runs`: cancels a branch's in-progress and queued workflow runs, replacing the bash block in `cancel-runs.yaml`; run listings now paginate past the first page.
 - Add `[tool.repomatic] binaries.sync`: set to `false` to stop the release pipeline from committing the binaries catalog and scan records to the default branch.
 - Add `sync-dep-sources`, a fifth `sync-deps` updater: once the release named by a git-tracked dependency's `.dev` floor ships on PyPI, it drops the `[tool.uv.sources]` override, tightens the floor, and freezes the adopted release through the cooldown. Disable with `[tool.repomatic] dep-sources.sync`.
-- Extract the setup guide, `.gitignore` generation, and Sphinx docs orchestration from the CLI module into new `repomatic.setup_guide`, `repomatic.gitignore`, and `repomatic.docs` modules.
 - `Dialect`, `ArchiveFormat`, and `WorkflowFormat` now carry their dispatch as enum methods (`serialize`, `extract`, `write_workflow`).
-- Consolidate the `repomatic.deps_graph` API around `Subgraph` and `SubgraphKind` types; the unused `parse_bom_ref` helper is removed.
 - Rename cross-module internals to public names: `COMPONENTS_BY_NAME`, `is_source_repo`, `format_released`, `format_upload_date`, `date_to_utc_cutoff`.
 - The `sponsor-labeller` job in `labels.yaml` is renamed `sponsor-label`, matching the CLI command it runs.
 - Remove the dead `get_default_repo` and `list_open_issues` helpers and the unused `REQUIRED_PAT_PERMISSIONS` constant.
@@ -270,7 +252,6 @@
 - `sync-action-pins` no longer rewrites `uses:` pins inside files `repomatic init` deploys verbatim, like the `publish-pypi` composite action.
 - The `run typos` guidance now recommends `extend-ignore-re` guards for encoded hashes and intentional-typo examples.
 - Document the scan job contract and the release-lane direct-commit exception.
-- Add test suites for the notification-unsubscribe engine and the `repomatic.npm`, `repomatic.gitignore`, and `repomatic.docs` modules; the setup-guide tests now run offline.
 
 ## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
 
@@ -309,7 +290,6 @@
 - `repomatic run` now reports a truncated tool download as `got X of Y bytes` instead of a SHA-256 mismatch, which read as a stale checksum or a tampered artifact.
 - Rebuild binaries on pushes that only touch `.github/workflows/_release-engine.yaml`: the release workflow split left the engine lane outside the binary-affecting paths.
 - Disable mouse zoom on the class inheritance diagrams of the documentation's API sections, so they no longer hijack page scrolling; the fullscreen viewer keeps zoom.
-- Move the per-command `--help` checks from the Python tests into the CLI test suite TOML, so they also run against the compiled binaries during releases.
 
 ## [`7.0.0` (2026-07-02)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...v7.0.0)
 
@@ -488,7 +468,6 @@
 - Decouple the downstream caller's `publish-pypi` job from the run's overall result: it now runs under `always()` and gates on a new `package_built` output, so a cleanly built wheel publishes even when an unrelated job fails.
 - Remove the `repomatic-sync`, `repomatic-lint`, and `repomatic-test` skills, which only wrapped CLI commands CI already runs on every push.
 - Fix the `bump-version` job in `changelog.yaml` leaving an orphan version-bump PR open after a competing bump merged into `main`.
-- Switch `pytest-xdist` to `--dist=loadgroup` so `@pytest.mark.xdist_group("git")` markers are honored, fixing `.git/config.lock` contention on Windows.
 - Enable myst-parser's `alert` extension so GitHub-style alerts (`> [!NOTE]`, `> [!IMPORTANT]`) render as admonitions on the documentation site.
 - Give each tool section in the [tool-runner docs](https://kdeldycke.github.io/repomatic/tool-runner.html) a hand-maintained extra-docs region preserved across regenerations, seeded for Nuitka, and add Nuitka to the page's `[tool.X]`-support table.
 
@@ -629,7 +608,6 @@
 > [!NOTE]
 > `6.13.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.13.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.13.0).
 
-- **Breaking:** `Config` now uses nested dataclasses, so fields are accessed as `config.cache.dir` instead of `config.cache_dir`; the `[tool.repomatic]` TOML key structure is unchanged.
 - Add `nuitka.entry-points` config option to select which `[project.scripts]` entries produce Nuitka binaries; aliases pointing to the same callable are deduplicated by default.
 - Add two-phase VirusTotal scanning: an initial table with scan links, then a `--poll` pass that fills in a Detections column of `flagged / total` engine counts.
 - Add `av-false-positive` skill to scan release binaries on VirusTotal and generate per-vendor false-positive submission files for flagged artifacts.
