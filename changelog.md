@@ -5,7 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- The release lane's `publish-release` job now checks out the repository, so uploading binaries to the release no longer fails with `Failed to spawn: repomatic`. This left `v7.7.0` as a draft with no binaries attached.
+- The release lane's `publish-release` job now checks out the repository, so uploading binaries to the release no longer fails with `Failed to spawn: repomatic`. `7.7.0` shipped with no standalone executables because of it.
+- The install guide's executable table points at the last release that carries binaries, instead of a version whose upload lane failed.
 
 ## [`7.7.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.6.0...v7.7.0)
 

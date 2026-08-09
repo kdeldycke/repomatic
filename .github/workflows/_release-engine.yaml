@@ -604,8 +604,12 @@ jobs:
       - extra-assets
     # Terminal step: flips the draft to a published (immutable) release, so it must wait for every asset-upload job
     # (binaries below, man pages in `manpages`, consumer-built files in `extra-assets`). always() lets it run despite
-    # an upstream job's non-success, and a skipped or failed `compile-binaries`/`manpages` still publishes: a missing
-    # binary is a visible, re-runnable gap.
+    # an upstream job's non-success, and a skipped or failed `compile-binaries`/`manpages` still publishes: shipping
+    # the Python distributions beats blocking the release on an unstable platform. Deliberate, and permanent rather
+    # than deferred: publishing locks the assets, so a binary missing here can never be added to this version.
+    # `v6.30.0`, `v7.5.0` and `v7.7.0` each shipped short this way, and each was recovered by releasing again, which
+    # a fast cycle makes cheap. Fix the build and let the next version carry it: see claude.md § A published release
+    # freezes what is missing from it for the docs cleanup a short ship leaves behind.
     #
     # A failed `extra-assets` is the one exception, because the release is immutable the instant this job succeeds:
     # every file `release-assets` declares has to be on it by then or it never can be. Leaving the release as a draft

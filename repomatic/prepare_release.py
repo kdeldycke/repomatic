@@ -361,10 +361,19 @@ class PrepareRelease:
 
         ```{note}
         No unfreeze method is needed. Unlike workflow URLs (which toggle
-        `@main` ↔ `@vX.Y.Z`), download URLs ratchet forward — they always
+        `@main` ↔ `@vX.Y.Z`), download URLs ratchet forward: they always
         point to a specific release. After unfreeze, the install guide still
-        shows the last release's URLs, which is correct for users wanting
-        stable binaries.
+        shows the last release's URLs, which is what users wanting stable
+        binaries need.
+        ```
+
+        ```{caution}
+        The freeze runs *before* the binaries exist, since it is the freeze
+        commit that triggers the build. So it pins the version optimistically,
+        and a release whose binary lane fails leaves the install guide linking
+        six URLs that 404 until the next release ratchets past it. Re-point
+        the guide at the last release that carries binaries when that happens,
+        by calling this method with that version.
         ```
 
         :param version: The release version to freeze to.

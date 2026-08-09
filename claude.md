@@ -474,6 +474,22 @@ Workflows and CLI commands must be safe to re-run: the same command twice with t
 
 When a release goes wrong (squash merge, broken artifact, bad metadata), prefer **skipping the version and releasing the next one** over reverting, force-pushing, or rewriting `main`: a burned version number is cheap, a botched automated recovery is not (this mirrors PyPI's [yank](https://peps.python.org/pep-0592/) model). When designing new safeguards, default to **detection + notification** over **detection + automated fix**: the blast radius of a missed notification is zero; that of a bad automated fix can be catastrophic.
 
+### A published release freezes what is missing from it
+
+Publishing flips [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) on, locking the asset list along with the tag. A binary the matrix never produced is then not a gap to fill later: it is a permanent property of that version. `v6.30.0` shipped without `windows-arm64`, `v7.5.0` without either Windows build, and `v7.7.0` without any binary at all. None of the three can be repaired, only superseded.
+
+**Shipping short is the intended behavior, not a failure to prevent.** `publish-release` publishes through a partial matrix on purpose: a release carrying five platforms beats one held hostage by the sixth, and the recovery is the next release, exactly as [§ Skip and move forward](#skip-and-move-forward-dont-rewrite-history) prescribes for every other release mishap. A fast cycle makes a burned platform cheap. So never hold a release, or sit on a draft, waiting for a red build cell: fix the cause and let the next version carry it.
+
+What a short ship does leave behind is three artifacts still claiming binaries that are not there, each needing a hand:
+
+- The version's **changelog section**, which takes a `> [!WARNING]` naming the gap. Write it as a hand-written admonition (anything not starting with `` > `X.Y.Z` is ``), which lands in the editorial slot `fix-changelog` preserves rather than the availability slot it regenerates.
+- The **GitHub release body**, rebuilt from that section. Immutability locks the assets and the tag, not the notes, so this stays editable after publishing. `sync-github-releases` is the mechanism, but it skips drafts and caches the release list for 24h, so a same-day fix goes through `gh release edit --notes-file` with the body `build_expected_body` renders. Both converge on the same text, so a later CI sync is a no-op rather than a clobber.
+- **`docs/install.md`**, whose download URLs the freeze pins to the version being released, optimistically: the freeze commit is what triggers the build, so it cannot know whether the binaries will land. Re-point them at the last release that carries binaries via `PrepareRelease.freeze_install_download_urls`, and the next release's freeze ratchets them forward again.
+
+```{note}
+Upstream only: the release PR is rebase-merged, so its freeze and unfreeze commits arrive in a single push, and GitHub Actions reads workflow files from that push's head. `kdeldycke/repomatic`'s own release lane therefore always runs the **unfrozen** workflow content, whatever the freeze wrote into the release commit. A job that assumes the frozen `uvx 'repomatic==X.Y.Z'` form is what executes (and drops its checkout on that basis) dies on `Failed to spawn: repomatic`. Only downstream repos, which call the reusable workflow at its tag, ever run the frozen form.
+```
+
 ### click_extra is both a dependency and a release consumer
 
 click_extra is both a runtime dependency and the framework whose release pipeline runs the *pinned* repomatic, so a click_extra change to a symbol repomatic imports can break the pinned repomatic from inside click_extra's own release. Two rules: (1) import only click_extra's public API, never an underscore-prefixed name (enforced by `tests/test_imports.py`, whose docstring carries the full rationale); (2) when such a change touches an API repomatic uses, release the fixed repomatic and bump click_extra's pin *before* releasing click_extra, since both run the pinned tag.
