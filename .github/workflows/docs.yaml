@@ -52,7 +52,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic metadata
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_python_project is_sphinx doc_files
 
@@ -169,7 +169,7 @@ jobs:
         run: |
           exit_code=0
           echo "${DOC_FILES}" | xargs \
-            uv --no-progress run --frozen -- repomatic run lychee -- \
+            uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' run lychee -- \
             --format markdown --output ./lychee/out.md \
             --hidden --suggest --no-progress --include-fragments --exclude-all-private \
             || exit_code=$?
@@ -179,5 +179,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           LYCHEE_EXIT_CODE: ${{ steps.lychee_run.outputs.exit_code }}
         run: |
-          uv --no-progress run --frozen -- repomatic broken-links \
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' broken-links \
             ${LYCHEE_EXIT_CODE:+--lychee-exit-code "${LYCHEE_EXIT_CODE}"}
