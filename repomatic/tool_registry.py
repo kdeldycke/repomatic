@@ -1958,7 +1958,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "zizmor": ToolSpec(
         name="zizmor",
-        version="1.28.0",
+        version="1.29.0",
         source_url="https://github.com/zizmorcore/zizmor",
         config_docs_url="https://docs.zizmor.sh/configuration/",
         cli_docs_url="https://docs.zizmor.sh/usage/",
