@@ -6,7 +6,6 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/repomatic.svg)](https://pypi.org/project/repomatic/)
 [![Downloads](https://static.pepy.tech/badge/repomatic/month)](https://pepy.tech/projects/repomatic)
 [![Unittests status](https://img.shields.io/github/actions/workflow/status/kdeldycke/repomatic/tests.yaml?branch=main&label=%F0%9F%94%AC%20Tests)](https://github.com/kdeldycke/repomatic/actions/workflows/tests.yaml?query=branch%3Amain)
-[![Coverage status](https://codecov.io/gh/kdeldycke/repomatic/branch/main/graph/badge.svg)](https://app.codecov.io/gh/kdeldycke/repomatic)
 [![Documentation status](https://img.shields.io/github/actions/workflow/status/kdeldycke/repomatic/docs.yaml?branch=main&label=%F0%9F%93%9A%20Docs)](https://github.com/kdeldycke/repomatic/actions/workflows/docs.yaml?query=branch%3Amain)
 
 A Python CLI and `pyproject.toml` configuration that let you **release Python packages multiple times a day with only 2-clicks**. Designed for `uv`-based Python projects, but usable for other projects too. Every step is a CLI command: reusable GitHub Actions workflows are only the trigger, so the same automation runs on your machine.

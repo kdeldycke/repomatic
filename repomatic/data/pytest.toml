@@ -10,9 +10,10 @@
 addopts = [
     # Show the N slowest tests.
     "--durations=10",
-    # Coverage settings - customize the package name for your project. The test
-    # workflow passes --cov-report=xml on the command line to produce the
-    # Codecov artifact, keeping it out of local runs.
+    # Coverage settings - customize the package name for your project. Set the
+    # coverage floor in [tool.coverage] as report.fail_under, never here and
+    # never from CI: a --cov-fail-under flag outranks that config and shadows
+    # it. Runs not meant to clear it (a focused local run) pass --no-cov.
     "--cov=.",
     "--cov-branch",
     "--cov-precision=2",

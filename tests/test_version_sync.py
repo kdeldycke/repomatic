@@ -367,7 +367,7 @@ def test_apply_action_pins_skips_unchanged_sha():
 def test_find_workflow_literals():
     content = (
         "          npm install awesome-lint@2.3.0\n"
-        "          uvx --no-progress 'codecov-cli==11.2.8'\n"
+        "          uvx --no-progress 'papaya-cli==11.2.8'\n"
         "          uvx --with 'extra-platforms[test]==13.0.1' run\n"
     )
     literals = {
@@ -375,17 +375,17 @@ def test_find_workflow_literals():
         for lit in vs.find_workflow_literals(content)
     }
     assert ("npm", "awesome-lint", "2.3.0") in literals
-    assert ("pypi", "codecov-cli", "11.2.8") in literals
+    assert ("pypi", "papaya-cli", "11.2.8") in literals
     assert ("pypi", "extra-platforms", "13.0.1") in literals
 
 
 def test_apply_workflow_literals():
-    content = "          uvx --no-progress 'codecov-cli==11.2.8'\n"
+    content = "          uvx --no-progress 'papaya-cli==11.2.8'\n"
     new_content, changes = vs.apply_workflow_literals(
-        content, {("pypi", "codecov-cli"): "12.0.0"}
+        content, {("pypi", "papaya-cli"): "12.0.0"}
     )
-    assert ("codecov-cli", "11.2.8", "12.0.0") in changes
-    assert "codecov-cli==12.0.0" in new_content
+    assert ("papaya-cli", "11.2.8", "12.0.0") in changes
+    assert "papaya-cli==12.0.0" in new_content
 
 
 EXEMPTION = "--exclude-newer-package repomatic=P0D"
@@ -424,14 +424,14 @@ def test_apply_workflow_literals_self_pin_exemption(content, expected):
 
 def test_apply_workflow_literals_leaves_other_packages_unexempted():
     """Only the self-pin bypasses the cooldown, so only it earns the flag."""
-    content = "          uvx --no-progress 'codecov-cli==11.2.8' upload\n"
+    content = "          uvx --no-progress 'papaya-cli==11.2.8' upload\n"
     new_content, _changes = vs.apply_workflow_literals(
         content,
-        {("pypi", "codecov-cli"): "12.0.0"},
+        {("pypi", "papaya-cli"): "12.0.0"},
         self_pin=("repomatic", EXEMPTION),
     )
     assert EXEMPTION not in new_content
-    assert "codecov-cli==12.0.0" in new_content
+    assert "papaya-cli==12.0.0" in new_content
 
 
 def test_find_upstream_ref_versions():

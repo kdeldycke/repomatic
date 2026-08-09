@@ -2408,18 +2408,18 @@ def test_init_changelog_excluded_existing_for_awesome_repo(
     assert "changelog.md" in result.excluded_existing
 
 
-def test_init_codecov_excluded_existing_for_awesome_repo(
+def test_init_scoped_component_excluded_existing_for_awesome_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """Verify existing .github/codecov.yaml is flagged as excluded for awesome repos."""
-    codecov = tmp_path / ".github" / "codecov.yaml"
-    codecov.parent.mkdir(parents=True, exist_ok=True)
-    codecov.write_text("comment:\n  layout: reach\n", encoding="UTF-8")
+    """An existing out-of-scope component file is flagged as excluded, not created."""
+    action = tmp_path / ".github" / "actions" / "publish-pypi" / "action.yaml"
+    action.parent.mkdir(parents=True, exist_ok=True)
+    action.write_text("name: Publish\nruns:\n  using: composite\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
     result = run_init(output_dir=tmp_path, repo_slug="user/awesome-billing")
 
-    assert ".github/codecov.yaml" in result.excluded_existing
+    assert ".github/actions/publish-pypi/action.yaml" in result.excluded_existing
 
 
 @pytest.mark.parametrize(
@@ -2453,22 +2453,22 @@ def test_explicit_component_bypasses_scope_exclusion(
 ):
     """Explicit component request overrides scope exclusion.
 
-    ``repomatic init codecov`` in an awesome repo should produce
-    ``.github/codecov.yaml`` even though the codecov component has
-    ``scope=PYTHON_ONLY`` and awesome repos are non-Python. Scope
+    ``repomatic init publish-pypi-action`` in an awesome repo should produce
+    ``.github/actions/publish-pypi/action.yaml`` even though the component has
+    ``scope=PACKAGE_ONLY`` and awesome repos build no distributable. Scope
     exclusions only apply during bare ``repomatic init`` (no explicit
     components).
     """
     monkeypatch.chdir(tmp_path)
 
     result = run_init(
-        components=["codecov"],
+        components=["publish-pypi-action"],
         output_dir=tmp_path,
         repo_slug="user/awesome-billing",
     )
 
     created_set = set(result.created)
-    assert ".github/codecov.yaml" in created_set
+    assert ".github/actions/publish-pypi/action.yaml" in created_set
 
 
 def test_include_config_bypasses_scope_exclusion(
@@ -2476,13 +2476,15 @@ def test_include_config_bypasses_scope_exclusion(
 ):
     """Config ``include`` bypasses scope exclusions, like CLI explicit naming.
 
-    ``include = ["codecov"]`` in an awesome repo should create
-    ``.github/codecov.yaml`` even though codecov is scoped to
-    ``PYTHON_ONLY`` and awesome repos are non-Python.
+    ``publish-pypi-action`` is a ``BundledComponent`` with files, scoped
+    ``PACKAGE_ONLY`` and ``init_default=INCLUDE``. In an awesome repo, which
+    builds no distributable, it would normally be scope-excluded. With
+    ``include``, the scope bypass falls through to file-level checks (the file
+    has ``scope=ALL``, so nothing is excluded).
     """
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[tool.repomatic]\ninclude = ["codecov"]\n',
+        '[tool.repomatic]\ninclude = ["publish-pypi-action"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -2492,30 +2494,7 @@ def test_include_config_bypasses_scope_exclusion(
         repo_slug="user/awesome-billing",
     )
 
-    created_set = set(result.created)
-    assert ".github/codecov.yaml" in created_set
-
-
-def test_include_bypasses_scope_for_bundled_component(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Include bypasses scope for a ``BundledComponent`` with files.
-
-    Codecov is ``PYTHON_ONLY`` and ``init_default=INCLUDE``. In a non-Python
-    awesome repo it would normally be scope-excluded. With ``include``, the
-    scope bypass falls through to file-level checks (the file has
-    ``scope=ALL`` so nothing is excluded).
-    """
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[tool.repomatic]\ninclude = ["codecov"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-
-    result = run_init(output_dir=tmp_path, repo_slug="user/awesome-billing")
-
-    assert ".github/codecov.yaml" in set(result.created)
+    assert ".github/actions/publish-pypi/action.yaml" in set(result.created)
 
 
 def test_include_bypasses_scope_for_tool_config(
@@ -2551,8 +2530,8 @@ def test_bare_init_applies_scope_exclusion(
     result = run_init(output_dir=tmp_path, repo_slug="user/awesome-billing")
 
     created_set = set(result.created)
-    # PYTHON_ONLY component and workflow files are scope-excluded in awesome repos.
-    assert ".github/codecov.yaml" not in created_set
+    # Scoped component and workflow files are scope-excluded in awesome repos.
+    assert ".github/actions/publish-pypi/action.yaml" not in created_set
     assert ".github/workflows/changelog.yaml" not in created_set
     assert ".github/workflows/debug.yaml" not in created_set
     assert ".github/workflows/release.yaml" not in created_set
@@ -3228,7 +3207,13 @@ def test_removed_asset_metadata_valid(asset: RemovedAsset) -> None:
             assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
     assert not asset.removed_in.startswith("v"), asset.removed_in
     assert Version(asset.removed_in) <= Version(__version__), asset.removed_in
-    assert asset.component in ALL_COMPONENTS
+    # The component name drives the `_resolve_target` location override, so a
+    # typo would silently skip it. A dropped *whole* component (`codecov`) has
+    # no live entry to name, and needs none: its target is a `.github/` path
+    # GitHub fixes and no `[tool.repomatic] *.location` can relocate.
+    assert asset.component in ALL_COMPONENTS or asset.target.startswith(".github/"), (
+        f"{asset.component!r} is neither a live component nor a fixed .github/ path"
+    )
 
 
 def test_detect_removed_assets_classifies_by_content(

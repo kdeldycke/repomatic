@@ -161,7 +161,7 @@ A bare `repomatic init` writes only what a repository can actually use. Three tr
 | Trait          | Detected from                                        | Gates                                                                   |
 | :------------- | :--------------------------------------------------- | :---------------------------------------------------------------------- |
 | Awesome list   | A repository name starting with `awesome-`           | `awesome-template`, the awesome-only skills, `lychee`                   |
-| Python project | A PEP 621 `[project]` table that validates           | `codecov`, `debug.yaml`, dependency locking                             |
+| Python project | A PEP 621 `[project]` table that validates           | `debug.yaml`, dependency locking, the test matrix                       |
 | Distributable  | A Python project without `[tool.uv] package = false` | `changelog.md`, `changelog.yaml`, `release.yaml`, `publish-pypi-action` |
 
 The last two come apart for a **uv virtual project**: a repository that declares `[project]` purely to carry dependencies and opts out of being built with `[tool.uv] package = false`. Blogs, docs sites and dotfiles repositories managed with uv all look like this. They keep everything a Python project needs (a `uv.lock` to sync, coverage config, the test matrix) and skip the release lane, which has nothing to publish or tag.

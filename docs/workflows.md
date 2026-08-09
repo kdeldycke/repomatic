@@ -691,7 +691,7 @@ This workflow maintains repomatic's own package source and is the one file in `.
 
 - Runs the test suite across a matrix of OS (Linux/macOS/Windows × `x86_64`/`arm64`) and Python versions: `3.10`, `3.14`, and the `continue-on-error` development `3.15` on every runner, plus the free-threaded `3.14t` as a stable single-runner smoke test (see [test matrix](test-matrix.md))
 - Installs all optional extras (`--all-extras`) to catch incompatibilities between optional dependency groups
-- Runs `pytest` with coverage reporting to Codecov, excluding `once`-marked tests (covered by the dedicated `once-tests` job)
+- Runs `pytest` under the `[tool.coverage] report.fail_under` coverage floor, excluding `once`-marked tests (covered by the dedicated `once-tests` job)
 - Runs self-tests against the CLI test suite, through both the console script and `python -m`
 - Job names prefixed with **✅** (stable) or **⁉️** (unstable, e.g., unreleased Python versions)
 
@@ -699,7 +699,7 @@ This workflow maintains repomatic's own package source and is the one file in `.
 
 - Runs the `once`-marked tests (CLI invocability, plugin registration, metadata checks) on a single stable runner: their outcome does not vary across the OS/Python matrix
 - The matrix `tests` job excludes them with `pytest -m "not once"`
-- Uploads its own coverage report to Codecov, so the lines only these tests cover stay counted in the merged report
+- Opts out of the coverage floor with `--cov-fail-under=0`: this slice alone covers a fraction of the package, so the matrix job owns the ratchet
 
 #### 🖥️ Validate architecture (`validate-arch`)
 

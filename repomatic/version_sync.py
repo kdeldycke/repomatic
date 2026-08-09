@@ -92,7 +92,7 @@ _NPM_LITERAL_RE = re.compile(
     r'"?(?P<package>@?[a-z0-9-]+(?:/[a-z0-9-]+)?)@(?P<version>[0-9][0-9.]*)"?'
 )
 
-# Python pins in uv/uvx commands: `uvx 'codecov-cli==11.2.8'`,
+# Python pins in uv/uvx commands: `uvx 'papaya-cli==11.2.8'`,
 # `--with 'pkg[extra]==1.2.3'`.
 _PYPI_LITERAL_RE = re.compile(
     r"(?:uvx?|--with)[^'\n]*"

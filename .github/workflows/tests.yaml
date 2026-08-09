@@ -87,7 +87,7 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
-          build_targets cli_scripts coverage_cells package_name
+          build_targets cli_scripts package_name
           test_matrix test_matrix_pr
 
   tests:
@@ -145,44 +145,16 @@ jobs:
         run: uv --no-progress sync --frozen --all-extras --group test
 
       - name: Unittests
-        # Produce the coverage XML artifact consumed by the Codecov upload below.
         # `once`-marked tests are excluded from every matrix cell: the dedicated
         # `once-tests` job below runs them on a single runner instead.
+        #
+        # The coverage floor is `[tool.coverage] report.fail_under`, which this
+        # full-matrix slice is the one job expected to clear. Nothing is passed
+        # here: a `--cov-fail-under` flag would outrank that config and shadow
+        # the knob every downstream repo already has.
         run: >
           uv --no-progress run --frozen -- pytest
           -m "not once"
-          --cov-report=xml
-
-      - name: Upload coverage to Codecov
-        # Upload coverage only from the coverage-distinct cells: one runner per
-        # OS at released Python (the `coverage_cells` set, mirroring the PR
-        # matrix). Coverage depends on OS family and Python version, never CPU
-        # architecture, so architecture twins, prerelease, and free-threaded
-        # cells run the suite but produce coverage already captured by these.
-        #
-        # coverage_cells arrives as a space-joined string of `os|python-version`
-        # tokens (the GitHub list-output convention), so the membership test
-        # pads both operands with spaces to match a whole token, not a substring.
-        #
-        # Also skip sync-repomatic PRs (data-only changes with no coverable
-        # lines) and fork PRs (secrets are not available). The version-bump PR
-        # family is already filtered by the metadata job's `github.head_ref`
-        # gate above.
-        if: >
-          github.head_ref != 'sync-repomatic'
-          && env.CODECOV_TOKEN != ''
-          && contains(format(' {0} ', fromJSON(needs.metadata.outputs.metadata).coverage_cells),
-          format(' {0}|{1} ', matrix.os, matrix.python-version))
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        shell: bash
-        run: >
-          uvx --no-progress 'codecov-cli==11.3.1'
-          --auto-load-params-from githubactions
-          upload-process
-          --git-service github
-          --report-type coverage
-          --token "${CODECOV_TOKEN}"
 
       - name: Self-tests against test suite via console script
         # click-extra owns the test-suite engine and CLI; it reads the suite from
@@ -237,26 +209,11 @@ jobs:
         # `once`-marked tests (CLI invocability, plugin registration, metadata
         # checks) behave identically on every OS and Python, so the matrix
         # `tests` job excludes them and this single runner is their only
-        # executor.
-        run: uv --no-progress run --frozen -- pytest -m once --cov-report=xml
-      - name: Upload coverage to Codecov
-        # Same skip conditions as the matrix cells (data-only sync-repomatic
-        # PRs, fork PRs without secrets). No `coverage_cells` membership test:
-        # this job runs exactly once, and its upload keeps the lines only
-        # `once` tests cover counted in the merged report.
-        if: >
-          github.head_ref != 'sync-repomatic'
-          && env.CODECOV_TOKEN != ''
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        shell: bash
-        run: >
-          uvx --no-progress 'codecov-cli==11.3.1'
-          --auto-load-params-from githubactions
-          upload-process
-          --git-service github
-          --report-type coverage
-          --token "${CODECOV_TOKEN}"
+        # executor. `--cov-fail-under=0` opts this slice out of the
+        # `[tool.coverage] report.fail_under` ratchet: it covers ~22% of the
+        # package on its own by design, and the matrix job above is what holds
+        # the floor.
+        run: uv --no-progress run --frozen -- pytest -m once --cov-fail-under=0
 
   test-package-install:
     name: 📦 Package install

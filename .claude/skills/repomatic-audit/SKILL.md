@@ -57,11 +57,11 @@ Compare each local thin-caller workflow against its reference. These should be i
 
 The header (name, `on:`, `concurrency:`) is synced automatically, but custom job content is not. Compare the job content against the reference for:
 
-- **Stale action versions**: e.g., `actions/checkout`, `astral-sh/setup-uv`, `codecov/*` — compare pinned versions.
+- **Stale action versions**: e.g., `actions/checkout`, `astral-sh/setup-uv` — compare pinned versions.
 - **Missing workarounds**: e.g., the "Force native ARM64 Python on Windows ARM64" step that sets `UV_PYTHON`.
 - **Missing matrix exclusions**: e.g., `windows-11-arm` + Python 3.10 (no native ARM64 build).
-- **Outdated integration patterns**: e.g., using `codecov-action` when upstream migrated to `codecov-cli` via `uvx`.
-- **Missing pytest output flags**: e.g., `--cov-report=xml` needed for the codecov-cli coverage upload.
+- **Outdated integration patterns**: e.g., a third-party action still in use where upstream replaced it with a `repomatic run` tool.
+- **Missing coverage floor**: e.g., no `report.fail_under` under `[tool.coverage]`, so a coverage regression never fails the suite.
 - **YAML scalar style issues**: e.g., `run: |` where `run: >` is needed for multi-line single commands.
 
 #### `paths:` filters that don't fit the downstream project

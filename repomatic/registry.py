@@ -459,9 +459,9 @@ class RemovedAsset:
     `init` finds an on-disk orphan and decides whether to prune it with one of
     two gates, depending on the component:
 
-    - Content-gated (skills, agents): the file is deleted only when its
-      normalized content matches one of {attr}`hashes` (a version repomatic
-      shipped), proving it is an untouched copy.
+    - Content-gated (skills, agents, config files): the file is deleted only
+      when its normalized content matches one of {attr}`hashes` (a version
+      repomatic shipped), proving it is an untouched copy.
     - Fingerprint-gated (workflows): thin-callers are parameterized per repo
       (version pin, `paths:` filters), so they carry no fixed content. The file
       is deleted only when it is a repomatic-lineage thin-caller for this
@@ -635,15 +635,6 @@ COMPONENTS: tuple[Component, ...] = (
             ),
             FileEntry("labels.toml"),
         ),
-    ),
-    BundledComponent(
-        name="codecov",
-        description="Codecov PR comment config (.github/codecov.yaml)",
-        scope=RepoScope.PYTHON_ONLY,
-        # Codecov reads config directly from the repo; the file must stay on
-        # disk for the settings to take effect.
-        keep_unmodified=True,
-        files=(FileEntry("codecov.yaml", ".github/codecov.yaml"),),
     ),
     BundledComponent(
         name="publish-pypi-action",
@@ -908,6 +899,13 @@ def _removed_workflow(
 
 
 REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
+    RemovedAsset(
+        "codecov",
+        ".github/codecov.yaml",
+        "7.8.0.dev0",
+        ("e8e96bfead62334599f4ec4c0448f2376352629789a70a76ae6fc3746ff7057b",),
+        successor="coverage is now gated by pytest --cov-fail-under",
+    ),
     _removed_skill(
         "gha-changelog",
         "6.0.0",

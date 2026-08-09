@@ -47,7 +47,7 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `actions-rust-lang/setup-rust-toolchain` | Runner built-in Rust        | Runner built-in         |
 | `actions/setup-python`                   | `astral-sh/setup-uv`        | Consolidated            |
 | `peaceiris/actions-gh-pages`             | `actions/deploy-pages`      | First-party replacement |
-| `codecov/codecov-action`                 | `codecov-cli` via `uvx`     | Pinned CLI              |
+| `codecov/codecov-action`                 | None (integration dropped)  | Removed entirely        |
 | `codecov/test-results-action`            | None (feature dropped)      | Removed entirely        |
 | `GitHubSecurityLab/actions-permissions`  | Explicit `permissions:` key | Removed entirely        |
 

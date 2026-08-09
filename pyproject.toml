@@ -396,6 +396,11 @@ xfail_strict = true
 run.branch = true
 run.source = [ "repomatic" ]
 report.precision = 2
+# Coverage ratchet: the suite fails below this. Set a few points under the
+# measured number, leaving room for the spread across the OS matrix. The
+# `once-tests` workflow job overrides it to 0, covering ~22% on its own by
+# design. A focused local run trips it too, so pair those with `--no-cov`.
+report.fail_under = 78
 
 [tool.bumpversion]
 current_version = "7.8.0.dev0"

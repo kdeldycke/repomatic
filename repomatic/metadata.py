@@ -278,7 +278,6 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "nuitka_matrix": "Matrix for Nuitka compilation workflows.",
     "test_matrix": "Full test matrix for non-PR events.",
     "test_matrix_pr": "Reduced test matrix for pull requests.",
-    "coverage_cells": "Matrix cells eligible for Codecov coverage upload.",
     "minor_bump_allowed": "Minor version bump is allowed by commit history.",
     "major_bump_allowed": "Major version bump is allowed by commit history.",
     "npm_min_release_age_days": "npm min-release-age cooldown, in whole days.",
@@ -2075,27 +2074,6 @@ class Metadata:
         return matrix
 
     @cached_property
-    def coverage_cells(self) -> list[str]:
-        """Matrix cells eligible for Codecov coverage upload, as `os|python-version`.
-
-        Coverage is a function of OS family and Python version, never CPU
-        architecture, so uploading from every cell of {attr}`test_matrix` just
-        merges redundant reports (architecture twins cover identical lines).
-        This returns the {attr}`test_matrix_pr` cell set (one runner per OS at
-        released Python). On a `push` event the workflow uses it to select the
-        coverage-distinct subset of the full matrix; on a pull request it
-        matches every running cell. Tests still execute on every cell: only the
-        upload is gated.
-
-        Emitted as `os|python-version` tokens so the workflow can test
-        membership with `contains(coverage_cells, format('{0}|{1}', ...))`.
-        """
-        return [
-            f"{cell['os']}|{cell['python-version']}"
-            for cell in self.test_matrix_pr.solve()
-        ]
-
-    @cached_property
     def stale_test_matrix_excludes(self) -> list[dict[str, str]]:
         """User `test-matrix.exclude` entries matching no full-matrix axis value.
 
@@ -2315,7 +2293,6 @@ class Metadata:
             "nuitka_matrix": lambda: self.nuitka_matrix,
             "test_matrix": lambda: self.test_matrix,
             "test_matrix_pr": lambda: self.test_matrix_pr,
-            "coverage_cells": lambda: self.coverage_cells,
             "minor_bump_allowed": lambda: self.minor_bump_allowed,
             "major_bump_allowed": lambda: self.major_bump_allowed,
             "npm_min_release_age_days": lambda: min_release_age_days(
