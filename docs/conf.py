@@ -220,9 +220,16 @@ autosectionlabel_prefix_document = True
 # Theme config.
 html_theme = "furo"
 html_title = project
-html_logo = "assets/logo-square.svg"
 html_favicon = "assets/favicon.svg"
 html_theme_options = {
+    # Sidebar logo. Furo renders this pair as .only-light/.only-dark images
+    # driven by its own theme state, so the logo follows the toggle. A single
+    # html_logo cannot: assets/logo-square.svg is light-only by convention, and
+    # its near-black wordmark drops to a 1.24:1 contrast ratio on the dark theme.
+    # Both files are 400x480 exports of that SVG, so the swap holds geometry.
+    # Furo resolves them against _static/, hence their html_static_path entries.
+    "light_logo": "logo-square-light.png",
+    "dark_logo": "logo-square-dark.png",
     "sidebar_hide_name": True,
     # Activates edit links.
     "source_repository": f"https://github.com/{github_user}/{project_id}",
@@ -280,8 +287,9 @@ linkcheck_ignore = [
 
 # OpenGraph / social previews.
 # Social-card image (og:image), served from the GitHub raw host: docs/assets/
-# is not copied into the built site (it is neither in html_static_path nor
-# referenced by any doc body, so Sphinx's image collector never picks it up),
+# is not copied into the built site (only the two sidebar logos are named in
+# html_static_path, and no doc body references the banner, so Sphinx's image
+# collector never picks it up),
 # which means a site-relative `assets/...` path resolves against ogp_site_url
 # to a URL that 404s for social crawlers. The absolute raw URL points at the
 # committed file on `main`, mirroring the readme banner and screenshots.
@@ -297,7 +305,14 @@ html_last_updated_fmt = "%Y-%m-%d"
 copyright = f"{author} and contributors"
 html_show_sphinx = False
 
-html_static_path = ["_static"]
+# Individual files are copied to the root of _static/, which is where Furo looks
+# for the light_logo/dark_logo pair. Listing docs/assets/ wholesale would drag
+# every other asset along.
+html_static_path = [
+    "_static",
+    "assets/logo-square-dark.png",
+    "assets/logo-square-light.png",
+]
 html_css_files = ["custom.css"]
 
 
