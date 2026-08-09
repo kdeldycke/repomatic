@@ -9,7 +9,7 @@
 - **Breaking:** attestation bundles now carry the full filename of the asset they attest, so `repomatic-manpages.attestation.json` becomes `repomatic-manpages.tar.gz.attestation.json`. A repository declaring one extra asset gets `<filename>.attestation.json` in place of `<package-name>-extra-assets.attestation.json`.
 - New `pack-attestation` command names an attestation bundle after the asset it attests and prints the release upload list.
 - New `coverage` component: `repomatic init coverage` writes a `[tool.coverage]` section carrying branch coverage, report precision and a `report.fail_under` ratchet, shipped disabled.
-- The test suite now fails below the `[tool.coverage] report.fail_under` coverage floor, set to `78` for this project.
+- The test suite now fails below the `[tool.coverage] report.fail_under` coverage floor, set to `80` for this project.
 - The bundled pytest config drops `--cov-branch` and `--cov-precision` from `addopts`, now carried by the `coverage` component. Existing `[tool.pytest]` sections are left alone; run `repomatic init coverage` to pick the settings back up.
 - The release lane's `publish-release` job now checks out the repository, so uploading binaries to the release no longer fails with `Failed to spawn: repomatic`. `7.7.0` shipped with no standalone executables because of it.
 - `lint-changelog` re-confirms a release live before dropping its availability admonition, so a day-old cache no longer reports a just-published version as missing.

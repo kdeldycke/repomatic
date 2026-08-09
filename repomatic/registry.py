@@ -337,21 +337,22 @@ class WorkflowComponent(Component):
 
 @dataclass(frozen=True)
 class ToolConfigComponent(Component):
-    """Merged into `pyproject.toml`."""
+    """Merged into `pyproject.toml`.
+
+    ```{note}
+    Nothing here declares where the section lands. `init` appends it to the
+    `[tool]` table, then `format-pyproject` moves it: `pyproject-fmt` sorts
+    `[tool.*]` by its own known-tool order, which no per-component hint can
+    override. This class used to carry `insert_after` / `insert_before` tuples
+    for the purpose; they were read by no code and are gone.
+    ```
+    """
 
     source_file: str = ""
     """Filename in `repomatic/data/`."""
 
     tool_section: str = ""
     """The `[tool.X]` section name to check for existence."""
-
-    insert_after: tuple[str, ...] = ()
-    """Sections to insert after in `pyproject.toml`
-    (in priority order)."""
-
-    insert_before: tuple[str, ...] = ()
-    """Sections to insert before in `pyproject.toml`
-    (if `insert_after` not found)."""
 
     sync_mode: SyncMode = SyncMode.BOOTSTRAP
     """How this config behaves when the section already exists.
@@ -757,7 +758,6 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="uv.toml",
         tool_section="tool.uv",
-        insert_before=("tool.ruff", "tool.pytest", "tool.mypy"),
         # `[tool.uv]` is mostly project-owned (dependencies, sources,
         # exclude-newer-package, build-backend); repomatic owns only the two
         # policy pins in the template. Overlay updates those in place and
@@ -780,8 +780,6 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="ruff.toml",
         tool_section="tool.ruff",
-        insert_after=("tool.uv", "tool.uv.build-backend"),
-        insert_before=("tool.pytest",),
     ),
     ToolConfigComponent(
         name="pytest",
@@ -789,8 +787,6 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="pytest.toml",
         tool_section="tool.pytest",
-        insert_after=("tool.ruff", "tool.ruff.format"),
-        insert_before=("tool.mypy",),
     ),
     ToolConfigComponent(
         name="coverage",
@@ -798,8 +794,6 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="coverage.toml",
         tool_section="tool.coverage",
-        insert_after=("tool.pytest",),
-        insert_before=("tool.mdformat", "tool.bumpversion"),
     ),
     ToolConfigComponent(
         name="mypy",
@@ -807,8 +801,6 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="mypy.toml",
         tool_section="tool.mypy",
-        insert_after=("tool.pytest",),
-        insert_before=("tool.nuitka", "tool.bumpversion"),
     ),
     ToolConfigComponent(
         name="mdformat",
@@ -816,8 +808,6 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="mdformat.toml",
         tool_section="tool.mdformat",
-        insert_after=("tool.coverage",),
-        insert_before=("tool.bumpversion",),
     ),
     ToolConfigComponent(
         name="bumpversion",
@@ -825,8 +815,6 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="bumpversion.toml",
         tool_section="tool.bumpversion",
-        insert_after=("tool.mdformat", "tool.nuitka", "tool.mypy"),
-        insert_before=("tool.typos",),
         sync_mode=SyncMode.ONGOING,
         preserved_keys=("current_version",),
         graft_identity_keys=("filename", "glob", "key_path", "replace"),
@@ -837,8 +825,6 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="typos.toml",
         tool_section="tool.typos",
-        insert_after=("tool.bumpversion",),
-        insert_before=("tool.pytest",),
         # Re-merge on every sync so the canonical proper-noun identifiers reach
         # repos that already carry a project-specific `[tool.typos]`. typos has
         # `reads_pyproject=True`, so the bundled defaults only take effect once
