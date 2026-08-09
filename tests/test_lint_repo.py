@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -29,6 +30,7 @@ from repomatic.lint_repo import (
     check_funding_file,
     check_immutable_releases,
     check_inline_pins_match_upstream,
+    check_install_guide_downloads,
     check_package_name_vs_repo,
     check_pat_stale_statuses_permission,
     check_pr_templates,
@@ -46,6 +48,7 @@ from repomatic.lint_repo import (
 )
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
 from repomatic.pypi import TrustedPublisher
+from repomatic.registry import INSTALL_GUIDE_PATH
 from tests.conftest import metadata_from_pyproject, pat_results
 
 
@@ -656,6 +659,102 @@ def test_stale_drafts_none():
         result = check_stale_draft_releases("owner/repo")
         assert result.passed is True
         assert "No stale" in result.message
+
+
+# --- Install guide download URL check unit tests ---
+
+
+def _write_install_guide(root: Path, body: str) -> None:
+    """Materialize an install guide under *root*, directories included."""
+    guide = root / INSTALL_GUIDE_PATH
+    guide.parent.mkdir(parents=True, exist_ok=True)
+    guide.write_text(body, encoding="UTF-8")
+
+
+GUIDE_WITH_DOWNLOADS = (
+    "[Download `papaya-1.2.3-linux-x64.bin`]"
+    "(https://github.com/owner/repo/releases/download/v1.2.3/"
+    "papaya-1.2.3-linux-x64.bin)\n"
+    "[Download `papaya-1.2.3-macos-arm64.bin`]"
+    "(https://github.com/owner/repo/releases/download/v1.2.3/"
+    "papaya-1.2.3-macos-arm64.bin)\n"
+)
+
+
+def test_install_guide_downloads_all_present(tmp_path, monkeypatch):
+    """Pass when every referenced file is attached to its release."""
+    monkeypatch.chdir(tmp_path)
+    _write_install_guide(tmp_path, GUIDE_WITH_DOWNLOADS)
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {
+            "assets": [
+                {"name": "papaya-1.2.3-linux-x64.bin"},
+                {"name": "papaya-1.2.3-macos-arm64.bin"},
+            ]
+        }
+        result = check_install_guide_downloads("owner/repo")
+        assert result.passed is True
+
+
+def test_install_guide_downloads_missing_asset(tmp_path, monkeypatch):
+    """Warn naming each referenced file the release does not carry."""
+    monkeypatch.chdir(tmp_path)
+    _write_install_guide(tmp_path, GUIDE_WITH_DOWNLOADS)
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {"assets": [{"name": "papaya-1.2.3-linux-x64.bin"}]}
+        result = check_install_guide_downloads("owner/repo")
+        assert result.passed is False
+        assert "v1.2.3/papaya-1.2.3-macos-arm64.bin" in result.message
+        # The healthy link is not reported as a problem.
+        assert "v1.2.3/papaya-1.2.3-linux-x64.bin" not in result.message
+
+
+def test_install_guide_downloads_release_without_assets(tmp_path, monkeypatch):
+    """A release carrying no assets at all reports every referenced file.
+
+    This is the `7.7.0` shape: the release published, so the API answers, but
+    the binary upload never ran.
+    """
+    monkeypatch.chdir(tmp_path)
+    _write_install_guide(tmp_path, GUIDE_WITH_DOWNLOADS)
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {"assets": []}
+        result = check_install_guide_downloads("owner/repo")
+        assert result.passed is False
+        assert "2 missing release file(s)" in result.message
+
+
+@pytest.mark.parametrize(
+    ("body", "needle"),
+    (
+        pytest.param(None, "no install guide", id="no-guide"),
+        pytest.param(
+            "Install it with `uv tool install papaya`.", "no release", id="no-urls"
+        ),
+    ),
+)
+def test_install_guide_downloads_skipped(tmp_path, monkeypatch, body, needle):
+    """Skip when there is no guide, or no download URL to verify."""
+    monkeypatch.chdir(tmp_path)
+    if body is not None:
+        _write_install_guide(tmp_path, body)
+    result = check_install_guide_downloads("owner/repo")
+    assert result.passed is None
+    assert needle in result.message
+
+
+def test_install_guide_downloads_unreadable_release(tmp_path, monkeypatch):
+    """Skip rather than warn when the release cannot be read.
+
+    A transient API failure must not be reported as a broken install guide.
+    """
+    monkeypatch.chdir(tmp_path)
+    _write_install_guide(tmp_path, GUIDE_WITH_DOWNLOADS)
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = None
+        result = check_install_guide_downloads("owner/repo")
+        assert result.passed is None
+        assert "skipped" in result.message
 
 
 def test_stale_drafts_unreadable_payload():

@@ -514,6 +514,14 @@ class RemovedAsset:
 WORKFLOW_TARGET_ROOT = ".github/workflows"
 """Directory GitHub reads workflow files from. Not configurable."""
 
+INSTALL_GUIDE_PATH = "docs/install.md"
+"""Install guide the release freeze pins download URLs in.
+
+Shared by {class}`~repomatic.prepare_release.PrepareRelease`, which rewrites
+those URLs, and {func}`~repomatic.lint_repo.check_install_guide_downloads`,
+which verifies the release they name actually carries the files.
+"""
+
 
 def _agent_target(agent_id: str) -> str:
     """Build the default target path for an agent file from the Config default."""

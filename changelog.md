@@ -9,6 +9,7 @@
 - `lint-changelog` re-confirms a release live before dropping its availability admonition, so a day-old cache no longer reports a just-published version as missing.
 - The readme's logo is now an absolute URL, so it renders on the PyPI project page instead of 404ing.
 - The install guide's executable table points at the last release that carries binaries, instead of a version whose upload lane failed.
+- `lint-repo` now warns when a release download URL in `docs/install.md` names a file its release does not carry.
 
 ## [`7.7.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.6.0...v7.7.0)
 

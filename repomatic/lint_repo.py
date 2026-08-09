@@ -52,7 +52,7 @@ from .pypi import (
     get_trusted_publishers,
     pypi_trusted_publisher_settings_url,
 )
-from .registry import DEFAULT_REPO, WORKFLOW_TARGET_ROOT
+from .registry import DEFAULT_REPO, INSTALL_GUIDE_PATH, WORKFLOW_TARGET_ROOT
 from .version_sync import find_upstream_ref_versions
 
 WORKFLOW_DIR = Path(WORKFLOW_TARGET_ROOT)
@@ -60,6 +60,15 @@ WORKFLOW_DIR = Path(WORKFLOW_TARGET_ROOT)
 
 Derived from the registry constant `repomatic init` deploys against, so the
 checks and the generator can never disagree about where a workflow lives.
+"""
+
+RELEASE_DOWNLOAD_RE = re.compile(r"/releases/download/([^/\s\")]+)/([^/\s\")]+)")
+"""A GitHub release asset URL, capturing its tag and filename.
+
+Matches any release download link, not only a binary one, so the install
+guide's whole download surface is verified with a single pattern. Both groups
+stop at a quote, whitespace or a closing parenthesis, covering an HTML `src`,
+a Markdown link target and a bare URL in prose alike.
 """
 
 PR_TEMPLATE_DIR = Path(".github/pr-templates")
@@ -314,6 +323,75 @@ def check_stale_draft_releases(repo: str) -> CheckResult:
         msg = f"Stale draft releases found: {tags}. Delete these leftover drafts."
         return CheckResult(False, msg)
     return CheckResult(True, "No stale draft releases.")
+
+
+def check_install_guide_downloads(repo: str) -> CheckResult:
+    """Check the install guide's release download URLs still resolve.
+
+    The release freeze pins those URLs to the version being released, but it
+    runs *before* the binaries exist: the freeze commit is what triggers the
+    build. So the pin is optimistic, and a release whose binary lane fails
+    leaves the guide advertising files that 404 until the next release
+    ratchets past it. `7.7.0` shipped that way, with all six links dead.
+
+    Nothing static can catch this: the URLs are well-formed and correct on
+    disk, and only the release's actual asset list settles whether they
+    resolve. Hence a lint check against the API rather than a conformance
+    test.
+
+    Reports rather than repairs, per `claude.md` § Skip and move forward:
+    the fix is a one-liner
+    ({meth}`~repomatic.prepare_release.PrepareRelease.freeze_install_download_urls`
+    re-pointed at the last release that carries binaries), while an automated
+    rewrite driven by one API read could downgrade a healthy install page on
+    a flaky response.
+
+    :param repo: Repository in 'owner/repo' format.
+    :return: A `CheckResult`.
+    """
+    guide = Path(INSTALL_GUIDE_PATH)
+    if not guide.is_file():
+        return CheckResult(None, "Install guide downloads: skipped (no install guide).")
+
+    # Group the referenced filenames by the release tag they are served from.
+    referenced: dict[str, set[str]] = {}
+    for tag, filename in RELEASE_DOWNLOAD_RE.findall(guide.read_text(encoding="UTF-8")):
+        referenced.setdefault(tag, set()).add(filename)
+    if not referenced:
+        return CheckResult(
+            None, "Install guide downloads: skipped (no release download URLs)."
+        )
+
+    missing: list[str] = []
+    for tag, filenames in sorted(referenced.items()):
+        assets = gh_api_json([
+            "release",
+            "view",
+            tag,
+            "--json",
+            "assets",
+            "--repo",
+            repo,
+        ])
+        if assets is None:
+            # An unreadable release is indistinguishable from a missing one
+            # here, and a false alarm on a transient API failure is worse
+            # than a silent pass: the next run re-checks.
+            return CheckResult(
+                None, f"Install guide downloads: skipped (could not read {tag})."
+            )
+        published = {asset["name"] for asset in assets.get("assets", [])}
+        missing.extend(f"{tag}/{name}" for name in sorted(filenames - published))
+
+    if missing:
+        listed = ", ".join(missing)
+        return CheckResult(
+            False,
+            f"Install guide links {len(missing)} missing release file(s): "
+            f"{listed}. Re-point the guide at the last release carrying them "
+            "(PrepareRelease.freeze_install_download_urls).",
+        )
+    return CheckResult(True, "Install guide download URLs all resolve.")
 
 
 def check_topics_subset_of_keywords(
@@ -1777,6 +1855,10 @@ def run_repo_lint(
     # Check 7: Stale draft releases (warning).
     if repo:
         _report_result(check_stale_draft_releases(repo))
+
+    # Check 7b: Install guide download URLs still resolve (warning).
+    if repo:
+        _report_result(check_install_guide_downloads(repo))
 
     # Check 8: Tag protection rules (warning).
     if repo:

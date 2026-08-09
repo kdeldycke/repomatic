@@ -3065,6 +3065,7 @@ def lint_repo(
       - GitHub topics subset of pyproject.toml keywords (warning).
       - Funding file present when owner has GitHub Sponsors (warning).
       - Stale draft releases (non-.dev0 drafts) (warning).
+      - Install guide download URLs resolve to real release assets (warning).
       - Repository-local PR body templates sit in .github/pr-templates/
         and carry valid frontmatter (warning).
       - Fork PR workflow approval policy strict enough (warning).

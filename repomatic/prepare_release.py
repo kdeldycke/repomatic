@@ -74,7 +74,7 @@ from .changelog import Changelog
 from .config import load_repomatic_config
 from .metadata import Metadata
 from .plugin import ARCHIVE_NAME, MARKETPLACE_PATH
-from .registry import UPSTREAM_PACKAGE
+from .registry import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE
 from .version_sync import frozen_cli_invocation
 
 SELF_PIN_COOLDOWN_EXEMPTION = f"--exclude-newer-package {UPSTREAM_PACKAGE}=P0D"
@@ -140,7 +140,7 @@ class PrepareRelease:
         )
         self.citation_path = citation_path or Path("./citation.cff").resolve()
         self.workflow_dir = workflow_dir or Path("./.github/workflows").resolve()
-        self.install_path = install_path or Path("./docs/install.md").resolve()
+        self.install_path = install_path or Path(INSTALL_GUIDE_PATH).resolve()
         self.marketplace_path = marketplace_path or Path(MARKETPLACE_PATH).resolve()
         self.default_branch = default_branch
         self.modified_files: list[Path] = []
