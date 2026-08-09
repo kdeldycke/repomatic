@@ -10,13 +10,11 @@
 addopts = [
     # Show the N slowest tests.
     "--durations=10",
-    # Coverage settings - customize the package name for your project. Set the
-    # coverage floor in [tool.coverage] as report.fail_under, never here and
-    # never from CI: a --cov-fail-under flag outranks that config and shadows
-    # it. Runs not meant to clear it (a focused local run) pass --no-cov.
+    # Turn coverage on and name what to measure: customize this to your own
+    # package. Everything about *how* coverage is measured and reported (branch
+    # coverage, precision, and the report.fail_under ratchet) lives in
+    # [tool.coverage] instead, via `repomatic init coverage`.
     "--cov=.",
-    "--cov-branch",
-    "--cov-precision=2",
     "--cov-report=term",
     # Run tests in parallel across all logical cores. Requires the
     # pytest-xdist[psutil] test dependency.

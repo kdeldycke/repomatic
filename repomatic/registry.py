@@ -793,6 +793,15 @@ COMPONENTS: tuple[Component, ...] = (
         insert_before=("tool.mypy",),
     ),
     ToolConfigComponent(
+        name="coverage",
+        description="Coverage.py measurement and reporting configuration",
+        init_default=InitDefault.EXPLICIT,
+        source_file="coverage.toml",
+        tool_section="tool.coverage",
+        insert_after=("tool.pytest",),
+        insert_before=("tool.mdformat", "tool.bumpversion"),
+    ),
+    ToolConfigComponent(
         name="mypy",
         description="Mypy type checking configuration",
         init_default=InitDefault.EXPLICIT,

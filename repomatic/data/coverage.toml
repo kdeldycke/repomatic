@@ -1,0 +1,24 @@
+# Coverage.py configuration for Python projects.
+#
+# Native format - the keys coverage.py reads. When merged into pyproject.toml
+# via `repomatic init coverage`, the [tool.coverage] prefix is added
+# automatically.
+#
+# Pairs with the pytest config (`repomatic init pytest`), which turns coverage
+# on and names what to measure. *What* is measured is a pytest flag; *how* it
+# is measured and reported belongs here.
+
+# https://coverage.readthedocs.io/en/latest/config.html
+run.branch = true
+report.precision = 2
+# Coverage ratchet: the suite fails below this percentage, 0 disables it.
+# Raise it to a few points under the number your suite actually reaches: close
+# enough to catch a real regression, loose enough to absorb the spread across
+# an OS matrix.
+#
+# Set the floor here and nowhere else. A --cov-fail-under flag outranks this
+# value, so passing one from a CI workflow silently shadows whatever a project
+# configures. The two runs not meant to clear a full-suite floor opt out
+# explicitly instead: a partial CI slice with --cov-fail-under=0, and a focused
+# local run with --no-cov.
+report.fail_under = 0

@@ -295,6 +295,10 @@ def test_exportable_file_loadable(filename: str) -> None:
 #   have extras.
 _TEMPLATE_EXCLUDE_KEYS: dict[str, frozenset[str]] = {
     "bumpversion": frozenset({"current_version"}),
+    # The template ships the coverage ratchet disabled (`fail_under = 0`), so
+    # adopting a repomatic release never fails a downstream build on a floor
+    # its author never picked. This repository sets its own.
+    "coverage": frozenset({"fail_under"}),
     "mypy": frozenset(),
     "pytest": frozenset({"addopts"}),
     "ruff": frozenset({"extend-include"}),
@@ -302,6 +306,7 @@ _TEMPLATE_EXCLUDE_KEYS: dict[str, frozenset[str]] = {
 }
 _TEMPLATE_SUPERSET_KEYS: dict[str, frozenset[str]] = {
     "bumpversion": frozenset({"files"}),
+    "coverage": frozenset(),
     "mypy": frozenset(),
     "pytest": frozenset(),
     "ruff": frozenset(),
@@ -410,6 +415,12 @@ def _lookup(parsed: dict, key: str):
         # an installed copy of the package.
         ("pytest.toml", "testpaths", ["tests"]),
         ("pytest.toml", "xfail_strict", True),
+        # Coverage measurement and reporting, moved out of the pytest addopts
+        # so they sit where coverage.py itself reads them.
+        ("coverage.toml", "run.branch", True),
+        ("coverage.toml", "report.precision", 2),
+        # The ratchet ships disabled: a downstream repo opts in by raising it.
+        ("coverage.toml", "report.fail_under", 0),
     ),
 )
 def test_template_setting(template: str, key: str, expected) -> None:
@@ -423,7 +434,6 @@ def test_template_setting(template: str, key: str, expected) -> None:
         ("ruff.toml", "lint.ignore", "D400"),
         ("ruff.toml", "lint.ignore", "ERA001"),
         ("pytest.toml", "addopts", "--durations=10"),
-        ("pytest.toml", "addopts", "--cov-branch"),
         ("pytest.toml", "addopts", "--cov-report=term"),
         ("pytest.toml", "addopts", "--numprocesses=auto"),
         ("pytest.toml", "addopts", "--import-mode=importlib"),
