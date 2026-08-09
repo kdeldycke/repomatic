@@ -92,6 +92,14 @@ uv exposes no environment variable for `--exclude-newer-package`, so the
 exemption has to ride on the command line, which is why the freeze splices it in
 beside the pin instead of the workflows declaring it once.
 
+```{note}
+A `uvx` resolution reads no project configuration at all, so moving the
+exemption into `[tool.uv]` or an adjacent `uv.toml` would not work either:
+both are ignored. See `claude.md` § Per-ecosystem knobs, and
+[uv#20995](https://github.com/astral-sh/uv/issues/20995) for the upstream
+request that would let a workflow declare this once.
+```
+
 Spelled as the ISO 8601 `P0D` rather than the `"0 day"` used in
 `pyproject.toml`'s `exclude-newer-package` table: the flag travels through YAML
 folded scalars into a shell, where the space in `0 day` would need quoting that
