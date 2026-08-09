@@ -6,6 +6,8 @@
 > This version is **not released yet** and is under active development.
 
 - Fix the broken-links issue never being filed. `docs.yaml` ran lychee through `xargs`, which answers any child status in 1..125 with 123 of its own, so lychee's `2` for "broken links found" reached `broken-links` looking like a crash and was recorded as a tool failure instead of a report. lychee now runs once, directly, with `xargs` demoted to splitting the file list. That also stops a list long enough to batch from overwriting `--output` once per batch and keeping only the last batch's findings.
+- `repomatic init` now realigns a workflow's inline `repomatic==X.Y.Z` literal onto the pin it writes into the `uses:` refs, in either direction. It was left to the next scheduled `sync-workflow-pins` run, so a downstream repository adopting a release sat with `lint-repo`'s inline-pin check red in between, and a stale pin can fail the metadata job of a release that has already published to PyPI.
+- New *Build backends* section in the packaging guide, covering the `[tool.setuptools]` package-discovery shim a distribution needs when it builds a `uv-build` project with setuptools.
 
 ## [`7.8.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.7.0...v7.8.0)
 

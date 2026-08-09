@@ -1141,6 +1141,56 @@ def test_init_skips_a_non_reusable_workflow_absent_downstream(tmp_path, monkeypa
     assert _init_workflow(tmp_path, monkeypatch, "tests.yaml") is None
 
 
+@pytest.mark.parametrize(
+    "pinned",
+    (
+        # Behind the refs, the lag `check_inline_pins_match_upstream` reports.
+        "7.4.1",
+        # Ahead of them, which is drift the same way.
+        "7.5.0",
+    ),
+)
+def test_init_realigns_an_inline_pin_in_downstream_jobs(tmp_path, monkeypatch, pinned):
+    """The inline pin follows the `uses:` refs `init` writes, in either direction.
+
+    The literal sits in a job body header-only sync never rewrites, so nothing
+    else in this pass would touch it and the lint would go red until the next
+    scheduled `sync-workflow-pins` run.
+    """
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        _DOWNSTREAM_TESTS_YAML.replace(
+            "echo hello",
+            f"uvx --exclude-newer-package repomatic=P0D 'repomatic=={pinned}' metadata",
+        ),
+        encoding="UTF-8",
+    )
+
+    content = _init_workflow(tmp_path, monkeypatch, "tests.yaml")
+
+    assert content is not None
+    assert f"repomatic=={pinned}" not in content
+    assert "'repomatic==7.4.2'" in content
+    # The single-`=` cooldown escape hatch names a package, not a version.
+    assert "--exclude-newer-package repomatic=P0D" in content
+
+
+def test_init_leaves_an_unrelated_pypi_pin_alone(tmp_path, monkeypatch):
+    """Only the upstream toolkit's own literal is realigned, not every `==` pin."""
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        _DOWNSTREAM_TESTS_YAML.replace("echo hello", "uvx 'some-other-tool==1.2.3'"),
+        encoding="UTF-8",
+    )
+
+    content = _init_workflow(tmp_path, monkeypatch, "tests.yaml")
+
+    assert content is not None
+    assert "some-other-tool==1.2.3" in content
+
+
 def test_init_leaves_a_headerless_workflow_untouched(tmp_path, monkeypatch):
     """Without a `jobs:` line there is no boundary to splice the header onto."""
     target = tmp_path / ".github" / "workflows" / "tests.yaml"

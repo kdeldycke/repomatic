@@ -1238,6 +1238,71 @@ def _init_workflows(
             verb="Synced header",
         )
 
+    _realign_inline_pins(workflows_dir, version, result, output_dir, repo=repo)
+
+
+def _realign_inline_pins(
+    workflows_dir: Path,
+    version: str,
+    result: InitResult,
+    output_dir: Path,
+    *,
+    repo: str = DEFAULT_REPO,
+) -> None:
+    """Realign inline `<package>==X.Y.Z` literals onto the pin just written.
+
+    A workflow that reaches the upstream toolkit from a `run:` shell command
+    (`uvx 'repomatic==1.2.3' metadata`) must keep that version in lockstep with
+    the SHA-pinned `uses:` refs above it, which
+    {func}`~repomatic.lint_repo.check_inline_pins_match_upstream` enforces.
+    `init` writes those refs and is the only writer of them, so it is also the
+    only place that knows the pin changed: leaving the literal to the next
+    `sync-workflow-pins` run opened a window, between the two, where the lint it
+    is checked by was already red. Closing it here removes the window rather
+    than reporting on it.
+
+    Rewrites in either direction, like {func}`~repomatic.sync_ops._resolve_workflow_pins`
+    does: the refs are the source of truth, and a literal ahead of them is drift
+    the same way one behind them is.
+
+    Scope is every workflow file, not only the ones `init` generated. A
+    downstream repository carries the literal inside job bodies it owns (the
+    `pr-body` calls of a release workflow), which header-only sync never
+    touches; that is exactly where the lag hides.
+
+    ```{note}
+    The single-`=` per-package cooldown escape hatch written beside the pin
+    (`--exclude-newer-package repomatic=P0D`) is left alone: it names a package,
+    not a version.
+    ```
+
+    :param workflows_dir: The repository's `.github/workflows/` directory.
+    :param version: Version just pinned into the `uses:` refs, in its `vX.Y.Z`
+        tag spelling.
+    :param result: {class}`InitResult` accumulator, mutated in place.
+    :param output_dir: Repository root, for the reported relative path.
+    :param repo: Upstream `owner/repo`; its name is the inline package to match.
+    """
+    package = repo.rsplit("/", 1)[-1]
+    pin_re = re.compile(rf"\b{re.escape(package)}==[0-9]+(?:\.[0-9]+)*")
+    # A `uses:` ref names a git tag and keeps the `v`; a requirement specifier
+    # names the PyPI package and must not carry it. Same number, two namespaces.
+    replacement = f"{package}=={version.removeprefix('v')}"
+
+    for target in sorted(workflows_dir.glob("*.y*ml")):
+        content = target.read_text(encoding="UTF-8")
+        new_content = pin_re.sub(replacement, content)
+        if new_content == content:
+            continue
+        _write_managed(
+            target,
+            new_content,
+            result,
+            output_dir,
+            normalize=False,
+            verb=f"Realigned inline {package} pin",
+        )
+
 
 def is_source_repo(output_dir: Path) -> bool:
     """Detect whether `output_dir` is the repomatic source repository root.
