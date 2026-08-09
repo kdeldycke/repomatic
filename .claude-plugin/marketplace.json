@@ -14,7 +14,7 @@
 			"name": "repomatic",
 			"source": {
 				"source": "archive",
-				"url": "https://github.com/kdeldycke/repomatic/releases/download/v7.6.0/repomatic-plugin.zip"
+				"url": "https://github.com/kdeldycke/repomatic/releases/download/v7.7.0/repomatic-claude-plugin.zip"
 			},
 			"tags": [
 				"changelog",
