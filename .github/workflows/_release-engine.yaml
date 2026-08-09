@@ -64,7 +64,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic metadata
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' metadata
           --format github-json --output "$GITHUB_OUTPUT"
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
           nuitka_extras is_python_project package_name current_version
@@ -174,7 +174,7 @@ jobs:
           # NUITKA_PYTHON_FLAGS holds the entry point's --python-flag (if any),
           # meant to word-split.
           # shellcheck disable=SC2086
-          uv --no-progress run --frozen -- repomatic run nuitka -- \
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' run nuitka -- \
             ${NUITKA_PYTHON_FLAGS} \
             --output-filename="${BIN_NAME}" "${MODULE_PATH}"
       - name: Upload Nuitka crash report
@@ -199,7 +199,7 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0'
           verify-binary --target "${TARGET}" --binary "${BIN_NAME}"
       - name: Upload binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -232,7 +232,7 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         run: >
-          uv --no-progress run --frozen -- repomatic run gh --
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' run gh --
           attestation verify "${BIN_NAME}"
           --repo "${{ github.repository }}"
           --signer-repo kdeldycke/repomatic
@@ -248,7 +248,7 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest-binary.outputs.bundle-path }}
         shell: bash
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0'
           pack-attestation --bundle "${BUNDLE_PATH}"
       - name: Upload attestation bundle
         # Globbed rather than named, so the filename stays the CLI's to decide.
@@ -356,7 +356,7 @@ jobs:
           CURRENT_VERSION: ${{ matrix.current_version }}
           COMMIT: ${{ matrix.commit }}
         run: >
-          uv --no-progress run --frozen -- repomatic git-tag
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' git-tag
           --tag "v${CURRENT_VERSION}"
           --commit "${COMMIT}"
           --skip-existing
@@ -398,7 +398,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uv --no-progress run --frozen -- repomatic sync-dev-release --live --delete
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' sync-dev-release --live --delete
       - name: Create GitHub release draft
         # Idempotent: skips if release already exists (e.g. workflow re-run).
         # Notes carry the PyPI availability admonition from the start: baking it
@@ -510,7 +510,7 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: |
-          uv --no-progress run --frozen -- repomatic \
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' \
             pack-attestation --bundle "${BUNDLE_PATH}" > upload-list.txt
           xargs gh release upload "v${CURRENT_VERSION}" \
             --repo "${{ github.repository }}" \
@@ -595,7 +595,7 @@ jobs:
           PACKAGE_NAME: ${{ fromJSON(needs.metadata.outputs.metadata).package_name }}
         shell: bash
         run: |
-          uv --no-progress run --frozen -- repomatic pack-attestation \
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' pack-attestation \
             --bundle "${BUNDLE_PATH}" \
             --dir release-assets \
             --name "${PACKAGE_NAME}-extra-assets" > upload-list.txt
@@ -673,7 +673,7 @@ jobs:
         # Python distributions live in the CLI; the shell only feeds the
         # printed list to `gh release upload`.
         run: |
-          uv --no-progress run --frozen -- repomatic pack-binaries \
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' pack-binaries \
             --version "${CURRENT_VERSION}" --dir ./compile-assets > upload-list.txt
           if [[ -s upload-list.txt ]]; then
             xargs gh release upload "v${CURRENT_VERSION}" \
@@ -738,7 +738,7 @@ jobs:
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
           CURRENT_VERSION: ${{ matrix.current_version }}
         run: >
-          uv --no-progress run --frozen -- repomatic scan-virustotal
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' scan-virustotal
           --tag "v${CURRENT_VERSION}"
           --binaries-dir ./binaries
           --poll
@@ -751,7 +751,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic sync-binaries
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' sync-binaries
           --repo "${{ github.repository }}"
           --page docs/binaries.md
           --records docs/assets/virustotal-scans.json
@@ -766,7 +766,7 @@ jobs:
           CURRENT_VERSION: ${{ matrix.current_version }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: >
-          uv --no-progress run --frozen -- repomatic git-commit-push
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' git-commit-push
           --message "Record v${CURRENT_VERSION} binaries"
           --branch "${DEFAULT_BRANCH}"
           docs/binaries.md
@@ -814,5 +814,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic sync-dev-release --live
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.8.0' sync-dev-release --live
           --upload-assets release_assets

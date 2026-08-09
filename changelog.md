@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.8.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.7.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.8.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.7.0...v7.8.0)
 
 - **Breaking:** the Codecov integration is removed, along with the `codecov` component, its `.github/codecov.yaml`, and the `coverage_cells` metadata key. `repomatic init` prunes an untouched orphaned config; delete the `CODECOV_TOKEN` secret and coverage badge by hand.
 - **Breaking:** attestation bundles now carry the full filename of the asset they attest, so `repomatic-manpages.attestation.json` becomes `repomatic-manpages.tar.gz.attestation.json`. A repository declaring one extra asset gets `<filename>.attestation.json` in place of `<package-name>-extra-assets.attestation.json`.
