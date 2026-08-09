@@ -219,6 +219,12 @@ The version string is always bare (`1.2.3`). The `v` prefix is a **tag namespace
 3. **Always backtick-escape versions in prose.** Both `v1.2.3` and `1.2.3` are identifiers: wrap them in single backticks.
 4. **Development versions** follow PEP 440: `1.2.3.dev0` with optional `+{short_sha}` local identifier.
 
+### Commit message length
+
+A concise subject line, then **at most one short paragraph** of body before any trailer. The subject says what changed; the paragraph says *why*, and only when the why is not evident from the diff. Drop the body entirely when the subject already covers it.
+
+Never narrate the work in sequence or enumerate the files touched: `git log --stat` lists the files and the diff shows the order. Rationale needing more room than a paragraph is a sign it belongs somewhere durable instead: a code comment, a docstring, `docs/`, or the PR body.
+
 ### GitHub cross-references in commit messages and PRs
 
 Never write `#N` (a literal `#` followed by a number) in commit messages, PR titles, or PR bodies unless N is an actual issue/PR number in the target repo. GitHub auto-links every `#N`, so positional refs like `test #1` render as misleading cross-references. Use plain numbers (`test 1`, `tests 14 and 15`), backtick-quote a slot identifier (`` test `1` ``), or rephrase (`the first test`).
