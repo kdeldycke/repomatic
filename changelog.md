@@ -9,6 +9,9 @@
 
 ## [`7.7.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.6.0...v7.7.0)
 
+> [!NOTE]
+> `7.7.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.7.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.7.0).
+
 - **Breaking:** drop the `WorkflowFormat` enum and the `generate_workflows` function, orphaned since the `workflow create` and `workflow sync` CLI commands were removed. `repomatic init` is now the only way to write a workflow file.
 - **Breaking:** drop the `check-version` command: nothing invoked it, and workflows read the `minor_bump_allowed` and `major_bump_allowed` metadata keys instead.
 - **Breaking:** drop the `clean-unmodified-configs` command, superseded by `repomatic init --delete-unmodified`.
