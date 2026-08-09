@@ -77,6 +77,27 @@ Every `lint-*` operation checks content without modifying it. Lint operations ar
 - Read-only. No file writes, no PRs, no side effects beyond exit code and stdout/stderr output.
 - Lives in `lint.yaml`, not `autofix.yaml`.
 
+## Pack job contract
+
+Every `pack-*` operation assembles a distributable artifact set for a release (like `pack-plugin`, which zips the Claude Code plugin, or `pack-binaries`, which materializes the versionless binary aliases and prints the upload list). A pack operation **writes no repository file**: its output is a build artifact or a list consumed by a later step, so it needs no PR branch and no PR body template.
+
+**Required properties:**
+
+1. **CLI command.** A `repomatic pack-*` command. Everything beyond trivial wiring lives here rather than in workflow YAML, so the naming convention has one Python definition instead of a shell loop per call site.
+2. **Workflow step.** A step (or job) in the release lane calling that command. `pack-*` has no `autofix.yaml` job: there is nothing to commit.
+3. **Documentation.** Job or step description in `docs/workflows.md`. Changelog entry.
+4. **Tests.** Unit coverage for the assembly logic, including its idempotency.
+
+**Invariants:**
+
+- Idempotent: re-running overwrites the same artifacts with the same bytes. This is load-bearing on a re-run of a release job, where a partially uploaded asset set must converge rather than duplicate.
+- Writes only under a build or distribution directory, never into tracked repository content.
+- Only the CLI command and the job or step ID share the `pack-<noun>` name. Unlike a `sync-*` or `format-*` operation, there is no matching PR branch or `.github/pr-templates/` entry to keep in step.
+
+```{note}
+Pick `pack-` over `sync-` when the operation's output leaves the repository. `sync-binaries` records the release binaries catalog *into* the repository and therefore commits; `pack-binaries` stages the same binaries *for upload* and commits nothing. Same nouns, different verbs, because the destination differs.
+```
+
 ## Scan job contract
 
 Every `scan-*` operation submits release artifacts to an external analysis service (like `scan-virustotal`) and records the results in the repository. The submission is the operation's point (seeding AV vendor databases); the recorded results are the durable trace of what the service reported.

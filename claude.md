@@ -304,7 +304,7 @@ CLI commands, workflow job IDs, PR branch names, and PR body template names must
 
 ### Automated operation contracts
 
-Every automated operation follows the [naming conventions](#naming-conventions-for-automated-operations) and is [idempotent](#idempotency-by-default). For the detailed checklists of required properties, invariants, and optional elements for each operation type (sync, update, format/fix, lint, PR body templates), see [`docs/operation-contracts.md`](https://kdeldycke.github.io/repomatic/operation-contracts.html).
+Every automated operation follows the [naming conventions](#naming-conventions-for-automated-operations) and is [idempotent](#idempotency-by-default). For the detailed checklists of required properties, invariants, and optional elements for each operation type (sync, update, format/fix, lint, pack, scan, PR body templates), see [`docs/operation-contracts.md`](https://kdeldycke.github.io/repomatic/operation-contracts.html).
 
 ### Ordering conventions
 
