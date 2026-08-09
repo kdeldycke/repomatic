@@ -661,6 +661,28 @@ def test_stale_drafts_none():
         assert "No stale" in result.message
 
 
+def test_stale_drafts_unreadable_payload():
+    """Skip gracefully when the release list cannot be read."""
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = None
+        warning, msg = check_stale_draft_releases("owner/repo")
+        assert warning is None
+        assert "skipped" in msg
+
+
+def test_stale_drafts_multiple():
+    """List all stale draft tags in the warning."""
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = [
+            {"tagName": "v6.1.2", "isDraft": True},
+            {"tagName": "v6.2.0-rc1", "isDraft": True},
+        ]
+        result = check_stale_draft_releases("owner/repo")
+        assert result.passed is False
+        assert "v6.1.2" in result.message
+        assert "v6.2.0-rc1" in result.message
+
+
 # --- Install guide download URL check unit tests ---
 
 
@@ -755,28 +777,6 @@ def test_install_guide_downloads_unreadable_release(tmp_path, monkeypatch):
         result = check_install_guide_downloads("owner/repo")
         assert result.passed is None
         assert "skipped" in result.message
-
-
-def test_stale_drafts_unreadable_payload():
-    """Skip gracefully when the release list cannot be read."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = None
-        warning, msg = check_stale_draft_releases("owner/repo")
-        assert warning is None
-        assert "skipped" in msg
-
-
-def test_stale_drafts_multiple():
-    """List all stale draft tags in the warning."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = [
-            {"tagName": "v6.1.2", "isDraft": True},
-            {"tagName": "v6.2.0-rc1", "isDraft": True},
-        ]
-        result = check_stale_draft_releases("owner/repo")
-        assert result.passed is False
-        assert "v6.1.2" in result.message
-        assert "v6.2.0-rc1" in result.message
 
 
 # --- SHA pinning required check unit tests ---

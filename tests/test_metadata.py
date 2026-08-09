@@ -394,10 +394,23 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
             iter_checks(metadata[key], value, metadata)
 
     elif isinstance(expected, list):
-        assert isinstance(metadata, list)
-        assert len(metadata) == len(expected)
-        for item in expected:
-            iter_checks(metadata[expected.index(item)], item, metadata)
+        assert isinstance(metadata, list), (
+            f"{metadata!r} should be a list in {context!r}"
+        )
+        if len(metadata) != len(expected):
+            # The file inventories are the long lists here, and a bare length
+            # comparison reduces a tree that drifted from the git index to a
+            # pair of integers, leaving the reader to hunt the paths down in
+            # another test's output. Name the difference instead: the
+            # `_ALL_TRACKED` docstring makes enumerating drift this test's job.
+            missing = [item for item in expected if item not in metadata]
+            unexpected = [item for item in metadata if item not in expected]
+            raise AssertionError(
+                f"Got {len(metadata)} items, expected {len(expected)}. "
+                f"Missing: {missing!r}. Unexpected: {unexpected!r}."
+            )
+        for produced, wanted in zip(metadata, expected, strict=True):
+            iter_checks(produced, wanted, metadata)
 
     else:
         assert metadata == expected, (
