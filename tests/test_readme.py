@@ -28,7 +28,11 @@ from repomatic.tool_registry import TOOL_REGISTRY, NativeFormat
 REPO_ROOT = Path(__file__).parent.parent
 CLI_MD = REPO_ROOT / "docs" / "cli.md"
 CONFIGURATION_MD = REPO_ROOT / "docs" / "configuration.md"
+README_MD = REPO_ROOT / "readme.md"
 TOOL_RUNNER_MD = REPO_ROOT / "docs" / "tool-runner.md"
+
+IMAGE_SRC_RE = re.compile(r"""<img[^>]*\ssrc=["']([^"']+)["']|!\[[^\]]*\]\(([^)\s]+)""")
+"""Every image reference in a Markdown file, HTML tag or Markdown syntax."""
 
 
 def _parse_tool_runner_table() -> dict[str, str]:
@@ -55,6 +59,32 @@ def _parse_tool_runner_table() -> dict[str, str]:
         if m:
             result[m.group(1)] = support_col
     return result
+
+
+def test_readme_images_are_absolute() -> None:
+    """Every image in `readme.md` must be an absolute URL.
+
+    `pyproject.toml` sets `readme = "readme.md"`, so this file ships verbatim
+    as the PyPI long description. GitHub resolves a relative path against the
+    repository; PyPI has no such base and renders a broken image. The logo
+    banner shipped relative and 404'd on every release page until `7.7.1`.
+
+    Local paths stay correct on GitHub, which is what makes this invisible in
+    review: the only place the breakage shows is the published project page.
+    """
+    offenders = [
+        html_src or md_src
+        for html_src, md_src in IMAGE_SRC_RE.findall(
+            README_MD.read_text(encoding="UTF-8")
+        )
+        if not (html_src or md_src).startswith(("https://", "http://", "data:"))
+    ]
+    assert not offenders, (
+        f"readme.md carries {len(offenders)} relative image reference(s): "
+        f"{offenders}. readme.md is the PyPI long description, which cannot "
+        "resolve repository-relative paths. Use the absolute "
+        "https://raw.githubusercontent.com/… URL."
+    )
 
 
 def test_docs_cli_reference_uses_tree_directive() -> None:
