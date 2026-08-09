@@ -1325,6 +1325,51 @@ def test_local_cli_invocation_is_contiguous(workflow: str) -> None:
     )
 
 
+# Every (workflow, job) whose steps run the CLI from the local checkout.
+LOCAL_CLI_JOBS = [
+    (workflow_name, job_name)
+    for workflow_name, job_name, steps in iter_jobs_with_steps()
+    if any(LOCAL_CLI_INVOCATION in (step.get("run") or "") for step in steps)
+]
+
+
+def test_local_cli_jobs_discovered() -> None:
+    """The local-CLI matcher must find jobs (guards against a dead constant)."""
+    assert LOCAL_CLI_JOBS, (
+        f"No job runs `{LOCAL_CLI_INVOCATION}`. The constant likely drifted "
+        "from what the workflows spell: every lane dogfoods the CLI somewhere."
+    )
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name"),
+    LOCAL_CLI_JOBS,
+    ids=[f"{workflow}:{job}" for workflow, job in LOCAL_CLI_JOBS],
+)
+def test_local_cli_job_checks_out_repo(workflow_name: str, job_name: str) -> None:
+    """Every job running the CLI from `uv.lock` must check out the repository.
+
+    `uv run --frozen` resolves the project from the working directory, so
+    without a checkout there is no `pyproject.toml`, no `uv.lock`, and no
+    console script: the step dies on `Failed to spawn: repomatic`.
+
+    The `publish-release` job shipped without one on the assumption that the
+    freeze had rewritten its invocation to the PyPI-resolved `uvx` form. It had,
+    on the release commit — but a rebase-merged release PR pushes the freeze and
+    unfreeze commits together, and Actions runs the workflow at the push head,
+    so the unfrozen form is what executes upstream. See
+    `repomatic/prepare_release.py` for the contract.
+    """
+    steps = load_workflow(workflow_name)["jobs"][job_name]["steps"]
+    assert any(
+        str(step.get("uses", "")).startswith("actions/checkout@") for step in steps
+    ), (
+        f"{workflow_name} ({job_name}): runs `{LOCAL_CLI_INVOCATION}` but never "
+        "checks out the repository, so uv has no project to resolve the CLI "
+        "from. Add an `actions/checkout@` step."
+    )
+
+
 @pytest.mark.parametrize(
     "workflow", sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml"))
 )

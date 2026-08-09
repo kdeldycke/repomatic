@@ -631,9 +631,12 @@ jobs:
           pattern: "*-${{ matrix.short_sha }}"
           path: ./compile-assets
           merge-multiple: true
-      # No checkout: on the release commit the freeze has rewritten the CLI
-      # invocation below to its `uvx 'repomatic==X.Y.Z'` form, which resolves
-      # from PyPI and only needs uv itself.
+      # The CLI call below resolves from `uv.lock`, so it needs the release commit's tree: upstream always runs
+      # the unfrozen form, whatever the freeze wrote. See repomatic/prepare_release.py for why.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.compile-binaries.result != 'skipped'
+        with:
+          ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         if: needs.compile-binaries.result != 'skipped'
         with:

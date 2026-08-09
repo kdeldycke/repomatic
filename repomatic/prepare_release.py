@@ -42,6 +42,21 @@ commits** — it uses `release_commits_matrix` to identify and tag only the
 freeze commit. Squash-merging would collapse both into one, breaking the
 tagging logic. See the `detect-squash-merge` job for the safeguard.
 
+```{caution}
+Rebase-merging the two commits delivers them in a **single push**, and GitHub
+Actions reads workflow files from that push's head: the unfreeze commit. So the
+release lane of this repository always executes the **unfrozen** workflow
+content, running {data}`LOCAL_CLI_INVOCATION` against `uv.lock`, even while
+building the freeze commit named in `release_commits_matrix`. Every job calling
+the CLI therefore needs its own checkout of `matrix.commit`, and a job written
+on the assumption that the frozen `uvx 'repomatic==X.Y.Z'` form is what runs
+will fail with `Failed to spawn: repomatic`.
+
+Only downstream repositories, which call the reusable workflow at its `vX.Y.Z`
+tag, ever execute the frozen form. `tests/test_workflows.py` locks the checkout
+requirement across every workflow.
+```
+
 Both operations are idempotent: re-running on an already-frozen or
 already-unfrozen tree is a no-op.
 """
