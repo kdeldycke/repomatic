@@ -733,6 +733,64 @@ class Changelog:
         return True
 
 
+def _load_pypi_releases(
+    package: str | None, history: Sequence[str], *, force_refresh: bool = False
+) -> dict[str, PyPIRelease]:
+    """Load a package's PyPI releases, merged with its former names.
+
+    A renamed project keeps its old releases under the old name, so the
+    changelog's early versions resolve only through
+    `[tool.repomatic] pypi.package-history`. The current package wins on
+    version collisions.
+
+    :param package: Current PyPI package name; empty or `None` skips PyPI.
+    :param history: Former package names, oldest-first.
+    :param force_refresh: Ignore cached responses and re-fetch.
+    :return: Dict mapping version strings to {class}`PyPIRelease` tuples.
+    """
+    releases: dict[str, PyPIRelease] = {}
+    if package:
+        releases = get_pypi_release_dates(package, force_refresh=force_refresh)
+    for former_package in history:
+        former_data = get_pypi_release_dates(
+            former_package, force_refresh=force_refresh
+        )
+        if former_data:
+            logging.info(
+                f"Using PyPI history for {former_package!r}"
+                f" ({len(former_data)} releases found)."
+            )
+        for version, release in former_data.items():
+            releases.setdefault(version, release)
+    return releases
+
+
+def _is_platform_gap(
+    parsed: Version,
+    on_platform: bool,
+    platform_known: bool,
+    first_version: Version | None,
+) -> bool:
+    """Whether *parsed* is missing from a platform it should appear on.
+
+    A gap is an absence *after* the platform's first release: versions
+    predating it were never expected there, so they are not warned about.
+
+    :param parsed: The version under test.
+    :param on_platform: Whether the lookup found it on the platform.
+    :param platform_known: Whether the platform is addressable at all (a
+        package name for PyPI, a repository URL for GitHub).
+    :param first_version: Earliest version seen on that platform.
+    :return: `True` when the version is a genuine gap.
+    """
+    return (
+        not on_platform
+        and platform_known
+        and first_version is not None
+        and parsed >= first_version
+    )
+
+
 def _platform_admonition(
     template: str, version: str, verb: str, platforms: Sequence[str]
 ) -> str:
@@ -985,33 +1043,20 @@ def lint_changelog_dates(
     if package is None:
         package = get_project_name()
 
-    # Fetch all PyPI release dates in a single API call.
-    pypi_data: dict[str, PyPIRelease] = {}
-    if package:
-        pypi_data = get_pypi_release_dates(package)
-        if pypi_data:
-            logging.info(
-                f"Using PyPI as reference for {package!r}"
-                f" ({len(pypi_data)} releases found)."
-            )
-        else:
-            logging.info(
-                f"Package {package!r} not found on PyPI, falling back to git tags."
-            )
-    else:
+    # Fetch all PyPI release dates in a single API call, merged with the
+    # releases of any former package name (for renamed projects).
+    pypi_data = _load_pypi_releases(package, pypi_package_history)
+    if not package:
         logging.info("No package name detected, falling back to git tags.")
-
-    # Merge releases from former package names (for renamed projects).
-    for former_package in pypi_package_history:
-        former_data = get_pypi_release_dates(former_package)
-        if former_data:
-            logging.info(
-                f"Using PyPI history for {former_package!r}"
-                f" ({len(former_data)} releases found)."
-            )
-        # Current package wins on version collisions.
-        for v, rel in former_data.items():
-            pypi_data.setdefault(v, rel)
+    elif pypi_data:
+        logging.info(
+            f"Using PyPI as reference for {package!r}"
+            f" ({len(pypi_data)} releases found)."
+        )
+    else:
+        logging.info(
+            f"Package {package!r} not found on PyPI, falling back to git tags."
+        )
 
     use_pypi = bool(pypi_data)
     has_mismatch = False
@@ -1050,6 +1095,98 @@ def lint_changelog_dates(
     if github_releases:
         first_github_version = min(Version(v) for v in github_releases)
         logging.info(f"First GitHub version: {first_github_version}")
+
+    def retracted_versions() -> set[str]:
+        """Versions whose section claims availability the lookups now deny.
+
+        Reads the enclosing scope on every call, so re-running it after a
+        forced refresh answers against the fresh data. An available platform
+        is rendered as a markdown link and a missing one as a bare label, so
+        the `[` prefix is what separates a claim of presence from one of
+        absence.
+        """
+        found = set()
+        for candidate, _candidate_date in releases:
+            existing = changelog.decompose_version(candidate).availability_admonition
+            parsed_candidate = Version(candidate)
+            drops_pypi = (
+                _is_platform_gap(
+                    parsed_candidate,
+                    candidate in pypi_data,
+                    bool(package),
+                    first_pypi_version,
+                )
+                and f"[{PYPI_LABEL}](" in existing
+            )
+            drops_github = (
+                _is_platform_gap(
+                    parsed_candidate,
+                    candidate in github_releases,
+                    bool(repo_url),
+                    first_github_version,
+                )
+                and f"[{GITHUB_LABEL}](" in existing
+            )
+            if drops_pypi or drops_github:
+                found.add(candidate)
+        return found
+
+    # Retraction gate: never demote an existing "is available" claim to
+    # "is **not available**" on cached data. Both lookups are TTL-cached for a
+    # day, so a snapshot taken before a release landed reports that release as
+    # missing, which is indistinguishable here from one that was never
+    # published. The sanity gates further down catch only a *wholly* empty
+    # result; a stale-but-populated snapshot walks past them, and the window
+    # where it lies is exactly the hours after a release, when this command is
+    # most likely to run. Adding availability stays cheap and cached; dropping
+    # it has to be confirmed live. Running before the date loop means the
+    # spurious "not found on PyPI" warning goes away with it.
+    retracted = retracted_versions()
+    if retracted:
+        logging.warning(
+            f"Cached lookups would retract availability for"
+            f" {', '.join(sorted(retracted))}; re-confirming live."
+        )
+        pypi_data = _load_pypi_releases(
+            package, pypi_package_history, force_refresh=True
+        )
+        first_pypi_version = min(Version(v) for v in pypi_data) if pypi_data else None
+        use_pypi = bool(pypi_data)
+        if repo_url:
+            try:
+                github_releases = get_github_releases(repo_url, force_refresh=True)
+            except GitHubReleasesUnavailable as exc:
+                logging.warning(f"Confirming GitHub lookup failed: {exc}")
+                if fix:
+                    msg = (
+                        f"Refusing to rewrite changelog: cached data would drop"
+                        f" the availability of {', '.join(sorted(retracted))},"
+                        f" and the confirming GitHub lookup failed ({exc})."
+                        f" Re-run when the GitHub API is reachable."
+                    )
+                    logging.error(msg)
+                    emit_annotation(AnnotationLevel.ERROR, msg)
+                    return 2
+            else:
+                first_github_version = (
+                    min(Version(v) for v in github_releases)
+                    if github_releases
+                    else None
+                )
+        still_missing = retracted_versions()
+        if still_missing:
+            # Confirmed against the live APIs: the release really is gone (a
+            # deleted GitHub release, a removed PyPI file). Retracting is then
+            # the correct repair, not a stale-cache artifact.
+            logging.warning(
+                f"Confirmed live: {', '.join(sorted(still_missing))} no longer"
+                " published where the changelog claims."
+            )
+        else:
+            logging.info(
+                "Live lookups confirm the existing availability claims;"
+                " the cache was stale."
+            )
 
     # Detect orphaned versions: present in external sources but missing
     # from the changelog.
@@ -1321,17 +1458,11 @@ def lint_changelog_dates(
             # Build the WARNING admonition for platforms where missing.
             # Only warn about gaps: versions that postdate the first
             # release on that platform but are absent from it.
-            pypi_gap = (
-                not on_pypi
-                and bool(package)
-                and first_pypi_version is not None
-                and parsed >= first_pypi_version
+            pypi_gap = _is_platform_gap(
+                parsed, on_pypi, bool(package), first_pypi_version
             )
-            github_gap = (
-                not on_github
-                and bool(repo_url)
-                and first_github_version is not None
-                and parsed >= first_github_version
+            github_gap = _is_platform_gap(
+                parsed, on_github, bool(repo_url), first_github_version
             )
             warning = build_unavailable_admonition(
                 version,

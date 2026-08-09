@@ -22,8 +22,11 @@ from textwrap import dedent
 import pytest
 
 from repomatic.changelog import (
+    AVAILABLE_VERB,
+    NOT_AVAILABLE_VERB,
     Changelog,
     VersionElements,
+    build_release_admonition,
     build_unavailable_admonition,
     count_bullet_words,
     lint_changelog_dates,
@@ -479,42 +482,61 @@ def _github_unavailable(_repo_url):
     raise GitHubReleasesUnavailable("simulated 502 Bad Gateway")
 
 
-def _pypi_mock(releases, package="my-package"):
+def _pypi_mock(releases, package="my-package", fresh=None):
     """Build a monkeypatch-compatible mock for ``get_pypi_release_dates``.
 
     Each value in *releases* is a ``(date, yanked)`` tuple, optionally
     extended with a yank reason. The *package* argument is injected as the
     third ``PyPIRelease`` field so callers don't need to repeat it in every
     entry.
+
+    Passing *fresh* models a cache written before a publication: *releases*
+    is what the cached read returns and *fresh* what a forced refresh does.
     """
-    return lambda pkg: {
-        v: PyPIRelease(
-            date=args[0],
-            yanked=args[1],
-            package=package,
-            yanked_reason=args[2] if len(args) > 2 else "",
-        )
-        for v, args in releases.items()
-    }
+
+    def lookup(pkg, *, force_refresh=False):
+        source = fresh if force_refresh and fresh is not None else releases
+        return {
+            v: PyPIRelease(
+                date=args[0],
+                yanked=args[1],
+                package=package,
+                yanked_reason=args[2] if len(args) > 2 else "",
+            )
+            for v, args in source.items()
+        }
+
+    return lookup
 
 
-def _github_mock(versions):
+def _github_mock(versions, fresh=None):
     """Build a monkeypatch-compatible mock for ``get_github_releases``.
 
     Accepts either a list of version strings (uses a dummy date) or a
-    dict mapping version strings to date strings.
+    dict mapping version strings to date strings. *fresh* plays the same
+    stale-cache role as in {func}`_pypi_mock`.
     """
-    if isinstance(versions, dict):
-        return lambda repo_url: {
-            v: GitHubRelease(date=d, body="") for v, d in versions.items()
-        }
-    return lambda repo_url: {
-        v: GitHubRelease(date="2026-01-01", body="") for v in versions
-    }
+
+    def as_map(source):
+        if isinstance(source, dict):
+            return {v: GitHubRelease(date=d, body="") for v, d in source.items()}
+        return {v: GitHubRelease(date="2026-01-01", body="") for v in source}
+
+    def lookup(repo_url, *, force_refresh=False):
+        return as_map(fresh if force_refresh and fresh is not None else versions)
+
+    return lookup
 
 
 def _patch_sources(
-    monkeypatch, *, pypi=None, github=(), tags=None, package="my-package"
+    monkeypatch,
+    *,
+    pypi=None,
+    github=(),
+    tags=None,
+    package="my-package",
+    pypi_fresh=None,
+    github_fresh=None,
 ):
     """Stub every external source `lint_changelog_dates` consults.
 
@@ -528,15 +550,20 @@ def _patch_sources(
     :param tags: Version to tag date.
     :param package: What `get_project_name` reports, `None` for a project whose
         name cannot be detected.
+    :param pypi_fresh: What PyPI answers on a forced refresh, when it should
+        differ from the cached *pypi* answer.
+    :param github_fresh: Same, for GitHub releases.
     """
     monkeypatch.setattr(
         "repomatic.changelog.get_pypi_release_dates",
-        pypi if callable(pypi) else _pypi_mock(pypi or {}, package or "my-package"),
+        pypi
+        if callable(pypi)
+        else _pypi_mock(pypi or {}, package or "my-package", pypi_fresh),
     )
     monkeypatch.setattr("repomatic.changelog.get_project_name", lambda: package)
     monkeypatch.setattr(
         "repomatic.changelog.get_github_releases",
-        github if callable(github) else _github_mock(github),
+        github if callable(github) else _github_mock(github, github_fresh),
     )
     monkeypatch.setattr("repomatic.changelog.get_all_version_tags", lambda: tags or {})
 
@@ -1108,6 +1135,109 @@ def test_lint_fix_removes_stale_unavailable_warning(tmp_path, monkeypatch):
     assert "Initial release." in result
 
 
+def _changelog_claiming_1_1_0_available(tmp_path):
+    """Write a changelog whose `1.1.0` section claims both platforms.
+
+    The starting point for the retraction tests: a correct, already-published
+    section that a stale lookup would want to demote to "not available".
+    """
+    note = build_release_admonition(
+        "1.1.0",
+        pypi_url="https://pypi.org/project/my-package/1.1.0/",
+        github_url="https://github.com/user/repo/releases/tag/v1.1.0",
+    )
+    path = tmp_path / "changelog.md"
+    path.write_text(
+        MULTI_RELEASE_CHANGELOG.replace(
+            "- Second release.", f"{note}\n\n- Second release."
+        ),
+        encoding="UTF-8",
+    )
+    return path
+
+
+@pytest.mark.parametrize("fix", (False, True))
+def test_lint_keeps_availability_when_only_the_cache_is_stale(
+    tmp_path, monkeypatch, caplog, fix
+):
+    """A cached lookup predating a release must not retract its availability.
+
+    Both lookups are TTL-cached for a day, so between publishing `1.1.0` and
+    the cache expiring they still answer "1.0.0 only". Acting on that would
+    stamp a false "not available" warning onto a correct section under `--fix`,
+    and report the published version as missing in either mode.
+    """
+    path = _changelog_claiming_1_1_0_available(tmp_path)
+    _patch_sources(
+        monkeypatch,
+        # Cached: written before 1.1.0 was published.
+        pypi={"1.0.0": ("2025-12-01", False)},
+        github=["1.0.0"],
+        # Live: 1.1.0 is there.
+        pypi_fresh={
+            "1.1.0": ("2026-02-10", False),
+            "1.0.0": ("2025-12-01", False),
+        },
+        github_fresh=["1.1.0", "1.0.0"],
+    )
+
+    with caplog.at_level(logging.WARNING):
+        lint_changelog_dates(path, fix=fix)
+    result = path.read_text(encoding="UTF-8")
+
+    # The section keeps its links, and gains no contradicting warning.
+    assert NOT_AVAILABLE_VERB not in result
+    assert "[🐍 PyPI](https://pypi.org/project/my-package/1.1.0/)" in result
+    assert "[🐙 GitHub](https://github.com/user/repo/releases/tag/v1.1.0)" in result
+    # The read-only symptom: a published version reported as missing. Nothing
+    # is written without `--fix`, so this is what the gate fixes there.
+    assert "1.1.0: not found on PyPI" not in caplog.text
+
+
+def test_lint_fix_retracts_availability_confirmed_missing(tmp_path, monkeypatch):
+    """A live-confirmed absence still retracts, so the gate is not a veto.
+
+    The counterpart to
+    {func}`test_lint_keeps_availability_when_only_the_cache_is_stale`: when the
+    forced refresh agrees the release is gone (a deleted GitHub release, a
+    removed PyPI file), rewriting the section is the correct repair.
+    """
+    path = _changelog_claiming_1_1_0_available(tmp_path)
+    # Cached and live agree: 1.1.0 is not published anywhere.
+    _patch_sources(
+        monkeypatch,
+        pypi={"1.0.0": ("2025-12-01", False)},
+        github=["1.0.0"],
+    )
+
+    lint_changelog_dates(path, fix=True)
+    result = path.read_text(encoding="UTF-8")
+
+    assert f"`1.1.0` {NOT_AVAILABLE_VERB} 🐍 PyPI and 🐙 GitHub." in result
+    assert "[🐍 PyPI](https://pypi.org/project/my-package/1.1.0/)" not in result
+
+
+def test_lint_fix_refuses_when_confirming_github_lookup_fails(tmp_path, monkeypatch):
+    """An unreachable API during confirmation must not license a retraction."""
+    path = _changelog_claiming_1_1_0_available(tmp_path)
+
+    def github(repo_url, *, force_refresh=False):
+        if force_refresh:
+            raise GitHubReleasesUnavailable("API unreachable")
+        return {"1.0.0": GitHubRelease(date="2025-12-01", body="")}
+
+    _patch_sources(
+        monkeypatch,
+        pypi={"1.0.0": ("2025-12-01", False)},
+        github=github,
+    )
+    before = path.read_text(encoding="UTF-8")
+
+    assert lint_changelog_dates(path, fix=True) == 2
+    assert path.read_text(encoding="UTF-8") == before
+    assert AVAILABLE_VERB in before
+
+
 def test_extract_all_version_headings():
     """Test that all versions (released and unreleased) are extracted."""
     changelog = Changelog(MULTI_RELEASE_CHANGELOG)
@@ -1327,7 +1457,7 @@ def test_lint_fix_pypi_package_history(tmp_path, monkeypatch):
     # Current package has only 1.1.0.
     _patch_sources(
         monkeypatch,
-        pypi=lambda pkg: {
+        pypi=lambda pkg, *, force_refresh=False: {
             "new-pkg": {
                 "1.1.0": PyPIRelease(date="2026-02-10", yanked=False, package="new-pkg")
             },
@@ -1361,7 +1491,7 @@ def test_lint_pypi_history_current_wins(tmp_path, monkeypatch):
     # Version 1.0.0 exists under both current and former names.
     _patch_sources(
         monkeypatch,
-        pypi=lambda pkg: {
+        pypi=lambda pkg, *, force_refresh=False: {
             "new-pkg": {
                 "1.1.0": PyPIRelease(
                     date="2026-02-10", yanked=False, package="new-pkg"

@@ -116,6 +116,7 @@ def get_cached_json(
     *,
     ttl: int,
     log_label: str,
+    force_refresh: bool = False,
 ) -> Any | None:
     """GET *url* as JSON through the raw-response cache.
 
@@ -124,14 +125,23 @@ def get_cached_json(
     positive), and returned parsed. The caller keeps the caching policy: it
     picks the namespace, the cache key, and the TTL.
 
+    ```{note}
+    *force_refresh* skips the cache **read** but keeps the write, which is
+    what separates it from `ttl=0`: the latter also skips the store, so a
+    caller using it to bypass a stale entry would leave that entry in place
+    for the next reader. A forced refresh replaces it.
+    ```
+
     :param namespace: Cache namespace (like `"pypi"` or `"npm"`).
     :param key: Cache key within the namespace, usually the package name.
     :param url: The URL to fetch on a cache miss.
     :param ttl: Freshness TTL in seconds; `0` disables caching.
     :param log_label: Human-readable label for the debug log on failure.
+    :param force_refresh: Ignore any cached body and re-fetch, then store
+        the fresh response.
     :return: The parsed JSON value, or `None` on any fetch failure.
     """
-    cached = get_cached_response(namespace, key, ttl)
+    cached = None if force_refresh else get_cached_response(namespace, key, ttl)
     if cached is not None:
         try:
             return json.loads(cached)

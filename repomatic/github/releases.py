@@ -206,6 +206,8 @@ def _cached_release_map(
     namespace: str,
     repo_url: str,
     key_for: Callable[[str], str | None],
+    *,
+    force_refresh: bool = False,
 ) -> dict[str, GitHubRelease]:
     """Fetch a repository's releases as a keyed map, through the HTTP cache.
 
@@ -218,6 +220,7 @@ def _cached_release_map(
     :param repo_url: Repository URL.
     :param key_for: Maps a raw tag name to the result key, or `None` to skip
         that release.
+    :param force_refresh: Ignore any cached map and re-fetch every page.
     :return: Dict mapping keys to {class}`GitHubRelease` tuples. Empty when
         the repository has no releases or *repo_url* does not parse to an
         `owner/repo` pair.
@@ -231,7 +234,7 @@ def _cached_release_map(
 
     cache_key = f"{owner}/{repo}"
     ttl = load_repomatic_config().cache.github_releases_ttl
-    cached = get_cached_response(namespace, cache_key, ttl)
+    cached = None if force_refresh else get_cached_response(namespace, cache_key, ttl)
     if cached is not None:
         try:
             data = json.loads(cached)
@@ -261,7 +264,9 @@ def _cached_release_map(
     return result
 
 
-def get_github_releases(repo_url: str) -> dict[str, GitHubRelease]:
+def get_github_releases(
+    repo_url: str, *, force_refresh: bool = False
+) -> dict[str, GitHubRelease]:
     """Get versions and dates for all GitHub releases.
 
     Fetches all releases via the GitHub API with pagination. Extracts
@@ -270,6 +275,9 @@ def get_github_releases(repo_url: str) -> dict[str, GitHubRelease]:
 
     :param repo_url: Repository URL (e.g.
         `https://github.com/user/repo`).
+    :param force_refresh: Ignore any cached map and re-fetch. A cached map
+        predating a release reports it as absent, so callers acting on an
+        absence around release time should re-confirm live.
     :return: Dict mapping version strings to {class}`GitHubRelease`
         tuples. Empty dict only when the repository genuinely has no
         releases (the API returned an empty page) or when `repo_url`
@@ -283,6 +291,7 @@ def get_github_releases(repo_url: str) -> dict[str, GitHubRelease]:
         "github-releases",
         repo_url,
         lambda tag: tag[1:] if tag.startswith("v") else None,
+        force_refresh=force_refresh,
     )
 
 

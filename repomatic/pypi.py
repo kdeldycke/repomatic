@@ -140,11 +140,20 @@ _SOURCE_URL_KEYS = (
 )
 
 
-def _fetch_json(package: str) -> dict[str, Any] | None:
+def _fetch_json(package: str, *, force_refresh: bool = False) -> dict[str, Any] | None:
     """Fetch the full JSON metadata for a PyPI package.
 
     Results are cached under the `pypi` namespace. Freshness TTL is read
     from `CacheConfig.pypi_ttl`.
+
+    ```{caution}
+    Within that TTL a cached snapshot taken before a release was published
+    reports that release as missing, which is indistinguishable from "never
+    published" at this layer. A caller about to act on an *absence* around
+    release time wants *force_refresh*: see
+    {func}`repomatic.changelog.lint_changelog_dates`, which re-confirms live
+    before retracting an availability claim.
+    ```
 
     ```{warning}
     Returns `None` for every failure mode: HTTP 4xx/5xx, network error,
@@ -165,6 +174,7 @@ def _fetch_json(package: str) -> dict[str, Any] | None:
     ```
 
     :param package: The PyPI package name.
+    :param force_refresh: Ignore any cached response and re-fetch.
     :return: Parsed JSON response, or `None` on any failure.
     """
     return get_cached_json(
@@ -173,6 +183,7 @@ def _fetch_json(package: str) -> dict[str, Any] | None:
         PYPI_API_URL.format(package=package),
         ttl=load_repomatic_config().cache.pypi_ttl,
         log_label=f"PyPI lookup failed for {package}",
+        force_refresh=force_refresh,
     )
 
 
@@ -223,7 +234,9 @@ class PyPIRelease(NamedTuple):
     """
 
 
-def get_release_dates(package: str) -> dict[str, PyPIRelease]:
+def get_release_dates(
+    package: str, *, force_refresh: bool = False
+) -> dict[str, PyPIRelease]:
     """Get upload dates and yanked status for all versions from PyPI.
 
     Fetches the package metadata in a single API call. For each version,
@@ -233,10 +246,11 @@ def get_release_dates(package: str) -> dict[str, PyPIRelease]:
     of them records.
 
     :param package: The PyPI package name.
+    :param force_refresh: Ignore any cached response and re-fetch.
     :return: Dict mapping version strings to {class}`PyPIRelease` tuples.
         Empty dict if the package is not found or the request fails.
     """
-    data = _fetch_json(package)
+    data = _fetch_json(package, force_refresh=force_refresh)
     if data is None:
         return {}
 

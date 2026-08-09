@@ -641,8 +641,11 @@ jobs:
         with:
           version: "0.12.1"
       # Persist repomatic's HTTP cache (PyPI/GitHub/npm release metadata) across
-      # runs. Entries are TTL-gated in repomatic.cache, so a restored cache never
-      # serves a stale "latest" version; this mainly speeds up bursts of pushes.
+      # runs; this mainly speeds up bursts of pushes. TTL-gating bounds staleness
+      # at a day rather than preventing it, so a restored cache can miss a
+      # release published since it was written. Here that only defers a version
+      # bump by a run. A job that writes availability claims must re-confirm
+      # live instead: see the retraction gate in repomatic/changelog.py.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic
