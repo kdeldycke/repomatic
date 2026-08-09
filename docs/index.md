@@ -30,6 +30,7 @@ benchmark
 :maxdepth: 2
 :hidden:
 contributing
+commit-messages
 upstream-development
 operation-contracts
 API <repomatic>

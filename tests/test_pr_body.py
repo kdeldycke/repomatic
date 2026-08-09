@@ -27,6 +27,7 @@ import pytest
 from repomatic import __version__
 from repomatic.config import config_reference
 from repomatic.frontmatter import split_frontmatter
+from repomatic.git_ops import VERSION_BUMP_COMMIT_PREFIXES
 from repomatic.github.actions import extract_workflow_filename
 from repomatic.github.pr_body import (
     GITHUB_BODY_MAX_CHARS,
@@ -1163,3 +1164,69 @@ def test_cli_template_arg_overrides_dedicated_flag(tmp_path, monkeypatch):
     rendered = output_path.read_text(encoding="UTF-8")
     assert "### Release 2.0.0" in rendered
     assert "title=Release 2.0.0" in rendered
+
+
+# Commit-subject tokens that make GitHub Actions skip a workflow run. They
+# match anywhere in the message, not just at the start, and a skipped required
+# check sits in "Pending" forever rather than failing, blocking the merge. See
+# docs/commit-messages.md.
+CI_SKIP_TOKENS: frozenset[str] = frozenset({
+    "[skip ci]",
+    "[ci skip]",
+    "[no ci]",
+    "[skip actions]",
+    "[actions skip]",
+    "skip-checks:true",
+    "skip-checks: true",
+})
+
+
+@pytest.mark.parametrize("name", get_template_names())
+def test_template_commit_message_carries_no_ci_skip_token(name: str) -> None:
+    """No generated commit message may silently skip CI.
+
+    Every `sync-*`, `format-*` and `fix-*` job commits a message rendered
+    from a template, in this repository and in every downstream one. A skip
+    token anywhere in that message stops the run, and because the required
+    check is then never reported, the pull request blocks on a "Pending"
+    status instead of failing visibly.
+    """
+    message = render_commit_message(name, **dict.fromkeys(template_args(name), "x"))
+    lowered = message.lower()
+    for token in CI_SKIP_TOKENS:
+        assert token not in lowered, (
+            f"template {name!r} renders a commit message containing {token!r}, "
+            "which would skip CI for the job's own pull request"
+        )
+
+
+@pytest.mark.parametrize("name", get_template_names())
+def test_template_commit_subject_claims_no_bracket_prefix(name: str) -> None:
+    """A `[bracketed]` prefix is reserved for machine-parsed mechanisms.
+
+    Only the release lane earns one, and it does not come from a template:
+    `prepare-release` writes `[changelog] …` directly, and
+    {data}`repomatic.git_ops.VERSION_BUMP_COMMIT_PREFIXES` matches it back.
+    A template growing its own prefix would either collide with that matcher
+    or invent a label nothing reads. See docs/commit-messages.md.
+    """
+    message = render_commit_message(name, **dict.fromkeys(template_args(name), "x"))
+    subject = message.splitlines()[0] if message else ""
+    assert not subject.startswith("["), (
+        f"template {name!r} starts its commit subject with a bracket prefix "
+        f"({subject!r}): brackets are reserved for parsed mechanisms"
+    )
+
+
+def test_only_the_changelog_prefix_is_bracketed() -> None:
+    """The parsed-prefix set stays limited to the release lane.
+
+    `docs/commit-messages.md` tells readers that `[changelog]` is the only
+    bracket prefix any machine reads. This pins that claim to the code, so
+    adding a second one fails here and forces the documentation to follow.
+    """
+    bracketed = {p for p in VERSION_BUMP_COMMIT_PREFIXES if p.startswith("[")}
+    assert bracketed == {"[changelog] Post-release bump "}, (
+        "a new bracket-prefixed commit contract appeared: document it in "
+        "docs/commit-messages.md before extending this assertion"
+    )
