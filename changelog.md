@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** attestation bundles now carry the full filename of the asset they attest, so `repomatic-manpages.attestation.json` becomes `repomatic-manpages.tar.gz.attestation.json`. A repository declaring one extra asset gets `<filename>.attestation.json` in place of `<package-name>-extra-assets.attestation.json`.
+- New `pack-attestation` command names an attestation bundle after the asset it attests and prints the release upload list.
 - The release lane's `publish-release` job now checks out the repository, so uploading binaries to the release no longer fails with `Failed to spawn: repomatic`. `7.7.0` shipped with no standalone executables because of it.
 - `lint-changelog` re-confirms a release live before dropping its availability admonition, so a day-old cache no longer reports a just-published version as missing.
 - The readme's logo is now an absolute URL, so it renders on the PyPI project page instead of 404ing.

@@ -237,20 +237,21 @@ jobs:
           --repo "${{ github.repository }}"
           --signer-repo kdeldycke/repomatic
       - name: Name the attestation bundle after its binary
-        # actions/attest writes every bundle to the same basename, so all matrix targets produce an `attestation.json`.
-        # The run artifacts keep them apart, but publish-release downloads them with `merge-multiple: true` into one
-        # directory, where identical filenames overwrite each other and only the last target's bundle reaches the
-        # release. Naming each after its subject fixes that, and makes the sidecar say which binary it covers.
+        # actions/attest writes every bundle to the same basename, so all matrix targets produce an `attestation.json`
+        # and publish-release's `merge-multiple: true` download would keep only the last. See
+        # repomatic/attestation.py, which owns the naming rule for every attested asset in this lane.
         if: >-
           github.ref == 'refs/heads/main'
           && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
           && steps.attest-binary.outputs.bundle-path
         env:
-          BIN_NAME: ${{ matrix.bin_name }}
           BUNDLE_PATH: ${{ steps.attest-binary.outputs.bundle-path }}
         shell: bash
-        run: cp "${BUNDLE_PATH}" "${BIN_NAME}.attestation.json"
+        run: >
+          uv --no-progress run --frozen -- repomatic
+          pack-attestation --bundle "${BUNDLE_PATH}"
       - name: Upload attestation bundle
+        # Globbed rather than named, so the filename stays the CLI's to decide.
         if: >-
           github.ref == 'refs/heads/main'
           && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
@@ -258,7 +259,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: attestation-${{ matrix.bin_name }}-${{ matrix.short_sha }}
-          path: ${{ matrix.bin_name }}.attestation.json
+          path: "*.attestation.json"
 
   test-binaries:
     name: "${{ matrix.state == 'stable' && '✅' || '⁉️' }} ${{ matrix.os }}, ${{ matrix.short_sha }} test"
@@ -502,21 +503,18 @@ jobs:
           --repo "${{ github.repository }}"
           --signer-repo kdeldycke/repomatic
       - name: Attach to release draft
+        # pack-attestation names the bundle after the tarball it attests and prints both paths, so neither filename
+        # is spelled here. See repomatic/attestation.py.
         env:
           CURRENT_VERSION: ${{ matrix.current_version }}
-          ASSET_NAME: >-
-            ${{
-              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
-              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
-            }}
           BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          cp "${BUNDLE_PATH}" "${ASSET_NAME}.attestation.json" &&
-          gh release upload "v${CURRENT_VERSION}"
-          "${ASSET_NAME}.tar.gz" "${ASSET_NAME}.attestation.json"
-          --repo "${{ github.repository }}"
-          --clobber
+        run: |
+          uv --no-progress run --frozen -- repomatic \
+            pack-attestation --bundle "${BUNDLE_PATH}" > upload-list.txt
+          xargs gh release upload "v${CURRENT_VERSION}" \
+            --repo "${{ github.repository }}" \
+            --clobber < upload-list.txt
 
   # Attach the consumer-built extra assets declared by `release-assets` in `[tool.repomatic]`. Each declared filename
   # must arrive as a `release-asset-<filename>` run artifact, uploaded by a job the consumer defines in its own
@@ -542,6 +540,15 @@ jobs:
       contents: write
       id-token: write
     steps:
+      # Checkout first, before the download below: actions/checkout deletes everything in a workspace holding no
+      # `.git` of its own, so downloading the assets ahead of it drops them on the floor. The tree is what lets the
+      # final step resolve the CLI from `uv.lock`.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.commit }}
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.1"
       - name: Download asset artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -578,9 +585,9 @@ jobs:
               --signer-repo kdeldycke/repomatic
           done
       - name: Attach assets to release draft
-        # The bundle is named after the package rather than this job, so it sorts beside the assets it covers instead of
-        # landing under `e` on a release page listed alphabetically. Copied after the attest step, so it never ends up
-        # as a subject of itself.
+        # A repository declaring one asset gets a bundle named after it; several assets share one bundle, which then
+        # takes the `--name` set name because no single filename can claim it. The bundle lands after the attest step
+        # above, so it never ends up a subject of itself. See repomatic/attestation.py.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
@@ -588,11 +595,13 @@ jobs:
           PACKAGE_NAME: ${{ fromJSON(needs.metadata.outputs.metadata).package_name }}
         shell: bash
         run: |
-          cp "${BUNDLE_PATH}" "release-assets/${PACKAGE_NAME}-extra-assets.attestation.json"
-          gh release upload "v${CURRENT_VERSION}" \
-            release-assets/* \
+          uv --no-progress run --frozen -- repomatic pack-attestation \
+            --bundle "${BUNDLE_PATH}" \
+            --dir release-assets \
+            --name "${PACKAGE_NAME}-extra-assets" > upload-list.txt
+          xargs gh release upload "v${CURRENT_VERSION}" \
             --repo "${{ github.repository }}" \
-            --clobber
+            --clobber < upload-list.txt
 
   publish-release:
     name: 🎉 Publish GitHub release (${{ matrix.short_sha }})
@@ -626,6 +635,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Checkout first, before the download below: actions/checkout deletes everything in a workspace holding no
+      # `.git` of its own, so downloading the binaries ahead of it drops them on the floor. The CLI call further down
+      # resolves from `uv.lock`, so it needs the release commit's tree: upstream always runs the unfrozen form,
+      # whatever the freeze wrote. See repomatic/prepare_release.py for why.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.compile-binaries.result != 'skipped'
+        with:
+          ref: ${{ matrix.commit }}
       - name: Download binary and attestation artifacts
         # Gate on != 'skipped' (not == 'success') so partial-matrix runs still
         # attach their healthy binaries: see docs/workflows.md "Matrix fail-fast strategy".
@@ -635,12 +652,6 @@ jobs:
           pattern: "*-${{ matrix.short_sha }}"
           path: ./compile-assets
           merge-multiple: true
-      # The CLI call below resolves from `uv.lock`, so it needs the release commit's tree: upstream always runs
-      # the unfrozen form, whatever the freeze wrote. See repomatic/prepare_release.py for why.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.compile-binaries.result != 'skipped'
-        with:
-          ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         if: needs.compile-binaries.result != 'skipped'
         with:

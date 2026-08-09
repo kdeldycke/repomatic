@@ -57,6 +57,7 @@ from click_extra import (
 )
 from extra_platforms import is_github_ci
 
+from .attestation import pack_attestation
 from .awesome_toc import fix_awesome_toc
 from .binaries_page import (
     render_binaries_csv,
@@ -2096,6 +2097,59 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
     """
     cancelled = cancel_superseded_runs(branch, current_run_id)
     echo(f"Cancelled {cancelled} run(s) for branch {branch!r}.")
+
+
+@repomatic.command(
+    short_help="Name an attestation bundle after the asset it attests",
+    section=_section_release,
+)
+@option(
+    "--bundle",
+    "bundle_path",
+    type=file_path(exists=True, readable=True, resolve_path=True),
+    required=True,
+    help="Attestation bundle written by actions/attest.",
+)
+@option(
+    "--dir",
+    "asset_dir",
+    type=dir_path(exists=True, resolve_path=True),
+    default=".",
+    show_default=True,
+    help="Directory holding the attested assets, and where the bundle lands.",
+)
+@option(
+    "--name",
+    "set_name",
+    help="Stem naming the set, for a bundle attesting more than one asset.",
+)
+def pack_attestation_cmd(
+    bundle_path: Path, asset_dir: Path, set_name: str | None
+) -> None:
+    """Rename an attestation bundle after its subject, print the upload list.
+
+    actions/attest writes every bundle to the same `attestation.json`
+    basename, so a release attaching several would keep only the last. This
+    reads back the subjects the bundle actually attests, names it after them,
+    and prints every file the release upload step should attach: the assets
+    and their bundle, one path per line.
+
+    A bundle covering several assets has no single name to take, so pass
+    --name to name the set instead.
+
+    Idempotent: re-running copies the same bytes over the same name.
+
+    \b
+    Examples:
+        # Single asset, named papaya.tar.gz.attestation.json
+        repomatic pack-attestation --bundle "${BUNDLE_PATH}"
+
+    \b
+        # A glob's worth of assets, all covered by one bundle
+        repomatic pack-attestation --bundle b.json --dir dist --name papaya-set
+    """
+    for path in pack_attestation(bundle_path, asset_dir, set_name):
+        echo(path)
 
 
 @repomatic.command(

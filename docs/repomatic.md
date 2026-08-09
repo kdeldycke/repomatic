@@ -20,6 +20,15 @@
 
 ## Submodules
 
+## `repomatic.attestation` module
+
+```{eval-rst}
+.. automodule:: repomatic.attestation
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.awesome_toc` module
 
 ```{eval-rst}

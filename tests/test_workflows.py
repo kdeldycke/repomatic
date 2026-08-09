@@ -1370,6 +1370,60 @@ def test_local_cli_job_checks_out_repo(workflow_name: str, job_name: str) -> Non
     )
 
 
+# Every (workflow, job) whose steps both check out the repository and download a
+# run artifact, in either order.
+CHECKOUT_AND_DOWNLOAD_JOBS = [
+    (workflow_name, job_name)
+    for workflow_name, job_name, steps in iter_jobs_with_steps()
+    if any(
+        str(step.get("uses", "")).startswith("actions/checkout@") for step in steps
+    )
+    and any(
+        str(step.get("uses", "")).startswith("actions/download-artifact@")
+        for step in steps
+    )
+]
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name"),
+    CHECKOUT_AND_DOWNLOAD_JOBS,
+    ids=[f"{workflow}:{job}" for workflow, job in CHECKOUT_AND_DOWNLOAD_JOBS],
+)
+def test_checkout_precedes_artifact_download(workflow_name: str, job_name: str) -> None:
+    """A job downloading run artifacts must check out *before* it downloads.
+
+    `actions/checkout` deletes the contents of its target directory whenever
+    that directory holds no `.git` of its own, which is exactly the state a
+    fresh workspace is in after `actions/download-artifact` has written to it:
+
+        Deleting the contents of '/home/runner/work/{repo}/{repo}'
+
+    So the download silently loses everything it fetched, and the job carries on
+    against an empty tree. `publish-release` acquired a checkout below its
+    binary download this way, which would have left the next release an
+    unpublished draft with no binary attached.
+
+    Reversing the two is the whole fix: a checkout into a pristine workspace has
+    nothing to delete, and the download then writes into the checked-out tree.
+    """
+    steps = load_workflow(workflow_name)["jobs"][job_name]["steps"]
+    kinds = [
+        "checkout"
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+        else "download"
+        for step in steps
+        if str(step.get("uses", "")).startswith(
+            ("actions/checkout@", "actions/download-artifact@")
+        )
+    ]
+    assert kinds.index("checkout") < kinds.index("download"), (
+        f"{workflow_name} ({job_name}): downloads a run artifact before "
+        "`actions/checkout`, which then deletes it. Move the checkout above "
+        "the download."
+    )
+
+
 @pytest.mark.parametrize(
     "workflow", sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml"))
 )

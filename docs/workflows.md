@@ -550,7 +550,7 @@ flowchart TD
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x64`/`arm64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
 - Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)
-- On release pushes, each binary is attested and its sigstore bundle renamed after the binary it covers (`<binary-name>.attestation.json`), so no two targets collide once the bundles are merged. Binaries and bundles leave the job as run artifacts, and [`publish-release`](#publish-release-publish-release) attaches them to the release
+- On release pushes, each binary is attested and its sigstore bundle renamed after the binary it covers (`<binary-name>.attestation.json`) by [`repomatic pack-attestation`](cli.md), so no two targets collide once the bundles are merged. Binaries and bundles leave the job as run artifacts, and [`publish-release`](#publish-release-publish-release) attaches them to the release
 - **Requires**:
   - Python package with [CLI entry points](https://docs.astral.sh/uv/concepts/projects/config/#entry-points) defined in `pyproject.toml`
 - **Skipped if** `[tool.repomatic] nuitka = false` is set in `pyproject.toml` (for projects with CLI entry points that don't need standalone binaries)
@@ -591,7 +591,7 @@ flowchart TD
 
 - Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
 - Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release **draft** via `gh release upload --clobber`, before `publish-release` publishes and locks the release
-- The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as an `<asset-name>.attestation.json` asset, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`
+- The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as an `<asset-name>.tar.gz.attestation.json` asset, named by [`repomatic pack-attestation`](cli.md) after the file it covers, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`
 - **Requires**:
   - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra wrap --man SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
   - The consumer's `click-extra` floor is `>= 8`: the `--output-dir DIR` option to `click-extra wrap --man` writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing
@@ -604,7 +604,8 @@ flowchart TD
 
 - Attaches consumer-built assets declared by the `release-assets` filename list in `[tool.repomatic]`: each file must be uploaded as a `release-asset-<filename>` run artifact by a job the consumer defines in its own release workflow, the same caller-side handoff the wheel's `build` lane uses
 - The build code therefore stays in the downstream repository as regular workflow code, reviewed and linted there: the engine never executes consumer-supplied commands, it only downloads, attests, verifies, and uploads
-- Assets are attested with the same provenance chain as the compiled binaries and uploaded to the GitHub release **draft** together with their sigstore bundle (`<package-name>-extra-assets.attestation.json`), before `publish-release` publishes and locks the release; provenance verifies with `gh attestation verify <file> --repo <consumer> --signer-repo kdeldycke/repomatic`
+- Assets are attested with the same provenance chain as the compiled binaries and uploaded to the GitHub release **draft** together with their sigstore bundle, before `publish-release` publishes and locks the release; provenance verifies with `gh attestation verify <file> --repo <consumer> --signer-repo kdeldycke/repomatic`
+- [`repomatic pack-attestation`](cli.md) names that bundle. A repository declaring a single asset gets `<filename>.attestation.json`, matching the binaries and the man-page tarball, so the sidecar sorts directly beside what it covers. Several declared assets share one bundle (`actions/attest` emits a single attestation listing every subject), which then falls back to `<package-name>-extra-assets.attestation.json` because no one filename can claim it
 - A declared asset whose artifact never landed fails the job loudly, and that failure blocks `publish-release`, so a broken consumer build lane cannot silently ship a release without its asset. The release stays a draft, which is the recoverable state: re-run the lane, or attach the file by hand, then publish. Once published the release is immutable and the asset can never be added
 - **Requires**:
   - A non-empty `release-assets` list in the consumer's `pyproject.toml`, with space-free filenames
