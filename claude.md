@@ -219,11 +219,14 @@ The version string is always bare (`1.2.3`). The `v` prefix is a **tag namespace
 3. **Always backtick-escape versions in prose.** Both `v1.2.3` and `1.2.3` are identifiers: wrap them in single backticks.
 4. **Development versions** follow PEP 440: `1.2.3.dev0` with optional `+{short_sha}` local identifier.
 
-### Commit message length
+### Commit messages
 
-A concise subject line, then **at most one short paragraph** of body before any trailer. The subject says what changed; the paragraph says *why*, and only when the why is not evident from the diff. Drop the body entirely when the subject already covers it.
+**Default to a subject line and nothing else.** Measured across this repository's history, 93% of hand-written commits are subject-only, and of the few carrying a body, 77% hold it to one paragraph. A commit message is a log entry, not a design document.
 
-Never narrate the work in sequence or enumerate the files touched: `git log --stat` lists the files and the diff shows the order. Rationale needing more room than a paragraph is a sign it belongs somewhere durable instead: a code comment, a docstring, `docs/`, or the PR body.
+- **Subject.** Imperative mood, capitalized, no trailing period, and short: the median here is 31 characters, so aim under 50 and treat 72 as the ceiling. Backtick every identifier (`` Fix `sync-mailmap` crash on a missing file ``). Terse is normal and correct: `Typo`, `Lint`, `Fix tests`. This is not [Conventional Commits](https://www.conventionalcommits.org): write plain prose, with an optional bracketed scope (`[deps]`) when one helps.
+- **Body.** Omit it unless the *why* is genuinely not evident from the diff, and then keep it to **one short paragraph** before any trailer. Reach for a second paragraph only for a migration note or a warning the next reader must not miss.
+
+Never narrate the work in sequence or enumerate the files touched: `git log --stat` lists the files and the diff shows the order. Rationale needing more room than a paragraph belongs somewhere durable instead: a code comment, a docstring, `docs/`, or the PR body.
 
 ### GitHub cross-references in commit messages and PRs
 
