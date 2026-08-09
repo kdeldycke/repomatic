@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.7.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.7.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.7.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.6.0...v7.7.0)
 
 - **Breaking:** drop the `WorkflowFormat` enum and the `generate_workflows` function, orphaned since the `workflow create` and `workflow sync` CLI commands were removed. `repomatic init` is now the only way to write a workflow file.

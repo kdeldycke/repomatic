@@ -64,7 +64,7 @@ jobs:
       - name: Sync labels
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' sync-labels
+        run: uv --no-progress run --frozen -- repomatic sync-labels
 
   metadata:
     name: 🧬 Project metadata
@@ -89,7 +89,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' metadata
+          uv --no-progress run --frozen -- repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_bot
 
@@ -110,7 +110,7 @@ jobs:
         with:
           version: "0.12.1"
       - name: Dump default rules
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' init labels
+        run: uv --no-progress run --frozen -- repomatic init labels
       - name: Apply rules
         # repomatic.init_project._serialize_file_rules emits v5+ schema
         # (`any:`/`all:` wrappers, `changed-files` matcher dicts, `head-branch`,
@@ -137,7 +137,7 @@ jobs:
         with:
           version: "0.12.1"
       - name: Dump default rules
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' init labels
+        run: uv --no-progress run --frozen -- repomatic init labels
       - name: Apply rules
         uses: github/issue-labeler@c1b0f9f52a63158c4adc09425e858e87b32e9685 # v3.4
         with:
@@ -164,4 +164,4 @@ jobs:
       - name: Add sponsor label
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' sponsor-label
+        run: uv --no-progress run --frozen -- repomatic sponsor-label

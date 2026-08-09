@@ -50,7 +50,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.7.0' --verbosity DEBUG metadata
+          uv --no-progress run --frozen -- repomatic --verbosity DEBUG metadata
           --format github-json --output "$GITHUB_OUTPUT"
           build_targets
       - name: Extend matrix with ubuntu-slim
