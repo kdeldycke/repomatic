@@ -89,6 +89,36 @@ A repository that committed them before will see them reported as excluded files
 $ repomatic init --delete-excluded
 ```
 
+### Diverging from a managed file
+
+Every file repomatic manages is a generated output, not a starting template. `sync-repomatic`, `sync-gitignore` and their siblings rebuild these files from `[tool.repomatic]` on each run and open a pull request for the difference, so an edit made straight to the file survives exactly until the next sync. The revert arrives as an ordinary-looking sync pull request, which is what makes it easy to miss: nothing warns that the diff is undoing a deliberate local decision.
+
+There are two ways to keep a divergence, and picking the wrong one is why the edit keeps coming back.
+
+When the file already exposes a knob for what you want to change, set the knob. `.gitignore` is the common case: everything past the gitignore.io block is `gitignore.extra-content`, so a pattern appended by hand to the generated file is dropped on the next sync, while the same pattern in `pyproject.toml` is emitted every time. Mind that the option **replaces** its default rather than extending it, so the entries repomatic ships have to be repeated alongside the new ones or they disappear too:
+
+```toml
+gitignore.extra-content = '''
+# Claude Code local files.
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+**/.claude/.cc-writes/
+
+# Sphinx linkcheck output.
+docs/_linkcheck/
+'''
+```
+
+When no knob covers the change, take the file out of repomatic's hands with a qualified `exclude` entry. A repository whose `tests.yaml` runs something other than the upstream Python matrix, and therefore needs its own triggers and `timeout-minutes`, has no option to reach for:
+
+```toml
+exclude = ["workflows/tests.yaml"]
+```
+
+This is deliberately all-or-nothing. There is no per-section preservation, so an excluded file stops receiving upstream fixes along with the unwanted overwrites, and its content becomes the repository's own responsibility. Prefer a knob whenever one exists, and reserve `exclude` for files whose purpose genuinely diverges from the template.
+
+Workflow triggers deserve particular care, because a reverted trigger restores itself. GitHub builds a `pull_request` run from the [merge commit](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows) rather than from either branch alone, so removing a `pull_request:` trigger on the default branch takes effect immediately for open pull requests: their merge commits pick up the new file and stop firing. The sync pull request restoring that trigger is the exception, since it is the one merge commit where the trigger still exists, and it re-enables the workflow for itself. A repository that removes a trigger and then watches a single pull request keep running it is usually looking at the sync that puts it back, and excluding the file settles both halves at once.
+
 ### Labeller rules
 
 `labels.file-rules` match a pull request's changed paths through `actions/labeler`, which OR-joins repeated globs for the same label. `labels.content-rules` match issue and pull request prose through `github/issue-labeler`, which does the opposite: it **AND-joins** a label's `patterns`, so a list of bare keywords fires only when every one of them shows up in the same issue. Give each label a single pattern that ORs its keywords into one alternation, written in the `/…/i` form so it matches case-insensitively, and anchored with `\b` so `fix` does not fire on `prefix`. `sync-labels` warns when a label carries more than one pattern.
