@@ -170,9 +170,17 @@ def manage_setup_guide(
 
     # PyPI Trusted Publisher check (only for projects that publish to PyPI).
     # The probe does not need a PAT: it hits the public PyPI integrity API.
+    # Gated on `is_python_package` rather than on `package_name` being set: a uv
+    # virtual project declares `[project] name` purely to carry dependencies, so
+    # the name alone says nothing about whether anything is ever published. It is
+    # the same predicate `RepoScope.PACKAGE_ONLY` resolves against, which is what
+    # already keeps `release.yaml` out of such a repository. Asking those projects
+    # to register a publisher points them at a PyPI name they do not own, for a
+    # workflow file they do not have.
+    pypi_package_name = md.package_name if md.is_python_package else None
     pypi_publisher_ok: bool | None = None
-    if repo and md.package_name:
-        pypi_publisher_ok = check_pypi_trusted_publisher(repo, md.package_name).passed
+    if repo and pypi_package_name:
+        pypi_publisher_ok = check_pypi_trusted_publisher(repo, pypi_package_name).passed
 
     # Pages deployment source check (Sphinx projects only).
     pages_ok: bool | None = None
@@ -242,18 +250,17 @@ def manage_setup_guide(
     # no provenance) as incomplete so the step keeps prompting until a
     # successful OIDC-attested upload is observed.
     step_pypi_trusted_publisher = ""
-    if md.package_name:
-        package_name = md.package_name
+    if pypi_package_name:
         step_pypi_trusted_publisher = _wrap_setup_step(
             "Register the PyPI Trusted Publisher entry",
             render_template(
                 "setup-guide-pypi-trusted-publisher",
-                package_name=package_name,
+                package_name=pypi_package_name,
                 repo_owner=repo_owner,
                 repo_name=repo_name,
                 workflow_filename=PYPI_TRUSTED_PUBLISHER_WORKFLOW,
                 settings_url=pypi_trusted_publisher_settings_url(
-                    package_name,
+                    pypi_package_name,
                     owner=repo_owner,
                     repository=repo_name,
                     workflow_filename=PYPI_TRUSTED_PUBLISHER_WORKFLOW,
@@ -375,8 +382,11 @@ def manage_setup_guide(
     # Trusted Publisher: when the project publishes to PyPI, only close once
     # provenance confirms the entry is wired. None (no published release yet,
     # or pre-OIDC release) keeps the step open. When the project does not
-    # publish to PyPI (no package_name), the gate is a no-op.
-    pypi_publisher_gate = bool(pypi_publisher_ok) if md.package_name else True
+    # publish to PyPI, the gate is a no-op. Reading `package_name` here instead
+    # would wedge the issue permanently open on every uv virtual project: the
+    # name is set, so the gate demands provenance for an upload that never
+    # happens, and no amount of completing the other steps closes the issue.
+    pypi_publisher_gate = bool(pypi_publisher_ok) if pypi_package_name else True
     needs_issue = not (
         token_ok
         and dependabot_ok

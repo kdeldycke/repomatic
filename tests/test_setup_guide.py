@@ -302,6 +302,74 @@ def test_setup_guide_incomplete_step_expanded():
     assert "<strong>Create and configure the token" in content
 
 
+PACKAGE_PYPROJECT = """\
+[project]
+name = "papaya"
+version = "1.0.0"
+"""
+"""A plain PEP 621 project, which uv builds and publishes."""
+
+VIRTUAL_PYPROJECT = """\
+[project]
+name = "papaya"
+version = "1.0.0"
+
+[tool.uv]
+package = false
+"""
+"""A uv virtual project: same `[project] name`, nothing ever published."""
+
+
+@pytest.mark.parametrize(
+    ("pyproject", "step_rendered", "expected_has_issues"),
+    (
+        pytest.param(PACKAGE_PYPROJECT, True, True, id="package-renders-step"),
+        pytest.param(VIRTUAL_PYPROJECT, False, False, id="virtual-project-skips-step"),
+    ),
+)
+def test_setup_guide_pypi_step_gated_on_package_build(
+    tmp_path, monkeypatch, pyproject, step_rendered, expected_has_issues
+):
+    """The Trusted Publisher step follows `is_python_package`, not `package_name`.
+
+    Both projects below declare the same `[project] name`, so a gate reading
+    that name alone cannot tell them apart. Only the first one is built and
+    published, and only it should be asked to register a publisher.
+
+    The lifecycle assertion is the point of the test. With the publisher check
+    failing and every other check passing, the virtual project still closes its
+    issue, where a `package_name` gate would hold it open forever: the name is
+    set, so the gate keeps demanding provenance for an upload that no workflow
+    in the repository can ever perform.
+    """
+    (tmp_path / "pyproject.toml").write_text(pyproject, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    unregistered = CheckResult(False, "PyPI Trusted Publisher mismatch for 'papaya'.")
+    with _offline_setup_guide(pypi_ok=unregistered) as (lifecycle, bodies):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert result.exit_code == 0
+    assert ("Trusted Publisher" in bodies[0]) is step_rendered
+    assert lifecycle.call_args_list[0][1]["has_issues"] is expected_has_issues
+
+
+def test_setup_guide_virtual_project_skips_pypi_probe(tmp_path, monkeypatch):
+    """A virtual project never reaches the PyPI API.
+
+    The probe is skipped rather than run-and-ignored, so a repository that
+    happens to share its `[project] name` with an unrelated PyPI project is
+    never measured against that stranger's release.
+    """
+    (tmp_path / "pyproject.toml").write_text(VIRTUAL_PYPROJECT, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    with (
+        _offline_setup_guide() as (_lifecycle, _bodies),
+        patch("repomatic.setup_guide.check_pypi_trusted_publisher") as probe,
+    ):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert result.exit_code == 0
+    probe.assert_not_called()
+
+
 def test_setup_guide_nuitka_disabled_hides_vt_step(tmp_path, monkeypatch):
     """When Nuitka is disabled, the VT step is omitted from the setup guide."""
     pyproject = tmp_path / "pyproject.toml"

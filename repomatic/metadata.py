@@ -138,7 +138,10 @@ from .matrix_axes import (
     UNSTABLE_PYTHON_VERSIONS,
 )
 from .pypi import PYPI_PROJECT_URL
-from .pyproject import is_python_project as _is_python_project
+from .pyproject import (
+    is_python_package as _is_python_package,
+    is_python_project as _is_python_project,
+)
 from .tool_registry import MYPY_VERSION_MIN
 from .version_sync import min_release_age_days
 
@@ -1464,6 +1467,23 @@ class Metadata:
         a single source of truth.
         """
         return _is_python_project(pyproject_data=self.pyproject_toml)
+
+    @cached_property
+    def is_python_package(self) -> bool:
+        """Returns `True` if the repository builds a distributable package.
+
+        Strictly narrower than {attr}`is_python_project`: a uv virtual project
+        declares a `[project]` table to carry its dependencies, then opts out of
+        being built with `[tool.uv] package = false`. Delegates to
+        {func}`repomatic.pyproject.is_python_package`, the same predicate
+        {attr}`~repomatic.registry.RepoScope.PACKAGE_ONLY` resolves against, so
+        the release lane and the checks that police it agree on who publishes.
+
+        Prefer this over the truthiness of {attr}`package_name` when gating
+        anything about publishing. `package_name` only reports what `[project]
+        name` says, which a virtual project still declares.
+        """
+        return _is_python_package(pyproject_data=self.pyproject_toml)
 
     @cached_property
     def pyproject_toml(self) -> dict[str, Any]:

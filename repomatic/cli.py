@@ -3210,6 +3210,7 @@ def lint_repo(
     exit_code = run_repo_lint(
         package_name=package_name,
         repo_name=repo_name,
+        is_package=metadata.is_python_package,
         is_sphinx=is_sphinx,
         project_description=project_description,
         keywords=keywords,

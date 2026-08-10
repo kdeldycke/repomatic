@@ -1805,6 +1805,7 @@ def _report_result(
 def run_repo_lint(
     package_name: str | None = None,
     repo_name: str | None = None,
+    is_package: bool = False,
     is_sphinx: bool = False,
     project_description: str | None = None,
     keywords: list[str] | None = None,
@@ -1821,6 +1822,9 @@ def run_repo_lint(
 
     :param package_name: The Python package name.
     :param repo_name: The repository name.
+    :param is_package: Whether the project builds a distributable package, per
+        {func}`repomatic.pyproject.is_python_package`. Gates the checks that
+        only make sense for something actually published to PyPI.
     :param is_sphinx: Whether the project uses Sphinx documentation.
     :param project_description: Description from pyproject.toml.
     :param keywords: Keywords list from pyproject.toml.
@@ -1901,7 +1905,10 @@ def run_repo_lint(
         _report_result(check_sha_pinning_required(repo))
 
     # Check 9b: PyPI Trusted Publisher entry registered (warning).
-    if repo and package_name:
+    # Gated on *is_package*, not on *package_name*: a uv virtual project sets a
+    # `[project] name` to carry dependencies and never publishes it, so matching
+    # that name against PyPI reports on a project someone else owns.
+    if repo and package_name and is_package:
         _report_result(check_pypi_trusted_publisher(repo, package_name))
 
     # Check 10: Workflow permissions declared on custom-step workflows.
