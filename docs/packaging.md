@@ -28,7 +28,7 @@ The fix is one section naming the package explicitly:
 # discovery then sees docs/, tests/ and every other top-level directory as a
 # package and fails. uv-build ignores this section entirely, relying on
 # [tool.uv] build-backend instead, so it costs a released wheel nothing.
-packages.find.include = [ "my_package*" ]
+packages.find.include = ["my_package*"]
 ```
 
 Two things make this worth knowing rather than obvious. It is invisible upstream: `uv build`, `uv sync` and every wheel published from CI ignore the section, so the failure only ever appears in a downstream packager's build log, usually weeks after the release that introduced the second top-level directory. And the trailing `*` matters, since it is what keeps subpackages in.
