@@ -436,6 +436,57 @@ def test_non_401_skips_transient_retry():
         mock_sleep.assert_not_called()
 
 
+def test_bad_credentials_raises_without_waiting():
+    """A revoked token fails on the first call instead of paying the back-off.
+
+    `Bad credentials` is deterministic: the same token cannot stop being
+    revoked, so the same-token retry can only add idle seconds and flood the
+    log with warnings that bury the real cause.
+    """
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
+        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch.dict(
+            "os.environ",
+            {**_CLEAN_ENV, "REPOMATIC_PAT": "revoked"},
+            clear=True,
+        ),
+    ):
+        mock_run.return_value = _make_result(returncode=1, stderr="Bad credentials")
+        with pytest.raises(RuntimeError, match="Bad credentials"):
+            run_gh_command(["issue", "list"])
+        assert mock_run.call_count == 1
+        mock_sleep.assert_not_called()
+
+
+def test_bad_credentials_still_reaches_cross_token_fallback():
+    """Skipping the same-token wait does not skip the second credential.
+
+    `GITHUB_TOKEN` is issued by Actions itself, so it can succeed where a
+    revoked PAT cannot: only the pointless wait is dropped, not the recovery.
+    """
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
+        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch.dict(
+            "os.environ",
+            {**_CLEAN_ENV, "REPOMATIC_PAT": "revoked", "GITHUB_TOKEN": "gha"},
+            clear=True,
+        ),
+    ):
+        mock_run.side_effect = [
+            _make_result(returncode=1, stderr="Bad credentials"),
+            _make_result(stdout="fallback ok\n"),
+        ]
+        assert run_gh_command(["issue", "list"]) == "fallback ok\n"
+        # 1 initial call + 0 same-token retries + 1 cross-token fallback.
+        assert mock_run.call_count == 2
+        assert mock_run.call_args_list[1].kwargs["env"]["GH_TOKEN"] == "gha"
+        mock_sleep.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # GraphQL cursor pagination
 # ---------------------------------------------------------------------------

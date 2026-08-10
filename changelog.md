@@ -17,6 +17,7 @@
 - `sync-gitignore` no longer discards rules added by hand to the committed `.gitignore`: it refuses to write when the rebuild would lose one, naming the rules. New `--drop-orphans` flag confirms an intended loss.
 - The setup guide no longer asks a uv virtual project to register a PyPI Trusted Publisher, and `lint-repo` no longer checks one: both now gate on whether the project builds a distributable.
 - Fix the broken-links issue never being filed: `docs.yaml` ran lychee through `xargs`, which reported its "broken links found" exit status as a crash.
+- A `Bad credentials` 401 now fails immediately instead of retrying a token that cannot recover, so a revoked `REPOMATIC_PAT` reports itself plainly rather than as a chain of unrelated check failures.
 - New [Nuitka compilation guide](https://kdeldycke.github.io/repomatic/nuitka.html) covering build targets, fleet cadence, compile caching, the LTO stance, and upstream workarounds.
 - New *Build backends* section in the packaging guide, covering the `[tool.setuptools]` package-discovery shim a distribution needs when it builds a `uv-build` project with setuptools.
 - The documentation sidebar logo now follows Furo's light and dark toggle, so the wordmark no longer renders near-black against the dark theme.
