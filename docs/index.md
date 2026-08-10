@@ -15,6 +15,7 @@ dependencies
 tool-runner
 workflows
 test-matrix
+nuitka
 security
 skills
 agents

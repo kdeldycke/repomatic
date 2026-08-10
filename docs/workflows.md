@@ -524,7 +524,7 @@ The release **fast lane**: it runs the squash-merge guard, computes project meta
 
 **Cross-platform binaries** — Targets 6 platform/architecture combinations (Linux/macOS/Windows × `x86_64`/`arm64`). Unstable targets use `continue-on-error` so builds don't fail on experimental platforms. Job names are prefixed with ✅ (stable, must pass) or ⁉️ (unstable, allowed to fail) for quick visual triage in the GitHub Actions UI.
 
-**Canary builds on ordinary pushes** — The full fleet only compiles for release commits, the weekly `schedule` trigger, and manual `workflow_dispatch` runs. An ordinary push to the default branch rebuilds only the `[tool.repomatic] nuitka.dev-targets` canary subset (default `["linux-arm64"]`): enough to catch a compilation break early, without six compile jobs contending for the account-wide runner cap just to refresh the dev pre-release draft. The weekly scheduled run (batched with the other Monday-night maintenance jobs) is what rebuilds every target between releases, keeps each target's compile cache warm, and refreshes the dev pre-release with a complete binary set.
+**Canary builds on ordinary pushes** — The full fleet only compiles for release commits, the weekly `schedule` trigger, and manual `workflow_dispatch` runs; an ordinary push rebuilds only the `[tool.repomatic] nuitka.dev-targets` canary subset. The [Nuitka compilation](nuitka.md) page is the canonical reference for the build cadence, compile caching, and measured build times.
 
 At a glance, the build lane feeds both the PyPI publish and this engine; the engine runs a binary lane and the tag-and-release sequence, with a separate dev-release path for non-release pushes (dotted edges are uploaded assets):
 

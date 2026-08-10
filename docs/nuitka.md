@@ -1,0 +1,89 @@
+# {octicon}`file-binary` Nuitka compilation
+
+The release engine compiles every selected `[project.scripts]` entry point into a self-contained, one-file executable with [Nuitka](https://github.com/Nuitka/Nuitka), for each supported platform and architecture. This page is the canonical home for how those builds work and how fast they are; the surfaces it drives are documented on their own pages:
+
+| Page                                                                         | Covers                                                                                           |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [Installation](install.md)                                                   | Download URLs and release attestation checks.                                                    |
+| [Binaries](binaries.md)                                                      | The per-release executable catalog, VirusTotal scans, minimum OS floors, and development builds. |
+| [Configuration](configuration.md)                                            | The `[tool.repomatic]` `nuitka.*` options (`dev-targets`, `entry-points`, `extras`, …).          |
+| [Tool runner](tool-runner.md#nuitka)                                         | The pinned Nuitka version and the `[tool.nuitka]` → CLI-flags bridge.                            |
+| [Reusable workflows](workflows.md#github-workflows-release-engine-yaml-jobs) | The `compile-binaries` and `test-binaries` job wiring inside the release engine.                 |
+
+## Build targets
+
+One compile job per target, always on the latest runner image each OS offers for the architecture:
+
+```{python:render}
+from repomatic.binary import NUITKA_BUILD_TARGETS
+
+print("| Target | Runner | Architecture | Extension |")
+print("| ------ | ------ | ------------ | --------- |")
+for target_id, target in NUITKA_BUILD_TARGETS.items():
+    print(
+        f"| `{target_id}` | `{target['os']}` | `{target['arch']}` "
+        f"| `.{target['extension']}` |"
+    )
+```
+
+Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so every binary carries a stable, measured OS floor instead of inheriting whatever the runner image ships. The floors, and what they open execution to, are documented in [](binaries.md#minimum-os-requirements); {py:func}`repomatic.binary.verify_binary_floor` fails the build when a linked floor exceeds the declared one.
+
+## Build cadence
+
+Compiling the full fleet on every push is the expensive habit this design retired: a release push triggers ~96 jobs against an account-wide cap of 40 concurrent Linux runners and 5 macOS ones, and queue time, not compile time, dominated release latency. Three cadences share the work:
+
+- **Ordinary pushes** compile only the `[tool.repomatic] nuitka.dev-targets` canary subset (default `["linux-arm64"]`, the fastest and cheapest builder; set `[]` to disable dev builds entirely). The binary self-tests in place inside the compile job and refreshes the rolling dev pre-release. With a warm cache this is a single ~3-minute job.
+- **The weekly schedule** (Monday 00:43 UTC, batched with the other weekly maintenance jobs) rebuilds every target: it refreshes the dev pre-release with a complete binary set, keeps each target's compile cache warm (GitHub evicts cache entries unused for 7 days), and surfaces platform-specific breakage before release day.
+- **Release commits and manual `workflow_dispatch` runs** build the full fleet. Release commits additionally run the standalone `test-binaries` jobs, which re-validate each artifact on a pristine VM through the same upload/download round-trip a user's download takes.
+
+Scheduled and dispatched runs own a run-scoped concurrency group, so a later push can neither cancel them nor be cancelled by them. Targets listed in `nuitka.unstable-targets` build with `continue-on-error`, and every compile job carries a 45-minute execution timeout so a hung build frees its runner slot instead of squatting it for GitHub's 360-minute default.
+
+## Compile caching
+
+Most of what Nuitka compiles is the standard library and dependencies, which barely change between builds, so the C-object caches are persisted across runs with `actions/cache`. `NUITKA_CACHE_DIR` relocates every Nuitka cache (C objects, downloads, demoted-module bytecode) under the workspace, one cache entry per target, keyed per commit with a prefix `restore-keys` fallback: every run restores the latest previous snapshot and saves a fresh one, and the compiler caches hash compiler, flags and sources themselves, so a stale snapshot degrades to misses, never to wrong objects. A guard step resets any cache past 2 GiB, because Nuitka's clcache never prunes itself.
+
+Each platform caches through a different mechanism:
+
+| Target      | Object cache              | Provisioning                                                                                 |
+| ----------- | ------------------------- | -------------------------------------------------------------------------------------------- |
+| `windows-*` | Nuitka's internal clcache | Built into Nuitka, on by default for MSVC.                                                   |
+| `macos-*`   | ccache `4.2.1`            | Auto-downloaded by Nuitka (an x86-64 build, under Rosetta on arm); not persisted, see below. |
+| `linux-*`   | ccache `3.7.7`            | Installed from EPEL inside the `manylinux_2_28` container, non-fatally.                      |
+
+ccache needs two non-default settings to hit across runner VMs: `compiler_check = content` (the default hashes the compiler's mtime and size, which VMs do not keep stable) and `sloppiness = time_macros`. They are exported as `CCACHE_*` environment variables and written into `ccache.conf` inside the persisted cache directory, so whichever channel reaches the compiler wrapper carries the same values.
+
+Measured on `7.9.0.dev0` (Nuitka `4.1.3`, ~470-495 C files per binary), cold versus warm-cache execution time of the compile job:
+
+| Target          | Cold     | Warm       | Warm hit rate    |
+| --------------- | -------- | ---------- | ---------------- |
+| `linux-arm64`   | 9.4 min  | 3.0 min    | 470/470          |
+| `linux-x64`     | 11.9 min | 3.4 min    | 470/470          |
+| `windows-x64`   | 17.4 min | 6.0 min    | 495/495          |
+| `windows-arm64` | 15.5 min | 6.5 min    | 494/495          |
+| `macos-arm64`   | 10.5 min | not cached | 0/470 across VMs |
+| `macos-x64`     | 11.0 min | not cached | 0/470 across VMs |
+
+The residual warm time is the part caching cannot touch: Nuitka's Python-level compilation, linking, onefile payload compression, and the self-test. The one cache-missing module on warm Windows builds is the version module the pre-bake step stamps per build.
+
+macOS is the measured exception: its ccache never hits across runner VMs, and the cause is undiagnosed. A cache written 15 minutes earlier by a sibling VM on the same commit missed 470/470 with the `CCACHE_*` environment variables exported, and missed 470/470 again with the same settings in `ccache.conf` inside the restored cache directory, so something ccache hashes (not its configuration) differs per VM. Cache persistence is disabled for the macOS targets until that input divergence is understood: capturing Nuitka's `CCACHE_LOGFILE` from a scheduled run is the next probe. The cost is bounded, since macOS only builds weekly and at releases.
+
+To inspect a cache, the compile job logs Nuitka's own hit/miss summary (`Cached C files (using ccache) with result …`) plus a per-subdirectory size report. To reset one, delete its entries: `gh cache list --key nuitka-` then `gh cache delete {key}`; the next build re-seeds it.
+
+## Link-time optimization
+
+Nuitka's `--lto=auto` (the default, and what repomatic runs) disables LTO outright above 250 compiled modules, and these builds sit far past that threshold, so no LTO runs and no flag is set in `[tool.nuitka]`. Forcing `--lto=yes` would slow every build for a marginal runtime gain on a CLI whose cost is cold-start, and on MSVC it would compile objects with `/GL`, which no object cache can store. Leave it alone.
+
+## Upstream workarounds
+
+Three Nuitka issues shape the integration; each workaround names its ticket and lives next to the code it patches:
+
+- [Nuitka#3879](https://github.com/Nuitka/Nuitka/issues/3879): a `__main__.py` entry point must be compiled as its package directory plus `--python-flag=-m`, or the binary silently exits. {py:attr}`repomatic.metadata.Metadata.nuitka_matrix` computes the flag per entry point; the same property documents why Nuitka 4.1's `--main-entry-point` flag cannot replace the positional form yet.
+- [Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909): Nuitka does not read `[tool.nuitka]` natively, so the [tool runner](tool-runner.md#nuitka) translates the section into CLI flags at build time.
+- [Nuitka#3994](https://github.com/Nuitka/Nuitka/issues/3994): a symlink inside an `--include-data-dir` tree ships dangling (and crashes macOS codesigning), so the tool runner stages a symlink-free copy of any such directory before invoking Nuitka. Upstream confirmed the diagnosis; a real fix lands no earlier than Nuitka 4.3, and the staging shim stays until then.
+
+## Troubleshooting
+
+- **A build fails outright**: the job uploads Nuitka's `nuitka-crash-report.xml` as a run artifact before the failure gate trips.
+- **`verify-binary` fails**: a toolchain, runner-image or container update raised the binary's actual glibc or macOS floor above the declared one. That gate exists precisely to stop the floor from drifting silently; fix the environment rather than the declaration.
+- **A release shipped without some binaries**: expected behavior, not an incident. Publishing is deliberately not held hostage by a failing build cell, and immutable releases make the gap permanent for that version; the next release carries the missing target. See the [release workflow documentation](workflows.md#publish-release-publish-release).
+- **A cache behaves suspiciously**: caches self-invalidate on compiler and source changes and auto-reset past 2 GiB, so poisoning is unlikely; deleting the target's `nuitka-*` cache entries forces a clean rebuild.

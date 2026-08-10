@@ -6,8 +6,9 @@
 > This version is **not released yet** and is under active development.
 
 - New `[tool.repomatic] nuitka.dev-targets` option: an ordinary push now compiles binaries only for a canary subset, `["linux-arm64"]` by default. Release commits, the weekly schedule and manual dispatches keep the full 6-target fleet.
+- New [Nuitka compilation guide](https://kdeldycke.github.io/repomatic/nuitka.html) centralizing build targets, fleet cadence, compile caching and its measured speedups, the LTO stance, and upstream workarounds.
 - The release workflow gains a weekly scheduled full-fleet binary build, batched with the Monday-night maintenance jobs, refreshing the dev pre-release and every target's compile cache.
-- Nuitka compile caches (ccache and MSVC clcache objects) now persist across runs, so a warm build skips most of the C compilation.
+- Nuitka compile caches (ccache and MSVC clcache objects) now persist across runs, so a warm build skips most of the C compilation. macOS is excluded: its ccache never hits across runner VMs.
 - Binary self-tests on non-release pushes moved inside the compile job; the standalone per-target test jobs now run on release commits only.
 - Compile, binary-test and VirusTotal-scan jobs now carry execution timeouts, so a hung job frees its runner slot instead of squatting it for 6 hours.
 - Scheduled and manually dispatched release runs get their own concurrency group, so a later push no longer cancels them mid-build.
