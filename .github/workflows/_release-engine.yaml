@@ -114,6 +114,15 @@ jobs:
       # bytecode) under the workspace, so the cache step below and Nuitka
       # agree on one path both on VM jobs and inside the manylinux containers.
       NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
+      # ccache's default compiler check hashes the compiler's mtime+size, and
+      # runner VMs do not keep stable file timestamps, so a cache written by
+      # one VM never hits on the next (measured: 0/470 hits on both macOS
+      # targets while MSVC clcache hit 494/495). Hash the compiler binary's
+      # content instead, and tolerate __DATE__/__TIME__ macros, which
+      # otherwise poison every preprocessed hash. Nuitka's internal clcache
+      # on MSVC ignores both knobs.
+      CCACHE_COMPILERCHECK: content
+      CCACHE_SLOPPINESS: time_macros
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -150,6 +159,18 @@ jobs:
               rm -rf .nuitka-cache
             fi
           fi
+      # The manylinux containers ship no ccache (Nuitka warns and compiles
+      # cold), so the canary target pays full C compilation on every push.
+      # EPEL is a distro archive, exempt from the install cooldown (see
+      # claude.md § Distro archives are out of scope). Non-fatal on mirror
+      # hiccups: a release build must not die for a missing cache helper.
+      - name: Install ccache in container
+        if: matrix.container
+        shell: bash
+        run: >
+          (dnf install --assumeyes --quiet epel-release
+          && dnf install --assumeyes --quiet ccache)
+          || echo "ccache unavailable, building uncached."
       - name: Setup venv
         # --managed-python forces uv's own python-build-standalone interpreter,
         # whose deployment floors are the ones we declare and verify (macOS
