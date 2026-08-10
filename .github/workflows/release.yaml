@@ -25,6 +25,15 @@ name: 🚀 Build & release
   push:
     branches:
       - main
+  schedule:
+    # Weekly full-fleet build: ordinary pushes only compile the
+    # `[tool.repomatic] nuitka.dev-targets` canary subset, so this run is
+    # what rebuilds every target between releases. It refreshes the dev
+    # pre-release with all binaries, keeps each target's Nuitka compile
+    # cache warm (actions/cache evicts entries unused for 7 days), and
+    # surfaces platform-specific build breakage before release day. Batched
+    # with autolock.yaml's Monday-night slot to group the weekly jobs.
+    - cron: "43 0 * * 1"
 
 permissions: {}
 
@@ -35,9 +44,17 @@ concurrency:
   # to cancel queued or building runs. Regular commits share a per-branch group and
   # cancel each other; release commits ([changelog] Release / Post-release) get a
   # unique SHA-based group so an in-flight release is never cancelled by a later push.
+  # Scheduled and manually dispatched runs get a run-scoped group: they build the
+  # full target fleet on purpose, so neither a later push nor another run should
+  # cancel them (a dispatch sharing the branch group was observed cancelled mid-build
+  # by the next push), and they never cancel a push run either.
   group: >-
     ${{ github.workflow }}-${{
-      github.event.pull_request.number
+      (
+        (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        && github.run_id
+      )
+      || github.event.pull_request.number
       || (
         (startsWith(github.event.head_commit.message, '[changelog] Release')
         || startsWith(github.event.head_commit.message, '[changelog] Post-release'))

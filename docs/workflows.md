@@ -523,6 +523,8 @@ The release **fast lane**: it runs the squash-merge guard, computes project meta
 
 **Cross-platform binaries** — Targets 6 platform/architecture combinations (Linux/macOS/Windows × `x86_64`/`arm64`). Unstable targets use `continue-on-error` so builds don't fail on experimental platforms. Job names are prefixed with ✅ (stable, must pass) or ⁉️ (unstable, allowed to fail) for quick visual triage in the GitHub Actions UI.
 
+**Canary builds on ordinary pushes** — The full fleet only compiles for release commits, the weekly `schedule` trigger, and manual `workflow_dispatch` runs. An ordinary push to the default branch rebuilds only the `[tool.repomatic] nuitka.dev-targets` canary subset (default `["linux-arm64"]`): enough to catch a compilation break early, without six compile jobs contending for the account-wide runner cap just to refresh the dev pre-release draft. The weekly scheduled run (batched with the other Monday-night maintenance jobs) is what rebuilds every target between releases, keeps each target's compile cache warm, and refreshes the dev pre-release with a complete binary set.
+
 At a glance, the build lane feeds both the PyPI publish and this engine; the engine runs a binary lane and the tag-and-release sequence, with a separate dev-release path for non-release pushes (dotted edges are uploaded assets):
 
 ```mermaid
@@ -549,6 +551,8 @@ flowchart TD
 
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x64`/`arm64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
+- Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on macOS, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode everywhere), so a warm build skips most of the C compilation
+- On non-release runs, self-tests the freshly-built binary in place with [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html); the standalone `test-binaries` job is reserved for release commits
 - Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)
 - On release pushes, each binary is attested and its sigstore bundle renamed after the binary it covers (`<binary-name>.attestation.json`) by [`repomatic pack-attestation`](cli.md), so no two targets collide once the bundles are merged. Binaries and bundles leave the job as run artifacts, and [`publish-release`](#publish-release-publish-release) attaches them to the release
 - **Requires**:
@@ -565,6 +569,7 @@ flowchart TD
 #### ✅ Test binaries (`test-binaries`)
 
 - Runs test suites against compiled binaries using [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html)
+- Release commits only: re-validates each published artifact on a pristine VM, through the same upload/download round-trip a user's binary takes; non-release builds self-test inside `compile-binaries` instead of paying a second runner-queue slot per target
 - Linux targets run inside the same `manylinux_2_28` container as the compile job, proving the glibc `2.28` floor at runtime
 - **Requires**:
   - Compiled binaries from `compile-binaries` job

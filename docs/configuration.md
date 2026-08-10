@@ -45,6 +45,7 @@ flavor.ci = "github_ci"
 
 labels.extra-files = ["https://example.com/my-labels.toml"]
 
+nuitka.dev-targets = ["linux-arm64", "windows-x64"]
 nuitka.enabled = false
 nuitka.entry-points = ["mpm"]
 nuitka.nofollow-imports = []

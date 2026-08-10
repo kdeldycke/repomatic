@@ -5,6 +5,12 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- New `[tool.repomatic] nuitka.dev-targets` option: an ordinary push now compiles binaries only for a canary subset, `["linux-arm64"]` by default. Release commits, the weekly schedule and manual dispatches keep the full 6-target fleet.
+- The release workflow gains a weekly scheduled full-fleet binary build, batched with the Monday-night maintenance jobs, refreshing the dev pre-release and every target's compile cache.
+- Nuitka compile caches (ccache and MSVC clcache objects) now persist across runs, so a warm build skips most of the C compilation.
+- Binary self-tests on non-release pushes moved inside the compile job; the standalone per-target test jobs now run on release commits only.
+- Compile, binary-test and VirusTotal-scan jobs now carry execution timeouts, so a hung job frees its runner slot instead of squatting it for 6 hours.
+- Scheduled and manually dispatched release runs get their own concurrency group, so a later push no longer cancels them mid-build.
 - Fix the broken-links issue never being filed. `docs.yaml` ran lychee through `xargs`, which answers any child status in 1..125 with 123 of its own, so lychee's `2` for "broken links found" reached `broken-links` looking like a crash and was recorded as a tool failure instead of a report. lychee now runs once, directly, with `xargs` demoted to splitting the file list. That also stops a list long enough to batch from overwriting `--output` once per batch and keeping only the last batch's findings.
 - `repomatic init` now realigns a workflow's inline `repomatic==X.Y.Z` literal onto the pin it writes into the `uses:` refs, in either direction. It was left to the next scheduled `sync-workflow-pins` run, so a downstream repository adopting a release sat with `lint-repo`'s inline-pin check red in between, and a stale pin can fail the metadata job of a release that has already published to PyPI.
 - New *Build backends* section in the packaging guide, covering the `[tool.setuptools]` package-discovery shim a distribution needs when it builds a `uv-build` project with setuptools.

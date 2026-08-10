@@ -102,10 +102,18 @@ jobs:
     container: ${{ matrix.container }}
     # We keep going when a job flagged as not stable fails.
     continue-on-error: ${{ matrix.state == 'unstable' }}
+    # Headroom over the slowest observed cold-cache build (~37 min on Windows).
+    # Without it a hung compile squats a runner-cap slot for the 360-min default.
+    timeout-minutes: 45
     permissions:
       id-token: write
       attestations: write
       contents: read
+    env:
+      # Relocate every Nuitka cache (ccache/clcache objects, downloads,
+      # bytecode) under the workspace, so the cache step below and Nuitka
+      # agree on one path both on VM jobs and inside the manylinux containers.
+      NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -113,6 +121,35 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.1"
+      # Persist the Nuitka compile caches across runs: ccache objects on
+      # clang targets (Nuitka auto-downloads its own ccache on macOS), its
+      # internal clcache objects on MSVC, plus downloads and demoted-module
+      # bytecode. The per-commit key never hits exactly, so every run saves a
+      # fresh snapshot and restores the latest previous one via the prefix;
+      # ccache/clcache hash compiler, flags and sources themselves, so a stale
+      # snapshot degrades to cache misses, never to wrong objects. The Linux
+      # containers ship no ccache, so their C objects are not cached yet; the
+      # entry still carries the smaller Nuitka caches.
+      - name: Restore Nuitka compile cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .nuitka-cache
+          key: nuitka-${{ matrix.target }}-${{ matrix.commit }}
+          restore-keys: nuitka-${{ matrix.target }}-
+      # Nuitka's clcache has no size cap or pruning (ccache self-prunes at
+      # 5 GiB): left alone, a restore-then-save cycle grows the cache without
+      # bound. Reset past 2 GiB and let the next save start a fresh lineage.
+      - name: Trim oversized Nuitka cache
+        shell: bash
+        run: |
+          if [[ -d .nuitka-cache ]]; then
+            size_mb=$(du -sm .nuitka-cache | cut -f1)
+            echo "Nuitka cache restored at ${size_mb} MiB."
+            if (( size_mb > 2048 )); then
+              echo "Cache exceeds 2 GiB, resetting."
+              rm -rf .nuitka-cache
+            fi
+          fi
       - name: Setup venv
         # --managed-python forces uv's own python-build-standalone interpreter,
         # whose deployment floors are the ones we declare and verify (macOS
@@ -183,6 +220,11 @@ jobs:
           name: nuitka-crash-report-${{ matrix.os }}-${{ matrix.short_sha }}.xml
           if-no-files-found: ignore
           path: nuitka-crash-report.xml
+      # Sizing signal for the cache strategy: hit/miss counts are in Nuitka's
+      # own "Cached C files" log lines above, this step adds what they omit.
+      - name: Nuitka cache stats
+        shell: bash
+        run: du -sm .nuitka-cache/* 2>/dev/null || echo "No Nuitka cache dir."
       - if: steps.build-binary.outcome == 'failure'
         run: |
           echo "Nuitka build failed, skipping the rest of the steps."
@@ -201,6 +243,25 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic
           verify-binary --target "${TARGET}" --binary "${BIN_NAME}"
+      # On a non-release run, exercise the freshly-built binary in place: the
+      # standalone test-binaries job only runs for release commits, so canary
+      # and weekly-schedule builds still prove the binary works without paying
+      # a second runner-queue slot. Env mirrors the test-binaries job; see its
+      # comments for the UTF-8 and safe.directory rationale.
+      - name: Self-test binary
+        if: ${{ !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+        env:
+          BIN_NAME: ${{ matrix.bin_name }}
+          PYTHONIOENCODING: utf8
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: safe.directory
+          GIT_CONFIG_VALUE_0: "*"
+        shell: bash
+        run: >
+          uv --no-progress run --frozen --
+          click-extra test-suite
+          --binary "./${BIN_NAME}"
+          --jobs max
       - name: Upload binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -266,10 +327,15 @@ jobs:
     needs:
       - metadata
       - compile-binaries
-    # Skip binary tests for branches that don't affect code (e.g., update-mailmap, format-markdown).
+    # Release commits only: non-release builds self-test inside compile-binaries
+    # instead of paying a second runner-queue slot per target. This standalone
+    # job re-validates the artifact on a pristine VM, through the same
+    # upload/download round-trip a user's binary takes. Also skipped for
+    # branches that don't affect code (e.g., update-mailmap, format-markdown).
     if: >
       fromJSON(needs.metadata.outputs.metadata).nuitka_matrix
       && !(fromJSON(needs.metadata.outputs.metadata).skip_binary_build || false)
+      && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
     strategy:
       # Advisory matrix (default fail-fast): see docs/workflows.md "Matrix fail-fast strategy".
       # Fall back to an empty `{"include":[]}` matrix when nuitka_matrix is null
@@ -285,6 +351,8 @@ jobs:
     container: ${{ matrix.container }}
     # We keep going when a job flagged as not stable fails.
     continue-on-error: ${{ matrix.state == 'unstable' }}
+    # The suite runs in ~1-2 min; a hung run must not squat a runner-cap slot.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -706,6 +774,9 @@ jobs:
       # (rare) multi-release runs keeps them from racing on the same files.
       max-parallel: 1
     runs-on: ubuntu-slim
+    # Upload plus the 600 s --poll-timeout, with margin; a stuck poll must not
+    # squat a runner-cap slot for the 360-min default.
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:

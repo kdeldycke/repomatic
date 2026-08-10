@@ -317,13 +317,18 @@ def test_release_thin_caller_synthesizes_triggers() -> None:
 
     `_generate_release_caller` synthesizes the standard release triggers rather
     than mirroring the canonical release.yaml's own (so a dogfooding-only trigger
-    added upstream never leaks into downstream callers).
+    added upstream never leaks into downstream callers). The weekly full-fleet
+    `schedule` is the one canonical trigger carried over, verbatim.
     """
     content = generate_thin_caller("release.yaml")
     data = yaml.safe_load(content)
     triggers = workflow_triggers(data)
     assert "workflow_dispatch" in triggers
     assert triggers["push"] == {"branches": ["main"]}
+    canonical_schedule = extract_trigger_info("release.yaml").non_call_triggers[
+        "schedule"
+    ]
+    assert triggers["schedule"] == canonical_schedule
     # The engine lane is call-only.
     assert extract_trigger_info("_release-engine.yaml").non_call_triggers == {}
 

@@ -1104,7 +1104,10 @@ def _generate_release_caller(
 
     - **Standard release triggers synthesized** (`push` to `main` +
       `workflow_dispatch`), so a dogfooding-only trigger added upstream never
-      leaks downstream.
+      leaks downstream. The canonical entry's `schedule` is the one trigger
+      carried over: ordinary pushes only compile the `nuitka.dev-targets`
+      canary, so the weekly run is what rebuilds every binary target (and
+      keeps each target's compile cache warm) downstream too.
     - **Concurrency carried over** from the canonical entry verbatim, so
       superseded non-release runs cancel downstream too. The block must sit on
       this push-triggered caller (not the engine lane it calls via `needs:`,
@@ -1145,6 +1148,13 @@ def _generate_release_caller(
         "workflow_dispatch": None,
         "push": {"branches": ["main"]},
     }
+    # Carry the canonical weekly full-fleet schedule downstream, copied from
+    # the canonical entry rather than hard-coded so the batch time has one
+    # source of truth. See the docstring above for why `schedule` is the one
+    # trigger that crosses the synthesis boundary.
+    schedule = info.non_call_triggers.get("schedule")
+    if schedule:
+        triggers["schedule"] = schedule
 
     build_job = _extract_raw_job(content, "build")
     release_job = _extract_raw_job(content, "release")

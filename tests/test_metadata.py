@@ -28,6 +28,7 @@ import pytest
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 
+from repomatic.binary import NUITKA_BUILD_TARGETS
 from repomatic.cli import repomatic
 from repomatic.config import (
     Config,
@@ -54,6 +55,26 @@ from tests.conftest import metadata_from_pyproject
 def regex(pattern: str) -> re.Pattern:
     """Compile a regex pattern with DOTALL flag."""
     return re.compile(pattern, re.DOTALL)
+
+
+@pytest.fixture(autouse=True)
+def _scrub_workflow_event(monkeypatch):
+    """Detach every test from the CI run's own workflow event.
+
+    In CI the suite inherits the real run's ``GITHUB_EVENT_NAME`` and event
+    payload, which event-derived properties (``event_type``, ``commit_range``,
+    ``nuitka_matrix``'s canary gating) read, so expectations would differ
+    between CI and a local run. Deleting the event markers pins every test to
+    the deterministic local behavior; tests exercising CI context set the
+    variables back explicitly via ``monkeypatch.setenv``.
+    """
+    for envvar in (
+        "GITHUB_BASE_REF",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_EVENT_PATH",
+        "GITHUB_HEAD_REF",
+    ):
+        monkeypatch.delenv(envvar, raising=False)
 
 
 class OptionalList:
@@ -1111,6 +1132,83 @@ def test_show_test_matrix_rejects_unknown_name():
     assert result.exit_code != 0
 
 
+def test_dev_targets_default():
+    """Without config, the canary subset is the fastest Linux arm builder."""
+    assert Metadata().dev_targets == {"linux-arm64"}
+
+
+def test_dev_targets_discards_unknown(tmp_path, monkeypatch, caplog):
+    """Unknown dev target names are warned about and dropped."""
+    metadata = metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        """
+[project]
+name = "papaya"
+version = "1.0.0"
+
+[tool.repomatic]
+nuitka.dev-targets = ["windows-x64", "himalaya"]
+""",
+    )
+    with caplog.at_level(logging.WARNING):
+        assert metadata.dev_targets == {"windows-x64"}
+    assert "himalaya" in caplog.text
+
+
+def test_nuitka_matrix_canary_on_push(monkeypatch):
+    """An ordinary CI push compiles only the dev-targets canary subset."""
+    monkeypatch.setattr("repomatic.metadata.is_github_ci", lambda: True)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    matrix = Metadata().nuitka_matrix
+    assert matrix is not None
+    assert matrix["os"] == ("ubuntu-24.04-arm",)
+    # Only the canary target's include data is present.
+    include_targets = {i["target"] for i in matrix.include if "target" in i}
+    assert include_targets == {"linux-arm64"}
+
+
+def test_nuitka_matrix_full_fleet_on_schedule(monkeypatch):
+    """The weekly scheduled run rebuilds every target."""
+    monkeypatch.setattr("repomatic.metadata.is_github_ci", lambda: True)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
+    matrix = Metadata().nuitka_matrix
+    assert matrix is not None
+    assert set(matrix["os"]) == {
+        target["os"] for target in NUITKA_BUILD_TARGETS.values()
+    }
+
+
+def test_nuitka_matrix_full_fleet_on_release_push(monkeypatch):
+    """A push carrying a release commit rebuilds every target."""
+    monkeypatch.setattr("repomatic.metadata.is_github_ci", lambda: True)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    release_matrix = Metadata().current_commit_matrix
+    monkeypatch.setattr(Metadata, "release_commits_matrix", release_matrix)
+    matrix = Metadata().nuitka_matrix
+    assert matrix is not None
+    assert set(matrix["os"]) == {
+        target["os"] for target in NUITKA_BUILD_TARGETS.values()
+    }
+
+
+def test_nuitka_matrix_full_fleet_locally():
+    """Outside CI (no event), the matrix keeps the full roster."""
+    matrix = Metadata().nuitka_matrix
+    assert matrix is not None
+    assert set(matrix["os"]) == {
+        target["os"] for target in NUITKA_BUILD_TARGETS.values()
+    }
+
+
+def test_nuitka_matrix_skips_push_without_dev_targets(monkeypatch):
+    """An empty dev-targets list disables binary builds on ordinary pushes."""
+    monkeypatch.setattr("repomatic.metadata.is_github_ci", lambda: True)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setattr(Metadata, "dev_targets", set())
+    assert Metadata().nuitka_matrix is None
+
+
 def test_null_sha_constant():
     """Test that NULL_SHA is a valid 40-character string of zeros.
 
@@ -1524,6 +1622,7 @@ dependency-graph.all-extras = true
 dependency-graph.no-groups = ["typing"]
 dependency-graph.no-extras = ["xml"]
 dependency-graph.level = 2
+nuitka.dev-targets = ["macos-arm64", "windows-x64"]
 nuitka.unstable-targets = ["linux-arm64", "windows-x64"]
 labels.extra-files = ["https://example.com/labels.toml"]
 pypi-package-history = ["old-name", "older-name"]
@@ -1593,6 +1692,7 @@ click-version = ["released", "stable", "main"]
     assert metadata.config.dependency_graph.no_groups == ["typing"]
     assert metadata.config.dependency_graph.no_extras == ["xml"]
     assert metadata.config.dependency_graph.level == 2
+    assert metadata.dev_targets == {"macos-arm64", "windows-x64"}
     assert metadata.unstable_targets == {"linux-arm64", "windows-x64"}
     assert metadata.config.labels.extra == [
         {

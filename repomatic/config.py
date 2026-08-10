@@ -869,6 +869,21 @@ class Config:
     PAT with `notifications` scope stored as `REPOMATIC_NOTIFICATIONS_PAT`.
     """
 
+    nuitka_dev_targets: list[str] = field(
+        default_factory=lambda: ["linux-arm64"],
+        metadata={CONFIG_PATH_METADATA_KEY: "nuitka.dev-targets"},
+    )
+    """Nuitka build targets compiled on ordinary pushes, as a canary.
+
+    An ordinary push to the default branch rebuilds binaries only for these
+    targets: enough to catch a compilation break early, while freeing runner
+    slots the full fleet would occupy on every code push just to refresh the
+    rolling dev pre-release (a draft). The full target roster still builds on
+    release commits, on the weekly `schedule` trigger, and on
+    `workflow_dispatch`. Defaults to `["linux-arm64"]`, the fastest and
+    cheapest builder. Set to `[]` to skip dev builds entirely.
+    """
+
     nuitka_enabled: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "nuitka.enabled"},

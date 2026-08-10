@@ -302,7 +302,11 @@ def _metadata_config_fields() -> list[str]:
     field in {data}`~repomatic.config.SUBCOMMAND_CONFIG_FIELDS` (read directly
     by its subcommand).
     """
-    skipped = ("nuitka_entry_points", "nuitka_unstable_targets")
+    skipped = (
+        "nuitka_dev_targets",
+        "nuitka_entry_points",
+        "nuitka_unstable_targets",
+    )
     return [
         f.name
         for f in fields(Config)
@@ -665,13 +669,17 @@ class Metadata:
     def event_type(self) -> WorkflowEvent | None:
         """Returns the type of event that triggered the workflow run.
 
-        ```{caution}
-        This property is based on a crude heuristics as it only looks at the value
-        of the `GITHUB_BASE_REF` environment variable. Which is [only set when the event that triggers a workflow run is either pull_request or pull_request_target](https://docs.github.com/en/actions/reference/workflows-and-actions/variables#default-environment-variables).
-        ```
+        Maps {attr}`event_name` (the `GITHUB_EVENT_NAME` variable, set by
+        GitHub Actions on every run) onto its
+        {class}`~repomatic.github.actions.WorkflowEvent` member, so `schedule`
+        and `workflow_dispatch` runs resolve to their own event instead of
+        falling in a `None` hole that nulls every commit matrix.
 
-        ```{todo}
-        Add detection of all workflow trigger events.
+        ```{caution}
+        When `GITHUB_EVENT_NAME` is absent or unrecognized, falls back on the
+        historical heuristic: a non-empty `GITHUB_BASE_REF` means a pull
+        request ([only set for pull request events](https://docs.github.com/en/actions/reference/workflows-and-actions/variables#default-environment-variables)),
+        a present-but-empty one means a push.
         ```
         """
         if not is_github_ci():
@@ -679,6 +687,14 @@ class Metadata:
                 "Cannot guess event type because we're not in a CI environment."
             )
             return None
+        if self.event_name:
+            try:
+                return WorkflowEvent(self.event_name)
+            except ValueError:
+                logging.warning(
+                    f"Unrecognized workflow event {self.event_name!r};"
+                    " falling back on the GITHUB_BASE_REF heuristic."
+                )
         if "GITHUB_BASE_REF" not in os.environ:
             logging.warning(
                 "Cannot guess event type because no GITHUB_BASE_REF env var found."
@@ -1529,6 +1545,26 @@ class Metadata:
         return selected or all_cli_ids[:1]
 
     @cached_property
+    def dev_targets(self) -> set[str]:
+        """Nuitka build targets compiled on ordinary (non-release) pushes.
+
+        Reads `[tool.repomatic].nuitka.dev-targets` from `pyproject.toml`.
+        Defaults to `{"linux-arm64"}`; an empty list disables dev builds
+        entirely. See the field docstring in `repomatic/config.py` for the
+        canary rationale.
+
+        Unrecognized target names are logged as warnings and discarded.
+        """
+        raw = self.config.nuitka_dev_targets
+        targets = set(raw)
+        if targets:
+            unknown = targets - set(NUITKA_BUILD_TARGETS)
+            if unknown:
+                logging.warning(f"Unrecognized dev targets: {unknown}")
+            targets &= set(NUITKA_BUILD_TARGETS)
+        return targets
+
+    @cached_property
     def unstable_targets(self) -> set[str]:
         """Nuitka build targets allowed to fail without blocking the release.
 
@@ -1798,7 +1834,10 @@ class Metadata:
         - every `[project.scripts]` entry point
         - every build target of {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`
           (runner, platform, architecture, binary extension, and the glibc floor
-          or minimum-OS version that target enforces)
+          or minimum-OS version that target enforces), narrowed to the
+          `[tool.repomatic] nuitka.dev-targets` canary subset on an ordinary
+          push (see {attr}`dev_targets`); release commits, `schedule` and
+          `workflow_dispatch` runs keep the full roster
 
         Each axis contributes an `include` entry carrying the extra parameters
         the compile job needs, keyed on the axis value that selects it: the
@@ -1829,15 +1868,32 @@ class Metadata:
             )
             return None
 
+        # On an ordinary push, compile only the canary subset: the full fleet
+        # exists to refresh the rolling dev pre-release (a draft), and its
+        # compile jobs contend for the account-wide runner cap on every code
+        # push. Release commits, the weekly `schedule` trigger,
+        # `workflow_dispatch` and local runs keep the full roster.
+        build_targets = NUITKA_BUILD_TARGETS
+        if self.event_type is WorkflowEvent.push and not self.release_commits_matrix:
+            build_targets = {
+                target_id: target_data
+                for target_id, target_data in NUITKA_BUILD_TARGETS.items()
+                if target_id in self.dev_targets
+            }
+            if not build_targets:
+                logging.info(
+                    "[tool.repomatic] nuitka.dev-targets selects no target."
+                    " Skipping binary compilation for this push."
+                )
+                return None
+
         matrix = Matrix()
 
         # Register all runners on which we want to run Nuitka builds.
-        matrix.add_variation(
-            "os", tuple(map(itemgetter("os"), NUITKA_BUILD_TARGETS.values()))
-        )
+        matrix.add_variation("os", tuple(map(itemgetter("os"), build_targets.values())))
         # Augment each "os" entry with platform-specific data.
-        for target_data in FLAT_BUILD_TARGETS:
-            matrix.add_includes(target_data)
+        for target_id, target_data in build_targets.items():
+            matrix.add_includes({"target": target_id} | target_data)
 
         # `[tool.nuitka]` is not assembled here: `repomatic run nuitka` resolves
         # it at build time (the tool runner translates the section to CLI flags).
@@ -1933,9 +1989,13 @@ class Metadata:
             matrix.add_includes(bin_name_include)
 
         # All jobs are stable by default, unless marked otherwise by specific
-        # configuration.
+        # configuration. Unstable targets outside the selected subset are
+        # dropped: an include whose "os" matches no matrix combination would
+        # be added by GitHub as a new, half-formed combination.
         matrix.add_includes({"state": "stable"})
         for unstable_target in self.unstable_targets:
+            if unstable_target not in build_targets:
+                continue
             matrix.add_includes({
                 "state": "unstable",
                 "os": NUITKA_BUILD_TARGETS[unstable_target]["os"],
