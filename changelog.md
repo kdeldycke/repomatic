@@ -6,8 +6,13 @@
 > This version is **not released yet** and is under active development.
 
 - Teach the `repomatic-ship` skill to reconcile bundled skills and agents as a third pass, judge a false-positive autofix PR against current `main` before writing a lint rule for it, and tell a superseded intra-cycle measurement from a genuine contradiction.
+- The tool runner now retries a download up to 3 times on transient network failures, instead of failing the job on a one-off TLS or truncation error.
+- Standalone binary tests now run for every healthy target when a sibling build fails, instead of being skipped wholesale.
 
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)
+
+> [!WARNING]
+> The `windows-x64` binary shipped without its `.attestation.json` sidecar: a transient TLS failure on the runner skipped the upload, and immutable releases lock the asset list. The attestation itself is registered, so `gh attestation verify repomatic-7.9.0-windows-x64.exe --repo kdeldycke/repomatic` still verifies against GitHub's attestation service.
 
 - **Breaking:** `REPOMATIC_PAT` now requires `Administration: Read-only`, and `lint-repo` fails without it. Regenerate the token with the setup guide's pre-filled link; steps that cannot be verified now say so instead of vanishing.
 - New `[tool.repomatic] nuitka.dev-targets` option: an ordinary push now compiles binaries only for a canary subset, `["linux-arm64"]` by default. Release commits, a new weekly schedule and manual dispatches build the full 6-target fleet.

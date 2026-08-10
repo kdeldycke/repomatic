@@ -44,6 +44,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
 from contextlib import nullcontext
 from dataclasses import replace
@@ -305,6 +306,20 @@ Deliberately larger than {data}`repomatic.http.DEFAULT_TIMEOUT`, which is sized
 for small JSON API responses.
 """
 
+_DOWNLOAD_ATTEMPTS = 3
+"""Attempts at downloading one artifact before giving up.
+
+```{note}
+Runner egress is flaky in ways that clear on the next connection: `v7.9.0`
+lost its windows-x64 attestation sidecar to a one-off
+`CERTIFICATE_VERIFY_FAILED: self-signed certificate` from a Windows runner's
+TLS-intercepting proxy, and short bodies surface as the truncation guard's
+`OSError`. One artifact download aborting a whole release job over a
+transient is the wrong trade, so the verification seam retries with a short
+pause and lets only a repeated failure surface.
+```
+"""
+
 _DOWNLOAD_CHUNK_SIZE = 65536
 """Read size for streaming downloads and incremental hashing."""
 
@@ -386,15 +401,33 @@ def _download_and_verify(
 ) -> None:
     """Download a file and verify its SHA-256 checksum.
 
+    Network-level failures (TLS errors, timeouts, truncated bodies: all
+    `OSError` subclasses, `URLError` included) are retried up to
+    {data}`_DOWNLOAD_ATTEMPTS` times; a checksum mismatch on a complete body
+    is not, since identical bytes would fail identically.
+
     :param url: URL to download.
     :param expected_sha256: Expected lowercase hex SHA-256 digest.
         `None` skips verification (logs the computed digest for reference).
     :param dest_path: Where to write the downloaded file.
     :param label: Progress bar label. Defaults to the destination filename.
-    :raises OSError: If the body is shorter than the advertised `Content-Length`.
+    :raises OSError: If every attempt fails at the network level, including a
+        body shorter than the advertised `Content-Length`.
     :raises ValueError: If the checksum does not match.
     """
-    actual = download_to(url, dest_path, label=label)
+    for attempt in range(1, _DOWNLOAD_ATTEMPTS + 1):
+        try:
+            actual = download_to(url, dest_path, label=label)
+            break
+        except OSError as ex:
+            dest_path.unlink(missing_ok=True)
+            if attempt == _DOWNLOAD_ATTEMPTS:
+                raise
+            logging.warning(
+                f"Download attempt {attempt}/{_DOWNLOAD_ATTEMPTS} of {url}"
+                f" failed ({ex}); retrying."
+            )
+            time.sleep(2 * attempt)
     if expected_sha256 is None:
         logging.info("SHA-256 of %s: %s (not verified).", url, actual)
         return

@@ -387,12 +387,19 @@ jobs:
     # job re-validates the artifact on a pristine VM, through the same
     # upload/download round-trip a user's binary takes. Also skipped for
     # branches that don't affect code (e.g., update-mailmap, format-markdown).
+    # always() keeps it running when a sibling build failed: without it, one
+    # red build cell skips this whole job and every healthy binary ships with
+    # no runtime test at all (v7.9.0 shipped exactly that way).
     if: >
-      fromJSON(needs.metadata.outputs.metadata).nuitka_matrix
+      always()
+      && fromJSON(needs.metadata.outputs.metadata).nuitka_matrix
       && !(fromJSON(needs.metadata.outputs.metadata).skip_binary_build || false)
       && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
     strategy:
-      # Advisory matrix (default fail-fast): see docs/workflows.md "Matrix fail-fast strategy".
+      # Info-gathering matrix: see docs/workflows.md "Matrix fail-fast strategy".
+      # fail-fast off so the cell of a target whose build failed (its artifact
+      # download errors out) does not cancel the healthy targets' tests.
+      fail-fast: false
       # Fall back to an empty `{"include":[]}` matrix when nuitka_matrix is null
       # (binary builds disabled via nuitka.enabled = false). GitHub resolves
       # strategy.matrix during job setup even when `if:` will skip the job, and a

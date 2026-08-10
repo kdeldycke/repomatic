@@ -31,6 +31,7 @@ from contextlib import contextmanager
 from itertools import combinations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.error import URLError
 
 import pytest
 import tomlrt
@@ -732,12 +733,55 @@ def test_download_and_verify_mismatch(tmp_path):
     assert not dest.exists()
 
 
+def test_download_and_verify_retries_transient_failure(tmp_path):
+    """A transient network failure is retried and the next attempt succeeds."""
+    content = b"hello binary world"
+    expected = hashlib.sha256(content).hexdigest()
+    dest = tmp_path / "downloaded"
+
+    with (
+        patch(
+            "repomatic.tool_runner.urlopen",
+            side_effect=[
+                URLError("certificate verify failed: self-signed certificate"),
+                _urlopen_response(content),
+            ],
+        ) as fake_urlopen,
+        patch("repomatic.tool_runner.time.sleep") as fake_sleep,
+    ):
+        _download_and_verify("https://example.com/file", expected, dest)
+
+    assert fake_urlopen.call_count == 2
+    assert fake_sleep.call_count == 1
+    assert dest.read_bytes() == content
+
+
+def test_download_and_verify_gives_up_after_attempts(tmp_path):
+    """A persistent network failure surfaces after the last attempt."""
+    dest = tmp_path / "downloaded"
+
+    with (
+        patch(
+            "repomatic.tool_runner.urlopen",
+            side_effect=URLError("connection reset"),
+        ) as fake_urlopen,
+        patch("repomatic.tool_runner.time.sleep"),
+        pytest.raises(URLError, match="connection reset"),
+    ):
+        _download_and_verify("https://example.com/file", "0" * 64, dest)
+
+    assert fake_urlopen.call_count == 3
+    assert not dest.exists()
+
+
 def test_download_and_verify_truncated(tmp_path):
     """A body shorter than Content-Length raises OSError, not a mismatch.
 
     A truncated transfer (proxy hiccup, dropped connection) hashes to a wrong
     digest, so it used to be reported as a SHA-256 mismatch: that reads as a
     stale pin or a tampered artifact when the registry checksum is correct.
+    Truncation is retried like any network failure, so the error only
+    surfaces once every attempt came up short.
     """
     content = b"hello binary world"
     dest = tmp_path / "downloaded"
@@ -745,9 +789,13 @@ def test_download_and_verify_truncated(tmp_path):
     with (
         patch(
             "repomatic.tool_runner.urlopen",
-            # Advertise more bytes than the body delivers.
-            return_value=_urlopen_response(content, advertised_length=len(content) + 7),
+            # Advertise more bytes than the body delivers, on every attempt.
+            side_effect=[
+                _urlopen_response(content, advertised_length=len(content) + 7)
+                for _ in range(3)
+            ],
         ),
+        patch("repomatic.tool_runner.time.sleep"),
         pytest.raises(OSError, match="Truncated download .* got 18 of 25 bytes"),
     ):
         _download_and_verify(
