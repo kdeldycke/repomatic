@@ -1126,8 +1126,9 @@ def run_tool(
                 "post-processing step that only runs when files are written. "
                 "Its exit status is unreliable here: it can flag drift the "
                 "write path would reconcile, or miss drift the write path "
-                "would introduce. For a trustworthy answer that still leaves "
-                "the working tree untouched, use verify_via_write_path().",
+                "would introduce. Re-run in write mode and inspect the diff "
+                "for an authoritative result; from Python, "
+                "verify_via_write_path() does that against throwaway copies.",
                 spec.name,
             )
 
@@ -1153,8 +1154,9 @@ def verify_via_write_path(
     A tool pairing `post_process` with `check_flags` has no trustworthy check
     mode: the fixup only runs on the write path, so the check status can flag
     drift the write path would reconcile, or miss drift it would introduce (see
-    {attr}`ToolSpec.check_flags`). This runs the *write* path against throwaway
-    copies instead, then compares, which is the only authoritative answer.
+    {attr}`~repomatic.tool_registry.ToolSpec.check_flags`). This runs the
+    *write* path against throwaway copies instead, then compares, which is the
+    only authoritative answer.
 
     ```{important}
     The copies are made **inside the working directory**, not in the system

@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.7.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.8.0
 ```
 
 > [!IMPORTANT]
@@ -212,7 +212,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 ##### 🔢 `sync-workflow-pins` updater
 
 - Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
-- Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; npm installs and `uvx` pins are handled here)
+- Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; `npm install`, `npx` and `uvx` pins are handled here). Flags sitting between the command and the package (`npx --yes pkg@1.2.3`) are skipped over, and scoped npm names are matched
 - The upstream toolkit's own pin (like `uvx 'repomatic==x.y.z'`) is exempt from the cooldown: the repomatic `uses:` refs are its source of truth (kept current by `repomatic init`'s thin-caller regeneration), and the `lint-repo` job fails on any drift between them, so the pin aligns to those refs in lockstep. Because that alignment ignores the cooldown, the rewrite also splices `--exclude-newer-package {package}=P0D` in ahead of the pin: `uvx` reads no per-package exemption from the environment, from `pyproject.toml`, or from an adjacent `uv.toml` ([astral-sh/uv#20995](https://github.com/astral-sh/uv/issues/20995) tracks the missing environment variable), so the flag has to ride on the command line for the workflow's own `UV_EXCLUDE_NEWER` not to withhold the version just written. Its PR table row shows a `⛓️ lockstep` marker in the `Released` column instead of a PyPI upload date, since no cooldown-checked release listing was consulted
 - PR body lists each updated pin with old and new versions
 - **Requires**:
@@ -394,7 +394,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 #### 🏠 Lint repository metadata (`lint-repo`)
 
 - Validates repository metadata (package name, Sphinx docs, project description) and Dependabot configuration using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py). Reads `pyproject.toml` directly. When `REPOMATIC_PAT` is configured, also validates PAT capabilities (contents, issues, pull requests, Dependabot alerts, workflows permissions). Warns when the fork PR workflow approval policy is weaker than `first_time_contributors`. Warns about missing `VIRUSTOTAL_API_KEY` when Nuitka binary compilation is active. Warns about missing `REPOMATIC_NOTIFICATIONS_PAT` when the unsubscribe workflow is enabled.
-- Warns when a release download URL in `docs/install.md` names a file its release does not carry. The release freeze pins those URLs before the binaries exist, so a failed build lane leaves the guide advertising 404s until the next release moves past it: this is the check that surfaces the gap instead of leaving it for a user to hit
+- Warns when a release download URL in `docs/install.md` names a file its release does not carry. The release freeze pins those URLs before the binaries exist, so a failed build lane leaves the guide advertising 404s until the next release moves past it: this is the check that surfaces the gap instead of leaving it for a user to hit. Versionless `releases/latest/download` URLs are checked against the latest published release too, and rot longer: nothing rewrites them at release time, so a renamed asset leaves one pointing at a 404 indefinitely
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
 
@@ -552,13 +552,13 @@ flowchart TD
 
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x64`/`arm64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
-- Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on macOS, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode everywhere), so a warm build skips most of the C compilation
+- Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on the gcc targets, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode alongside them), so a warm build skips most of the C compilation. Release commits neither restore nor save the cache, and macOS is left out of it entirely: see [](nuitka.md#compile-caching)
 - On non-release runs, self-tests the freshly-built binary in place with [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html); the standalone `test-binaries` job is reserved for release commits
 - Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)
 - On release pushes, each binary is attested and its sigstore bundle renamed after the binary it covers (`<binary-name>.attestation.json`) by [`repomatic pack-attestation`](cli.md), so no two targets collide once the bundles are merged. Binaries and bundles leave the job as run artifacts, and [`publish-release`](#publish-release-publish-release) attaches them to the release
 - **Requires**:
   - Python package with [CLI entry points](https://docs.astral.sh/uv/concepts/projects/config/#entry-points) defined in `pyproject.toml`
-- **Skipped if** `[tool.repomatic] nuitka = false` is set in `pyproject.toml` (for projects with CLI entry points that don't need standalone binaries)
+- **Skipped if** `[tool.repomatic] nuitka.enabled = false` is set in `pyproject.toml` (for projects with CLI entry points that don't need standalone binaries)
 - **Skipped for** branches that don't affect code:
   - `format-json` (JSON formatting)
   - `format-markdown` (documentation formatting)
@@ -963,7 +963,7 @@ Immutability only blocks **asset uploads and modifications** on published releas
 
 Workflows use two concurrency strategies depending on whether they perform critical release operations. Read the `concurrency:` block in each workflow file for the exact YAML.
 
-**`release.yaml`: SHA-based unique groups.** Tagging, PyPI publishing, and GitHub release creation must run to completion. The block lives on the push-triggered entry workflow, not the reusable `_release-engine.yaml` it calls: GitHub decides run cancellation from the entry workflow's group, and a block on the engine lane (reached via `needs: build`) joins its group only after the build lane finishes, too late to cancel queued or building runs. A simple thin caller cancels fine without its own block because its single job joins the reusable workflow's group immediately; the release entry can't, so it declares concurrency itself. Using conditional `cancel-in-progress: false` doesn't work: it's evaluated on the *new* workflow, not the old one. If a regular commit is pushed while a release workflow is running, the new workflow would cancel the release because they share the same concurrency group. The solution: give each release run its own unique group using the commit SHA. Both `[changelog] Release` and `[changelog] Post-release` patterns must be matched because when a release is pushed, the event contains **two commits bundled together** and `github.event.head_commit` refers to the most recent one (the post-release bump).
+**`release.yaml`: SHA-based unique groups.** Tagging, PyPI publishing, and GitHub release creation must run to completion. The block lives on the push-triggered entry workflow, not the reusable `_release-engine.yaml` it calls: GitHub decides run cancellation from the entry workflow's group, and a block on the engine lane (reached via `needs: build`) joins its group only after the build lane finishes, too late to cancel queued or building runs. A simple thin caller cancels fine without its own block because its single job joins the reusable workflow's group immediately; the release entry can't, so it declares concurrency itself. Using conditional `cancel-in-progress: false` doesn't work: it's evaluated on the *new* workflow, not the old one. If a regular commit is pushed while a release workflow is running, the new workflow would cancel the release because they share the same concurrency group. The solution: give each release run its own unique group using the commit SHA. Both `[changelog] Release` and `[changelog] Post-release` patterns must be matched because when a release is pushed, the event contains **two commits bundled together** and `github.event.head_commit` refers to the most recent one (the post-release bump). `schedule` and `workflow_dispatch` runs are isolated the same way, keyed on `github.run_id` rather than a SHA: they compile the [full target fleet](nuitka.md#build-cadence) on purpose, and a dispatch sharing the branch group was observed cancelled mid-build by the next push.
 
 **`changelog.yaml`: event-scoped groups.** `changelog.yaml` includes `github.event_name` in its concurrency group to prevent cross-event cancellation. Without `event_name`, the `workflow_run` event (which fires when "🚀 Build & release" completes) would cancel the `push` event's `prepare-release` job, then skip `prepare-release` itself (due to `if: github.event_name != 'workflow_run'`), so `prepare-release` would never run.
 

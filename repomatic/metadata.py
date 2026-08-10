@@ -295,6 +295,26 @@ METADATA_KEYS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
 """Column definitions for the metadata keys reference table."""
 
 
+def _known_build_targets(names: list[str], kind: str) -> set[str]:
+    """Keep the recognized Nuitka build targets among *names*.
+
+    Shared by {attr}`Metadata.dev_targets` and
+    {attr}`Metadata.unstable_targets`, which read two different config lists
+    against the same roster and would otherwise drift on how they treat a name
+    that roster does not carry.
+
+    :param names: Target names, as configured.
+    :param kind: What the list configures, for the warning naming the strays.
+    :return: The subset of *names* present in
+        {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`.
+    """
+    targets = set(names)
+    unknown = targets - set(NUITKA_BUILD_TARGETS)
+    if unknown:
+        logging.warning(f"Unrecognized {kind} targets: {unknown}")
+    return targets & set(NUITKA_BUILD_TARGETS)
+
+
 def _metadata_config_fields() -> list[str]:
     """`Config` field names exposed as metadata outputs.
 
@@ -764,10 +784,9 @@ class Metadata:
     def event_name(self) -> str | None:
         """Returns the name of the event that triggered the workflow.
 
-        Reads `GITHUB_EVENT_NAME`. This is the raw event name (e.g.,
-        `"push"`, `"pull_request"`, `"workflow_run"`), as opposed to
-        {attr}`event_type` which returns a {class}`WorkflowEvent` enum based
-        on heuristics.
+        Reads `GITHUB_EVENT_NAME`. This is the raw event name (`"push"`,
+        `"pull_request"`, `"workflow_run"`), which {attr}`event_type` resolves
+        to a {class}`~repomatic.github.actions.WorkflowEvent` member.
         """
         return os.environ.get("GITHUB_EVENT_NAME") or None
 
@@ -1568,21 +1587,14 @@ class Metadata:
     def dev_targets(self) -> set[str]:
         """Nuitka build targets compiled on ordinary (non-release) pushes.
 
-        Reads `[tool.repomatic].nuitka.dev-targets` from `pyproject.toml`.
-        Defaults to `{"linux-arm64"}`; an empty list disables dev builds
-        entirely. See the field docstring in `repomatic/config.py` for the
-        canary rationale.
+        Reads `[tool.repomatic].nuitka.dev-targets` from `pyproject.toml`. An
+        empty list disables dev builds entirely. See
+        {attr}`~repomatic.config.Config.nuitka_dev_targets` for the default and
+        the canary rationale.
 
         Unrecognized target names are logged as warnings and discarded.
         """
-        raw = self.config.nuitka_dev_targets
-        targets = set(raw)
-        if targets:
-            unknown = targets - set(NUITKA_BUILD_TARGETS)
-            if unknown:
-                logging.warning(f"Unrecognized dev targets: {unknown}")
-            targets &= set(NUITKA_BUILD_TARGETS)
-        return targets
+        return _known_build_targets(self.config.nuitka_dev_targets, "dev")
 
     @cached_property
     def unstable_targets(self) -> set[str]:
@@ -1593,14 +1605,7 @@ class Metadata:
 
         Unrecognized target names are logged as warnings and discarded.
         """
-        raw = self.config.nuitka_unstable_targets
-        targets = set(raw)
-        if targets:
-            unknown = targets - set(NUITKA_BUILD_TARGETS)
-            if unknown:
-                logging.warning(f"Unrecognized unstable targets: {unknown}")
-            targets &= set(NUITKA_BUILD_TARGETS)
-        return targets
+        return _known_build_targets(self.config.nuitka_unstable_targets, "unstable")
 
     @cached_property
     def package_name(self) -> str | None:

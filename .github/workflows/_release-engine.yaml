@@ -103,7 +103,8 @@ jobs:
     container: ${{ matrix.container }}
     # We keep going when a job flagged as not stable fails.
     continue-on-error: ${{ matrix.state == 'unstable' }}
-    # Headroom over the slowest observed cold-cache build (~37 min on Windows).
+    # Headroom over the slowest measured cold-cache compile job (17.4 min on
+    # windows-x64); see docs/nuitka.md § Compile caching for the full table.
     # Without it a hung compile squats a runner-cap slot for the 360-min default.
     timeout-minutes: 45
     permissions:

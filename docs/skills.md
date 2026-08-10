@@ -145,7 +145,7 @@ sequenceDiagram
 
 ## How a release converges to green
 
-Step 6 dominates the release wall-clock on projects with a long test suite or Nuitka binaries: the 6-platform binary matrix alone takes 40-90 minutes to drain, and it restarts on every push to `main`. The loop converges by acting on failures the moment they land instead of waiting out a run it already knows is doomed:
+Step 6 dominates the release wall-clock on projects with a long test suite or Nuitka binaries: the 6-platform binary matrix alone takes 40-90 minutes to drain. An ordinary push to `main` restarts only the [canary subset](nuitka.md#build-cadence) of that matrix; the release commit, the weekly schedule and a manual dispatch each run the full fleet. The loop converges by acting on failures the moment they land instead of waiting out a run it already knows is doomed:
 
 ```mermaid
 flowchart TD
