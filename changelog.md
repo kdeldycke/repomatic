@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Teach the `repomatic-ship` skill to reconcile bundled skills and agents as a third pass, judge a false-positive autofix PR against current `main` before writing a lint rule for it, and tell a superseded intra-cycle measurement from a genuine contradiction.
+
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)
 
 - **Breaking:** `REPOMATIC_PAT` now requires `Administration: Read-only`, and `lint-repo` fails without it. Regenerate the token with the setup guide's pre-filled link; steps that cannot be verified now say so instead of vanishing.
