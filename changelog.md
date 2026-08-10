@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** `REPOMATIC_PAT` now requires `Administration: Read-only`, and `lint-repo` fails without it. Regenerate the token with the setup guide's pre-filled link; steps that cannot be verified now say so instead of vanishing.
 - New `[tool.repomatic] nuitka.dev-targets` option: an ordinary push now compiles binaries only for a canary subset, `["linux-arm64"]` by default. Release commits, a new weekly schedule and manual dispatches build the full 6-target fleet.
 - `lint-repo` now also verifies versionless `releases/latest/download` URLs in `docs/install.md`, catching a renamed asset that leaves the guide pointing at a 404.
 - `sync-workflow-pins` now walks `npx pkg@1.2.3` version literals forward, not just `npm install` and `uvx` pins.

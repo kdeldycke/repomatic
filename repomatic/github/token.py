@@ -62,6 +62,9 @@ Token permission mapping:
 - **Pull requests** — All PR-creating jobs.
 - **Dependabot alerts** — fix-vulnerable-deps reads vulnerability alerts.
 - **Issues** — Setup guide issue.
+- **Administration** — Reads the Actions settings the setup guide verifies:
+  SHA pinning required, and the fork-PR contributor-approval policy.
+  Read-only: repomatic never writes a repository setting.
 - **Metadata** — Required for all fine-grained token API operations.
 ```
 """
@@ -145,6 +148,16 @@ class PatProbe(NamedTuple):
 
 
 PAT_PERMISSION_PROBES: tuple[PatProbe, ...] = (
+    # `GET /repos/{repo}/actions/permissions` is Administration-scoped, as is
+    # the `fork-pr-contributor-approval` endpoint beside it. Both back a
+    # setup-guide check, and without this permission both answer 403, leaving
+    # those two settings permanently unverified.
+    PatProbe(
+        "administration",
+        "Administration: Read-only",
+        "repos/{repo}/actions/permissions",
+        "Administration: token has access",
+    ),
     PatProbe(
         "contents",
         "Contents: Read and Write",
@@ -220,6 +233,9 @@ class PatPermissionResults:
     Each field holds a `(passed, message)` tuple from the corresponding
     {data}`PAT_PERMISSION_PROBES` row.
     """
+
+    administration: tuple[bool, str]
+    """Result of the `administration` {data}`PAT_PERMISSION_PROBES` row."""
 
     contents: tuple[bool, str]
     """Result of the `contents` {data}`PAT_PERMISSION_PROBES` row."""

@@ -302,6 +302,94 @@ def test_setup_guide_incomplete_step_expanded():
     assert "<strong>Create and configure the token" in content
 
 
+MISSING_ADMIN_PAT = pat_results(
+    administration=(
+        False,
+        (
+            "Token lacks 'Administration: Read-only' permission."
+            " Update the PAT to include this permission."
+        ),
+    )
+)
+"""A PAT passing every probe but the Administration one."""
+
+UNREADABLE = CheckResult(None, "Check skipped (could not query).")
+"""What an Administration-scoped probe answers to a token without it."""
+
+
+@pytest.mark.parametrize(
+    ("title", "fork_pr_ok", "sha_pinning_ok"),
+    (
+        pytest.param(
+            "Require approval for fork PR workflows", UNREADABLE, None, id="fork-pr"
+        ),
+        pytest.param(
+            "Require SHA pinning for GitHub Actions", None, UNREADABLE, id="sha-pinning"
+        ),
+    ),
+)
+def test_setup_guide_unverifiable_step_renders_with_reason(
+    title, fork_pr_ok, sha_pinning_ok
+):
+    """A check that could not run keeps its step, and says why.
+
+    Both settings are read through Administration-scoped endpoints. Deleting
+    the step on a 403 removed the only notice that the setting is unverified,
+    and hid the token gap itself: a missing Administration permission has no
+    other symptom. The step now renders indeterminate, naming what to fix.
+
+    The seam left at `None` keeps its passing default, so each case exercises
+    one unreadable probe beside one that resolved.
+    """
+    with _offline_setup_guide(fork_pr_ok=fork_pr_ok, sha_pinning_ok=sha_pinning_ok) as (
+        _lifecycle,
+        bodies,
+    ):
+        _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    content = bodies[0]
+    assert f"<summary>ℹ️ <strong>{title}</strong></summary>" in content
+    assert "could not be verified" in content
+    assert "**Administration: Read-only**" in content
+
+
+def test_setup_guide_unverifiable_step_does_not_block_closing():
+    """An unreadable probe leaves the issue closable.
+
+    The reader cannot satisfy a check that never runs, so holding the issue
+    open on it would be the same trap the PyPI publisher gate used to set.
+    """
+    with _offline_setup_guide(fork_pr_ok=UNREADABLE, sha_pinning_ok=UNREADABLE) as (
+        lifecycle,
+        _bodies,
+    ):
+        _invoke([
+            "setup-guide",
+            "--has-pat",
+            "--repo",
+            REPO_SLUG,
+            "--has-virustotal-key",
+        ])
+    assert lifecycle.call_args_list[0][1]["has_issues"] is False
+
+
+def test_setup_guide_requests_administration_permission():
+    """The token step asks for Administration, in the form and in the table."""
+    with _offline_setup_guide() as (_lifecycle, bodies):
+        _invoke(["setup-guide"])
+    content = bodies[0]
+    assert "administration=read" in content
+    assert "**Administration**" in content
+
+
+def test_setup_guide_missing_administration_is_reported():
+    """A PAT without Administration is named in the permission warning table."""
+    with _offline_setup_guide(pat=MISSING_ADMIN_PAT) as (_lifecycle, bodies):
+        _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    content = bodies[0]
+    assert "missing some permissions" in content
+    assert "Administration: Read-only" in content
+
+
 PACKAGE_PYPROJECT = """\
 [project]
 name = "papaya"

@@ -5,7 +5,7 @@ footer: 'false'
 
 Some workflows need a **fine-grained personal access token** to create PRs that update files in `.github/workflows/`. Without it, those jobs will silently fail.
 
-1. Open the [**pre-filled token form**](https://github.com/settings/personal-access-tokens/new?name=$repo_name-repomatic&description=REPOMATIC_PAT+for+$repo_owner/$repo_name&target_name=$repo_owner&contents=write&issues=write&metadata=read&pull_requests=write&vulnerability_alerts=read&workflows=write) (or go to **GitHub → Settings → Developer Settings → [Fine-grained tokens](https://github.com/settings/personal-access-tokens)** and click **Generate new token**).
+1. Open the [**pre-filled token form**](https://github.com/settings/personal-access-tokens/new?name=$repo_name-repomatic&description=REPOMATIC_PAT+for+$repo_owner/$repo_name&target_name=$repo_owner&administration=read&contents=write&issues=write&metadata=read&pull_requests=write&vulnerability_alerts=read&workflows=write) (or go to **GitHub → Settings → Developer Settings → [Fine-grained tokens](https://github.com/settings/personal-access-tokens)** and click **Generate new token**).
 
 2. Review the pre-filled **Token name** (`$repo_name-repomatic`).
 
@@ -15,6 +15,7 @@ Some workflows need a **fine-grained personal access token** to create PRs that 
 
    | Permission            | Access                  | Reason                                                                                    |
    | :-------------------- | :---------------------- | :---------------------------------------------------------------------------------------- |
+   | **Administration**    | Read-only               | Read the Actions settings this guide verifies: SHA pinning, fork PR approval policy       |
    | **Contents**          | Read and Write          | Tag pushes, release publishing, PR branch creation                                        |
    | **Dependabot alerts** | Read-only               | fix-vulnerable-deps reads vulnerability alerts to create security PRs                     |
    | **Issues**            | Read and Write          | Setup guide issue management                                                              |

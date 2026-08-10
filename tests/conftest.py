@@ -157,6 +157,7 @@ def pat_results(**overrides: tuple[bool, str]) -> PatPermissionResults:
     :return: The assembled results object.
     """
     return PatPermissionResults(**{
+        "administration": (True, "Administration: token has access"),
         "contents": (True, "Contents: token has access"),
         "issues": (True, "Issues: token has access"),
         "pull_requests": (True, "Pull requests: token has access"),

@@ -225,13 +225,29 @@ def manage_setup_guide(
         passed=branch_ok or False,
     )
 
+    # Both settings below are read through Administration-scoped endpoints, so
+    # a PAT issued without that permission answers 403 and the check lands on
+    # `None`. Say so in the step instead of dropping it: the reader is looking
+    # at a setting they were told to configure, and the difference between
+    # "verified" and "nobody could look" belongs on screen. Dropping it also
+    # hid the token gap itself, since the missing permission had no other
+    # symptom.
+    cannot_verify = (
+        "\n\n> [!NOTE]\n"
+        "> This setting could not be verified: `REPOMATIC_PAT` is missing the"
+        " **Administration: Read-only** permission. Update the token with the"
+        " pre-filled link in the first step. The setting may well be correct"
+        " already, but nothing here can confirm it."
+    )
+
     step_fork_pr_approval = _wrap_setup_step(
         "Require approval for fork PR workflows",
         render_template(
             "setup-guide-fork-pr-approval",
             repo_url=repo_url,
             repo_slug=repo_slug,
-        ),
+        )
+        + (cannot_verify if fork_pr_ok is None else ""),
         passed=fork_pr_ok,
     )
 
@@ -241,7 +257,8 @@ def manage_setup_guide(
             "setup-guide-sha-pinning-required",
             repo_url=repo_url,
             repo_slug=repo_slug,
-        ),
+        )
+        + (cannot_verify if sha_pinning_ok is None else ""),
         passed=sha_pinning_ok,
     )
 
@@ -341,13 +358,6 @@ def manage_setup_guide(
             logging.debug(f"Failed to detect owner type for {repo_owner!r}.")
 
     # --- Assemble issue body ---
-    # Step-skip markers: only include fork-pr approval / SHA-pinning steps
-    # when the check is determinate. When skipped (None), the check could
-    # not run, and a step nobody can act on is worse than no step at all.
-    if fork_pr_ok is None:
-        step_fork_pr_approval = ""
-    if sha_pinning_ok is None:
-        step_sha_pinning_required = ""
 
     setup_body = render_template(
         "setup-guide",
@@ -368,7 +378,10 @@ def manage_setup_guide(
     )
     # Close issue only when all verifiable steps pass.
     # Immutable releases and verify are excluded (no API to check).
-    # Fork PR approval is included only when determinate.
+    # Fork PR approval counts only when determinate: an unreadable probe must
+    # not wedge the issue open, since the reader has no way to satisfy a check
+    # that never runs. Its step still renders, carrying the reason it could not
+    # be checked, so the gap stays visible without being a blocker.
     # Pages source: when is_sphinx, treat "not configured" (None) as a
     # failure so the setup guide reopens with the Pages step.
     vt_ok = not nuitka_active or has_virustotal_key
