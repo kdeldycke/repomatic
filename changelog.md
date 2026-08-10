@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.9.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)
 
 - **Breaking:** `REPOMATIC_PAT` now requires `Administration: Read-only`, and `lint-repo` fails without it. Regenerate the token with the setup guide's pre-filled link; steps that cannot be verified now say so instead of vanishing.
