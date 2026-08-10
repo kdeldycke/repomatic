@@ -7,6 +7,7 @@
 
 - Teach the `repomatic-ship` skill to reconcile bundled skills and agents as a third pass, judge a false-positive autofix PR against current `main` before writing a lint rule for it, and tell a superseded intra-cycle measurement from a genuine contradiction.
 - **Breaking:** the `update-dep-graph` job moved from `autofix.yaml` into the release engine, its only firing moment being a release push. A required check or `needs:` edge naming it under Autofix must follow.
+- **Breaking:** manual version-bump commits now read `` [changelog] Bump minor version to `vX.Y.0` ``: every version-machinery commit carries the `[changelog] ` prefix, and anything matching the old unprefixed titles must follow.
 - Autofix jobs no longer run on version-bump pushes: the 16 remaining jobs only re-checked machine-generated, ship-gated commits, and drift stays covered by the next push and the weekly sweep.
 - The tool runner now retries a download up to 3 times on transient network failures, instead of failing the job on a one-off TLS or truncation error.
 - Standalone binary tests now run for every healthy target when a sibling build fails, instead of being skipped wholesale.

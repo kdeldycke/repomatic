@@ -27,7 +27,9 @@ import tomlrt
 import yaml
 
 from repomatic.git_ops import (
+    CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
+    RELEASE_COMMIT_PATTERN,
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
 )
@@ -46,15 +48,12 @@ from tests.conftest import (
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
 )
 
-# Common prefix for all changelog-related commits.
-CHANGELOG_COMMIT_PREFIX = "[changelog]"
-
 # Commit message prefix that identifies release commits. These commits are protected
 # from cancellation to ensure proper tagging, PyPI publishing, and GitHub releases.
-RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX} Release"
+RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX}Release"
 
 # Commit message prefix for post-release version bump.
-POST_RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX} Post-release bump"
+POST_RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX}Post-release bump"
 
 # Root of the repository.
 REPO_ROOT = Path(__file__).parent.parent
@@ -482,10 +481,11 @@ def test_tests_metadata_gate_skips_manual_bumps() -> None:
 
 @pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_WITH_METADATA_GATE))
 def test_metadata_gate_skips_version_bump_commits(workflow_name: str) -> None:
-    """The `metadata` job's `if:` expression must short-circuit on every
-    VERSION_BUMP_COMMIT_PREFIXES member via a `startsWith(github.event.head_commit.message, ...)`
-    clause, so post-merge `push` events with bot-authored version-bump
-    commit messages skip the entire job graph.
+    """The `metadata` job's `if:` expression must short-circuit on the single
+    CHANGELOG_COMMIT_PREFIX clause, so post-merge `push` events with any
+    machine-authored version-machinery commit at their head skip the entire
+    job graph. The prefix stands in for every VERSION_BUMP_COMMIT_PREFIXES
+    member, which `test_changelog_prefix_is_the_machinery_invariant` holds.
     """
     jobs = load_workflow(workflow_name).get("jobs", {})
     if_expr = jobs.get("metadata", {}).get("if", "")
@@ -493,11 +493,48 @@ def test_metadata_gate_skips_version_bump_commits(workflow_name: str) -> None:
         r"startsWith\(github\.event\.head_commit\.message[^,]*,\s*'([^']+)'\)"
     )
     gated_prefixes = set(pattern.findall(if_expr))
-    assert gated_prefixes == set(VERSION_BUMP_COMMIT_PREFIXES), (
-        f"{workflow_name}: metadata.if gates commit prefixes "
-        f"{sorted(gated_prefixes)!r} but VERSION_BUMP_COMMIT_PREFIXES is "
-        f"{sorted(VERSION_BUMP_COMMIT_PREFIXES)!r}"
+    assert gated_prefixes == {CHANGELOG_COMMIT_PREFIX}, (
+        f"{workflow_name}: metadata.if must gate on the single "
+        f"{CHANGELOG_COMMIT_PREFIX!r} clause, got {sorted(gated_prefixes)!r}"
     )
+
+
+# Autofix jobs that run without a `needs: metadata` edge, so the central gate
+# cannot skip them: each repeats the CHANGELOG_COMMIT_PREFIX clause on its own
+# `if:`.
+AUTOFIX_METADATA_INDEPENDENT_JOBS = ("fix-typos", "setup-guide", "sync-repomatic")
+
+
+@pytest.mark.parametrize("job_name", AUTOFIX_METADATA_INDEPENDENT_JOBS)
+def test_autofix_independent_jobs_repeat_version_bump_gate(job_name: str) -> None:
+    """Metadata-independent autofix jobs carry their own version-bump gate."""
+    jobs = load_workflow("autofix.yaml").get("jobs", {})
+    job = jobs.get(job_name)
+    assert job is not None, f"autofix.yaml no longer defines {job_name}"
+    assert "metadata" not in (job.get("needs") or ()), (
+        f"{job_name} now depends on metadata: drop it from "
+        "AUTOFIX_METADATA_INDEPENDENT_JOBS, the central gate covers it"
+    )
+    if_expr = job.get("if", "")
+    clause = f"!startsWith(github.event.head_commit.message || '', '{CHANGELOG_COMMIT_PREFIX}')"
+    assert clause in if_expr, (
+        f"autofix.yaml:{job_name}: if must repeat the version-bump gate "
+        f"{clause!r}, got {if_expr!r}"
+    )
+
+
+def test_changelog_prefix_is_the_machinery_invariant() -> None:
+    """Every machine-authored version-machinery commit shape carries the prefix.
+
+    The single-clause workflow gates above are only sound while every
+    version-bump commit message starts with CHANGELOG_COMMIT_PREFIX; this is
+    the invariant that lets them stop enumerating message shapes.
+    """
+    for prefix in VERSION_BUMP_COMMIT_PREFIXES:
+        assert prefix.startswith(CHANGELOG_COMMIT_PREFIX), (
+            f"{prefix!r} escapes the {CHANGELOG_COMMIT_PREFIX!r} gate"
+        )
+    assert RELEASE_COMMIT_PATTERN.fullmatch(f"{CHANGELOG_COMMIT_PREFIX}Release v1.2.3")
 
 
 def test_version_bump_branches_match_changelog_workflow() -> None:

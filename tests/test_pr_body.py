@@ -27,7 +27,11 @@ import pytest
 from repomatic import __version__
 from repomatic.config import config_reference
 from repomatic.frontmatter import split_frontmatter
-from repomatic.git_ops import VERSION_BUMP_COMMIT_PREFIXES
+from repomatic.git_ops import (
+    CHANGELOG_COMMIT_PREFIX,
+    MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
+    VERSION_BUMP_COMMIT_PREFIXES,
+)
 from repomatic.github.actions import extract_workflow_filename
 from repomatic.github.pr_body import (
     GITHUB_BODY_MAX_CHARS,
@@ -422,7 +426,7 @@ def test_render_title_static():
 def test_render_title_parameterized():
     """Parameterized templates substitute variables in the title."""
     title = render_title("bump-version", version="1.2.0", part="minor")
-    assert title == "Bump minor version to `v1.2.0`"
+    assert title == "[changelog] Bump minor version to `v1.2.0`"
 
     title = render_title("prepare-release", version="5.8.1")
     assert title == "Release `v5.8.1`"
@@ -444,9 +448,15 @@ def test_render_commit_message_explicit():
 
 
 def test_render_commit_message_parameterized():
-    """Parameterized templates substitute variables in commit_message."""
+    """Parameterized templates substitute variables in commit_message.
+
+    The bump-version message must start with a MANUAL_VERSION_BUMP_COMMIT_PREFIXES
+    member: that is the emission half of the invariant the workflow gates match
+    against (see test_changelog_prefix_is_the_machinery_invariant).
+    """
     msg = render_commit_message("bump-version", version="1.2.0", part="minor")
-    assert msg == "Bump minor version to `v1.2.0`"
+    assert msg == "[changelog] Bump minor version to `v1.2.0`"
+    assert any(msg.startswith(p) for p in MANUAL_VERSION_BUMP_COMMIT_PREFIXES)
 
     msg = render_commit_message("prepare-release", version="5.8.1")
     assert msg == "Release `v5.8.1`"
@@ -1208,29 +1218,33 @@ def test_template_commit_message_carries_no_ci_skip_token(name: str) -> None:
 def test_template_commit_subject_claims_no_bracket_prefix(name: str) -> None:
     """A `[bracketed]` prefix is reserved for machine-parsed mechanisms.
 
-    Only the release lane earns one, and it does not come from a template:
-    `prepare-release` writes `[changelog] …` directly, and
-    {data}`repomatic.git_ops.VERSION_BUMP_COMMIT_PREFIXES` matches it back.
-    A template growing its own prefix would either collide with that matcher
-    or invent a label nothing reads. See docs/commit-messages.md.
+    The one family templates may emit is
+    {data}`repomatic.git_ops.CHANGELOG_COMMIT_PREFIX`, which
+    {data}`repomatic.git_ops.VERSION_BUMP_COMMIT_PREFIXES` matches back
+    (`bump-version` is the template that earns it). Any other bracket would
+    either collide with that matcher or invent a label nothing reads. See
+    docs/commit-messages.md.
     """
     message = render_commit_message(name, **dict.fromkeys(template_args(name), "x"))
     subject = message.splitlines()[0] if message else ""
-    assert not subject.startswith("["), (
+    assert not subject.startswith("[") or subject.startswith(CHANGELOG_COMMIT_PREFIX), (
         f"template {name!r} starts its commit subject with a bracket prefix "
-        f"({subject!r}): brackets are reserved for parsed mechanisms"
+        f"({subject!r}) other than {CHANGELOG_COMMIT_PREFIX!r}: brackets are "
+        "reserved for parsed mechanisms"
     )
 
 
 def test_only_the_changelog_prefix_is_bracketed() -> None:
-    """The parsed-prefix set stays limited to the release lane.
+    """The parsed-prefix set stays a single bracket family.
 
-    `docs/commit-messages.md` tells readers that `[changelog]` is the only
-    bracket prefix any machine reads. This pins that claim to the code, so
-    adding a second one fails here and forces the documentation to follow.
+    `docs/commit-messages.md` tells readers that `[changelog] ` is the only
+    bracket prefix any machine reads, carried by every version-machinery
+    commit. This pins that claim to the code, so a second bracket namespace
+    fails here and forces the documentation to follow.
     """
-    bracketed = {p for p in VERSION_BUMP_COMMIT_PREFIXES if p.startswith("[")}
-    assert bracketed == {"[changelog] Post-release bump "}, (
-        "a new bracket-prefixed commit contract appeared: document it in "
-        "docs/commit-messages.md before extending this assertion"
-    )
+    for prefix in VERSION_BUMP_COMMIT_PREFIXES:
+        assert prefix.startswith(CHANGELOG_COMMIT_PREFIX), (
+            f"{prefix!r} opens a second bracket-prefixed commit contract: "
+            "document it in docs/commit-messages.md before extending this "
+            "assertion"
+        )

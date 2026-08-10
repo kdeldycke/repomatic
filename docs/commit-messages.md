@@ -10,12 +10,13 @@ A `[bracketed]` prefix in a commit subject is reserved for a **load-bearing mech
 
 The rule exists because a bracket prefix is not a label: it is an interface. Something downstream matches on it, and inventing a new one either collides with an existing matcher or trains readers to expect a meaning nothing enforces. The test to apply before writing one: *name the code that reads it.* If nothing does, write plain prose instead.
 
-Two prefixes are load-bearing in a repomatic-managed repository, both emitted by `prepare-release` and both matched literally:
+One prefix family is load-bearing in a repomatic-managed repository: every machine-authored version-machinery commit starts with {data}`repomatic.git_ops.CHANGELOG_COMMIT_PREFIX` (`[changelog] `), which is what lets workflow gates skip machinery pushes on a single `startsWith` clause. The members, all matched literally:
 
-| Prefix                            | Emitted by                | Parsed by                                                                                                    |
-| :-------------------------------- | :------------------------ | :----------------------------------------------------------------------------------------------------------- |
-| `[changelog] Release vX.Y.Z`      | The release freeze commit | The auto-tagging job, which locates the commit to tag **by its message**: a squash merge breaks it           |
-| `[changelog] Post-release bump …` | The unfreeze commit       | {data}`repomatic.git_ops.VERSION_BUMP_COMMIT_PREFIXES`, gating whether workflows run for a version-bump push |
+| Prefix                                   | Emitted by                      | Parsed by                                                                                                    |
+| :--------------------------------------- | :------------------------------ | :----------------------------------------------------------------------------------------------------------- |
+| `[changelog] Release vX.Y.Z`             | The release freeze commit       | The auto-tagging job, which locates the commit to tag **by its message**: a squash merge breaks it           |
+| `[changelog] Post-release bump …`        | The unfreeze commit             | {data}`repomatic.git_ops.VERSION_BUMP_COMMIT_PREFIXES`, gating whether workflows run for a version-bump push |
+| `[changelog] Bump major/minor version …` | The `bump-version` job's merges | {data}`repomatic.git_ops.MANUAL_VERSION_BUMP_COMMIT_PREFIXES`, the subset `tests.yaml` also skips on         |
 
 Everything else repomatic commits carries no prefix. Each `sync-*`, `format-*` and `fix-*` job takes its subject from its pull request template's `title:` field, giving `Sync action pins`, `` Sync `uv.lock` ``, `Format Markdown`, `Fix vulnerable dependencies`: imperative, capitalized, no trailing period, identifiers backticked, no prefix.
 

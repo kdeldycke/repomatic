@@ -1,6 +1,6 @@
 ---
 args: [version, part]
-title: Bump $part version to `v$version`
+title: "[changelog] Bump $part version to `v$version`"
 docs: https://kdeldycke.github.io/repomatic/workflows.html#bump-version-bump-version
 footer: false
 ---

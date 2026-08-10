@@ -48,9 +48,7 @@ jobs:
     # version-bump commit gate the metadata job carries.
     if: >
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-      && !startsWith(github.event.head_commit.message || '', 'Bump major version to ')
-      && !startsWith(github.event.head_commit.message || '', 'Bump minor version to ')
-      && !startsWith(github.event.head_commit.message || '', '[changelog] Post-release bump ')
+      && !startsWith(github.event.head_commit.message || '', '[changelog] ')
     runs-on: ubuntu-slim
     permissions:
       issues: write
@@ -74,15 +72,15 @@ jobs:
     # machine-generated and ship-gated, any drift they could introduce is caught
     # by the next ordinary push or the weekly scheduled sweep, and the one job
     # whose only firing moment was the release push (update-dep-graph) now lives
-    # in the release engine. The lists must stay in sync with
-    # repomatic.binary.VERSION_BUMP_BRANCHES and VERSION_BUMP_COMMIT_PREFIXES,
-    # both enforced by repomatic's own test suite.
+    # in the release engine. The PR branch list must stay in sync with
+    # repomatic.git_ops.VERSION_BUMP_BRANCHES; the single commit-message clause
+    # relies on repomatic.git_ops.CHANGELOG_COMMIT_PREFIX marking every
+    # machine-authored version-machinery commit. Both enforced by repomatic's
+    # own test suite.
     if: >
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
       github.head_ref)
-      && !startsWith(github.event.head_commit.message || '', 'Bump major version to ')
-      && !startsWith(github.event.head_commit.message || '', 'Bump minor version to ')
-      && !startsWith(github.event.head_commit.message || '', '[changelog] Post-release bump ')
+      && !startsWith(github.event.head_commit.message || '', '[changelog] ')
     runs-on: ubuntu-slim
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
@@ -362,9 +360,7 @@ jobs:
     # Runs without `needs: metadata`, so it repeats the version-bump commit
     # gate the metadata job carries.
     if: >
-      !startsWith(github.event.head_commit.message || '', 'Bump major version to ')
-      && !startsWith(github.event.head_commit.message || '', 'Bump minor version to ')
-      && !startsWith(github.event.head_commit.message || '', '[changelog] Post-release bump ')
+      !startsWith(github.event.head_commit.message || '', '[changelog] ')
     runs-on: ubuntu-slim
     permissions:
       contents: write
@@ -453,9 +449,7 @@ jobs:
     # Runs without `needs: metadata`, so it repeats the version-bump commit
     # gate the metadata job carries.
     if: >
-      !startsWith(github.event.head_commit.message || '', 'Bump major version to ')
-      && !startsWith(github.event.head_commit.message || '', 'Bump minor version to ')
-      && !startsWith(github.event.head_commit.message || '', '[changelog] Post-release bump ')
+      !startsWith(github.event.head_commit.message || '', '[changelog] ')
     runs-on: ubuntu-slim
     permissions:
       contents: write

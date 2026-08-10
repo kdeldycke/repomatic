@@ -73,8 +73,8 @@ jobs:
     if: >
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
       github.head_ref)
-      && !startsWith(github.event.head_commit.message || '', 'Bump major version to ')
-      && !startsWith(github.event.head_commit.message || '', 'Bump minor version to ')
+      && !startsWith(github.event.head_commit.message || '', '[changelog] Bump major version to ')
+      && !startsWith(github.event.head_commit.message || '', '[changelog] Bump minor version to ')
     runs-on: ubuntu-slim
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
