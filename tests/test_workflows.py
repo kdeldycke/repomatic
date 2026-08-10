@@ -122,8 +122,13 @@ WORKFLOWS_IGNORING_VERSION_BUMPS = frozenset((
 # because it must still test the post-release-bump push: that push also
 # carries the release commit, and is the only post-merge test of the
 # release-frozen tree. See `test_tests_metadata_gate_skips_manual_bumps`
-# for tests.yaml's narrower gating.
+# for tests.yaml's narrower gating. `autofix.yaml` qualifies because
+# version-bump pushes are machine-generated and ship-gated, and its one
+# release-triggered job (`update-dep-graph`) moved to the release engine;
+# its three metadata-independent jobs repeat the commit-prefix clause on
+# their own `if:`.
 WORKFLOWS_WITH_METADATA_GATE = frozenset((
+    "autofix.yaml",
     "labels.yaml",
     "lint.yaml",
 ))

@@ -54,7 +54,7 @@ GitHub Actions has several design limitations that the workflows work around:
 
 ### 🪄 [`.github/workflows/autofix.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/autofix.yaml)
 
-This workflow runs on every push to `main` and on a **weekly schedule** so quiet repos that see few pushes still receive dependency and pin updates automatically.
+This workflow runs on every push to `main` and on a **weekly schedule** so quiet repos that see few pushes still receive dependency and pin updates automatically. Version-bump pushes (a release's `[changelog]` pair, manual major/minor bumps) skip every job: those commits are machine-generated and ship-gated, and any drift they could introduce is caught by the next ordinary push or the weekly sweep.
 
 *Setup* — guide new users through initial configuration:
 
@@ -223,12 +223,6 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 ```{note}
 A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yaml-jobs), shares this family but not this job: it rewrites repomatic's own tool registry, so it lives in the upstream-only [`self-maintenance.yaml`](#github-workflows-self-maintenance-yaml-jobs).
 ```
-
-#### 🕸️ Update dependency graph (`update-dep-graph`)
-
-- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/dep_graph.py)
-- **Requires**:
-  - Python package with a `uv.lock` file
 
 #### 📚 Update docs (`update-docs`)
 
@@ -659,6 +653,14 @@ flowchart TD
   - The wheel from the build lane (`build-package`, downloaded run-scoped) and the `compile-binaries` job (uses `always()` for resilience)
 - **Skipped if**:
   - `dev-release.sync = false` in `[tool.repomatic]`
+
+#### 🕸️ Update dependency graph (`update-dep-graph`)
+
+- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/dep_graph.py), and opens a PR with the refreshed diagram
+- Lives in the release engine because a release push is its only firing moment (ordinary pushes would only churn the graph with transitive noise), and `autofix.yaml`, its former home, now skips version-bump pushes wholesale
+- **Runs on**: Release commits only
+- **Requires**:
+  - Python package with a `uv.lock` file
 
 (github-workflows-self-maintenance-yaml-jobs)=
 

@@ -806,6 +806,10 @@ REFERENCE_WORKFLOWS = (
     # The detect-squash-merge --template reference lives in the build lane, not
     # the release.yaml entry (which only calls the lanes and publishes).
     ".github/workflows/_release-build.yaml",
+    # The update-dep-graph --template reference lives in the engine lane: a
+    # release push is that job's only firing moment, and autofix.yaml (its
+    # former home) skips version-bump pushes wholesale.
+    ".github/workflows/_release-engine.yaml",
     # Upstream-only bumpers, whose write domain exists only in this repository.
     ".github/workflows/self-maintenance.yaml",
 )

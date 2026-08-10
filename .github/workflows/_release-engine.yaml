@@ -949,3 +949,44 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic sync-dev-release --live
           --upload-assets release_assets
+
+  # Refresh the Mermaid dependency graph once per release (never on ordinary
+  # pushes, to avoid noise from transitive dependency churn). Lives in the
+  # release engine rather than autofix.yaml because a release push is its only
+  # firing moment, which is exactly the push autofix skips wholesale (its
+  # version-bump metadata gate would otherwise starve this job forever).
+  update-dep-graph:
+    name: 🕸️ Update dependency graph
+    needs:
+      - metadata
+    if: >
+      fromJSON(needs.metadata.outputs.metadata).is_python_project
+      && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.1"
+      - name: Generate graph
+        # Package name and output path are auto-detected from pyproject.toml.
+        run: uv --no-progress run --frozen -- repomatic update-dep-graph
+      - id: pr-metadata
+        run: >
+          uv --no-progress run --frozen -- repomatic
+          pr-body --output-format github-actions
+          --template update-dep-graph
+          --output "$GITHUB_OUTPUT"
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.REPOMATIC_PAT || github.token }}
+          assignees: ${{ github.actor }}
+          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
+          title: ${{ steps.pr-metadata.outputs.title }}
+          body: ${{ steps.pr-metadata.outputs.body }}
+          labels: "📚 documentation"
+          branch: update-dep-graph
+          delete-branch: true

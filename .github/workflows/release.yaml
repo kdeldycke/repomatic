@@ -135,12 +135,14 @@ jobs:
       - pack-plugin
     # Union of the engine jobs' scopes (the top-level `{}` grants nothing on its
     # own): compile-binaries needs id-token + attestations (plus contents:read),
-    # and create-tag / create-release / manpages / publish-release /
-    # scan-virustotal / sync-dev-release need contents:write.
+    # create-tag / create-release / manpages / publish-release /
+    # scan-virustotal / sync-dev-release need contents:write, and
+    # update-dep-graph needs pull-requests:write for its PR.
     permissions:
       attestations: write
       contents: write
       id-token: write
+      pull-requests: write
     secrets:
       REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
       VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
