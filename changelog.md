@@ -14,6 +14,9 @@
 > [!WARNING]
 > The `windows-x64` binary shipped without its `.attestation.json` sidecar: a transient TLS failure on the runner skipped the upload, and immutable releases lock the asset list. The attestation itself is registered, so `gh attestation verify repomatic-7.9.0-windows-x64.exe --repo kdeldycke/repomatic` still verifies against GitHub's attestation service.
 
+> [!NOTE]
+> `7.9.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.9.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.9.0).
+
 - **Breaking:** `REPOMATIC_PAT` now requires `Administration: Read-only`, and `lint-repo` fails without it. Regenerate the token with the setup guide's pre-filled link; steps that cannot be verified now say so instead of vanishing.
 - New `[tool.repomatic] nuitka.dev-targets` option: an ordinary push now compiles binaries only for a canary subset, `["linux-arm64"]` by default. Release commits, a new weekly schedule and manual dispatches build the full 6-target fleet.
 - `lint-repo` now also verifies versionless `releases/latest/download` URLs in `docs/install.md`, catching a renamed asset that leaves the guide pointing at a 404.
