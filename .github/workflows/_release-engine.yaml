@@ -115,13 +115,16 @@ jobs:
       # bytecode) under the workspace, so the cache step below and Nuitka
       # agree on one path both on VM jobs and inside the manylinux containers.
       NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
-      # ccache's default compiler check hashes the compiler's mtime+size, and
-      # runner VMs do not keep stable file timestamps, so a cache written by
-      # one VM never hits on the next (measured: 0/470 hits on both macOS
-      # targets while MSVC clcache hit 494/495). Hash the compiler binary's
-      # content instead, and tolerate __DATE__/__TIME__ macros, which
-      # otherwise poison every preprocessed hash. Nuitka's internal clcache
-      # on MSVC ignores both knobs.
+      # Two ccache settings cross-VM hits depend on: hash the compiler
+      # binary's content (the default mtime+size check trips on runner VMs,
+      # which do not keep stable file timestamps) and tolerate
+      # __DATE__/__TIME__ macros. Exported for any direct invocation, but not
+      # the authoritative channel: scons hands compiler processes a scrubbed
+      # environment, and macOS measured 0/470 hits on a sibling VM's cache
+      # with these exported. The cache-prep step below mirrors both into
+      # $CCACHE_DIR/ccache.conf, which ccache always reads; env vars outrank
+      # the file only where both are visible, and the values are identical.
+      # Nuitka's internal clcache on MSVC ignores both settings.
       CCACHE_COMPILERCHECK: content
       CCACHE_SLOPPINESS: time_macros
     steps:
@@ -137,19 +140,21 @@ jobs:
       # bytecode. The per-commit key never hits exactly, so every run saves a
       # fresh snapshot and restores the latest previous one via the prefix;
       # ccache/clcache hash compiler, flags and sources themselves, so a stale
-      # snapshot degrades to cache misses, never to wrong objects. The Linux
-      # containers ship no ccache, so their C objects are not cached yet; the
-      # entry still carries the smaller Nuitka caches.
+      # snapshot degrades to cache misses, never to wrong objects.
       - name: Restore Nuitka compile cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .nuitka-cache
           key: nuitka-${{ matrix.target }}-${{ matrix.commit }}
           restore-keys: nuitka-${{ matrix.target }}-
-      # Nuitka's clcache has no size cap or pruning (ccache self-prunes at
-      # 5 GiB): left alone, a restore-then-save cycle grows the cache without
-      # bound. Reset past 2 GiB and let the next save start a fresh lineage.
-      - name: Trim oversized Nuitka cache
+      # Two duties. Trim: Nuitka's clcache has no size cap or pruning (ccache
+      # self-prunes at 5 GiB), so left alone a restore-then-save cycle grows
+      # the cache without bound; reset past 2 GiB and let the next save start
+      # a fresh lineage. Configure: write ccache's settings inside the cache
+      # dir itself, the one channel that reliably reaches the wrapper (ccache
+      # always reads $CCACHE_DIR/ccache.conf, while the job-level CCACHE_*
+      # env vars above die with scons's scrubbed compiler environment).
+      - name: Prepare Nuitka cache
         shell: bash
         run: |
           if [[ -d .nuitka-cache ]]; then
@@ -160,6 +165,9 @@ jobs:
               rm -rf .nuitka-cache
             fi
           fi
+          mkdir -p .nuitka-cache/ccache
+          printf 'compiler_check = content\nsloppiness = time_macros\n' \
+            > .nuitka-cache/ccache/ccache.conf
       # The manylinux containers ship no ccache (Nuitka warns and compiles
       # cold), so the canary target pays full C compilation on every push.
       # EPEL is a distro archive, exempt from the install cooldown (see
