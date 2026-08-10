@@ -118,13 +118,10 @@ jobs:
       # Two ccache settings cross-VM hits depend on: hash the compiler
       # binary's content (the default mtime+size check trips on runner VMs,
       # which do not keep stable file timestamps) and tolerate
-      # __DATE__/__TIME__ macros. Exported for any direct invocation, but not
-      # the authoritative channel: scons hands compiler processes a scrubbed
-      # environment, and macOS measured 0/470 hits on a sibling VM's cache
-      # with these exported. The cache-prep step below mirrors both into
-      # $CCACHE_DIR/ccache.conf, which ccache always reads; env vars outrank
-      # the file only where both are visible, and the values are identical.
-      # Nuitka's internal clcache on MSVC ignores both settings.
+      # __DATE__/__TIME__ macros. The cache-prep step below also writes both
+      # into $CCACHE_DIR/ccache.conf, so whichever channel reaches the
+      # wrapper carries the same values. Nuitka's internal clcache on MSVC
+      # ignores both settings.
       CCACHE_COMPILERCHECK: content
       CCACHE_SLOPPINESS: time_macros
     steps:
@@ -134,14 +131,20 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.1"
-      # Persist the Nuitka compile caches across runs: ccache objects on
-      # clang targets (Nuitka auto-downloads its own ccache on macOS), its
-      # internal clcache objects on MSVC, plus downloads and demoted-module
-      # bytecode. The per-commit key never hits exactly, so every run saves a
-      # fresh snapshot and restores the latest previous one via the prefix;
-      # ccache/clcache hash compiler, flags and sources themselves, so a stale
-      # snapshot degrades to cache misses, never to wrong objects.
+      # Persist the Nuitka compile caches across runs: ccache objects on gcc
+      # targets, Nuitka's internal clcache objects on MSVC, plus downloads
+      # and demoted-module bytecode. The per-commit key never hits exactly,
+      # so every run saves a fresh snapshot and restores the latest previous
+      # one via the prefix; ccache/clcache hash compiler, flags and sources
+      # themselves, so a stale snapshot degrades to cache misses, never to
+      # wrong objects. macOS is excluded: its ccache scored 0/470 cross-VM
+      # hits through every configuration channel tried (CCACHE_* env vars,
+      # then ccache.conf inside this very cache dir), so persisting it only
+      # paid restore/save overhead for entries that never hit. Capture
+      # Nuitka's CCACHE_LOGFILE from a scheduled run to diagnose before
+      # re-enabling.
       - name: Restore Nuitka compile cache
+        if: matrix.platform_id != 'macos'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .nuitka-cache
@@ -155,6 +158,7 @@ jobs:
       # always reads $CCACHE_DIR/ccache.conf, while the job-level CCACHE_*
       # env vars above die with scons's scrubbed compiler environment).
       - name: Prepare Nuitka cache
+        if: matrix.platform_id != 'macos'
         shell: bash
         run: |
           if [[ -d .nuitka-cache ]]; then
