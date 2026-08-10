@@ -104,7 +104,12 @@ from .docs import update_docs as _update_docs
 from .frontmatter import split_frontmatter
 from .git_ops import commit_and_push_files, create_and_push_tag
 from .github import token as _token_mod, unsubscribe as _unsub_mod
-from .github.actions import cancel_superseded_runs, format_multiline_output
+from .github.actions import (
+    AnnotationLevel,
+    cancel_superseded_runs,
+    emit_annotation,
+    format_multiline_output,
+)
 from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
     sync_dev_release as _sync_dev_release,
@@ -144,7 +149,7 @@ from .github.unsubscribe import (
     unsubscribe_threads as _unsubscribe_threads,
 )
 from .github.workflow_sync import run_workflow_lint
-from .gitignore import build_gitignore
+from .gitignore import build_gitignore, orphaned_rules
 from .humanize import format_age, format_file_size
 from .images import (
     DEFAULT_MIN_SAVINGS_BYTES,
@@ -1244,14 +1249,27 @@ def close_stale_bump_pr(part: str) -> None:
     default=None,
     help=("Output path. Defaults to gitignore-location from [tool.repomatic] config."),
 )
+@option(
+    "--drop-orphans/--no-drop-orphans",
+    default=False,
+    help=(
+        "Overwrite rules found on disk but absent from the generated file, "
+        "instead of refusing to drop them."
+    ),
+)
 @pass_context
-def sync_gitignore(ctx: Context, output_path: Path | None) -> None:
+def sync_gitignore(ctx: Context, output_path: Path | None, drop_orphans: bool) -> None:
     """Sync a .gitignore file from gitignore.io templates.
 
     Fetches templates for a base set of categories plus any extras from
     [tool.repomatic] config, then appends gitignore-extra-content.
     Writes to the path specified by gitignore-location (default
     ./.gitignore).
+
+    The generated file is the whole file: nothing is read back from the copy on
+    disk. A rule added there by hand is therefore dropped on the next sync, so
+    the write aborts when it would lose one. Move the rule into
+    gitignore-extra-content to keep it, or pass --drop-orphans to let it go.
 
     \b
     Examples:
@@ -1274,6 +1292,32 @@ def sync_gitignore(ctx: Context, output_path: Path | None) -> None:
     # Resolve output path.
     if output_path is None:
         output_path = Path(config.gitignore.location)
+
+    # Compare against what is already there before overwriting it. Skipped for
+    # stdout, which destroys nothing, and for a first run, which has nothing to
+    # destroy.
+    if not drop_orphans and str(output_path) != "-" and output_path.is_file():
+        orphans = orphaned_rules(output_path.read_text(encoding="UTF-8"), content)
+        if orphans:
+            emit_annotation(
+                AnnotationLevel.ERROR,
+                f"{output_path}: sync would drop {len(orphans)} hand-added "
+                f"rule(s): {', '.join(orphans)}",
+            )
+            echo(
+                f"Refusing to overwrite {output_path}: "
+                f"{len(orphans)} rule(s) on disk are absent from the generated "
+                "file and would be lost.",
+                err=True,
+            )
+            for rule in orphans:
+                echo(f"  {rule}", err=True)
+            echo(
+                "\nMove them into [tool.repomatic.gitignore] extra-content to "
+                "keep them, or re-run with --drop-orphans to discard them.",
+                err=True,
+            )
+            ctx.exit(1)
 
     log_output_target(".gitignore", output_path)
 

@@ -718,6 +718,48 @@ def test_install_guide_downloads_all_present(tmp_path, monkeypatch):
         assert result.passed is True
 
 
+GUIDE_WITH_LATEST_ALIAS = (
+    "$ curl --fail --remote-name "
+    "https://github.com/owner/repo/releases/latest/download/papaya-macos-x64.bin\n"
+)
+
+
+def test_install_guide_downloads_latest_alias_present(tmp_path, monkeypatch):
+    """Check a versionless alias against the latest release, with no tag."""
+    monkeypatch.chdir(tmp_path)
+    _write_install_guide(tmp_path, GUIDE_WITH_LATEST_ALIAS)
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {"assets": [{"name": "papaya-macos-x64.bin"}]}
+        result = check_install_guide_downloads("owner/repo")
+        assert result.passed is True
+        # No tag argument: `gh release view` then reads the latest release,
+        # which is what the alias URL redirects to.
+        assert mock_gh.call_args.args[0] == [
+            "release",
+            "view",
+            "--json",
+            "assets",
+            "--repo",
+            "owner/repo",
+        ]
+
+
+def test_install_guide_downloads_latest_alias_renamed(tmp_path, monkeypatch):
+    """Warn on an alias naming a file the latest release renamed away.
+
+    This is the `meta-package-manager` shape: binaries went from `mpm-*` to
+    `meta-package-manager-*` in `7.0.0`, and nothing rewrites an alias URL, so
+    the guide kept advertising a 404 across six releases.
+    """
+    monkeypatch.chdir(tmp_path)
+    _write_install_guide(tmp_path, GUIDE_WITH_LATEST_ALIAS)
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        mock_gh.return_value = {"assets": [{"name": "papaya-fruit-macos-x64.bin"}]}
+        result = check_install_guide_downloads("owner/repo")
+        assert result.passed is False
+        assert "latest/papaya-macos-x64.bin" in result.message
+
+
 def test_install_guide_downloads_missing_asset(tmp_path, monkeypatch):
     """Warn naming each referenced file the release does not carry."""
     monkeypatch.chdir(tmp_path)

@@ -87,8 +87,15 @@ DEV_SUFFIX_RE = re.compile(r"\.dev\d*$")
 """Match the trailing PEP 440 developmental-release segment of a version."""
 
 # npm install commands: `npm install awesome-lint@2.3.0`.
+#
+# `npx` counts too, and is the more common spelling in a workflow: it runs a tool
+# once without installing it, which is exactly what CI wants. Left out, an
+# `npx --yes html-validate@10.1.1` pin was the one version literal in a workflow
+# that nothing walked forward. Its flags sit between the command and the package
+# (`--yes`, `--quiet`), so they are skipped over rather than assumed absent, and
+# the leading `-` in the flag pattern keeps it from swallowing the package name.
 _NPM_LITERAL_RE = re.compile(
-    r"npm\s+(?:install|i|add)\s+"
+    r"(?:npm\s+(?:install|i|add)|npx)\s+(?:-{1,2}[a-z-]+\s+)*"
     r'"?(?P<package>@?[a-z0-9-]+(?:/[a-z0-9-]+)?)@(?P<version>[0-9][0-9.]*)"?'
 )
 

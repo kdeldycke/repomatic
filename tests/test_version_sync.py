@@ -379,6 +379,59 @@ def test_find_workflow_literals():
     assert ("pypi", "extra-platforms", "13.0.1") in literals
 
 
+@pytest.mark.parametrize(
+    ("command", "package", "version"),
+    (
+        pytest.param(
+            "npm install awesome-lint@2.3.0", "awesome-lint", "2.3.0", id="npm-install"
+        ),
+        pytest.param("npm i awesome-lint@2.3.0", "awesome-lint", "2.3.0", id="npm-i"),
+        pytest.param("npm add @scope/pkg@1.2.3", "@scope/pkg", "1.2.3", id="npm-add"),
+        # `npx` runs a tool without installing it, which is what a workflow
+        # reaches for, so its pins need walking forward like any other.
+        pytest.param(
+            "npx html-validate@10.1.1 .", "html-validate", "10.1.1", id="npx-bare"
+        ),
+        pytest.param(
+            "npx --yes html-validate@10.1.1 './out/**/*.html'",
+            "html-validate",
+            "10.1.1",
+            id="npx-flag",
+        ),
+        pytest.param(
+            "npx --yes @divriots/jampack@0.34.1 ./output",
+            "@divriots/jampack",
+            "0.34.1",
+            id="npx-scoped",
+        ),
+    ),
+)
+def test_find_workflow_literals_npm_commands(command, package, version):
+    """Both npm and npx pins are discovered, whatever flags sit in between."""
+    literals = {
+        (lit.ecosystem, lit.package, lit.version)
+        for lit in vs.find_workflow_literals(f"          {command}\n")
+    }
+    assert ("npm", package, version) in literals
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        pytest.param("npm install awesome-lint", id="npm-unpinned"),
+        pytest.param("npx some-tool .", id="npx-unpinned"),
+    ),
+)
+def test_find_workflow_literals_ignores_unpinned_npm(command):
+    """A command naming no version has no literal to walk forward."""
+    npm = [
+        lit
+        for lit in vs.find_workflow_literals(f"          {command}\n")
+        if lit.ecosystem == "npm"
+    ]
+    assert npm == []
+
+
 def test_apply_workflow_literals():
     content = "          uvx --no-progress 'papaya-cli==11.2.8'\n"
     new_content, changes = vs.apply_workflow_literals(

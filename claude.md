@@ -94,6 +94,18 @@ Three installs deliberately bypass the window. The first two are per-package and
 
 A fourth exemption is a bug until proven otherwise. Anything claiming one carries a comment naming what breaks without it, and the narrowest scope that still works: a package, not a job; a job, not a workflow.
 
+That inventory is this repository's own. A downstream repo runs the same rule against its own, which is usually empty. One category recurs and is worth naming, because it reads like a violation and is not: a dependency the same maintainer publishes. The window guards against a compromised upstream, and here the publisher and the consumer are the same person, so it buys nothing while holding each release back a week from the only repository that consumes it. Exempt it per-package, with a zero span rather than a fixed date so the next release is picked up without editing the file, and put the reasoning beside it:
+
+```toml
+[tool.uv]
+# plumage is my own theme, published by me: the cooldown guards against a
+# compromised upstream, which does not apply here, and it otherwise holds each
+# release back a week from the one repository that consumes it.
+exclude-newer-package = { plumage = "0 days" }
+```
+
+Declaring it in `pyproject.toml` rather than in a machine's `~/.config/uv/uv.toml` is what makes a fresh clone resolve the same way, and keeps the exemption reviewable in a diff. It stays a bypass and not a hole: the transitive tree that release pulls in is still gated, and that tree is the part the maintainer did not publish.
+
 ## Documentation requirements
 
 ### Keeping `claude.md` lean

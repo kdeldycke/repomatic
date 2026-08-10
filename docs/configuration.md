@@ -92,7 +92,9 @@ $ repomatic init --delete-excluded
 
 ### Diverging from a managed file
 
-Every file repomatic manages is a generated output, not a starting template. `sync-repomatic`, `sync-gitignore` and their siblings rebuild these files from `[tool.repomatic]` on each run and open a pull request for the difference, so an edit made straight to the file survives exactly until the next sync. The revert arrives as an ordinary-looking sync pull request, which is what makes it easy to miss: nothing warns that the diff is undoing a deliberate local decision.
+Every file repomatic manages is a generated output, not a starting template. `sync-repomatic`, `sync-gitignore` and their siblings rebuild these files from `[tool.repomatic]` on each run and open a pull request for the difference, so an edit made straight to the file survives exactly until the next sync. The revert arrives as an ordinary-looking sync pull request, which is what makes it easy to miss: the diff is undoing a deliberate local decision and reads like routine maintenance.
+
+`sync-gitignore` is the exception, because there the loss is silent and total rather than a visible diff line: it refuses to write when a rule on disk is absent from what it generated, listing the rules at stake and exiting non-zero. Move them into `gitignore.extra-content` to keep them, or pass `--drop-orphans` to confirm they should go. Comments and ordering are not compared, so a reformatted file is not mistaken for a rewritten one.
 
 There are two ways to keep a divergence, and picking the wrong one is why the edit keeps coming back.
 

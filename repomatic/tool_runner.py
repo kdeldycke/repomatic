@@ -965,7 +965,10 @@ def _dereference_data_dir_symlinks(
     one; `os.stat` follows the dangling link, and the target was never
     copied. Reported upstream as https://github.com/Nuitka/Nuitka/issues/3994,
     which also covers the quieter half: platforms that do not sign exit zero
-    and ship the dangling link.
+    and ship the dangling link. Upstream confirmed the diagnosis and ruled out
+    a local fix: whether a link can be kept is only knowable once the full
+    file list is built, so symlinks have to become a data-file type of their
+    own, and that lands no earlier than Nuitka 4.3.
 
     Staging a plain copy sidesteps the bug regardless of its root cause:
     `shutil.copytree(..., symlinks=False)` resolves every symlink to its

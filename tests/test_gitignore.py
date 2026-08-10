@@ -28,6 +28,8 @@ from repomatic.gitignore import (
     GITIGNORE_BASE_CATEGORIES,
     GITIGNORE_IO_URL,
     build_gitignore,
+    orphaned_rules,
+    parse_rules,
 )
 from tests.conftest import FakeResponse
 
@@ -90,3 +92,49 @@ def test_build_gitignore_propagates_fetch_error():
         pytest.raises(URLError),
     ):
         build_gitignore(_config())
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    (
+        pytest.param("", [], id="empty"),
+        pytest.param("\n  \n\n", [], id="blank-lines-only"),
+        pytest.param("# just a comment\n", [], id="comment-only"),
+        pytest.param("*.log\n", ["*.log"], id="single-rule"),
+        pytest.param("  *.log  \n", ["*.log"], id="surrounding-whitespace"),
+        pytest.param("*.log\n*.log\n", ["*.log"], id="duplicates-collapse"),
+        pytest.param("b\na\n", ["b", "a"], id="order-preserved"),
+        pytest.param("!*.svg\n", ["!*.svg"], id="negation-is-a-rule"),
+        # git reads `#` as a comment opener only in first position, so a hash
+        # further along the line belongs to the pattern.
+        pytest.param("foo#bar\n", ["foo#bar"], id="hash-mid-line-kept"),
+        pytest.param("\\#literal\n", ["\\#literal"], id="escaped-hash-kept"),
+    ),
+)
+def test_parse_rules(content, expected):
+    """Only the lines git matches paths against survive parsing."""
+    assert parse_rules(content) == expected
+
+
+def test_orphaned_rules_reports_what_the_sync_would_lose():
+    """A rule on disk and absent from the rebuild is reported."""
+    existing = "# Pelican\n*.pid\noutput\nseo_report.html\n"
+    generated = "# base\n*.pid\n"
+    assert orphaned_rules(existing, generated) == ["output", "seo_report.html"]
+
+
+@pytest.mark.parametrize(
+    ("existing", "generated"),
+    (
+        pytest.param("", "*.log\n", id="nothing-on-disk"),
+        pytest.param("*.log\n", "*.log\n", id="identical"),
+        pytest.param("*.log\n", "*.log\n*.tmp\n", id="generated-is-a-superset"),
+        # Layout is not content: recomments and reorders drop no rule.
+        pytest.param(
+            "# old header\nb\na\n", "# new header\n\na\nb\n", id="reordered-recommented"
+        ),
+    ),
+)
+def test_orphaned_rules_empty_when_nothing_is_lost(existing, generated):
+    """Rewrites that keep every rule report no orphan, whatever the layout."""
+    assert orphaned_rules(existing, generated) == []

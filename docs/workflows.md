@@ -142,6 +142,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
   - A `.gitignore` file in the repository
 - **Skipped if**:
   - `gitignore.sync = false` in `[tool.repomatic]`
+- **Fails if**: the rebuild would drop a rule the committed `.gitignore` carries, since the generated file replaces it whole. The job lists the rules and stops without opening a pull request; move them into `gitignore.extra-content`, or add `--drop-orphans` to the step to discard them
 
 #### 🔄 Sync bumpversion config (`sync-bumpversion`)
 

@@ -62,8 +62,23 @@ Derived from the registry constant `repomatic init` deploys against, so the
 checks and the generator can never disagree about where a workflow lives.
 """
 
-RELEASE_DOWNLOAD_RE = re.compile(r"/releases/download/([^/\s\")]+)/([^/\s\")]+)")
+RELEASE_DOWNLOAD_RE = re.compile(
+    r"/releases/(?:download/(?P<tag>[^/\s\")]+)|latest/download)"
+    r"/(?P<filename>[^/\s\")]+)"
+)
 """A GitHub release asset URL, capturing its tag and filename.
+
+Matches both spellings a guide can use: the tag-pinned
+`/releases/download/<tag>/<file>` the release freeze writes, and the
+versionless `/releases/latest/download/<file>` alias the binary aliases exist
+to serve, which names no tag and so leaves `tag` unset.
+
+Covering only the first made the check a no-op on a guide written entirely
+against the alias, which is precisely where a filename rots unnoticed: the
+freeze rewrites a pinned tag every release and would surface a bad name, while
+an alias URL is never touched again after it is written. `meta-package-manager`
+renamed its binaries from `mpm-*` to `meta-package-manager-*` in `7.0.0` and
+its install guide kept advertising the old name for six weeks.
 
 Matches any release download link, not only a binary one, so the install
 guide's whole download surface is verified with a single pattern. Both groups
@@ -334,7 +349,12 @@ def check_install_guide_downloads(repo: str) -> CheckResult:
     leaves the guide advertising files that 404 until the next release
     ratchets past it. `7.7.0` shipped that way, with all six links dead.
 
-    Nothing static can catch this: the URLs are well-formed and correct on
+    A versionless `latest/download` alias fails a different way, and stays
+    broken longer: nothing rewrites it at release time, so it silently outlives
+    a renamed asset instead of being re-pinned every cycle. Both forms are
+    checked, see {data}`RELEASE_DOWNLOAD_RE`.
+
+    Nothing static can catch either: the URLs are well-formed and correct on
     disk, and only the release's actual asset list settles whether they
     resolve. Hence a lint check against the API rather than a conformance
     test.
@@ -353,21 +373,28 @@ def check_install_guide_downloads(repo: str) -> CheckResult:
     if not guide.is_file():
         return CheckResult(None, "Install guide downloads: skipped (no install guide).")
 
-    # Group the referenced filenames by the release tag they are served from.
-    referenced: dict[str, set[str]] = {}
-    for tag, filename in RELEASE_DOWNLOAD_RE.findall(guide.read_text(encoding="UTF-8")):
-        referenced.setdefault(tag, set()).add(filename)
+    # Group the referenced filenames by the release they are served from. The
+    # versionless `latest/download` alias names no tag, so it keys on None and
+    # resolves through `gh release view` with no tag argument, which reads the
+    # same latest published release GitHub redirects that URL to.
+    referenced: dict[str | None, set[str]] = {}
+    for match in RELEASE_DOWNLOAD_RE.finditer(guide.read_text(encoding="UTF-8")):
+        referenced.setdefault(match["tag"], set()).add(match["filename"])
     if not referenced:
         return CheckResult(
             None, "Install guide downloads: skipped (no release download URLs)."
         )
 
     missing: list[str] = []
-    for tag, filenames in sorted(referenced.items()):
+    # None is not comparable to a tag string, so sort it to the front by hand.
+    for tag, filenames in sorted(
+        referenced.items(), key=lambda item: (item[0] is not None, item[0] or "")
+    ):
+        label = "latest" if tag is None else tag
         assets = gh_api_json([
             "release",
             "view",
-            tag,
+            *(() if tag is None else (tag,)),
             "--json",
             "assets",
             "--repo",
@@ -378,18 +405,19 @@ def check_install_guide_downloads(repo: str) -> CheckResult:
             # here, and a false alarm on a transient API failure is worse
             # than a silent pass: the next run re-checks.
             return CheckResult(
-                None, f"Install guide downloads: skipped (could not read {tag})."
+                None, f"Install guide downloads: skipped (could not read {label})."
             )
         published = {asset["name"] for asset in assets.get("assets", [])}
-        missing.extend(f"{tag}/{name}" for name in sorted(filenames - published))
+        missing.extend(f"{label}/{name}" for name in sorted(filenames - published))
 
     if missing:
         listed = ", ".join(missing)
         return CheckResult(
             False,
             f"Install guide links {len(missing)} missing release file(s): "
-            f"{listed}. Re-point the guide at the last release carrying them "
-            "(PrepareRelease.freeze_install_download_urls).",
+            f"{listed}. Re-point a pinned tag at the last release carrying them "
+            "(PrepareRelease.freeze_install_download_urls); fix a `latest` alias "
+            "by hand, as the freeze never rewrites one.",
         )
     return CheckResult(True, "Install guide download URLs all resolve.")
 

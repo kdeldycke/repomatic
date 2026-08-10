@@ -85,3 +85,41 @@ def build_gitignore(config: Config) -> str:
     if config.gitignore.extra_content:
         content += "\n" + config.gitignore.extra_content + "\n"
     return content
+
+
+def parse_rules(content: str) -> list[str]:
+    """Extract the ignore rules from `.gitignore` *content*.
+
+    Blank lines and comments are dropped, leaving only the lines git actually
+    matches paths against. Order is preserved and duplicates are collapsed, so
+    the result compares two files by what they ignore rather than by how they
+    are laid out.
+
+    Only a leading `#` opens a comment: git treats one anywhere else in the
+    line as part of the pattern, so no inline-comment stripping happens here.
+
+    :param content: Full text of a `.gitignore` file.
+    :return: The rules, in first-seen order.
+    """
+    rules = (line.strip() for line in content.splitlines())
+    return list(
+        dict.fromkeys(rule for rule in rules if rule and not rule.startswith("#"))
+    )
+
+
+def orphaned_rules(existing: str, generated: str) -> list[str]:
+    """Return the rules *generated* would drop from *existing*.
+
+    `sync-gitignore` rebuilds the file from gitignore.io plus
+    `[tool.repomatic.gitignore] extra-content` and never reads what is already
+    on disk, so a rule added by hand survives exactly one edit: the next sync
+    writes over it. Comparing the two rule sets before the write is what turns
+    that silent loss into something the caller can refuse.
+
+    :param existing: Current content of the `.gitignore` on disk.
+    :param generated: Content {func}`build_gitignore` just produced.
+    :return: Rules present in *existing* and absent from *generated*, in
+        first-seen order. Empty when the sync drops nothing.
+    """
+    kept = set(parse_rules(generated))
+    return [rule for rule in parse_rules(existing) if rule not in kept]
