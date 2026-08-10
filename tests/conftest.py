@@ -22,10 +22,11 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+from click_extra import ClickException
 
 from repomatic.github.token import PatPermissionResults
 from repomatic.metadata import Metadata
-from repomatic.tool_runner import ensure_binary
+from repomatic.tool_runner import ensure_binary, run_tool
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -77,6 +78,28 @@ WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK = tuple(
     sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml") if not _declares_concurrency(p))
 )
 """The complement of {data}`WORKFLOWS_WITH_CONCURRENCY_BLOCK`."""
+
+
+def skip_unless_tool_runs(name: str) -> None:
+    """Skip the calling test when a registry tool cannot run on this machine.
+
+    A test that lints generated output reads the tool's verdict off its exit
+    code, and a `uvx` resolution that fails offline exits non-zero too. Probing
+    with `--version` first keeps the two apart, so whatever the real invocation
+    returns afterwards is the tool's opinion of the content rather than a fetch
+    failure misread as a defect in the generator.
+
+    Only a developer with no network ever takes the skip: CI is the enforcement
+    point, and a tool it cannot fetch fails the job long before this runs.
+
+    :param name: Registry key of the tool the caller is about to invoke.
+    """
+    try:
+        exit_code = run_tool(name, extra_args=("--version",))
+    except (ClickException, OSError) as exc:
+        pytest.skip(f"{name} is unavailable: {exc}")
+    if exit_code != 0:
+        pytest.skip(f"{name} cannot run here: `--version` exited {exit_code}")
 
 
 @pytest.fixture(autouse=True)

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 from textwrap import dedent
 
 import pytest
@@ -33,8 +34,11 @@ from repomatic.changelog import (
     split_changelog_bullets,
     warn_on_long_bullets,
 )
+from repomatic.github.pr_body import render_template
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
+from repomatic.tool_runner import verify_via_write_path
+from tests.conftest import skip_unless_tool_runs
 
 SAMPLE_CHANGELOG = dedent(
     """\
@@ -1799,3 +1803,66 @@ def test_lint_fix_skips_orphan_without_a_release_date(
         assert lint_changelog_dates(changelog_file, fix=True) == 1
     assert "3.0.0: no release date found in any source" in caplog.text
     assert "0000-00-00" not in changelog_file.read_text(encoding="UTF-8")
+
+
+@pytest.mark.once
+def test_rendered_sections_are_an_mdformat_fixed_point(tmp_path, monkeypatch):
+    """Every section this module renders must survive `format-markdown` intact.
+
+    `fix-changelog` writes `changelog.md` and `format-markdown` reformats the
+    same file on the same push. When the two disagree on the canonical layout
+    they ping-pong: one job rewrites the section, the next reformats it, each
+    opening its own PR, and neither converges. See `claude.md` §
+    "Generator/formatter ping-pong is recurrent".
+
+    Both renderings are exercised, because they fail differently. The inserted
+    placeholder leaves every optional admonition slot of the `release-notes`
+    template empty, which is where stray blank-line runs collect; the
+    regenerated section fills the availability slot with a GFM alert, which
+    only `mdformat_gfm_alerts` knows how to reflow.
+
+    Verified through the write path rather than `mdformat --check`, whose
+    verdict is unreliable for a tool carrying a `post_process` fixup (see
+    {func}`~repomatic.tool_runner.verify_via_write_path`).
+
+    Marked `once`: it resolves mdformat and its fifteen plugins through uvx, so
+    one runner suffices.
+    """
+    # mdformat has no --config flag, so `run_tool` stages one in the working
+    # directory; chdir keeps that write, and verify_via_write_path's scratch
+    # copies, inside this test's tmp_path rather than the repository root.
+    monkeypatch.chdir(tmp_path)
+    skip_unless_tool_runs("mdformat")
+
+    changelog = Changelog(SAMPLE_CHANGELOG)
+    changelog.insert_version_section(
+        "1.2.1",
+        "2023-11-02",
+        "https://github.com/user/repo",
+        ["1.2.3", "1.2.2", "1.2.1"],
+    )
+    # The composition fix-changelog performs: a NOTE for the platforms carrying
+    # the version, a WARNING for the one that is missing it.
+    elements = changelog.decompose_version("1.2.2")
+    elements.availability_admonition = "\n\n".join((
+        build_release_admonition(
+            "1.2.2", pypi_url="https://pypi.org/project/papaya/1.2.2/"
+        ),
+        build_unavailable_admonition("1.2.2", missing_github=True),
+    ))
+    assert changelog.replace_section(
+        "1.2.2", render_template("release-notes", **asdict(elements))
+    )
+
+    target = tmp_path / "changelog.md"
+    target.write_text(changelog.content.rstrip() + "\n", encoding="UTF-8")
+
+    _, drifted = verify_via_write_path("mdformat", extra_args=(str(target),))
+
+    assert not drifted, (
+        "mdformat rewrites a freshly rendered changelog section, so "
+        "fix-changelog and format-markdown will ping-pong on every push. "
+        "Align the templates in repomatic/templates/ with mdformat's output "
+        f"rather than reformatting changelog.md by hand. Rendered:\n"
+        f"{target.read_text(encoding='UTF-8')}"
+    )

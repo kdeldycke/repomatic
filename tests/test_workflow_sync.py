@@ -62,10 +62,12 @@ from repomatic.registry import (
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
 )
+from repomatic.tool_runner import run_tool
 from tests.conftest import (
     PROJECT_ROOT,
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
+    skip_unless_tool_runs,
 )
 
 TYPE_CHECKING = False
@@ -235,13 +237,110 @@ def test_no_python_literals_in_yaml(filename: str) -> None:
     ``str()`` on nested dicts, producing ``{'key': 'value'}`` instead of
     block-style YAML.
 
-    .. todo::
-        Run ``yamllint`` and ``actionlint`` on all generated thin-caller YAML
-        to catch structural issues beyond Python literal leaks.
+    Kept alongside the two linter passes below, which do not subsume it.
+    actionlint rejects a leaked literal only where the workflow schema
+    constrains the value it landed in (a flow mapping under `schedule:`, which
+    takes a list); the same leak inside a free-form value, a `paths:` entry or
+    an input default, is well-formed YAML that both linters accept. This scans
+    the rendered text wherever it appears, and names the defect directly.
     """
     content = generate_thin_caller(filename)
     assert "{'" not in content, f"{filename}: Python dict literal found in output"
     assert "'}" not in content, f"{filename}: Python dict literal found in output"
+
+
+PINNED_CALLER_SHA = "0" * 40
+"""Placeholder commit SHA for the pinned `uses:` rendering.
+
+actionlint checks the *shape* of a `uses:` reference without resolving it, so a
+synthetic SHA exercises that branch with no network lookup and no tie to a
+commit that has to keep existing.
+"""
+
+
+def _materialize_thin_callers(root: Path) -> list[str]:
+    """Write every generated thin caller under *root* as a real workflow tree.
+
+    Both `uses:` renderings are covered: the bare `@version` tag ref, and the
+    `@sha # version` form `repomatic init` writes into a downstream repo. The
+    two differ in the trailing comment on the `uses:` line, so linting one
+    leaves the other's rendering unchecked.
+
+    Files land under a `.github/workflows/` path because actionlint keys part
+    of its rule set on that location.
+
+    :param root: Directory to build the workflow trees under.
+    :return: Every written path, ready to hand to a linter.
+    """
+    written: list[str] = []
+    for variant, commit_sha in (("tag-ref", None), ("sha-pinned", PINNED_CALLER_SHA)):
+        workflows = root / variant / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        for filename in REUSABLE_WORKFLOWS:
+            content = generate_thin_caller(
+                filename, version="v9.9.9", commit_sha=commit_sha
+            )
+            target = workflows / filename
+            target.write_text(content, encoding="UTF-8")
+            written.append(str(target))
+    return written
+
+
+@pytest.mark.once
+def test_generated_callers_pass_yamllint(tmp_path: Path) -> None:
+    """Generated thin callers must clear the yamllint rules CI enforces.
+
+    A thin caller is the one artifact this repository generates and never
+    materializes into its own tree: `.github/workflows/` here holds the
+    canonical workflows, so the `lint` job's yamllint step never sees a
+    generated file. The first checkout that does is a downstream repo, a
+    release later, which makes a regression here something a user reports
+    rather than something CI catches. Running the pinned yamllint over the
+    output moves that verdict back to the commit that introduced it.
+
+    In practice that is the 120-column cap and little else: a native config
+    replaces yamllint's defaults rather than layering over them, and the
+    bundled `yamllint.yaml` sets `line-length` alone. It is still the rule
+    worth guarding, being the one a renderer breaches by widening a single
+    interpolated value, and the one `tests/test_prepare_release.py`
+    re-implements in Python to cover the freeze path. Any rule the bundled
+    config grows later is covered here for free.
+
+    Marked `once`: it resolves yamllint through uvx, so one runner suffices.
+    """
+    skip_unless_tool_runs("yamllint")
+    assert run_tool("yamllint", extra_args=_materialize_thin_callers(tmp_path)) == 0, (
+        "yamllint rejects generated thin-caller output; its diagnostics are in "
+        "the captured stdout above. Fix the renderers in "
+        "repomatic/github/workflow_sync.py rather than any workflow in this "
+        "repository: this output only ever lands in a downstream checkout."
+    )
+
+
+@pytest.mark.once
+def test_generated_callers_pass_actionlint(tmp_path: Path) -> None:
+    """Generated thin callers must be workflows GitHub will actually accept.
+
+    Companion to the yamllint pass, and the stronger half of the pair: it
+    reads the workflow schema, so it sees what neither a YAML parser nor a
+    column cap can. A `uses:` reference stripped of its `@ref`, a `${{ }}`
+    expression naming a context property that does not exist, a trigger value
+    whose type is wrong for the key it sits under: each parses cleanly, and
+    each fails at startup on the runner. For a generated caller that means
+    failing in someone else's repository.
+
+    Marked `once`: it downloads the pinned actionlint binary, so one runner
+    suffices.
+    """
+    skip_unless_tool_runs("actionlint")
+    assert (
+        run_tool("actionlint", extra_args=_materialize_thin_callers(tmp_path)) == 0
+    ), (
+        "actionlint rejects generated thin-caller output; its diagnostics are "
+        "in the captured stdout above. Fix the renderers in "
+        "repomatic/github/workflow_sync.py rather than any workflow in this "
+        "repository: this output only ever lands in a downstream checkout."
+    )
 
 
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
