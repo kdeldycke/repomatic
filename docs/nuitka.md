@@ -40,15 +40,15 @@ Scheduled and dispatched runs own a run-scoped concurrency group, so a later pus
 
 ## Compile caching
 
-Most of what Nuitka compiles is the standard library and dependencies, which barely change between builds, so the C-object caches are persisted across runs with `actions/cache`. `NUITKA_CACHE_DIR` relocates every Nuitka cache (C objects, downloads, demoted-module bytecode) under the workspace, one cache entry per target, keyed per commit with a prefix `restore-keys` fallback: every run restores the latest previous snapshot and saves a fresh one, and the compiler caches hash compiler, flags and sources themselves, so a stale snapshot degrades to misses, never to wrong objects. A guard step resets any cache past 2 GiB, because Nuitka's clcache never prunes itself.
+Most of what Nuitka compiles is the standard library and dependencies, which barely change between builds, so the C-object caches are persisted across runs with `actions/cache` on canary and weekly builds. Release commits build cold, on purpose: see the [supply-chain posture](#supply-chain-posture) below. `NUITKA_CACHE_DIR` relocates every Nuitka cache (C objects, downloads, demoted-module bytecode) under the workspace, one cache entry per target, keyed per commit with a prefix `restore-keys` fallback: every caching run restores the latest previous snapshot and saves a fresh one, and the compiler caches hash compiler, flags and sources themselves, so a stale snapshot degrades to misses, never to wrong objects. A guard step resets any cache past 2 GiB, because Nuitka's clcache never prunes itself.
 
 Each platform caches through a different mechanism:
 
-| Target      | Object cache              | Provisioning                                                                                 |
-| ----------- | ------------------------- | -------------------------------------------------------------------------------------------- |
-| `windows-*` | Nuitka's internal clcache | Built into Nuitka, on by default for MSVC.                                                   |
-| `macos-*`   | ccache `4.2.1`            | Auto-downloaded by Nuitka (an x86-64 build, under Rosetta on arm); not persisted, see below. |
-| `linux-*`   | ccache `3.7.7`            | Installed from EPEL inside the `manylinux_2_28` container, non-fatally.                      |
+| Target      | Object cache              | Provisioning                                                            |
+| ----------- | ------------------------- | ----------------------------------------------------------------------- |
+| `windows-*` | Nuitka's internal clcache | Built into Nuitka, on by default for MSVC.                              |
+| `macos-*`   | none                      | ccache is disabled on macOS with `--disable-ccache`, see below.         |
+| `linux-*`   | ccache `3.7.7`            | Installed from EPEL inside the `manylinux_2_28` container, non-fatally. |
 
 ccache needs two non-default settings to hit across runner VMs: `compiler_check = content` (the default hashes the compiler's mtime and size, which VMs do not keep stable) and `sloppiness = time_macros`. They are exported as `CCACHE_*` environment variables and written into `ccache.conf` inside the persisted cache directory, so whichever channel reaches the compiler wrapper carries the same values.
 
@@ -65,9 +65,17 @@ Measured on `7.9.0.dev0` (Nuitka `4.1.3`, ~470-495 C files per binary), cold ver
 
 The residual warm time is the part caching cannot touch: Nuitka's Python-level compilation, linking, onefile payload compression, and the self-test. The one cache-missing module on warm Windows builds is the version module the pre-bake step stamps per build.
 
-macOS is the measured exception: its ccache never hits across runner VMs, and the cause is undiagnosed. A cache written 15 minutes earlier by a sibling VM on the same commit missed 470/470 with the `CCACHE_*` environment variables exported, and missed 470/470 again with the same settings in `ccache.conf` inside the restored cache directory, so something ccache hashes (not its configuration) differs per VM. Cache persistence is disabled for the macOS targets until that input divergence is understood: capturing Nuitka's `CCACHE_LOGFILE` from a scheduled run is the next probe. The cost is bounded, since macOS only builds weekly and at releases.
+macOS is the measured exception: its ccache (the `4.2.1` x86-64 build Nuitka auto-downloads, under Rosetta on arm) never hits across runner VMs, and the cause is undiagnosed. A cache written 15 minutes earlier by a sibling VM on the same commit missed 470/470 with the `CCACHE_*` environment variables exported, and missed 470/470 again with the same settings in `ccache.conf` inside the restored cache directory, so something ccache hashes (not its configuration) differs per VM. Since a within-run ccache never re-hits either, macOS ccache carried zero benefit, and it is now disabled outright (`--disable-ccache`), which also removes an unchecksummed binary download from the pipeline. Capturing Nuitka's `CCACHE_LOGFILE` from a scheduled run is the next probe before reconsidering. The cost is bounded, since macOS only builds weekly and at releases.
 
 To inspect a cache, the compile job logs Nuitka's own hit/miss summary (`Cached C files (using ccache) with result …`) plus a per-subdirectory size report. To reset one, delete its entries: `gh cache list --key nuitka-` then `gh cache delete {key}`; the next build re-seeds it.
+
+## Supply-chain posture
+
+The compile job resolves every input through a pinned, cooldown-gated channel: the CLI and its dependencies from the hash-pinned `uv.lock` under the workflow-wide `UV_EXCLUDE_NEWER`, Nuitka itself as an exact registry pin walked forward under `minimum-release-age`, actions as SHA pins, and the Linux ccache from EPEL, a GPG-verified distro archive that the cooldown doctrine deliberately leaves to the distro's own staging.
+
+The compile cache is the one input no cooldown concept covers, and it gets a structural control instead. GitHub scopes cache writes by ref, so fork pull requests can never write entries the engine restores; the residual writer set is code already running in main-ref workflows, which is why every action there is SHA-pinned and cooled. Against the remaining sliver (a cache entry is a tar archive extracted into the workspace, and a poisoned compiler object would flow silently into a signed, published, immutable binary), **release commits neither restore nor save the cache**: every published artifact compiles from source on a fresh VM, and cache contents can influence only throwaway canary and weekly builds. macOS additionally runs with ccache disabled, removing the one unchecksummed download (Nuitka's `ccache-4.2.1.zip` from nuitka.net, fetched with no hash at the call site) from the pipeline.
+
+Detection layers back the prevention: artifact attestation binds every binary to the exact run that built it, `verify-binary` checks architecture and OS floors, the self-test executes the binary, and every release is submitted to VirusTotal. None of these would catch a competent backdoor on their own; the cold-release rule is what keeps them from having to.
 
 ## Link-time optimization
 

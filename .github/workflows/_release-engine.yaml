@@ -137,14 +137,23 @@ jobs:
       # so every run saves a fresh snapshot and restores the latest previous
       # one via the prefix; ccache/clcache hash compiler, flags and sources
       # themselves, so a stale snapshot degrades to cache misses, never to
-      # wrong objects. macOS is excluded: its ccache scored 0/470 cross-VM
-      # hits through every configuration channel tried (CCACHE_* env vars,
-      # then ccache.conf inside this very cache dir), so persisting it only
-      # paid restore/save overhead for entries that never hit. Capture
-      # Nuitka's CCACHE_LOGFILE from a scheduled run to diagnose before
-      # re-enabling.
+      # wrong objects. Two exclusions:
+      # - Release commits build cold, on purpose: a cache entry is writable
+      #   by any code running in any main-ref workflow (the cache API is not
+      #   gated by `permissions:`), and its restore is a tar extraction into
+      #   the workspace, so a poisoned entry could reach a signed, published,
+      #   immutable binary. Skipping restore AND save on release commits
+      #   keeps every published artifact compiled from source on a fresh VM;
+      #   canary and weekly runs keep the warm-cache speed.
+      # - macOS is excluded entirely: its ccache scored 0/470 cross-VM hits
+      #   through every configuration channel tried (CCACHE_* env vars, then
+      #   ccache.conf inside this very cache dir), so persisting it only paid
+      #   restore/save overhead for entries that never hit. Capture Nuitka's
+      #   CCACHE_LOGFILE from a scheduled run to diagnose before re-enabling.
       - name: Restore Nuitka compile cache
-        if: matrix.platform_id != 'macos'
+        if: >-
+          matrix.platform_id != 'macos'
+          && !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .nuitka-cache
@@ -158,7 +167,9 @@ jobs:
       # always reads $CCACHE_DIR/ccache.conf, while the job-level CCACHE_*
       # env vars above die with scons's scrubbed compiler environment).
       - name: Prepare Nuitka cache
-        if: matrix.platform_id != 'macos'
+        if: >-
+          matrix.platform_id != 'macos'
+          && !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
         shell: bash
         run: |
           if [[ -d .nuitka-cache ]]; then
@@ -233,6 +244,15 @@ jobs:
         # passes as a proper argv, so a plain word-split is enough here.
         env:
           NUITKA_PYTHON_FLAGS: ${{ matrix.nuitka_python_flags }}
+          # On macOS Nuitka auto-downloads a ccache binary from nuitka.net,
+          # with no checksum at the call site (SconsCaching.py's
+          # getCachedDownload passes none). Since the macOS cache is not
+          # persisted (0/470 cross-VM hits, see the cache step above), ccache
+          # brings zero benefit there and the unchecksummed download is pure
+          # supply-chain surface: disable it. Empty (and inert) elsewhere;
+          # Linux ccache and MSVC clcache are unaffected.
+          NUITKA_CCACHE_FLAG: >-
+            ${{ matrix.platform_id == 'macos' && '--disable-ccache' || '' }}
           BIN_NAME: ${{ matrix.bin_name }}
           MODULE_PATH: ${{ matrix.module_path }}
           # Pin the macOS floor: without it, compiled objects and processed
@@ -242,11 +262,11 @@ jobs:
             ${{ matrix.platform_id == 'macos' && matrix.min_os || '' }}
         shell: bash
         run: |
-          # NUITKA_PYTHON_FLAGS holds the entry point's --python-flag (if any),
+          # NUITKA_PYTHON_FLAGS and NUITKA_CCACHE_FLAG hold optional flags,
           # meant to word-split.
           # shellcheck disable=SC2086
           uv --no-progress run --frozen -- repomatic run nuitka -- \
-            ${NUITKA_PYTHON_FLAGS} \
+            ${NUITKA_PYTHON_FLAGS} ${NUITKA_CCACHE_FLAG} \
             --output-filename="${BIN_NAME}" "${MODULE_PATH}"
       - name: Upload Nuitka crash report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
