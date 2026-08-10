@@ -80,7 +80,7 @@ from .version_sync import exclude_newer_cutoff, min_release_age_days
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
     from typing import Any
 
 
@@ -221,6 +221,15 @@ def resolve_config(
     tool_config: dict[str, Any] | None = None,
 ) -> tuple[list[str], Path | None]:
     """Resolve config for a tool using the 4-level precedence chain.
+
+    ```{caution}
+    The levels do not merge. The walk stops at its first hit, so a native
+    config file or a `[tool.X]` section replaces the bundled default in full
+    rather than layering on top of it. A downstream repo overriding one rule
+    must restate every bundled rule it wants to keep, and gains nothing when
+    the bundled default later grows a rule. {func}`resolve_config_source`
+    labels a shadowing config so `repomatic run --list` shows the loss.
+    ```
 
     :param spec: Tool specification.
     :param tool_config: Pre-loaded `[tool.X]` config dict. If `None`,
@@ -1114,8 +1123,8 @@ def run_tool(
                 "post-processing step that only runs when files are written. "
                 "Its exit status is unreliable here: it can flag drift the "
                 "write path would reconcile, or miss drift the write path "
-                "would introduce. Re-run in write mode for an authoritative "
-                "result.",
+                "would introduce. For a trustworthy answer that still leaves "
+                "the working tree untouched, use verify_via_write_path().",
                 spec.name,
             )
 
@@ -1129,6 +1138,92 @@ def run_tool(
         if tmp_path is not None:
             logging.debug("Cleaning up temp config: %s", tmp_path.resolve())
             tmp_path.unlink(missing_ok=True)
+
+
+def verify_via_write_path(
+    name: str,
+    extra_args: Sequence[str] = (),
+    **run_kwargs: Any,
+) -> tuple[int, list[str]]:
+    """Check a `post_process` tool's formatting without touching the tree.
+
+    A tool pairing `post_process` with `check_flags` has no trustworthy check
+    mode: the fixup only runs on the write path, so the check status can flag
+    drift the write path would reconcile, or miss drift it would introduce (see
+    {attr}`ToolSpec.check_flags`). This runs the *write* path against throwaway
+    copies instead, then compares, which is the only authoritative answer.
+
+    ```{important}
+    The copies are made **inside the working directory**, not in the system
+    temp area. Formatters discover their config by walking up from each file,
+    so a copy parked outside the repository resolves a different config and
+    silently reports drift that does not exist.
+    ```
+
+    The working tree is never written to: only the copies are formatted, and
+    they are removed before returning.
+
+    :param name: Tool name, as in {func}`run_tool`.
+    :param extra_args: Arguments for the tool. Any existing path among them is
+        copied and rewritten to its copy; check flags are dropped, since they
+        would defeat the write path this relies on. Every other argument is
+        passed through untouched.
+    :param run_kwargs: Forwarded verbatim to {func}`run_tool`.
+    :return: `(exit_code, drifted)`, where `exit_code` is `0` when every target
+        is already formatted and `1` otherwise, and `drifted` names the paths
+        the write path would have changed.
+    """
+    spec = TOOL_REGISTRY[name]
+    scratch = Path(tempfile.mkdtemp(prefix=".repomatic-verify-", dir=Path.cwd()))
+    try:
+        rewritten: list[str] = []
+        # Map each copy back to its original, so the comparison below reads the
+        # pair rather than re-deriving it from argument order.
+        pairs: list[tuple[Path, Path]] = []
+        for arg in extra_args:
+            if arg in spec.check_flags:
+                continue
+            source = Path(arg)
+            if not source.exists():
+                rewritten.append(arg)
+                continue
+            copy = scratch / source.name
+            if source.is_dir():
+                shutil.copytree(source, copy)
+            else:
+                shutil.copy2(source, copy)
+            pairs.append((source, copy))
+            rewritten.append(str(copy))
+
+        if not pairs:
+            logging.warning(
+                "%s: no existing path among %r, nothing to verify.", name, extra_args
+            )
+            return 0, []
+
+        run_tool(name, extra_args=rewritten, **run_kwargs)
+
+        drifted = sorted(
+            str(source_file)
+            for source, copy in pairs
+            for source_file, copied_file in _walk_pair(source, copy)
+            if source_file.read_bytes() != copied_file.read_bytes()
+        )
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+    return (1 if drifted else 0), drifted
+
+
+def _walk_pair(original: Path, copy: Path) -> Iterator[tuple[Path, Path]]:
+    """Yield every `(original, copy)` file pair under a copied target."""
+    if original.is_file():
+        yield original, copy
+        return
+    for child in sorted(p for p in original.rglob("*") if p.is_file()):
+        mirrored = copy / child.relative_to(original)
+        if mirrored.is_file():
+            yield child, mirrored
 
 
 # ---------------------------------------------------------------------------
@@ -1145,13 +1240,20 @@ def _detect_config_level(spec: ToolSpec) -> tuple[int, str]:
     :return: `(level, description)` where level is 1-4 and description
         is a human-readable source label.
     """
+    # The walk stops at its first hit and merges nothing, so a level-1 or
+    # level-2 config replaces the bundled default wholesale. Say so here: a
+    # downstream override that restates only the one rule it wanted to change
+    # is silently dropping every other bundled rule, and the drop is invisible
+    # until the bundled default grows a rule the override never knew about.
+    shadowed = " (replaces bundled default)" if spec.default_config else ""
+
     for config_file in spec.native_config_files:
         if Path(config_file).exists():
-            return 1, config_file
+            return 1, f"{config_file}{shadowed}"
 
     tool_config = load_pyproject_tool_section(spec.name)
     if tool_config:
-        return 2, f"[tool.{spec.name}] in pyproject.toml"
+        return 2, f"[tool.{spec.name}] in pyproject.toml{shadowed}"
 
     if spec.default_config:
         return 3, "bundled default"

@@ -210,7 +210,11 @@ This skill, the workflows it drives, and the conventions it enforces live upstre
 - **A workflow "failure" that turned out to be a real upstream bug**: trace it to its template in `repomatic/data/` or `.github/workflows/` instead of waving it off (archetype: `release.yaml` red on every push from a `strategy.matrix` evaluating `fromJSON('')`).
 - **A reconciliation the skill should have anticipated** (archetype: the step-6 second consolidation pass, added after babysit fixes shipped spurious or missing entries).
 
-Surfacing these is how the skill improves release-over-release. **Propose only:** do not commit, push, or open anything upstream without explicit approval.
+Surfacing these is how the skill improves release-over-release.
+
+**Implement each finding in `../repomatic` when that sibling checkout exists, and stop before the commit.** Describing a fix leaves the maintainer the whole implementation; a diff already sitting in their working tree leaves them only the review, which is the step they were going to do regardless. So edit the upstream code, update whatever tests the change breaks, and verify it there (`uv run --project ../repomatic --frozen -- pytest …`). Then **do not commit, do not push, do not open a PR or an issue** — the same boundary this skill stops at downstream. Report which files you touched and what verification you ran, so the review starts from evidence rather than from your summary.
+
+Fix at the mechanism, not the symptom: a wording repeated across many generated files has one generator, and editing the generated copies leaves the next render to undo you. Check first whether the text you are about to hand-edit is emitted by a function or asserted verbatim by a test. When no `../repomatic` checkout exists, fall back to describing the finding precisely enough to act on: the file, the mechanism, and the failure it causes.
 
 ### Why "Rebase and merge", never squash
 

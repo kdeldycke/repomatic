@@ -1,5 +1,11 @@
 # Bundled default yamllint configuration for repomatic.
 # Used as a fallback when no native .yamllint.yaml or [tool.yamllint] exists.
+#
+# Those two REPLACE this file rather than layering over it: the config walk
+# stops at its first hit and merges nothing. A downstream repo overriding one
+# rule must restate every rule below that it wants to keep, and will not pick
+# up a rule added here later. Adding a rule to this file therefore reaches
+# only the repos that have no config of their own.
 rules:
   line-length:
     max: 120

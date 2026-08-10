@@ -737,7 +737,10 @@ class ToolSpec:
     `post_process` and `check_flags`, its check-mode exit status is
     unreliable. `run_tool` detects the pairing via
     {meth}`check_bypasses_post_process` and warns. Verify formatting by
-    running the write path, not the check flag.
+    running the write path, not the check flag:
+    {func}`repomatic.tool_runner.verify_via_write_path` does exactly that
+    against throwaway copies, so the answer is authoritative and the working
+    tree is still never written to.
     ```
     """
 

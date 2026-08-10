@@ -31,9 +31,10 @@ concurrency:
 # Supply-chain cooldown: no package published within the window can be resolved by
 # any command in this workflow. Set here, not per command, so it also covers the
 # `metadata` bootstrap and any step added later; a workflow-level `env:` cannot
-# reference `needs`, so the window is a literal that tests/test_workflows.py holds
-# equal to `[tool.repomatic] minimum-release-age`. Deliberate bypasses are
-# per-package CLI flags (`--exclude-newer-package`, `--min-release-age-exclude`).
+# reference `needs`, so the window is a literal kept equal to `[tool.repomatic]
+# minimum-release-age`. repomatic's own test suite enforces that upstream; a
+# synced copy is kept in step by hand. Deliberate bypasses are per-package CLI
+# flags (`--exclude-newer-package`, `--min-release-age-exclude`).
 # See claude.md for the rationale.
 env:
   NPM_CONFIG_MIN_RELEASE_AGE: 7
@@ -71,7 +72,7 @@ jobs:
     # Skipping this job propagates to every `needs: metadata` job below.
     # Both the PR branch list and the post-merge commit-message prefixes
     # must stay in sync with repomatic.binary.VERSION_BUMP_BRANCHES and
-    # VERSION_BUMP_COMMIT_PREFIXES: tests/test_workflows.py enforces both.
+    # VERSION_BUMP_COMMIT_PREFIXES, both enforced by repomatic's own test suite.
     if: >
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
       github.head_ref)

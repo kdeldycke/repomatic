@@ -74,6 +74,14 @@ def cooldown_env_block() -> str:
     `tests/test_workflows.py`, and emitted into the downstream `release.yaml`
     caller by {func}`_generate_release_caller`.
 
+    ```{caution}
+    The comment travels into every downstream repository, so it must read true
+    there too. It deliberately does **not** name `tests/test_workflows.py`: that
+    file exists only here, and a synced copy would point its readers at a path
+    they do not have. Keep any wording added below equally context-free, and
+    name a repomatic-private path only in a comment that never ships.
+    ```
+
     ```{note}
     A workflow-level `env:` block cannot reference `needs`, which is why the
     window is a literal here instead of a `metadata` job output: the `metadata`
@@ -93,12 +101,13 @@ def cooldown_env_block() -> str:
         " covers the\n"
         "# `metadata` bootstrap and any step added later; a workflow-level `env:`"
         " cannot\n"
-        "# reference `needs`, so the window is a literal that"
-        " tests/test_workflows.py holds\n"
-        "# equal to `[tool.repomatic] minimum-release-age`. Deliberate bypasses"
-        " are\n"
-        "# per-package CLI flags (`--exclude-newer-package`,"
-        " `--min-release-age-exclude`).\n"
+        "# reference `needs`, so the window is a literal kept equal to"
+        " `[tool.repomatic]\n"
+        "# minimum-release-age`. repomatic's own test suite enforces that"
+        " upstream; a\n"
+        "# synced copy is kept in step by hand. Deliberate bypasses are"
+        " per-package CLI\n"
+        "# flags (`--exclude-newer-package`, `--min-release-age-exclude`).\n"
         "# See claude.md for the rationale.\n"
         "env:\n"
         f"  NPM_CONFIG_MIN_RELEASE_AGE: {min_release_age_days(window)}\n"

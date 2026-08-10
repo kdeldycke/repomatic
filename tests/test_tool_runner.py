@@ -1784,17 +1784,19 @@ BARE_TOOL = ToolSpec(name="sometool", version="1.0.0", package="sometool")
 @pytest.mark.parametrize(
     ("tool", "files", "expected"),
     [
+        # A shadowing config is labelled: it replaces the bundled default in
+        # full rather than layering over it, and that loss is otherwise silent.
         pytest.param(
             "zizmor",
             {"zizmor.yaml": "rules: {}"},
-            "zizmor.yaml",
+            "zizmor.yaml (replaces bundled default)",
             id="native-file",
         ),
         pytest.param("yamllint", {}, "bundled default", id="bundled-default"),
         pytest.param(
             "yamllint",
             {"pyproject.toml": "[tool.yamllint]\nrules = {line-length = {max = 80}}\n"},
-            "[tool.yamllint] in pyproject.toml",
+            "[tool.yamllint] in pyproject.toml (replaces bundled default)",
             id="pyproject-section",
         ),
         # A `reads_pyproject` tool resolves the same two ways, but reaches its
@@ -1805,7 +1807,7 @@ BARE_TOOL = ToolSpec(name="sometool", version="1.0.0", package="sometool")
             {
                 "pyproject.toml": '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n'
             },
-            "[tool.ruff] in pyproject.toml",
+            "[tool.ruff] in pyproject.toml (replaces bundled default)",
             id="reads-pyproject-native",
         ),
         pytest.param(BARE_TOOL, {}, "(bare)", id="bare"),
