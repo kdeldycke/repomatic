@@ -129,9 +129,9 @@ def test_orphaned_rules_reports_what_the_sync_would_lose():
         pytest.param("", "*.log\n", id="nothing-on-disk"),
         pytest.param("*.log\n", "*.log\n", id="identical"),
         pytest.param("*.log\n", "*.log\n*.tmp\n", id="generated-is-a-superset"),
-        # Layout is not content: recomments and reorders drop no rule.
+        # Layout is not content: a new header and a reorder drop no rule.
         pytest.param(
-            "# old header\nb\na\n", "# new header\n\na\nb\n", id="reordered-recommented"
+            "# old header\nb\na\n", "# new header\n\na\nb\n", id="reordered-new-header"
         ),
     ),
 )
