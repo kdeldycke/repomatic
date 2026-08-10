@@ -694,6 +694,15 @@ _COOLDOWN_CANDIDATES = [
     Candidate("7.4.2", "2026-07-31", "v7.4.2"),
 ]
 
+# The same three releases, dated so the verdict holds whatever the real clock
+# says: 7.4.1 is always aged, 7.4.2 always fresh. Required by any test driving
+# `run_init`, which owns the cooldown comparison internally and exposes no
+# `today` hook to freeze, unlike `resolve_default_pin`.
+_CLOCK_ROBUST_CANDIDATES = [
+    Candidate("7.4.1", "2020-01-01", "v7.4.1"),
+    Candidate("7.4.2", "2999-01-01", "v7.4.2"),
+]
+
 
 @pytest.mark.parametrize(
     ("base", "expected"),
@@ -963,6 +972,51 @@ def test_resolve_default_pin_held_at_floor_warns(pin_build):
     )
     assert len(warnings) == 1
     assert "7.4.2" in warnings[0] and "v7.4.1" in warnings[0]
+
+
+def test_run_init_held_at_floor_leaves_workflows_untouched(tmp_path, pin_build):
+    """Declining the pin declines the caller content with it.
+
+    `init` renders workflow bodies from the running wheel and substitutes only
+    the `uses:` ref, so regenerating them under a held-back pin ships the new
+    release's triggers, `concurrency` groups and `env:` against the old
+    release's reusable-workflow surface. Half an adoption is worse than none:
+    the caller half lands with nothing pinned to serve it.
+    """
+    pin_build(version="7.4.1", sha="c" * 40)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+
+    # Running version moves inside the cooldown window; the repo stays at 7.4.1.
+    pin_build(version="7.4.2", candidates=_CLOCK_ROBUST_CANDIDATES)
+    result = run_init(output_dir=tmp_path, components=("workflows",))
+
+    touched = [path for path in result.created + result.updated if "workflows/" in path]
+    assert not touched, f"held-back pin still rewrote {touched}"
+    autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
+        encoding="UTF-8"
+    )
+    assert f"autofix.yaml@{'c' * 40} # v7.4.1" in autofix
+    assert any("Leaving the workflows" in warning for warning in result.warnings)
+
+
+def test_run_init_first_adoption_writes_workflows_despite_step_back(
+    tmp_path, pin_build
+):
+    """A repository with no pin yet still gets workflows when the cooldown bites.
+
+    The counterpart carve-out: holding the content back needs somewhere to
+    stand, and a first-time adoption has no prior tree to keep. Skipping here
+    would leave the repository with no workflows at all, so the pin/content
+    skew stands as the lesser outcome.
+    """
+    pin_build(candidates=_CLOCK_ROBUST_CANDIDATES, tag_sha="b" * 40)
+    result = run_init(output_dir=tmp_path, components=("workflows",))
+
+    assert any("workflows/" in path for path in result.created)
+    autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
+        encoding="UTF-8"
+    )
+    assert f"autofix.yaml@{'b' * 40} # v7.4.1" in autofix
 
 
 def test_run_init_keeps_a_fresh_pin_already_on_disk(tmp_path, monkeypatch, pin_build):

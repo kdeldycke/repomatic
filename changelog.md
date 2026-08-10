@@ -8,6 +8,7 @@
 - Teach the `repomatic-ship` skill to reconcile bundled skills and agents as a third pass, judge a false-positive autofix PR against current `main` before writing a lint rule for it, and tell a superseded intra-cycle measurement from a genuine contradiction.
 - The tool runner now retries a download up to 3 times on transient network failures, instead of failing the job on a one-off TLS or truncation error.
 - Standalone binary tests now run for every healthy target when a sibling build fails, instead of being skipped wholesale.
+- `repomatic init` no longer writes the running version's workflow content beside a pin the cooldown held back. A repository that already carries workflows keeps them untouched until the release is adopted, instead of receiving the new triggers, `concurrency` groups and `env:` blocks against the pinned release's reusable-workflow surface.
 
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)
 

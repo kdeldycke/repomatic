@@ -609,9 +609,12 @@ def resolve_default_pin(
     from the running version, so a ref naming an older release ships that
     content against an older reusable-workflow surface, which GitHub rejects as
     soon as the two disagree (see
-    `test_thin_caller_workflow_call_inputs_stay_minimal`). Confining the
-    step-back to a first-time adoption keeps that skew where no alternative
-    exists.
+    `test_thin_caller_workflow_call_inputs_stay_minimal`). Returning such a pin
+    is therefore only half a decision: {func}`run_init` reads it back and, when
+    the repository already carries workflows, skips regenerating them so the
+    tree stays coherent at the pin it keeps. A first-time adoption has no tree
+    to keep, so there the skew stands as the only alternative to writing no
+    workflows at all.
     ```
 
     :param config: Repomatic config supplying the `minimum-release-age` window.
@@ -1059,12 +1062,42 @@ def run_init(
             for name in selected
         )
         if cooldown and workflows_selected:
+            floor = _highest_upstream_pin(output_dir, repo)
             version, commit_sha = resolve_default_pin(
                 config,
                 repo=repo,
                 warnings=result.warnings,
-                floor=_highest_upstream_pin(output_dir, repo),
+                floor=floor,
             )
+            # A pin the cooldown held below the running version cannot carry
+            # this version's caller content. `init` renders bodies from the
+            # running wheel and substitutes only the ref, so writing them
+            # beside an older `uses:` pin ships half an adoption: the trigger
+            # blocks, `concurrency` groups and `env:` of the new release,
+            # against the reusable-workflow surface of the old one. Declining
+            # the pin has to decline the content with it, or the cooldown buys
+            # nothing while the caller half lands anyway, silently.
+            #
+            # Gated on *floor*, because only a repository that already carries
+            # workflows has somewhere to stand: leaving them untouched keeps a
+            # coherent tree at *floor*. A first-time adoption has no such
+            # fallback, since skipping would write no workflows at all, and is
+            # the one case `resolve_default_pin` documents the skew as
+            # unavoidable.
+            if floor is not None and is_newer(
+                _base_version(), version.removeprefix("v")
+            ):
+                _note_cooldown(
+                    result.warnings,
+                    f"Leaving the workflows at {version}: their content belongs "
+                    f"to repomatic {_base_version()}, which the pin above "
+                    "declines. Pass --no-cooldown to adopt both together.",
+                )
+                selected -= {
+                    name
+                    for name in selected
+                    if isinstance(COMPONENTS_BY_NAME.get(name), WorkflowComponent)
+                }
         else:
             version = default_version_pin()
 
