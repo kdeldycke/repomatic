@@ -25,12 +25,15 @@ collapse state, and the close/keep-open decision) stays under test.
 
 from __future__ import annotations
 
+import ast
+import inspect
 from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
+from repomatic import setup_guide
 from repomatic.cli import repomatic as repomatic_cli
 from repomatic.github.token import PatPermissionResults
 from repomatic.lint_repo import CheckResult
@@ -370,6 +373,135 @@ def test_setup_guide_unverifiable_step_does_not_block_closing():
             "--has-virustotal-key",
         ])
     assert lifecycle.call_args_list[0][1]["has_issues"] is False
+
+
+@pytest.mark.parametrize(
+    ("fork_pr_ok", "sha_pinning_ok"),
+    (
+        pytest.param(
+            CheckResult(False, "Fork PR approval is not required."), None, id="fork-pr"
+        ),
+        pytest.param(
+            None,
+            CheckResult(False, "SHA pinning is not required."),
+            id="sha-pinning",
+        ),
+    ),
+)
+def test_setup_guide_disabled_setting_keeps_issue_open(fork_pr_ok, sha_pinning_ok):
+    """A readable probe reporting the setting off holds the issue open.
+
+    The counterpart to the unreadable case above: here the reader *can* act, so
+    the guide has to keep asking. The seam left at `None` keeps its passing
+    default, so each case turns exactly one setting off.
+    """
+    with _offline_setup_guide(fork_pr_ok=fork_pr_ok, sha_pinning_ok=sha_pinning_ok) as (
+        lifecycle,
+        _bodies,
+    ):
+        _invoke([
+            "setup-guide",
+            "--has-pat",
+            "--repo",
+            REPO_SLUG,
+            "--has-virustotal-key",
+        ])
+    assert lifecycle.call_args_list[0][1]["has_issues"] is True
+
+
+GATE_EXEMPT_STEPS = {
+    # A walkthrough with no settings API behind it: gating on it would wedge
+    # the issue open forever, which is why it renders ❌ on every run.
+    "Verify the setup",
+    # Informational, per the gate comment in `manage_setup_guide`.
+    "Enable immutable releases",
+}
+"""Setup steps deliberately left out of the issue's close gate."""
+
+
+def _manage_setup_guide_ast() -> ast.FunctionDef:
+    """Parse `manage_setup_guide` out of its own module source."""
+    tree = ast.parse(inspect.getsource(setup_guide))
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "manage_setup_guide":
+            return node
+    msg = "manage_setup_guide not found in repomatic/setup_guide.py"
+    raise AssertionError(msg)
+
+
+def _read_names(node: ast.AST) -> set[str]:
+    """Every bare name read anywhere in an expression."""
+    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+
+
+def _gate_inputs(func: ast.FunctionDef) -> set[str]:
+    """Names the `needs_issue` decision reads, through any local aliases.
+
+    The gate is written as a chain of intermediate booleans (`branch_gate`,
+    `vt_ok`), so a name reaches the decision either directly or through one of
+    them. Expanding to a fixed point keeps this indifferent to how many
+    aliases sit in between, and to the next one someone adds.
+    """
+    assigned: dict[str, set[str]] = {}
+    gate: set[str] = set()
+    for node in ast.walk(func):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
+            if not isinstance(target, ast.Name):
+                continue
+            if target.id == "needs_issue":
+                gate |= _read_names(node.value)
+            else:
+                assigned.setdefault(target.id, set()).update(_read_names(node.value))
+
+    while True:
+        expanded = gate | {n for name in gate for n in assigned.get(name, set())}
+        if expanded == gate:
+            return gate
+        gate = expanded
+
+
+def _setup_steps(func: ast.FunctionDef) -> list[tuple[str, set[str]]]:
+    """Each `_wrap_setup_step` call, as its title and the names deciding it."""
+    steps = []
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "_wrap_setup_step":
+            continue
+        title = node.args[0]
+        assert isinstance(title, ast.Constant), "step title must be a literal"
+        assert isinstance(title.value, str), "step title must be a string"
+        passed = next(kw.value for kw in node.keywords if kw.arg == "passed")
+        steps.append((title.value, _read_names(passed)))
+    return steps
+
+
+def test_every_setup_step_feeds_the_close_gate():
+    """Every rendered step decides the issue's fate, or is exempt on purpose.
+
+    A step whose check no gate term reads renders its ❌ into a body nobody
+    reopens. `sha_pinning_ok` shipped that way: the guide closed itself with
+    "repository settings complete" while the setting was off, and the only
+    remaining symptom was a `lint-repo` warning nobody reads twice. Walking
+    the steps here means the next one has to be gated or exempted
+    deliberately, instead of rendering into an issue that stays closed.
+    """
+    func = _manage_setup_guide_ast()
+    gate = _gate_inputs(func)
+    steps = _setup_steps(func)
+    assert steps, "no _wrap_setup_step calls found"
+    ungated = {
+        title
+        for title, deciders in steps
+        if title not in GATE_EXEMPT_STEPS and not deciders & gate
+    }
+    assert not ungated, f"setup steps rendered but never gated: {sorted(ungated)}"
+    # Keep the exemptions honest: a title that no longer renders must not
+    # linger here, silently excusing a future step that reuses the name.
+    assert GATE_EXEMPT_STEPS <= {title for title, _ in steps}
 
 
 def test_setup_guide_requests_administration_permission():

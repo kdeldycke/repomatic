@@ -378,10 +378,11 @@ def manage_setup_guide(
     )
     # Close issue only when all verifiable steps pass.
     # Immutable releases and verify are excluded (no API to check).
-    # Fork PR approval counts only when determinate: an unreadable probe must
-    # not wedge the issue open, since the reader has no way to satisfy a check
-    # that never runs. Its step still renders, carrying the reason it could not
-    # be checked, so the gap stays visible without being a blocker.
+    # Fork PR approval and SHA pinning count only when determinate: an
+    # unreadable probe must not wedge the issue open, since the reader has no
+    # way to satisfy a check that never runs. Their steps still render,
+    # carrying the reason they could not be checked, so the gap stays visible
+    # without being a blocker.
     # Pages source: when is_sphinx, treat "not configured" (None) as a
     # failure so the setup guide reopens with the Pages step.
     vt_ok = not nuitka_active or has_virustotal_key
@@ -391,6 +392,7 @@ def manage_setup_guide(
     # `None` being falsy, so the intent survives the next edit.
     branch_gate = bool(branch_ok)
     fork_pr_gate = fork_pr_ok is not False
+    sha_pinning_gate = sha_pinning_ok is not False
     pages_gate = bool(pages_ok) if md.is_sphinx else pages_ok is not False
     # Trusted Publisher: when the project publishes to PyPI, only close once
     # provenance confirms the entry is wired. None (no published release yet,
@@ -407,6 +409,7 @@ def manage_setup_guide(
         and vt_ok
         and notifications_ok
         and fork_pr_gate
+        and sha_pinning_gate
         and pages_gate
         and pypi_publisher_gate
     )

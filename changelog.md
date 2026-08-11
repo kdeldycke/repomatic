@@ -18,6 +18,7 @@
 - `repomatic init` no longer writes the running version's workflow content beside a pin the cooldown held back. A repository that already carries workflows keeps them untouched until the release is adopted, instead of receiving the new triggers, `concurrency` groups and `env:` blocks against the pinned release's reusable-workflow surface.
 - New `is_python_package` metadata key. `sync-bumpversion` now gates on it instead of `is_python_project`, so the job no longer opens `[tool.bumpversion]` PRs against a uv virtual project (`[tool.uv] package = false`).
 - Oversized step outputs are trimmed instead of killing the step that reads them with `Argument list too long`. A long `sync-uv-lock` release-notes report could exceed the size a value passed through `env:` is allowed to have.
+- The setup guide issue now reopens when Actions SHA pinning is turned off, instead of closing while reporting every repository setting complete.
 
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)
 
