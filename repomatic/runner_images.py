@@ -84,8 +84,18 @@ repository rather than renaming it.
 ISSUE_LABEL = "🤖 ci"
 """Label applied when the issue is first created."""
 
-DEPRECATION_MARKERS = ("deprecat", "retire", "unsupported")
+DEPRECATION_MARKERS = (
+    "deprecation",
+    "deprecated",
+    "deprecating",
+    "retire",
+    "unsupported",
+)
 """Lowercased substrings marking an announcement as a retirement notice.
+
+Each inflection is spelled out rather than folded into one truncated stem: the
+stem was shorter, but a clipped word reads as a misspelling and `typos` fails
+the build on it.
 
 Matched against the **title only**. Bodies are long and discuss neighbouring
 images, so scanning one misreads an arrival as a retirement: the announcement
