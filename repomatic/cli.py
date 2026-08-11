@@ -2014,7 +2014,8 @@ def broken_links(
     short_help="Manage runner image announcements issue", section=_section_github
 )
 @_require_token(_token_mod, "validate_gh_token_env")
-def runner_images() -> None:
+@pass_context
+def runner_images(ctx: Context) -> None:
     """Report GitHub's open runner image announcements as an issue.
 
     Reads the Announcement-labelled issues of actions/runner-images, which cover
@@ -2031,6 +2032,9 @@ def runner_images() -> None:
     Example:
         repomatic runner-images
     """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.runner_images, "runner-images")
+
     manage_runner_images_issue(KNOWN_RUNNERS)
 
 

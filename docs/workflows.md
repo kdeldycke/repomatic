@@ -78,6 +78,8 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 - Nothing bumps a `runs-on:` value automatically (Dependabot rewrites `uses:` references, `sync-workflow-pins` rewrites version literals), so a retirement otherwise arrives as a failing build with no warning
 - Automatically closes the issue once GitHub has closed every open announcement
 - **Runs on**: the weekly schedule and manual `workflow_dispatch` only, since the feed changes on GitHub's clock rather than on any push here
+- **Skipped if**:
+  - `runner-images = false` in `[tool.repomatic]`
 
 *Formatters* — rewrite files to enforce canonical style:
 
