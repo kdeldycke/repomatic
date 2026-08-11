@@ -409,6 +409,37 @@ class LabelsConfig:
 
 
 @dataclass
+class LintDepsConfig:
+    """Nested schema for `[tool.repomatic.lint-deps]`."""
+
+    allow: dict[str, str] = field(default_factory=dict)
+    """Packages that may ship from somewhere other than PyPI, and why.
+
+    `lint-deps` blocks a release whose dependencies do not all resolve from
+    the index its users will install from. A handful of arrangements are
+    legitimate exceptions: a member of the same monorepo published under its
+    own name, a private mirror an internal project genuinely targets. Name
+    each one here, mapped to the reason it is safe:
+
+    ```toml
+    [tool.repomatic]
+    lint-deps.allow = { papaya = "monorepo workspace member, published separately" }
+    ```
+
+    A mapping rather than a list, deliberately: the reason is the point.
+    An exemption without one is indistinguishable from a forgotten
+    development shortcut six months later, which is the exact thing this gate
+    exists to catch. The reason renders in the report and in the release PR
+    banner, so an accepted exception stays visible instead of disappearing.
+
+    Per-package only, with no global off switch, following
+    `exclude-newer-package`: an exemption narrow enough to name is one
+    somebody weighed. Listing a package does not silence its transitive
+    dependencies, which stay gated on their own.
+    """
+
+
+@dataclass
 class TestMatrixConfig:
     """Nested schema for `[tool.repomatic.test-matrix]`.
 
@@ -805,6 +836,12 @@ class Config:
     )
     """Repository label sync configuration."""
 
+    lint_deps: LintDepsConfig = field(
+        default_factory=LintDepsConfig,
+        metadata={CONFIG_PATH_METADATA_KEY: "lint-deps"},
+    )
+    """Dependency shippability gate configuration."""
+
     mailmap_sync: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "mailmap.sync"},
@@ -1114,6 +1151,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "gitignore",
     "include",
     "labels",
+    "lint_deps",
     "mailmap_sync",
     "minimum_release_age",
     "notification_unsubscribe",

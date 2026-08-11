@@ -41,6 +41,70 @@ This page documents the version specifier conventions and dependency audit proce
 - **Extras syntax** is fine: `"coverage[toml]>=7.11"`.
 - **One dependency per line** for readable diffs. Short groups that fit on one line are acceptable: the `format-json` workflow normalizes layout automatically.
 
+## Shippable sources
+
+A dependency is **shippable** when whoever installs the published artifact gets the same code the release was tested against. `repomatic lint-deps` checks that, and the release lane refuses to build a package while any dependency fails it.
+
+The check is offline, reading `pyproject.toml` and `uv.lock`. The lockfile pass is what makes it complete rather than a list of hand-written rules: it records the resolved origin of every package in the tree, so a git dependency pulled in by another git dependency shows up even though no table names it.
+
+### Why a gate rather than a code review
+
+Two failure classes hide behind "I'll remember to swap it back before releasing", and they fail very differently.
+
+**A direct reference is refused at upload.** PyPI rejects a distribution whose `Requires-Dist` carries a PEP 508 direct reference (`mango @ git+https://…`). That detection exists already, it just happens far too late: the tag is created, the GitHub release is published and the binaries are built before `publish-pypi` fails. `repomatic`'s own `5.0.0` shipped this way, carrying `mdformat-pelican @ git+…` in an extra. It is a GitHub release with no PyPI counterpart to this day, and `5.0.1` shipped the same afternoon to "fix publishing to PyPI by removing URL-based dependency on `mdformat-pelican`". The version number is burned permanently.
+
+**A `[tool.uv.sources]` override is not detectable anywhere.** Source overrides never reach published metadata, so this:
+
+```toml
+[project]
+dependencies = ["mango>=2.1.0.dev0"]
+
+[tool.uv.sources]
+mango = { git = "https://github.com/acme/mango", branch = "main" }
+```
+
+builds a valid wheel, uploads cleanly, and declares a requirement PyPI cannot satisfy. Every install of that release fails. The repository's own CI stays green throughout, because it installs from `uv.lock` and resolves straight through the override. Nothing short of a gate catches it.
+
+### What blocks
+
+| Source                      | Example                                                                                       |
+| :-------------------------- | :-------------------------------------------------------------------------------------------- |
+| A git repository            | `{ git = "…", branch = "main" }`, and the `tag` and `rev` forms                               |
+| A local path                | `{ path = "../mango" }`, with or without `editable`                                           |
+| A direct artifact URL       | `{ url = "https://…/mango-2.1-py3-none-any.whl" }`                                            |
+| A workspace member          | `{ workspace = true }`                                                                        |
+| An index other than PyPI    | `{ index = "internal" }`, or a `default = true` index pointing elsewhere                      |
+| A PEP 508 direct reference  | `mango @ git+https://…`, in any requirement array                                             |
+| A floor inside the cooldown | see [§ `exclude-newer-package` cooldown overrides](#exclude-newer-package-cooldown-overrides) |
+
+Everything blocks, including a source on a package declared only in `[dependency-groups]`, which never reaches an installer. `uv.lock` pins a tracked branch to a revision, and once that branch is force-pushed or the fork disappears, the released tag no longer builds for contributors.
+
+`override-dependencies` and `constraint-dependencies` are reported as warnings instead. They name a published version rather than an unreleased artifact, so the result still installs; what they change is the tree the release was tested against.
+
+The report says which of these applies to each finding, because the remedies differ. A git source paired with a `.dev` floor is the managed `sync-dep-sources` idiom described at the end of [§ `exclude-newer-package` cooldown overrides](#exclude-newer-package-cooldown-overrides): the swap PR opens on its own once the awaited release ships, so the fix is to wait rather than to edit anything.
+
+### Where it runs
+
+Four layers, ordered by how cheap the failure is:
+
+1. **Locally**, through the `/repomatic-ship` pre-push gate.
+2. **The release PR body**, regenerated on every push to `main`. A blocker replaces the checklist's "This PR is ready to be merged" opener with a `[!CAUTION]` block naming each offending dependency. This is the layer that matters: it reaches the maintainer at the moment they decide to merge.
+3. **The release lane**, as `_release-build.yaml`'s `lint-deps` job. Fatal only on a release commit, so test-driving a git branch mid-cycle stays frictionless. `build-package` depends on it, so a failure skips the wheel build, which leaves `package_built` false and skips `publish-pypi`, and fails the lane, which skips the engine's tag, release and publish jobs with it.
+4. **The test suite**, upstream only, as a millisecond-latency copy of the same check.
+
+Layer 3 is a backstop that should never fire. By the time it does, the freeze commit is already on `main` and the recovery is to burn the version per the skip-and-move-forward rule.
+
+### Allowing an exception
+
+Some arrangements are legitimate: a monorepo member published under its own name, a private mirror an internal project genuinely targets. Name each one in `[tool.repomatic]`, mapped to the reason it is safe:
+
+```toml
+[tool.repomatic]
+lint-deps.allow = { papaya = "monorepo workspace member, published separately" }
+```
+
+A mapping rather than a list, because the reason is the point: an exemption without one is indistinguishable from a forgotten development shortcut six months later. The reason renders in the report and in the release PR banner, so an accepted exception stays visible rather than disappearing. Listing a package does not exempt its transitive dependencies, which stay gated on their own.
+
 ## Floor verification
 
 Comments and changelogs can lie; the codebase is the source of truth. For each dependency with a weak or suspicious comment, verify the floor against actual usage:

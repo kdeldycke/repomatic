@@ -109,6 +109,9 @@ def markdown_section(
     and not the other.
 
     :param heading: Full heading line, emoji included, without the `## `.
+        Omitted when empty, for a caller embedding the table under a title of
+        its own (the release PR's blocker banner sits inside a `[!CAUTION]`
+        blockquote that already says what it is).
     :param note: Intro paragraph shown between heading and table. Omitted
         when empty.
     :param headers: Column titles.
@@ -116,7 +119,7 @@ def markdown_section(
         *headers*.
     :return: The rendered markdown, with no trailing newline.
     """
-    lines = [f"## {heading}", ""]
+    lines = [f"## {heading}", ""] if heading else []
     if note:
         lines += [note, ""]
     lines.append("| " + " | ".join(headers) + " |")

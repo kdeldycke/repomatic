@@ -1225,6 +1225,40 @@ def test_release_lanes_split_jobs() -> None:
         )
 
 
+def test_shippability_gate_blocks_the_build_lane() -> None:
+    """`build-package` must stay downstream of the `lint-deps` gate.
+
+    The gate is only a gate through this edge. A `lint-deps` job that merely
+    reports leaves `build-package` running, which sets `package_built` and
+    lets the caller's `publish-pypi` ship a wheel nobody can install: a
+    `[tool.uv.sources]` override never reaches the published metadata, so
+    there is no other job in the lane that could notice.
+
+    Skipping `build-package` is what closes the whole lane. `package_built`
+    resolves false, so `publish-pypi` never fires, and the failed lane skips
+    the engine call, taking `create-tag`, `create-release` and
+    `publish-release` with it.
+    """
+    jobs = load_workflow("_release-build.yaml")["jobs"]
+    assert "lint-deps" in jobs, "the release lane lost its dependency shippability gate"
+
+    needs = jobs["build-package"].get("needs", [])
+    needs = [needs] if isinstance(needs, str) else needs
+    assert "lint-deps" in needs, (
+        "build-package no longer needs lint-deps, so a release carrying an "
+        "unshippable dependency would build and publish anyway"
+    )
+
+    # Fatal on a release commit, advisory otherwise: a gate that failed every
+    # push would make test-driving a git branch impossible mid-cycle.
+    steps = jobs["lint-deps"]["steps"]
+    run = next(step["run"] for step in steps if "lint-deps" in step.get("run", ""))
+    assert "--fatal" in run and "--no-fatal" in run, (
+        "the lint-deps step must pick its severity from release_commits_matrix"
+    )
+    assert "release_commits_matrix" in run
+
+
 def test_publish_pypi_does_not_touch_the_github_release() -> None:
     """The publish-pypi lane must not edit the GitHub release (ordering race).
 

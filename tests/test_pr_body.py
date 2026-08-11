@@ -26,6 +26,7 @@ import pytest
 
 from repomatic import __version__
 from repomatic.config import config_reference
+from repomatic.dep_sources import RELEASE_READY_SENTENCE
 from repomatic.frontmatter import split_frontmatter
 from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,
@@ -407,6 +408,7 @@ def test_template_args_parameterized():
     assert template_args("prepare-release") == [
         "changes_review",
         "dev_release_review",
+        "release_readiness",
         "version",
     ]
 
@@ -489,6 +491,7 @@ def test_render_prepare_release():
         version="5.8.1",
         dev_release_review=dev_review,
         changes_review=changes_review,
+        release_readiness=RELEASE_READY_SENTENCE,
     )
 
     assert "## How-to release `v5.8.1`" in result
@@ -514,6 +517,7 @@ def test_render_prepare_release_without_review_steps():
         version="5.8.1",
         dev_release_review="",
         changes_review="",
+        release_readiness=RELEASE_READY_SENTENCE,
     )
 
     assert "## How-to release `v5.8.1`" in result

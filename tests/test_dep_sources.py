@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-"""Tests for the git-to-release dependency source swaps."""
+"""Tests for the git-to-release dependency source swaps and the release gate."""
 
 from __future__ import annotations
 
@@ -25,12 +25,16 @@ import pytest
 from repomatic import dep_sources
 from repomatic.config import Config
 from repomatic.dep_sources import (
+    RELEASE_READY_SENTENCE,
     ReleaseSwap,
+    SourceKind,
     apply_release_swaps,
+    build_release_readiness,
     dev_floor,
     find_ready_swaps,
     floors_inside_cooldown,
     format_swap_section,
+    scan_project,
     strip_dev_bounds,
     tracked_git_overrides,
 )
@@ -367,4 +371,341 @@ def test_dependency_floors_clear_the_cooldown() -> None:
         "`uvx` users cannot resolve: they see neither uv.lock nor [tool.uv] "
         "exclude-newer-package, and uv has no env var for a per-package "
         "exemption. Wait for the release to age out of the window."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shippability gate (`lint-deps`)
+# ---------------------------------------------------------------------------
+
+SHIPPABLE_PYPROJECT = """\
+[build-system]
+requires = [ "uv-build>=0.8" ]
+
+[project]
+name = "basket"
+version = "1.0.0"
+dependencies = [ "cherry>=1.2" ]
+
+[project.optional-dependencies]
+juice = [ "papaya>=3" ]
+
+[dependency-groups]
+test = [ "mango>=2" ]
+"""
+"""A project whose every dependency resolves from PyPI.
+
+Each rule below appends its own offending declaration to this base, so a
+finding can only come from what the test added.
+"""
+
+
+def _scan(tmp_path: Path, extra: str = "", allow: dict[str, str] | None = None):
+    """Scan a copy of `SHIPPABLE_PYPROJECT` with *extra* appended."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(SHIPPABLE_PYPROJECT + extra, encoding="UTF-8")
+    return scan_project(pyproject, tmp_path / "uv.lock", "1 week", allow=allow)
+
+
+def test_clean_project_reports_nothing(tmp_path: Path) -> None:
+    """A project resolving everything from PyPI has no findings."""
+    assert _scan(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("extra", "package", "kind"),
+    (
+        pytest.param(
+            '[tool.uv.sources]\ncherry = { git = "https://x/cherry", branch = "main" }\n',
+            "cherry",
+            SourceKind.GIT,
+            id="git-branch",
+        ),
+        pytest.param(
+            '[tool.uv.sources]\ncherry = { git = "https://x/cherry", rev = "abc123" }\n',
+            "cherry",
+            SourceKind.GIT,
+            id="git-rev",
+        ),
+        pytest.param(
+            '[tool.uv.sources]\ncherry = { git = "https://x/cherry", tag = "v1.2" }\n',
+            "cherry",
+            SourceKind.GIT,
+            id="git-tag",
+        ),
+        pytest.param(
+            '[tool.uv.sources]\ncherry = { path = "../cherry" }\n',
+            "cherry",
+            SourceKind.PATH,
+            id="path",
+        ),
+        pytest.param(
+            '[tool.uv.sources]\ncherry = { path = "../cherry", editable = true }\n',
+            "cherry",
+            SourceKind.PATH,
+            id="editable-path",
+        ),
+        pytest.param(
+            '[tool.uv.sources]\ncherry = { url = "https://x/cherry-1.2-py3-none-any.whl" }\n',
+            "cherry",
+            SourceKind.URL,
+            id="url",
+        ),
+        pytest.param(
+            "[tool.uv.sources]\ncherry = { workspace = true }\n",
+            "cherry",
+            SourceKind.WORKSPACE,
+            id="workspace",
+        ),
+        pytest.param(
+            '[[tool.uv.index]]\nname = "internal"\nurl = "https://x/simple"\n'
+            '[tool.uv.sources]\ncherry = { index = "internal" }\n',
+            "cherry",
+            SourceKind.INDEX,
+            id="private-index",
+        ),
+        pytest.param(
+            '[[tool.uv.index]]\nname = "mirror"\nurl = "https://x/simple"\ndefault = true\n',
+            "mirror",
+            SourceKind.INDEX,
+            id="non-pypi-default-index",
+        ),
+    ),
+)
+def test_unshippable_sources_block(
+    tmp_path: Path,
+    extra: str,
+    package: str,
+    kind: SourceKind,
+) -> None:
+    """Every way of resolving a dependency off-index blocks a release."""
+    findings = _scan(tmp_path, extra)
+    assert [(f.package, f.kind, f.blocking) for f in findings] == [
+        (package, kind, True)
+    ]
+
+
+@pytest.mark.parametrize(
+    "table",
+    (
+        "project.dependencies",
+        "project.optional-dependencies.juice",
+        "dependency-groups.test",
+        "build-system.requires",
+    ),
+)
+def test_direct_references_block_in_every_table(tmp_path: Path, table: str) -> None:
+    """A PEP 508 direct reference blocks wherever it is declared.
+
+    The `v5.0.0` release shipped one in an extra, which PyPI refused at
+    upload after the tag and the GitHub release had already been created.
+    """
+    direct = "melon @ git+https://x/melon@fix-ripening"
+    doc = SHIPPABLE_PYPROJECT.replace(
+        {
+            "project.dependencies": '[ "cherry>=1.2" ]',
+            "project.optional-dependencies.juice": '[ "papaya>=3" ]',
+            "dependency-groups.test": '[ "mango>=2" ]',
+            "build-system.requires": '[ "uv-build>=0.8" ]',
+        }[table],
+        f'[ "{direct}" ]',
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(doc, encoding="UTF-8")
+    findings = scan_project(pyproject, tmp_path / "uv.lock", "1 week")
+    assert [(f.package, f.kind, f.location, f.blocking) for f in findings] == [
+        ("melon", SourceKind.DIRECT_REFERENCE, table, True)
+    ]
+
+
+def test_per_platform_source_list_reports_once_per_kind(tmp_path: Path) -> None:
+    """A marker-split override is one finding, not one per platform."""
+    extra = (
+        "[tool.uv.sources]\n"
+        "cherry = [\n"
+        '  { git = "https://x/cherry", branch = "main",'
+        " marker = \"sys_platform == 'linux'\" },\n"
+        '  { git = "https://x/cherry", branch = "main",'
+        " marker = \"sys_platform == 'darwin'\" },\n"
+        "]\n"
+    )
+    findings = _scan(tmp_path, extra)
+    assert [(f.package, f.kind) for f in findings] == [("cherry", SourceKind.GIT)]
+
+
+def test_pypi_element_does_not_mask_a_private_one(tmp_path: Path) -> None:
+    """Deduplication must not let a clean list element hide a dirty one.
+
+    Both elements classify as an index source, and the PyPI one is skipped
+    without reporting. Recording it as seen anyway would swallow the private
+    index that follows it.
+    """
+    extra = (
+        '[[tool.uv.index]]\nname = "pypi"\nurl = "https://pypi.org/simple"\n'
+        '[[tool.uv.index]]\nname = "internal"\nurl = "https://x/simple"\n'
+        "[tool.uv.sources]\n"
+        "cherry = [\n"
+        '  { index = "pypi", marker = "sys_platform == \'linux\'" },\n'
+        '  { index = "internal", marker = "sys_platform == \'darwin\'" },\n'
+        "]\n"
+    )
+    findings = _scan(tmp_path, extra)
+    assert [(f.package, f.kind) for f in findings] == [("cherry", SourceKind.INDEX)]
+    assert "internal" in findings[0].detail
+
+
+def test_pypi_index_source_is_shippable(tmp_path: Path) -> None:
+    """An explicit index entry pointing at PyPI is not a finding."""
+    extra = (
+        '[[tool.uv.index]]\nname = "pypi"\nurl = "https://pypi.org/simple"\n'
+        '[tool.uv.sources]\ncherry = { index = "pypi" }\n'
+    )
+    assert _scan(tmp_path, extra) == []
+
+
+def test_allowlist_downgrades_without_hiding(tmp_path: Path) -> None:
+    """An allowed package still reports, carrying its reason, but stops blocking."""
+    extra = "[tool.uv.sources]\ncherry = { workspace = true }\n"
+    reason = "monorepo member, published separately"
+    findings = _scan(tmp_path, extra, allow={"cherry": reason})
+    assert len(findings) == 1
+    assert not findings[0].blocking
+    assert findings[0].allowed == reason
+    assert reason in findings[0].verdict
+
+
+def test_resolution_overrides_warn_without_blocking(tmp_path: Path) -> None:
+    """`override-dependencies` diverges the tested tree without breaking installs."""
+    extra = '[tool.uv]\noverride-dependencies = [ "mango>=2.5" ]\n'
+    findings = _scan(tmp_path, extra)
+    assert len(findings) == 1
+    assert not findings[0].blocking
+
+
+LOCK_WITH_GIT_SOURCE = """\
+version = 1
+
+[[package]]
+name = "basket"
+version = "1.0.0"
+source = { editable = "." }
+
+[[package]]
+name = "melon"
+version = "0.4.0"
+source = { git = "https://x/melon?branch=main#abc123" }
+"""
+
+
+def test_lock_catches_what_pyproject_never_names(tmp_path: Path) -> None:
+    """A transitively-pulled git source shows up even with a clean pyproject.
+
+    This is why the gate reads the lock as well as the declarations: a source
+    override can name a package no requirement array mentions, and only the
+    resolved tree records it. The project's own `editable = "."` entry is not
+    a dependency and is skipped.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(SHIPPABLE_PYPROJECT, encoding="UTF-8")
+    lock = tmp_path / "uv.lock"
+    lock.write_text(LOCK_WITH_GIT_SOURCE, encoding="UTF-8")
+    findings = scan_project(pyproject, lock, "1 week")
+    assert [(f.package, f.kind, f.location) for f in findings] == [
+        ("melon", SourceKind.GIT, "uv.lock")
+    ]
+
+
+def test_a_package_is_reported_once(tmp_path: Path) -> None:
+    """A source flagged by both halves keeps the actionable pyproject finding."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        SHIPPABLE_PYPROJECT
+        + '[tool.uv.sources]\nmelon = { git = "https://x/melon", branch = "main" }\n',
+        encoding="UTF-8",
+    )
+    lock = tmp_path / "uv.lock"
+    lock.write_text(LOCK_WITH_GIT_SOURCE, encoding="UTF-8")
+    findings = scan_project(pyproject, lock, "1 week")
+    assert [f.location for f in findings] == ["tool.uv.sources"]
+
+
+@pytest.mark.parametrize(
+    ("floor", "expected"),
+    (
+        # An unreleased floor is what the index cannot serve at all.
+        ("mango>=2.1.0.dev0", "every install of this release fails"),
+        # A released floor installs, just not the code that was tested.
+        ("mango>=2", "not the code this release was built and tested against"),
+    ),
+)
+def test_consequence_distinguishes_broken_from_divergent(
+    tmp_path: Path,
+    floor: str,
+    expected: str,
+) -> None:
+    """The report separates a failing install from a silently different one."""
+    doc = SHIPPABLE_PYPROJECT.replace('dependencies = [ "cherry>=1.2" ]', "").replace(
+        '[dependency-groups]\ntest = [ "mango>=2" ]',
+        f'dependencies = [ "{floor}" ]',
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        doc
+        + '[tool.uv.sources]\nmango = { git = "https://x/mango", branch = "main" }\n',
+        encoding="UTF-8",
+    )
+    findings = scan_project(pyproject, tmp_path / "uv.lock", "1 week")
+    assert len(findings) == 1
+    assert expected in findings[0].consequence
+
+
+def test_release_readiness_flips_the_pr_opening(tmp_path: Path) -> None:
+    """The release PR announces readiness only while the project has it."""
+    pyproject = tmp_path / "pyproject.toml"
+    lock = tmp_path / "uv.lock"
+
+    pyproject.write_text(SHIPPABLE_PYPROJECT, encoding="UTF-8")
+    assert build_release_readiness(pyproject, lock, "1 week") == RELEASE_READY_SENTENCE
+
+    pyproject.write_text(
+        SHIPPABLE_PYPROJECT
+        + '[tool.uv.sources]\ncherry = { git = "https://x/cherry", branch = "main" }\n',
+        encoding="UTF-8",
+    )
+    banner = build_release_readiness(pyproject, lock, "1 week")
+    assert banner.startswith("> [!CAUTION]")
+    assert "Do not merge yet" in banner
+    assert "cherry" in banner
+    # Every line of the table is quoted, or GitHub renders half of it outside
+    # the admonition.
+    assert all(
+        line.startswith(">") for line in banner.strip().splitlines() if line.strip()
+    )
+
+
+def test_project_ships_only_released_dependencies() -> None:
+    """This repository can be released as it stands.
+
+    The generalization of `test_dependency_floors_clear_the_cooldown` above:
+    that one covers a floor the cooldown makes unreachable, this one covers
+    every other way a dependency fails to reach the people installing the
+    published artifact. Both are release gates rather than CI symptoms, since
+    this repository's own workflows install from `uv.lock` and resolve
+    straight past the problem.
+
+    The same check runs in the release lane (`_release-build.yaml`'s
+    `lint-deps` job) and in the release PR body, so this is the local copy of
+    a gate that also holds downstream. Its value here is latency: a `pytest`
+    run says so in milliseconds, where CI takes minutes and the release PR
+    banner needs a push.
+    """
+    findings = scan_project(
+        REPO_ROOT / "pyproject.toml",
+        REPO_ROOT / "uv.lock",
+        Config.minimum_release_age,
+    )
+    blocking = [finding for finding in findings if finding.blocking]
+    assert not blocking, "\n".join(
+        ["Unshippable dependencies would break this release:"]
+        + [f"  {finding.message}" for finding in blocking]
     )

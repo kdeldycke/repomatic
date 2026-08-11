@@ -502,7 +502,7 @@ Repomatic-only. This job is not part of the shape `repomatic init` generates: it
 
 ### 📦 [`.github/workflows/_release-build.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-build.yaml)
 
-The release **fast lane**: it runs the squash-merge guard, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built` and `release_commits_matrix` outputs that `publish-pypi` consumes.
+The release **fast lane**: it runs the squash-merge guard and the dependency shippability gate, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built` and `release_commits_matrix` outputs that `publish-pypi` consumes.
 
 #### 🧯 Detect squash merge (`detect-squash-merge`)
 
@@ -513,12 +513,23 @@ The release **fast lane**: it runs the squash-merge guard, computes project meta
 - **Runs on**:
   - Push to `main` only
 
+#### 🔗 Lint deps (`lint-deps`)
+
+- Runs `repomatic lint-deps` against the tree being released, refusing to publish a project whose dependencies do not all resolve from the index its users install from
+- Fatal only on a release commit; every other push reports and annotates without failing, so test-driving a git branch mid-cycle stays frictionless
+- `build-package` depends on it, which is what makes it a gate: a failure skips the wheel build, leaving `package_built` false so `publish-pypi` never fires, and fails the lane so the engine's tag, release and publish jobs are skipped with it
+- Checks out the release commit rather than the push head: a rebase-merged release PR delivers the freeze and the post-release bump together, so `main` HEAD already carries the next `.devN`
+- See [Dependency management § Shippable sources](dependencies.md#shippable-sources) for the rules, the failure classes, and the `lint-deps.allow` exemption
+- **Requires**:
+  - Python project with a `pyproject.toml` file
+
 #### 📦 Build package (`build-package`)
 
 - Builds Python wheel and sdist packages using [`uv build`](https://github.com/astral-sh/uv), then signs each distribution with a PEP 740 attestation
 - The signed artifact is shared run-scoped with both `publish-pypi` (PyPI upload) and the engine's `create-release` (GitHub release), so a single build feeds both
 - **Requires**:
   - Python package with a `pyproject.toml` file
+  - A green `lint-deps` gate
 
 (github-workflows-release-engine-yaml-jobs)=
 
@@ -536,7 +547,9 @@ At a glance, the build lane feeds both the PyPI publish and this engine; the eng
 flowchart TD
     push([Push to main]) --> squash{detect-squash-merge}
     squash -->|squashed release PR| fail[Open issue, fail run]
-    squash -->|clean| build[build-package]
+    squash -->|clean| deps{lint-deps}
+    deps -->|unshippable dependency| blocked[Fail lane, nothing published]
+    deps -->|clean| build[build-package]
     build --> pypi[publish-pypi]
     build --> nuitka[compile-binaries]
     build --> relcommit{release commit?}

@@ -134,9 +134,47 @@ jobs:
           is_python_project cli_scripts package_name current_version released_version
           release_notes release_notes_with_admonition skip_binary_build
 
+  lint-deps:
+    name: 🔗 Lint deps
+    # Refuse to publish a project whose dependencies do not all resolve from the index its users
+    # install from. A `[tool.uv.sources]` override never reaches the published metadata, so the
+    # wheel builds and uploads exactly as it would have and only the install fails: nothing else
+    # in the lane can see it. Fatal only on a release commit, so test-driving a git branch during
+    # development stays frictionless while still annotating every push.
+    # See repomatic/dep_sources.py for the rules and the failure classes.
+    needs:
+      - metadata
+    if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The release commit, not the push head: a rebase-merged release PR delivers the freeze
+          # and the post-release bump together, so `main` HEAD already carries the next `.devN`.
+          # The tree being published is the one that has to pass. Most recent release commit
+          # first, as in release.yaml's pack-plugin; a push carrying two of them checks only the
+          # newest, which is the same assumption the rest of the lane makes.
+          ref: >-
+            ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+            && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix.commit[0]
+            || github.sha }}
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.1"
+      - name: Check dependency sources
+        run: >
+          uv --no-progress run --frozen -- repomatic lint-deps
+          ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+          && '--fatal' || '--no-fatal' }}
+
   build-package:
     name: 📦 Build package (${{ matrix.short_sha }})
+    # `lint-deps` is a hard gate, not a report: a failure here skips this job, which leaves
+    # `package_built` false so the caller's publish-pypi never fires, and fails the whole lane so
+    # the engine's create-tag / create-release / publish-release are skipped with it. Nothing
+    # reaches PyPI or GitHub. tests/test_workflows.py holds this edge.
     needs:
+      - lint-deps
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).is_python_project
     strategy:

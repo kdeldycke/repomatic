@@ -13,7 +13,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-"""Swap git-tracked dependencies back to their released versions.
+"""Swap git-tracked dependencies back to their released versions, and refuse
+to release while one is still in place.
+
+Two halves, both about where a dependency actually comes from.
 
 The `sync-dep-sources` updater manages one precise idiom: a dependency
 temporarily consumed from a git branch while its next release is awaited.
@@ -42,6 +45,13 @@ is exactly the fix the project needed anyway. Overrides outside the idiom
 (path or workspace sources, `rev`/`tag` pins, floor-less branch tracks) are
 never touched.
 ```
+
+The `lint-deps` gate is the other half, and it covers what the swap does not.
+A dependency is **shippable** when whoever installs the published artifact from
+an index gets the same code the release was tested against. {func}`scan_project`
+reports every way that breaks, and the release lane refuses to build a package
+while one stands. See {class}`DepFinding` for the failure classes, and
+`docs/dependencies.md` § Shippable sources for the worked example.
 """
 
 from __future__ import annotations
@@ -51,12 +61,14 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import tomlrt
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
+from .compat import StrEnum
 from .dep_report import (
     format_released,
     link_name,
@@ -64,10 +76,12 @@ from .dep_report import (
     parse_iso_datetime,
     safe_version,
 )
+from .github.actions import AnnotationLevel
 from .pypi import get_release_dates
 from .uv import (
     LockFile,
     freeze_cutoff_after,
+    load_lock_data,
     load_pyproject_doc,
     resolve_exclude_newer_cutoff,
     uv_table,
@@ -76,6 +90,43 @@ from .uv import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+LINT_DEPS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
+    ("Package", "package"),
+    ("Source", "kind"),
+    ("Declared in", "location"),
+    ("Verdict", "verdict"),
+)
+"""Column definitions for the `repomatic lint-deps` table.
+
+Lives beside {class}`DepFinding` so the columns and the fields they render
+cannot drift apart; the CLI derives its `--sort-by` choices from it.
+
+{attr}`DepFinding.consequence` and {attr}`DepFinding.remedy` are deliberately
+not columns: each runs to a couple of sentences, which in a fifth column
+pushes the other four off the side of any terminal. They are printed as the
+annotation line under the table instead, where the width is the screen's
+rather than the widest cell's.
+"""
+
+PYPI_INDEX_HOSTS = frozenset({"pypi.org", "www.pypi.org"})
+"""Hosts a package may be resolved from and still count as published.
+
+Anything else is a private index, a staging index (TestPyPI lives on
+`test.pypi.org`, deliberately absent) or a proxy: a user running
+`pip install` or `uvx` against the default index reaches none of them, so a
+dependency pinned there is no more installable than one pinned to a git
+branch.
+"""
+
+WHEEL_METADATA_TABLES = ("project.dependencies", "project.optional-dependencies")
+"""Requirement arrays whose entries land in the published `Requires-Dist`.
+
+`[dependency-groups]` ([PEP 735](https://peps.python.org/pep-0735/)) is
+deliberately absent: it never reaches distribution metadata. That is what
+separates a finding an installer trips over from one only a contributor does,
+which the report says out loud even though both block.
+"""
 
 DEV_BOUND_PATTERN = re.compile(r"(?P<op>>=?)\s*(?P<version>[0-9][A-Za-z0-9.!+]*)")
 """Lower-bound clauses in a PEP 508 requirement string.
@@ -154,27 +205,46 @@ def tracked_git_overrides(pyproject_path: Path) -> dict[str, str]:
     return tracked
 
 
-def _requirement_arrays(doc: dict) -> Iterator[list]:
-    """Yield every requirement array in a parsed `pyproject.toml`.
+def requirement_arrays(doc: dict) -> Iterator[tuple[str, list]]:
+    """Yield every requirement array in a parsed `pyproject.toml`, labelled.
 
     Covers `[project.dependencies]`, each `[project.optional-dependencies]`
-    extra, and each `[dependency-groups]` group. Non-list values and non-string
-    items (like `{include-group = …}` entries) are the callers' concern.
+    extra, each `[dependency-groups]` group, and `[build-system].requires`.
+    Non-list values and non-string items (like `{include-group = …}` entries)
+    are the callers' concern.
+
+    The label is the TOML path the array sits at, so a finding can name where
+    a declaration lives rather than just which package it names. `lint-deps`
+    reports it, and it is also what separates the tables that reach the
+    published wheel's `Requires-Dist` from the ones that never leave the
+    repository.
+
+    :param doc: Parsed `pyproject.toml`.
+    :return: `(location, array)` pairs, the array being the live list object
+        so callers can rewrite items in place.
     """
     project = doc.get("project", {})
     deps = project.get("dependencies")
     if isinstance(deps, list):
-        yield deps
-    for extra in (project.get("optional-dependencies") or {}).values():
-        if isinstance(extra, list):
-            yield extra
-    for group in (doc.get("dependency-groups") or {}).values():
-        if isinstance(group, list):
-            yield group
+        yield "project.dependencies", deps
+    for extra, items in (project.get("optional-dependencies") or {}).items():
+        if isinstance(items, list):
+            yield f"project.optional-dependencies.{extra}", items
+    for group, items in (doc.get("dependency-groups") or {}).items():
+        if isinstance(items, list):
+            yield f"dependency-groups.{group}", items
+    requires = doc.get("build-system", {}).get("requires")
+    if isinstance(requires, list):
+        yield "build-system.requires", requires
 
 
-def _parse_requirement(item: object) -> Requirement | None:
-    """Parse a requirement array item, returning `None` for anything else."""
+def parse_requirement(item: object) -> Requirement | None:
+    """Parse a requirement array item, returning `None` for anything else.
+
+    :param item: One entry of a requirement array.
+    :return: The parsed requirement, or `None` for a non-string entry or an
+        unparsable specifier.
+    """
     if not isinstance(item, str):
         return None
     try:
@@ -200,9 +270,9 @@ def dev_floor(pyproject_path: Path, name: str) -> str | None:
     doc = load_pyproject_doc(pyproject_path)
     canonical = canonicalize_name(name)
     floors = []
-    for array in _requirement_arrays(doc):
+    for _location, array in requirement_arrays(doc):
         for item in array:
-            requirement = _parse_requirement(item)
+            requirement = parse_requirement(item)
             if requirement is None:
                 continue
             if canonicalize_name(requirement.name) != canonical:
@@ -269,9 +339,9 @@ def floors_inside_cooldown(
 
     doc = load_pyproject_doc(pyproject_path)
     offenders: dict[str, str] = {}
-    for array in _requirement_arrays(doc):
+    for _location, array in requirement_arrays(doc):
         for item in array:
-            requirement = _parse_requirement(item)
+            requirement = parse_requirement(item)
             if requirement is None:
                 continue
             name = canonicalize_name(requirement.name)
@@ -386,9 +456,9 @@ def apply_release_swaps(pyproject_path: Path, swaps: list[ReleaseSwap]) -> None:
     for swap in swaps:
         if sources is not None and swap.source_key in sources:
             del sources[swap.source_key]
-        for array in _requirement_arrays(doc):
+        for _location, array in requirement_arrays(doc):
             for index, item in enumerate(array):
-                requirement = _parse_requirement(item)
+                requirement = parse_requirement(item)
                 if requirement is None:
                     continue
                 if canonicalize_name(requirement.name) != swap.name:
@@ -451,4 +521,673 @@ def format_swap_section(
             )
             for swap in swaps
         ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shippability gate (`lint-deps`)
+# ---------------------------------------------------------------------------
+
+
+class SourceKind(StrEnum):
+    """Where a dependency is resolved from.
+
+    The vocabulary is shared by `[tool.uv.sources]` and `uv.lock`, which name
+    the same concepts with the same keys, so {func}`classify_source` reads
+    both. Only {attr}`REGISTRY` describes something an installer of the
+    published artifact can reach on its own.
+    """
+
+    DIRECT_REFERENCE = "direct reference"
+    """A PEP 508 `name @ url` clause written into the requirement itself."""
+
+    GIT = "git"
+    """A git repository, whether tracked by branch, tag or commit."""
+
+    INDEX = "index"
+    """A named `[[tool.uv.index]]` other than PyPI."""
+
+    PATH = "path"
+    """A local directory, including an editable install or a lock `directory`
+    entry."""
+
+    REGISTRY = "registry"
+    """A package index. Shippable when the index is PyPI."""
+
+    URL = "url"
+    """A direct artifact URL (a wheel or sdist served over HTTP)."""
+
+    WORKSPACE = "workspace"
+    """Another member of the same uv workspace."""
+
+
+@dataclass(frozen=True)
+class DepFinding:
+    """One reason the project cannot be published as it stands.
+
+    Findings are what {func}`scan_project` returns, and they carry their own
+    explanation rather than a code the caller has to map: the CLI table, the
+    GitHub annotation and the release PR banner all render the same three
+    sentences, so a maintainer reads one wording wherever they meet it.
+    """
+
+    package: str
+    """Normalized name of the offending package."""
+
+    kind: SourceKind
+    """How that package is resolved."""
+
+    location: str
+    """The TOML path (or `uv.lock`) the declaration was read from."""
+
+    detail: str
+    """The declaration as written, for the reader to go find."""
+
+    consequence: str
+    """What breaks, for whom, if this ships."""
+
+    remedy: str
+    """The next action, naming the automation that already covers it."""
+
+    level: AnnotationLevel = AnnotationLevel.ERROR
+    """Severity. Only {attr}`~repomatic.github.actions.AnnotationLevel.ERROR`
+    blocks a release."""
+
+    allowed: str = ""
+    """The `[tool.repomatic] lint-deps.allow` reason, when one covers this
+    package. A non-empty reason downgrades the finding to a notice that still
+    renders, so an accepted exception stays visible instead of disappearing."""
+
+    @property
+    def blocking(self) -> bool:
+        """Whether this finding stops a release."""
+        return self.level is AnnotationLevel.ERROR and not self.allowed
+
+    @property
+    def verdict(self) -> str:
+        """One-word outcome, for the table's last column."""
+        if self.allowed:
+            return f"allowed ({self.allowed})"
+        return "blocks release" if self.blocking else "warning"
+
+    @property
+    def message(self) -> str:
+        """The finding as a single annotation line."""
+        return (
+            f"{self.package}: {self.kind} source in {self.location}"
+            f" ({self.detail}). {self.consequence} {self.remedy}"
+        )
+
+
+def is_pypi_url(url: str) -> bool:
+    """Whether *url* points at the public Python Package Index.
+
+    :param url: An index or registry URL.
+    :return: `True` when its host is one of {data}`PYPI_INDEX_HOSTS`.
+    """
+    return urlsplit(url).hostname in PYPI_INDEX_HOSTS
+
+
+def classify_source(value: object) -> SourceKind | None:
+    """Read a `[tool.uv.sources]` entry or a `uv.lock` source table.
+
+    Both spell the same concepts with the same keys, so one classifier serves
+    the declaration and its resolution. Checked most-specific first: a
+    `{ path = "…", editable = true }` entry is a path source, not two.
+
+    :param value: The mapping sitting under a source key.
+    :return: The kind, or `None` for anything unrecognized (a bare marker
+        table, a future uv key). Unknown shapes are not reported: a gate that
+        guesses would block releases over syntax it does not understand.
+    """
+    if not isinstance(value, dict):
+        return None
+    if "git" in value:
+        return SourceKind.GIT
+    if "url" in value:
+        return SourceKind.URL
+    if any(key in value for key in ("path", "directory", "editable")):
+        return SourceKind.PATH
+    if value.get("workspace"):
+        return SourceKind.WORKSPACE
+    if "index" in value:
+        return SourceKind.INDEX
+    if "registry" in value:
+        return SourceKind.REGISTRY
+    return None
+
+
+def _reaches_installers(location: str) -> bool:
+    """Whether a declaration at *location* lands in published metadata."""
+    return location.startswith(WHEEL_METADATA_TABLES)
+
+
+def declared_requirements(doc: dict, name: str) -> list[tuple[str, str]]:
+    """Every requirement string declaring *name*, with its TOML location.
+
+    A `[tool.uv.sources]` entry says where a package comes from but not
+    whether anyone downstream will feel it. That answer lives in the
+    requirement arrays, and it is what decides the consequence: a package
+    named in `[project.dependencies]` ships a requirement the index must
+    satisfy, one named only in `[dependency-groups]` ships nothing at all,
+    and one named nowhere is a transitive dependency being swapped underneath
+    the resolver.
+
+    :param doc: Parsed `pyproject.toml`.
+    :param name: Package name, in any capitalization or separator style.
+    :return: `(location, requirement string)` pairs, empty when the package
+        is not declared directly.
+    """
+    canonical = canonicalize_name(name)
+    declarations = []
+    for location, array in requirement_arrays(doc):
+        for item in array:
+            requirement = parse_requirement(item)
+            if requirement is None:
+                continue
+            if canonicalize_name(requirement.name) == canonical:
+                declarations.append((location, str(item)))
+    return declarations
+
+
+def _unreleased_floor(requirement: str) -> bool:
+    """Whether *requirement* has a lower bound no index can satisfy.
+
+    A bound naming a dev or pre-release version (`mango>=2.1.0.dev0`) is the
+    signature of a floor written against unreleased code: it is what a
+    project declares while consuming that code from git, and it is exactly
+    what PyPI cannot serve. A bound naming an ordinary release is assumed
+    servable, since the project locked against it.
+    """
+    parsed = parse_requirement(requirement)
+    if parsed is None:
+        return False
+    for spec in parsed.specifier:
+        if spec.operator not in (">=", ">", "=="):
+            continue
+        version = safe_version(spec.version)
+        if version is not None and (version.is_devrelease or version.is_prerelease):
+            return True
+    return False
+
+
+def _consequence(
+    kind: SourceKind,
+    declarations: list[tuple[str, str]],
+    from_metadata_table: bool | None = None,
+) -> str:
+    """Spell out what a finding costs, given where the package is declared.
+
+    Five distinct outcomes hide behind "unshippable", and telling them apart
+    is most of the report's value. What a reader has to do about a release
+    that cannot be uploaded, one that uploads and then fails every install,
+    and one that installs a different build than was tested are three
+    different jobs, and only the first announces itself.
+
+    :param kind: How the package is resolved.
+    :param declarations: Output of {func}`declared_requirements`.
+    :param from_metadata_table: Override for the "does it ship" question,
+        used by the direct-reference pass which already knows the exact array
+        the offending string sits in.
+    """
+    shipped = [
+        requirement
+        for location, requirement in declarations
+        if _reaches_installers(location)
+    ]
+    ships = from_metadata_table if from_metadata_table is not None else bool(shipped)
+
+    if kind is SourceKind.DIRECT_REFERENCE and ships:
+        return (
+            "PyPI refuses an upload whose metadata carries a direct reference,"
+            " so the release would be tagged and published on GitHub and only"
+            " then fail, at the very last step."
+        )
+    if ships and any(_unreleased_floor(requirement) for requirement in shipped):
+        quoted = next(req for req in shipped if _unreleased_floor(req))
+        return (
+            f"A source override never reaches published metadata, so the wheel"
+            f" uploads cleanly, declares `{quoted}`, and sends installers to an"
+            f" index carrying no such release: every install of this release"
+            f" fails."
+        )
+    if ships:
+        quoted = f" `{shipped[0]}`" if shipped else " this package"
+        return (
+            f"A source override never reaches published metadata, so the wheel"
+            f" declares{quoted} against the default index: installers resolve"
+            f" whatever is published under that name, which is not the code"
+            f" this release was built and tested against."
+        )
+    if not declarations:
+        return (
+            "Nothing declares this package directly, so the override swaps a"
+            " transitive dependency: published metadata still sends installers"
+            " to the index version, and this release is tested against code"
+            " its users never receive."
+        )
+    return (
+        "This never reaches published metadata, but the lockfile pins it to a"
+        " revision the tag cannot outlive: once the branch moves or the fork"
+        " goes, the released tag no longer builds for contributors."
+    )
+
+
+def _remedy(kind: SourceKind, package: str, floor: str | None) -> str:
+    """The next action for a finding, routed to whatever already automates it."""
+    if kind is SourceKind.GIT and floor:
+        return (
+            f"`sync-dep-sources` already watches for the release satisfying"
+            f" `{package}>={floor}` and will open the swap PR on its own: wait"
+            f" for it, or release once it lands."
+        )
+    if kind is SourceKind.GIT:
+        return (
+            "Pair the override with a `.dev` version floor naming the awaited"
+            " release, and `sync-dep-sources` takes the swap from there;"
+            " otherwise drop the override."
+        )
+    if kind is SourceKind.DIRECT_REFERENCE:
+        return (
+            "Replace it with an ordinary version specifier, publishing the"
+            " fork under its own name if the change is not upstream yet."
+        )
+    if kind in (SourceKind.PATH, SourceKind.WORKSPACE):
+        return (
+            "Publish the package and depend on the released version, or add it"
+            " to `[tool.repomatic] lint-deps.allow` with the reason it is safe."
+        )
+    return (
+        "Resolve the package from PyPI, or add it to `[tool.repomatic]"
+        " lint-deps.allow` with the reason it is safe."
+    )
+
+
+def _uv_index_entries(uv: dict) -> list[dict]:
+    """The `[[tool.uv.index]]` array, defensively typed."""
+    indexes = uv.get("index") or []
+    if not isinstance(indexes, list):
+        return []
+    return [entry for entry in indexes if isinstance(entry, dict)]
+
+
+def _uv_index_urls(uv: dict) -> dict[str, str]:
+    """Map each `[[tool.uv.index]]` name to its URL."""
+    return {
+        str(entry["name"]): str(entry.get("url", ""))
+        for entry in _uv_index_entries(uv)
+        if entry.get("name")
+    }
+
+
+def _finding(
+    package: str,
+    kind: SourceKind,
+    location: str,
+    detail: str,
+    allow: dict[str, str],
+    declarations: list[tuple[str, str]] | None = None,
+    floor: str | None = None,
+    level: AnnotationLevel = AnnotationLevel.ERROR,
+    from_metadata_table: bool | None = None,
+) -> DepFinding:
+    """Assemble a finding, resolving its allowlist reason and prose."""
+    return DepFinding(
+        package=package,
+        kind=kind,
+        location=location,
+        detail=detail,
+        consequence=_consequence(kind, declarations or [], from_metadata_table),
+        remedy=_remedy(kind, package, floor),
+        level=level,
+        allowed=allow.get(package, ""),
+    )
+
+
+def scan_pyproject(
+    pyproject_path: Path,
+    allow: dict[str, str] | None = None,
+) -> list[DepFinding]:
+    """Report every unshippable declaration in `pyproject.toml`.
+
+    Covers what the project *says*, which is the half a reader can act on
+    directly:
+
+    - a `[tool.uv.sources]` entry resolving from anywhere but PyPI,
+    - a PEP 508 direct reference (`name @ git+…`) in any requirement array,
+      `[build-system].requires` included,
+    - a `[[tool.uv.index]]` marked `default` that is not PyPI,
+    - a non-empty `override-dependencies` or `constraint-dependencies`, which
+      is reported as a warning rather than a block: those name a version
+      rather than an unreleased artifact, so what they change is the tested
+      resolution, not the installability of the result.
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param allow: Package name to the reason it may ship from a non-index
+        source, from `[tool.repomatic] lint-deps.allow`.
+    :return: Findings, unsorted; {func}`scan_project` orders them.
+    """
+    allow = allow or {}
+    if not pyproject_path.exists():
+        return []
+    doc = load_pyproject_doc(pyproject_path)
+    uv = uv_table(doc)
+    index_urls = _uv_index_urls(uv)
+    findings: list[DepFinding] = []
+
+    for key, value in (uv.get("sources") or {}).items():
+        name = canonicalize_name(str(key))
+        # A per-platform override is a list of single-source tables, each
+        # carrying its own marker: classify every element, since only one of
+        # them needs to be unshippable for the release to be. Reported once
+        # per kind, so a package tracked from git on three platforms is one
+        # finding rather than three identical ones.
+        entries = value if isinstance(value, list) else [value]
+        seen: set[SourceKind] = set()
+        for entry in entries:
+            kind = classify_source(entry)
+            if kind is None or kind in seen:
+                continue
+            if kind is SourceKind.INDEX:
+                index_name = str(entry.get("index", ""))
+                # Recorded as seen only once it actually reports, or a PyPI
+                # element early in the list would mask a private one after it.
+                if is_pypi_url(index_urls.get(index_name, "")):
+                    continue
+                detail = f"`index = {index_name!r}`"
+            else:
+                detail = f"`[tool.uv.sources] {key} = {entry}`"
+            seen.add(kind)
+            findings.append(
+                _finding(
+                    name,
+                    kind,
+                    "tool.uv.sources",
+                    detail,
+                    allow,
+                    declarations=declared_requirements(doc, name),
+                    floor=dev_floor(pyproject_path, name),
+                )
+            )
+
+    for location, array in requirement_arrays(doc):
+        for item in array:
+            requirement = parse_requirement(item)
+            if requirement is None or not requirement.url:
+                continue
+            findings.append(
+                _finding(
+                    canonicalize_name(requirement.name),
+                    SourceKind.DIRECT_REFERENCE,
+                    location,
+                    f"`{item}`",
+                    allow,
+                    from_metadata_table=_reaches_installers(location),
+                )
+            )
+
+    for entry in _uv_index_entries(uv):
+        if entry.get("default") and not is_pypi_url(str(entry.get("url", ""))):
+            findings.append(
+                _finding(
+                    str(entry.get("name", "?")),
+                    SourceKind.INDEX,
+                    "tool.uv.index",
+                    f"`default = true`, `url = {entry.get('url', '')!r}`",
+                    allow,
+                )
+            )
+
+    for key in ("override-dependencies", "constraint-dependencies"):
+        for item in uv.get(key) or []:
+            requirement = parse_requirement(item)
+            if requirement is None:
+                continue
+            name = canonicalize_name(requirement.name)
+            findings.append(
+                DepFinding(
+                    package=name,
+                    kind=SourceKind.REGISTRY,
+                    location=f"tool.uv.{key}",
+                    detail=f"`{item}`",
+                    consequence=(
+                        "This rewrites the resolution for whoever locks this"
+                        " project and for nobody else, so the release is"
+                        " tested against a tree its users do not get. It names"
+                        " a published version rather than an unreleased"
+                        " artifact, so the result still installs."
+                    ),
+                    remedy=(
+                        "Move the constraint into the dependency's own"
+                        " specifier when it is a real requirement, so"
+                        " installers honor it too."
+                    ),
+                    level=AnnotationLevel.WARNING,
+                    allowed=allow.get(name, ""),
+                )
+            )
+
+    return findings
+
+
+def scan_lock(
+    lock_path: Path,
+    allow: dict[str, str] | None = None,
+    doc: dict | None = None,
+) -> list[DepFinding]:
+    """Report every package `uv.lock` resolves from outside PyPI.
+
+    The complement to {func}`scan_pyproject`, and the reason the gate is not
+    a list of hand-written rules: the lock records the *resolved* source of
+    every package in the tree, so a git dependency pulled in by another git
+    dependency shows up here even though no table in `pyproject.toml` names
+    it.
+
+    The project's own entry is skipped. uv writes it as `{ editable = "." }`
+    for a package and `{ virtual = "." }` for a virtual project, and neither
+    describes a dependency. A workspace *member* is a different path (like
+    `{ editable = "packages/mango" }`) and is reported, since publishing this
+    project does not publish that one.
+
+    :param lock_path: Path to the `uv.lock` file.
+    :param allow: Package name to the reason it may ship from a non-index
+        source.
+    :param doc: Parsed `pyproject.toml`, when the caller has one. Supplying it
+        lets each finding say whether the package is declared directly, which
+        is what separates "every install fails" from "a transitive dependency
+        was swapped underneath the resolver".
+    :return: Findings, unsorted.
+    """
+    allow = allow or {}
+    findings: list[DepFinding] = []
+    for package in load_lock_data(lock_path).get("package", []):
+        source = package.get("source", {})
+        name = canonicalize_name(str(package.get("name", "")))
+        if not name:
+            continue
+        if source.get("editable") == "." or source.get("virtual") == ".":
+            continue
+        kind = classify_source(source)
+        if kind is None:
+            continue
+        if kind is SourceKind.REGISTRY:
+            registry = str(source.get("registry", ""))
+            if is_pypi_url(registry):
+                continue
+            detail = f"`registry = {registry!r}`"
+            kind = SourceKind.INDEX
+        else:
+            detail = f"`source = {source}`"
+        findings.append(
+            _finding(
+                name,
+                kind,
+                "uv.lock",
+                detail,
+                allow,
+                declarations=declared_requirements(doc, name) if doc else None,
+            )
+        )
+    return findings
+
+
+def scan_project(
+    pyproject_path: Path,
+    lock_path: Path,
+    window: str,
+    allow: dict[str, str] | None = None,
+) -> list[DepFinding]:
+    """Every reason this project cannot be released as it stands.
+
+    Folds the three checks into one ordered report: what `pyproject.toml`
+    declares ({func}`scan_pyproject`), what `uv.lock` resolved
+    ({func}`scan_lock`), and which floors no cooldown-gated resolution can
+    satisfy ({func}`floors_inside_cooldown`). Entirely offline, so it costs
+    nothing to run on every push and cannot fail on a flaky index.
+
+    A package flagged by both halves is reported once, keeping the
+    `pyproject.toml` finding: that is where the reader has something to edit,
+    the lock being a derived file.
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param lock_path: Path to the `uv.lock` file.
+    :param window: Cooldown window, in any form `[tool.uv] exclude-newer`
+        accepts.
+    :param allow: Package name to the reason it may ship from a non-index
+        source.
+    :return: Findings sorted by package, then by location.
+    """
+    allow = allow or {}
+    doc = load_pyproject_doc(pyproject_path) if pyproject_path.exists() else {}
+    findings = scan_pyproject(pyproject_path, allow)
+    reported = {finding.package for finding in findings}
+    findings += [
+        finding
+        for finding in scan_lock(lock_path, allow, doc=doc)
+        if finding.package not in reported
+    ]
+
+    stale_floors = floors_inside_cooldown(pyproject_path, lock_path, window)
+    for name, floor in stale_floors.items():
+        findings.append(
+            DepFinding(
+                package=name,
+                kind=SourceKind.REGISTRY,
+                location="project dependency floor",
+                detail=f"`{name}>={floor}`",
+                consequence=(
+                    f"The release satisfying this floor is younger than the"
+                    f" {window} cooldown, so anyone installing from an index"
+                    f" resolves nothing: they read neither `uv.lock` nor"
+                    f" `[tool.uv] exclude-newer-package`, and uv has no"
+                    f" environment variable for a per-package exemption."
+                ),
+                remedy="Wait for that release to age out of the window.",
+                allowed=allow.get(name, ""),
+            )
+        )
+
+    return sorted(findings, key=lambda f: (f.package, f.location))
+
+
+BLOCKER_SECTION_NOTE = (
+    "A dependency is shippable when whoever installs the published artifact"
+    " gets the code this release was tested against. These do not clear that"
+    " bar, so the release lane refuses to build a package while they stand."
+    " See [Dependency management § Shippable"
+    " sources](https://kdeldycke.github.io/repomatic/dependencies.html#shippable-sources)."
+)
+"""Intro paragraph for the `lint-deps` blocker section."""
+
+
+def format_blocker_section(
+    findings: list[DepFinding],
+    *,
+    heading: str = "🚧 Unshippable dependencies",
+    name_urls: dict[str, str] | None = None,
+) -> str:
+    """Format blocking findings as a markdown section.
+
+    :param findings: Findings from {func}`scan_project`.
+    :param heading: Section heading, emoji included. Pass an empty string to
+        emit the note and table alone, for a caller supplying its own title.
+    :param name_urls: Optional mapping of names to a URL the name links to.
+    :return: A markdown string, or an empty string when nothing blocks.
+    """
+    blocking = [finding for finding in findings if finding.blocking]
+    if not blocking:
+        return ""
+    return markdown_section(
+        heading,
+        BLOCKER_SECTION_NOTE,
+        ("Package", "Source", "Declared in", "Why it cannot ship"),
+        [
+            (
+                link_name(finding.package, name_urls),
+                f"`{finding.kind}`",
+                f"`{finding.location}`",
+                f"{finding.consequence} {finding.remedy}",
+            )
+            for finding in blocking
+        ],
+    )
+
+
+RELEASE_READY_SENTENCE = "This PR is ready to be merged. "
+"""How the release checklist opens when nothing blocks.
+
+Trailing space included: it runs inline into the sentence the template
+follows it with, where the blocked form is a standalone blockquote instead.
+"""
+
+
+def build_release_readiness(
+    pyproject_path: Path,
+    lock_path: Path,
+    window: str,
+    allow: dict[str, str] | None = None,
+) -> str:
+    """Build the release PR's opening verdict.
+
+    The `prepare-release` checklist has always opened with "This PR is ready
+    to be merged", and that sentence is a lie while a dependency resolves
+    from a git branch, a fork or a local path. So the opening is owned here
+    rather than hard-coded in the template: it stays that sentence while the
+    project is releasable, and becomes a `[!CAUTION]` block naming every
+    offending dependency when it is not.
+
+    This is the layer that matters, even though the release lane carries a
+    hard gate of its own. By the time that gate fires the freeze commit is
+    already on `main`, and the recovery is to burn the version per
+    `claude.md` § Skip and move forward. This body is regenerated on every
+    push to `main`, so it carries the same answer days earlier, in the one
+    place a maintainer reads before deciding to merge.
+
+    ```{note}
+    Lives here rather than beside the other `pr-body` template-argument
+    builders in {mod}`repomatic.github.pr_body`, which is where it would
+    otherwise belong: that module is imported by {mod}`repomatic.dep_report`,
+    so reaching {func}`scan_project` from it closes an import cycle.
+    ```
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param lock_path: Path to the `uv.lock` file.
+    :param window: Cooldown window, from `[tool.repomatic] minimum-release-age`.
+    :param allow: Package name to its `lint-deps.allow` reason.
+    :return: {data}`RELEASE_READY_SENTENCE`, or a GitHub-flavored markdown
+        `[!CAUTION]` blockquote listing what blocks the release.
+    """
+    section = format_blocker_section(
+        scan_project(pyproject_path, lock_path, window, allow=allow),
+        heading="",
+    )
+    if not section:
+        return RELEASE_READY_SENTENCE
+    quoted = "\n".join(f"> {line}".rstrip() for line in section.splitlines())
+    return (
+        "> [!CAUTION]\n"
+        "> **Do not merge yet: this release would ship dependencies its users"
+        " cannot install.**\n"
+        ">\n"
+        f"{quoted}\n\n"
     )

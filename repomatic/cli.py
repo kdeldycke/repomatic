@@ -100,6 +100,12 @@ from .dep_graph import (
 from .dep_report import (
     format_upload_date,
 )
+from .dep_sources import (
+    LINT_DEPS_HEADER_DEFS,
+    build_release_readiness,
+    format_blocker_section,
+    scan_project,
+)
 from .docs import update_docs as _update_docs
 from .frontmatter import split_frontmatter
 from .git_ops import commit_and_push_files, create_and_push_tag
@@ -3357,6 +3363,134 @@ def lint_changelog(
     ctx.exit(exit_code)
 
 
+_lint_deps_sort = SortByOption(*LINT_DEPS_HEADER_DEFS, default="package")
+
+
+@repomatic.command(
+    name="lint-deps",
+    short_help="Check dependencies resolve from the public index",
+    section=_section_lint,
+    params=[_lint_deps_sort],
+)
+@option(
+    "--pyproject",
+    "pyproject_path",
+    type=file_path(resolve_path=True),
+    default="pyproject.toml",
+    help="Path to the pyproject.toml file.",
+)
+@lockfile_option
+@option(
+    "--fatal/--no-fatal",
+    default=True,
+    help=(
+        "Exit non-zero when a finding blocks a release. Pass --no-fatal to"
+        " report without failing, for continuous visibility on ordinary"
+        " pushes."
+    ),
+)
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True, allow_dash=True),
+    default=None,
+    help="Write a markdown report of the blocking findings to this file.",
+)
+@output_format_option
+@pass_context
+def lint_deps(
+    ctx: Context,
+    pyproject_path: Path,
+    lockfile: Path,
+    fatal: bool,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Check that every dependency resolves from the index users install from.
+
+    A dependency is shippable when whoever installs the published artifact
+    gets the same code the release was tested against. A git branch, a local
+    path, a fork, a direct URL or a private index all break that, and most of
+    them break it silently: a `[tool.uv.sources]` override never reaches the
+    published metadata, so the wheel builds and uploads exactly as it would
+    have, and only the install fails.
+
+    Runs entirely offline, reading pyproject.toml and uv.lock. The lockfile
+    pass is what catches a source override on a package no table names, since
+    it records the resolved origin of the whole tree.
+
+    Reads lint-deps.allow from [tool.repomatic] for packages exempted by
+    name, each mapped to the reason it is safe.
+
+    \b
+    Output symbols:
+        ✗  Blocks a release
+        ⚠  Warning, does not block
+        ℹ  Covered by lint-deps.allow
+
+    \b
+    Exit codes:
+        0  Nothing blocks a release, or --no-fatal was passed.
+        1  At least one finding blocks a release.
+
+    \b
+    Examples:
+        # Check the current project
+        repomatic lint-deps
+
+    \b
+        # Report without failing, for an ordinary CI push
+        repomatic lint-deps --no-fatal
+
+    \b
+        # Emit a markdown report for a PR body
+        repomatic lint-deps --no-fatal --output report.md
+    """
+    config = get_tool_config(ctx)
+    findings = scan_project(
+        pyproject_path,
+        lockfile,
+        config.minimum_release_age,
+        allow=config.lint_deps.allow,
+    )
+
+    if not findings:
+        echo("✓ Every dependency resolves from the public package index.")
+        ctx.exit(0)
+
+    rows = [
+        (
+            finding.package,
+            str(finding.kind),
+            finding.location,
+            finding.verdict,
+        )
+        for finding in findings
+    ]
+    ctx.print_table(rows, LINT_DEPS_HEADER_DEFS)
+
+    blocking = [finding for finding in findings if finding.blocking]
+    for finding in findings:
+        if finding.allowed:
+            echo(f"ℹ {finding.message}")
+        elif finding.blocking:
+            emit_annotation(AnnotationLevel.ERROR, finding.message)
+            echo(f"✗ {finding.message}")
+        else:
+            emit_annotation(AnnotationLevel.WARNING, finding.message)
+            echo(f"⚠ {finding.message}")
+
+    if output:
+        log_output_target("dependency blockers", output)
+        emit_report(
+            format_blocker_section(findings),
+            output,
+            output_format,
+            key="release_blockers",
+        )
+
+    ctx.exit(1 if blocking and fatal else 0)
+
+
 _run_sort = SortByOption(*TOOL_LIST_HEADER_DEFS, default="tool")
 
 
@@ -4101,12 +4235,22 @@ def pr_body(
 
     # Map argument names to their values or callables. CLI-provided extras
     # override built-in flag-driven sources so callers can pass any name.
+    def _release_readiness() -> str:
+        config = get_tool_config()
+        return build_release_readiness(
+            Path("pyproject.toml"),
+            Path("uv.lock"),
+            config.minimum_release_age,
+            allow=config.lint_deps.allow,
+        )
+
     arg_sources: dict[str, str | None | Callable[[], str | None]] = {
         "changes_review": lambda: _review_step("changes_review"),
         "dev_release_review": lambda: _review_step("dev_release_review"),
         "diff_table": os.getenv("REPOMATIC_DIFF_TABLE", ""),
         "part": part,
         "pr_ref": pr_ref,
+        "release_readiness": _release_readiness,
         # Callable, will be invoked if needed.
         "repo_url": lambda: Metadata().repo_url,
         "version": version if version is not None else _auto_version,
