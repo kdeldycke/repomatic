@@ -10,6 +10,7 @@
 - **Breaking:** manual version-bump commits now read `` [changelog] Bump minor version to `vX.Y.0` ``: every version-machinery commit carries the `[changelog] ` prefix, and anything matching the old unprefixed titles must follow.
 - New `lint-deps` command and release-lane job, blocking a release whose dependencies do not all resolve from PyPI: git branches, forks, local paths, direct URLs and private indexes. Exempt a package with `[tool.repomatic] lint-deps.allow`.
 - **Breaking:** the default test matrix moved from `ubuntu-24.04-arm` and `ubuntu-slim` to `ubuntu-26.04-arm` and `ubuntu-26.04`, which also moves the PR Linux slot and the `3.14t` smoke test. The docs link-crawl job, the Linux Nuitka build hosts and every light mechanical job move with them: `ubuntu-slim` is retired, measured 27-32% slower on whole-job wall-clock, so every job now runs on a test-matrix runner. Pin the old images back with `test-matrix.replace.os = { "ubuntu-26.04-arm" = "ubuntu-24.04-arm" }`.
+- **Breaking:** a report emitted with `--output-format github-actions` now travels as a file: the step output is named `<key>_file` and holds a path. A workflow reading `steps.<id>.outputs.diff_table` or `.markdown` must read `.diff_table_file` or `.markdown_file` instead.
 - New `runner-images` job and CLI command, opening an issue that lists GitHub's open runner-image announcements and flags the ones retiring an image the repo runs on. Opt out with `runner-images = false`.
 - Autofix jobs no longer run on version-bump pushes: the 16 remaining jobs only re-checked machine-generated, ship-gated commits, and drift stays covered by the next push and the weekly sweep.
 - The tool runner now retries a download up to 3 times on transient network failures, instead of failing the job on a one-off TLS or truncation error.
@@ -17,7 +18,9 @@
 - Root-caused the macOS compile-cache misses: uv's randomly-named cache path leaks into Nuitka's include flags, changing the hashed compiler arguments every run. ccache now hashes paths relative to the runner root (`base_dir`), insuring the Linux cache against the same leak.
 - `repomatic init` no longer writes the running version's workflow content beside a pin the cooldown held back. A repository that already carries workflows keeps them untouched until the release is adopted, instead of receiving the new triggers, `concurrency` groups and `env:` blocks against the pinned release's reusable-workflow surface.
 - New `is_python_package` metadata key. `sync-bumpversion` now gates on it instead of `is_python_project`, so the job no longer opens `[tool.bumpversion]` PRs against a uv virtual project (`[tool.uv] package = false`).
-- Oversized step outputs are trimmed instead of killing the step that reads them with `Argument list too long`. A long `sync-uv-lock` release-notes report could exceed the size a value passed through `env:` is allowed to have.
+- Oversized step outputs are trimmed instead of killing the step that reads them with `Argument list too long`.
+- A PR body keeps its whole report: a dependency sweep whose release notes outgrow what an environment variable carries now reaches the body through a file instead of being cut to fit.
+- New `--prefix-file` option on `pr-body`, and a matching `GHA_PR_BODY_PREFIX_FILE` variable, reading the body prefix from a file.
 - The setup guide issue now reopens when Actions SHA pinning is turned off, instead of closing while reporting every repository setting complete.
 
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)

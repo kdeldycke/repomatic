@@ -451,7 +451,7 @@ jobs:
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.fix.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.fix.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
           pr-body --output-format github-actions
@@ -542,7 +542,7 @@ jobs:
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata
         env:
-          GHA_PR_BODY_PREFIX: ${{ steps.format.outputs.markdown }}
+          GHA_PR_BODY_PREFIX_FILE: ${{ steps.format.outputs.markdown_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
           pr-body --output-format github-actions
@@ -739,7 +739,7 @@ jobs:
       - id: sync-dep-sources-meta
         if: ${{ !cancelled() && steps.sync-dep-sources.outcome == 'success' }}
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync-dep-sources.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-dep-sources.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
           pr-body --output-format github-actions
@@ -777,7 +777,7 @@ jobs:
       - id: sync-uv-lock-meta
         if: ${{ !cancelled() && steps.sync-uv-lock.outcome == 'success' }}
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync-uv-lock.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-uv-lock.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
           pr-body --output-format github-actions
@@ -816,7 +816,7 @@ jobs:
       - id: sync-action-pins-meta
         if: ${{ !cancelled() && steps.sync-action-pins.outcome == 'success' }}
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync-action-pins.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-action-pins.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
           pr-body --output-format github-actions
@@ -855,7 +855,7 @@ jobs:
       - id: sync-workflow-pins-meta
         if: ${{ !cancelled() && steps.sync-workflow-pins.outcome == 'success' }}
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync-workflow-pins.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-workflow-pins.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
           pr-body --output-format github-actions

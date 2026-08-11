@@ -1077,6 +1077,7 @@ def _invoke_pr_body(
     for key in GITHUB_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("GHA_PR_BODY_PREFIX", raising=False)
+    monkeypatch.delenv("GHA_PR_BODY_PREFIX_FILE", raising=False)
     return CliRunner().invoke(
         repomatic,
         ["pr-body", "--output", str(output_path), *args],
@@ -1113,6 +1114,40 @@ def test_cli_template_file(tmp_path, monkeypatch):
     rendered = output_path.read_text(encoding="UTF-8")
     assert "### Pack mango" in rendered
     assert "title=Pack mango" in rendered
+
+
+def test_cli_prefix_file_reads_the_prefix_from_disk(tmp_path, monkeypatch):
+    """`--prefix-file` carries a report too large to pass through the env."""
+    prefix_path = tmp_path / "harvest.md"
+    prefix_path.write_text("### Crates packed\n\nmango, kiwi.\n", encoding="UTF-8")
+
+    output_path = tmp_path / "body.txt"
+    result = _invoke_pr_body(
+        ["--prefix-file", str(prefix_path)],
+        monkeypatch,
+        output_path,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "### Crates packed" in output_path.read_text(encoding="UTF-8")
+
+
+def test_cli_prefix_file_wins_over_prefix(tmp_path, monkeypatch):
+    """With both given, the file is the one the workflow means."""
+    prefix_path = tmp_path / "harvest.md"
+    prefix_path.write_text("mango", encoding="UTF-8")
+
+    output_path = tmp_path / "body.txt"
+    result = _invoke_pr_body(
+        ["--prefix", "kiwi", "--prefix-file", str(prefix_path)],
+        monkeypatch,
+        output_path,
+    )
+
+    assert result.exit_code == 0, result.output
+    rendered = output_path.read_text(encoding="UTF-8")
+    assert "mango" in rendered
+    assert "kiwi" not in rendered
 
 
 def test_cli_template_and_template_file_mutually_exclusive(tmp_path, monkeypatch):

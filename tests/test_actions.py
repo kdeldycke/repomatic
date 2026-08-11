@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -26,8 +27,11 @@ from repomatic.github.actions import (
     MAX_STEP_OUTPUT_BYTES,
     ReportAction,
     cancel_superseded_runs,
+    format_file_output,
     format_multiline_output,
+    read_file_output,
     trim_to_byte_budget,
+    write_output_file,
 )
 from repomatic.github.sponsor import (
     get_default_author,
@@ -237,3 +241,62 @@ def test_trim_to_byte_budget_cuts_on_line_boundaries():
 def test_trim_to_byte_budget_returns_empty_when_nothing_fits():
     """A budget too small for even the first line yields nothing."""
     assert trim_to_byte_budget("watermelon\nkiwi", 3) == ""
+
+
+# -- File-backed step outputs -------------------------------------------------
+
+
+def test_write_output_file_lands_in_the_runner_temp_dir(tmp_path, monkeypatch):
+    """The runner's own temp dir holds the spill when it exports one."""
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    spilled = write_output_file("harvest", "mango")
+    assert spilled.parent == tmp_path
+    assert spilled.name.startswith("repomatic-harvest-")
+    assert spilled.read_text(encoding="UTF-8") == "mango"
+
+
+def test_format_file_output_names_the_output_after_the_file(tmp_path, monkeypatch):
+    """The step output carries a path under a `_file` name, not the content."""
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    name, _, path = format_file_output("harvest", "mango\nkiwi").partition("=")
+    assert name == "harvest_file"
+    assert Path(path).read_text(encoding="UTF-8") == "mango\nkiwi"
+
+
+def test_format_file_output_keeps_oversized_values_whole(tmp_path, monkeypatch):
+    """A report past the environment's ceiling reaches the consumer intact."""
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    oversized = "mango ripens in July.\n" * 20000
+    assert len(oversized.encode("utf-8")) > MAX_STEP_OUTPUT_BYTES
+
+    line = format_file_output("harvest", oversized)
+    assert len(line.encode("utf-8")) < MAX_STEP_OUTPUT_BYTES
+    assert Path(line.partition("=")[2]).read_text(encoding="UTF-8") == oversized
+
+
+def test_read_file_output_prefers_the_file_over_the_inline_value(tmp_path, monkeypatch):
+    """Both variables set means the workflow has moved on: the path wins."""
+    spilled = tmp_path / "harvest.md"
+    spilled.write_text("mango", encoding="UTF-8")
+    monkeypatch.setenv("HARVEST_FILE", str(spilled))
+    monkeypatch.setenv("HARVEST", "kiwi")
+    assert read_file_output("HARVEST") == "mango"
+
+
+@pytest.mark.parametrize(("inline", "expected"), (("kiwi", "kiwi"), (None, "")))
+def test_read_file_output_falls_back_to_the_inline_value(inline, expected, monkeypatch):
+    """Without a path it reads the plain variable, and empty when unset."""
+    monkeypatch.delenv("HARVEST_FILE", raising=False)
+    monkeypatch.delenv("HARVEST", raising=False)
+    if inline is not None:
+        monkeypatch.setenv("HARVEST", inline)
+    assert read_file_output("HARVEST") == expected
+
+
+def test_file_output_round_trips(tmp_path, monkeypatch):
+    """What the producer spills is what the consumer reads back."""
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    report = "| Fruit | Crate |\n| :-- | :-- |\n| mango | 10 |"
+    _, _, path = format_file_output("harvest", report).partition("=")
+    monkeypatch.setenv("HARVEST_FILE", path)
+    assert read_file_output("HARVEST") == report

@@ -58,6 +58,7 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from random import randint
+from tempfile import mkstemp
 
 from ..compat import StrEnum
 from .gh import run_gh_command
@@ -92,6 +93,10 @@ working directory '/home/runner/work/orchard/orchard'. Argument list too long
 
 The 1 KiB reserve covers the `NAME=` prefix the kernel counts as part of the
 same string, well beyond the longest name in use.
+
+This ceiling only binds a value the environment has to carry. A report that
+grows without bound belongs in a file instead: see {func}`format_file_output`,
+which hands the consumer a path and leaves the content untrimmed.
 
 ```{caution}
 This is a transport limit, counted in bytes, and is deliberately looser than
@@ -267,6 +272,75 @@ def format_multiline_output(name: str, value: str) -> str:
         value = trim_to_byte_budget(value, MAX_STEP_OUTPUT_BYTES)
     delimiter = generate_delimiter()
     return f"{name}<<{delimiter}\n{value}\n{delimiter}"
+
+
+def write_output_file(name: str, value: str) -> Path:
+    """Write a step output's value to a file, and return that file's path.
+
+    The file lands in `RUNNER_TEMP` where the runner exports it, which is
+    per-job and cleaned up by the runner itself, and in the system temporary
+    directory otherwise. Either is shared by every step of a job, which is what
+    makes the handoff work: producer and consumer are separate processes on one
+    filesystem.
+
+    :param name: The step output name, which the filename carries so a spilled
+        report is recognisable in a temporary directory.
+    :param value: The content to write.
+    :return: Path of the file holding *value*.
+    """
+    handle, path = mkstemp(
+        prefix=f"repomatic-{name}-",
+        suffix=".md",
+        dir=os.getenv("RUNNER_TEMP") or None,
+    )
+    os.close(handle)
+    spilled = Path(path)
+    spilled.write_text(value, encoding="utf-8")
+    return spilled
+
+
+def format_file_output(name: str, value: str) -> str:
+    """Format a value as a file-backed output, for a consumer to read back.
+
+    Writes *value* out with {func}`write_output_file` and names the step output
+    `<name>_file`, so the consuming step receives a path instead of content:
+
+    ```{code-block} text
+    harvest_file=/home/runner/work/_temp/repomatic-harvest-8m1t0p.md
+    ```
+
+    This is the escape hatch from {data}`MAX_STEP_OUTPUT_BYTES`. A report grows
+    with the repository it describes and has no ceiling of its own: the release
+    notes a dependency sweep collects reached 269 KiB on one downstream repo,
+    twice what the environment can carry, and trimming to fit is a loss of
+    content, not a fix. Handing over a path keeps the environment holding a
+    hundred-odd bytes whatever the report weighs, and leaves any trimming to
+    {func}`repomatic.github.pr_body.build_pr_body`, which is the layer that
+    knows GitHub's own body limit and marks the cut for the reader.
+
+    :param name: The output variable name, before the `_file` suffix.
+    :param value: The content to hand over.
+    :return: Formatted string for `$GITHUB_OUTPUT`.
+    """
+    return f"{name}_file={write_output_file(name, value)}"
+
+
+def read_file_output(name: str) -> str:
+    """Read a value passed either as a file path or inline.
+
+    The consuming half of {func}`format_file_output`: `<NAME>_FILE` holds the
+    path of a file whose content is the value, while `<NAME>` holds the value
+    itself. The path wins where both are set, the inline variable remaining for
+    a caller that has not moved over, and for a workflow pinned to a release
+    older than the CLI it invokes.
+
+    :param name: The environment variable name, before the `_FILE` suffix.
+    :return: The value, empty when neither variable is set.
+    """
+    path = os.getenv(f"{name}_FILE")
+    if path:
+        return Path(path).read_text(encoding="utf-8")
+    return os.getenv(name, "")
 
 
 def emit_annotation(level: AnnotationLevel, message: str) -> None:

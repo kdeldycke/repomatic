@@ -114,7 +114,9 @@ from .github.actions import (
     AnnotationLevel,
     cancel_superseded_runs,
     emit_annotation,
+    format_file_output,
     format_multiline_output,
+    read_file_output,
 )
 from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
@@ -379,18 +381,23 @@ def emit_report(
 
     The shared tail of every report-producing command: nothing is written
     when no output path is set or the body is empty; with
-    `--output-format github-actions` the body is wrapped as a heredoc step
-    output variable named *key* for `$GITHUB_OUTPUT` consumption.
+    `--output-format github-actions` the body is spilled to a file and the step
+    output named `<key>_file` carries its path, for `$GITHUB_OUTPUT`
+    consumption.
+
+    A report is the one value here with no ceiling of its own, so it is the one
+    that must not travel inline: see {func}`repomatic.github.actions.format_file_output`.
 
     :param body: The markdown report.
     :param output: The `--output` path (`None` to skip, `-` for stdout).
     :param output_format: `markdown` or `github-actions`.
-    :param key: The step output variable name for the `github-actions` format.
+    :param key: The step output variable name, before the `_file` suffix, for
+        the `github-actions` format.
     """
     if output is None or not body:
         return
     if output_format == "github-actions":
-        content = format_multiline_output(key, body)
+        content = format_file_output(key, body)
     else:
         content = body
     echo(content, file=prep_path(output))
@@ -2439,7 +2446,7 @@ def audit(
         if diff_table:
             echo(diff_table)
         # Keep the github-actions key as `diff_table`: the autofix
-        # workflow's pr-metadata step reads steps.fix.outputs.diff_table.
+        # workflow's pr-metadata step reads steps.fix.outputs.diff_table_file.
         emit_report(diff_table, output, output_format)
         ctx.exit(0)
 
@@ -4088,6 +4095,17 @@ def sync_binaries(
     "Can also be set via the GHA_PR_BODY_PREFIX environment variable.",
 )
 @option(
+    "--prefix-file",
+    "prefix_file",
+    type=file_path(exists=True, readable=True, resolve_path=True),
+    envvar="GHA_PR_BODY_PREFIX_FILE",
+    default=None,
+    help="Read the prefix from a file instead of --prefix, for a report too "
+    "large to travel in an environment variable. "
+    "Can also be set via the GHA_PR_BODY_PREFIX_FILE environment variable. "
+    "Wins over --prefix when both are given.",
+)
+@option(
     "--template",
     type=Choice(get_template_names(), case_sensitive=False),
     default=None,
@@ -4149,6 +4167,7 @@ def sync_binaries(
 )
 def pr_body(
     prefix: str,
+    prefix_file: Path | None,
     template: str | None,
     template_file: Path | None,
     template_args_cli: tuple[str, ...],
@@ -4164,9 +4183,11 @@ def pr_body(
     listing the workflow metadata (documentation, trigger, actor, ref,
     commit, job, workflow, run).
 
-    The prefix can be set via --template (built-in templates) or --prefix
-    (arbitrary content, also via GHA_PR_BODY_PREFIX env var). If both are
-    given, --prefix is prepended before the rendered template content.
+    The prefix can be set via --template (built-in templates), --prefix
+    (arbitrary content, also via GHA_PR_BODY_PREFIX env var) or --prefix-file
+    (the same content read from a file, also via GHA_PR_BODY_PREFIX_FILE). If
+    a template and a prefix are both given, the prefix is prepended before the
+    rendered template content.
 
     \b
     Examples:
@@ -4196,6 +4217,9 @@ def pr_body(
     if template and template_file:
         msg = "--template and --template-file are mutually exclusive."
         raise UsageError(msg)
+
+    if prefix_file:
+        prefix = prefix_file.read_text(encoding="utf-8")
 
     def _auto_version() -> str:
         """Read current_version from bumpversion config and strip .dev suffix."""
@@ -4247,7 +4271,7 @@ def pr_body(
     arg_sources: dict[str, str | None | Callable[[], str | None]] = {
         "changes_review": lambda: _review_step("changes_review"),
         "dev_release_review": lambda: _review_step("dev_release_review"),
-        "diff_table": os.getenv("REPOMATIC_DIFF_TABLE", ""),
+        "diff_table": read_file_output("REPOMATIC_DIFF_TABLE"),
         "part": part,
         "pr_ref": pr_ref,
         "release_readiness": _release_readiness,

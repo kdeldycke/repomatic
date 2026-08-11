@@ -66,7 +66,7 @@ jobs:
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - id: pr-metadata
         env:
-          REPOMATIC_DIFF_TABLE: ${{ steps.sync-tool-versions.outputs.diff_table }}
+          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-tool-versions.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic pr-body
           --output-format github-actions
