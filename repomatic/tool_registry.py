@@ -1124,23 +1124,23 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "2960ae07bc1ffe19e4895e4359394dd349c9c31de78aac3a124b6e4aeb206698",
+        ): "85c8b87b22a0fb1da130cd4d495e0beba7f1225eb580933184509e146ec4c509",
         (
             LINUX,
             X86_64,
-        ): "72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c",
+        ): "48bd2d58e02ce713b8c0f1aa239e68ee4f7d8c551013135806e6aed3938d9e10",
         (
             MACOS,
             AARCH64,
-        ): "7dcaf386ec255995dcbaf629641f961574b7e8785203921115eab75cbf1ca107",
+        ): "8c0e7bd40b2b60c0b0cfe9f74dd814b4d4385c956ce86860f7da9e62d91fdc73",
         (
             MACOS,
             X86_64,
-        ): "f4335c255db3d57374484e0e96505c8910c0e2fa6d8813b15de529c98f93b1a9",
+        ): "4cecbf653a9fc45f023abf57f4e2e2f6b138c2d2387b09289beacdd3f0ea7bfd",
         (
             WINDOWS,
             X86_64,
-        ): "ce018a2352da7c1b23bd2684019ee279d2080dc063087020e80c1247d11b0743",
+        ): "06d3a1b71c282e021671070696a72696d5c60ea485b47dc4f8f1fbcf90144d02",
     },
 }
 """Tool name to platform-keyed SHA-256 hex digest mapping.
@@ -1160,7 +1160,7 @@ VERSIONS: dict[str, str] = {
     "lychee": "0.24.2",
     "oxipng": "10.1.1",
     "shfmt": "3.13.1",
-    "typos": "1.48.0",
+    "typos": "1.49.0",
 }
 """Tool name to the version each checksum set was computed for.
 
@@ -1761,7 +1761,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
-        version="2.26.0",
+        version="2.27.0",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
@@ -1862,7 +1862,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "typos": ToolSpec(
         name="typos",
-        version="1.48.0",
+        version="1.49.0",
         source_url="https://github.com/crate-ci/typos",
         config_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
         cli_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
