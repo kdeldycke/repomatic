@@ -554,6 +554,7 @@ expected: dict[str, Any] = {
     # joins zsh_files only when its shebang names zsh.
     "zsh_files": [],
     "is_python_project": True,
+    "is_python_package": True,
     "binaries_sync": True,
     "manpages_script": "repomatic.cli:repomatic",
     "manpages_asset_name": "",

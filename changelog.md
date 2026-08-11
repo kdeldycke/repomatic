@@ -16,6 +16,7 @@
 - Standalone binary tests now run for every healthy target when a sibling build fails, instead of being skipped wholesale.
 - Root-caused the macOS compile-cache misses: uv's randomly-named cache path leaks into Nuitka's include flags, changing the hashed compiler arguments every run. ccache now hashes paths relative to the runner root (`base_dir`), insuring the Linux cache against the same leak.
 - `repomatic init` no longer writes the running version's workflow content beside a pin the cooldown held back. A repository that already carries workflows keeps them untouched until the release is adopted, instead of receiving the new triggers, `concurrency` groups and `env:` blocks against the pinned release's reusable-workflow surface.
+- New `is_python_package` metadata key. `sync-bumpversion` now gates on it instead of `is_python_project`, so the job no longer opens `[tool.bumpversion]` PRs against a uv virtual project (`[tool.uv] package = false`).
 
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)
 

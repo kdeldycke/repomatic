@@ -118,7 +118,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           gitignore_exists python_files pyproject_files json_files doc_files
-          markdown_files is_python_project mailmap_exists
+          markdown_files is_python_project is_python_package mailmap_exists
           image_files shfmt_files workflow_files active_autodoc uses_myst
           release_commits_matrix
 
@@ -597,8 +597,10 @@ jobs:
     name: 🔄 Sync bumpversion config
     needs:
       - metadata
-    if: fromJSON(needs.metadata.outputs.metadata).is_python_project
     runs-on: ubuntu-slim
+    # is_python_package, not is_python_project: a uv virtual project
+    # ([tool.uv] package = false) has a [project] table but nothing to version.
+    if: fromJSON(needs.metadata.outputs.metadata).is_python_package
     permissions:
       contents: write
       pull-requests: write
