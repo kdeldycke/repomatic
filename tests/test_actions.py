@@ -22,7 +22,13 @@ from unittest.mock import patch
 
 import pytest
 
-from repomatic.github.actions import ReportAction, cancel_superseded_runs
+from repomatic.github.actions import (
+    MAX_STEP_OUTPUT_BYTES,
+    ReportAction,
+    cancel_superseded_runs,
+    format_multiline_output,
+    trim_to_byte_budget,
+)
 from repomatic.github.sponsor import (
     get_default_author,
     get_default_number,
@@ -163,3 +169,71 @@ def test_cancel_superseded_runs_empty_listing():
         cancelled = cancel_superseded_runs("melon-branch", "1")
     assert cancelled == 0
     assert all("/cancel" not in call.args[0][-1] for call in mock_gh.call_args_list)
+
+
+# -- Step output size guard ---------------------------------------------------
+
+
+def _output_value(formatted):
+    """Recover the heredoc payload the runner would assign to the variable."""
+    return "\n".join(formatted.split("\n")[1:-1])
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "",
+        "mango",
+        "| Fruit | Crate |\n| :-- | :-- |\n| mango | 10 |",
+        "kiwi\n" * 100,
+    ),
+)
+def test_format_multiline_output_keeps_small_values_verbatim(value):
+    """Anything under the ceiling reaches the consuming step untouched."""
+    assert _output_value(format_multiline_output("harvest", value)) == value
+
+
+@pytest.mark.parametrize(
+    ("filler", "label"),
+    (
+        ("mango ripens in July.", "ascii"),
+        ("柑橘は七月に熟す。", "three-byte"),
+        ("🍊 ripens in July.", "astral"),
+    ),
+)
+def test_format_multiline_output_trims_oversized_values(filler, label):
+    """An oversized value is cut down to fit, whatever its encoding costs."""
+    oversized = "\n".join([filler * 20] * 4000)
+    assert len(oversized.encode("utf-8")) > MAX_STEP_OUTPUT_BYTES
+
+    trimmed = _output_value(format_multiline_output("harvest", oversized))
+    assert len(trimmed.encode("utf-8")) <= MAX_STEP_OUTPUT_BYTES
+    # Still decodable: a mid-character byte slice would not survive this.
+    assert trimmed.encode("utf-8").decode("utf-8") == trimmed
+    # Leading content survives verbatim, cut on a line boundary.
+    assert oversized.startswith(trimmed)
+    assert all(line in oversized.splitlines() for line in trimmed.splitlines())
+
+
+def test_format_multiline_output_leaves_room_for_the_variable_name():
+    """The trimmed value plus a `NAME=` prefix stays under `MAX_ARG_STRLEN`.
+
+    The kernel counts the whole `NAME=value` string against its per-string
+    cap, so a value sized to the cap exactly would still fail to exec.
+    """
+    max_arg_strlen = 32 * 4096
+    trimmed = _output_value(format_multiline_output("harvest", "mango\n" * 40000))
+    entry = len("REPOMATIC_DIFF_TABLE=") + len(trimmed.encode("utf-8"))
+    assert entry <= max_arg_strlen
+
+
+def test_trim_to_byte_budget_cuts_on_line_boundaries():
+    """A budget landing mid-line drops that line rather than splitting it."""
+    text = "mango\nkiwi\npapaya"
+    # Room for "mango\nkiwi\n" and one byte of "papaya".
+    assert trim_to_byte_budget(text, 12) == "mango\nkiwi"
+
+
+def test_trim_to_byte_budget_returns_empty_when_nothing_fits():
+    """A budget too small for even the first line yields nothing."""
+    assert trim_to_byte_budget("watermelon\nkiwi", 3) == ""

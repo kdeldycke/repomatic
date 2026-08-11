@@ -75,6 +75,34 @@ previous commit to compare against.
 """
 
 
+MAX_STEP_OUTPUT_BYTES = 32 * 4096 - 1024
+"""Ceiling for a single `$GITHUB_OUTPUT` value, in UTF-8 bytes.
+
+A step output only exists to be read by a later step, and the two ways of
+reading one both land it in the consumer's environment: `env:` mapping a
+`steps.*.outputs.*` expression, and action inputs, which the runner exports as
+`INPUT_*`. Linux caps a single `argv`/`envp` string at `MAX_ARG_STRLEN`, 32
+pages, so a value past that makes the runner's `execve()` of `/usr/bin/bash`
+fail with `E2BIG` before the step's own command exists:
+
+```{code-block} text
+##[error]An error occurred trying to start process '/usr/bin/bash' with
+working directory '/home/runner/work/orchard/orchard'. Argument list too long
+```
+
+The 1 KiB reserve covers the `NAME=` prefix the kernel counts as part of the
+same string, well beyond the longest name in use.
+
+```{caution}
+This is a transport limit, counted in bytes, and is deliberately looser than
+{data}`repomatic.github.pr_body.GITHUB_BODY_MAX_CHARS`, which is a content
+limit counted in UTF-16 code units. A value can clear this one and still be
+trimmed later by {func}`repomatic.github.pr_body.build_pr_body`, which is the
+layer that leaves the reader a truncation notice.
+```
+"""
+
+
 class WorkflowEvent(StrEnum):
     """Workflow events that cause a workflow to run.
 
@@ -188,6 +216,27 @@ def generate_delimiter() -> str:
     return f"GHA_DELIMITER_{randint(10**8, (10**9) - 1)}"
 
 
+def trim_to_byte_budget(text: str, budget: int) -> str:
+    """Keep the leading whole lines of *text* that fit in *budget* UTF-8 bytes.
+
+    Cutting on line boundaries keeps the trimmed markdown rendering: a table
+    missing rows still renders, one cut mid-row does not. It also keeps the
+    result valid UTF-8, which slicing a byte string cannot promise.
+
+    :param text: Content to trim.
+    :param budget: Available room, in UTF-8 bytes.
+    :return: The kept lines, right-stripped; empty when nothing fits.
+    """
+    kept: list[str] = []
+    used = 0
+    for line in text.splitlines():
+        used += len(line.encode("utf-8")) + 1  # The joining newline.
+        if used > budget:
+            break
+        kept.append(line)
+    return "\n".join(kept).rstrip()
+
+
 def format_multiline_output(name: str, value: str) -> str:
     """Format a multiline value for GitHub Actions output.
 
@@ -201,10 +250,21 @@ def format_multiline_output(name: str, value: str) -> str:
     GHA_DELIMITER_NNNNNNNNN
     ```
 
+    Values over {data}`MAX_STEP_OUTPUT_BYTES` are trimmed to fit, so a step
+    reading this output cannot be killed by `E2BIG` before it starts.
+
     :param name: The output variable name.
     :param value: The multiline value.
     :return: Formatted string for `$GITHUB_OUTPUT`.
     """
+    size = len(value.encode("utf-8"))
+    if size > MAX_STEP_OUTPUT_BYTES:
+        logging.warning(
+            f"Step output {name!r} is {size} bytes, over the "
+            f"{MAX_STEP_OUTPUT_BYTES}-byte limit a consuming step can receive: "
+            "trimming to fit."
+        )
+        value = trim_to_byte_budget(value, MAX_STEP_OUTPUT_BYTES)
     delimiter = generate_delimiter()
     return f"{name}<<{delimiter}\n{value}\n{delimiter}"
 
