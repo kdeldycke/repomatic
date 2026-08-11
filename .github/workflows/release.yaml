@@ -105,7 +105,7 @@ jobs:
       # why). A bare `fromJSON('')` aborts the whole run with "Unexpected value ''", so we fall back to an empty
       # `{"include":[]}` matrix, which expands the job to zero runs and skips it cleanly.
       matrix: ${{ fromJSON(needs.build.outputs.release_commits_matrix || '{"include":[]}') }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       # OIDC only: the PyPI Trusted Publishing token. The GitHub release notes
       # (with their PyPI admonition) are owned end to end by the engine lane's
@@ -161,7 +161,7 @@ jobs:
     name: 🧩 Pack Claude Code plugin
     # Only for `release_commits_matrix`, which the checkout below resolves the freeze commit from.
     needs: build
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

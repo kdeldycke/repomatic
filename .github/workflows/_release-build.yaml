@@ -60,7 +60,7 @@ jobs:
     if: >-
       github.event_name == 'push'
       && startsWith(github.event.head_commit.message, 'Release `v')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       issues: write
     steps:
@@ -107,7 +107,7 @@ jobs:
 
   metadata:
     name: 🧬 Project metadata
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -145,7 +145,7 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).is_python_project
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -181,7 +181,7 @@ jobs:
       matrix: >-
         ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
         || fromJSON(needs.metadata.outputs.metadata).new_commits_matrix }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       id-token: write
     steps:

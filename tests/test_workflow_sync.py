@@ -588,12 +588,20 @@ def test_release_thin_caller_publish_pypi_keeps_canonical_runner() -> None:
     """The generated downstream job inherits the canonical runner verbatim.
 
     The body is carried through from release.yaml unchanged except for the
-    checkout drop and the action-ref pin, so downstream callers run on the same
-    `ubuntu-slim` repomatic uses. A downstream repo that needs a fuller image
-    surfaces that as a failure to revisit then.
+    checkout drop and the action-ref pin, so downstream callers run on whichever
+    image repomatic itself uses. The expectation is read from that source rather
+    than written here: pinning the literal made this fail as a fleet migration
+    rather than as the drift it exists to catch.
     """
+    source = yaml.safe_load(get_data_content("release.yaml"))
+    canonical = source["jobs"]["publish-pypi"]["runs-on"]
+    assert not canonical.endswith("-latest"), (
+        f"release.yaml's publish-pypi runs on {canonical!r}, a floating alias "
+        "that GitHub repoints without a commit here."
+    )
+
     content = generate_thin_caller("release.yaml", version="v9.9.9")
-    assert "runs-on: ubuntu-slim" in content
+    assert f"runs-on: {canonical}" in content
     assert "ubuntu-latest" not in content
 
 

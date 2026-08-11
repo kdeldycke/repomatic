@@ -46,7 +46,7 @@ jobs:
     name: 🔄 Sync labels
     # Restrict job to the main branch pushes and workflow calls only, as this is a project-management task.
     if: github.event_name == 'push' || github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       issues: write
     steps:
@@ -79,7 +79,7 @@ jobs:
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
       github.head_ref)
       && !startsWith(github.event.head_commit.message || '', '[changelog] ')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -101,7 +101,7 @@ jobs:
     if: >
       github.event_name == 'pull_request'
       && (! fromJSON(needs.metadata.outputs.metadata).is_bot)
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       pull-requests: write
@@ -127,7 +127,7 @@ jobs:
     if: >
       (github.event_name == 'pull_request' || github.event_name == 'issues')
       && (! fromJSON(needs.metadata.outputs.metadata).is_bot)
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       issues: write
@@ -153,7 +153,7 @@ jobs:
     if: >
       (github.event_name == 'pull_request' || github.event_name == 'issues')
       && (! fromJSON(needs.metadata.outputs.metadata).is_bot)
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       issues: write
       pull-requests: write

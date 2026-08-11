@@ -40,7 +40,7 @@ jobs:
 
   metadata:
     name: 🧬 Project metadata
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       build_targets: ${{ steps.extend-matrix.outputs.targets }}
     steps:

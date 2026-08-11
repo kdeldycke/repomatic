@@ -49,7 +49,7 @@ jobs:
     if: >
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && !startsWith(github.event.head_commit.message || '', '[changelog] ')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       issues: write
     steps:
@@ -74,7 +74,7 @@ jobs:
     # context and manages the caller's own issue. See
     # repomatic/runner_images.py for why the announcement feed is the source.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       issues: write
     steps:
@@ -104,7 +104,7 @@ jobs:
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
       github.head_ref)
       && !startsWith(github.event.head_commit.message || '', '[changelog] ')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -130,7 +130,7 @@ jobs:
       - metadata
     # Ruff can format code in both Python and Markdown files.
     if: fromJSON(needs.metadata.outputs.metadata).python_files || fromJSON(needs.metadata.outputs.metadata).doc_files
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -184,7 +184,7 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).is_python_project
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -227,13 +227,14 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).markdown_files
-    # Back on the lean default: shfmt was the only reason this job needed a full
-    # image, and `repomatic run mdformat` now provisions it through mdformat's
-    # `path_tools` instead of apt. ARM would run the per-file mdformat pass
-    # ~1.26x faster, but mdformat-config pulls taplo, which ships no
-    # linux-aarch64 wheel and has a broken 0.9.3 sdist; stay on x86 until taplo
-    # publishes an aarch64 wheel. See docs/test-matrix.md.
-    runs-on: ubuntu-slim
+    # The heaviest light job, and the only one where the image's CPU shows up at
+    # all: it spawns one mdformat per file. ARM would run that pass ~1.26x
+    # faster, but mdformat-config pulls taplo, which ships no linux-aarch64
+    # wheel and has a broken 0.9.3 sdist, so this job stays on x86 whatever the
+    # rest of the fleet does. `shfmt` no longer pins it to a full image either
+    # way: `repomatic run mdformat` provisions that through mdformat's
+    # `path_tools` instead of apt. See docs/test-matrix.md.
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -287,7 +288,7 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).shfmt_files
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -332,7 +333,7 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).json_files
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -384,7 +385,7 @@ jobs:
     # gate the metadata job carries.
     if: >
       !startsWith(github.event.head_commit.message || '', '[changelog] ')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -426,7 +427,7 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).is_python_project
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -473,7 +474,7 @@ jobs:
     # gate the metadata job carries.
     if: >
       !startsWith(github.event.head_commit.message || '', '[changelog] ')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -509,7 +510,7 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).image_files
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -565,7 +566,7 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).gitignore_exists
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -597,10 +598,10 @@ jobs:
     name: 🔄 Sync bumpversion config
     needs:
       - metadata
-    runs-on: ubuntu-slim
     # is_python_package, not is_python_project: a uv virtual project
     # ([tool.uv] package = false) has a [project] table but nothing to version.
     if: fromJSON(needs.metadata.outputs.metadata).is_python_package
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -633,7 +634,7 @@ jobs:
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).mailmap_exists
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -675,7 +676,7 @@ jobs:
     # each needs its own branch and PR body.
     needs:
       - metadata
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -846,7 +847,7 @@ jobs:
     if: >
       fromJSON(needs.metadata.outputs.metadata).is_python_project
       && fromJSON(needs.metadata.outputs.metadata).active_autodoc
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write

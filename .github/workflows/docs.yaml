@@ -42,7 +42,7 @@ jobs:
 
   metadata:
     name: 🧬 Project metadata
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -64,7 +64,7 @@ jobs:
     if: >-
       fromJSON(needs.metadata.outputs.metadata).is_python_project
       && fromJSON(needs.metadata.outputs.metadata).is_sphinx
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       id-token: write
       pages: write

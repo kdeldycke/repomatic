@@ -72,6 +72,15 @@ re-provisioned, so re-confirm against your own job timings.
 NON_MATRIX_RUNNERS = ("ubuntu-slim",)
 """Images used by jobs that are not test-matrix cells.
 
+```{note} Currently unused, pending an A/B
+Every job has been pointed at `ubuntu-26.04` to measure the lean image against
+a full one on the real mechanical workload, so nothing runs on `ubuntu-slim`
+right now. The entry stays because it is the revert target, and because a
+known-but-unused image costs nothing: `lint-repo` only flags an image nobody
+weighed. Drop it and this whole set once the numbers settle, or restore the
+jobs to it. See {doc}`/test-matrix`.
+```
+
 The test axes above answer "where is the suite exercised". This answers "what
 else may a job legitimately run on", and the two are deliberately kept as close
 as possible: every distinct image is one more thing to track, to pin, and to

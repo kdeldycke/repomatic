@@ -71,7 +71,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -102,7 +102,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_run'
       || !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -143,7 +143,7 @@ jobs:
     needs:
       - metadata
     # Always run since metadata already filters appropriate events.
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
@@ -232,7 +232,7 @@ jobs:
     # push trigger on paths-matching commits, but create-pull-request no-ops when
     # the branch is already current, so the extra run is cheap and idempotent.
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write

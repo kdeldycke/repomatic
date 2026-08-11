@@ -43,7 +43,7 @@ jobs:
 
   metadata:
     name: 🧬 Project metadata
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       has_virustotal_key: ${{ steps.check-vt-key.outputs.has_key }}
       metadata: ${{ steps.metadata.outputs.metadata }}
@@ -476,7 +476,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
@@ -512,7 +512,7 @@ jobs:
     if: always() && needs.create-tag.result == 'success'
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       # Allow project without REPOMATIC_PAT to create a GitHub release.
       contents: write
@@ -588,7 +588,7 @@ jobs:
       && fromJSON(needs.metadata.outputs.metadata).manpages_script != ''
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       attestations: write
       contents: write
@@ -674,7 +674,7 @@ jobs:
       && join(fromJSON(needs.metadata.outputs.metadata).release_assets) != ''
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       attestations: write
       contents: write
@@ -771,7 +771,7 @@ jobs:
       && needs.extra-assets.result != 'failure'
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
@@ -845,7 +845,7 @@ jobs:
       # Each cell commits scan records to the default branch; serializing the
       # (rare) multi-release runs keeps them from racing on the same files.
       max-parallel: 1
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     # Upload plus the 600 s --poll-timeout, with margin; a stuck poll must not
     # squat a runner-cap slot for the 360-min default.
     timeout-minutes: 15
@@ -940,7 +940,7 @@ jobs:
     concurrency:
       group: sync-dev-release-${{ github.repository }}
       cancel-in-progress: false
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
@@ -972,7 +972,7 @@ jobs:
     if: >
       fromJSON(needs.metadata.outputs.metadata).is_python_project
       && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write

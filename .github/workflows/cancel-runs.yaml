@@ -31,7 +31,7 @@ jobs:
   cancel-runs:
     name: ✂️ Cancel PR runs
     if: github.event.pull_request.number
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       actions: write
     steps:

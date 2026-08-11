@@ -26,7 +26,7 @@ jobs:
 
   lock:
     name: 🔒 Lock inactive threads
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     permissions:
       issues: write
       pull-requests: write

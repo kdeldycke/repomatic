@@ -75,7 +75,7 @@ jobs:
       github.head_ref)
       && !startsWith(github.event.head_commit.message || '', '[changelog] Bump major version to ')
       && !startsWith(github.event.head_commit.message || '', '[changelog] Bump minor version to ')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -194,7 +194,7 @@ jobs:
     name: 1️⃣ Run-once tests
     needs:
       - metadata
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -224,7 +224,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request'
       && fromJSON(needs.metadata.outputs.metadata).cli_scripts
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     env:
       CLI_SCRIPTS: ${{ fromJSON(needs.metadata.outputs.metadata).cli_scripts }}
       GIT_URL: git+https://github.com/${{ github.repository }}

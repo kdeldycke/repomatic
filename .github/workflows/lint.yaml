@@ -71,7 +71,7 @@ jobs:
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
       github.head_ref)
       && !startsWith(github.event.head_commit.message || '', '[changelog] ')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -92,7 +92,7 @@ jobs:
     name: 🏠 Lint repo
     needs:
       - metadata
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -113,7 +113,7 @@ jobs:
     # Skip when no Python files are present. Version-bump PRs are already
     # filtered upstream by the metadata job's `if:` gate.
     if: fromJSON(needs.metadata.outputs.metadata).python_files
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -141,7 +141,7 @@ jobs:
     if: >
       (! fromJSON(needs.metadata.outputs.metadata).is_bot)
       && fromJSON(needs.metadata.outputs.metadata).yaml_changed
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -158,7 +158,7 @@ jobs:
     if: >
       (! fromJSON(needs.metadata.outputs.metadata).is_bot)
       && fromJSON(needs.metadata.outputs.metadata).zsh_changed
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Zsh
@@ -179,7 +179,7 @@ jobs:
     if: >
       (! fromJSON(needs.metadata.outputs.metadata).is_bot)
       && fromJSON(needs.metadata.outputs.metadata).workflows_changed
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -214,7 +214,7 @@ jobs:
     if: >
       (! fromJSON(needs.metadata.outputs.metadata).is_bot)
       && fromJSON(needs.metadata.outputs.metadata).workflows_changed
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -228,7 +228,7 @@ jobs:
     needs:
       - metadata
     if: startsWith(github.event.repository.name, 'awesome-')
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -262,7 +262,7 @@ jobs:
       - metadata
     # Skip dependency update PRs.
     if: ${{ ! fromJSON(needs.metadata.outputs.metadata).is_bot }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -59,7 +59,7 @@ jobs:
     # call this via workflow_call, where github.repository is the caller.
     if: github.repository != 'kdeldycke/repomatic'
     name: "\U0001F515 Unsubscribe"
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-26.04
     steps:
       # Only needed on the upstream repo to build from source (--from .).
       # Downstream thin callers point to a tagged release where the version
