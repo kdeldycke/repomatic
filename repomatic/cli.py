@@ -160,6 +160,7 @@ from .images import (
 from .init_project import run_init
 from .labels import apply_labels
 from .lint_repo import (
+    KNOWN_RUNNERS,
     run_repo_lint,
 )
 from .mailmap import Mailmap, remove_header
@@ -188,6 +189,7 @@ from .registry import (
     parse_component_entries,
     valid_file_ids,
 )
+from .runner_images import manage_runner_images_issue
 from .setup_guide import manage_setup_guide
 from .sync_ops import (
     OPERATIONS_BY_NAME,
@@ -2006,6 +2008,30 @@ def broken_links(
         sphinx_output_json=output_json,
         sphinx_source_url=source_url,
     )
+
+
+@repomatic.command(
+    short_help="Manage runner image announcements issue", section=_section_github
+)
+@_require_token(_token_mod, "validate_gh_token_env")
+def runner_images() -> None:
+    """Report GitHub's open runner image announcements as an issue.
+
+    Reads the Announcement-labelled issues of actions/runner-images, which cover
+    both newly available images and images entering deprecation, and maintains a
+    single issue listing them. Announcements naming an image this repository
+    runs on are sorted first and flagged.
+
+    Nothing bumps a runs-on: value automatically, so a retirement otherwise
+    lands as a failing build with no warning.
+
+    Requires the gh CLI to be installed and authenticated.
+
+    \b
+    Example:
+        repomatic runner-images
+    """
+    manage_runner_images_issue(KNOWN_RUNNERS)
 
 
 @repomatic.command(

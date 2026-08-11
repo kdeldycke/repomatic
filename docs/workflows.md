@@ -71,6 +71,14 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
   - upstream `kdeldycke/repomatic` repo, `workflow_call` events
   - `setup-guide = false` in `[tool.repomatic]`
 
+#### 🖥️ Runner images (`runner-images`)
+
+- Reads the open `Announcement`-labelled issues of [`actions/runner-images`](https://github.com/actions/runner-images/issues?q=is%3Aissue+is%3Aopen+label%3AAnnouncement), which cover both newly available images and images entering deprecation, and maintains a single issue listing them
+- Sorts an announcement to the top and names the image in an **Affects** column when it acts on a runner the repo runs on, read from the announcement's `Possible impact` section so a migration *destination* is never reported as affected
+- Nothing bumps a `runs-on:` value automatically (Dependabot rewrites `uses:` references, `sync-workflow-pins` rewrites version literals), so a retirement otherwise arrives as a failing build with no warning
+- Automatically closes the issue once GitHub has closed every open announcement
+- **Runs on**: the weekly schedule and manual `workflow_dispatch` only, since the feed changes on GitHub's clock rather than on any push here
+
 *Formatters* — rewrite files to enforce canonical style:
 
 #### 🐍 Format Python (`format-python`)

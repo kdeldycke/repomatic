@@ -405,6 +405,15 @@
    :undoc-members:
 ```
 
+## `tests.test_runner_images` module
+
+```{eval-rst}
+.. automodule:: tests.test_runner_images
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_setup_guide` module
 
 ```{eval-rst}

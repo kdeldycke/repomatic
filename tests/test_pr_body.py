@@ -318,7 +318,7 @@ def test_get_template_names():
     assert "format-shell" in names
     assert "setup-guide-pypi-trusted-publisher" in names
     assert "sync-dep-sources" in names
-    assert len(names) == 48
+    assert len(names) == 49
 
 
 def test_load_template_frontmatter():
@@ -836,6 +836,7 @@ PROGRAMMATIC_TEMPLATES = frozenset({
     "refresh-tip",
     "release-notes",
     "release-sync-report",
+    "runner-images-issue",
     "setup-guide",
     "setup-guide-branch-ruleset",
     "setup-guide-dependabot",
