@@ -87,7 +87,7 @@ _MANYLINUX_2_28_AARCH64 = (
 
 NUITKA_BUILD_TARGETS = {
     "linux-arm64": {
-        "os": "ubuntu-24.04-arm",
+        "os": "ubuntu-26.04-arm",
         "platform_id": "linux",
         "arch": "arm64",
         "extension": "bin",
@@ -95,7 +95,7 @@ NUITKA_BUILD_TARGETS = {
         "glibc_floor": "2.28",
     },
     "linux-x64": {
-        "os": "ubuntu-24.04",
+        "os": "ubuntu-26.04",
         "platform_id": "linux",
         "arch": "x64",
         "extension": "bin",

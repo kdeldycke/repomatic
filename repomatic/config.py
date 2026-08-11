@@ -465,7 +465,7 @@ class TestMatrixConfig:
     """Full-matrix-only job rows, added as standalone matrix combinations.
 
     Each entry is a dict of GitHub Actions matrix keys fully describing one job
-    (like `{"os": "ubuntu-24.04-arm", "python-version": "3.10",
+    (like `{"os": "ubuntu-26.04-arm", "python-version": "3.10",
     "click-version": "8.3.1"}`). Unlike `include`, these are appended as
     independent rows of the full matrix, never merged into the base
     cross-product, so a cell can't overwrite a shipped-config job that shares

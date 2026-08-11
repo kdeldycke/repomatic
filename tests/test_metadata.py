@@ -612,7 +612,7 @@ expected: dict[str, Any] = {
     "build_targets": [
         {
             "target": "linux-arm64",
-            "os": "ubuntu-24.04-arm",
+            "os": "ubuntu-26.04-arm",
             "platform_id": "linux",
             "arch": "arm64",
             "extension": "bin",
@@ -624,7 +624,7 @@ expected: dict[str, Any] = {
         },
         {
             "target": "linux-x64",
-            "os": "ubuntu-24.04",
+            "os": "ubuntu-26.04",
             "platform_id": "linux",
             "arch": "x64",
             "extension": "bin",
@@ -669,8 +669,8 @@ expected: dict[str, Any] = {
     ],
     "nuitka_matrix": {
         "os": [
-            "ubuntu-24.04-arm",
-            "ubuntu-24.04",
+            "ubuntu-26.04-arm",
+            "ubuntu-26.04",
             "macos-26",
             "macos-26-intel",
             "windows-11-arm",
@@ -685,7 +685,7 @@ expected: dict[str, Any] = {
             # Build targets (fixed, one per platform).
             {
                 "target": "linux-arm64",
-                "os": "ubuntu-24.04-arm",
+                "os": "ubuntu-26.04-arm",
                 "platform_id": "linux",
                 "arch": "arm64",
                 "extension": "bin",
@@ -697,7 +697,7 @@ expected: dict[str, Any] = {
             },
             {
                 "target": "linux-x64",
-                "os": "ubuntu-24.04",
+                "os": "ubuntu-26.04",
                 "platform_id": "linux",
                 "arch": "x64",
                 "extension": "bin",
@@ -760,13 +760,13 @@ expected: dict[str, Any] = {
             },
             # At least one bin_name entry per OS (varies by commit count).
             {
-                "os": "ubuntu-24.04-arm",
+                "os": "ubuntu-26.04-arm",
                 "entry_point": "repomatic",
                 "commit": regex(r"[a-z0-9]+"),
                 "bin_name": regex(r"repomatic-[\d.]+(\.dev\d+)?-linux-arm64\.bin"),
             },
             {
-                "os": "ubuntu-24.04",
+                "os": "ubuntu-26.04",
                 "entry_point": "repomatic",
                 "commit": regex(r"[a-z0-9]+"),
                 "bin_name": regex(r"repomatic-[\d.]+(\.dev\d+)?-linux-x64\.bin"),
@@ -1162,7 +1162,7 @@ def test_nuitka_matrix_canary_on_push(monkeypatch):
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     matrix = Metadata().nuitka_matrix
     assert matrix is not None
-    assert matrix["os"] == ("ubuntu-24.04-arm",)
+    assert matrix["os"] == ("ubuntu-26.04-arm",)
     # Only the canary target's include data is present.
     include_targets = {i["target"] for i in matrix.include if "target" in i}
     assert include_targets == {"linux-arm64"}
