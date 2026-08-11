@@ -1165,7 +1165,9 @@ def test_pypi_trusted_publisher_repository_mismatch():
     ("runner", "stale"),
     [
         pytest.param("macos-15-intel", True, id="renamed-runner"),
-        pytest.param("ubuntu-slim", False, id="live-runner"),
+        # Must be a value the test axes actually carry: `ubuntu-slim` is a known
+        # runner but no longer a matrix cell, so excluding it would be stale.
+        pytest.param("ubuntu-26.04-arm", False, id="live-runner"),
     ],
 )
 def test_check_test_matrix_excludes(tmp_path, monkeypatch, runner, stale):
@@ -1283,7 +1285,11 @@ def test_python_matrix_built_at_runtime_is_skipped(tmp_path, monkeypatch):
     ("runner", "expect_fail", "needle"),
     [
         pytest.param("ubuntu-latest", True, "repoints", id="floating-alias"),
-        pytest.param("ubuntu-24.04", True, "not one of the images", id="unknown-image"),
+        # A real GitHub image, but one this project runs nothing on: neither a
+        # test axis nor a NON_MATRIX_RUNNERS entry.
+        pytest.param("ubuntu-22.04", True, "not one of the images", id="unknown-image"),
+        # Known without being a test axis, which is the case NON_MATRIX_RUNNERS
+        # exists to cover: every light mechanical job runs here.
         pytest.param("ubuntu-slim", False, None, id="known-image"),
         pytest.param("${{ matrix.os }}", False, None, id="expression"),
     ],

@@ -29,7 +29,7 @@ from repomatic.cli import repomatic
 invoke(repomatic, args=['show-test-matrix', 'full'])
 ```
 
-The grid above is the built-in default plus this repository's own probe. The default supplies the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.15` prerelease flagged `unstable`, the free-threaded `3.14t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`. The two extra `ubuntu-26.04*` columns come from a temporary `[tool.repomatic.test-matrix.*]` override described in [§ Preview images under evaluation](#preview-images-under-evaluation); a project that sets no overrides gets the six-runner default.
+With no `[tool.repomatic.test-matrix.*]` overrides, this is the built-in default: the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.15` prerelease flagged `unstable`, the free-threaded `3.14t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`.
 
 The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
 
@@ -81,14 +81,14 @@ Pinning a value to a single cell is verbose in the exclude model. Say you carry 
 [tool.repomatic]
 # Released acme everywhere, plus the floor and the regression release.
 test-matrix.variations.acme-version = ["4.2", "5.0", "released"]
-# Pin 4.2 and 5.0 each to (ubuntu-24.04-arm, 3.10) by dropping every other cell.
+# Pin 4.2 and 5.0 each to (ubuntu-26.04-arm, 3.10) by dropping every other cell.
 test-matrix.exclude = [
-  { "os" = "ubuntu-slim", "acme-version" = "4.2" },
+  { "os" = "ubuntu-26.04", "acme-version" = "4.2" },
   { "os" = "macos-26", "acme-version" = "4.2" },
   { "os" = "windows-2025", "acme-version" = "4.2" },
   { "python-version" = "3.14", "acme-version" = "4.2" },
   { "python-version" = "3.15", "acme-version" = "4.2" },
-  { "os" = "ubuntu-slim", "acme-version" = "5.0" },
+  { "os" = "ubuntu-26.04", "acme-version" = "5.0" },
   { "os" = "macos-26", "acme-version" = "5.0" },
   { "os" = "windows-2025", "acme-version" = "5.0" },
   { "python-version" = "3.14", "acme-version" = "5.0" },
@@ -104,8 +104,8 @@ test-matrix.exclude = [
 test-matrix.include = [{ "acme-version" = "released" }]
 # ...plus the floor and regression release pinned to one cell each.
 test-matrix.full-include = [
-  { "os" = "ubuntu-24.04-arm", "python-version" = "3.10", "acme-version" = "4.2" },
-  { "os" = "ubuntu-24.04-arm", "python-version" = "3.10", "acme-version" = "5.0" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.10", "acme-version" = "4.2" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.10", "acme-version" = "5.0" },
 ]
 ```
 
@@ -117,7 +117,7 @@ When you reduce to one runner per OS, pick the *fastest* one for your workload, 
 
 The phrase *for your workload* is load-bearing. The architecture gap is wide for a parallel, compute-heavy job (a `pytest --numprocesses=auto` suite that scales with cores) and narrow-to-nonexistent for a job dominated by checkout and dependency install. So the right runner differs by job *type*, not just by project: see [§ Architecture speed is workload-dependent](#architecture-speed-is-workload-dependent) for the split `repomatic` measured between its heavy test suite and its light mechanical jobs.
 
-For a compute-bound parallel workload, that measurement keeps landing on the same runner: `ubuntu-24.04-arm` is the fastest `repomatic` has measured and sits in the cheapest tier (GitHub bills hosted macOS at roughly 10x Linux minutes, and ARM Linux matches or beats x86 Linux on both speed and price). So when you need a *single* fast runner — the PR Linux slot, a [single-runner flavor smoke test](#smoke-test-released-build-flavors-on-one-runner), or a pinned dependency cell — `ubuntu-24.04-arm` is the default pick. `macos-26` is fast too, but its minute multiplier makes it a poor default; reserve it and the Windows runners for the OS coverage only they provide.
+For a compute-bound parallel workload, that measurement keeps landing on the same runner: `ubuntu-26.04-arm` is the fastest `repomatic` has measured and sits in the cheapest tier (GitHub bills hosted macOS at roughly 10x Linux minutes, and ARM Linux matches or beats x86 Linux on both speed and price). So when you need a *single* fast runner — the PR Linux slot, a [single-runner flavor smoke test](#smoke-test-released-build-flavors-on-one-runner), or a pinned dependency cell — `ubuntu-26.04-arm` is the default pick. `macos-26` is fast too, but its minute multiplier makes it a poor default; reserve it and the Windows runners for the OS coverage only they provide.
 
 (guard-the-matrix-with-a-test)=
 
@@ -135,38 +135,43 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 
 | Runner                                                                                                            | OS      | Architecture          | In PR set | Notes                                                                                                                                |
 | :---------------------------------------------------------------------------------------------------------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------- |
-| [`ubuntu-24.04-arm`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Arm64-Readme.md) | Linux   | ARM64                 | yes       | Fastest measured on the parallel suite, cheapest tier; default single-runner pick (PR Linux slot, flavor smoke tests, pinned cells). |
-| [`ubuntu-slim`](https://github.com/actions/runner-images/blob/main/images/ubuntu-slim/ubuntu-slim-Readme.md)      | Linux   | x86-64                | no        | Lean light-job default; full test matrix only; slowest on a heavy suite.                                                             |
+| [`ubuntu-26.04-arm`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2604-Arm64-Readme.md) | Linux   | ARM64                 | yes       | Fastest measured on the parallel suite, cheapest tier; default single-runner pick (PR Linux slot, flavor smoke tests, pinned cells). |
+| [`ubuntu-26.04`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2604-Readme.md)           | Linux   | x86-64                | no        | x86 Linux coverage in the full matrix. Still labelled preview by GitHub, see below.                                                  |
 | [`macos-26`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)            | macOS   | ARM64 (Apple silicon) | yes       | Faster macOS image, fast overall, but billed at ~10x Linux minutes; use only when macOS coverage is needed.                          |
 | [`macos-26-intel`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md)            | macOS   | x86-64                | no        | Legacy Intel; ~2x slower than `macos-26`.                                                                                            |
 | [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; full-matrix only, for native ARM64 execution coverage.                                                  |
 | [`windows-2025`](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)         | Windows | x86-64                | yes       | Compute tied with `windows-11-arm`; the PR-set Windows pick.                                                                         |
 
-### Preview images under evaluation
+Jobs that are not test-matrix cells draw from a second set, `NON_MATRIX_RUNNERS` in the same module: `ubuntu-slim` for the light mechanical jobs (linters and formatters, which are setup-bound and gain nothing from a faster image), and `ubuntu-24.04`/`ubuntu-24.04-arm` for the Linux Nuitka builds and the one compute-heavy light job. `lint-repo` accepts a `runs-on:` naming either set, so a deliberate choice passes while a typo still fails.
 
-GitHub ships Ubuntu 26.04 as `ubuntu-26.04` and `ubuntu-26.04-arm`, both still in preview. Neither is a `repomatic` default: the shipped runner sets stay on GA images, so no downstream repo inherits a preview image.
+### Preview images and what "stable" means here
 
-This repository probes them on itself through its own `[tool.repomatic]` config, which is the pattern any project can copy:
+GitHub still labels the Ubuntu 26.04 pair **preview**, and `repomatic` ships them as stable test axes anyway. That is a deliberate reading of what the label governs, worth stating because it is the one place this project overrides a vendor's own classification.
 
-```toml
-[tool.repomatic]
-test-matrix.unstable = [
-  { "os" = "ubuntu-26.04" },
-  { "os" = "ubuntu-26.04-arm" },
-]
-test-matrix.variations.os = ["ubuntu-26.04", "ubuntu-26.04-arm"]
+An image is treated as stable here once it has been validated against this suite, not once GitHub relabels it. The preview flag primarily gates whether an image is eligible to sit behind `ubuntu-latest` and the other `-latest` aliases. This project never uses those aliases: a floating alias re-points to a new image with no commit to review, so a breakage arrives detached from any change, which is why `lint-repo` rejects a `-latest` runner outright. With the alias question off the table, what remains is whether the image runs the suite correctly and quickly, and that is measurable.
+
+It was measured before the swap. Both images ran the full matrix as `continue-on-error` cells over consecutive pushes, alongside the GA runners they would replace:
+
+| Python | `ubuntu-24.04-arm` (GA) | `ubuntu-26.04-arm` (preview) |
+| :----- | ----------------------: | ---------------------------: |
+| 3.10   |                     66s |                          56s |
+| 3.14   |                    114s |                          82s |
+| 3.15   |                    120s |                         118s |
+
+Faster at two of three versions, tied at the third, with nothing failing. That is the evidence the swap rests on, and the [§ Measuring your own](#measuring-your-own) recipe is how to reproduce it.
+
+```{caution}
+The residual risk is capacity, not correctness. GitHub warns that a preview image's capacity "will be balanced only throughout the next weeks", so queue time can be worse than the runtimes above suggest, and queue time already dominates this project's CI. Release binaries are therefore still built on GA images (`NON_MATRIX_RUNNERS`), where a slow queue would delay a publish. A project that would rather wait for GA can pin the old images back with one line: `test-matrix.replace.os = { "ubuntu-26.04-arm" = "ubuntu-24.04-arm" }`.
 ```
 
-`variations` keeps both images out of the PR matrix, and `unstable` flags every resulting cell `continue-on-error`, so an image still being provisioned never reddens the default branch. Read the two cells differently. `ubuntu-26.04-arm` against `ubuntu-24.04-arm` is a clean base-version comparison: same architecture, same full image. `ubuntu-26.04` has no matching control, because the matrix's x86 Linux runner is the lean `ubuntu-slim`, and comparing those two would credit the base version for the other image's leanness, the confound [§ Architecture speed is workload-dependent](#architecture-speed-is-workload-dependent) warns about. Treat the x86 cell as a compatibility signal rather than a speed measurement.
-
-Accumulate timings with the [§ Measuring your own](#measuring-your-own) recipe. The question to settle before these images reach GA is whether `ubuntu-24.04-arm` should give way to `ubuntu-26.04-arm` as the default single-runner pick, which would also move the PR Linux slot, the `3.14t` smoke test, and the `linux-arm64` Nuitka build host.
+The same reasoning is what keeps `3.15` flagged `unstable` while these runners are not: a prerelease Python can still change before its final release, so its cells are an early-warning signal rather than a verdict. A runner image that passes the suite today is simply passing the suite.
 
 ### Speed tendencies
 
 Relative speed is workload-dependent, so the only authoritative numbers are your own. The tendencies below come from `repomatic`'s own full test suite, taken as the median across the five most recent successful runs on all six runners. Two numbers matter and can disagree: **job wall-clock** (the `startedAt`/`completedAt` delta, what you pay in CI minutes) and **compute** (just the test-execution steps, with checkout and environment setup stripped out). When they diverge, a non-compute step is the cause.
 
-- **Linux: ARM is much faster.** `ubuntu-24.04-arm` ran the suite two to three times faster than `ubuntu-slim` (median 2.9x on job wall-clock, at every Python version), and the gap holds on compute alone. `ubuntu-slim` is a deliberately lean image (`repomatic`'s default for light mechanical jobs, where small size and tool availability matter more than throughput), and for a heavy suite it is the slowest tier overall. Its free-threaded `3.14t` cell was the single slowest in the matrix at ~250s, which is one reason that flavor now runs on the faster ARM Linux runner instead of the full spread (see [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner)).
-- **macOS: Apple silicon beats Intel** by roughly 1.8-2x (about 1.8x on job wall-clock, about 2x on compute), not a single-digit margin. `macos-26` is in fact one of the *fastest* runners overall; `macos-26-intel` is the slow one. macOS as a tier does not gate the matrix: `ubuntu-slim` does.
+- **Linux: ARM is much faster.** ARM Linux ran the suite two to three times faster than the lean `ubuntu-slim` that used to hold the x86 axis (median 2.9x on job wall-clock, at every Python version), and the gap holds on compute alone. `ubuntu-slim` is a deliberately lean image, still the default for light mechanical jobs where small size and tool availability matter more than throughput, but for a heavy suite it was the slowest tier overall: its free-threaded `3.14t` cell was the single slowest cell in the matrix at ~250s. That is why the flavor smoke test moved to ARM Linux (see [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner)), and why the x86 test axis is now the full `ubuntu-26.04` rather than the lean image.
+- **macOS: Apple silicon beats Intel** by roughly 1.8-2x (about 1.8x on job wall-clock, about 2x on compute), not a single-digit margin. `macos-26` is in fact one of the *fastest* runners overall; `macos-26-intel` is the slow one. macOS as a tier does not gate the matrix; the slowest x86 Linux cell does.
 - **Windows: compute is a tie.** On test-execution time the two images sit within ~6% (ARM is marginally ahead on the prerelease Python). The two used to diverge on per-job wall-clock, but that gap came from a coverage-upload step no job runs any more. `windows-2025` stays the PR-set Windows pick.
 
 ```{caution}
@@ -196,8 +201,8 @@ Of the 1.43x end-to-end gain, most is architecture (1.26x) and a little is leann
 
 The decisions that follow:
 
-- **Test PR slot uses `ubuntu-24.04-arm`.** The heavy parallel suite genuinely runs ~2-3x faster on ARM, so PR feedback is quicker; x86 Linux stays covered in the full matrix.
-- **Light mechanical jobs keep `ubuntu-slim`.** They are setup-bound, so ARM buys ~nothing while adding an architecture variable across the whole fleet. The real lever for them is caching setup, not the CPU.
+- **Test PR slot uses `ubuntu-26.04-arm`.** The heavy parallel suite genuinely runs ~2-3x faster on ARM, so PR feedback is quicker; x86 Linux stays covered in the full matrix.
+- **Light mechanical jobs keep `ubuntu-slim`.** They are setup-bound, so ARM buys ~nothing while adding an architecture variable across the whole fleet. The real lever for them is caching setup, not the CPU. This is why the runner sets diverged when the test matrix moved to Ubuntu 26.04: these jobs had no reason to follow it.
 - **The one compute-heavy light job, `Format Markdown`, uses `ubuntu-24.04` (full x86).** It cannot use the lean image (it needs `shfmt`), and ARM runs its per-file pass ~1.26x faster — but `mdformat-config` pulls `taplo`, which ships no linux-aarch64 wheel and has a broken `0.9.3` sdist, so a fresh ARM install fails to build it. It stays on full x86 until `taplo` ships an aarch64 wheel.
 
 ```{note}
@@ -231,16 +236,16 @@ test-matrix.variations.acme-version = ["4.2", "5.0", "released", "main"]
 
 # Pin the floor, the regression release, and the dev branch to the single
 # fastest runner; the shipped config (released acme) keeps the full spread.
-# After the remove above, the non-pinned runners are ubuntu-slim, macos-26,
+# After the remove above, the non-pinned runners are ubuntu-26.04, macos-26,
 # and windows-2025.
 test-matrix.exclude = [
-  { "os" = "ubuntu-slim", "acme-version" = "4.2" },
+  { "os" = "ubuntu-26.04", "acme-version" = "4.2" },
   { "os" = "macos-26", "acme-version" = "4.2" },
   { "os" = "windows-2025", "acme-version" = "4.2" },
-  { "os" = "ubuntu-slim", "acme-version" = "5.0" },
+  { "os" = "ubuntu-26.04", "acme-version" = "5.0" },
   { "os" = "macos-26", "acme-version" = "5.0" },
   { "os" = "windows-2025", "acme-version" = "5.0" },
-  { "os" = "ubuntu-slim", "acme-version" = "main" },
+  { "os" = "ubuntu-26.04", "acme-version" = "main" },
   { "os" = "macos-26", "acme-version" = "main" },
   { "os" = "windows-2025", "acme-version" = "main" },
 ]
@@ -249,13 +254,13 @@ test-matrix.exclude = [
 test-matrix.unstable = [{ "acme-version" = "main" }]
 ```
 
-On top of the built-in `3.14t` flavor smoke test (stable, on `ubuntu-24.04-arm` with released `acme`), the `acme` config resolves to three slices:
+On top of the built-in `3.14t` flavor smoke test (stable, on `ubuntu-26.04-arm` with released `acme`), the `acme` config resolves to three slices:
 
 | Slice                                  | Runs on                                    | `continue-on-error` |
 | :------------------------------------- | :----------------------------------------- | :------------------ |
 | `released` acme (the shipped config)   | all four retained OSes × every base Python | no                  |
-| `4.2` floor and `5.0` regression       | `ubuntu-24.04-arm` × every base Python     | no                  |
-| `main` acme (dev-branch early warning) | `ubuntu-24.04-arm` × every base Python     | yes                 |
+| `4.2` floor and `5.0` regression       | `ubuntu-26.04-arm` × every base Python     | no                  |
+| `main` acme (dev-branch early warning) | `ubuntu-26.04-arm` × every base Python     | yes                 |
 
 The shipped configuration is exercised everywhere a regression would reach a user; the floor and the one regression-prone release are verified cheaply on the fastest runner; and the development branch gives a heads-up without the power to redden the build. The PR matrix stays the curated reduced set for fast feedback, since `variations` and `unstable` apply to the full matrix only. The same shape extends to a prerelease Python (add it as a `python-version` variation, pin it to one runner with `exclude`, and mark it `unstable`) or to a released free-threaded flavor (the same, but stable: leave it out of `unstable`, as [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner) explains).
 

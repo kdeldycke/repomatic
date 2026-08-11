@@ -797,19 +797,14 @@ expected: dict[str, Any] = {
             },
         ]),
     },
-    # The two ubuntu-26.04 runners and their unstable includes are this
-    # repository's own `[tool.repomatic] test-matrix` probe of GitHub's preview
-    # images, not a shipped default. Drop them here when the probe ends.
     "test_matrix": {
         "os": [
-            "ubuntu-24.04-arm",
-            "ubuntu-slim",
+            "ubuntu-26.04-arm",
+            "ubuntu-26.04",
             "macos-26",
             "macos-26-intel",
             "windows-11-arm",
             "windows-2025",
-            "ubuntu-26.04",
-            "ubuntu-26.04-arm",
         ],
         "python-version": [
             "3.10",
@@ -819,9 +814,7 @@ expected: dict[str, Any] = {
         "include": [
             {"state": "stable"},
             {"state": "unstable", "python-version": "3.15"},
-            {"os": "ubuntu-24.04-arm", "python-version": "3.14t", "state": "stable"},
-            {"os": "ubuntu-26.04", "state": "unstable"},
-            {"os": "ubuntu-26.04-arm", "state": "unstable"},
+            {"os": "ubuntu-26.04-arm", "python-version": "3.14t", "state": "stable"},
         ],
         "exclude": [
             {"os": "windows-11-arm", "python-version": "3.10"},
@@ -829,7 +822,7 @@ expected: dict[str, Any] = {
     },
     "test_matrix_pr": {
         "os": [
-            "ubuntu-24.04-arm",
+            "ubuntu-26.04-arm",
             "macos-26",
             "windows-2025",
         ],
@@ -1089,7 +1082,7 @@ def test_show_test_matrix_renders_full_grid():
     result = CliRunner().invoke(repomatic, ["show-test-matrix"])
     assert result.exit_code == 0, result.output
     assert "Python" in result.output
-    assert "ubuntu-24.04-arm" in result.output
+    assert "ubuntu-26.04-arm" in result.output
     # The matrix always carries stable jobs, decorated with an emoji by default.
     assert "✅ stable" in result.output
 
@@ -1534,7 +1527,7 @@ version = "1.0.0"
 [tool.repomatic]
 test-matrix.include = [{ "click-version" = "released" }]
 test-matrix.full-include = [
-  { "os" = "ubuntu-24.04-arm", "python-version" = "3.10", "click-version" = "8.3.1" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.10", "click-version" = "8.3.1" },
 ]
 """,
     )
@@ -1546,13 +1539,13 @@ test-matrix.full-include = [
     rows = emitted["include"]
 
     shipped = {
-        "os": "ubuntu-24.04-arm",
+        "os": "ubuntu-26.04-arm",
         "python-version": "3.10",
         "click-version": "released",
         "state": "stable",
     }
     pinned = {
-        "os": "ubuntu-24.04-arm",
+        "os": "ubuntu-26.04-arm",
         "python-version": "3.10",
         "click-version": "8.3.1",
         "state": "stable",
@@ -1586,7 +1579,7 @@ test-matrix.include = [
   { "cloup-version" = "released" },
 ]
 test-matrix.full-include = [
-  { "os" = "ubuntu-24.04-arm", "python-version" = "3.14", "click-version" = "main" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.14", "click-version" = "main" },
 ]
 """,
     )
@@ -1596,7 +1589,7 @@ test-matrix.full-include = [
 
     probe = next(r for r in rows if r["python-version"] == "3.14t")
     assert probe == {
-        "os": "ubuntu-24.04-arm",
+        "os": "ubuntu-26.04-arm",
         "python-version": "3.14t",
         "click-version": "released",
         "cloup-version": "released",
@@ -1843,19 +1836,19 @@ name = "test-project"
 version = "1.0.0"
 
 [tool.repomatic.test-matrix.replace]
-os = { "ubuntu-24.04-arm" = "ubuntu-24.04" }
+os = { "ubuntu-26.04-arm" = "ubuntu-24.04" }
 """
     metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
-    # Full matrix: ubuntu-24.04-arm replaced with ubuntu-24.04.
+    # Full matrix: ubuntu-26.04-arm replaced with ubuntu-24.04.
     full = metadata.test_matrix.matrix()
     assert "ubuntu-24.04" in full["os"]
-    assert "ubuntu-24.04-arm" not in full["os"]
+    assert "ubuntu-26.04-arm" not in full["os"]
 
-    # PR matrix: same replacement applied (ubuntu-24.04-arm is in both sets).
+    # PR matrix: same replacement applied (ubuntu-26.04-arm is in both sets).
     pr = metadata.test_matrix_pr.matrix()
     assert "ubuntu-24.04" in pr["os"]
-    assert "ubuntu-24.04-arm" not in pr["os"]
+    assert "ubuntu-26.04-arm" not in pr["os"]
 
 
 def test_test_matrix_config_remove(tmp_path, monkeypatch):
@@ -1966,17 +1959,18 @@ version = "1.0.0"
 
 [tool.repomatic.test-matrix]
 exclude = [
-    {os = "ubuntu-slim"},
+    {os = "ubuntu-26.04"},
     {os = "macos-15-intel"},
     {python-version = "9.99"},
 ]
 """
     metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
-    # ubuntu-slim is a live runner, so its exclude is honored. The renamed
+    # ubuntu-26.04 is a live axis value, so its exclude is honored. The renamed
     # macos-15-intel and the bogus Python version match no axis and are flagged.
+    # `ubuntu-slim` would fail here too: a known runner, but no longer a cell.
     stale = metadata.stale_test_matrix_excludes
-    assert {"os": "ubuntu-slim"} not in stale
+    assert {"os": "ubuntu-26.04"} not in stale
     assert {"os": "macos-15-intel"} in stale
     assert {"python-version": "9.99"} in stale
 

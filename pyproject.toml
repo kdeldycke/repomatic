@@ -535,20 +535,6 @@ pypi-package-history = [ "gha-utils", "repokit" ]
 # marketplace at .claude-plugin/marketplace.json installs the plugin straight
 # from this asset, so a release missing it breaks `/plugin install`.
 release-assets = [ "repomatic-claude-plugin.zip" ]
-# Test-drive GitHub's preview Ubuntu 26.04 images on this repository only: the
-# shipped defaults in repomatic/matrix_axes.py stay on GA images, so no
-# downstream repo inherits a preview. Both cells run continue-on-error, so a
-# preview breaking never reddens main, and neither joins the PR matrix.
-# `ubuntu-26.04-arm` against `ubuntu-24.04-arm` is the comparison worth
-# reading: same architecture, same full image, only the base version differs.
-# `ubuntu-26.04` has no matching control, the matrix's x86 Linux runner being
-# the lean `ubuntu-slim`, so it measures compatibility rather than speed.
-# See docs/test-matrix.md § Preview images under evaluation.
-test-matrix.unstable = [
-  { os = "ubuntu-26.04" },
-  { os = "ubuntu-26.04-arm" },
-]
-test-matrix.variations.os = [ "ubuntu-26.04", "ubuntu-26.04-arm" ]
 
 [tool.actionlint]
 # actionlint reads no pyproject section of its own: repomatic serializes this one

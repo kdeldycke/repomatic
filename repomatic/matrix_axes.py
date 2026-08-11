@@ -29,8 +29,8 @@ if TYPE_CHECKING:
     from typing import Final
 
 TEST_RUNNERS_FULL = (
-    "ubuntu-24.04-arm",
-    "ubuntu-slim",
+    "ubuntu-26.04-arm",
+    "ubuntu-26.04",
     "macos-26",
     "macos-26-intel",
     "windows-11-arm",
@@ -41,38 +41,77 @@ TEST_RUNNERS_FULL = (
 Two variants per platform (one per architecture). See
 [available images](https://github.com/actions/runner-images#available-images).
 
+```{note} Preview images are adopted on measurement, not on GitHub's label
+GitHub still marks the Ubuntu 26.04 pair *preview*, which gates their
+eligibility to sit behind the `-latest` aliases. This project never uses those
+aliases (a floating alias re-points with no commit to review, which
+{func}`~repomatic.lint_repo.check_runner_images` rejects outright), so that
+distinction does not reach it. An image is treated as stable here once it has
+been validated against this suite, not once a vendor relabels it. Measured over
+consecutive runs before the swap, `ubuntu-26.04-arm` beat `ubuntu-24.04-arm` by
+16% on Python 3.10 and 28% on 3.14, tied on 3.15, and failed nothing.
+
+The residual risk is capacity rather than correctness: GitHub warns a preview
+image's capacity "will be balanced only throughout the next weeks", so queue
+time may be worse than the runtimes above suggest. Release binaries are built
+on GA images for that reason, see {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`.
+```
+
 ```{note} Architecture speed is not uniform across platforms
 When reducing to one runner per OS, choose by measured speed, not architecture
 (see {doc}`/test-matrix`). Tendencies from `repomatic`'s own full test suite:
-ARM Linux (`ubuntu-24.04-arm`) runs two to three times as fast as the lean x86
-`ubuntu-slim`, the slowest tier overall;
-Apple-silicon `macos-26` beats `macos-26-intel` by ~2x; the two Windows images
-tie on compute (`windows-2025` is the PR pick). Per-job wall-clock folds in
-setup and upload, so isolate the test steps before blaming the image. These
-figures drift as images are re-provisioned, so re-confirm against your own job
-timings.
+ARM Linux runs two to three times as fast as the lean x86 `ubuntu-slim` that
+preceded `ubuntu-26.04` on this axis; Apple-silicon `macos-26` beats
+`macos-26-intel` by ~2x; the two Windows images tie on compute (`windows-2025`
+is the PR pick). Per-job wall-clock folds in setup and upload, so isolate the
+test steps before blaming the image. These figures drift as images are
+re-provisioned, so re-confirm against your own job timings.
 ```
 """
 
-TEST_RUNNERS_PR = (
+NON_MATRIX_RUNNERS = (
+    "ubuntu-slim",
+    "ubuntu-24.04",
     "ubuntu-24.04-arm",
+)
+"""Images used by jobs that are not test-matrix cells.
+
+The test axes above answer "where is the suite exercised". These answer "what
+else may a job legitimately run on", and the two stopped being the same set when
+the matrix moved to Ubuntu 26.04 while the rest of the fleet did not:
+
+- `ubuntu-slim` is the lean default for the light mechanical jobs (linters and
+  formatters), which are setup-bound rather than compute-bound, so the faster
+  image buys them nothing. GitHub rebases this image onto a newer Ubuntu on its
+  own schedule, which is why it carries no version in its name.
+- `ubuntu-24.04` and `ubuntu-24.04-arm` host the Linux Nuitka builds and the
+  one compute-heavy light job (`Format Markdown`, which needs `shfmt` and so
+  cannot use the lean image).
+
+{data}`~repomatic.lint_repo.KNOWN_RUNNERS` is the union of this and the test
+axes, so a job naming one of these is not flagged as untracked while a genuine
+typo still is.
+"""
+
+TEST_RUNNERS_PR = (
+    "ubuntu-26.04-arm",
     "macos-26",
     "windows-2025",
 )
 """Reduced runner set for pull request test matrices.
 
-One runner per platform: ARM Linux (`ubuntu-24.04-arm`) and Apple-silicon macOS
+One runner per platform: ARM Linux (`ubuntu-26.04-arm`) and Apple-silicon macOS
 (`macos-26`) are the fastest of their platform on the test workload, plus x86
 Windows (`windows-2025`, where the two Windows images tie on compute). x86 Linux
 stays covered by the full matrix ({data}`TEST_RUNNERS_FULL`).
 
 ```{note} Why ARM Linux for the PR slot
 The suite runs `pytest --numprocesses=auto`, so it scales with cores and favors
-ARM: `ubuntu-24.04-arm` runs it two to three times faster than the lean
-`ubuntu-slim`, for quicker PR feedback. That ratio is the heavy test suite's,
-not a portable property: setup-bound light jobs (which run prebuilt
-single-threaded binaries) barely move between runners, so they keep the lean
-`ubuntu-slim` default. See {doc}`/test-matrix` for the measurements.
+ARM, by two to three times over the lean x86 image, for quicker PR feedback.
+That ratio is the heavy test suite's, not a portable property: setup-bound light
+jobs (which run prebuilt single-threaded binaries) barely move between runners,
+so they keep the lean `ubuntu-slim` default ({data}`NON_MATRIX_RUNNERS`). See
+{doc}`/test-matrix` for the measurements.
 ```
 """
 
@@ -109,7 +148,7 @@ Jobs using these versions run with `continue-on-error` in CI. Contrast with
 {data}`SINGLE_RUNNER_PYTHON_VERSIONS`, which are released and run stable.
 """
 
-SINGLE_RUNNER_PYTHON_VERSIONS: Final[dict[str, str]] = {"3.14t": "ubuntu-24.04-arm"}
+SINGLE_RUNNER_PYTHON_VERSIONS: Final[dict[str, str]] = {"3.14t": "ubuntu-26.04-arm"}
 """Released Python build flavors smoke-tested on a single runner, mapped to it.
 
 A free-threaded build (the `t` suffix, made officially supported in 3.14 by
@@ -118,7 +157,7 @@ as its base version, just without the GIL. The base version already gets the
 full cross-platform spread ({data}`TEST_PYTHON_FULL`), so the library logic is
 covered everywhere; the flavor only needs one runner to catch a
 free-threading-specific break. These run *stable* (expected to pass), unlike the
-unreleased {data}`UNSTABLE_PYTHON_VERSIONS`. The runner is `ubuntu-24.04-arm`,
+unreleased {data}`UNSTABLE_PYTHON_VERSIONS`. The runner is `ubuntu-26.04-arm`,
 the default single-runner pick: the fastest measured on compute-bound parallel
 work and the cheapest tier, and free-threading targets server workloads where
 Linux/ARM is the norm (see {doc}`/test-matrix`).
