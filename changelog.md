@@ -11,6 +11,7 @@
 - Autofix jobs no longer run on version-bump pushes: the 16 remaining jobs only re-checked machine-generated, ship-gated commits, and drift stays covered by the next push and the weekly sweep.
 - The tool runner now retries a download up to 3 times on transient network failures, instead of failing the job on a one-off TLS or truncation error.
 - Standalone binary tests now run for every healthy target when a sibling build fails, instead of being skipped wholesale.
+- Root-caused the macOS compile-cache misses: uv's randomly-named cache path leaks into Nuitka's include flags, changing the hashed compiler arguments every run. ccache now hashes paths relative to the runner root (`base_dir`), insuring the Linux cache against the same leak.
 - `repomatic init` no longer writes the running version's workflow content beside a pin the cooldown held back. A repository that already carries workflows keeps them untouched until the release is adopted, instead of receiving the new triggers, `concurrency` groups and `env:` blocks against the pinned release's reusable-workflow surface.
 
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)

@@ -152,10 +152,8 @@ jobs:
       #   restore/save overhead for entries that never hit. Capture Nuitka's
       #   CCACHE_LOGFILE from a scheduled run to diagnose before re-enabling.
       - name: Restore Nuitka compile cache
-        # TEMPORARY DIAGNOSTIC: the workflow_dispatch exception on the macOS
-        # clause pairs with the ccache re-enable in the build step below.
         if: >-
-          (matrix.platform_id != 'macos' || github.event_name == 'workflow_dispatch')
+          matrix.platform_id != 'macos'
           && !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -171,7 +169,7 @@ jobs:
       # env vars above die with scons's scrubbed compiler environment).
       - name: Prepare Nuitka cache
         if: >-
-          (matrix.platform_id != 'macos' || github.event_name == 'workflow_dispatch')
+          matrix.platform_id != 'macos'
           && !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
         shell: bash
         run: |
@@ -186,12 +184,13 @@ jobs:
           mkdir -p .nuitka-cache/ccache
           printf 'compiler_check = content\nsloppiness = time_macros\n' \
             > .nuitka-cache/ccache/ccache.conf
-          # TEMPORARY DIAGNOSTIC: per-object input dumps on macOS, diffable
-          # across two dispatches to name the hashed input that diverges.
-          if [[ "${RUNNER_OS}" == "macOS" ]]; then
-            printf 'debug = true\ndebug_dir = %s/.ccache-debug\n' "${PWD}" \
-              >> .nuitka-cache/ccache/ccache.conf
-          fi
+          # uv extracts packages into a randomly-named cache directory that
+          # can leak into Nuitka's -I flags, changing the hashed compiler
+          # arguments on every run: the proven root cause of the macOS 0/470
+          # misses (docs/nuitka.md). base_dir makes ccache hash those paths
+          # relative to the runner work root, so keys survive across VMs.
+          printf 'base_dir = %s\n' "$(dirname "${RUNNER_WORKSPACE}")" \
+            >> .nuitka-cache/ccache/ccache.conf
       # The manylinux containers ship no ccache (Nuitka warns and compiles
       # cold), so the canary target pays full C compilation on every push.
       # EPEL is a distro archive, exempt from the install cooldown (see
@@ -255,17 +254,16 @@ jobs:
           NUITKA_PYTHON_FLAGS: ${{ matrix.nuitka_python_flags }}
           # On macOS Nuitka auto-downloads a ccache binary from nuitka.net,
           # with no checksum at the call site (SconsCaching.py's
-          # getCachedDownload passes none). Since the macOS cache is not
-          # persisted (0/470 cross-VM hits, see the cache step above), ccache
-          # brings zero benefit there and the unchecksummed download is pure
-          # supply-chain surface: disable it. Empty (and inert) elsewhere;
-          # Linux ccache and MSVC clcache are unaffected.
-          # TEMPORARY DIAGNOSTIC: workflow_dispatch runs keep macOS ccache
-          # enabled so its log and debug dumps can explain the cross-VM
-          # misses; revert to the unconditional disable once that closes.
+          # getCachedDownload passes none), and runs it under Rosetta on arm
+          # with measured overhead. Since the macOS cache is not persisted,
+          # ccache brings no benefit there and the unchecksummed download is
+          # pure supply-chain surface: disable it. Empty (and inert)
+          # elsewhere; Linux ccache and MSVC clcache are unaffected. See
+          # docs/nuitka.md for the root cause of the historical macOS misses
+          # and what re-enabling would take (a native, checksummed ccache via
+          # NUITKA_CCACHE_BINARY).
           NUITKA_CCACHE_FLAG: >-
-            ${{ (matrix.platform_id == 'macos' && github.event_name != 'workflow_dispatch')
-            && '--disable-ccache' || '' }}
+            ${{ matrix.platform_id == 'macos' && '--disable-ccache' || '' }}
           BIN_NAME: ${{ matrix.bin_name }}
           MODULE_PATH: ${{ matrix.module_path }}
           # Pin the macOS floor: without it, compiled objects and processed
@@ -292,35 +290,6 @@ jobs:
       - name: Nuitka cache stats
         shell: bash
         run: du -sm .nuitka-cache/* 2>/dev/null || echo "No Nuitka cache dir."
-      # TEMPORARY DIAGNOSTIC: bundle everything ccache can say about why the
-      # macOS cache never hits across VMs (docs/nuitka.md § Compile caching).
-      # The scons-side ccache log names each object's miss reason, the debug
-      # dir holds the per-object input-text dumps to diff across dispatches,
-      # and print-config shows where each setting came from. Remove together
-      # with the dispatch-only ccache re-enable once the investigation closes.
-      - name: Collect ccache diagnostics
-        if: matrix.platform_id == 'macos' && github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          mkdir -p ccache-diagnostics
-          find . -maxdepth 3 -name 'ccache-*.txt' -exec cp {} ccache-diagnostics/ \; || true
-          if [[ -d .ccache-debug ]]; then
-            tar --create --gzip --file ccache-diagnostics/ccache-debug.tar.gz .ccache-debug
-          fi
-          ccache_bin=".nuitka-cache/downloads/ccache/v4.2.1/ccache"
-          if [[ -x "${ccache_bin}" ]]; then
-            export CCACHE_DIR="${PWD}/.nuitka-cache/ccache"
-            "${ccache_bin}" -p > ccache-diagnostics/print-config.txt 2>&1 || true
-            "${ccache_bin}" -s > ccache-diagnostics/stats.txt 2>&1 || true
-          fi
-          ls -la ccache-diagnostics/
-      - name: Upload ccache diagnostics
-        if: matrix.platform_id == 'macos' && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ccache-diagnostics-${{ matrix.target }}-${{ github.run_id }}
-          if-no-files-found: warn
-          path: ccache-diagnostics/
       - if: steps.build-binary.outcome == 'failure'
         run: |
           echo "Nuitka build failed, skipping the rest of the steps."
