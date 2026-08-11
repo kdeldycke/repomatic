@@ -69,41 +69,6 @@ re-provisioned, so re-confirm against your own job timings.
 ```
 """
 
-NON_MATRIX_RUNNERS = ("ubuntu-slim",)
-"""Images used by jobs that are not test-matrix cells.
-
-```{note} Currently unused, pending an A/B
-Every job has been pointed at `ubuntu-26.04` to measure the lean image against
-a full one on the real mechanical workload, so nothing runs on `ubuntu-slim`
-right now. The entry stays because it is the revert target, and because a
-known-but-unused image costs nothing: `lint-repo` only flags an image nobody
-weighed. Drop it and this whole set once the numbers settle, or restore the
-jobs to it. See {doc}`/test-matrix`.
-```
-
-The test axes above answer "where is the suite exercised". This answers "what
-else may a job legitimately run on", and the two are deliberately kept as close
-as possible: every distinct image is one more thing to track, to pin, and to
-migrate next time, so the fleet carries as little variety as it can.
-
-Exactly one image earns a place outside the test axes. `ubuntu-slim` is the lean
-default for every light mechanical job (linters and formatters), which are
-setup-bound rather than compute-bound, so a faster image buys them nothing and
-the small image wins on checkout. It also carries no version in its name because
-GitHub rebases it onto a newer Ubuntu on its own schedule, so it never needs
-migrating by hand.
-
-Everything else, the Linux Nuitka build hosts included, runs on a test axis.
-Building a published binary on the same image the suite is validated against is
-one fewer variable, and the build reads its toolchain from a digest-pinned
-manylinux container, so the host cannot reach the artifact either way. See
-{data}`~repomatic.binary.NUITKA_BUILD_TARGETS`.
-
-{data}`~repomatic.lint_repo.KNOWN_RUNNERS` is the union of this and the test
-axes, so a job naming either is not flagged as untracked while a genuine typo
-still is.
-"""
-
 TEST_RUNNERS_PR = (
     "ubuntu-26.04-arm",
     "macos-26",
@@ -118,10 +83,7 @@ stays covered by the full matrix ({data}`TEST_RUNNERS_FULL`).
 
 ```{note} Why ARM Linux for the PR slot
 The suite runs `pytest --numprocesses=auto`, so it scales with cores and favors
-ARM, by two to three times over the lean x86 image, for quicker PR feedback.
-That ratio is the heavy test suite's, not a portable property: setup-bound light
-jobs (which run prebuilt single-threaded binaries) barely move between runners,
-so they keep the lean `ubuntu-slim` default ({data}`NON_MATRIX_RUNNERS`). See
+ARM, by two to three times over the x86 image, for quicker PR feedback. See
 {doc}`/test-matrix` for the measurements.
 ```
 """

@@ -142,7 +142,7 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 | [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; full-matrix only, for native ARM64 execution coverage.                                                  |
 | [`windows-2025`](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)         | Windows | x86-64                | yes       | Compute tied with `windows-11-arm`; the PR-set Windows pick.                                                                         |
 
-One image sits outside those axes: `ubuntu-slim`, the lean default for every light mechanical job (linters and formatters, which are setup-bound and gain nothing from a faster image). It is the sole entry in `NON_MATRIX_RUNNERS` in the same module, and `lint-repo` accepts a `runs-on:` naming either set, so a deliberate choice passes while a typo still fails. Everything else, the Linux Nuitka build hosts included, runs on a test axis: every distinct image is one more thing to track, pin and migrate, so the fleet carries as little variety as it can.
+**Every job runs on one of these six.** The light mechanical jobs and the Linux Nuitka build hosts included: "where is the suite exercised" and "what may a job run on" are one question, so `lint-repo` fails any `runs-on:` naming something else. Each extra image is one more to track, pin and migrate, and the one that used to sit outside the axes lost the measurement that justified it (see [§ The lean-image question, settled](#the-lean-image-question-settled)).
 
 ### Preview images and what "stable" means here
 
@@ -170,7 +170,7 @@ The same reasoning is what keeps `3.15` flagged `unstable` while these runners a
 
 Relative speed is workload-dependent, so the only authoritative numbers are your own. The tendencies below come from `repomatic`'s own full test suite, taken as the median across the five most recent successful runs on all six runners. Two numbers matter and can disagree: **job wall-clock** (the `startedAt`/`completedAt` delta, what you pay in CI minutes) and **compute** (just the test-execution steps, with checkout and environment setup stripped out). When they diverge, a non-compute step is the cause.
 
-- **Linux: ARM is much faster.** ARM Linux ran the suite two to three times faster than the lean `ubuntu-slim` that used to hold the x86 axis (median 2.9x on job wall-clock, at every Python version), and the gap holds on compute alone. `ubuntu-slim` is a deliberately lean image, still the default for light mechanical jobs where small size and tool availability matter more than throughput, but for a heavy suite it was the slowest tier overall: its free-threaded `3.14t` cell was the single slowest cell in the matrix at ~250s. That is why the flavor smoke test moved to ARM Linux (see [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner)), and why the x86 test axis is now the full `ubuntu-26.04` rather than the lean image.
+- **Linux: ARM is much faster.** ARM Linux ran the suite two to three times faster than the lean `ubuntu-slim` that used to hold the x86 axis (median 2.9x on job wall-clock, at every Python version), and the gap holds on compute alone. That lean image was the slowest tier overall for a heavy suite: its free-threaded `3.14t` cell was the single slowest cell in the matrix at ~250s. That is why the flavor smoke test moved to ARM Linux (see [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner)), and it was the first sign of a gap later measured across the whole fleet ([§ The lean-image question, settled](#the-lean-image-question-settled)).
 - **macOS: Apple silicon beats Intel** by roughly 1.8-2x (about 1.8x on job wall-clock, about 2x on compute), not a single-digit margin. `macos-26` is in fact one of the *fastest* runners overall; `macos-26-intel` is the slow one. macOS as a tier does not gate the matrix; the slowest x86 Linux cell does.
 - **Windows: compute is a tie.** On test-execution time the two images sit within ~6% (ARM is marginally ahead on the prerelease Python). The two used to diverge on per-job wall-clock, but that gap came from a coverage-upload step no job runs any more. `windows-2025` stays the PR-set Windows pick.
 
@@ -202,11 +202,31 @@ Of the 1.43x end-to-end gain, most is architecture (1.26x) and a little is leann
 The decisions that follow:
 
 - **Test PR slot uses `ubuntu-26.04-arm`.** The heavy parallel suite genuinely runs ~2-3x faster on ARM, so PR feedback is quicker; x86 Linux stays covered in the full matrix.
-- **Light mechanical jobs keep `ubuntu-slim`.** They are setup-bound, so ARM buys ~nothing while adding an architecture variable across the whole fleet. The real lever for them is caching setup, not the CPU. This is why the runner sets diverged when the test matrix moved to Ubuntu 26.04: these jobs had no reason to follow it.
-- **The one compute-heavy light job, `Format Markdown`, is back on the lean `ubuntu-slim`.** `shfmt` was the only reason it ever needed a full image, and `repomatic run mdformat` now provisions it through mdformat's `path_tools` rather than apt. It stays on **x86** despite ARM running its per-file pass ~1.26x faster: `mdformat-config` pulls `taplo`, which ships no linux-aarch64 wheel and has a broken `0.9.3` sdist, so a fresh ARM install fails to build it. That constraint is the job's alone and is why it did not follow the fleet onto ARM Ubuntu 26.04.
+- **`Format Markdown` stays on x86.** `mdformat-config` pulls `taplo`, which ships no linux-aarch64 wheel and has a broken `0.9.3` sdist, so a fresh ARM install fails to build it. That constraint is the job's alone, and it is the reason the fleet's x86 axis is worth keeping rather than going ARM-only.
 
-```{note}
-The mechanical-job split is a single controlled run, where the test-suite ratios are medians of several: treat the 1.13x/1.26x decomposition as one measurement to re-confirm. And always include a full-x86 runner in an architecture A/B: comparing only the lean x86 image against full ARM credits the architecture for the image's leanness too.
+```{caution}
+The conclusion this section originally drew, that the light jobs should stay on a lean image, did not survive being measured end to end. See [§ The lean-image question, settled](#the-lean-image-question-settled). The 1.13x/1.26x decomposition above remains a fair reading of *tool execution* on one commit; it was simply the wrong quantity to decide a runner on. Always include a full-x86 runner in an architecture A/B, and time whole jobs rather than the tool pass.
+```
+
+(the-lean-image-question-settled)=
+
+### The lean-image question, settled
+
+`ubuntu-slim` held every light mechanical job for a long time, on the reasoning above: those jobs are setup-bound, so a faster CPU buys nothing, and a smaller image ought to provision quicker. The A/B decomposition supported the first half and nobody tested the second.
+
+Measuring it settled the question in one pass. Every `runs-on: ubuntu-slim` moved to `ubuntu-26.04`, and whole-job wall-clock was compared against the preceding runs:
+
+| Workflow | `ubuntu-slim` | `ubuntu-26.04` |                |
+| :------- | ------------: | -------------: | -------------: |
+| Lint     |          146s |           106s | **27%** faster |
+| Autofix  |          477s |           325s | **32%** faster |
+
+Twenty of twenty-two jobs improved, by 20-56%. One tied and one was 5% slower, both inside the noise. `Format Markdown`, the only compute-bound job, went from 151s to 101s, far past the 1.13x that timing the tool pass alone had predicted.
+
+The lean image was never faster; it was slower almost everywhere, and most of the gap sits in exactly the setup phase the earlier measurement could not see. So `ubuntu-slim` is retired, and `lint-repo` now rejects it like any other untracked image.
+
+```{caution}
+The `ubuntu-26.04` column is a single run against a seven-to-nine run baseline, so treat the *magnitude* as provisional. What makes the direction trustworthy is that twenty-two independent jobs moved the same way at once, which noise does not usually do. Re-confirm against your own timings before copying the conclusion: a project whose light jobs are dominated by something else may still find the lean image wins.
 ```
 
 ### Measuring your own

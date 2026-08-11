@@ -84,9 +84,10 @@ jobs:
         # `.html` siblings the docs site links to. Skipped silently when
         # the hook is not opted in.
         # fonts-liberation is graphviz's only Recommends (via the transitional
-        # fonts-liberation2), and "ubuntu-slim" does not ship it: naming it here
-        # keeps diagram labels rendering exactly as before while
-        # --no-install-recommends stops apt pulling anything else unasked.
+        # fonts-liberation2), and an image that ships no fonts of its own would
+        # otherwise lose it: naming it here keeps diagram labels rendering
+        # whatever the base image carries, while --no-install-recommends stops
+        # apt pulling anything else unasked.
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
@@ -118,10 +119,11 @@ jobs:
       && (fromJSON(needs.metadata.outputs.metadata).doc_files
         || (fromJSON(needs.metadata.outputs.metadata).is_python_project
           && fromJSON(needs.metadata.outputs.metadata).is_sphinx))
-    # Not ubuntu-slim: its 15-minute job cap kills the whole crawl, whose
-    # runtime is dominated by remote servers' throttling and grows with every
-    # release (each adds a dozen URLs to the binaries page). Measured runs
-    # already peaked past the cap.
+    # ARM rather than the x86 axis: this crawl's runtime is dominated by remote
+    # servers' throttling and grows with every release (each adds a dozen URLs
+    # to the binaries page), so it wants the fastest Linux image available. It
+    # once ran on a lean image with a 15-minute job cap, which killed the whole
+    # crawl outright rather than failing a step.
     runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,9 +153,9 @@ jobs:
           fromJSON(needs.metadata.outputs.metadata).is_python_project
           && fromJSON(needs.metadata.outputs.metadata).is_sphinx
         # Do not use -W: we parse output.json directly instead of relying on exit codes.
-        # GitHub throttles anonymous crawls to ~1 request/minute, enough to blow the
-        # "ubuntu-slim" job budget on link-heavy repos (the runner kills the whole job,
-        # bypassing continue-on-error). Exposing the token lets a repo's conf.py
+        # GitHub throttles anonymous crawls to ~1 request/minute, enough to blow a
+        # capped runner's job budget on link-heavy repos (the runner kills the whole
+        # job, bypassing continue-on-error). Exposing the token lets a repo's conf.py
         # authenticate its github.com checks via linkcheck_request_headers.
         env:
           GITHUB_TOKEN: ${{ github.token }}

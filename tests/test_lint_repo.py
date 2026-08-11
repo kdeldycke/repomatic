@@ -1285,12 +1285,12 @@ def test_python_matrix_built_at_runtime_is_skipped(tmp_path, monkeypatch):
     ("runner", "expect_fail", "needle"),
     [
         pytest.param("ubuntu-latest", True, "repoints", id="floating-alias"),
-        # A real GitHub image, but one this project runs nothing on: neither a
-        # test axis nor a NON_MATRIX_RUNNERS entry.
+        # A real GitHub image this project runs nothing on.
         pytest.param("ubuntu-22.04", True, "not one of the images", id="unknown-image"),
-        # Known without being a test axis, which is the case NON_MATRIX_RUNNERS
-        # exists to cover: every light mechanical job runs here.
-        pytest.param("ubuntu-slim", False, None, id="known-image"),
+        # Retired from the fleet: it lost the A/B against the full image, so a
+        # job still naming it is now drift rather than a deliberate choice.
+        pytest.param("ubuntu-slim", True, "not one of the images", id="retired-image"),
+        pytest.param("ubuntu-26.04", False, None, id="known-image"),
         pytest.param("${{ matrix.os }}", False, None, id="expression"),
     ],
 )

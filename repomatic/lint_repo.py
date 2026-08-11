@@ -41,7 +41,6 @@ from .github.gh import gh_api_json, run_gh_command
 from .github.matrix import stale_axis_values
 from .github.token import check_all_pat_permissions
 from .matrix_axes import (
-    NON_MATRIX_RUNNERS,
     TEST_RUNNERS_FULL,
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
@@ -105,22 +104,18 @@ Only the dotted ones carry a version: the bare `3` and `3 :: Only` state the
 major series, and `Implementation :: CPython` the interpreter.
 """
 
-KNOWN_RUNNERS = (
-    frozenset(TEST_RUNNERS_FULL)
-    | frozenset(TEST_RUNNERS_PR)
-    | frozenset(NON_MATRIX_RUNNERS)
-)
+KNOWN_RUNNERS = frozenset(TEST_RUNNERS_FULL) | frozenset(TEST_RUNNERS_PR)
 """Every runner image this project has deliberately chosen.
 
 The closest thing to a curated list of images a project should be running on,
 and the one place carrying measured guidance on their relative speed and cost.
 A job naming something outside it has been picked without that guidance.
 
-The union of the test axes and {data}`~repomatic.matrix_axes.NON_MATRIX_RUNNERS`,
-which stopped being the same set when the test matrix moved to Ubuntu 26.04 and
-the light mechanical jobs stayed on the lean `ubuntu-slim`. Both are chosen
-deliberately, so both belong here; only an image nobody weighed should be
-flagged.
+The test axes are the whole list: every job runs on an image the suite is also
+validated against, so "where is the suite exercised" and "what may a job run on"
+are one question. That is deliberate, since each extra image is one more to
+track, pin and migrate. A job needing something else is a decision to make
+explicitly, by widening the axes rather than by naming an image here.
 """
 
 TEMPLATE_FILE_ARG_RE = re.compile(r"--template-file[=\s]+(?P<path>\S+)")

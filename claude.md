@@ -82,7 +82,7 @@ Write the `apt-get` calls you do keep so they pull as little as possible:
 
 - **`apt-get`, never `apt`.** The `apt(8)` man page says to prefer `apt-get` and `apt-cache` in scripts, as they keep backward compatibility; `apt` is an end-user tool whose behavior may change between versions.
 - **`--no-install-recommends` always.** Recommends are extra packages nobody asked for, and every one widens what a step installs beyond what it names.
-- **Name what the Recommends were providing.** Dropping them can quietly remove something real (graphviz recommends `fonts-liberation`, and `ubuntu-slim` ships no fonts of its own), so add it to the install list explicitly. An explicit dependency you can read beats an implicit one you inherit.
+- **Name what the Recommends were providing.** Dropping them can quietly remove something real (graphviz recommends `fonts-liberation`, which a base image may not ship on its own), so add it to the install list explicitly. An explicit dependency you can read beats an implicit one you inherit.
 
 ### Documented exemptions
 
@@ -315,7 +315,7 @@ Single-line commands: plain inline `run:`. Multi-line: the folded block scalar (
 
 YAML lines may run to 120 characters (`yamllint.yaml` sets `line-length: max: 120`): don't carry over Python's 88-char limit. The same limit governs generated downstream workflows, so codegen-source comments (like `release.yaml`'s `publish-pypi` job) should fill to 120 too.
 
-Jobs default to `ubuntu-slim` (a lean image), and downstream workflows inherit it. Don't reach for `ubuntu-latest` speculatively: move a job to a fuller image only when failure proves a tool is missing (`shfmt` is absent on slim).
+Jobs run on a test-matrix runner (`ubuntu-26.04` for the x86 default), and downstream workflows inherit it. Never reach for a `-latest` alias: GitHub repoints those without a commit to review, and `lint-repo` rejects them.
 
 ### Naming conventions for automated operations
 
@@ -390,9 +390,10 @@ When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Rel
 
 - **Cover the shipped config broadly; probe unreleased axes narrowly; smoke-test released flavors.** Released dependencies on stable Python get the full cross-platform spread. Unreleased dependency branches and prerelease Python run on one runner as `continue-on-error` probes (`test-matrix.unstable`), never across platforms. A released free-threaded build (`3.14t`) runs **stable** on a single runner (a `python-version` variation pinned with `exclude`, left out of `unstable`), not as an `unstable` probe.
 - **Pin the dependency floor, and any release a workaround targets.** Add the floor of a supported range as an explicit matrix value, plus any mid-range release a shim works around: that is the version that catches the shim regressing.
-- **Select runners by measured speed and workload, not architecture** (read your own CI timings; the `docs/test-matrix.md` inventory has the numbers). The parallel `pytest --numprocesses=auto` suite favors `ubuntu-26.04-arm` (the test PR Linux slot), while setup-bound light jobs keep the lean `ubuntu-slim`. Where one fast runner suffices, `ubuntu-26.04-arm` is the default (fastest and cheapest tier; hosted macOS bills ~10x Linux), so `macos-26`/Windows are reserved for the OS coverage only they add. Drop the slower twin of an OS pair via `test-matrix.remove.os`.
+- **Select runners by measured speed and workload, not architecture** (read your own CI timings; the `docs/test-matrix.md` inventory has the numbers). The parallel `pytest --numprocesses=auto` suite favors `ubuntu-26.04-arm` (the test PR Linux slot). Where one fast runner suffices, `ubuntu-26.04-arm` is the default (fastest and cheapest tier; hosted macOS bills ~10x Linux), so `macos-26`/Windows are reserved for the OS coverage only they add. Drop the slower twin of an OS pair via `test-matrix.remove.os`.
 - **An image is stable once validated here, not once GitHub relabels it.** The Ubuntu 26.04 axes ship as stable cells while still marked *preview* upstream: that label chiefly gates `-latest` alias eligibility, and no workflow here uses a floating alias.
-- **Carry as little runner variety as possible.** Every distinct image is one more to track, pin and migrate, so a job runs on a test axis unless it has a reason not to. Exactly one does: `ubuntu-slim`, the lean default for the setup-bound light mechanical jobs, and the sole entry in `NON_MATRIX_RUNNERS` (`matrix_axes.py`). `KNOWN_RUNNERS` is the union of that and the test axes, so a job on either passes `lint-repo` while a typo fails. The Linux Nuitka hosts are test axes too: a published binary is built on the image the suite is validated against, and its toolchain comes from a digest-pinned manylinux container regardless.
+- **Every job runs on a test axis.** `KNOWN_RUNNERS` is exactly `TEST_RUNNERS_FULL | TEST_RUNNERS_PR` (`matrix_axes.py`), and `lint-repo` rejects any other `runs-on:`, so "where is the suite exercised" and "what may a job run on" stay one question. Each extra image is one more to track, pin and migrate. A job that genuinely needs something else widens the axes rather than naming a one-off image. This includes the Linux Nuitka hosts (a published binary is built on the image the suite is validated against, and its toolchain comes from a digest-pinned manylinux container regardless), and the light mechanical jobs, which used to sit on the lean `ubuntu-slim` until measuring whole-job wall-clock showed it 27-32% *slower* rather than faster.
+- **Time whole jobs, not the tool pass, when choosing a runner.** The lean image survived for a long time on a measurement that timed only tool execution, where it looked near-parity. Most of the difference was in checkout and install, which that measurement could not see.
 
 ## Agent conventions
 

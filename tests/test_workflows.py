@@ -877,17 +877,6 @@ def test_action_uses_full_semantic_version(
 # --- Runner image convention tests ---
 
 
-# Jobs that require ubuntu-24.04 instead of ubuntu-slim.
-# Each entry documents the reason for the exception.
-UBUNTU_2404_EXCEPTIONS = {
-    # Format: (workflow_name, job_name): "reason"
-    (
-        "autofix.yaml",
-        "format-markdown",
-    ): "ubuntu-slim lacks shfmt, required by mdformat-shfmt",
-}
-
-
 def iter_jobs_with_runners():
     """Yield all jobs with their runner configurations.
 
@@ -911,32 +900,21 @@ def iter_jobs_with_runners():
     list(iter_jobs_with_runners()),
     ids=lambda x: f"{x[0]}:{x[1]}" if isinstance(x, tuple) else None,
 )
-def test_runner_uses_ubuntu_slim_by_default(
+def test_every_job_runs_on_a_test_axis(
     workflow_name: str, job_name: str, runs_on: str
 ) -> None:
-    """Verify that jobs use ubuntu-slim unless there's a documented exception."""
-    if runs_on == "ubuntu-slim":
-        return  # Correct default.
+    """Every literal `runs-on:` names an image the test matrix also covers.
 
-    if runs_on == "ubuntu-24.04":
-        exception_key = (workflow_name, job_name)
-        assert exception_key in UBUNTU_2404_EXCEPTIONS, (
-            f"{workflow_name} ({job_name}): Uses 'ubuntu-24.04' but is not in "
-            "UBUNTU_2404_EXCEPTIONS. Either use 'ubuntu-slim' or document the "
-            "exception with a reason."
-        )
-        return
-
-    # Anything else must be an image the project deliberately tracks: a test
-    # axis or a NON_MATRIX_RUNNERS entry. Deriving from KNOWN_RUNNERS rather
-    # than a literal tuple keeps this from going stale the next time the fleet
-    # moves, which a hard-coded "ubuntu-24.04-arm" here did.
-    if runs_on in KNOWN_RUNNERS:
-        return
-
-    pytest.fail(
-        f"{workflow_name} ({job_name}): Unknown runner {runs_on!r}. Use "
-        "'ubuntu-slim', or add it to the runner sets in repomatic/matrix_axes.py."
+    There is no second set to be an exception to any more: `ubuntu-slim` was the
+    last image outside the axes, and it lost the A/B that justified it. Deriving
+    the expectation from {data}`~repomatic.lint_repo.KNOWN_RUNNERS` rather than
+    from a literal keeps this from failing on a fleet migration instead of on
+    the drift it exists to catch.
+    """
+    assert runs_on in KNOWN_RUNNERS, (
+        f"{workflow_name} ({job_name}): unknown runner {runs_on!r}. Every job "
+        "runs on a test axis, so widen the runner sets in "
+        "repomatic/matrix_axes.py rather than naming a one-off image here."
     )
 
 
