@@ -29,7 +29,7 @@ from repomatic.cli import repomatic
 invoke(repomatic, args=['show-test-matrix', 'full'])
 ```
 
-With no `[tool.repomatic.test-matrix.*]` overrides, this is the built-in default: the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.15` prerelease flagged `unstable`, the free-threaded `3.14t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`.
+The grid above is the built-in default plus this repository's own probe. The default supplies the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.15` prerelease flagged `unstable`, the free-threaded `3.14t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`. The two extra `ubuntu-26.04*` columns come from a temporary `[tool.repomatic.test-matrix.*]` override described in [§ Preview images under evaluation](#preview-images-under-evaluation); a project that sets no overrides gets the six-runner default.
 
 The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
 
@@ -141,6 +141,25 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 | [`macos-26-intel`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md)            | macOS   | x86-64                | no        | Legacy Intel; ~2x slower than `macos-26`.                                                                                            |
 | [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; full-matrix only, for native ARM64 execution coverage.                                                  |
 | [`windows-2025`](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)         | Windows | x86-64                | yes       | Compute tied with `windows-11-arm`; the PR-set Windows pick.                                                                         |
+
+### Preview images under evaluation
+
+GitHub ships Ubuntu 26.04 as `ubuntu-26.04` and `ubuntu-26.04-arm`, both still in preview. Neither is a `repomatic` default: the shipped runner sets stay on GA images, so no downstream repo inherits a preview image.
+
+This repository probes them on itself through its own `[tool.repomatic]` config, which is the pattern any project can copy:
+
+```toml
+[tool.repomatic]
+test-matrix.unstable = [
+  { "os" = "ubuntu-26.04" },
+  { "os" = "ubuntu-26.04-arm" },
+]
+test-matrix.variations.os = ["ubuntu-26.04", "ubuntu-26.04-arm"]
+```
+
+`variations` keeps both images out of the PR matrix, and `unstable` flags every resulting cell `continue-on-error`, so an image still being provisioned never reddens the default branch. Read the two cells differently. `ubuntu-26.04-arm` against `ubuntu-24.04-arm` is a clean base-version comparison: same architecture, same full image. `ubuntu-26.04` has no matching control, because the matrix's x86 Linux runner is the lean `ubuntu-slim`, and comparing those two would credit the base version for the other image's leanness, the confound [§ Architecture speed is workload-dependent](#architecture-speed-is-workload-dependent) warns about. Treat the x86 cell as a compatibility signal rather than a speed measurement.
+
+Accumulate timings with the [§ Measuring your own](#measuring-your-own) recipe. The question to settle before these images reach GA is whether `ubuntu-24.04-arm` should give way to `ubuntu-26.04-arm` as the default single-runner pick, which would also move the PR Linux slot, the `3.14t` smoke test, and the `linux-arm64` Nuitka build host.
 
 ### Speed tendencies
 

@@ -797,6 +797,9 @@ expected: dict[str, Any] = {
             },
         ]),
     },
+    # The two ubuntu-26.04 runners and their unstable includes are this
+    # repository's own `[tool.repomatic] test-matrix` probe of GitHub's preview
+    # images, not a shipped default. Drop them here when the probe ends.
     "test_matrix": {
         "os": [
             "ubuntu-24.04-arm",
@@ -805,6 +808,8 @@ expected: dict[str, Any] = {
             "macos-26-intel",
             "windows-11-arm",
             "windows-2025",
+            "ubuntu-26.04",
+            "ubuntu-26.04-arm",
         ],
         "python-version": [
             "3.10",
@@ -815,6 +820,8 @@ expected: dict[str, Any] = {
             {"state": "stable"},
             {"state": "unstable", "python-version": "3.15"},
             {"os": "ubuntu-24.04-arm", "python-version": "3.14t", "state": "stable"},
+            {"os": "ubuntu-26.04", "state": "unstable"},
+            {"os": "ubuntu-26.04-arm", "state": "unstable"},
         ],
         "exclude": [
             {"os": "windows-11-arm", "python-version": "3.10"},
