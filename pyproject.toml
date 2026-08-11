@@ -552,3 +552,12 @@ release-assets = [ "repomatic-claude-plugin.zip" ]
 # `pyproject.toml`, and one starting with a dot makes it warn on each repomatic
 # invocation. `**` matches dot-directories, so `.github/workflows/` is covered.
 paths."**/workflows/*".ignore = [ 'property "job_workflow_sha" is not defined' ]
+# actionlint validates a literal `runs-on:` against a built-in label list that
+# does not yet carry GitHub's Ubuntu 26.04 preview images, so it rejects them as
+# unknown. Declaring them here is the mechanism actionlint's own error message
+# points to. They are ordinary GitHub-hosted images, not self-hosted runners:
+# that key is simply where actionlint accepts a label it does not ship. Drop
+# this entry once rhysd/actionlint#682 ships in a release. Meanwhile it opens no
+# hole: a typo'd runner is still caught by `lint-repo`'s own check against
+# KNOWN_RUNNERS.
+self-hosted-runner.labels = [ "ubuntu-26.04", "ubuntu-26.04-arm" ]

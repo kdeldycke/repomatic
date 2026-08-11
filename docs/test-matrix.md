@@ -142,7 +142,7 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 | [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; full-matrix only, for native ARM64 execution coverage.                                                  |
 | [`windows-2025`](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)         | Windows | x86-64                | yes       | Compute tied with `windows-11-arm`; the PR-set Windows pick.                                                                         |
 
-Jobs that are not test-matrix cells draw from a second set, `NON_MATRIX_RUNNERS` in the same module: `ubuntu-slim` for the light mechanical jobs (linters and formatters, which are setup-bound and gain nothing from a faster image), and `ubuntu-24.04`/`ubuntu-24.04-arm` for the Linux Nuitka builds and the one compute-heavy light job. `lint-repo` accepts a `runs-on:` naming either set, so a deliberate choice passes while a typo still fails.
+Jobs that are not test-matrix cells draw from a second set, `NON_MATRIX_RUNNERS` in the same module: `ubuntu-slim` for every light mechanical job (linters and formatters, which are setup-bound and gain nothing from a faster image), and `ubuntu-24.04`/`ubuntu-24.04-arm` for the Linux Nuitka builds, which stay on GA images for the capacity reason below. `lint-repo` accepts a `runs-on:` naming either set, so a deliberate choice passes while a typo still fails.
 
 ### Preview images and what "stable" means here
 
@@ -203,7 +203,7 @@ The decisions that follow:
 
 - **Test PR slot uses `ubuntu-26.04-arm`.** The heavy parallel suite genuinely runs ~2-3x faster on ARM, so PR feedback is quicker; x86 Linux stays covered in the full matrix.
 - **Light mechanical jobs keep `ubuntu-slim`.** They are setup-bound, so ARM buys ~nothing while adding an architecture variable across the whole fleet. The real lever for them is caching setup, not the CPU. This is why the runner sets diverged when the test matrix moved to Ubuntu 26.04: these jobs had no reason to follow it.
-- **The one compute-heavy light job, `Format Markdown`, uses `ubuntu-24.04` (full x86).** It cannot use the lean image (it needs `shfmt`), and ARM runs its per-file pass ~1.26x faster — but `mdformat-config` pulls `taplo`, which ships no linux-aarch64 wheel and has a broken `0.9.3` sdist, so a fresh ARM install fails to build it. It stays on full x86 until `taplo` ships an aarch64 wheel.
+- **The one compute-heavy light job, `Format Markdown`, is back on the lean `ubuntu-slim`.** `shfmt` was the only reason it ever needed a full image, and `repomatic run mdformat` now provisions it through mdformat's `path_tools` rather than apt. It stays on **x86** despite ARM running its per-file pass ~1.26x faster: `mdformat-config` pulls `taplo`, which ships no linux-aarch64 wheel and has a broken `0.9.3` sdist, so a fresh ARM install fails to build it. That constraint is the job's alone and is why it did not follow the fleet onto ARM Ubuntu 26.04.
 
 ```{note}
 The mechanical-job split is a single controlled run, where the test-suite ratios are medians of several: treat the 1.13x/1.26x decomposition as one measurement to re-confirm. And always include a full-x86 runner in an architecture A/B: comparing only the lean x86 image against full ARM credits the architecture for the image's leanness too.

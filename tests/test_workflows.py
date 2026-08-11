@@ -34,6 +34,7 @@ from repomatic.git_ops import (
     VERSION_BUMP_COMMIT_PREFIXES,
 )
 from repomatic.github.workflow_sync import cooldown_env_block, workflow_triggers
+from repomatic.lint_repo import KNOWN_RUNNERS
 from repomatic.plugin import ARCHIVE_NAME
 from repomatic.prepare_release import LOCAL_CLI_INVOCATION
 from repomatic.registry import (
@@ -926,13 +927,17 @@ def test_runner_uses_ubuntu_slim_by_default(
         )
         return
 
-    # Other runners (macos, windows) are allowed for cross-platform testing.
-    if any(
-        platform in runs_on for platform in ("macos", "windows", "ubuntu-24.04-arm")
-    ):
+    # Anything else must be an image the project deliberately tracks: a test
+    # axis or a NON_MATRIX_RUNNERS entry. Deriving from KNOWN_RUNNERS rather
+    # than a literal tuple keeps this from going stale the next time the fleet
+    # moves, which a hard-coded "ubuntu-24.04-arm" here did.
+    if runs_on in KNOWN_RUNNERS:
         return
 
-    pytest.fail(f"{workflow_name} ({job_name}): Unknown runner '{runs_on}'")
+    pytest.fail(
+        f"{workflow_name} ({job_name}): Unknown runner {runs_on!r}. Use "
+        "'ubuntu-slim', or add it to the runner sets in repomatic/matrix_axes.py."
+    )
 
 
 # --- uv provisioning tests ---

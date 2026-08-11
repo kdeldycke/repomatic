@@ -78,15 +78,17 @@ NON_MATRIX_RUNNERS = (
 
 The test axes above answer "where is the suite exercised". These answer "what
 else may a job legitimately run on", and the two stopped being the same set when
-the matrix moved to Ubuntu 26.04 while the rest of the fleet did not:
+the matrix moved to Ubuntu 26.04 while parts of the fleet stayed put:
 
-- `ubuntu-slim` is the lean default for the light mechanical jobs (linters and
-  formatters), which are setup-bound rather than compute-bound, so the faster
-  image buys them nothing. GitHub rebases this image onto a newer Ubuntu on its
-  own schedule, which is why it carries no version in its name.
-- `ubuntu-24.04` and `ubuntu-24.04-arm` host the Linux Nuitka builds and the
-  one compute-heavy light job (`Format Markdown`, which needs `shfmt` and so
-  cannot use the lean image).
+- `ubuntu-slim` is the lean default for every light mechanical job (linters and
+  formatters), which are setup-bound rather than compute-bound, so a faster
+  image buys them nothing. GitHub rebases it onto a newer Ubuntu on its own
+  schedule, which is why it carries no version in its name.
+- `ubuntu-24.04` and `ubuntu-24.04-arm` host the Linux Nuitka builds, and
+  nothing else. A published binary is not worth exposing to a preview image's
+  unbalanced early capacity, and the build reads its toolchain from a
+  digest-pinned manylinux container, so the host contributes nothing to the
+  artifact anyway. See {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`.
 
 {data}`~repomatic.lint_repo.KNOWN_RUNNERS` is the union of this and the test
 axes, so a job naming one of these is not flagged as untracked while a genuine
