@@ -96,14 +96,18 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    **Gate 1 (local, ~30s):** if any local check fails, you already have the diagnosis: skip straight to step 5 without waiting for CI.
 
-   If local passes, poll CI every 60 seconds:
+   If local passes, poll CI every 60 seconds, reading **job** state rather than run state:
 
    ```shell-session
-   $ gh run view <TESTS_RUN_ID> --json status,conclusion,jobs \
-     --jq '{status, conclusion, failed: [.jobs[] | select(.conclusion == "failure" and (.name | startswith("✅")))] | length}'
-   $ gh run view <LINT_RUN_ID> --json status,conclusion,jobs \
-     --jq '{status, conclusion, jobs: [.jobs[] | select(.conclusion == "failure")] | map(.name)}'
+   $ gh run view <RUN_ID> --json jobs \
+     --jq '[.jobs[] | .conclusion // .status] | group_by(.) | map("\(.[0])=\(length)") | join(" ")'
+   $ gh run view <TESTS_RUN_ID> --json jobs \
+     --jq '[.jobs[] | select(.conclusion == "failure" and (.name | startswith("✅")))] | map(.name)'
+   $ gh run view <LINT_RUN_ID> --json jobs \
+     --jq '[.jobs[] | select(.conclusion == "failure")] | map(.name)'
    ```
+
+   **A run's own `status` lags its jobs, so it must never gate the loop.** Run-level `queued` means the job graph is still being scheduled, not that nothing has started: all five workflows can read `queued` while `--json jobs` on the same runs shows a dozen already `success` and three `in_progress`. Gating on it hides progress and delays the first red by minutes, and it is indistinguishable from the runner-cap saturation a busy account genuinely hits. Tally `.jobs[].conclusion // .jobs[].status` instead, and call a run terminal only when no job is left `queued` or `in_progress`. The one thing run state *does* gate is log retrieval (step 4): job logs stay unreadable until the parent run itself reaches a terminal state.
 
    **Gate 2 (lint.yaml, ~4 min):** `lint.yaml` finishes before `tests.yaml`. If "Lint types" (mypy) fails, proceed to step 4 immediately.
 
