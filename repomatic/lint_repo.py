@@ -1955,7 +1955,9 @@ def _pat_permissions(ctx: LintContext) -> Iterator[CheckResult]:
 REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "package-name-vs-repo",
-        lambda ctx: check_package_name_vs_repo(ctx.package_name or "", ctx.repo_name or ""),
+        lambda ctx: check_package_name_vs_repo(
+            ctx.package_name or "", ctx.repo_name or ""
+        ),
         applies=lambda ctx: bool(ctx.package_name and ctx.repo_name),
     ),
     RepoCheck(
@@ -2036,7 +2038,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         # so matching that name against PyPI reports on a project someone else
         # owns.
         "pypi-trusted-publisher",
-        lambda ctx: check_pypi_trusted_publisher(ctx.repo or "", ctx.package_name or ""),
+        lambda ctx: check_pypi_trusted_publisher(
+            ctx.repo or "", ctx.package_name or ""
+        ),
         applies=lambda ctx: bool(ctx.repo and ctx.package_name and ctx.is_package),
     ),
     RepoCheck("workflow-permissions", lambda ctx: check_workflow_permissions()),

@@ -198,9 +198,7 @@ class GuideContext:
         """
         return bool(self.pat_results and self.pat_results.vulnerability_alerts[0])
 
-    def probe_settings(
-        self, check: Callable[[str], CheckResult]
-    ) -> bool | None:
+    def probe_settings(self, check: Callable[[str], CheckResult]) -> bool | None:
         """Run a repository-settings *check*, or report it as failed.
 
         Without a PAT or a repository there is nothing to read, and the step
@@ -312,8 +310,10 @@ class SetupStep:
         if not self.gates_closure or not self.applies(ctx):
             return True
         passed = self.outcome(ctx)
-        return passed is None if self.tolerates_unknown and passed is None else bool(
-            passed
+        return (
+            passed is None
+            if self.tolerates_unknown and passed is None
+            else bool(passed)
         )
 
 

@@ -138,10 +138,10 @@ def pin_build(monkeypatch: pytest.MonkeyPatch):
 # --- Bundled data and export tests ---
 
 
-
 def _sync_tool_config(content: str, comp) -> str | None:
     """Drive `_update_tool_config` from raw content, as `init_config` does."""
     return _update_tool_config(tomlrt.loads(content), content, comp)
+
 
 def test_all_component_types_handled() -> None:
     """Verify every component in the registry has a handled type.

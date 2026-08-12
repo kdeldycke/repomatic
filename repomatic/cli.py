@@ -4370,7 +4370,9 @@ def sync_labels(ctx: Context, repo: str | None) -> None:
             logging.info(f"Exported: {path}")
 
         try:
-            apply_labels(config, repo, is_awesome=meta.is_awesome, labels_dir=labels_dir)
+            apply_labels(
+                config, repo, is_awesome=meta.is_awesome, labels_dir=labels_dir
+            )
         except RuntimeError as e:
             raise ClickException(str(e))
 

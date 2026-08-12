@@ -234,8 +234,7 @@ def test_sync_dev_release_empty_body(tmp_path):
     # Version exists in changelog but has no content.
     changelog_path.write_text(RELEASED_ONLY_CHANGELOG, encoding="UTF-8")
 
-    with patch_gh(
-    ) as mock_gh:
+    with patch_gh() as mock_gh:
         result = sync_dev_release(
             changelog_path,
             "9.9.9",
@@ -362,8 +361,7 @@ def test_cleanup_dev_releases_keeps_current_tag():
 
 def test_delete_release_by_tag_success():
     """Calls gh release delete with the given tag, and reports the deletion."""
-    with patch_gh(
-    ) as mock_gh:
+    with patch_gh() as mock_gh:
         assert delete_release_by_tag("v6.1.1.dev0", "user/repo") is True
 
     mock_gh.assert_called_once_with(_delete_call("v6.1.1.dev0"))
@@ -486,8 +484,7 @@ def test_upload_release_assets_no_files(tmp_path):
     """Returns empty list and makes no gh calls when no matching files."""
     (tmp_path / "readme.txt").touch()
 
-    with patch_gh(
-    ) as mock_gh:
+    with patch_gh() as mock_gh:
         result = upload_release_assets("v6.2.0.dev0", "user/repo", tmp_path)
 
     assert result == []
@@ -570,8 +567,7 @@ def test_sync_dev_release_dry_run_with_assets(unreleased_changelog, tmp_path):
     (asset_dir / "repomatic-6.1.1.dev0.whl").touch()
     (asset_dir / "repomatic-6.1.1.dev0.tar.gz").touch()
 
-    with patch_gh(
-    ) as mock_gh:
+    with patch_gh() as mock_gh:
         result = sync_dev_release(
             unreleased_changelog,
             "6.1.1.dev0",

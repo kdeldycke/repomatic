@@ -700,8 +700,7 @@ def _clear_subtree(
         entries,
         root,
         keep=lambda entry: (
-            (scope is not None and entry.scope != scope)
-            or entry.is_fresh(max_age_days)
+            (scope is not None and entry.scope != scope) or entry.is_fresh(max_age_days)
         ),
         sidecars=sidecars,
     )

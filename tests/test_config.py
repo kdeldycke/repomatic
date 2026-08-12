@@ -191,6 +191,7 @@ def test_load_repomatic_config_defaults(tmp_path, monkeypatch):
     assert config.exclude == []
     assert config.include == []
 
+
 def test_load_repomatic_config_custom_values(tmp_path, monkeypatch):
     """Test that load_repomatic_config reads custom values from pyproject.toml."""
     pyproject_content = """\
@@ -209,6 +210,7 @@ nuitka.enabled = false
     assert config.dependency_graph.output == "./custom/deps.mmd"
     assert config.nuitka_enabled is False
 
+
 def test_load_repomatic_config_with_preloaded_data():
     """Test that load_repomatic_config accepts pre-parsed pyproject data."""
     data = {
@@ -222,6 +224,7 @@ def test_load_repomatic_config_with_preloaded_data():
     assert config.dependency_graph.output == "./custom/deps.mmd"
     # Other defaults are still present.
     assert config.gitignore.location == "./.gitignore"
+
 
 def test_load_repomatic_config_warns_unknown_keys(tmp_path, monkeypatch, caplog):
     """Unknown keys in [tool.repomatic] produce a warning, not an error."""
@@ -241,6 +244,7 @@ nonexistent-option = true
     # The warning comes from click-extra's schema layer (warn_unknown), which
     # names keys in their normalized snake_case form.
     assert "Unknown configuration option(s): nonexistent_option" in caplog.text
+
 
 def test_load_repomatic_config_warns_unknown_keys_once(tmp_path, monkeypatch, caplog):
     """Re-loading the same project reports its unknown keys only once.
@@ -262,6 +266,7 @@ nonexistent-option = true
     load_repomatic_config()
     load_repomatic_config()
     assert caplog.text.count("Unknown configuration option(s)") == 1
+
 
 def test_config_reference():
     """Config reference table covers all Config fields with descriptions."""

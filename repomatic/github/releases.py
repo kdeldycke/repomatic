@@ -478,7 +478,9 @@ def extract_version(tag: str, tag_pattern: str | None) -> str | None:
     return tag.removeprefix("v")
 
 
-def edit_release_notes(tag: str, repository: str, body: str, *, title: str = "") -> bool:
+def edit_release_notes(
+    tag: str, repository: str, body: str, *, title: str = ""
+) -> bool:
     """Edit a release's notes (and optionally its title) in place.
 
     The one `gh release edit` path shared by every release writer, so the

@@ -1500,6 +1500,7 @@ def test_ensure_binary_keeps_staging_fallback_alive(mock_install):
     write), `_install_binary` returns the staging copy: the staging directory
     must then outlive the call, or the caller would exec a just-deleted file.
     """
+
     def install(spec, staging_dir, **kwargs):
         path = staging_dir / "labelmaker"
         path.touch()
