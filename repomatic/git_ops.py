@@ -312,6 +312,132 @@ def diff_names(start: str, end: str) -> tuple[str, ...]:
     return tuple(output.splitlines()) if output else ()
 
 
+def tree_sha(ref: str = "HEAD") -> str:
+    """Return the SHA of the tree *ref* points at.
+
+    Two commits sharing a tree SHA carry byte-identical content, whatever their
+    message, author or parent. That makes this the cheapest way to ask whether
+    re-running a generator produced anything new.
+    """
+    return _git("rev-parse", f"{ref}^{{tree}}").stdout.strip()
+
+
+def count_commits_between(start: str, end: str) -> int:
+    """Return the number of commits in the `start..end` range.
+
+    Follows git range semantics: *start* is excluded, *end* is included.
+    """
+    return int(_git("rev-list", "--count", f"{start}..{end}").stdout.strip())
+
+
+def create_branch(name: str) -> None:
+    """Create or reset branch *name* at `HEAD` and switch to it.
+
+    The index and working tree carry over untouched, so staged changes made
+    before the call survive into a commit made after it.
+    """
+    _git("checkout", "-B", name)
+
+
+def delete_branch(name: str) -> None:
+    """Delete the local branch *name*, even when unmerged.
+
+    Tolerates a branch that is not there. Callers reach this from a `finally`
+    that cleans up a scratch branch, where the failure being cleaned up after
+    may be the very thing that stopped the branch from being created: raising
+    here would replace the real error with a confusing one.
+    """
+    deleted = _git("branch", "--delete", "--force", name, check=False)
+    if deleted.returncode:
+        logging.debug(f"Could not delete local branch {name}: {deleted.stderr.strip()}")
+
+
+def stage_all() -> bool:
+    """Stage every working-tree change, untracked files included.
+
+    :return: `True` when the index ends up carrying something to commit.
+    """
+    _git("add", "--all")
+    return _git("diff", "--cached", "--quiet", check=False).returncode != 0
+
+
+def commit_staged(message: str) -> str:
+    """Commit the staged tree as the CI bot and return the new commit SHA.
+
+    The identity is supplied per-command via `-c`, since CI checkouts carry no
+    git identity of their own. Mirrors {func}`commit_and_push_files`, which
+    does the same for the direct-to-default-branch case.
+    """
+    _git(
+        "-c",
+        f"user.name={COMMIT_IDENTITY_NAME}",
+        "-c",
+        f"user.email={COMMIT_IDENTITY_EMAIL}",
+        "commit",
+        "--message",
+        message,
+    )
+    return head_sha()
+
+
+def fetch_remote_branch(branch: str, remote: str = "origin") -> str | None:
+    """Fetch *branch* into its remote-tracking ref and return the SHA.
+
+    The refspec is explicit because `actions/checkout` configures a
+    single-branch fetch refspec, under which a bare ``git fetch origin {branch}``
+    updates `FETCH_HEAD` but leaves ``refs/remotes/{remote}/{branch}`` absent.
+    Writing the remote-tracking ref is what later lets a push take a
+    `--force-with-lease` on it.
+
+    :return: The remote branch tip, or `None` when the branch does not exist
+        on the remote.
+    """
+    fetched = _git(
+        "fetch",
+        "--force",
+        remote,
+        f"refs/heads/{branch}:refs/remotes/{remote}/{branch}",
+        check=False,
+    )
+    if fetched.returncode:
+        logging.debug(f"No {branch!r} branch on {remote}: {fetched.stderr.strip()}")
+        return None
+    return _git("rev-parse", f"refs/remotes/{remote}/{branch}").stdout.strip()
+
+
+def force_push_branch(
+    local_ref: str,
+    branch: str,
+    expected_sha: str | None,
+    remote: str = "origin",
+) -> None:
+    """Publish *local_ref* as *branch* on *remote*, overwriting what is there.
+
+    *expected_sha* is the remote tip the caller last observed, which becomes a
+    `--force-with-lease` guard: the push is refused when the branch moved in
+    between, rather than silently discarding the other writer's commit. Pass
+    `None` to create a branch that does not exist yet, where a plain push
+    already fails if someone wins the race.
+
+    :raises subprocess.CalledProcessError: When the push is rejected.
+    """
+    args = ["push"]
+    if expected_sha:
+        args.append(f"--force-with-lease={branch}:{expected_sha}")
+    args.extend([remote, f"{local_ref}:refs/heads/{branch}"])
+    _git(*args)
+    logging.info(f"Pushed {local_ref} to {remote}/{branch}.")
+
+
+def delete_remote_branch(branch: str, remote: str = "origin") -> None:
+    """Delete *branch* from *remote*, tolerating a branch already gone."""
+    deleted = _git("push", "--delete", remote, f"refs/heads/{branch}", check=False)
+    if deleted.returncode:
+        logging.warning(f"Could not delete {remote}/{branch}: {deleted.stderr.strip()}")
+        return
+    logging.info(f"Deleted {remote}/{branch}.")
+
+
 def list_contributor_identities() -> set[str]:
     """Return every author and committer identity found in the history.
 

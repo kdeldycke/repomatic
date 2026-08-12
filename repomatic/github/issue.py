@@ -14,14 +14,12 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""GitHub issue and pull-request lifecycle management.
+"""GitHub issue lifecycle management.
 
 Generic primitives for listing, creating, updating, closing, and triaging
 GitHub issues via the `gh` CLI, used by {mod}`repomatic.broken_links` and
-other modules that manage bot-created issues. The thin pull-request closers
-live here too: GitHub models pull requests as issues (they share one number
-space), and both families are the same `gh <kind> <verb>` wrappers over
-{mod}`~repomatic.github.gh`.
+other modules that manage bot-created issues. The pull-request counterpart
+lives in {mod}`~repomatic.github.pr`.
 
 The life-cycle of issues created in CI jobs is managed here by hand because the
 `create-issue-from-file` action blindly creates issues ad-nauseam.
@@ -35,18 +33,20 @@ from __future__ import annotations
 
 import json
 import logging
-import tempfile
-from contextlib import contextmanager
 from operator import itemgetter
 from pathlib import Path
 
 from ..metadata import Metadata
 from .gh import run_gh_command
-from .pr_body import fit_issue_body, generate_pr_metadata_block
+from .pr_body import (
+    fit_issue_body,
+    generate_pr_metadata_block,
+    temp_body_file,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Sequence
     from typing import Any
 
 
@@ -313,29 +313,6 @@ def triage_issues(
     return needed, issue_to_update, issue_state, issues_to_close
 
 
-@contextmanager
-def _body_file(body: str) -> Iterator[Path]:
-    """Materialize an issue body as a temporary file, then remove it.
-
-    The `gh` CLI takes a body only through `--body-file`, so every write path
-    here needs one on disk. Owning the temp file at this layer keeps callers
-    working in the currency they actually produce (rendered markdown) instead of
-    each repeating the same write / `try` / `unlink` envelope.
-    """
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".md",
-        delete=False,
-        encoding="UTF-8",
-    ) as handle:
-        handle.write(body)
-        path = Path(handle.name)
-    try:
-        yield path
-    finally:
-        path.unlink(missing_ok=True)
-
-
 def manage_issue_lifecycle(
     has_issues: bool,
     body: str,
@@ -394,7 +371,7 @@ def manage_issue_lifecycle(
         return
 
     # Create, update, or reopen the issue.
-    with _body_file(body) as body_path:
+    with temp_body_file(body) as body_path:
         if issue_to_update:
             # Reopen the issue if it was closed.
             if issue_state == "CLOSED":
@@ -405,69 +382,3 @@ def manage_issue_lifecycle(
             update_issue(issue_to_update, body_path)
         else:
             create_issue(body_path, labels, title=title)
-
-
-# ---------------------------------------------------------------------------
-# Pull requests
-# ---------------------------------------------------------------------------
-
-
-def list_open_prs_by_branch(branch: str) -> list[dict[str, Any]]:
-    """List open pull requests whose head branch matches `branch`.
-
-    :param branch: The head branch name to filter on.
-    :return: List of PR dicts with `number` and `title`. Empty if no
-        open PR exists on `branch`.
-    """
-    output = run_gh_command([
-        "pr",
-        "list",
-        "--state",
-        "open",
-        "--head",
-        branch,
-        "--json",
-        "number,title",
-    ])
-    prs: list[dict[str, Any]] = json.loads(output)
-    return prs
-
-
-def close_pr(number: int, comment: str, delete_branch: bool = True) -> None:
-    """Close a pull request with a comment.
-
-    :param number: The PR number to close.
-    :param comment: The comment to add when closing.
-    :param delete_branch: When `True`, also delete the head branch.
-    """
-    args = [
-        "pr",
-        "close",
-        str(number),
-        "--comment",
-        comment,
-    ]
-    if delete_branch:
-        args.append("--delete-branch")
-    run_gh_command(args)
-    logging.info(f"Closed PR #{number}")
-
-
-def close_open_prs_on_branch(branch: str, comment: str) -> list[int]:
-    """Close every open PR whose head branch matches `branch`.
-
-    Idempotent: a no-op when no open PR exists on the branch.
-
-    :param branch: The head branch name to match.
-    :param comment: The comment to add when closing each PR.
-    :return: The list of PR numbers that were closed.
-    """
-    prs = list_open_prs_by_branch(branch)
-    if not prs:
-        logging.info(f"No open PR on branch {branch!r}, nothing to close.")
-        return []
-    closed: list[int] = []
-    for pr in prs:
-        close_pr(pr["number"], comment)
-        closed.append(pr["number"])
-    return closed

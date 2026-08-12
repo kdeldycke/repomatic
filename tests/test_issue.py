@@ -26,10 +26,7 @@ import pytest
 from repomatic.github.issue import (
     _fit_body_file,
     close_issue,
-    close_open_prs_on_branch,
-    close_pr,
     create_issue,
-    list_open_prs_by_branch,
     manage_issue_lifecycle,
     reopen_issue,
     triage_issues,
@@ -38,62 +35,6 @@ from repomatic.github.pr_body import GITHUB_BODY_MAX_CHARS
 
 TITLE = "Papaya harvest report"
 """Arbitrary issue title the triage tests match against."""
-
-
-def test_list_open_prs_by_branch_filters_arguments():
-    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
-        mock_gh.return_value = json.dumps([{"number": 42, "title": "Bump"}])
-        prs = list_open_prs_by_branch("minor-version-increment")
-    assert prs == [{"number": 42, "title": "Bump"}]
-    args = mock_gh.call_args.args[0]
-    assert args[:2] == ["pr", "list"]
-    assert "--state" in args and args[args.index("--state") + 1] == "open"
-    assert (
-        "--head" in args and args[args.index("--head") + 1] == "minor-version-increment"
-    )
-
-
-def test_list_open_prs_by_branch_empty():
-    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
-        mock_gh.return_value = "[]"
-        assert list_open_prs_by_branch("major-version-increment") == []
-
-
-def test_close_pr_default_deletes_branch():
-    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
-        close_pr(7, "stale")
-    args = mock_gh.call_args.args[0]
-    assert args[:3] == ["pr", "close", "7"]
-    assert "--comment" in args and args[args.index("--comment") + 1] == "stale"
-    assert "--delete-branch" in args
-
-
-def test_close_pr_can_keep_branch():
-    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
-        close_pr(7, "stale", delete_branch=False)
-    assert "--delete-branch" not in mock_gh.call_args.args[0]
-
-
-def test_close_open_prs_on_branch_no_match_is_noop():
-    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
-        mock_gh.return_value = "[]"
-        closed = close_open_prs_on_branch("minor-version-increment", "stale")
-    assert closed == []
-    assert mock_gh.call_count == 1
-
-
-def test_close_open_prs_on_branch_closes_every_match():
-    payload = json.dumps([
-        {"number": 11, "title": "A"},
-        {"number": 22, "title": "B"},
-    ])
-    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
-        mock_gh.side_effect = [payload, "", ""]
-        closed = close_open_prs_on_branch("minor-version-increment", "stale")
-    assert closed == [11, 22]
-    close_args = [call.args[0] for call in mock_gh.call_args_list[1:]]
-    assert close_args[0][:3] == ["pr", "close", "11"]
-    assert close_args[1][:3] == ["pr", "close", "22"]
 
 
 # ---------------------------------------------------------------------------

@@ -122,7 +122,7 @@ from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
     sync_dev_release as _sync_dev_release,
 )
-from .github.issue import close_open_prs_on_branch
+from .github.pr import close_open_prs_on_branch, upsert_pr
 from .github.pr_body import (
     build_pr_body,
     build_release_review_steps,
@@ -4334,6 +4334,96 @@ def pr_body(
     log_output_target("PR body", output)
 
     echo(content, file=prep_path(output))
+
+
+@repomatic.command(
+    short_help="Create, refresh or retire an automation PR", section=_section_github
+)
+@option(
+    "--branch",
+    required=True,
+    help="Head branch to create, update or retire. By convention the job ID.",
+)
+@option(
+    "--title",
+    envvar="GHA_PR_TITLE",
+    required=True,
+    help="Pull-request title. "
+    "Can also be set via the GHA_PR_TITLE environment variable.",
+)
+@option(
+    "--body",
+    envvar="GHA_PR_BODY",
+    required=True,
+    help="Rendered markdown body, as produced by `repomatic pr-body`. "
+    "Can also be set via the GHA_PR_BODY environment variable.",
+)
+@option(
+    "--commit-message",
+    "commit_message",
+    envvar="GHA_PR_COMMIT_MESSAGE",
+    required=True,
+    help="Message for the single commit the branch carries. "
+    "Can also be set via the GHA_PR_COMMIT_MESSAGE environment variable.",
+)
+@option(
+    "--base",
+    default=None,
+    help="Base branch. Defaults to the currently checked-out branch.",
+)
+@option(
+    "--label",
+    "labels",
+    multiple=True,
+    help="Label to attach. Repeat to provide multiple. Best-effort: a label "
+    "GitHub refuses warns instead of failing the command.",
+)
+@option(
+    "--assignee",
+    "assignees",
+    multiple=True,
+    envvar="GHA_PR_ASSIGNEE",
+    help="Assignee to attach. Repeat to provide multiple. Best-effort: "
+    "github-actions[bot] cannot be assigned and only warns. "
+    "Can also be set via the GHA_PR_ASSIGNEE environment variable, which "
+    "keeps `github.actor` out of a workflow's `run:` block.",
+)
+def pr_sync(
+    branch: str,
+    title: str,
+    body: str,
+    commit_message: str,
+    base: str | None,
+    labels: tuple[str, ...],
+    assignees: tuple[str, ...],
+) -> None:
+    """Converge a branch and its PR onto whatever the working tree holds.
+
+    Opens the pull request when the tree carries changes, refreshes it when
+    those changes moved, does nothing at all when the branch already matches,
+    and closes the PR (deleting the branch) once the changes are gone.
+
+    Idempotent: re-running with an unchanged tree performs no write, so a
+    workflow re-run never churns the PR or re-triggers its checks.
+
+    \b
+    Examples:
+        repomatic pr-sync --branch format-python --label "🤖 ci"
+        repomatic pr-sync --branch sync-uv-lock --base main
+    """
+    result = upsert_pr(
+        branch=branch,
+        title=title,
+        body=body,
+        commit_message=commit_message,
+        base=base,
+        labels=labels,
+        assignees=assignees,
+    )
+    if result.number:
+        echo(f"{result.operation}: PR #{result.number} on {result.branch}")
+    else:
+        echo(f"{result.operation}: {result.branch}")
 
 
 @repomatic.command(

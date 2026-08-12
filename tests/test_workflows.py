@@ -755,6 +755,82 @@ def test_version_bump_commit_in_changelog_workflow() -> None:
     )
 
 
+ACTION_PR_JOBS = frozenset((
+    ("changelog.yaml", "fix-changelog"),
+    ("changelog.yaml", "bump-version"),
+    ("changelog.yaml", "prepare-release"),
+))
+"""The only jobs still opening their pull request with a third-party action.
+
+Each needs something {func}`repomatic.github.pr.upsert_pr` does not cover: a
+detached-`HEAD` checkout with an explicit base, commits the job made itself, or
+`draft: always-true` held across updates. Everything else runs `pr-sync`.
+"""
+
+PR_SYNC_ENV_KEYS = frozenset((
+    "GHA_PR_ASSIGNEE",
+    "GHA_PR_BODY",
+    "GHA_PR_COMMIT_MESSAGE",
+    "GHA_PR_TITLE",
+    "GH_TOKEN",
+))
+"""Values every `pr-sync` step passes through `env:` rather than its `run:` line.
+
+Keeping `github.actor` and the rendered body out of the shell command is what
+stops a `run:` block from interpolating attacker-controllable text (zizmor's
+`template-injection` audit); the token is there because `gh` reads it from the
+environment.
+"""
+
+
+def _iter_steps() -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Yield `(workflow, job, step)` for every step in every workflow."""
+    for path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
+        workflow = load_workflow(path.name)
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                yield path.name, job_id, step
+
+
+def test_pull_requests_are_opened_by_the_cli_not_an_action() -> None:
+    """Only the jobs named in `ACTION_PR_JOBS` may still call the PR action.
+
+    The drift guard for the migration off `peter-evans/create-pull-request`: a
+    new job copy-pasting the action from an old example fails here by name, and
+    so does a wave-2 job whose migration lands without updating this set.
+    """
+    found = {
+        (workflow, job)
+        for workflow, job, step in _iter_steps()
+        if step.get("uses", "").startswith("peter-evans/create-pull-request@")
+    }
+    assert found == ACTION_PR_JOBS, (
+        f"unexpected: {sorted(found - ACTION_PR_JOBS)}, "
+        f"migrated but still listed: {sorted(ACTION_PR_JOBS - found)}"
+    )
+
+
+def test_pr_sync_steps_pass_everything_through_env() -> None:
+    """Every `pr-sync` step names a branch and takes its values from `env:`."""
+    steps = [
+        (workflow, job, step)
+        for workflow, job, step in _iter_steps()
+        if "repomatic pr-sync" in (step.get("run") or "")
+    ]
+    assert steps, "no pr-sync step found: has the migration been reverted?"
+    for workflow, job, step in steps:
+        where = f"{workflow}::{job}"
+        assert "--branch " in step["run"], f"{where} pr-sync step names no branch"
+        assert set(step.get("env") or {}) == PR_SYNC_ENV_KEYS, (
+            f"{where} pr-sync env is {sorted(step.get('env') or {})}, "
+            f"expected {sorted(PR_SYNC_ENV_KEYS)}"
+        )
+        assert "${{" not in step["run"], (
+            f"{where} interpolates a template expression into its run block; "
+            "pass the value through env: instead"
+        )
+
+
 def test_version_bumps_relock_before_committing() -> None:
     """Every version bump must re-lock before the commit that captures it.
 

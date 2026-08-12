@@ -168,16 +168,17 @@ jobs:
           pr-body --output-format github-actions
           --template format-python
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🤖 ci"
-          branch: format-python
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch format-python
+          --label "🤖 ci"
 
   format-pyproject:
     name: 📐 Format pyproject.toml
@@ -211,16 +212,17 @@ jobs:
           pr-body --output-format github-actions
           --template format-pyproject
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🤖 ci"
-          branch: format-pyproject
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch format-pyproject
+          --label "🤖 ci"
 
   format-markdown:
     name: ✍️ Format Markdown
@@ -272,16 +274,17 @@ jobs:
           pr-body --output-format github-actions
           --template format-markdown
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "📚 documentation"
-          branch: format-markdown
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch format-markdown
+          --label "📚 documentation"
 
   format-shell:
     name: 🐚 Format Shell
@@ -317,16 +320,17 @@ jobs:
           pr-body --output-format github-actions
           --template format-shell
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🤖 ci"
-          branch: format-shell
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch format-shell
+          --label "🤖 ci"
 
   format-json:
     name: 🔧 Format JSON
@@ -366,16 +370,17 @@ jobs:
           pr-body --output-format github-actions
           --template format-json
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🤖 ci"
-          branch: format-json
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch format-json
+          --label "🤖 ci"
 
   # --- Fixers: correct or improve existing content in-place. ---
 
@@ -410,17 +415,18 @@ jobs:
           pr-body --output-format github-actions
           --template fix-typos
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           # We need custom PAT with workflows permissions to fix typos in .github/workflows/*.yaml` files.
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "📚 documentation"
-          branch: fix-typos
-          delete-branch: true
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch fix-typos
+          --label "📚 documentation"
 
   fix-vulnerable-deps:
     name: 🛡️ Fix vulnerable deps
@@ -457,16 +463,17 @@ jobs:
           pr-body --output-format github-actions
           --template fix-vulnerable-deps
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🔗 dependencies"
-          branch: fix-vulnerable-deps
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch fix-vulnerable-deps
+          --label "🔗 dependencies"
 
   sync-repomatic:
     name: 🔄 Sync repomatic
@@ -493,17 +500,18 @@ jobs:
           pr-body --output-format github-actions
           --template sync-repomatic
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           # We need custom PAT with workflows permissions to update .github/workflows/*.yaml files.
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🤖 ci"
-          branch: sync-repomatic
-          delete-branch: true
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-repomatic
+          --label "🤖 ci"
 
   format-images:
     name: 🖼️ Format images
@@ -548,16 +556,17 @@ jobs:
           pr-body --output-format github-actions
           --template format-images
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "📚 documentation"
-          branch: format-images
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch format-images
+          --label "📚 documentation"
 
   # --- Syncers: regenerate files from external sources or project state. ---
 
@@ -583,16 +592,17 @@ jobs:
           pr-body --output-format github-actions
           --template sync-gitignore
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🤖 ci"
-          branch: sync-gitignore
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-gitignore
+          --label "🤖 ci"
 
   sync-bumpversion:
     name: 🔄 Sync bumpversion config
@@ -618,16 +628,17 @@ jobs:
           pr-body --output-format github-actions
           --template sync-bumpversion
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🤖 ci"
-          branch: sync-bumpversion
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-bumpversion
+          --label "🤖 ci"
 
   sync-mailmap:
     name: 📬 Sync .mailmap
@@ -654,16 +665,17 @@ jobs:
           pr-body --output-format github-actions
           --template sync-mailmap
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "📚 documentation"
-          branch: sync-mailmap
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-mailmap
+          --label "📚 documentation"
 
   sync-deps:
     name: 🔗 Sync dependencies
@@ -748,16 +760,17 @@ jobs:
       - if: >
           !cancelled()
           && steps.sync-dep-sources-meta.outcome == 'success'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.sync-dep-sources-meta.outputs.commit_message }}
-          title: ${{ steps.sync-dep-sources-meta.outputs.title }}
-          body: ${{ steps.sync-dep-sources-meta.outputs.body }}
-          labels: "🔗 dependencies"
-          branch: sync-dep-sources
-          delete-branch: true
+        name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.sync-dep-sources-meta.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.sync-dep-sources-meta.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.sync-dep-sources-meta.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-dep-sources
+          --label "🔗 dependencies"
 
       # --- sync-uv-lock: re-lock dependencies (Python projects). ---
       - if: >
@@ -784,16 +797,17 @@ jobs:
           --template sync-uv-lock
           --output "$GITHUB_OUTPUT"
       - if: ${{ !cancelled() && steps.sync-uv-lock-meta.outcome == 'success' }}
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.sync-uv-lock-meta.outputs.commit_message }}
-          title: ${{ steps.sync-uv-lock-meta.outputs.title }}
-          body: ${{ steps.sync-uv-lock-meta.outputs.body }}
-          labels: "🔗 dependencies"
-          branch: sync-uv-lock
-          delete-branch: true
+        name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.sync-uv-lock-meta.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.sync-uv-lock-meta.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.sync-uv-lock-meta.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-uv-lock
+          --label "🔗 dependencies"
 
       # --- sync-action-pins: bump SHA-pinned actions (repos with workflows). ---
       - if: >
@@ -825,16 +839,17 @@ jobs:
       - if: >
           !cancelled()
           && steps.sync-action-pins-meta.outcome == 'success'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.sync-action-pins-meta.outputs.commit_message }}
-          title: ${{ steps.sync-action-pins-meta.outputs.title }}
-          body: ${{ steps.sync-action-pins-meta.outputs.body }}
-          labels: "🔗 dependencies"
-          branch: sync-action-pins
-          delete-branch: true
+        name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.sync-action-pins-meta.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.sync-action-pins-meta.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.sync-action-pins-meta.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-action-pins
+          --label "🔗 dependencies"
 
       # --- sync-workflow-pins: bump npm/PyPI literals (repos with workflows). ---
       - if: >
@@ -864,16 +879,17 @@ jobs:
       - if: >
           !cancelled()
           && steps.sync-workflow-pins-meta.outcome == 'success'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.sync-workflow-pins-meta.outputs.commit_message }}
-          title: ${{ steps.sync-workflow-pins-meta.outputs.title }}
-          body: ${{ steps.sync-workflow-pins-meta.outputs.body }}
-          labels: "🔗 dependencies"
-          branch: sync-workflow-pins
-          delete-branch: true
+        name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.sync-workflow-pins-meta.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.sync-workflow-pins-meta.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.sync-workflow-pins-meta.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-workflow-pins
+          --label "🔗 dependencies"
 
       # sync-tool-versions is deliberately absent: it rewrites repomatic's own
       # tool registry, so it lives in the upstream-only self-maintenance.yaml.
@@ -926,14 +942,15 @@ jobs:
           pr-body --output-format github-actions
           --template update-docs
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "📚 documentation"
-          branch: update-docs
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch update-docs
+          --label "📚 documentation"
 

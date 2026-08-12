@@ -11,7 +11,7 @@ Every `sync-*` operation modifies or overwrites user-controlled files or resourc
 1. **Config toggle.** A `*_sync: bool = True` field in the `Config` dataclass. Dotted sub-key in `[tool.repomatic]` (e.g., `gitignore.sync = false`). Alphabetically sorted among existing sync fields.
 2. **CLI command.** A `repomatic sync-*` command that loads config, checks the toggle, and exits cleanly (`ctx.exit(0)`) when disabled. Uses `@pass_context` to receive `ctx`.
 3. **Toggle enforcement.** For CLI-based syncs: the toggle field goes in `SUBCOMMAND_CONFIG_FIELDS` (checked in the CLI, not exposed as metadata). For workflow-only syncs (no CLI command): the toggle is exposed as a metadata output and checked in the job's `if:` condition. For syncs whose workflow also gates other steps on the toggle (like `sync-binaries`, whose output a separate `git-commit-push` step commits): both at once, a CLI check plus a metadata output kept out of `SUBCOMMAND_CONFIG_FIELDS`.
-4. **Workflow job.** A `sync-*` job in the appropriate workflow file (usually `autofix.yaml`, but lifecycle-specific syncs may live elsewhere — e.g., `sync-dev-release` in `_release-engine.yaml`, `sync-labels` in `labels.yaml`). Requires: metadata `needs:` when applicable, prerequisite `if:` conditions, PR creation via `peter-evans/create-pull-request` (branch name = job ID, body from `repomatic pr-body --template sync-*`). Exceptions: syncs targeting API resources (e.g., labels) rather than repo files apply changes directly, and `sync-binaries` runs as release-lane recording whose output is pushed straight to the default branch (see [§ Release-lane direct commits](#release-lane-direct-commits)).
+4. **Workflow job.** A `sync-*` job in the appropriate workflow file (usually `autofix.yaml`, but lifecycle-specific syncs may live elsewhere — e.g., `sync-dev-release` in `_release-engine.yaml`, `sync-labels` in `labels.yaml`). Requires: metadata `needs:` when applicable, prerequisite `if:` conditions, PR creation via `repomatic pr-sync` (branch name = job ID, body from `repomatic pr-body --template sync-*`). Exceptions: syncs targeting API resources (e.g., labels) rather than repo files apply changes directly, and `sync-binaries` runs as release-lane recording whose output is pushed straight to the default branch (see [§ Release-lane direct commits](#release-lane-direct-commits)).
 5. **Documentation.** Config table row and TOML example in `docs/configuration.md`. Job description with "Skipped if" clause in `docs/workflows.md`. Changelog entry.
 6. **Tests.** Default and custom value assertions in `test_repomatic_config_defaults` and `test_repomatic_config_custom_values`.
 
@@ -26,7 +26,7 @@ Every `update-*` operation computes derived artifacts from project state (lockfi
 **Required properties:**
 
 1. **CLI command.** A `repomatic update-*` command.
-2. **Workflow job.** An `update-*` job in the appropriate workflow file with PR creation via `peter-evans/create-pull-request` (branch name = job ID, body from `repomatic pr-body --template update-*`).
+2. **Workflow job.** An `update-*` job in the appropriate workflow file with PR creation via `repomatic pr-sync` (branch name = job ID, body from `repomatic pr-body --template update-*`).
 3. **Documentation.** Job description in `docs/workflows.md`. Changelog entry.
 
 **Optional properties:**
@@ -42,7 +42,7 @@ Every `format-*` and `fix-*` operation rewrites files using a pinned external to
 **Required properties:**
 
 1. **CLI command.** A `repomatic format-*` or `repomatic fix-*` command that wraps a pinned external tool (e.g., ruff, mdformat, jq, typos).
-2. **Workflow job.** A job in the appropriate workflow file (usually `autofix.yaml`) with PR creation via `peter-evans/create-pull-request` (branch name = job ID, body from `repomatic pr-body --template verb-noun`).
+2. **Workflow job.** A job in the appropriate workflow file (usually `autofix.yaml`) with PR creation via `repomatic pr-sync` (branch name = job ID, body from `repomatic pr-body --template verb-noun`).
 3. **Documentation.** Job description in `docs/workflows.md`. Changelog entry.
 
 **Invariants:**

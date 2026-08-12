@@ -72,13 +72,14 @@ jobs:
           --output-format github-actions
           --template sync-tool-versions
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🔗 dependencies"
-          branch: sync-tool-versions
-          delete-branch: true
+      - name: Sync pull request
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch sync-tool-versions
+          --label "🔗 dependencies"

@@ -277,6 +277,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic pr-body"
 
 [[cases]]
+cli_parameters = "pr-sync --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic pr-sync"
+
+[[cases]]
 cli_parameters = "prepare-release --help"
 exit_code = 0
 strip_ansi = true

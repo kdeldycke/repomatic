@@ -43,6 +43,8 @@ the embedded content's headings below the embedding document's own sections.
 from __future__ import annotations
 
 import re
+import tempfile
+from contextlib import contextmanager
 from importlib.resources import as_file, files
 from pathlib import Path
 from string import Template
@@ -54,6 +56,8 @@ from .releases import dev_release_url_and_previous_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from ..metadata import Metadata
 
 GITHUB_BODY_MAX_CHARS = 65536
@@ -674,3 +678,27 @@ def fit_issue_body(body: str) -> str:
     if not trimmed:
         return tail.lstrip()
     return f"{trimmed}{tail}"
+
+
+@contextmanager
+def temp_body_file(body: str) -> Iterator[Path]:
+    """Materialize a rendered body as a temporary file, then remove it.
+
+    The `gh` CLI takes a body only through `--body-file`, so every write path
+    against an issue or a pull request needs one on disk. Owning the temp file
+    at this layer keeps callers working in the currency they actually produce
+    (rendered markdown) instead of each repeating the same write / `try` /
+    `unlink` envelope.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".md",
+        delete=False,
+        encoding="UTF-8",
+    ) as handle:
+        handle.write(body)
+        path = Path(handle.name)
+    try:
+        yield path
+    finally:
+        path.unlink(missing_ok=True)

@@ -275,8 +275,32 @@ def _host_job_steps(op: SyncOperation) -> list[dict]:
     return steps
 
 
+_PR_SYNC_BRANCH_RE = re.compile(r"--branch (?P<branch>\S+)")
+_PR_SYNC_LABEL_RE = re.compile(r'--label "(?P<label>[^"]+)"')
+
+
 def _pr_steps(steps: list[dict]) -> list[dict]:
-    return [step for step in steps if "create-pull-request" in step.get("uses", "")]
+    """Return the steps that open, refresh or retire a pull request.
+
+    Reads the `repomatic pr-sync` invocation rather than a
+    `peter-evans/create-pull-request` `with:` block: every operation in the
+    registry runs on the ported command. The three jobs still on the action
+    (`fix-changelog`, `bump-version`, `prepare-release`) host no registered
+    sync operation, so none of them reaches this helper.
+    """
+    return [step for step in steps if "repomatic pr-sync" in step.get("run", "")]
+
+
+def _pr_branch(step: dict) -> str:
+    """Return the head branch a `pr-sync` step targets."""
+    match = _PR_SYNC_BRANCH_RE.search(step["run"])
+    assert match, f"no --branch in {step['run']!r}"
+    return match.group("branch")
+
+
+def _pr_labels(step: dict) -> set[str]:
+    """Return the labels a `pr-sync` step attaches."""
+    return set(_PR_SYNC_LABEL_RE.findall(step["run"]))
 
 
 def test_consolidated_job_covers_every_operation() -> None:
@@ -292,15 +316,15 @@ def test_consolidated_job_covers_every_operation() -> None:
     for op in SYNC_OPERATIONS:
         steps = _host_job_steps(op)
         runs = " ".join(step.get("run", "") for step in steps)
-        pr_branches = {step["with"]["branch"] for step in _pr_steps(steps)}
+        pr_branches = {_pr_branch(step) for step in _pr_steps(steps)}
         assert f"repomatic {op.name}" in runs, f"{op.name} sync command missing"
         assert f"--template {op.template}" in runs, f"{op.template} pr-body missing"
-        assert op.branch in pr_branches, f"{op.name} create-pull-request missing"
+        assert op.branch in pr_branches, f"{op.name} pr-sync step missing"
 
     # No stray dependency PRs beyond the registry, in either direction.
-    assert {
-        step["with"]["branch"] for step in _pr_steps(_consolidated_job_steps())
-    } == {op.branch for op in SYNC_OPERATIONS if op.consolidated}
+    assert {_pr_branch(step) for step in _pr_steps(_consolidated_job_steps())} == {
+        op.branch for op in SYNC_OPERATIONS if op.consolidated
+    }
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
@@ -334,7 +358,9 @@ def test_consolidated_job_uses_full_history() -> None:
 
 def test_consolidated_job_labels_every_pr_consistently() -> None:
     """Every PR the consolidated job opens carries the shared dependency label."""
-    labels = {step["with"]["labels"] for step in _pr_steps(_consolidated_job_steps())}
+    labels = set()
+    for step in _pr_steps(_consolidated_job_steps()):
+        labels |= _pr_labels(step)
     assert labels == {DEPENDENCY_LABEL}
 
 

@@ -26,13 +26,25 @@ from packaging.version import Version
 
 from repomatic.git_ops import (
     COMMIT_IDENTITY_NAME,
+    checkout,
     commit_and_push_files,
+    commit_staged,
+    count_commits_between,
     create_and_push_tag,
+    create_branch,
     create_tag,
+    current_branch,
+    delete_branch,
+    delete_remote_branch,
+    fetch_remote_branch,
+    force_push_branch,
     get_latest_tag_version,
     get_release_version_from_commits,
+    head_sha,
     push_tag,
+    stage_all,
     tag_exists,
+    tree_sha,
 )
 from repomatic.metadata import Metadata, is_version_bump_allowed
 
@@ -381,3 +393,103 @@ def test_is_version_bump_allowed_without_tags_or_commits(monkeypatch):
         "repomatic.metadata.get_release_version_from_commits", lambda: None
     )
     assert is_version_bump_allowed("minor") is True
+
+
+# --- Branch primitives behind `repomatic pr-sync` ---
+#
+# These are the one part of this module whose contract lives in git's behaviour
+# rather than in its argv, so they run against the real `git_workdir` clone
+# instead of a mock.
+
+
+def test_branch_cycle_publishes_and_restores(git_workdir):
+    """A publish leaves the remote updated and the checkout exactly as found."""
+    base_sha = head_sha()
+    assert current_branch() == "main"
+    assert fetch_remote_branch("sync-fruits") is None
+    assert stage_all() is False
+
+    (git_workdir / "fruits.txt").write_text("papaya\nquince\n", encoding="UTF-8")
+    (git_workdir / "extra.txt").write_text("untracked\n", encoding="UTF-8")
+    assert stage_all() is True
+    create_branch("tmp-publish")
+    published = commit_staged("Sync fruits")
+    force_push_branch("tmp-publish", "sync-fruits", expected_sha=None)
+    checkout("main")
+    delete_branch("tmp-publish")
+
+    assert head_sha() == base_sha
+    # Untracked output went into the commit, so the tree comes back clean.
+    assert not (git_workdir / "extra.txt").exists()
+    assert fetch_remote_branch("sync-fruits") == published
+    assert count_commits_between(base_sha, published) == 1
+
+
+def test_rebuilding_the_same_output_yields_the_same_tree(git_workdir):
+    """The comparison that keeps an unchanged job from re-pushing."""
+    (git_workdir / "fruits.txt").write_text("papaya\nquince\n", encoding="UTF-8")
+    stage_all()
+    create_branch("tmp-first")
+    first = commit_staged("Sync fruits")
+    force_push_branch("tmp-first", "sync-fruits", expected_sha=None)
+    checkout("main")
+    delete_branch("tmp-first")
+
+    (git_workdir / "fruits.txt").write_text("papaya\nquince\n", encoding="UTF-8")
+    stage_all()
+    create_branch("tmp-second")
+    second = commit_staged("Sync fruits")
+    # Deliberately not comparing commit SHAs: rebuilding the same tree on the
+    # same parent within the same second reproduces the commit byte for byte,
+    # so the two SHAs are equal as often as not. The tree is the stable signal,
+    # which is why `_needs_push` compares that and never the commit.
+    assert tree_sha(second) == tree_sha(first)
+
+    (git_workdir / "fruits.txt").write_text(
+        "papaya\nquince\nrhubarb\n", encoding="UTF-8"
+    )
+    stage_all()
+    changed = commit_staged("Sync fruits again")
+    assert tree_sha(changed) != tree_sha(first)
+
+
+def test_force_push_refuses_an_outdated_lease(git_workdir):
+    """A branch that moved since the caller looked is not silently overwritten."""
+
+    def publish(content: str, branch: str, expected_sha: str | None) -> str:
+        (git_workdir / "fruits.txt").write_text(content, encoding="UTF-8")
+        stage_all()
+        create_branch(branch)
+        sha = commit_staged("Sync fruits")
+        force_push_branch(branch, "sync-fruits", expected_sha=expected_sha)
+        checkout("main")
+        return sha
+
+    observed = publish("papaya\nquince\n", "tmp-first", None)
+    # A concurrent writer moves the branch on after this run read it.
+    publish("papaya\nrhubarb\n", "tmp-concurrent", observed)
+
+    # Our run now pushes against the tip it saw at the top, which is stale.
+    (git_workdir / "fruits.txt").write_text("papaya\nsorrel\n", encoding="UTF-8")
+    stage_all()
+    create_branch("tmp-late")
+    commit_staged("Sync fruits")
+    with pytest.raises(subprocess.CalledProcessError):
+        force_push_branch("tmp-late", "sync-fruits", expected_sha=observed)
+
+
+def test_branch_deletion_is_idempotent(git_workdir):
+    """Both deletions tolerate a branch that is already gone."""
+    (git_workdir / "fruits.txt").write_text("papaya\nquince\n", encoding="UTF-8")
+    stage_all()
+    create_branch("tmp-delete")
+    commit_staged("Sync fruits")
+    force_push_branch("tmp-delete", "sync-fruits", expected_sha=None)
+    checkout("main")
+
+    delete_remote_branch("sync-fruits")
+    assert fetch_remote_branch("sync-fruits") is None
+    delete_remote_branch("sync-fruits")
+
+    delete_branch("tmp-delete")
+    delete_branch("tmp-delete")
