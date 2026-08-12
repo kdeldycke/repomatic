@@ -625,11 +625,9 @@ COMPONENTS: tuple[Component, ...] = (
         description="Label definitions for labelmaker (labels.toml)",
         init_default=InitDefault.EXCLUDE,
         ephemeral=True,
-        # The two `labeller-*.yaml` rule files are no longer listed here: they
-        # existed to stage a config on disk for `actions/labeler` and
-        # `github/issue-labeler` to read, and `repomatic apply-labels` reads
-        # them straight out of the package instead. They stay bundled as
-        # package data, just never written to a repository.
+        # Only the labelmaker definitions remain: the labelling rules live in
+        # `repomatic.labels.DEFAULT_*_RULES` and `[tool.repomatic.labels]`,
+        # with no file staged anywhere since `apply-labels` matches in-process.
         files=(FileEntry("labels.toml"),),
     ),
     BundledComponent(

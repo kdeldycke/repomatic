@@ -376,23 +376,18 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - **Skipped if**:
   - `labels.sync = false` in `[tool.repomatic]`
 
-#### 📁 File-based PR labeller (`file-labeller`)
+#### 🏷️ Apply labels (`apply-labels`)
 
-- Automatically labels PRs based on changed file paths, with `repomatic apply-labels --rules file`
-- **Skipped for**:
-  - `prepare-release` branch
-  - Bot-created PRs
-
-#### 📝 Content-based labeller (`content-labeller`)
-
-- Automatically labels issues and PRs based on title and body content, with `repomatic apply-labels --rules content`
+- Labels freshly opened issues and PRs with `repomatic apply-labels`: content rules match the title and body, file rules match a pull request's changed paths
+- Rules are configured as `[tool.repomatic.labels]` tables mapping each label to its patterns, overlaid on the bundled defaults
+- Additive only: labels already on the thread stay, and none is ever removed
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
 
 #### 💝 Tag sponsors (`sponsor-label`)
 
-- Adds a `💖 sponsors` label to issues and PRs from sponsors using the GitHub GraphQL API
+- Adds a `💖 sponsor` label to issues and PRs from sponsors using the GitHub GraphQL API
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs

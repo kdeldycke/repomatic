@@ -56,13 +56,11 @@ workflow.source-paths = ["extra_platforms"]
 workflow.extra-paths = ["install.sh", "dotfiles/**"]
 workflow.ignore-paths = ["uv.lock"]
 
-[[tool.repomatic.labels.file-rules]]
-label = "📚 docs"
-any-glob-to-any-file = ["docs/**"]
+[tool.repomatic.labels.file-rules]
+"📚 docs" = ["docs/**", "!docs/generated/**"]
 
-[[tool.repomatic.labels.content-rules]]
-label = "🛡️ security"
-patterns = ['/\bCVE\b|\bvulnerability\b/i']
+[tool.repomatic.labels.content-rules]
+"🛡️ security" = ["CVE", "vulnerability"]
 
 [tool.repomatic.workflow.paths]
 "tests.yaml" = ["install.sh", "packages.toml", ".github/workflows/tests.yaml"]
@@ -74,21 +72,15 @@ from repomatic.cli import repomatic
 
 ### Ephemeral components
 
-Most components write files a repository is meant to commit. The `labels` component does not: `labels.toml` and the two labeller YAMLs under `.github/` are inputs that `sync-labels` and the two labeller jobs each regenerate from this configuration right before reading, so a copy sitting in the working tree is never the one that gets used.
+Most components write files a repository is meant to commit. The `labels` component does not: `labels.toml` is an input that `sync-labels` regenerates from this configuration right before handing it to labelmaker, so a copy sitting in the working tree is never the one that gets used.
 
-Those files are therefore staged only when the component is named explicitly:
+The file is therefore staged only when the component is named explicitly:
 
 ```shell-session
 $ repomatic init labels
 ```
 
-which is how `sync-labels` stages the definitions labelmaker applies. A bare `repomatic init` leaves them out, and listing `labels` in `include` does not change that: the override is refused with a warning rather than silently honored. Everything downstream repositories customize (`labels.extra`, `labels.file-rules`, `labels.content-rules`, `labels.extra-files`) is read straight from `pyproject.toml` by those commands, so no generated label file needs committing.
-
-A repository that committed them before will see them reported as excluded files still on disk. Clear them with:
-
-```shell-session
-$ repomatic init --delete-excluded
-```
+A bare `repomatic init` leaves it out, and listing `labels` in `include` does not change that: the override is refused with a warning rather than silently honored. Everything downstream repositories customize (`labels.extra`, `labels.file-rules`, `labels.content-rules`, `labels.extra-files`) is read straight from `pyproject.toml`, so no generated label file needs committing. A `.github/labeller-*.yaml` left over from the era when the labeller ran as a GitHub Action is dead weight: nothing reads it any more, delete it.
 
 ### Diverging from a managed file
 
@@ -130,11 +122,22 @@ Workflow triggers deserve particular care, because a reverted trigger restores i
 
 ### Labeller rules
 
-`repomatic apply-labels` evaluates both families. `labels.file-rules` match a pull request's changed paths, `labels.content-rules` match issue and pull request prose, and both merge over the bundled defaults rather than replacing them: adding a rule for a label upstream already declares widens it.
+`repomatic apply-labels` evaluates both families on every issue and pull request opened. Each is a table mapping a label to the patterns that apply it: `labels.content-rules` against the thread's title and body, `labels.file-rules` against the paths a pull request changes. Any one pattern matching applies the label.
 
-Within a label, everything ORs. Repeated file-rule groups match independently, and so does every entry in a `patterns` list, so "any of these keywords" is written as the list it reads like. Two conventions are still worth following in each pattern: write it in the `/…/i` form, since a bare pattern is case-sensitive and users capitalize freely, and anchor it with `\b` so `fix` does not fire on `prefix`.
+```toml
+[tool.repomatic.labels.content-rules]
+"📦 manager: apk" = ["apk", "alpine", "alpine linux"]
+"🐛 bug" = []
 
-The schema is `actions/labeler` v5 and `github/issue-labeler`'s, kept verbatim when those actions were retired, so rules written against them keep working. The one exception is that `github/issue-labeler` AND-joined a label's `patterns`, which made a bare keyword list fire for nobody; a rule written around that quirk still matches, it simply matches more often now.
+[tool.repomatic.labels.file-rules]
+"📦 manager: apk" = ["managers/apk.*", "tests/*apk*"]
+```
+
+A content pattern is a plain keyword by default: matched case-insensitively and anchored on word boundaries, so `Alpine` matches and `prefix` does not trip a `fix` rule. Wrap a pattern in slashes (`/traceback|stack trace/i`) to pass a regex through instead, with the `i`, `m` and `s` flags honored. File patterns are `minimatch`-dialect globs (`**` crosses directories, `{a,b}` expands, a leading dot needs no special casing), and a `!`-prefixed glob subtracts from the label's other globs the way a `.gitignore` line would.
+
+Your entry for a label **replaces** the bundled default entry for that label, an empty list disables it (as `"🐛 bug" = []` above), and labels the defaults do not mention are added. Untouched defaults keep flowing from upstream releases. The default rule sets ship in {data}`repomatic.labels.DEFAULT_CONTENT_RULES` and {data}`repomatic.labels.DEFAULT_FILE_RULES`, and every rule must name a label the repository actually defines: see `labels.extra` above for declaring new ones.
+
+Tune rules for precision, not recall. The labeller pre-labels for the maintainer's first pass and never replaces it: a missing label costs one manual click, while a wrong one is noise on every thread that trips it. Never key a rule off a token the project prints in its own output, or a user pasting a trace sets every such label at once.
 
 ### Flavors
 

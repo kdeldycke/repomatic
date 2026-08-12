@@ -14,28 +14,36 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the label matcher in :mod:`repomatic.labels`.
+"""Tests for the label rules in :mod:`repomatic.labels`.
 
-The rule schema is the one `actions/labeler` and `github/issue-labeler`
-defined. These tests pin the semantics that survived the port in-tree, and the
-one that deliberately did not: a label's content patterns are now OR-joined.
+A rule is one label mapped to a list of patterns: keywords or regexes over a
+thread's text, globs over a pull request's changed paths. These tests pin the
+resolution semantics (project entries overlay the bundled defaults per label),
+the pattern compiler, and the two matchers.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+from unittest.mock import patch
 
 import pytest
-import yaml
+import tomlrt
+from click.testing import CliRunner
 
 from repomatic.bundle import get_data_content
-from repomatic.config import Config, LabelsConfig
+from repomatic.cli import repomatic
+from repomatic.config import Config, LabelsConfig, load_repomatic_config
+from repomatic.github.actions import get_github_event
 from repomatic.labels import (
+    DEFAULT_CONTENT_RULES,
+    DEFAULT_FILE_RULES,
     compile_content_pattern,
-    load_content_rules,
-    load_file_rules,
     match_content_rules,
     match_file_rules,
+    resolve_content_rules,
+    resolve_file_rules,
 )
 
 
@@ -43,401 +51,124 @@ def _make_config(**labels_kwargs):
     return Config(labels=LabelsConfig(**labels_kwargs))
 
 
-# -- Loading and merging file rules -------------------------------------------
+# -- Resolving rules over the defaults ----------------------------------------
 
 
-def test_bundled_file_rules_load_without_a_config():
+@pytest.mark.parametrize(
+    "resolver",
+    (resolve_content_rules, resolve_file_rules),
+    ids=("content", "file"),
+)
+def test_defaults_resolve_without_a_config(resolver):
     """The bundled defaults stand alone: no project config needed to match."""
-    rules = load_file_rules()
+    rules = resolver()
     assert rules
-    assert all(isinstance(groups, list) for groups in rules.values())
-
-
-def test_file_rules_single_matcher():
-    """The simplest rule shape: label plus one glob list."""
-    rules = load_file_rules(
-        _make_config(
-            file_rules=[
-                {"label": "🥭 mango", "any-glob-to-any-file": ["orchard/mango*"]},
-            ],
-        )
-    )
-    assert rules["🥭 mango"] == [
-        {"changed-files": [{"any-glob-to-any-file": ["orchard/mango*"]}]},
-    ]
+    assert all(isinstance(patterns, tuple) and patterns for patterns in rules.values())
 
 
 @pytest.mark.parametrize(
-    "matcher",
+    ("resolver", "field", "defaults", "default_label"),
     (
-        "all-globs-to-all-files",
-        "all-globs-to-any-file",
-        "any-glob-to-all-files",
-        "any-glob-to-any-file",
+        (resolve_content_rules, "content_rules", DEFAULT_CONTENT_RULES, "🐛 bug"),
+        (resolve_file_rules, "file_rules", DEFAULT_FILE_RULES, "🔗 dependencies"),
     ),
+    ids=("content", "file"),
 )
-def test_file_rules_all_changed_files_matchers(matcher):
-    """Every changed-files matcher normalizes into the same group shape."""
-    rules = load_file_rules(
-        _make_config(file_rules=[{"label": "🥭 mango", matcher: ["a", "b"]}])
+def test_project_entries_overlay_the_defaults(resolver, field, defaults, default_label):
+    """A new label adds; a default label's entry is replaced, not merged."""
+    rules = resolver(
+        _make_config(**{
+            field: {
+                "🥭 mango": ["mango", "papaya"],
+                default_label: ["crash"],
+            },
+        })
     )
-    assert rules["🥭 mango"] == [{"changed-files": [{matcher: ["a", "b"]}]}]
+    assert rules["🥭 mango"] == ("mango", "papaya")
+    # Replacement, so a project can correct a default, not just widen it.
+    assert rules[default_label] == ("crash",)
+    # Untouched defaults keep flowing from upstream.
+    assert rules["🆙 changelog"] == defaults["🆙 changelog"]
 
 
-@pytest.mark.parametrize("matcher", ("base-branch", "head-branch"))
-def test_file_rules_branch_matchers(matcher):
-    """Branch matchers sit at the group's top level, not under changed-files."""
-    rules = load_file_rules(
-        _make_config(file_rules=[{"label": "🥭 mango", matcher: ["^release/"]}])
-    )
-    assert rules["🥭 mango"] == [{matcher: ["^release/"]}]
+def test_empty_list_disables_a_default_label():
+    """`"🐛 bug" = []` is the off switch for a bundled rule."""
+    rules = resolve_content_rules(_make_config(content_rules={"🐛 bug": []}))
+    assert "🐛 bug" not in rules
+    assert match_content_rules(rules, "A bug and a traceback") == set()
 
 
-def test_file_rules_same_label_ored():
-    """Two entries for one label become two groups, which match independently."""
-    rules = load_file_rules(
-        _make_config(
-            file_rules=[
-                {"label": "🥭 mango", "any-glob-to-any-file": ["orchard/*"]},
-                {"label": "🥭 mango", "head-branch": ["^mango/"]},
-            ],
-        )
-    )
-    assert len(rules["🥭 mango"]) == 2
-    assert match_file_rules(rules, ["orchard/tree.md"]) == {"🥭 mango"}
-    assert match_file_rules(rules, ["other.md"], head_branch="mango/graft") == {
-        "🥭 mango"
-    }
+def test_bare_string_is_a_single_pattern():
+    """`"🥭 mango" = "mango"` reads as the one-element list it means."""
+    rules = resolve_content_rules(_make_config(content_rules={"🥭 mango": "mango"}))
+    assert rules["🥭 mango"] == ("mango",)
 
 
-def test_project_rules_extend_a_bundled_label():
-    """Adding to a label upstream already declares keeps the upstream group."""
-    rules = load_file_rules(
-        _make_config(
-            file_rules=[
-                {"label": "📚 documentation", "any-glob-to-any-file": ["*.rst"]}
-            ]
-        )
-    )
-    assert match_file_rules(rules, ["docs/index.md"]) == {"📚 documentation"}
-    assert match_file_rules(rules, ["guide.rst"]) == {"📚 documentation"}
+def test_stale_array_of_tables_degrades_to_defaults(caplog):
+    """The pre-7.11.0 list shape is reported, then ignored.
 
-
-@pytest.mark.parametrize(
-    ("rule", "warning"),
-    (
-        pytest.param(
-            {"any-glob-to-any-file": ["a"]},
-            "Skipping file rule without `label`",
-            id="unlabelled",
-        ),
-        pytest.param(
-            {"label": "🥭 mango"},
-            "Skipping file rule for label '🥭 mango' with no matchers",
-            id="matcherless",
-        ),
-    ),
-)
-def test_file_rules_skip_unusable_entries(caplog, rule, warning):
-    """An entry that cannot be attributed or cannot match is dropped, loudly.
-
-    A matcherless group would otherwise AND nothing and label every pull
-    request, which is the worst outcome for a precision-first labeller.
+    The config loader passes a mistyped value through rather than crashing, so
+    a downstream repo that has not migrated keeps every repomatic command
+    working and falls back to the bundled defaults.
     """
+    stale = [{"label": "🥭 mango", "patterns": ["mango"]}]
     with caplog.at_level(logging.WARNING):
-        rules = load_file_rules(_make_config(file_rules=[rule]))
+        rules = resolve_content_rules(_make_config(content_rules=stale))
+    assert rules == DEFAULT_CONTENT_RULES
+    assert any("array-of-tables" in record.message for record in caplog.records)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "warning"),
+    (
+        pytest.param({"  ": ["mango"]}, "blank label", id="blank-label"),
+        pytest.param({"🥭 mango": 42}, "expected a list", id="scalar"),
+        pytest.param({"🥭 mango": ["ok", 42]}, "expected a list", id="mixed-list"),
+    ),
+)
+def test_unusable_entries_are_skipped_loudly(caplog, overrides, warning):
+    """A malformed entry is dropped with a warning, never a crash."""
+    with caplog.at_level(logging.WARNING):
+        rules = resolve_content_rules(_make_config(content_rules=overrides))
     assert "🥭 mango" not in rules
     assert any(warning in record.message for record in caplog.records)
 
 
-def test_file_rules_warn_on_unknown_keys(caplog):
-    """A typo'd matcher name is reported rather than silently ignored."""
-    with caplog.at_level(logging.WARNING):
-        load_file_rules(
-            _make_config(
-                file_rules=[
-                    {
-                        "label": "🥭 mango",
-                        "any-glob-to-any-file": ["a"],
-                        "any-glob-to-any-fil": ["b"],
-                    },
-                ],
-            )
-        )
-    assert any("any-glob-to-any-fil" in record.message for record in caplog.records)
-
-
-@pytest.mark.parametrize("wrapper", ("all", "any"))
-def test_file_rules_group_wrappers(wrapper):
-    """`any` / `all` wrappers recurse into nested sub-groups."""
-    rules = load_file_rules(
-        _make_config(
-            file_rules=[
-                {
-                    "label": "🥭 mango",
-                    wrapper: [
-                        {"any-glob-to-any-file": ["orchard/*"]},
-                        {"head-branch": ["^mango/"]},
-                    ],
-                },
-            ],
-        )
-    )
-    assert rules["🥭 mango"] == [
-        {
-            wrapper: [
-                {"changed-files": [{"any-glob-to-any-file": ["orchard/*"]}]},
-                {"head-branch": ["^mango/"]},
-            ],
-        },
-    ]
-
-
-# -- Matching file rules ------------------------------------------------------
-
-MATCHER_CASES = (
-    # (matcher, globs, files, expected)
-    pytest.param(
-        "any-glob-to-any-file", ["*.md"], ["a.md", "b.py"], True, id="any-any-hit"
-    ),
-    pytest.param(
-        "any-glob-to-any-file", ["*.md"], ["a.py", "b.py"], False, id="any-any-miss"
-    ),
-    pytest.param(
-        "any-glob-to-all-files", ["*.md"], ["a.md", "b.md"], True, id="any-all-hit"
-    ),
-    pytest.param(
-        "any-glob-to-all-files", ["*.md"], ["a.md", "b.py"], False, id="any-all-miss"
-    ),
-    pytest.param(
-        "all-globs-to-any-file",
-        ["docs/**", "**/*.md"],
-        ["docs/a.md", "b.py"],
-        True,
-        id="all-any-hit",
-    ),
-    pytest.param(
-        # Each glob is satisfied, but never both by the same file.
-        "all-globs-to-any-file",
-        ["docs/**", "**/*.md"],
-        ["docs/a.py", "b.md"],
-        False,
-        id="all-any-miss",
-    ),
-    pytest.param(
-        "all-globs-to-all-files",
-        ["docs/**", "**/*.md"],
-        ["docs/a.md", "docs/b.md"],
-        True,
-        id="all-all-hit",
-    ),
-    pytest.param(
-        "all-globs-to-all-files",
-        ["docs/**", "**/*.md"],
-        ["docs/a.md", "other.md"],
-        False,
-        id="all-all-miss",
-    ),
-)
-
-
-@pytest.mark.parametrize(("matcher", "globs", "files", "expected"), MATCHER_CASES)
-def test_changed_files_quantifiers(matcher, globs, files, expected):
-    """The four matcher names cross the any/all quantifiers over globs & files."""
-    rules = {"🥭 mango": [{"changed-files": [{matcher: globs}]}]}
-    assert bool(match_file_rules(rules, files)) is expected
-
-
-@pytest.mark.parametrize("matcher", [case.values[0] for case in MATCHER_CASES])
-def test_no_changed_files_never_matches(matcher):
-    """An empty diff matches nothing, whichever quantifier the rule names.
-
-    Three of the four matchers quantify universally over files, so an
-    unguarded `all()` would read as vacuously true and label an empty pull
-    request with every glob rule at once.
-    """
-    rules = {"🥭 mango": [{"changed-files": [{matcher: ["**"]}]}]}
-    assert match_file_rules(rules, []) == set()
-
-
-@pytest.mark.parametrize(
-    ("glob_pattern", "path", "expected"),
-    (
-        # DOTGLOB: half the interesting paths start with a dot.
-        pytest.param(".github/**/*", ".github/workflows/x.yaml", True, id="dotglob"),
-        pytest.param(".github/**/*", ".github/funding.yml", True, id="globstar-empty"),
-        pytest.param("**/pyproject.toml", "sub/pyproject.toml", True, id="globstar"),
-        pytest.param("*.lock", "sub/uv.lock", False, id="star-stops-at-slash"),
-        pytest.param("{a,b}/*.py", "b/x.py", True, id="brace"),
-        # NEGATEALL: a lone exclusion means "everything else", not "nothing".
-        pytest.param("!**/*.md", "cli.py", True, id="negate-keeps-other"),
-        pytest.param("!**/*.md", "readme.md", False, id="negate-drops-match"),
-    ),
-)
-def test_glob_dialect_follows_minimatch(glob_pattern, path, expected):
-    """The globs keep the `minimatch` semantics the retired action applied."""
-    rules = {
-        "🥭 mango": [{"changed-files": [{"any-glob-to-any-file": [glob_pattern]}]}]
-    }
-    assert bool(match_file_rules(rules, [path])) is expected
-
-
-def test_group_conditions_are_anded():
-    """Every condition in one group must hold for the group to match."""
-    rules = {
-        "🥭 mango": [
-            {
-                "changed-files": [{"any-glob-to-any-file": ["orchard/*"]}],
-                "head-branch": ["^mango/"],
-            },
-        ],
-    }
-    assert match_file_rules(rules, ["orchard/a.md"], head_branch="mango/x") == {
-        "🥭 mango"
-    }
-    assert match_file_rules(rules, ["orchard/a.md"], head_branch="pear/x") == set()
-    assert match_file_rules(rules, ["barn/a.md"], head_branch="mango/x") == set()
-
-
-def test_empty_group_matches_nothing():
-    """A group with no conditions is inert, never a catch-all."""
-    assert match_file_rules({"🥭 mango": [{}]}, ["anything.md"]) == set()
-
-
-@pytest.mark.parametrize(
-    ("branch_key", "head", "base", "expected"),
-    (
-        pytest.param("head-branch", "mango/graft", "main", True, id="head-hit"),
-        pytest.param("head-branch", "pear/graft", "main", False, id="head-miss"),
-        pytest.param("base-branch", "x", "mango-release", True, id="base-hit"),
-        pytest.param("base-branch", "x", "main", False, id="base-miss"),
-        pytest.param("head-branch", "", "main", False, id="head-absent"),
-    ),
-)
-def test_branch_matchers(branch_key, head, base, expected):
-    """Branch patterns are unanchored regexes over the branch name."""
-    rules = {"🥭 mango": [{branch_key: ["^mango"]}]}
-    matched = match_file_rules(rules, ["a.md"], head_branch=head, base_branch=base)
-    assert bool(matched) is expected
-
-
-@pytest.mark.parametrize(
-    ("wrapper", "files", "expected"),
-    (
-        pytest.param("any", ["orchard/a.md"], True, id="any-first"),
-        pytest.param("any", ["barn/a.py"], True, id="any-second"),
-        pytest.param("any", ["shed/a.txt"], False, id="any-neither"),
-        pytest.param("all", ["orchard/a.md"], False, id="all-partial"),
-    ),
-)
-def test_group_wrappers_match(wrapper, files, expected):
-    """`any` OR's its sub-groups; `all` AND's them."""
-    rules = {
-        "🥭 mango": [
-            {
-                wrapper: [
-                    {"changed-files": [{"any-glob-to-any-file": ["orchard/*"]}]},
-                    {"changed-files": [{"any-glob-to-any-file": ["barn/*"]}]},
-                ],
-            },
-        ],
-    }
-    assert bool(match_file_rules(rules, files)) is expected
-
-
-# -- Loading and merging content rules ----------------------------------------
-
-
-def test_content_rules_same_label_merged():
-    """Repeating a label concatenates its patterns rather than replacing them."""
-    rules = load_content_rules(
-        _make_config(
-            content_rules=[
-                {"label": "🥭 mango", "patterns": ["mango"]},
-                {"label": "🥭 mango", "patterns": ["papaya"]},
-            ],
-        )
-    )
-    assert rules["🥭 mango"] == ["mango", "papaya"]
-
-
-@pytest.mark.parametrize(
-    ("rule", "warning"),
-    (
-        pytest.param(
-            {"patterns": ["mango"]},
-            "Skipping content rule without `label`",
-            id="unlabelled",
-        ),
-        pytest.param(
-            {"label": "🥭 mango", "patterns": []},
-            "Skipping content rule for label '🥭 mango' with no patterns",
-            id="patternless",
-        ),
-    ),
-)
-def test_content_rules_skip_unusable_entries(caplog, rule, warning):
-    """An entry with no label or no pattern is dropped, loudly."""
-    with caplog.at_level(logging.WARNING):
-        rules = load_content_rules(_make_config(content_rules=[rule]))
-    assert "🥭 mango" not in rules
-    assert any(warning in record.message for record in caplog.records)
-
-
-def test_content_rules_warn_on_unknown_keys(caplog):
-    """A typo'd key is reported; the rule's valid part still loads."""
-    with caplog.at_level(logging.WARNING):
-        rules = load_content_rules(
-            _make_config(
-                content_rules=[
-                    {"label": "🥭 mango", "patterns": ["mango"], "pattern": ["papaya"]},
-                ],
-            )
-        )
-    assert rules["🥭 mango"] == ["mango"]
-    assert any("'pattern'" in record.message for record in caplog.records)
-
-
-# -- Matching content rules ---------------------------------------------------
-
-
-def test_content_patterns_are_or_joined():
-    """Any one pattern matching applies the label.
-
-    This is the single semantic that deliberately diverges from
-    `github/issue-labeler`, which AND-joined them and so made the obvious
-    "any of these keywords" rule silently dead.
-    """
-    rules = {"🥭 mango": ["mango", "papaya", "guava"]}
-    assert match_content_rules(rules, "a crate of papaya") == {"🥭 mango"}
-    assert match_content_rules(rules, "mango, papaya and guava") == {"🥭 mango"}
-    assert match_content_rules(rules, "a crate of pears") == set()
+# -- Compiling content patterns -----------------------------------------------
 
 
 @pytest.mark.parametrize(
     ("pattern", "text", "expected"),
     (
-        pytest.param("/mango/i", "MANGO crate", True, id="slashed-ignorecase"),
-        pytest.param("mango", "MANGO crate", False, id="bare-is-case-sensitive"),
-        pytest.param("mango", "mango crate", True, id="bare-matches"),
-        pytest.param(r"/\bripe\b/i", "unripe fruit", False, id="word-boundary"),
-        pytest.param(r"/\bripe\b/i", "a Ripe mango", True, id="word-boundary-hit"),
-        pytest.param("/^mango$/m", "pears\nmango\n", True, id="multiline"),
-        pytest.param("/mango.crate/s", "mango\ncrate", True, id="dotall"),
-        # A JavaScript-only flag is tolerated: it cannot change the verdict.
+        # Bare keyword: case-insensitive, word-anchored.
+        pytest.param("bug", "a BUG report", True, id="keyword-ignorecase"),
+        pytest.param("fix", "prefix handling", False, id="keyword-word-anchored"),
+        pytest.param("fix", "Fix the crash", True, id="keyword-at-edge"),
+        # A non-word edge takes no anchor: `.lock` matches inside `uv.lock`.
+        pytest.param(".lock", "the uv.lock file", True, id="dot-edge-unanchored"),
+        pytest.param(".lock", "unlock it", False, id="dot-is-literal"),
+        pytest.param("pyproject.toml", "in pyproject.toml", True, id="escaped-dot"),
+        pytest.param("pyproject.toml", "pyprojectXtoml", False, id="no-regex-dot"),
+        pytest.param("alpine linux", "On Alpine Linux 3.20", True, id="spaced"),
+        # Slashed form: a raw regex, flags opt-in.
+        pytest.param("/mango/i", "MANGO crate", True, id="regex-ignorecase"),
+        pytest.param("/mango/", "MANGO crate", False, id="regex-case-sensitive"),
+        pytest.param("/^mango$/m", "pears\nmango\n", True, id="regex-multiline"),
+        pytest.param("/mango.crate/s", "mango\ncrate", True, id="regex-dotall"),
+        # JavaScript-only flags are tolerated: they cannot change the verdict.
         pytest.param("/mango/gu", "a mango", True, id="js-only-flags-ignored"),
     ),
 )
 def test_content_pattern_forms(pattern, text, expected):
-    """Both the bare and `/body/flags` spellings behave as documented."""
-    assert bool(match_content_rules({"🥭 mango": [pattern]}, text)) is expected
+    """Both the keyword and `/body/flags` spellings behave as documented."""
+    assert bool(match_content_rules({"🥭 mango": (pattern,)}, text)) is expected
 
 
 def test_malformed_pattern_is_skipped_not_fatal(caplog):
     """One bad regex must not take the whole labelling run with it."""
     with caplog.at_level(logging.WARNING):
         matched = match_content_rules(
-            {"🥭 mango": ["/[unclosed/"], "🍐 pear": ["pear"]},
+            {"🥭 mango": ("/[unclosed/",), "🍐 pear": ("pear",)},
             "a pear and a mango",
         )
     assert matched == {"🍐 pear"}
@@ -445,23 +176,77 @@ def test_malformed_pattern_is_skipped_not_fatal(caplog):
     assert any("malformed content pattern" in r.message for r in caplog.records)
 
 
+def test_content_patterns_are_or_joined():
+    """Any one pattern matching applies the label: a keyword list just works."""
+    rules = {"🥭 mango": ("mango", "papaya", "guava")}
+    assert match_content_rules(rules, "a crate of papaya") == {"🥭 mango"}
+    assert match_content_rules(rules, "a crate of pears") == set()
+
+
+# -- Matching file rules ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("patterns", "files", "expected"),
+    (
+        pytest.param(("*.md",), ["a.md", "b.py"], True, id="any-file-hits"),
+        pytest.param(("*.md",), ["a.py"], False, id="no-file-hits"),
+        pytest.param(("*.md",), ["sub/a.md"], False, id="star-stops-at-slash"),
+        pytest.param(("**/*.md",), ["sub/a.md"], True, id="globstar"),
+        pytest.param((".github/**/*",), [".github/w/x.yaml"], True, id="dotglob"),
+        pytest.param(("{a,b}/*.py",), ["b/x.py"], True, id="brace"),
+        # A negated glob subtracts from the label's other globs, the way a
+        # `.gitignore` line reads.
+        pytest.param(
+            ("docs/**", "!docs/generated/**"),
+            ["docs/guide.md"],
+            True,
+            id="negation-keeps-the-rest",
+        ),
+        pytest.param(
+            ("docs/**", "!docs/generated/**"),
+            ["docs/generated/api.md"],
+            False,
+            id="negation-subtracts",
+        ),
+        # A lone negation implies "everything else", not "nothing".
+        pytest.param(("!**/*.md",), ["cli.py"], True, id="lone-negation"),
+        pytest.param(("!**/*.md",), ["readme.md"], False, id="lone-negation-miss"),
+        pytest.param(("**",), [], False, id="empty-diff-never-matches"),
+    ),
+)
+def test_file_globs(patterns, files, expected):
+    """The glob dialect stays `minimatch`'s, evaluated as one set per label."""
+    assert bool(match_file_rules({"🥭 mango": patterns}, files)) is expected
+
+
 # -- Bundled defaults ---------------------------------------------------------
 
 
-def test_bundled_content_patterns_are_case_insensitive():
-    """Users capitalize freely, so every shipped pattern needs the `i` flag.
+def test_default_rule_labels_exist_in_the_label_registry():
+    """Every default rule names a label `labels.toml` actually defines.
 
-    A bare pattern is matched case-sensitively, so `/…/i` is what makes `Bug`
-    and `README` reachable. These defaults ship to every downstream repo, where
-    a case-sensitive rule is a near-dead label everywhere at once.
+    Applying an unknown label fails the `gh` call outright, so a rule keyed on
+    a label the registry dropped or renamed is not a dead rule but a broken
+    one. The sponsor-label command's default rides the same registry and gets
+    the same check: its label once carried a stray plural that existed in no
+    repository, and every sponsor-labelling attempt died on it.
     """
-    parsed = yaml.safe_load(get_data_content("labeller-content-based.yaml"))
-    assert parsed, "bundled content rules must not be empty"
-    for label, patterns in parsed.items():
-        for pattern in patterns:
-            assert pattern.endswith("/i"), (
-                f"bundled pattern {pattern!r} on {label!r} is case-sensitive"
-            )
+    registry = tomlrt.loads(get_data_content("labels.toml"))
+    defined = {
+        label["name"]
+        for profile in registry["profiles"].values()
+        for label in profile["labels"]
+    }
+    rule_labels = set(DEFAULT_CONTENT_RULES) | set(DEFAULT_FILE_RULES)
+    assert rule_labels <= defined, rule_labels - defined
+
+    sponsor_default = next(
+        param.default
+        for param in repomatic.commands["sponsor-label"].params
+        if param.name == "label"
+    )
+    assert sponsor_default in defined
 
 
 @pytest.mark.parametrize(
@@ -471,15 +256,15 @@ def test_bundled_content_patterns_are_case_insensitive():
         pytest.param("Update the README", {"📚 documentation"}, id="docs"),
         pytest.param("A workflow needs coverage", {"🤖 ci"}, id="ci"),
         pytest.param("Bump the changelog", {"🆙 changelog"}, id="changelog"),
-        # `fix` must not fire inside `prefix`: every bundled pattern is
-        # word-anchored precisely to stop this.
+        pytest.param("uv.lock drifted", {"🔗 dependencies"}, id="deps"),
+        # `fix` must not fire inside `prefix`: keywords are word-anchored.
         pytest.param("prefix handling is off", set(), id="no-substring-match"),
         pytest.param("Nothing relevant at all", set(), id="no-match"),
     ),
 )
-def test_bundled_content_rules_match_as_advertised(text, expected):
+def test_default_content_rules_match_as_advertised(text, expected):
     """The shipped keyword lists fire on their keyword and nothing else."""
-    assert match_content_rules(load_content_rules(), text) == expected
+    assert match_content_rules(resolve_content_rules(), text) == expected
 
 
 @pytest.mark.parametrize(
@@ -492,6 +277,110 @@ def test_bundled_content_rules_match_as_advertised(text, expected):
         pytest.param(["repomatic/cli.py"], set(), id="source-is-unlabelled"),
     ),
 )
-def test_bundled_file_rules_match_as_advertised(files, expected):
+def test_default_file_rules_match_as_advertised(files, expected):
     """The shipped globs cover the paths they name, and no others."""
-    assert match_file_rules(load_file_rules(), files) == expected
+    assert match_file_rules(resolve_file_rules(), files) == expected
+
+
+# -- End-to-end through the config loader and the CLI -------------------------
+
+
+def test_label_keys_survive_config_loading():
+    """Emoji, spaces, colons and hyphens in label keys reach the rules intact.
+
+    The loader normalizes configuration keys (`content-rules` →
+    `content_rules`), and a label like `📦 manager: apt-cyg` must not be
+    dragged through the same rewrite: mapping-typed fields are opaque to the
+    normalization, which this pins.
+    """
+    config = load_repomatic_config({
+        "tool": {
+            "repomatic": {
+                "labels": {
+                    "content-rules": {"📦 manager: apt-cyg": ["cygwin"]},
+                    "file-rules": {"📦 manager: apt-cyg": ["managers/apt_cyg.*"]},
+                },
+            },
+        },
+    })
+    assert match_content_rules(resolve_content_rules(config), "Broken on Cygwin") == {
+        "📦 manager: apt-cyg"
+    }
+    assert match_file_rules(resolve_file_rules(config), ["managers/apt_cyg.py"]) == {
+        "📦 manager: apt-cyg"
+    }
+
+
+def _invoke_apply_labels(tmp_path, event, gh_responses, *args):
+    """Run `apply-labels` against a synthetic event, capturing `gh` calls."""
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(event), encoding="UTF-8")
+    # The event payload is cached per process, so a test that ran earlier in
+    # the same worker with no event would otherwise pin an empty one here.
+    get_github_event.cache_clear()
+    calls: list[list[str]] = []
+
+    def fake_gh(gh_args):
+        calls.append(list(gh_args))
+        return gh_responses.get(tuple(gh_args[:2]), "")
+
+    runner = CliRunner()
+    # Each consuming module bound `run_gh_command` at import, so every binding
+    # is patched: `pr` (changed files), `issue` (label writes), and `gh`
+    # itself, whose `gh_api_json` backs the manual-invocation subject fetch.
+    try:
+        with (
+            patch("repomatic.github.gh.run_gh_command", side_effect=fake_gh),
+            patch("repomatic.github.pr.run_gh_command", side_effect=fake_gh),
+            patch("repomatic.github.issue.run_gh_command", side_effect=fake_gh),
+        ):
+            result = runner.invoke(
+                repomatic,
+                ["apply-labels", "--repo", "kevin/fruits", *args],
+                env={
+                    "GH_TOKEN": "x",
+                    "GITHUB_EVENT_PATH": str(event_path),
+                    "GITHUB_REPOSITORY": "kevin/fruits",
+                },
+            )
+    finally:
+        # Drop the synthetic event so later tests in this worker start clean.
+        get_github_event.cache_clear()
+    return result, calls
+
+
+def test_apply_labels_dry_run_on_an_issue(tmp_path):
+    """An issue event matches content rules only, and dry-run writes nothing."""
+    event = {
+        "issue": {
+            "number": 42,
+            "title": "Traceback when the crate is empty",
+            "body": "The README does not mention it.",
+        },
+    }
+    result, calls = _invoke_apply_labels(tmp_path, event, {})
+    assert result.exit_code == 0, result.output
+    assert "Would label issue #42 with: 🐛 bug, 📚 documentation" in result.output
+    assert calls == []
+
+
+def test_apply_labels_live_on_a_pull_request(tmp_path):
+    """A PR event adds the file-rule matches and writes the labels once."""
+    event = {
+        "pull_request": {
+            "number": 7,
+            "title": "Sync the orchard",
+            "body": "",
+        },
+    }
+    files = "changelog.md\nuv.lock\n"
+    result, calls = _invoke_apply_labels(
+        tmp_path,
+        event,
+        {("api", "repos/kevin/fruits/pulls/7/files"): files},
+        "--live",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Labelled PR #7 with: 🆙 changelog, 🔗 dependencies" in result.output
+    edit = next(call for call in calls if call[:2] == ["pr", "edit"])
+    assert edit.count("--add-label") == 2

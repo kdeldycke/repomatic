@@ -123,6 +123,7 @@ from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
     sync_dev_release as _sync_dev_release,
 )
+from .github.gh import gh_api_json
 from .github.issue import (
     BOT_ISSUE_LABEL,
     LOCK_INACTIVE_DAYS,
@@ -163,7 +164,6 @@ from .github.sponsor import (
     get_default_author,
     get_default_number,
     get_default_owner,
-    get_event_pull_request,
     get_event_subject,
     is_pull_request,
     is_sponsor,
@@ -184,10 +184,10 @@ from .images import (
 from .init_project import run_init
 from .labels import (
     apply_labels,
-    load_content_rules,
-    load_file_rules,
     match_content_rules,
     match_file_rules,
+    resolve_content_rules,
+    resolve_file_rules,
 )
 from .lint_repo import (
     KNOWN_RUNNERS,
@@ -1643,7 +1643,10 @@ def sync_mailmap(ctx, source, create_if_missing, destination_mailmap):
 )
 @option(
     "--label",
-    default="💖 sponsors",
+    # The label `repomatic/data/labels.toml` defines, singular: the plural
+    # this option used to default to exists in no synced repository, so every
+    # sponsor-labelling attempt died on an unknown label.
+    default="💖 sponsor",
     help="Label to add if author is a sponsor.",
 )
 @option(
@@ -1732,12 +1735,6 @@ def sponsor_label(
     section=_section_github,
 )
 @option(
-    "--rules",
-    type=Choice(["all", "content", "file"]),
-    default="all",
-    help="Which rule family to evaluate. File rules need a pull request.",
-)
-@option(
     "--number",
     type=IntRange(min=1),
     help="Issue or PR number. Defaults to the number in $GITHUB_EVENT_PATH.",
@@ -1754,7 +1751,6 @@ def sponsor_label(
 @pass_context
 def apply_labels_cmd(
     ctx: Context,
-    rules: str,
     number: int | None,
     is_pr: bool | None,
     repo: str | None,
@@ -1762,14 +1758,13 @@ def apply_labels_cmd(
 ) -> None:
     """Label a freshly opened issue or pull request from the project's rules.
 
-    Two rule families, both declared under `[tool.repomatic.labels]` and both
-    merged over the bundled defaults:
+    Two rule families, both tables under `[tool.repomatic.labels]` mapping a
+    label to the patterns that apply it, overlaid on the bundled defaults:
 
     \b
-      content-rules  regexes matched against the title and body, of an issue
-                     or a pull request alike
-      file-rules     globs matched against the paths a pull request changes,
-                     plus its head and base branch
+      content-rules  keywords or /regex/flags matched against the title and
+                     body, of an issue or a pull request alike
+      file-rules     globs matched against the paths a pull request changes
 
     Additive only. A label already on the thread stays, and none is ever
     removed, so a classification made by hand survives every later run.
@@ -1786,9 +1781,8 @@ def apply_labels_cmd(
         repomatic apply-labels
 
     \b
-        # Apply them, as the labeller jobs do
-        repomatic apply-labels --rules content --live
-        repomatic apply-labels --rules file --live
+        # Apply them, as the labeller job does
+        repomatic apply-labels --live
 
     \b
         # Manual invocation against one pull request
@@ -1808,23 +1802,34 @@ def apply_labels_cmd(
             " from the environment."
         )
 
-    matched: set[str] = set()
+    kind = "pr" if is_pr else "issue"
 
-    if rules in {"all", "content"}:
-        subject = get_event_subject()
-        text = f"{subject.get('title') or ''}\n{subject.get('body') or ''}"
-        matched |= match_content_rules(load_content_rules(config), text)
+    # In the labeller job the event payload carries the thread. A manual
+    # invocation naming another thread reads its text from the API instead, so
+    # the content rules see the real title and body rather than an empty
+    # string.
+    subject = get_event_subject()
+    if subject.get("number") != number:
+        subject = (
+            gh_api_json([
+                kind,
+                "view",
+                str(number),
+                "--repo",
+                repo,
+                "--json",
+                "title,body",
+            ])
+            or {}
+        )
+    text = f"{subject.get('title') or ''}\n{subject.get('body') or ''}"
+    matched = match_content_rules(resolve_content_rules(config), text)
 
-    # File rules need a diff, which only a pull request has. Asking for them on
-    # an issue is not an error: the `all` default reaches this branch on every
-    # issue opened, and the two labeller jobs share one command.
-    if rules in {"all", "file"} and is_pr:
-        pull_request = get_event_pull_request()
+    # File rules need a diff, which only a pull request has.
+    if is_pr:
         matched |= match_file_rules(
-            load_file_rules(config),
+            resolve_file_rules(config),
             list_changed_files(number, repo),
-            head_branch=pull_request.get("head", {}).get("ref", ""),
-            base_branch=pull_request.get("base", {}).get("ref", ""),
         )
 
     kind = "PR" if is_pr else "issue"

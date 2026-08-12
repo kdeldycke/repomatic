@@ -42,31 +42,6 @@ env:
 
 jobs:
 
-  sync-labels:
-    name: 🔄 Sync labels
-    # Restrict job to the main branch pushes and workflow calls only, as this is a project-management task.
-    if: github.event_name == 'push' || github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-26.04
-    permissions:
-      issues: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.12.1"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/repomatic/bin
-          key: >-
-            repomatic-${{ runner.os }}-${{ runner.arch }}-labelmaker-${{
-            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
-          restore-keys: |
-            repomatic-${{ runner.os }}-${{ runner.arch }}-labelmaker-
-      - name: Sync labels
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic sync-labels
-
   metadata:
     name: 🧬 Project metadata
     # Skipping this job propagates to every `needs: metadata` job below.
@@ -94,29 +69,33 @@ jobs:
           --format github-json --output "$GITHUB_OUTPUT"
           is_bot
 
-  file-labeller:
-    name: 📁 File-based PR labeller
-    needs:
-      - metadata
-    if: >
-      github.event_name == 'pull_request'
-      && (! fromJSON(needs.metadata.outputs.metadata).is_bot)
+  sync-labels:
+    name: 🔄 Sync labels
+    # Restrict job to the main branch pushes and workflow calls only, as this is a project-management task.
+    if: github.event_name == 'push' || github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     permissions:
-      contents: read
-      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.1"
-      - name: Apply rules
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/repomatic/bin
+          key: >-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-labelmaker-${{
+            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
+          restore-keys: |
+            repomatic-${{ runner.os }}-${{ runner.arch }}-labelmaker-
+      - name: Sync labels
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic apply-labels --rules file --live
+        run: uv --no-progress run --frozen -- repomatic sync-labels
 
-  content-labeller:
-    name: 📝 Content-based labeller
+  apply-labels:
+    name: 🏷️ Apply labels
     needs:
       - metadata
     if: >
@@ -132,12 +111,12 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.1"
-      - name: Apply rules
+      - name: Apply labels
+        # Content rules run on issues and pull requests alike; file rules need
+        # a diff, so the command adds them on pull requests by itself.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic apply-labels
-          --rules content --live
+        run: uv --no-progress run --frozen -- repomatic apply-labels --live
 
   sponsor-label:
     name: 💝 Tag sponsors

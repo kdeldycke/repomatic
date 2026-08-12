@@ -17,22 +17,24 @@
 """Repository label management.
 
 The label domain in one place: matching an issue or pull request against the
-structured `[tool.repomatic.labels]` rules to decide which labels it earns,
-and applying label definitions to a repository through `labelmaker`. Backs the
+`[tool.repomatic.labels]` rules to decide which labels it earns, and applying
+label definitions to a repository through `labelmaker`. Backs the
 `apply-labels` and `sync-labels` commands.
 
-```{note}
-The rule schema is the one `actions/labeler` and `github/issue-labeler`
-defined, kept verbatim after those two actions were retired: the matcher
-below reimplements their semantics rather than exporting to them, so a
-downstream `[tool.repomatic.labels]` written against the actions keeps
-working untouched.
+A rule is one label mapped to a list of patterns: regexes or keywords over the
+thread's text ({data}`DEFAULT_CONTENT_RULES`), globs over a pull request's
+changed paths ({data}`DEFAULT_FILE_RULES`). Any pattern matching applies the
+label. A project entry for a label replaces the default entry wholesale, and
+an empty list disables it; see {func}`resolve_content_rules`.
 
-One semantic deliberately did not survive the port. `github/issue-labeler`
-AND-joined a label's patterns, which made the obvious "any of these keywords"
-rule silently dead, and cost this module a warning telling authors to collapse
-their list into one alternation. Patterns are OR-joined here, so that rule now
-does what it reads like.
+```{note}
+This schema replaced the `actions/labeler` v5 and `github/issue-labeler`
+dialects when the matching moved in-tree. The retired shapes earned their
+complexity serving the actions (per-matcher quantifiers, branch regexes,
+`any`/`all` group nesting, per-pattern AND-joins), and none of it was used by
+any repository this toolkit manages: every real rule was "label X when any
+changed file matches any of these globs" or "when any of these words appears",
+which is exactly what the schema now says and nothing more.
 ```
 """
 
@@ -45,42 +47,81 @@ import tempfile
 from pathlib import Path
 
 import tomlrt
-import yaml
 from wcmatch import glob
 
-from .bundle import get_data_content
 from .tool_runner import ensure_binary
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Mapping, Sequence
     from typing import Any
 
     from .config import Config
 
-FILE_RULE_CHANGED_FILES_MATCHERS: tuple[str, ...] = (
-    "any-glob-to-any-file",
-    "any-glob-to-all-files",
-    "all-globs-to-any-file",
-    "all-globs-to-all-files",
-)
-"""Matchers nested under a group's `changed-files` key."""
+DEFAULT_CONTENT_RULES: dict[str, tuple[str, ...]] = {
+    "🐛 bug": ("bug", "error", "exception", "fix", "traceback"),
+    "🆙 changelog": ("change-log", "changelog"),
+    "🤖 ci": (
+        ".github",
+        "actions",
+        "ci-cd",
+        "cicd",
+        "coverage",
+        "gitignore",
+        "workflow",
+    ),
+    "🔗 dependencies": (".lock", "pyproject.toml"),
+    "📚 documentation": (
+        "docstring",
+        "license",
+        "mailmap",
+        "markdown",
+        "readme",
+        "sphinx",
+        "typo",
+    ),
+    "💖 sponsor": ("funding", "sponsor"),
+}
+"""Default content rules: keywords matched against a thread's title and body.
 
-FILE_RULE_BRANCH_MATCHERS: tuple[str, ...] = ("head-branch", "base-branch")
-"""Matchers that sit at the same level as `changed-files`."""
+Every entry is a plain keyword, compiled case-insensitively with word
+boundaries on its word-character edges (see {func}`compile_content_pattern`),
+so `Bug` matches and `prefix` does not trip `fix`. The keys must name labels
+that `repomatic/data/labels.toml` defines, or the labelling call fails on a
+label GitHub does not have; `tests/test_labeller_rules.py` enforces that.
 
-FILE_RULE_GROUP_WRAPPERS: tuple[str, ...] = ("any", "all")
-"""Group wrappers whose value is a list of nested sub-groups."""
+Tune for precision, not recall: a missing label costs one manual click, a
+wrong one is noise on every issue that trips it. Never key a rule off a token
+the project prints in its own output, or a user pasting a trace sets every
+label at once.
+"""
 
-FILE_RULE_MATCHER_KEYS: frozenset[str] = frozenset((
-    *FILE_RULE_CHANGED_FILES_MATCHERS,
-    *FILE_RULE_BRANCH_MATCHERS,
-    *FILE_RULE_GROUP_WRAPPERS,
-))
-"""Keys valid inside a match group (top-level entry minus `label`, or nested)."""
+DEFAULT_FILE_RULES: dict[str, tuple[str, ...]] = {
+    "🆙 changelog": (
+        ".github/workflows/changelog.yaml",
+        ".github/workflows/release.yaml",
+        "changelog.md",
+    ),
+    "🤖 ci": (".github/**/*", ".gitignore", "pyproject.toml"),
+    "🔗 dependencies": ("*.lock", "**/pyproject.toml"),
+    "📚 documentation": (
+        ".github/code-of-conduct.md",
+        ".github/workflows/docs.yaml",
+        ".mailmap",
+        "docs/**/*",
+        "license",
+        "readme.md",
+    ),
+    "💖 sponsor": (".github/funding.yml",),
+}
+"""Default file rules: globs matched against the paths a pull request changes.
 
-CONTENT_RULE_KNOWN_KEYS: frozenset[str] = frozenset(("label", "patterns"))
-"""All keys recognized on a single `[[labels.content-rules]]` TOML entry."""
+The dialect is `minimatch`'s (see {data}`GLOB_FLAGS`): `**` crosses
+directories, `{a,b}` expands, a leading `!` subtracts from the label's other
+globs, and a leading dot is matched like any other character. Keep the globs
+precise: one broad enough to catch unrelated changes mislabels every pull
+request touching them.
+"""
 
 CONTENT_PATTERN_RE = re.compile(r"^/(?P<body>.*)/(?P<flags>[a-z]*)$", re.DOTALL)
 """The `/body/flags` spelling a content pattern may take, mirroring JavaScript.
@@ -141,161 +182,115 @@ useless once a sync has already created the target. See "Retiring a label is a
 migration, not a deletion" in `claude.md`."""
 
 
-def _load_bundled_rules(filename: str) -> dict[str, list[Any]]:
-    """Read one of the two bundled default rule files.
+def _resolve_rules(
+    defaults: dict[str, tuple[str, ...]],
+    overrides: object,
+    kind: str,
+) -> dict[str, tuple[str, ...]]:
+    """Overlay a project's rule entries on the bundled defaults.
 
-    These ship inside the package rather than being written into the
-    repository: nothing outside this module reads them any more, so a copy on
-    disk would only be a second version of the truth to keep in step.
+    An entry for a label the defaults also carry replaces the default entry
+    wholesale, an empty list disables the label, and a bare string is accepted
+    as a single-pattern list. Replacement is deliberate where an earlier
+    revision merged: merging could only ever widen a rule, leaving no way to
+    correct or silence a default, and restating a default's short pattern list
+    is cheaper than a second override vocabulary.
+
+    A non-mapping *overrides* value is the pre-`7.11.0` array-of-tables form,
+    reported and then ignored so a stale project degrades to the defaults
+    instead of crashing every command that loads its configuration.
     """
-    loaded = yaml.safe_load(get_data_content(filename)) or {}
-    return {label: list(rules) for label, rules in loaded.items()}
-
-
-def _render_file_rule_group(group: dict[str, Any], label: str) -> dict[str, Any]:
-    """Normalize one TOML match group into the shape the matcher walks.
-
-    File-level matchers (`any-glob-to-any-file` etc.) collapse under a single
-    `changed-files` key. Branch matchers pass through at the group's top level.
-    The `any` / `all` group wrappers recurse into nested groups, so a downstream
-    project can express the full `actions/labeler` v5+ schema without falling
-    back to raw YAML. Unknown keys log a warning and are dropped.
-    """
-    rendered: dict[str, Any] = {}
-    for key in group:
-        if key not in FILE_RULE_MATCHER_KEYS:
+    if not isinstance(overrides, dict):
+        if overrides:
             logging.warning(
-                "Unknown file rule key %r in label %r (ignored).",
-                key,
-                label,
+                "Ignoring [tool.repomatic.labels] %s-rules: the array-of-tables"
+                " form was replaced in 7.11.0 by a table mapping each label to"
+                " its patterns. See the changelog for the migration.",
+                kind,
             )
-    changed_files: list[dict[str, list[str]]] = []
-    for key in FILE_RULE_CHANGED_FILES_MATCHERS:
-        value = group.get(key)
-        if value:
-            changed_files.append({key: list(value)})
-    if changed_files:
-        rendered["changed-files"] = changed_files
-    for key in FILE_RULE_BRANCH_MATCHERS:
-        value = group.get(key)
-        if value:
-            rendered[key] = list(value)
-    for wrapper in FILE_RULE_GROUP_WRAPPERS:
-        value = group.get(wrapper)
-        if not value:
-            continue
-        sub_groups = []
-        for sub in value:
-            sub_rendered = _render_file_rule_group(sub, label)
-            if sub_rendered:
-                sub_groups.append(sub_rendered)
-            else:
-                logging.warning(
-                    "Skipping empty %r sub-group for label %r.",
-                    wrapper,
-                    label,
-                )
-        if sub_groups:
-            rendered[wrapper] = sub_groups
-    return rendered
-
-
-def load_file_rules(config: Config | None = None) -> dict[str, list[dict[str, Any]]]:
-    """Merge the bundled default file rules with the project's own.
-
-    Each `[[tool.repomatic.labels.file-rules]]` entry becomes one match group
-    under its `label`, appended after whatever the bundled defaults already
-    declare for that label. Groups under one label are OR'd, so a project adds
-    to a default rule rather than replacing it. Entries without a `label` or
-    without any matcher are skipped with a warning: the first cannot be
-    attributed, and the second would label every pull request.
-
-    Keep the globs precise: a file rule should match paths owned by exactly one
-    label. A glob broad enough to catch unrelated changes mislabels every PR
-    touching them, and the labeller is only a convenience for the maintainer's
-    first pass, never a substitute for manual classification (see `claude.md`).
-
-    :param config: The resolved `[tool.repomatic]` configuration, or `None` for
-        the bundled defaults alone.
-    :return: Match groups keyed by label.
-    """
-    grouped = _load_bundled_rules("labeller-file-based.yaml")
-    for rule in config.labels.file_rules if config else ():
-        label = str(rule.get("label") or "").strip()
+        overrides = {}
+    resolved = dict(defaults)
+    for raw_label, raw_patterns in overrides.items():
+        label = str(raw_label).strip()
         if not label:
-            logging.warning("Skipping file rule without `label`: %r.", rule)
+            logging.warning("Skipping %s rule with a blank label.", kind)
             continue
-        group_body = {k: v for k, v in rule.items() if k != "label"}
-        group = _render_file_rule_group(group_body, label)
-        if not group:
+        if isinstance(raw_patterns, str):
+            raw_patterns = [raw_patterns]
+        if not isinstance(raw_patterns, list) or not all(
+            isinstance(pattern, str) for pattern in raw_patterns
+        ):
             logging.warning(
-                "Skipping file rule for label %r with no matchers: %r.",
+                "Skipping %s rule for label %r: expected a list of strings, got %r.",
+                kind,
                 label,
-                rule,
+                raw_patterns,
             )
             continue
-        grouped.setdefault(label, []).append(group)
-    return grouped
+        if raw_patterns:
+            resolved[label] = tuple(raw_patterns)
+        else:
+            # An explicit empty list is the disable switch for a default rule.
+            logging.debug(f"Label {label!r} disabled by an empty {kind} rule.")
+            resolved.pop(label, None)
+    return resolved
 
 
-def load_content_rules(config: Config | None = None) -> dict[str, list[str]]:
-    """Merge the bundled default content rules with the project's own.
+def resolve_content_rules(config: Config | None = None) -> dict[str, tuple[str, ...]]:
+    """The content rules in force: bundled defaults overlaid with the project's.
 
-    Each `[[tool.repomatic.labels.content-rules]]` entry contributes its
-    `patterns` to its `label`, after whatever the bundled defaults declare.
-    Repeating a label across entries concatenates, and every pattern under a
-    label is OR'd at match time, so adding a keyword never disables the ones
-    already there. Entries without a `label` or without `patterns` are skipped
-    with a warning.
-
-    Encode a rule only for terms that unambiguously name the subject and that
-    the project never prints in its own output; see the labeller principle in
-    `claude.md`.
-
-    :param config: The resolved `[tool.repomatic]` configuration, or `None` for
-        the bundled defaults alone.
+    :param config: The resolved `[tool.repomatic]` configuration, or `None`
+        for the bundled defaults alone.
     :return: Patterns keyed by label.
     """
-    grouped = _load_bundled_rules("labeller-content-based.yaml")
-    for rule in config.labels.content_rules if config else ():
-        label = str(rule.get("label") or "").strip()
-        if not label:
-            logging.warning("Skipping content rule without `label`: %r.", rule)
-            continue
-        for key in rule:
-            if key not in CONTENT_RULE_KNOWN_KEYS:
-                logging.warning(
-                    "Unknown content rule key %r in label %r (ignored).",
-                    key,
-                    label,
-                )
-        patterns = rule.get("patterns") or []
-        if not patterns:
-            logging.warning(
-                "Skipping content rule for label %r with no patterns: %r.",
-                label,
-                rule,
-            )
-            continue
-        grouped.setdefault(label, []).extend(patterns)
-    return grouped
+    overrides = config.labels.content_rules if config else {}
+    return _resolve_rules(DEFAULT_CONTENT_RULES, overrides, "content")
+
+
+def resolve_file_rules(config: Config | None = None) -> dict[str, tuple[str, ...]]:
+    """The file rules in force: bundled defaults overlaid with the project's.
+
+    :param config: The resolved `[tool.repomatic]` configuration, or `None`
+        for the bundled defaults alone.
+    :return: Glob patterns keyed by label.
+    """
+    overrides = config.labels.file_rules if config else {}
+    return _resolve_rules(DEFAULT_FILE_RULES, overrides, "file")
 
 
 def compile_content_pattern(pattern: str) -> re.Pattern[str] | None:
-    """Compile one content pattern, in either the bare or the `/body/flags` form.
+    r"""Compile one content pattern, as a keyword or a `/body/flags` regex.
 
-    Returns `None` on a pattern the `re` module rejects, having logged it. A
+    A bare pattern is a literal keyword: escaped, matched case-insensitively,
+    and word-anchored on each edge that is itself a word character, so `fix`
+    does not fire inside `prefix` while `.lock` still matches the tail of
+    `uv.lock` (a `\b` before the dot would demand a word character ahead of
+    it). Case-insensitivity is the point of defaulting this way: users
+    capitalize freely, and a convention every rule must remember to spell is a
+    convention half of them forget.
+
+    The `/body/flags` form passes the body through as a regex, mirroring
+    JavaScript because that is what the retired `github/issue-labeler` action
+    read and what existing rules are written in. No flags means
+    case-sensitive.
+
+    Returns `None` on a body the `re` module rejects, having logged it. A
     single malformed rule must not take the whole labelling run down with it:
     the job is a convenience that runs once per opened issue, and the other
     rules still have work to do.
     """
-    flags = 0
     if slashed := CONTENT_PATTERN_RE.match(pattern):
         body = slashed["body"]
+        flags = 0
         for flag in slashed["flags"]:
             flags |= CONTENT_PATTERN_FLAGS.get(flag, 0)
     else:
-        body = pattern
+        body = re.escape(pattern)
+        if pattern and re.match(r"\w", pattern[0]):
+            body = r"\b" + body
+        if pattern and re.match(r"\w", pattern[-1]):
+            body += r"\b"
+        flags = re.IGNORECASE
     try:
         return re.compile(body, flags)
     except re.error as error:
@@ -303,10 +298,10 @@ def compile_content_pattern(pattern: str) -> re.Pattern[str] | None:
         return None
 
 
-def match_content_rules(rules: dict[str, list[str]], text: str) -> set[str]:
-    """Return every label whose patterns match *text*.
+def match_content_rules(rules: Mapping[str, Sequence[str]], text: str) -> set[str]:
+    """Return every label with a pattern matching *text*.
 
-    :param rules: Patterns keyed by label, from {func}`load_content_rules`.
+    :param rules: Patterns keyed by label, from {func}`resolve_content_rules`.
     :param text: The issue or pull request title and body, concatenated.
     :return: The matching labels.
     """
@@ -321,109 +316,27 @@ def match_content_rules(rules: dict[str, list[str]], text: str) -> set[str]:
     return matched
 
 
-def _match_changed_files(
-    matcher: str,
-    globs: Sequence[str],
-    files: Sequence[str],
-) -> bool:
-    """Evaluate one `changed-files` matcher over the changed file list.
-
-    The four matcher names are the two quantifiers crossed: whether *any* or
-    *all* globs must hit, and whether *any* or *all* files must be hit.
-
-    A pull request with no changed files never matches, whichever matcher is
-    named. Three of the four are universally quantified over files, so the
-    empty case would otherwise be vacuously true and label an empty diff with
-    everything.
-    """
-    if not files or not globs:
-        return False
-    hits = {
-        (file, pattern): glob.globmatch(file, pattern, flags=GLOB_FLAGS)
-        for file in files
-        for pattern in globs
-    }
-    if matcher == "any-glob-to-any-file":
-        return any(hits.values())
-    if matcher == "any-glob-to-all-files":
-        return all(any(hits[f, p] for p in globs) for f in files)
-    if matcher == "all-globs-to-any-file":
-        return any(all(hits[f, p] for p in globs) for f in files)
-    if matcher == "all-globs-to-all-files":
-        return all(hits.values())
-    logging.warning("Unknown changed-files matcher %r (ignored).", matcher)
-    return False
-
-
-def _match_branch(patterns: Iterable[str], branch: str) -> bool:
-    """Whether *branch* matches any of the unanchored regex *patterns*."""
-    if not branch:
-        return False
-    return any(
-        compiled.search(branch)
-        for compiled in (compile_content_pattern(p) for p in patterns)
-        if compiled is not None
-    )
-
-
-def _match_file_rule_group(
-    group: dict[str, Any],
-    files: Sequence[str],
-    head_branch: str,
-    base_branch: str,
-) -> bool:
-    """Evaluate one match group, AND-ing every condition it carries.
-
-    An empty group returns `False` rather than the vacuous `True` an
-    unqualified `all()` would give: a group with nothing to test cannot have
-    been meant to match everything.
-    """
-    conditions: list[bool] = []
-    for matcher_entry in group.get("changed-files", ()):
-        for matcher, globs in matcher_entry.items():
-            conditions.append(_match_changed_files(matcher, globs, files))
-    if "head-branch" in group:
-        conditions.append(_match_branch(group["head-branch"], head_branch))
-    if "base-branch" in group:
-        conditions.append(_match_branch(group["base-branch"], base_branch))
-    if "any" in group:
-        conditions.append(
-            any(
-                _match_file_rule_group(sub, files, head_branch, base_branch)
-                for sub in group["any"]
-            )
-        )
-    if "all" in group:
-        conditions.append(
-            all(
-                _match_file_rule_group(sub, files, head_branch, base_branch)
-                for sub in group["all"]
-            )
-        )
-    return bool(conditions) and all(conditions)
-
-
 def match_file_rules(
-    rules: dict[str, list[dict[str, Any]]],
+    rules: Mapping[str, Sequence[str]],
     files: Sequence[str],
-    head_branch: str = "",
-    base_branch: str = "",
 ) -> set[str]:
-    """Return every label whose match groups accept this pull request.
+    """Return every label whose globs match a changed file.
 
-    :param rules: Match groups keyed by label, from {func}`load_file_rules`.
+    A label's globs are evaluated as one set, so a `!`-negated entry subtracts
+    from its siblings (`["docs/**", "!docs/generated/**"]` reads the way a
+    `.gitignore` would) rather than standing alone. A pull request that
+    changes no files matches nothing.
+
+    :param rules: Glob patterns keyed by label, from {func}`resolve_file_rules`.
     :param files: Paths the pull request changes, relative to the repo root.
-    :param head_branch: The pull request's head branch name.
-    :param base_branch: The pull request's base branch name.
     :return: The matching labels.
     """
     matched = set()
-    for label, groups in rules.items():
-        for group in groups:
-            if _match_file_rule_group(group, files, head_branch, base_branch):
-                logging.debug(f"File rule group {group!r} matched {label!r}.")
-                matched.add(label)
-                break
+    for label, patterns in rules.items():
+        pattern_set = list(patterns)
+        if any(glob.globmatch(file, pattern_set, flags=GLOB_FLAGS) for file in files):
+            logging.debug(f"File rule {patterns!r} matched {label!r}.")
+            matched.add(label)
     return matched
 
 

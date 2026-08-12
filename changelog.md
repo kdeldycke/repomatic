@@ -5,12 +5,15 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** `labels.content-rules` and `labels.file-rules` are now tables mapping each label to its patterns, like `"📚 docs" = ["docs/**"]`. The array-of-tables form and its `actions/labeler` v5 matcher schema are gone; an un-migrated config is ignored with a warning.
+- **Breaking:** the `file-labeller` and `content-labeller` jobs merged into a single `apply-labels` job. Update any required check or `needs:` edge naming them.
 - New `pr-sync` command that opens, refreshes or retires an automation PR from a single `--template` flag, replacing `peter-evans/create-pull-request` in every job: branch, title, body, commit message, labels and draft state all derive from the template and its frontmatter. A branch whose changes evaporate now has its PR closed even when the job's `if:` gate skipped the rest of the step.
 - New `lock-threads` command replacing `dessant/lock-threads` in the autolock job. It skips threads carrying the `🤖 ci` label, so an issue repomatic maintains is no longer locked out of reopening when its condition recurs.
+- New `apply-labels` command replacing `actions/labeler` and `github/issue-labeler` in the labeller job. A rule's entry overrides the bundled default for that label, and an empty list disables it.
 - The debug job's context dump no longer runs `crazy-max/ghaction-dump-context`, and no longer installs `cgroup-tools` and `cpuid` to read them. It now reports the kernel, disk, CPU and memory of every runner using only what the image already ships.
-- New `apply-labels` command replacing `actions/labeler` and `github/issue-labeler` in the two labeller jobs. `[tool.repomatic.labels]` rules keep their schema, and both families now merge over the bundled defaults instead of replacing them.
-- A content rule's `patterns` are now OR-joined, so a list of keywords applies its label when any one of them appears. They were AND-joined before, which made such a rule match nothing.
-- `repomatic init labels` no longer writes `.github/labeller-content-based.yaml` or `.github/labeller-file-based.yaml`: the rules are read from the package. Delete any committed copy, and move customizations to `[tool.repomatic.labels]`.
+- A bare content pattern is now a keyword, matched case-insensitively on word boundaries, so `"🐛 bug" = ["bug", "error"]` works as written; the `/…/flags` form passes a regex through. Keyword lists used to be AND-joined and never fired.
+- `repomatic init labels` no longer writes `.github/labeller-content-based.yaml` or `.github/labeller-file-based.yaml`: the default rules live in the package. Delete any committed copy, and move customizations to `[tool.repomatic.labels]`.
+- The `sponsor-label` command now applies the `💖 sponsor` label the registry defines, instead of a plural variant that exists in no repository and failed every labelling attempt.
 
 ## [`7.10.0` (2026-08-12)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...v7.10.0)
 

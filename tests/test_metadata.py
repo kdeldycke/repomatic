@@ -1482,10 +1482,10 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
     assert metadata.config.dependency_graph.no_groups == []
     assert metadata.config.dependency_graph.no_extras == []
     assert metadata.config.dependency_graph.level is None
-    assert metadata.config.labels.content_rules == []
+    assert metadata.config.labels.content_rules == {}
     assert metadata.config.labels.extra == []
     assert metadata.config.labels.extra_files == []
-    assert metadata.config.labels.file_rules == []
+    assert metadata.config.labels.file_rules == {}
     assert metadata.config.pypi_package_history == []
     assert metadata.config.notification_unsubscribe is False
     assert metadata.config.awesome_template_sync is True
@@ -1652,18 +1652,12 @@ name = "📦 manager: brew"
 color = "#bfdadc"
 description = "homebrew"
 
-[[tool.repomatic.labels.file-rules]]
-label = "📦 manager: apk"
-any-glob-to-any-file = ["managers/apk*", "tests/*apk*"]
+[tool.repomatic.labels.file-rules]
+"📦 manager: apk" = ["managers/apk*", "tests/*apk*"]
+"📚 docs" = ["docs/**"]
 
-[[tool.repomatic.labels.file-rules]]
-label = "📚 docs"
-any-glob-to-any-file = ["docs/**"]
-head-branch = ["^docs/"]
-
-[[tool.repomatic.labels.content-rules]]
-label = "🔌 bar-plugin"
-patterns = ["xbar", "swiftbar"]
+[tool.repomatic.labels.content-rules]
+"🔌 bar-plugin" = ["xbar", "swiftbar"]
 
 [tool.repomatic.test-matrix]
 exclude = [
@@ -1710,20 +1704,15 @@ click-version = ["released", "stable", "main"]
     assert metadata.config.labels.extra_files == [
         "https://example.com/labels.toml",
     ]
-    assert metadata.config.labels.file_rules == [
-        {
-            "label": "📦 manager: apk",
-            "any-glob-to-any-file": ["managers/apk*", "tests/*apk*"],
-        },
-        {
-            "label": "📚 docs",
-            "any-glob-to-any-file": ["docs/**"],
-            "head-branch": ["^docs/"],
-        },
-    ]
-    assert metadata.config.labels.content_rules == [
-        {"label": "🔌 bar-plugin", "patterns": ["xbar", "swiftbar"]},
-    ]
+    # Label keys carry emojis, spaces and colons: they must reach the config
+    # verbatim, shielded from the loader's key normalization.
+    assert metadata.config.labels.file_rules == {
+        "📦 manager: apk": ["managers/apk*", "tests/*apk*"],
+        "📚 docs": ["docs/**"],
+    }
+    assert metadata.config.labels.content_rules == {
+        "🔌 bar-plugin": ["xbar", "swiftbar"],
+    }
     assert metadata.config.pypi_package_history == ["old-name", "older-name"]
     assert metadata.config.notification_unsubscribe is True
     assert metadata.config.awesome_template_sync is False

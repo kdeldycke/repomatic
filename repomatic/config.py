@@ -337,20 +337,24 @@ class GitignoreConfig:
 class LabelsConfig:
     """Nested schema for `[tool.repomatic.labels]`."""
 
-    content_rules: list[dict[str, str | list[str]]] = field(default_factory=list)
-    """Structured per-label rules for the content-based labeller.
+    content_rules: dict[str, list[str]] = field(default_factory=dict)
+    """Per-label patterns matched against an issue or pull request's text.
 
-    Each `[[tool.repomatic.labels.content-rules]]` entry has:
+    The `[tool.repomatic.labels.content-rules]` table maps each label to the
+    patterns that apply it, evaluated by `apply-labels` against the title and
+    body. Any one pattern matching applies the label:
 
-    - `label` (required): label name to apply when any pattern matches.
-    - `patterns` (required): regexes evaluated against the issue or pull
-      request title and body, in either a bare form (matched
-      case-sensitively) or the JavaScript-flavoured `/body/flags` spelling,
-      where only `i`, `m` and `s` change anything.
+    ```toml
+    [tool.repomatic.labels.content-rules]
+    "🥭 mango" = ["mango", "papaya"]
+    "🐛 bug" = []
+    ```
 
-    Patterns are OR-joined: any one of them matching applies the label.
-    Repeating the same `label` across entries merges their patterns, and both
-    merge over the bundled defaults rather than replacing them.
+    A bare pattern is a literal keyword, matched case-insensitively on word
+    boundaries; the `/regex/flags` form passes a regex through instead, with
+    `i`, `m` and `s` honored. An entry for a label the bundled defaults also
+    carry replaces the default entry, and an empty list disables it (see
+    {data}`repomatic.labels.DEFAULT_CONTENT_RULES`).
     """
 
     extra: list[dict[str, str | bool | list[str]]] = field(default_factory=list)
@@ -377,30 +381,24 @@ class LabelsConfig:
     `extra` instead.
     """
 
-    file_rules: list[dict[str, str | list[str]]] = field(default_factory=list)
-    """Structured per-label rules for the file-based labeller.
+    file_rules: dict[str, list[str]] = field(default_factory=dict)
+    """Per-label globs matched against the paths a pull request changes.
 
-    Each `[[tool.repomatic.labels.file-rules]]` entry defines one match group
-    for one label. Required key:
+    The `[tool.repomatic.labels.file-rules]` table maps each label to the
+    globs that apply it, evaluated by `apply-labels` against the changed
+    files. The label applies when any changed file matches the glob set:
 
-    - `label`: label name to apply when this group's conditions match.
+    ```toml
+    [tool.repomatic.labels.file-rules]
+    "🥭 mango" = ["orchard/**", "!orchard/generated/**"]
+    ```
 
-    Optional matcher keys (all conditions in the same entry are AND'd):
-
-    - `any-glob-to-any-file`: any pattern matches any changed file.
-    - `any-glob-to-all-files`: any pattern matches every changed file.
-    - `all-globs-to-any-file`: every pattern matches any changed file.
-    - `all-globs-to-all-files`: every pattern matches every changed file.
-    - `head-branch`: regex patterns matched against the PR head branch.
-    - `base-branch`: regex patterns matched against the PR base branch.
-    - `any`: list of nested sub-groups, OR'd together.
-    - `all`: list of nested sub-groups, AND'd together.
-
-    Repeating the same `label` across entries OR's the resulting groups, and
-    they OR with whatever the bundled defaults already declare for that label,
-    so a project adds to a default rule rather than replacing it. Together with
-    the `any` / `all` wrappers this covers the full `actions/labeler` v5+
-    schema, which `repomatic apply-labels` reimplements natively.
+    Globs follow the `minimatch` dialect (`**` crosses directories, `{a,b}`
+    expands, a leading dot needs no special casing), and a `!`-prefixed entry
+    subtracts from the label's other globs the way a `.gitignore` line would.
+    An entry for a label the bundled defaults also carry replaces the default
+    entry, and an empty list disables it (see
+    {data}`repomatic.labels.DEFAULT_FILE_RULES`).
     """
 
     sync: bool = True

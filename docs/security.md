@@ -61,11 +61,11 @@ Every other `uses:` in the tree is GitHub's own: `actions/checkout`, `actions/ca
 
 #### Issue and pull-request labelling
 
-`repomatic apply-labels` evaluates both rule families the two retired labeller actions covered: `actions/labeler`'s v5 file globs and `github/issue-labeler`'s content regexes. The schema is kept verbatim, so a `[tool.repomatic.labels]` written against either action still resolves; {mod}`repomatic.labels` holds the matcher and `tests/test_labeller_rules.py` pins the semantics, including the `minimatch` glob dialect.
+`repomatic apply-labels` covers what the two retired labeller actions did: file globs over a pull request's changed paths (`actions/labeler`) and content patterns over its title and body (`github/issue-labeler`). One job runs it on every issue and pull request opened; {mod}`repomatic.labels` holds the matcher, `tests/test_labeller_rules.py` pins the semantics, including the `minimatch` glob dialect.
 
-The supply-chain gain is the usual one, and modest: both actions were SHA-pinned with cooldown-gated bumps. The concrete win is that the rules no longer have to round-trip through a file on disk. Each job used to run `repomatic init labels` to stage a YAML config purely so the action could read it back out of the checkout, which is why the `labels` component was `ephemeral` and why `repomatic/labels.py` carried two YAML serializers. Matching in-process deleted the staging step, the two exported files, and the export layer under them.
+The supply-chain gain is the usual one, and modest: both actions were SHA-pinned with cooldown-gated bumps. The concrete win is that the rules stopped being files. Each job used to run `repomatic init labels` to stage a YAML config purely so its action could read it back out of the checkout, and the actions' schemas dictated the config's shape all the way up into `[tool.repomatic.labels]`. Owning the matcher retired the staging step, the two bundled YAML files, the serializers that produced them, and the schema itself: a rule is now one label mapped to the keywords or globs that apply it, with the defaults living in {data}`repomatic.labels.DEFAULT_CONTENT_RULES` and {data}`~repomatic.labels.DEFAULT_FILE_RULES` as plain Python data.
 
-It also fixed a silent bug the export could only warn about. `github/issue-labeler` AND-joined a label's `patterns`, so the obvious "any of these keywords" rule matched nothing; patterns are OR-joined now, and the bundled defaults are written as the keyword lists they always read like.
+It also fixed a silent bug the old shape could only warn about. `github/issue-labeler` AND-joined a label's `patterns`, so the obvious "any of these keywords" rule matched nothing; any pattern matching now applies the label, and keywords are matched case-insensitively on word boundaries instead of each rule hand-rolling `/\bword\b/i`.
 
 #### Pull-request creation
 
