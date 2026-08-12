@@ -362,6 +362,23 @@ def render_template(*names: str | Path, **kwargs: str | None) -> str:
     Consecutive blank lines left by empty variables are collapsed to a single
     blank line.
 
+    ```{note}
+    The footer's version is `__version__` as read from the working tree, which
+    makes it cosmetically wrong on the version-machinery PRs. That is accepted
+    rather than fixed. Upstream runs the CLI from its own checkout
+    ({data}`~repomatic.prepare_release.LOCAL_CLI_INVOCATION`), and both the
+    `bump-version` and `prepare-release` jobs rewrite `__version__` with
+    `bump-my-version` before this renders, so each of those bodies advertises
+    the version its own PR produces (the `minor` or `major` bump target, or
+    the post-release patch bump) instead of the identical code that rendered
+    it. Both fixes cost more than the tag is worth: rendering the body before
+    the bump means splitting `pr-body` back out of `pr-sync`, and feeding the
+    pre-bump version in means a CLI option that exists only to work around
+    step ordering. Downstream never sees it, since a frozen workflow runs
+    `uvx 'repomatic==X.Y.Z'` and takes its version from the installed
+    distribution.
+    ```
+
     :param names: One or more template names (without `.md` extension) or
         {class}`~pathlib.Path` objects pointing to template files.
     :param kwargs: Variables to substitute into all templates.

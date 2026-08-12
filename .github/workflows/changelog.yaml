@@ -183,6 +183,8 @@ jobs:
         # branch from the event payload. The PR stays a draft on every sync
         # (via the template's frontmatter), not just at creation: its content
         # is regenerated underneath it and must never look ready to merge.
+        # Runs after the bump, so the body's attribution footer names the bumped version rather
+        # than the code that rendered it: see repomatic/github/pr_body.py::render_template.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
         env:
@@ -288,6 +290,9 @@ jobs:
         # The freeze and unfreeze commits above are already committed, so this
         # step carries them through as two commits rather than squashing them:
         # the release lane rebase-merges this PR and both must land intact.
+        # Runs after the post-release bump, so the body's attribution footer names that bumped
+        # version rather than the code that rendered it: see
+        # repomatic/github/pr_body.py::render_template.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
         env:
