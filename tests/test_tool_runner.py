@@ -2264,11 +2264,14 @@ def test_run_tool_no_output_flag_skips_mkdir(mock_ci, mock_run, tmp_path, monkey
     """run_tool without --output does not create any directories."""
     monkeypatch.chdir(tmp_path)
     mock_run.return_value = MagicMock(returncode=0)
+    # Snapshot rather than assert emptiness: autouse fixtures (the isolated
+    # app dir) may already have planted entries under this tmp tree, and the
+    # invariant is only that `run_tool` itself adds nothing.
+    before = set(tmp_path.iterdir())
 
     run_tool("yamllint", extra_args=(".",))
 
-    # Only the tmp_path itself should exist; no new subdirectories.
-    assert list(tmp_path.iterdir()) == []
+    assert set(tmp_path.iterdir()) == before
 
 
 # ---------------------------------------------------------------------------
