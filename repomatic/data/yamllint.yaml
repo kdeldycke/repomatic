@@ -10,3 +10,9 @@ rules:
   line-length:
     max: 120
     allow-non-breakable-words: true
+    # A long unbreakable token (like a commit-pinned URL) inside an inline
+    # mapping is not covered by allow-non-breakable-words, which only exempts
+    # a token sitting alone on its line. Generated YAML recording provenance
+    # URLs hits this constantly, and flagging a line no edit can shorten only
+    # yields unfixable errors.
+    allow-non-breakable-inline-mappings: true

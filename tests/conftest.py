@@ -126,6 +126,26 @@ def _reset_binary_memo():
     ensure_binary.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_config(isolated_app_dir):
+    """Hide the developer's real `repomatic` configuration from the suite.
+
+    Any config file in the host application folder (`~/.config/repomatic` on
+    Unix, `~/Library/Application Support/repomatic` on macOS) is discovered by
+    every in-process `CliRunner().invoke(repomatic, ...)`, so assertions would
+    depend on the machine they run on: a local setting can pass or fail a test
+    CI cannot reproduce.
+
+    Autouse alias of click-extra's `isolated_app_dir` fixture (registered by
+    its `pytest11` entry point), which repoints `click.get_app_dir`-based
+    config discovery at a fresh per-test directory. `HOME` stays intact and
+    the override does not propagate to subprocesses; tests exercising config
+    loading pass an explicit path, which bypasses the default search and is
+    unaffected.
+    """
+    return isolated_app_dir
+
+
 class FakeResponse:
     """Minimal `urlopen` response double: a byte body behind a context manager.
 

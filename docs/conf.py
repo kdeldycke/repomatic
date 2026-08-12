@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import tomllib  # type: ignore[import-not-found]
@@ -274,6 +275,18 @@ linkcheck_anchors_ignore_for_url = [
 # Some links time out the linkcheck bot intermittently (like biomejs.dev);
 # retry before reporting them as broken.
 linkcheck_retries = 3
+
+# Authenticate the github.com crawl when CI exposes a token: GitHub throttles
+# anonymous requests to ~1 per minute, enough to overrun the link-check job
+# budget on link-heavy repos. docs.yaml exposes `GITHUB_TOKEN` on the linkcheck
+# step for exactly this consumer; local builds carry no token and stay
+# anonymous.
+if os.environ.get("GITHUB_TOKEN"):
+    linkcheck_request_headers = {
+        "https://github.com/": {
+            "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+        },
+    }
 
 linkcheck_ignore = [
     # These sites return 403 to bots but are valid.
