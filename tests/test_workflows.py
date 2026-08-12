@@ -826,6 +826,14 @@ def test_pr_sync_steps_pass_everything_through_env() -> None:
             f"{where} interpolates a template expression into its run block; "
             "pass the value through env: instead"
         )
+        # A folded `run: >` scalar silently swallows any orphaned line left
+        # behind by an incomplete edit of the step above it, turning YAML
+        # residue (`delete-branch: true`) into literal CLI arguments that only
+        # Click rejects, at runtime, in CI. `key: value` residue is the shape
+        # to catch, and no legitimate pr-sync argument contains a colon.
+        assert ":" not in step["run"].replace("pr-sync", ""), (
+            f"{where} pr-sync run block carries YAML residue: {step['run']!r}"
+        )
 
 
 def test_detached_head_pr_sync_steps_name_a_base() -> None:

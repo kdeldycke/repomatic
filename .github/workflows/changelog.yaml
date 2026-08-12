@@ -218,8 +218,6 @@ jobs:
           --base main
           --draft
           --label "🆙 changelog"
-          delete-branch: true
-          draft: always-true
       - name: Close stale ${{ matrix.part }} bump PR
         # Runs on the inverse path: when a bump is no longer allowed, reconcile
         # any orphan PR left by an earlier run that raced a competing merge.
