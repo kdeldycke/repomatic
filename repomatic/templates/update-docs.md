@@ -2,6 +2,7 @@
 title: Update docs
 docs: https://kdeldycke.github.io/repomatic/workflows.html#update-docs-update-docs
 footer: false
+labels: [📚 documentation]
 ---
 
 ## ⚙️ Configuration

@@ -435,6 +435,38 @@ def template_args(name: str | Path) -> list[str]:
     return []
 
 
+def template_labels(name: str | Path) -> list[str]:
+    """Return the labels a template's pull request should carry.
+
+    Read from the `labels:` frontmatter key, accepting a YAML list or a single
+    string. The template is the one place that knows which operation it fronts,
+    so its labels live beside its title and commit message rather than being
+    repeated in every workflow step that opens the PR.
+
+    :param name: Template name without extension, or a template file path.
+    :return: The labels, empty when the frontmatter declares none.
+    """
+    meta, _ = load_template(name)
+    labels = meta.get("labels", [])
+    if isinstance(labels, str):
+        return [labels]
+    if isinstance(labels, list):
+        return [str(label) for label in labels]
+    return []
+
+
+def template_draft(name: str | Path) -> bool:
+    """Return whether a template's pull request should be held in draft.
+
+    Read from the `draft:` frontmatter key. Both the YAML boolean and its
+    quoted spelling are honored, mirroring the `footer:` key.
+
+    :param name: Template name without extension, or a template file path.
+    """
+    meta, _ = load_template(name)
+    return meta.get("draft", False) in (True, "true")
+
+
 def template_docs_url(name: str | Path) -> str:
     """Return a template's documentation deep link, if it declares one.
 

@@ -162,24 +162,12 @@ jobs:
             check --output-format github --exit-zero
           uv --no-progress run --frozen -- repomatic run ruff -- \
             format --output-format github
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template format-python
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch format-python
-          --label "🤖 ci"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template format-python
   format-pyproject:
     name: 📐 Format pyproject.toml
     needs:
@@ -206,24 +194,12 @@ jobs:
             | xargs uv --no-progress run --frozen -- repomatic \
               run pyproject-fmt -- || rc=$?
           [ "$rc" -eq 0 ] || [ "$rc" -eq 123 ] || exit "$rc"
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template format-pyproject
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch format-pyproject
-          --label "🤖 ci"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template format-pyproject
   format-markdown:
     name: ✍️ Format Markdown
     needs:
@@ -268,24 +244,12 @@ jobs:
       - name: Markdown fixes for Awesome Lists
         if: startsWith(github.event.repository.name, 'awesome-')
         run: uv --no-progress run --frozen -- repomatic fix-awesome-toc
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template format-markdown
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch format-markdown
-          --label "📚 documentation"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template format-markdown
   format-shell:
     name: 🐚 Format Shell
     needs:
@@ -314,24 +278,12 @@ jobs:
         run: >
           echo "${SHELL_FILES}" | xargs uv --no-progress run --frozen -- repomatic
           run shfmt --
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template format-shell
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch format-shell
-          --label "🤖 ci"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template format-shell
   format-json:
     name: 🔧 Format JSON
     needs:
@@ -364,24 +316,12 @@ jobs:
             uv --no-progress run --frozen -- repomatic run biome -- \
             format --write --no-errors-on-unmatched \
             --json-parse-allow-comments=true --json-parse-allow-trailing-commas=true
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template format-json
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch format-json
-          --label "🤖 ci"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template format-json
   # --- Fixers: correct or improve existing content in-place. ---
 
   fix-typos:
@@ -409,25 +349,13 @@ jobs:
             repomatic-${{ runner.os }}-${{ runner.arch }}-typos-
       - name: Fix typos
         run: uv --no-progress run --frozen -- repomatic run typos
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template fix-typos
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           # We need custom PAT with workflows permissions to fix typos in .github/workflows/*.yaml` files.
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch fix-typos
-          --label "📚 documentation"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template fix-typos
   fix-vulnerable-deps:
     name: 🛡️ Fix vulnerable deps
     needs:
@@ -455,26 +383,13 @@ jobs:
           uv --no-progress run --frozen -- repomatic audit --fix
           --repo "${{ github.repository }}"
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: pr-metadata
+      - name: Sync pull request
         env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_DIFF_TABLE_FILE: ${{ steps.fix.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template fix-vulnerable-deps
-          --output "$GITHUB_OUTPUT"
-      - name: Sync pull request
-        env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch fix-vulnerable-deps
-          --label "🔗 dependencies"
-
+          pr-sync --template fix-vulnerable-deps
   sync-repomatic:
     name: 🔄 Sync repomatic
     # Runs without `needs: metadata`, so it repeats the version-bump commit
@@ -494,25 +409,13 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic init
           --delete-unmodified --delete-excluded
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template sync-repomatic
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           # We need custom PAT with workflows permissions to update .github/workflows/*.yaml files.
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch sync-repomatic
-          --label "🤖 ci"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template sync-repomatic
   format-images:
     name: 🖼️ Format images
     needs:
@@ -548,26 +451,12 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic format-images
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: pr-metadata
-        env:
-          GHA_PR_BODY_PREFIX_FILE: ${{ steps.format.outputs.markdown_file }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template format-images
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch format-images
-          --label "📚 documentation"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template format-images
   # --- Syncers: regenerate files from external sources or project state. ---
 
   sync-gitignore:
@@ -586,24 +475,12 @@ jobs:
           version: "0.12.1"
       - name: Sync .gitignore
         run: uv --no-progress run --frozen -- repomatic sync-gitignore
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template sync-gitignore
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch sync-gitignore
-          --label "🤖 ci"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template sync-gitignore
   sync-bumpversion:
     name: 🔄 Sync bumpversion config
     needs:
@@ -622,24 +499,12 @@ jobs:
           version: "0.12.1"
       - name: Sync bumpversion config
         run: uv --no-progress run --frozen -- repomatic sync-bumpversion
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template sync-bumpversion
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch sync-bumpversion
-          --label "🤖 ci"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template sync-bumpversion
   sync-mailmap:
     name: 📬 Sync .mailmap
     needs:
@@ -659,24 +524,12 @@ jobs:
           version: "0.12.1"
       - name: Sync .mailmap
         run: uv --no-progress run --frozen -- repomatic sync-mailmap --skip-if-missing
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template sync-mailmap
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch sync-mailmap
-          --label "📚 documentation"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template sync-mailmap
   sync-deps:
     name: 🔗 Sync dependencies
     # Consolidated dependency updater. One runner shares the checkout, the uv
@@ -748,30 +601,16 @@ jobs:
           uv --no-progress run --frozen -- repomatic sync-dep-sources
           --no-table --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: sync-dep-sources-meta
-        if: ${{ !cancelled() && steps.sync-dep-sources.outcome == 'success' }}
+      - if: >
+          !cancelled()
+          && steps.sync-dep-sources.outcome == 'success'
+        name: Sync pull request
         env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-dep-sources.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template sync-dep-sources
-          --output "$GITHUB_OUTPUT"
-      - if: >
-          !cancelled()
-          && steps.sync-dep-sources-meta.outcome == 'success'
-        name: Sync pull request
-        env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.sync-dep-sources-meta.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.sync-dep-sources-meta.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.sync-dep-sources-meta.outputs.title }}
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch sync-dep-sources
-          --label "🔗 dependencies"
-
+          pr-sync --template sync-dep-sources
       # --- sync-uv-lock: re-lock dependencies (Python projects). ---
       - if: >
           !cancelled()
@@ -787,28 +626,14 @@ jobs:
           uv --no-progress run --frozen -- repomatic sync-uv-lock
           --no-table --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: sync-uv-lock-meta
-        if: ${{ !cancelled() && steps.sync-uv-lock.outcome == 'success' }}
+      - if: ${{ !cancelled() && steps.sync-uv-lock.outcome == 'success' }}
+        name: Sync pull request
         env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-uv-lock.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template sync-uv-lock
-          --output "$GITHUB_OUTPUT"
-      - if: ${{ !cancelled() && steps.sync-uv-lock-meta.outcome == 'success' }}
-        name: Sync pull request
-        env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.sync-uv-lock-meta.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.sync-uv-lock-meta.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.sync-uv-lock-meta.outputs.title }}
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch sync-uv-lock
-          --label "🔗 dependencies"
-
+          pr-sync --template sync-uv-lock
       # --- sync-action-pins: bump SHA-pinned actions (repos with workflows). ---
       - if: >
           !cancelled()
@@ -827,30 +652,16 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic sync-action-pins --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: sync-action-pins-meta
-        if: ${{ !cancelled() && steps.sync-action-pins.outcome == 'success' }}
+      - if: >
+          !cancelled()
+          && steps.sync-action-pins.outcome == 'success'
+        name: Sync pull request
         env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-action-pins.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template sync-action-pins
-          --output "$GITHUB_OUTPUT"
-      - if: >
-          !cancelled()
-          && steps.sync-action-pins-meta.outcome == 'success'
-        name: Sync pull request
-        env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.sync-action-pins-meta.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.sync-action-pins-meta.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.sync-action-pins-meta.outputs.title }}
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch sync-action-pins
-          --label "🔗 dependencies"
-
+          pr-sync --template sync-action-pins
       # --- sync-workflow-pins: bump npm/PyPI literals (repos with workflows). ---
       - if: >
           !cancelled()
@@ -867,30 +678,16 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic sync-workflow-pins --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
-      - id: sync-workflow-pins-meta
-        if: ${{ !cancelled() && steps.sync-workflow-pins.outcome == 'success' }}
+      - if: >
+          !cancelled()
+          && steps.sync-workflow-pins.outcome == 'success'
+        name: Sync pull request
         env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-workflow-pins.outputs.diff_table_file }}
         run: >
           uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template sync-workflow-pins
-          --output "$GITHUB_OUTPUT"
-      - if: >
-          !cancelled()
-          && steps.sync-workflow-pins-meta.outcome == 'success'
-        name: Sync pull request
-        env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.sync-workflow-pins-meta.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.sync-workflow-pins-meta.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.sync-workflow-pins-meta.outputs.title }}
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch sync-workflow-pins
-          --label "🔗 dependencies"
-
+          pr-sync --template sync-workflow-pins
       # sync-tool-versions is deliberately absent: it rewrites repomatic's own
       # tool registry, so it lives in the upstream-only self-maintenance.yaml.
 
@@ -936,21 +733,9 @@ jobs:
             | xargs uv --no-progress run --frozen -- repomatic \
               run pyproject-fmt -- || rc=$?
           [ "$rc" -eq 0 ] || [ "$rc" -eq 123 ] || exit "$rc"
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template update-docs
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch update-docs
-          --label "📚 documentation"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template update-docs

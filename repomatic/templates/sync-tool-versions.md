@@ -3,6 +3,7 @@ args: [diff_table]
 title: Sync tool versions
 docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-tool-versions-sync-tool-versions
 footer: false
+labels: [🔗 dependencies]
 ---
 
 \$diff_table

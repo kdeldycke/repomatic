@@ -108,7 +108,7 @@ from .dep_sources import (
 )
 from .docs import update_docs as _update_docs
 from .frontmatter import split_frontmatter
-from .git_ops import commit_and_push_files, create_and_push_tag
+from .git_ops import commit_and_push_files, create_and_push_tag, current_branch
 from .github import token as _token_mod, unsubscribe as _unsub_mod
 from .github.actions import (
     AnnotationLevel,
@@ -116,6 +116,7 @@ from .github.actions import (
     emit_annotation,
     format_file_output,
     format_multiline_output,
+    get_github_event,
     read_file_output,
 )
 from .github.dev_release import (
@@ -134,6 +135,8 @@ from .github.pr_body import (
     render_title,
     template_args,
     template_docs_url,
+    template_draft,
+    template_labels,
 )
 from .github.release_sync import (
     render_sync_report as _render_sync_report,
@@ -4218,6 +4221,53 @@ def pr_body(
         msg = "--template and --template-file are mutually exclusive."
         raise UsageError(msg)
 
+    title_str, body, commit_msg_str = _render_pr_content(
+        prefix=prefix,
+        prefix_file=prefix_file,
+        template=template,
+        template_file=template_file,
+        template_args_cli=template_args_cli,
+        version=version,
+        part=part,
+        pr_ref=pr_ref,
+    )
+
+    if output_format == "github-actions":
+        parts = [format_multiline_output("body", body)]
+        if title_str:
+            parts.append(f"title={title_str}")
+        if commit_msg_str:
+            parts.append(f"commit_message={commit_msg_str}")
+        content = "\n".join(parts)
+    else:
+        content = body
+
+    log_output_target("PR body", output)
+
+    echo(content, file=prep_path(output))
+
+
+def _render_pr_content(
+    prefix: str = "",
+    prefix_file: Path | None = None,
+    template: str | None = None,
+    template_file: Path | None = None,
+    template_args_cli: tuple[str, ...] = (),
+    version: str | None = None,
+    part: str | None = None,
+    pr_ref: str | None = None,
+) -> tuple[str, str, str]:
+    """Render a pull request's title, body and commit message.
+
+    The rendering core shared by `pr-body` (which emits the three as step
+    outputs for external consumption) and `pr-sync` (which feeds them straight
+    to {func}`~repomatic.github.pr.upsert_pr`, skipping the `$GITHUB_OUTPUT`
+    round-trip and its 32 KiB step-output ceiling entirely).
+
+    :return: A `(title, body, commit_message)` tuple; title and commit message
+        are empty when no template supplies them.
+    :raises UsageError: When a template argument cannot be resolved.
+    """
     if prefix_file:
         prefix = prefix_file.read_text(encoding="utf-8")
 
@@ -4320,90 +4370,120 @@ def pr_body(
         md, docs_url=docs_url, docs_name=docs_name
     )
     body = build_pr_body(prefix, metadata_block, refresh_tip=generate_refresh_tip(md))
-
-    if output_format == "github-actions":
-        parts = [format_multiline_output("body", body)]
-        if title_str:
-            parts.append(f"title={title_str}")
-        if commit_msg_str:
-            parts.append(f"commit_message={commit_msg_str}")
-        content = "\n".join(parts)
-    else:
-        content = body
-
-    log_output_target("PR body", output)
-
-    echo(content, file=prep_path(output))
+    return title_str, body, commit_msg_str
 
 
 @repomatic.command(
     short_help="Create, refresh or retire an automation PR", section=_section_github
 )
 @option(
+    "--template",
+    type=Choice(get_template_names(), case_sensitive=False),
+    default=None,
+    help="Render title, body and commit message from a built-in template, "
+    "and derive the branch, labels and draft state from it: the branch "
+    "defaults to the template name, labels and draft to its frontmatter.",
+)
+@option(
+    "--template-file",
+    "template_file",
+    type=file_path(exists=True, readable=True, resolve_path=True),
+    default=None,
+    help="Use an external template file instead of --template, for "
+    "project-specific PRs. Same derivations, with the branch defaulting "
+    "to the file's stem.",
+)
+@option(
+    "--template-arg",
+    "template_args_cli",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="Pass an arbitrary key/value pair to the template. Repeat to "
+    "provide multiple.",
+)
+@option(
+    "--version",
+    "version",
+    default=None,
+    help="Version string passed to the template (e.g. 1.2.0).",
+)
+@option(
+    "--part",
+    default=None,
+    help="Version part passed to the bump-version template (e.g. minor).",
+)
+@option(
     "--branch",
-    required=True,
-    help="Head branch to create, update or retire. By convention the job ID.",
+    default=None,
+    help="Head branch to create, update or retire. By convention the job ID; "
+    "defaults to the template name when a template is given.",
 )
 @option(
     "--title",
     envvar="GHA_PR_TITLE",
-    required=True,
-    help="Pull-request title. "
+    default=None,
+    help="Pull-request title, when not using a template. "
     "Can also be set via the GHA_PR_TITLE environment variable.",
 )
 @option(
     "--body",
     envvar="GHA_PR_BODY",
-    required=True,
-    help="Rendered markdown body, as produced by `repomatic pr-body`. "
+    default=None,
+    help="Rendered markdown body, when not using a template. "
     "Can also be set via the GHA_PR_BODY environment variable.",
 )
 @option(
     "--commit-message",
     "commit_message",
     envvar="GHA_PR_COMMIT_MESSAGE",
-    required=True,
-    help="Message for the single commit the branch carries. "
+    default=None,
+    help="Commit message, when not using a template. "
     "Can also be set via the GHA_PR_COMMIT_MESSAGE environment variable.",
 )
 @option(
     "--base",
     default=None,
-    help="Base branch. Defaults to the currently checked-out branch.",
+    help="Base branch. Defaults to the currently checked-out branch, or to "
+    "the repository default branch when the checkout is detached in CI.",
 )
 @option(
     "--label",
     "labels",
     multiple=True,
-    help="Label to attach. Repeat to provide multiple. Best-effort: a label "
-    "GitHub refuses warns instead of failing the command.",
+    help="Label to attach, overriding the template's frontmatter labels. "
+    "Repeat to provide multiple. Best-effort: a label GitHub refuses "
+    "warns instead of failing the command.",
 )
 @option(
     "--assignee",
     "assignees",
     multiple=True,
-    envvar="GHA_PR_ASSIGNEE",
-    help="Assignee to attach. Repeat to provide multiple. Best-effort: "
-    "github-actions[bot] cannot be assigned and only warns. "
-    "Can also be set via the GHA_PR_ASSIGNEE environment variable, which "
-    "keeps `github.actor` out of a workflow's `run:` block.",
+    envvar=["GHA_PR_ASSIGNEE", "GITHUB_ACTOR"],
+    help="Assignee to attach. Repeat to provide multiple. Defaults to the "
+    "workflow actor via the ambient GITHUB_ACTOR variable. Best-effort: "
+    "github-actions[bot] cannot be assigned and only warns.",
 )
 @option(
     "--draft/--no-draft",
-    default=False,
-    help="Hold the pull request in draft. Re-applied on every update, not "
-    "just at creation, so a PR marked ready-for-review goes back to draft "
-    "on the next sync.",
+    default=None,
+    help="Hold the pull request in draft, overriding the template's "
+    "frontmatter. Re-applied on every update, not just at creation, so a "
+    "PR marked ready-for-review goes back to draft on the next sync.",
 )
 def pr_sync(
-    branch: str,
-    title: str,
-    body: str,
-    commit_message: str,
+    template: str | None,
+    template_file: Path | None,
+    template_args_cli: tuple[str, ...],
+    version: str | None,
+    part: str | None,
+    branch: str | None,
+    title: str | None,
+    body: str | None,
+    commit_message: str | None,
     base: str | None,
     labels: tuple[str, ...],
     assignees: tuple[str, ...],
-    draft: bool,
+    draft: bool | None,
 ) -> None:
     """Converge a branch and its PR onto whatever the working tree holds.
 
@@ -4414,14 +4494,67 @@ def pr_sync(
     Idempotent: re-running with an unchanged tree performs no write, so a
     workflow re-run never churns the PR or re-triggers its checks.
 
-    Works from a detached HEAD as long as --base names the branch to open
-    against, and carries through any commits the job made itself.
+    With --template, the title, body and commit message are rendered
+    internally and the branch, labels and draft state come from the template
+    and its frontmatter, so the whole operation is one flag. Without one,
+    pass --title, --body and --commit-message explicitly.
+
+    Works from a detached HEAD: the base falls back to the repository default
+    branch read from the CI event payload, and any commits the job made
+    itself are carried through.
 
     \b
     Examples:
-        repomatic pr-sync --branch format-python --label "🤖 ci"
-        repomatic pr-sync --branch prepare-release --base main --draft
+        repomatic pr-sync --template format-python
+        repomatic pr-sync --template bump-version --part minor \\
+            --branch minor-version-increment
+        repomatic pr-sync --branch my-fix --title "Fix" --body "…" \\
+            --commit-message "Fix the thing"
     """
+    if template and template_file:
+        msg = "--template and --template-file are mutually exclusive."
+        raise UsageError(msg)
+    template_ref: str | Path | None = template or template_file
+
+    if template_ref:
+        if title or body or commit_message:
+            msg = (
+                "--title, --body and --commit-message are rendered from the "
+                "template; pass either a template or the explicit trio, not "
+                "both."
+            )
+            raise UsageError(msg)
+        title, body, commit_message = _render_pr_content(
+            template=template,
+            template_file=template_file,
+            template_args_cli=template_args_cli,
+            version=version,
+            part=part,
+        )
+    elif not (title and body and commit_message):
+        msg = "Without --template, --title, --body and --commit-message are required."
+        raise UsageError(msg)
+
+    if branch is None:
+        if template:
+            branch = template
+        elif template_file:
+            branch = template_file.name.removesuffix(".noformat").removesuffix(".md")
+        else:
+            msg = "Without --template, --branch is required."
+            raise UsageError(msg)
+
+    if not labels and template_ref:
+        labels = tuple(template_labels(template_ref))
+    if draft is None:
+        draft = template_draft(template_ref) if template_ref else False
+
+    # A checkout pinned to a raw SHA has no branch to infer the base from; in
+    # CI the event payload knows the repository default branch, which is what
+    # every automation PR here opens against.
+    if base is None and current_branch() is None:
+        base = (get_github_event().get("repository") or {}).get("default_branch")
+
     result = upsert_pr(
         branch=branch,
         title=title,

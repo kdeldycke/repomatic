@@ -984,20 +984,9 @@ jobs:
       - name: Generate graph
         # Package name and output path are auto-detected from pyproject.toml.
         run: uv --no-progress run --frozen -- repomatic update-dep-graph
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template update-dep-graph
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch update-dep-graph
-          --label "📚 documentation"
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template update-dep-graph

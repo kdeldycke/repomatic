@@ -2,6 +2,7 @@
 title: Sync repomatic-managed files
 docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-repomatic-sync-repomatic
 footer: false
+labels: [🤖 ci]
 ---
 
 ## ⚙️ Configuration

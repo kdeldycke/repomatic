@@ -37,7 +37,7 @@ from repomatic import dep_sources
 from repomatic.cli import repomatic
 from repomatic.config import Config
 from repomatic.dep_report import HeldBackPackage
-from repomatic.github.pr_body import get_template_names
+from repomatic.github.pr_body import get_template_names, template_labels
 from repomatic.init_project import get_data_content
 from repomatic.pypi import PyPIRelease
 from repomatic.registry import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
@@ -275,32 +275,40 @@ def _host_job_steps(op: SyncOperation) -> list[dict]:
     return steps
 
 
-_PR_SYNC_BRANCH_RE = re.compile(r"--branch (?P<branch>\S+)")
-_PR_SYNC_LABEL_RE = re.compile(r'--label "(?P<label>[^"]+)"')
+_PR_SYNC_TEMPLATE_RE = re.compile(r"--template (?P<template>\S+)")
 
 
 def _pr_steps(steps: list[dict]) -> list[dict]:
-    """Return the steps that open, refresh or retire a pull request.
-
-    Reads the `repomatic pr-sync` invocation rather than a
-    `peter-evans/create-pull-request` `with:` block: every operation in the
-    registry runs on the ported command. The three jobs still on the action
-    (`fix-changelog`, `bump-version`, `prepare-release`) host no registered
-    sync operation, so none of them reaches this helper.
-    """
+    """Return the steps that open, refresh or retire a pull request."""
     return [step for step in steps if "repomatic pr-sync" in step.get("run", "")]
 
 
+def _pr_template(step: dict) -> str:
+    """Return the template a `pr-sync` step renders."""
+    match = _PR_SYNC_TEMPLATE_RE.search(step["run"])
+    assert match, f"no --template in {step['run']!r}"
+    return match.group("template")
+
+
 def _pr_branch(step: dict) -> str:
-    """Return the head branch a `pr-sync` step targets."""
-    match = _PR_SYNC_BRANCH_RE.search(step["run"])
-    assert match, f"no --branch in {step['run']!r}"
-    return match.group("branch")
+    """Return the head branch a `pr-sync` step targets.
+
+    Mirrors the CLI's resolution: an explicit `--branch` wins, else the branch
+    defaults to the template name.
+    """
+    match = re.search(r"--branch (?P<branch>\S+)", step["run"])
+    return match.group("branch") if match else _pr_template(step)
 
 
 def _pr_labels(step: dict) -> set[str]:
-    """Return the labels a `pr-sync` step attaches."""
-    return set(_PR_SYNC_LABEL_RE.findall(step["run"]))
+    """Return the labels a `pr-sync` step's pull request carries.
+
+    Labels live in the template's frontmatter now, so an explicit `--label`
+    override wins and the template's declaration is the default, exactly as
+    the CLI resolves them.
+    """
+    explicit = set(re.findall(r'--label "(?P<label>[^"]+)"', step["run"]))
+    return explicit or set(template_labels(_pr_template(step)))
 
 
 def test_consolidated_job_covers_every_operation() -> None:

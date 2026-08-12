@@ -2,6 +2,7 @@
 title: Sync `.gitignore`
 docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-gitignore-sync-gitignore
 footer: false
+labels: [🤖 ci]
 ---
 
 ## ⚙️ Configuration

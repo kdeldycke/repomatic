@@ -3,6 +3,8 @@ args: [version, part]
 title: '[changelog] Bump $part version to `v$version`'
 docs: https://kdeldycke.github.io/repomatic/workflows.html#bump-version-bump-version
 footer: false
+labels: [🆙 changelog]
+draft: true
 ---
 
 Ready to be merged into `main` branch, at the discretion of the maintainers, to bump the \$part part of the version number. Version bumps are scheduled daily and also triggered after releases. See the [`bump-version` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-changelog-yaml-jobs) for details.

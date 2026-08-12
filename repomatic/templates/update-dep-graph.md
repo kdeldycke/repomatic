@@ -2,6 +2,7 @@
 title: Regenerate dependency graph
 docs: https://kdeldycke.github.io/repomatic/workflows.html#update-dependency-graph-update-dep-graph
 footer: false
+labels: [📚 documentation]
 ---
 
 ## ⚙️ Configuration

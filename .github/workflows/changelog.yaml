@@ -118,29 +118,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv --no-progress run --frozen -- repomatic lint-changelog --fix
-      - id: pr-metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template fix-changelog
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
-        # `--base main` is required: this job checks out a detached HEAD at
-        # `github.sha`, so there is no branch to infer the base from.
+        # This job checks out a detached HEAD at `github.sha`; pr-sync falls
+        # back to the default branch from the event payload as its base.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch fix-changelog
-          --base main
-          --label "🆙 changelog"
-
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template fix-changelog
   bump-version:
     name: 🆙 Bump versions
     needs:
@@ -190,34 +177,22 @@ jobs:
         # `sync-uv-lock` job's responsibility, in their own reviewable PR.
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
         run: uv --no-progress lock
-      - id: pr-metadata
-        if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template bump-version
-          --part "${{ matrix.part }}"
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
-        # Detached HEAD at `github.sha`, hence the explicit `--base main`. The PR
-        # stays a draft on every sync, not just at creation: its content is
-        # regenerated underneath it and must never look ready to merge.
+        # Detached HEAD at `github.sha`; the base falls back to the default
+        # branch from the event payload. The PR stays a draft on every sync
+        # (via the template's frontmatter), not just at creation: its content
+        # is regenerated underneath it and must never look ready to merge.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
         env:
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           PR_BRANCH: ${{ matrix.part }}-version-increment
+          PR_PART: ${{ matrix.part }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch "$PR_BRANCH"
-          --base main
-          --draft
-          --label "🆙 changelog"
+          uv --no-progress run --frozen -- repomatic
+          pr-sync
+          --template bump-version --part "$PR_PART" --branch "$PR_BRANCH"
       - name: Close stale ${{ matrix.part }} bump PR
         # Runs on the inverse path: when a bump is no longer allowed, reconcile
         # any orphan PR left by an earlier run that raced a competing merge.
@@ -309,18 +284,6 @@ jobs:
           git commit --all --message="[changelog] Post-release bump
           v${CURRENT_VERSION} → v$(uv --no-progress run --frozen -- repomatic
           run bump-my-version -- show current_version)"
-      - id: pr-metadata
-        env:
-          CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
-          # Authenticated read so the checklist can link the draft dev pre-release
-          # (drafts are visible only to maintainers) and resolve the previous tag.
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template prepare-release
-          --version "${CURRENT_VERSION}"
-          --output "$GITHUB_OUTPUT"
       - name: Sync pull request
         # The freeze and unfreeze commits above are already committed, so this
         # step carries them through as two commits rather than squashing them:
@@ -328,16 +291,12 @@ jobs:
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
         env:
+          # Authenticated read so the checklist can link the draft dev pre-release
+          # (drafts are visible only to maintainers) and resolve the previous tag.
           # We need custom PAT with workflows permission to hard-code version numbers in URLs in
           # .github/workflows/*.yaml files.
-          GHA_PR_ASSIGNEE: ${{ github.actor }}
-          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
-          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
-          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic pr-sync
-          --branch prepare-release
-          --base main
-          --draft
-          --label "🆙 changelog"
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template prepare-release --version "$CURRENT_VERSION"

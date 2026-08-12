@@ -2,6 +2,7 @@
 title: Format JSON
 docs: https://kdeldycke.github.io/repomatic/workflows.html#format-json-format-json
 footer: false
+labels: [🤖 ci]
 ---
 
 > [!TIP]

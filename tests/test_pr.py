@@ -25,6 +25,7 @@ import pytest
 
 from repomatic.github.pr import (
     PrOperation,
+    PrSyncResult,
     _needs_push,
     _parse_pr_number,
     close_open_prs_on_branch,
@@ -413,3 +414,129 @@ def test_upsert_pr_leaves_an_already_draft_pr_alone(git, gh):
     ]
     upsert_pr(BRANCH, "Title", "Body", "Message", base="main", draft=True)
     assert "pr ready" not in verbs(gh)
+
+
+# --- pr-sync CLI: template-driven defaults ---
+
+
+@pytest.fixture
+def cli_upsert(monkeypatch):
+    """Capture what the `pr-sync` command hands to `upsert_pr`."""
+    captured = {}
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return PrSyncResult(PrOperation.NONE, kwargs["branch"])
+
+    monkeypatch.setattr("repomatic.cli.upsert_pr", spy)
+    monkeypatch.setattr(
+        "repomatic.cli._render_pr_content",
+        lambda **kwargs: ("Rendered title", "Rendered body", "Rendered message"),
+    )
+    return captured
+
+
+def test_pr_sync_cli_resolves_everything_from_the_template(cli_upsert, monkeypatch):
+    """One flag yields branch, labels, draft, title, body and commit message."""
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    monkeypatch.setattr("repomatic.cli.current_branch", lambda: "main")
+    result = CliRunner().invoke(
+        repomatic, ["pr-sync", "--template", "format-python"], catch_exceptions=False
+    )
+    assert result.exit_code == 0
+    assert cli_upsert["branch"] == "format-python"
+    assert cli_upsert["labels"] == ("🤖 ci",)
+    assert cli_upsert["draft"] is False
+    assert cli_upsert["title"] == "Rendered title"
+    assert cli_upsert["commit_message"] == "Rendered message"
+
+
+def test_pr_sync_cli_reads_draft_from_frontmatter(cli_upsert, monkeypatch):
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    monkeypatch.setattr("repomatic.cli.current_branch", lambda: "main")
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "pr-sync",
+            "--template",
+            "bump-version",
+            "--branch",
+            "minor-version-increment",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert cli_upsert["branch"] == "minor-version-increment"
+    assert cli_upsert["labels"] == ("🆙 changelog",)
+    assert cli_upsert["draft"] is True
+
+
+def test_pr_sync_cli_falls_back_to_the_event_default_branch(
+    cli_upsert, monkeypatch, tmp_path
+):
+    """A detached checkout takes its base from the CI event payload."""
+    import json as json_mod
+
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    monkeypatch.setattr("repomatic.cli.current_branch", lambda: None)
+    event = tmp_path / "event.json"
+    event.write_text(
+        json_mod.dumps({"repository": {"default_branch": "trunk"}}), encoding="UTF-8"
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    result = CliRunner().invoke(
+        repomatic, ["pr-sync", "--template", "fix-changelog"], catch_exceptions=False
+    )
+    assert result.exit_code == 0
+    assert cli_upsert["base"] == "trunk"
+
+
+def test_pr_sync_cli_explicit_labels_override_frontmatter(cli_upsert, monkeypatch):
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    monkeypatch.setattr("repomatic.cli.current_branch", lambda: "main")
+    result = CliRunner().invoke(
+        repomatic,
+        ["pr-sync", "--template", "format-python", "--label", "🍉 special"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert cli_upsert["labels"] == ("🍉 special",)
+
+
+@pytest.mark.parametrize(
+    ("args", "error"),
+    (
+        # A template renders the trio; passing both is ambiguous.
+        (
+            ["--template", "format-python", "--title", "T"],
+            "rendered from the template",
+        ),
+        # Without a template the trio is mandatory.
+        (["--title", "T", "--body", "B"], "--commit-message are required"),
+        # And so is the branch.
+        (
+            ["--title", "T", "--body", "B", "--commit-message", "M"],
+            "--branch is required",
+        ),
+    ),
+)
+def test_pr_sync_cli_validates_its_inputs(cli_upsert, args, error):
+    from click.testing import CliRunner
+
+    from repomatic.cli import repomatic
+
+    result = CliRunner().invoke(repomatic, ["pr-sync", *args])
+    assert result.exit_code != 0
+    assert error in result.output

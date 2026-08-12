@@ -2,6 +2,7 @@
 title: Fix changelog
 docs: https://kdeldycke.github.io/repomatic/workflows.html#fix-changelog-fix-changelog
 footer: false
+labels: [🆙 changelog]
 ---
 
 ## ⚙️ Configuration

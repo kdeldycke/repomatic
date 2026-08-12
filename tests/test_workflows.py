@@ -35,6 +35,7 @@ from repomatic.git_ops import (
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
 )
+from repomatic.github.pr_body import template_labels
 from repomatic.github.workflow_sync import cooldown_env_block, workflow_triggers
 from repomatic.lint_repo import KNOWN_RUNNERS
 from repomatic.plugin import ARCHIVE_NAME
@@ -735,7 +736,9 @@ def test_version_bump_commit_in_changelog_workflow() -> None:
     version_increments = jobs.get("bump-version", {})
     steps = version_increments.get("steps", [])
 
-    # Look for the pr-sync step, which carries the commit message in its env.
+    # The commit message comes from the bump-version template's title, which
+    # `test_changelog_prefix_is_the_machinery_invariant` holds to the
+    # `[changelog]` prefix; here it is enough that the step is template-driven.
     create_pr_step = None
     for step in steps:
         if "repomatic pr-sync" in (step.get("run") or ""):
@@ -745,29 +748,21 @@ def test_version_bump_commit_in_changelog_workflow() -> None:
     assert create_pr_step is not None, (
         "changelog.yaml bump-version job must have a pr-sync step"
     )
-
-    commit_message = (create_pr_step.get("env") or {}).get("GHA_PR_COMMIT_MESSAGE", "")
-    # The commit message is now sourced from the pr-metadata step output.
-    assert "pr-metadata.outputs.commit_message" in commit_message, (
-        "bump-version commit message must reference pr-metadata output. "
-        f"Found: {commit_message}"
+    assert "--template bump-version" in create_pr_step["run"], (
+        "bump-version must render its commit message from the bump-version "
+        f"template. Found: {create_pr_step['run']!r}"
     )
 
 
-PR_SYNC_ENV_KEYS = frozenset((
-    "GHA_PR_ASSIGNEE",
-    "GHA_PR_BODY",
-    "GHA_PR_COMMIT_MESSAGE",
-    "GHA_PR_TITLE",
-    "GH_TOKEN",
-))
+PR_SYNC_ENV_KEYS = frozenset(("GH_TOKEN",))
 """Values every `pr-sync` step passes through `env:` rather than its `run:` line.
 
-Keeping `github.actor` and the rendered body out of the shell command is what
-stops a `run:` block from interpolating attacker-controllable text (zizmor's
-`template-injection` audit); the token is there because `gh` reads it from the
-environment. A step may declare more (`bump-version` adds `PR_BRANCH` to keep
-`matrix.part` out of its command line), never fewer.
+The token is here because `gh` reads it from the environment and secrets are
+not ambient. Everything else the step used to relay (title, body, commit
+message, assignee) is now resolved inside `pr-sync` itself: rendered from the
+template, or read from ambient variables like `GITHUB_ACTOR`. A step may
+declare more (`bump-version` adds `PR_BRANCH`/`PR_PART` to keep `matrix.part`
+out of its command line, the dependency steps a diff-table file), never fewer.
 """
 
 
@@ -783,16 +778,20 @@ def _iter_steps() -> Iterator[tuple[str, str, dict[str, Any]]]:
 def pr_sync_branch(step: dict[str, Any]) -> str:
     """Return the head branch a `pr-sync` step targets.
 
-    Resolves the shell indirection `bump-version` uses to keep `matrix.part`
-    out of its command line, so callers see the branch either way.
+    Mirrors the CLI's own resolution: an explicit `--branch` wins (resolving
+    the shell indirection `bump-version` uses to keep `matrix.part` out of its
+    command line), and otherwise the branch defaults to the template name.
     """
     match = re.search(r"--branch \"?(\S+?)\"?(?:\s|$)", step["run"])
-    assert match, f"no --branch in {step['run']!r}"
-    branch = match.group(1)
-    if branch.startswith("$"):
-        env = step.get("env") or {}
-        branch = env[branch.lstrip("${").rstrip("}")]
-    return branch
+    if match:
+        branch = match.group(1)
+        if branch.startswith("$"):
+            env = step.get("env") or {}
+            branch = env[branch.lstrip("${").rstrip("}")]
+        return branch
+    template = re.search(r"--template (\S+)", step["run"])
+    assert template, f"neither --branch nor --template in {step['run']!r}"
+    return template.group(1)
 
 
 def test_pull_requests_are_opened_by_the_cli_not_an_action() -> None:
@@ -836,30 +835,41 @@ def test_pr_sync_steps_pass_everything_through_env() -> None:
         )
 
 
-def test_detached_head_pr_sync_steps_name_a_base() -> None:
-    """A job checking out a raw SHA must tell `pr-sync` what to open against.
+def test_pr_sync_templates_declare_their_labels() -> None:
+    """Every template a `pr-sync` step renders carries frontmatter labels.
 
-    `--base` is inferred from the checked-out branch, and a checkout pinned to
-    `github.sha` is detached, so omitting it turns into a runtime error rather
-    than a wrong pull request. Catching it here keeps that error out of CI.
+    Labels moved from workflow YAML into template frontmatter; a template
+    without them opens an unlabelled pull request, silently, so the gap is
+    caught here by template name instead.
     """
-    for path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
-        for job_id, job in (load_workflow(path.name).get("jobs") or {}).items():
-            steps = job.get("steps") or []
-            detached = any(
-                "github.sha" in str((s.get("with") or {}).get("ref", ""))
-                for s in steps
-                if s.get("uses", "").startswith("actions/checkout@")
-            )
-            if not detached:
-                continue
-            for step in steps:
-                if "repomatic pr-sync" not in (step.get("run") or ""):
-                    continue
-                assert "--base " in step["run"], (
-                    f"{path.name}::{job_id} checks out a detached HEAD but its "
-                    "pr-sync step names no --base"
-                )
+    for workflow, job, step in _iter_steps():
+        run = step.get("run") or ""
+        if "repomatic pr-sync" not in run:
+            continue
+        template = re.search(r"--template (\S+)", run)
+        assert template, f"{workflow}::{job} pr-sync step names no template"
+        assert template_labels(template.group(1)), (
+            f"template {template.group(1)!r} (used by {workflow}::{job}) "
+            "declares no labels in its frontmatter"
+        )
+
+
+def test_pr_sync_steps_are_template_driven() -> None:
+    """Every `pr-sync` step names a template rather than relaying rendered text.
+
+    The template is what lets the command resolve title, body, commit message,
+    branch, labels and draft state on its own; a step passing `--title`/`--body`
+    explicitly would resurrect the `$GITHUB_OUTPUT` relay and its step-output
+    size ceiling.
+    """
+    for workflow, job, step in _iter_steps():
+        run = step.get("run") or ""
+        if "repomatic pr-sync" not in run:
+            continue
+        where = f"{workflow}::{job}"
+        assert "--template " in run, f"{where} pr-sync step names no template"
+        for flag in ("--title", "--body", "--commit-message"):
+            assert flag not in run, f"{where} passes {flag} alongside a template"
 
 
 def test_version_bumps_relock_before_committing() -> None:

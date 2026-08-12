@@ -2,6 +2,7 @@
 title: Format Shell
 docs: https://kdeldycke.github.io/repomatic/workflows.html#format-shell-format-shell
 footer: false
+labels: [🤖 ci]
 ---
 
 > [!TIP]

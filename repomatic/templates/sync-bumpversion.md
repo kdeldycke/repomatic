@@ -2,6 +2,7 @@
 title: Sync `bump-my-version` config
 docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-bumpversion-config-sync-bumpversion
 footer: false
+labels: [🤖 ci]
 ---
 
 ## ⚙️ Configuration

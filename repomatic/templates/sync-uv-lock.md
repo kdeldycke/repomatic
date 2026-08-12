@@ -3,6 +3,7 @@ args: [diff_table]
 title: Sync `uv.lock`
 docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-uv-lock-updater
 footer: false
+labels: [🔗 dependencies]
 ---
 
 \$diff_table

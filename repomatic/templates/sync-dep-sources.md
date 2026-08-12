@@ -3,6 +3,7 @@ args: [diff_table]
 title: Sync dependency sources
 docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-dep-sources-updater
 footer: false
+labels: [🔗 dependencies]
 ---
 
 \$diff_table

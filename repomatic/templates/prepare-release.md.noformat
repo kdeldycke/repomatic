@@ -3,6 +3,8 @@ args: [changes_review, dev_release_review, release_readiness, version]
 title: Release `v$version`
 docs: https://kdeldycke.github.io/repomatic/workflows.html#prepare-release-prepare-release
 footer: false
+labels: [🆙 changelog]
+draft: true
 ---
 
 ${release_readiness}See the [`prepare-release` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-changelog-yaml-jobs) for details. The [merge event will trigger](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-release-yaml-jobs) the:

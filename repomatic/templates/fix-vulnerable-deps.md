@@ -3,6 +3,7 @@ args: [diff_table]
 title: Fix vulnerable dependencies
 docs: https://kdeldycke.github.io/repomatic/workflows.html#fix-vulnerable-dependencies-fix-vulnerable-deps
 footer: false
+labels: [🔗 dependencies]
 ---
 
 \$diff_table

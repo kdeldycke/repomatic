@@ -3,6 +3,7 @@ args: [diff_table]
 title: Sync action pins
 docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-action-pins-updater
 footer: false
+labels: [🔗 dependencies]
 ---
 
 \$diff_table
