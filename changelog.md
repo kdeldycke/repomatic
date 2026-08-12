@@ -17,6 +17,9 @@
 
 ## [`7.10.0` (2026-08-12)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...v7.10.0)
 
+> [!NOTE]
+> `7.10.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.10.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.10.0).
+
 - **Breaking:** the `update-dep-graph` job moved from `autofix.yaml` into the release engine, its only firing moment being a release push. A required check or `needs:` edge naming it under Autofix must follow.
 - **Breaking:** manual version-bump commits now read `` [changelog] Bump minor version to `vX.Y.0` ``: every version-machinery commit carries the `[changelog] ` prefix, and anything matching the old unprefixed titles must follow.
 - **Breaking:** the default test matrix moved to `ubuntu-26.04-arm` and `ubuntu-26.04`, retiring `ubuntu-slim`: every job now runs on a test-matrix runner. Pin the old images back with `test-matrix.replace.os = { "ubuntu-26.04-arm" = "ubuntu-24.04-arm" }`.
