@@ -962,27 +962,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "be5850727c7ef88516bf0495d345b50bf0e3507c361e912bf24f7329930ea22c",
+        ): "27490d47af66420788b634afb48db23b588f272c8a284ba3daf706a5faa640ab",
         (
             LINUX,
             X86_64,
-        ): "3cc9a0c3fa26ac26a89e8a3b203c010c9ae88e36f69a2679e79981f267ce9d57",
+        ): "7b5045d6d34f055df8ffe1bf3077164e6f6a24c45a41497d628a5e86d0e12fe7",
         (
             MACOS,
             AARCH64,
-        ): "5dba813a5ee1bd2749b9f3ee020e1f42d3fbd8fda7ed1d5d4df23fdb87e76579",
+        ): "f71fe80909d2f70f1e051320f5ba9dfd553bc5ef3bacef5cdee1b00ee96a285c",
         (
             MACOS,
             X86_64,
-        ): "02f773b007e5ebe6b40f35e8999bd9c24eaa8dd5231dcab610bc1a17ef17b1b6",
+        ): "887431b79e45758e05d94a89111af72b28e5d6545c92480ecac9247d8bacb321",
         (
             WINDOWS,
             AARCH64,
-        ): "2796c61fd757fe2ef760d645b4047746aa40ad543cd712672e6558ce4ff60b88",
+        ): "655cc1f2ecf3719f79c9def7f2d824bb2a451fcd1d738d43468b12dd66620fd5",
         (
             WINDOWS,
             X86_64,
-        ): "47b7c8f59181870782dbeb26bfa45a51229a277ffd458f5cf852dc96dfd3999c",
+        ): "62adea0ea523f04cc5c074b2bb00e748b97252023aede03196e1bf4aacf80a9c",
     },
     "gh": {
         (
@@ -1153,7 +1153,7 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.5.6",
+    "biome": "2.5.7",
     "gh": "2.97.0",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
@@ -1268,7 +1268,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "biome": ToolSpec(
         name="biome",
         display_name="Biome",
-        version="2.5.6",
+        version="2.5.7",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
