@@ -41,14 +41,15 @@ the git side, {mod}`~repomatic.github.gh` the authenticated `gh` side, and
 the decision between them lived in YAML.
 ```
 
-```{caution} Working-tree changes only
+```{note} What a job may hand this
 
-This covers the case where a job's output sits in the working tree and the base
-is the checked-out branch. It does **not** yet cover a detached `HEAD`, an
-explicit base the checkout is not sitting on, commits the job made itself, or
-keeping a pull request in draft across updates. Those jobs (`fix-changelog`,
-`bump-version`, `prepare-release`) still call the action, and
-`tests/test_workflows.py` holds the split in place.
+Any mix of the two ways a job produces output: uncommitted working-tree edits
+(a formatter) and commits it made itself (a release freeze). Both survive, the
+second as separate commits. The checkout may sit on the base branch or be
+detached at a commit, as long as `base` names the branch to open against, and
+the base may have moved on since — the carried commits are replayed onto its
+fresh tip. Nothing here is left for `peter-evans/create-pull-request`, and
+`tests/test_workflows.py` fails if a workflow reaches for it again.
 ```
 """
 
@@ -126,7 +127,7 @@ def list_open_prs_by_branch(branch: str) -> list[dict[str, Any]]:
     """List open pull requests whose head branch matches `branch`.
 
     :param branch: The head branch name to filter on.
-    :return: List of PR dicts with `number` and `title`. Empty if no
+    :return: List of PR dicts with `number`, `title` and `isDraft`. Empty if no
         open PR exists on `branch`.
     """
     output = run_gh_command([
@@ -137,7 +138,7 @@ def list_open_prs_by_branch(branch: str) -> list[dict[str, Any]]:
         "--head",
         branch,
         "--json",
-        "number,title",
+        "number,title,isDraft",
     ])
     prs: list[dict[str, Any]] = json.loads(output)
     return prs
@@ -230,7 +231,9 @@ def _apply_pr_attributes(
         logging.warning(f"Could not set labels/assignees on PR #{number}: {error}")
 
 
-def _needs_push(candidate_sha: str, remote_sha: str, base_sha: str) -> bool:
+def _needs_push(
+    candidate_sha: str, remote_sha: str, base_sha: str, expected_commits: int
+) -> bool:
     """Decide whether the remote branch has to be overwritten.
 
     Two independent reasons, ported from the four-condition check in the
@@ -242,21 +245,43 @@ def _needs_push(candidate_sha: str, remote_sha: str, base_sha: str) -> bool:
     The tree comparison is what normally answers this, and it also catches a
     base that advanced: rebuilding on a newer base yields a different tree even
     when the job's own edits are byte-identical. The commit count catches the
-    structural cases a tree comparison cannot see, where the branch holds
-    something other than exactly one bot commit on top of the base.
+    structural cases a tree comparison cannot see, where the branch holds a
+    different number of commits than the candidate does — a human's fixup
+    pushed onto a bot branch, or a release freeze that grew a commit.
 
-    :param candidate_sha: The commit just built from the working tree.
+    :param candidate_sha: The commit just built for this branch.
     :param remote_sha: The current tip of the remote branch.
     :param base_sha: The commit both are measured against.
+    :param expected_commits: How many commits the candidate carries over base.
     """
     if git_ops.tree_sha(candidate_sha) != git_ops.tree_sha(remote_sha):
         logging.info("Remote branch carries a different tree, updating.")
         return True
-    if git_ops.count_commits_between(base_sha, remote_sha) != 1:
-        logging.info("Remote branch is not a single commit on base, updating.")
+    if git_ops.count_commits_between(base_sha, remote_sha) != expected_commits:
+        logging.info(
+            f"Remote branch is not {expected_commits} commit(s) on base, updating."
+        )
         return True
     logging.info("Remote branch already carries this exact change.")
     return False
+
+
+def _set_draft(number: int, draft: bool) -> None:
+    """Force a pull request's draft state, tolerating a refusal.
+
+    Called on every update, not just on creation, which is the `always-true`
+    semantics of the action's `draft` input: a bot branch that a maintainer
+    marked ready-for-review is put back into draft on the next sync, so a
+    version-bump PR cannot drift into looking mergeable while its content is
+    still being regenerated underneath it.
+    """
+    args = ["pr", "ready", str(number)]
+    if draft:
+        args.append("--undo")
+    try:
+        run_gh_command(args)
+    except RuntimeError as error:
+        logging.warning(f"Could not set draft={draft} on PR #{number}: {error}")
 
 
 def upsert_pr(
@@ -267,30 +292,43 @@ def upsert_pr(
     base: str | None = None,
     labels: Sequence[str] = (),
     assignees: Sequence[str] = (),
+    draft: bool = False,
     remote: str = "origin",
 ) -> PrSyncResult:
-    """Converge *branch* and its pull request onto the working tree's contents.
+    """Converge *branch* and its pull request onto what the checkout now holds.
 
-    Idempotent by construction: a second call with an unchanged working tree
+    Idempotent by construction: a second call over an unchanged checkout
     performs no write at all and reports {attr}`PrOperation.NONE`. The four
     outcomes are those of {class}`PrOperation`.
 
-    The base is the currently checked-out branch, and its tip is read once at
-    the top and used throughout, so a base that advances mid-call cannot
-    produce a half-rebased branch. The candidate commit is built on a throwaway
-    local branch and the base branch is restored before returning, which
-    matters to `autofix.yaml`'s `sync-deps` job: it opens four pull requests in
-    sequence from one checkout, and each needs to start from a clean tree.
+    The candidate branch is whatever this checkout has that the base does not:
+    commits the job made itself are carried through as separate commits, and
+    any uncommitted working-tree change becomes one more commit on top, so a
+    job that commits (a release freeze) and a job that only edits files (a
+    formatter) both work without saying which they are. The base commit is read
+    once from the remote, so a detached `HEAD` is fine as long as *base* names
+    the branch to open against. When the base has moved past this checkout, the
+    carried commits are replayed onto its fresh tip.
+
+    All of that happens on a throwaway local branch, and the original checkout
+    is restored before returning. That matters to `autofix.yaml`'s `sync-deps`
+    job, which opens four pull requests in sequence from one checkout and needs
+    each to start from a clean tree.
 
     :param branch: Head branch to create, update or retire.
     :param title: Pull-request title.
     :param body: Rendered markdown body, trimmed here if oversized.
-    :param commit_message: Message for the single commit the branch carries.
-    :param base: Base branch. Defaults to the checked-out branch.
+    :param commit_message: Message for the commit capturing uncommitted
+        changes. Unused when the job committed its own work.
+    :param base: Base branch. Defaults to the checked-out branch, and is
+        required when `HEAD` is detached.
     :param labels: Labels to attach, best-effort.
     :param assignees: Assignees to attach, best-effort.
+    :param draft: Hold the pull request in draft, on every update and not just
+        at creation. See {func}`_set_draft`.
     :param remote: Remote to publish to.
-    :raises RuntimeError: When `HEAD` is detached and no *base* is given.
+    :raises RuntimeError: When `HEAD` is detached and no *base* is given, or
+        when *base* does not exist on *remote*.
     """
     base_branch = base or git_ops.current_branch()
     if not base_branch:
@@ -299,14 +337,47 @@ def upsert_pr(
             "explicitly, or check out a branch before syncing a pull request."
         )
         raise RuntimeError(msg)
-    base_sha = git_ops.head_sha()
-
+    base_sha = git_ops.fetch_remote_branch(base_branch, remote=remote)
+    if base_sha is None:
+        msg = f"Base branch {base_branch!r} does not exist on {remote}."
+        raise RuntimeError(msg)
+    restore_ref = git_ops.current_branch() or git_ops.head_sha()
     remote_sha = git_ops.fetch_remote_branch(branch, remote=remote)
 
-    if not git_ops.stage_all():
-        # Nothing in the working tree, so the branch has nothing left to say.
-        # This is the path a skipped action step could never reach, and the
-        # reason a stale bump PR used to need its own reconciler command.
+    temp_branch = f"{TEMP_BRANCH_PREFIX}{uuid4().hex[:12]}"
+    carried = 0
+    pushed = False
+    try:
+        git_ops.create_branch(temp_branch)
+        if git_ops.stage_all():
+            git_ops.commit_staged(commit_message)
+        carried = git_ops.count_commits_between(base_sha, temp_branch)
+
+        if carried and git_ops.is_ancestor(base_sha, temp_branch) is False:
+            # The base moved past this checkout. Replay onto its fresh tip so
+            # the pull request shows only what this job produced.
+            fork_point = git_ops.merge_base(base_sha, temp_branch)
+            if fork_point and git_ops.rebase_onto(base_sha, fork_point, temp_branch):
+                carried = git_ops.count_commits_between(base_sha, temp_branch)
+
+        if carried:
+            candidate_sha = git_ops.head_sha()
+            if remote_sha is None or _needs_push(
+                candidate_sha, remote_sha, base_sha, carried
+            ):
+                git_ops.force_push_branch(
+                    temp_branch, branch, expected_sha=remote_sha, remote=remote
+                )
+                pushed = True
+    finally:
+        # Leave the checkout exactly as it was found, whatever happened above.
+        git_ops.checkout(restore_ref)
+        git_ops.delete_branch(temp_branch)
+
+    if not carried:
+        # Nothing to say any more, so the branch and its pull request go. This
+        # is the path a skipped action step could never reach, and the reason a
+        # stale bump PR used to need its own reconciler command.
         if remote_sha is None:
             logging.info(f"No changes and no {branch!r} branch: nothing to do.")
             return PrSyncResult(PrOperation.NONE, branch)
@@ -319,23 +390,8 @@ def upsert_pr(
             PrOperation.CLOSED, branch, number=closed[0] if closed else None
         )
 
-    temp_branch = f"{TEMP_BRANCH_PREFIX}{uuid4().hex[:12]}"
-    try:
-        git_ops.create_branch(temp_branch)
-        candidate_sha = git_ops.commit_staged(commit_message)
-
-        if remote_sha is not None and not _needs_push(
-            candidate_sha, remote_sha, base_sha
-        ):
-            return PrSyncResult(PrOperation.NONE, branch)
-
-        git_ops.force_push_branch(
-            temp_branch, branch, expected_sha=remote_sha, remote=remote
-        )
-    finally:
-        # Leave the checkout exactly as it was found, whatever happened above.
-        git_ops.checkout(base_branch)
-        git_ops.delete_branch(temp_branch)
+    if not pushed:
+        return PrSyncResult(PrOperation.NONE, branch)
 
     open_prs = list_open_prs_by_branch(branch)
     fitted = fit_issue_body(body)
@@ -356,9 +412,11 @@ def upsert_pr(
             ])
             logging.info(f"Updated PR #{number}")
             _apply_pr_attributes(number, labels, assignees)
+            if draft and not open_prs[0].get("isDraft"):
+                _set_draft(number, draft=True)
             return PrSyncResult(PrOperation.UPDATED, branch, number=number)
 
-        output = run_gh_command([
+        args = [
             "pr",
             "create",
             "--head",
@@ -369,7 +427,10 @@ def upsert_pr(
             title,
             "--body-file",
             str(body_path),
-        ])
+        ]
+        if draft:
+            args.append("--draft")
+        output = run_gh_command(args)
 
     number = _parse_pr_number(output)
     url = output.strip().splitlines()[-1].strip()

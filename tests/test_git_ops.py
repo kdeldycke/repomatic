@@ -41,7 +41,10 @@ from repomatic.git_ops import (
     get_latest_tag_version,
     get_release_version_from_commits,
     head_sha,
+    is_ancestor,
+    merge_base,
     push_tag,
+    rebase_onto,
     stage_all,
     tag_exists,
     tree_sha,
@@ -493,3 +496,66 @@ def test_branch_deletion_is_idempotent(git_workdir):
 
     delete_branch("tmp-delete")
     delete_branch("tmp-delete")
+
+
+def test_is_ancestor_reads_both_directions(git_workdir):
+    base = head_sha()
+    (git_workdir / "fruits.txt").write_text("papaya\n", encoding="UTF-8")
+    stage_all()
+    create_branch("tmp-ahead")
+    ahead = commit_staged("Add fruits")
+
+    assert is_ancestor(base, ahead) is True
+    assert is_ancestor(ahead, base) is False
+    assert merge_base(base, ahead) == base
+
+
+def test_rebase_onto_replays_carried_commits(git_workdir, tmp_path):
+    """The moved-base path: two job commits land on the newer base intact."""
+    base = head_sha()
+    # Two commits of the shape `prepare-release` produces.
+    (git_workdir / "freeze.txt").write_text("frozen\n", encoding="UTF-8")
+    stage_all()
+    create_branch("tmp-carry")
+    commit_staged("Freeze")
+    (git_workdir / "unfreeze.txt").write_text("bumped\n", encoding="UTF-8")
+    stage_all()
+    commit_staged("Unfreeze")
+    assert count_commits_between(base, "tmp-carry") == 2
+
+    # Meanwhile the base moves on, touching an unrelated file.
+    checkout("main")
+    (git_workdir / "other.txt").write_text("elsewhere\n", encoding="UTF-8")
+    stage_all()
+    moved_base = commit_staged("Concurrent commit")
+    assert is_ancestor(moved_base, "tmp-carry") is False
+
+    assert rebase_onto(moved_base, base, "tmp-carry") is True
+    assert count_commits_between(moved_base, "tmp-carry") == 2
+    # Both the carried work and the base's own commit are present.
+    assert (git_workdir / "freeze.txt").exists()
+    assert (git_workdir / "unfreeze.txt").exists()
+    assert (git_workdir / "other.txt").exists()
+
+
+def test_rebase_onto_reports_a_conflict_without_leaving_one_behind(git_workdir):
+    """A conflicting replay aborts cleanly, leaving the branch usable as-is."""
+    base = head_sha()
+    (git_workdir / "seed.txt").write_text("ours\n", encoding="UTF-8")
+    stage_all()
+    create_branch("tmp-conflict")
+    carried = commit_staged("Our edit")
+
+    checkout("main")
+    (git_workdir / "seed.txt").write_text("theirs\n", encoding="UTF-8")
+    stage_all()
+    moved_base = commit_staged("Their edit")
+
+    # `--strategy-option=theirs` resolves this overlap rather than conflicting,
+    # so the replay succeeds and the carried content wins.
+    assert rebase_onto(moved_base, base, "tmp-conflict") is True
+    checkout("tmp-conflict")
+    assert (git_workdir / "seed.txt").read_text(encoding="UTF-8") == "ours\n"
+    assert head_sha() != carried
+    # No rebase left in progress.
+    assert current_branch() == "tmp-conflict"

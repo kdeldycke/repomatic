@@ -51,30 +51,23 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `codecov/test-results-action`            | None (feature dropped)      | Removed entirely        |
 | `GitHubSecurityLab/actions-permissions`  | Explicit `permissions:` key | Removed entirely        |
 
-The remaining third-party actions (4 of 14 total) are:
+The remaining third-party actions (3 of 14 total) are:
 
-| Action                            | Purpose                                      |
-| :-------------------------------- | :------------------------------------------- |
-| `astral-sh/setup-uv`              | Core toolchain: installs `uv`                |
-| `peter-evans/create-pull-request` | Opens the three release-lane PRs (see below) |
-| `dessant/lock-threads`            | Locks inactive issues                        |
-| `crazy-max/ghaction-dump-context` | Debug diagnostics (no secrets access)        |
+| Action                            | Purpose                               |
+| :-------------------------------- | :------------------------------------ |
+| `astral-sh/setup-uv`              | Core toolchain: installs `uv`         |
+| `dessant/lock-threads`            | Locks inactive issues                 |
+| `crazy-max/ghaction-dump-context` | Debug diagnostics (no secrets access) |
 
 #### Pull-request creation
 
-`repomatic pr-sync` opens, refreshes and retires the pull requests every `sync-*`, `update-*`, `format-*` and `fix-*` job produces: 19 of the 22 call sites that used to run `peter-evans/create-pull-request`. It is a deliberate port of that action's algorithm, not a fresh design, and {mod}`repomatic.github.pr` records the mapping.
+`repomatic pr-sync` opens, refreshes and retires every pull request CI produces, across all 22 call sites that used to run `peter-evans/create-pull-request`. It is a deliberate port of that action's algorithm rather than a fresh design, and {mod}`repomatic.github.pr` records the mapping.
 
-Three jobs still call the action, because each needs something the ported command does not yet cover:
+That action was the last third-party one entrusted with `REPOMATIC_PAT`, a token carrying workflow-write scope, which made it the largest remaining trust delegation on this page. It was nonetheless SHA-pinned with bumps gated on [`minimum-release-age`](dependencies.md) by `sync-action-pins`, so the supply-chain gain is real but bounded: a compromised release could not have reached a build until it had been public for the cooldown window and a maintainer had merged the bump.
 
-| Job               | What it needs                                               |
-| :---------------- | :---------------------------------------------------------- |
-| `fix-changelog`   | A detached-`HEAD` checkout with an explicit base branch     |
-| `bump-version`    | The same, plus a pull request held in draft across updates  |
-| `prepare-release` | Two commits the job made itself, preserved through a rebase |
+The concrete win is elsewhere. The action's cleanup only ran when the action ran, and a job behind an `if:` gate skips its own steps, leaving a branch and pull request nobody retires: `repomatic close-stale-bump-pr` exists to patch exactly that hole. `pr-sync` decides internally instead, so one command covers the create, update, no-op and close cases.
 
-The action is SHA-pinned and its bumps are gated on [`minimum-release-age`](dependencies.md) by `sync-action-pins`, so a compromised release cannot reach a build until it has been public for the cooldown window. What the migration buys on top of that is narrower and more concrete: the action's cleanup only runs when the action runs, and jobs behind an `if:` gate skip it, leaving a stale branch and pull request nobody retires. `pr-sync` decides internally instead, so the same command handles the create, update, no-op and close cases.
-
-`tests/test_workflows.py::test_pull_requests_are_opened_by_the_cli_not_an_action` holds that split in place: a new job reaching for the action fails by name.
+Two conformance tests hold this in place: `test_pull_requests_are_opened_by_the_cli_not_an_action` fails when any workflow reaches for the action again, and `test_detached_head_pr_sync_steps_name_a_base` fails when a job checking out a raw SHA forgets to name `--base`.
 
 Replacement strategies, ordered from most to least isolated:
 

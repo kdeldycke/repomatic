@@ -124,19 +124,22 @@ jobs:
           pr-body --output-format github-actions
           --template fix-changelog
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - name: Sync pull request
+        # `--base main` is required: this job checks out a detached HEAD at
+        # `github.sha`, so there is no branch to infer the base from.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🆙 changelog"
-          base: main
-          branch: fix-changelog
-          delete-branch: true
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch fix-changelog
+          --base main
+          --label "🆙 changelog"
 
   bump-version:
     name: 🆙 Bump versions
@@ -195,19 +198,26 @@ jobs:
           --template bump-version
           --part "${{ matrix.part }}"
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - name: Sync pull request
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
+        # Detached HEAD at `github.sha`, hence the explicit `--base main`. The PR
+        # stays a draft on every sync, not just at creation: its content is
+        # regenerated underneath it and must never look ready to merge.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
-        with:
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🆙 changelog"
-          base: main
-          branch: ${{ matrix.part }}-version-increment
+        env:
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+          PR_BRANCH: ${{ matrix.part }}-version-increment
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch "$PR_BRANCH"
+          --base main
+          --draft
+          --label "🆙 changelog"
           delete-branch: true
           draft: always-true
       - name: Close stale ${{ matrix.part }} bump PR
@@ -313,19 +323,23 @@ jobs:
           --template prepare-release
           --version "${CURRENT_VERSION}"
           --output "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - name: Sync pull request
+        # The freeze and unfreeze commits above are already committed, so this
+        # step carries them through as two commits rather than squashing them:
+        # the release lane rebase-merges this PR and both must land intact.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
-        with:
+        env:
           # We need custom PAT with workflows permission to hard-code version numbers in URLs in
           # .github/workflows/*.yaml files.
-          token: ${{ secrets.REPOMATIC_PAT || github.token }}
-          assignees: ${{ github.actor }}
-          commit-message: ${{ steps.pr-metadata.outputs.commit_message }}
-          title: ${{ steps.pr-metadata.outputs.title }}
-          body: ${{ steps.pr-metadata.outputs.body }}
-          labels: "🆙 changelog"
-          base: main
-          branch: prepare-release
-          delete-branch: true
-          draft: always-true
+          GHA_PR_ASSIGNEE: ${{ github.actor }}
+          GHA_PR_BODY: ${{ steps.pr-metadata.outputs.body }}
+          GHA_PR_COMMIT_MESSAGE: ${{ steps.pr-metadata.outputs.commit_message }}
+          GHA_PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pr-sync
+          --branch prepare-release
+          --base main
+          --draft
+          --label "🆙 changelog"

@@ -4388,6 +4388,13 @@ def pr_body(
     "Can also be set via the GHA_PR_ASSIGNEE environment variable, which "
     "keeps `github.actor` out of a workflow's `run:` block.",
 )
+@option(
+    "--draft/--no-draft",
+    default=False,
+    help="Hold the pull request in draft. Re-applied on every update, not "
+    "just at creation, so a PR marked ready-for-review goes back to draft "
+    "on the next sync.",
+)
 def pr_sync(
     branch: str,
     title: str,
@@ -4396,6 +4403,7 @@ def pr_sync(
     base: str | None,
     labels: tuple[str, ...],
     assignees: tuple[str, ...],
+    draft: bool,
 ) -> None:
     """Converge a branch and its PR onto whatever the working tree holds.
 
@@ -4406,10 +4414,13 @@ def pr_sync(
     Idempotent: re-running with an unchanged tree performs no write, so a
     workflow re-run never churns the PR or re-triggers its checks.
 
+    Works from a detached HEAD as long as --base names the branch to open
+    against, and carries through any commits the job made itself.
+
     \b
     Examples:
         repomatic pr-sync --branch format-python --label "🤖 ci"
-        repomatic pr-sync --branch sync-uv-lock --base main
+        repomatic pr-sync --branch prepare-release --base main --draft
     """
     result = upsert_pr(
         branch=branch,
@@ -4419,6 +4430,7 @@ def pr_sync(
         base=base,
         labels=labels,
         assignees=assignees,
+        draft=draft,
     )
     if result.number:
         echo(f"{result.operation}: PR #{result.number} on {result.branch}")

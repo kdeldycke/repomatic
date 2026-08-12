@@ -63,13 +63,15 @@ if TYPE_CHECKING:
 GITHUB_BODY_MAX_CHARS = 65536
 """GitHub's maximum PR and issue body size, in UTF-16 code units.
 
-GitHub's API rejects longer bodies, and
+GitHub's API rejects longer bodies outright, so an oversized body has to be
+trimmed before it is posted. The obvious trim is the wrong one: cutting the
+**end** (what a plain `body[:65536]` does, and what
 [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request)
-pre-empts the rejection by hard-truncating the **end** of the body
-(`main.ts`: `inputs.body.substring(0, 65536)`), silently dropping whatever
-sits last: the refresh tip, the metadata block, and the attribution footer.
-{func}`build_pr_body` (PRs) and {func}`fit_issue_body` (issues) trim the
-leading content instead, so the tail always survives.
+did before {mod}`repomatic.github.pr` replaced it) drops whatever sits last,
+which here is the refresh tip, the metadata block and the attribution footer:
+the navigational parts a reader needs most when a report is too long to read.
+{func}`build_pr_body` (PRs) and {func}`fit_issue_body` (issues) therefore trim
+the leading content instead, so the tail always survives.
 """
 
 _TRUNCATION_NOTICE = "> [!CAUTION]\n> Report truncated to fit GitHub's body size limit."

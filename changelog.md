@@ -5,7 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- New `pr-sync` command that opens, refreshes or retires an automation PR from the working tree, replacing `peter-evans/create-pull-request` in 19 of 22 jobs. A branch whose changes evaporate now has its PR closed even when the job's `if:` gate skipped the rest of the step.
+- New `pr-sync` command that opens, refreshes or retires an automation PR, replacing `peter-evans/create-pull-request` in every job. A branch whose changes evaporate now has its PR closed even when the job's `if:` gate skipped the rest of the step.
 
 ## [`7.10.0` (2026-08-12)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...v7.10.0)
 

@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -125,213 +125,291 @@ def test_parse_pr_number_rejects_unparsable_output(output):
 
 
 @pytest.mark.parametrize(
-    ("candidate_tree", "remote_tree", "commits_ahead", "expected"),
+    ("candidate_tree", "remote_tree", "remote_commits", "expected_commits", "expected"),
     (
-        # Same tree, exactly one commit on base: the branch is already right.
-        ("tree-1", "tree-1", 1, False),
+        # Same tree, same shape: the branch is already right.
+        ("tree-1", "tree-1", 1, 1, False),
         # The job's output moved.
-        ("tree-2", "tree-1", 1, True),
-        # Same tree, but the branch is not a lone commit on top of base.
-        ("tree-1", "tree-1", 2, True),
-        ("tree-1", "tree-1", 0, True),
+        ("tree-2", "tree-1", 1, 1, True),
+        # Same tree, but the branch does not hold the same number of commits.
+        ("tree-1", "tree-1", 2, 1, True),
+        ("tree-1", "tree-1", 0, 1, True),
+        # A release freeze legitimately carries two commits.
+        ("tree-1", "tree-1", 2, 2, False),
+        ("tree-1", "tree-1", 1, 2, True),
     ),
 )
-def test_needs_push(candidate_tree, remote_tree, commits_ahead, expected):
+def test_needs_push(
+    candidate_tree, remote_tree, remote_commits, expected_commits, expected
+):
     trees = {CANDIDATE_SHA: candidate_tree, REMOTE_SHA: remote_tree}
     with (
         patch("repomatic.github.pr.git_ops.tree_sha", side_effect=trees.get),
         patch(
             "repomatic.github.pr.git_ops.count_commits_between",
-            return_value=commits_ahead,
+            return_value=remote_commits,
         ),
     ):
-        assert _needs_push(CANDIDATE_SHA, REMOTE_SHA, BASE_SHA) is expected
+        assert (
+            _needs_push(CANDIDATE_SHA, REMOTE_SHA, BASE_SHA, expected_commits)
+            is expected
+        )
 
 
-def test_upsert_pr_requires_a_base_on_detached_head():
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value=None),
-        pytest.raises(RuntimeError, match="detached"),
-    ):
+@pytest.fixture
+def git(monkeypatch):
+    """A stand-in for the git layer, wired to the ordinary happy path.
+
+    Each test overrides only the calls its own scenario turns on, which keeps
+    the interesting difference visible instead of buried in a stack of patches.
+    """
+    stub = MagicMock()
+    stub.current_branch.return_value = "main"
+    stub.head_sha.return_value = CANDIDATE_SHA
+    stub.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "main" else None
+    )
+    stub.stage_all.return_value = True
+    stub.commit_staged.return_value = CANDIDATE_SHA
+    stub.count_commits_between.return_value = 1
+    stub.is_ancestor.return_value = True
+    stub.merge_base.return_value = BASE_SHA
+    stub.rebase_onto.return_value = True
+    stub.tree_sha.side_effect = lambda sha: f"tree-of-{sha}"
+    monkeypatch.setattr("repomatic.github.pr.git_ops", stub)
+    return stub
+
+
+@pytest.fixture
+def gh(monkeypatch):
+    """Capture `gh` invocations, returning whatever the test queues up."""
+    stub = MagicMock(return_value="[]")
+    monkeypatch.setattr("repomatic.github.pr.run_gh_command", stub)
+    return stub
+
+
+def verbs(gh_stub) -> list[str]:
+    """The `gh <noun> <verb>` pairs a test's run produced, in order."""
+    return [" ".join(call.args[0][:2]) for call in gh_stub.call_args_list]
+
+
+def test_upsert_pr_requires_a_base_on_detached_head(git, gh):
+    git.current_branch.return_value = None
+    with pytest.raises(RuntimeError, match="detached"):
         upsert_pr(BRANCH, "t", "b", "m")
 
 
-def test_upsert_pr_without_changes_or_branch_does_nothing():
+def test_upsert_pr_rejects_a_base_missing_from_the_remote(git, gh):
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": None
+    with pytest.raises(RuntimeError, match="does not exist on origin"):
+        upsert_pr(BRANCH, "t", "b", "m", base="main")
+
+
+def test_upsert_pr_without_changes_or_branch_does_nothing(git, gh):
     """The quietest path: nothing to publish and nothing to retire."""
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value="main"),
-        patch("repomatic.github.pr.git_ops.head_sha", return_value=BASE_SHA),
-        patch("repomatic.github.pr.git_ops.fetch_remote_branch", return_value=None),
-        patch("repomatic.github.pr.git_ops.stage_all", return_value=False),
-        patch("repomatic.github.pr.run_gh_command") as mock_gh,
-    ):
-        result = upsert_pr(BRANCH, "t", "b", "m")
+    git.stage_all.return_value = False
+    git.count_commits_between.return_value = 0
+    result = upsert_pr(BRANCH, "t", "b", "m")
     assert result.operation == PrOperation.NONE
     assert result.number is None
-    mock_gh.assert_not_called()
+    gh.assert_not_called()
+    git.force_push_branch.assert_not_called()
 
 
-def test_upsert_pr_retires_branch_and_pr_when_changes_evaporate():
+def test_upsert_pr_retires_branch_and_pr_when_changes_evaporate(git, gh):
     """The path a skipped action step could never reach."""
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value="main"),
-        patch("repomatic.github.pr.git_ops.head_sha", return_value=BASE_SHA),
-        patch(
-            "repomatic.github.pr.git_ops.fetch_remote_branch", return_value=REMOTE_SHA
-        ),
-        patch("repomatic.github.pr.git_ops.stage_all", return_value=False),
-        patch("repomatic.github.pr.git_ops.delete_remote_branch") as mock_delete,
-        patch("repomatic.github.pr.run_gh_command") as mock_gh,
-    ):
-        mock_gh.side_effect = [json.dumps([{"number": 5, "title": "Sync"}]), ""]
-        result = upsert_pr(BRANCH, "t", "b", "m")
+    git.stage_all.return_value = False
+    git.count_commits_between.return_value = 0
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "main" else REMOTE_SHA
+    )
+    gh.side_effect = [json.dumps([{"number": 5, "title": "Sync"}]), ""]
+    result = upsert_pr(BRANCH, "t", "b", "m")
     assert result == (PrOperation.CLOSED, BRANCH, 5, "")
     # `gh pr close --delete-branch` covers the branch, so no separate delete.
-    mock_delete.assert_not_called()
-    assert mock_gh.call_args_list[-1].args[0][:3] == ["pr", "close", "5"]
+    git.delete_remote_branch.assert_not_called()
+    assert verbs(gh) == ["pr list", "pr close"]
 
 
-def test_upsert_pr_deletes_an_orphan_branch_with_no_open_pr():
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value="main"),
-        patch("repomatic.github.pr.git_ops.head_sha", return_value=BASE_SHA),
-        patch(
-            "repomatic.github.pr.git_ops.fetch_remote_branch", return_value=REMOTE_SHA
-        ),
-        patch("repomatic.github.pr.git_ops.stage_all", return_value=False),
-        patch("repomatic.github.pr.git_ops.delete_remote_branch") as mock_delete,
-        patch("repomatic.github.pr.run_gh_command", return_value="[]"),
-    ):
-        result = upsert_pr(BRANCH, "t", "b", "m")
+def test_upsert_pr_deletes_an_orphan_branch_with_no_open_pr(git, gh):
+    git.stage_all.return_value = False
+    git.count_commits_between.return_value = 0
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "main" else REMOTE_SHA
+    )
+    result = upsert_pr(BRANCH, "t", "b", "m")
     assert result.operation == PrOperation.CLOSED
     assert result.number is None
-    mock_delete.assert_called_once_with(BRANCH, remote="origin")
+    git.delete_remote_branch.assert_called_once_with(BRANCH, remote="origin")
 
 
-def test_upsert_pr_creates_branch_and_pr():
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value="main"),
-        patch("repomatic.github.pr.git_ops.head_sha", return_value=BASE_SHA),
-        patch("repomatic.github.pr.git_ops.fetch_remote_branch", return_value=None),
-        patch("repomatic.github.pr.git_ops.stage_all", return_value=True),
-        patch("repomatic.github.pr.git_ops.create_branch"),
-        patch("repomatic.github.pr.git_ops.commit_staged", return_value=CANDIDATE_SHA),
-        patch("repomatic.github.pr.git_ops.force_push_branch") as mock_push,
-        patch("repomatic.github.pr.git_ops.checkout") as mock_checkout,
-        patch("repomatic.github.pr.git_ops.delete_branch") as mock_delete_local,
-        patch("repomatic.github.pr.run_gh_command") as mock_gh,
-    ):
-        mock_gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/77", ""]
-        result = upsert_pr(BRANCH, "Title", "Body", "Message", labels=["🤖 ci"])
+def test_upsert_pr_creates_branch_and_pr(git, gh):
+    gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/77", ""]
+    result = upsert_pr(BRANCH, "Title", "Body", "Message", labels=["🤖 ci"])
 
     assert result.operation == PrOperation.CREATED
     assert result.number == 77
     # A branch that does not exist yet takes no lease.
-    assert mock_push.call_args.kwargs["expected_sha"] is None
+    assert git.force_push_branch.call_args.kwargs["expected_sha"] is None
     # The checkout is handed back exactly as it was found.
-    mock_checkout.assert_called_once_with("main")
-    mock_delete_local.assert_called_once()
-    create_args = mock_gh.call_args_list[1].args[0]
+    git.checkout.assert_called_once_with("main")
+    git.delete_branch.assert_called_once()
+    create_args = gh.call_args_list[1].args[0]
     assert create_args[:2] == ["pr", "create"]
     assert create_args[create_args.index("--base") + 1] == "main"
     assert create_args[create_args.index("--head") + 1] == BRANCH
+    assert "--draft" not in create_args
 
 
-def test_upsert_pr_updates_an_existing_pr_and_leases_the_push():
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value="main"),
-        patch("repomatic.github.pr.git_ops.head_sha", return_value=BASE_SHA),
-        patch(
-            "repomatic.github.pr.git_ops.fetch_remote_branch", return_value=REMOTE_SHA
-        ),
-        patch("repomatic.github.pr.git_ops.stage_all", return_value=True),
-        patch("repomatic.github.pr.git_ops.create_branch"),
-        patch("repomatic.github.pr.git_ops.commit_staged", return_value=CANDIDATE_SHA),
-        patch("repomatic.github.pr.git_ops.tree_sha", side_effect=["new", "old"]),
-        patch("repomatic.github.pr.git_ops.count_commits_between", return_value=1),
-        patch("repomatic.github.pr.git_ops.force_push_branch") as mock_push,
-        patch("repomatic.github.pr.git_ops.checkout"),
-        patch("repomatic.github.pr.git_ops.delete_branch"),
-        patch("repomatic.github.pr.run_gh_command") as mock_gh,
-    ):
-        mock_gh.side_effect = [json.dumps([{"number": 88, "title": "Old"}]), "", ""]
-        result = upsert_pr(BRANCH, "Title", "Body", "Message")
+def test_upsert_pr_updates_an_existing_pr_and_leases_the_push(git, gh):
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "main" else REMOTE_SHA
+    )
+    git.tree_sha.side_effect = ["new", "old"]
+    gh.side_effect = [json.dumps([{"number": 88, "title": "Old"}]), "", ""]
+    result = upsert_pr(BRANCH, "Title", "Body", "Message")
 
     assert result.operation == PrOperation.UPDATED
     assert result.number == 88
-    assert mock_push.call_args.kwargs["expected_sha"] == REMOTE_SHA
-    assert mock_gh.call_args_list[1].args[0][:3] == ["pr", "edit", "88"]
+    assert git.force_push_branch.call_args.kwargs["expected_sha"] == REMOTE_SHA
+    assert gh.call_args_list[1].args[0][:3] == ["pr", "edit", "88"]
 
 
-def test_upsert_pr_skips_the_push_when_the_branch_already_matches():
+def test_upsert_pr_skips_the_push_when_the_branch_already_matches(git, gh):
     """The check that keeps an unchanged job from re-triggering every workflow."""
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value="main"),
-        patch("repomatic.github.pr.git_ops.head_sha", return_value=BASE_SHA),
-        patch(
-            "repomatic.github.pr.git_ops.fetch_remote_branch", return_value=REMOTE_SHA
-        ),
-        patch("repomatic.github.pr.git_ops.stage_all", return_value=True),
-        patch("repomatic.github.pr.git_ops.create_branch"),
-        patch("repomatic.github.pr.git_ops.commit_staged", return_value=CANDIDATE_SHA),
-        patch("repomatic.github.pr.git_ops.tree_sha", return_value="same"),
-        patch("repomatic.github.pr.git_ops.count_commits_between", return_value=1),
-        patch("repomatic.github.pr.git_ops.force_push_branch") as mock_push,
-        patch("repomatic.github.pr.git_ops.checkout") as mock_checkout,
-        patch("repomatic.github.pr.git_ops.delete_branch"),
-        patch("repomatic.github.pr.run_gh_command") as mock_gh,
-    ):
-        result = upsert_pr(BRANCH, "Title", "Body", "Message")
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "main" else REMOTE_SHA
+    )
+    git.tree_sha.side_effect = lambda sha: "same"
+    result = upsert_pr(BRANCH, "Title", "Body", "Message")
 
     assert result.operation == PrOperation.NONE
-    mock_push.assert_not_called()
-    mock_gh.assert_not_called()
+    git.force_push_branch.assert_not_called()
+    gh.assert_not_called()
     # Even on the no-op path the checkout is restored.
-    mock_checkout.assert_called_once_with("main")
+    git.checkout.assert_called_once_with("main")
 
 
-def test_upsert_pr_restores_the_checkout_when_the_push_fails():
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value="main"),
-        patch("repomatic.github.pr.git_ops.head_sha", return_value=BASE_SHA),
-        patch("repomatic.github.pr.git_ops.fetch_remote_branch", return_value=None),
-        patch("repomatic.github.pr.git_ops.stage_all", return_value=True),
-        patch("repomatic.github.pr.git_ops.create_branch"),
-        patch("repomatic.github.pr.git_ops.commit_staged", return_value=CANDIDATE_SHA),
-        patch(
-            "repomatic.github.pr.git_ops.force_push_branch",
-            side_effect=RuntimeError("rejected"),
-        ),
-        patch("repomatic.github.pr.git_ops.checkout") as mock_checkout,
-        patch("repomatic.github.pr.git_ops.delete_branch") as mock_delete_local,
-        pytest.raises(RuntimeError, match="rejected"),
-    ):
+def test_upsert_pr_restores_the_checkout_when_the_push_fails(git, gh):
+    git.force_push_branch.side_effect = RuntimeError("rejected")
+    with pytest.raises(RuntimeError, match="rejected"):
         upsert_pr(BRANCH, "Title", "Body", "Message")
-    mock_checkout.assert_called_once_with("main")
-    mock_delete_local.assert_called_once()
+    git.checkout.assert_called_once_with("main")
+    git.delete_branch.assert_called_once()
 
 
-def test_upsert_pr_survives_a_refused_label_or_assignee():
+def test_upsert_pr_survives_a_refused_label_or_assignee(git, gh):
     """`github-actions[bot]` cannot be assigned, and that must not lose the PR."""
-    with (
-        patch("repomatic.github.pr.git_ops.current_branch", return_value="main"),
-        patch("repomatic.github.pr.git_ops.head_sha", return_value=BASE_SHA),
-        patch("repomatic.github.pr.git_ops.fetch_remote_branch", return_value=None),
-        patch("repomatic.github.pr.git_ops.stage_all", return_value=True),
-        patch("repomatic.github.pr.git_ops.create_branch"),
-        patch("repomatic.github.pr.git_ops.commit_staged", return_value=CANDIDATE_SHA),
-        patch("repomatic.github.pr.git_ops.force_push_branch"),
-        patch("repomatic.github.pr.git_ops.checkout"),
-        patch("repomatic.github.pr.git_ops.delete_branch"),
-        patch("repomatic.github.pr.run_gh_command") as mock_gh,
-    ):
-        mock_gh.side_effect = [
-            "[]",
-            "https://github.com/kate/fruits/pull/77",
-            RuntimeError("could not assign github-actions[bot]"),
-        ]
-        result = upsert_pr(
-            BRANCH, "Title", "Body", "Message", assignees=["github-actions[bot]"]
-        )
+    gh.side_effect = [
+        "[]",
+        "https://github.com/kate/fruits/pull/77",
+        RuntimeError("could not assign github-actions[bot]"),
+    ]
+    result = upsert_pr(
+        BRANCH, "Title", "Body", "Message", assignees=["github-actions[bot]"]
+    )
     assert result.operation == PrOperation.CREATED
     assert result.number == 77
+
+
+# --- Wave 2: detached HEAD, carried commits, draft ---
+
+
+def test_upsert_pr_opens_against_an_explicit_base_from_a_detached_head(git, gh):
+    """`fix-changelog` and `bump-version` check out a raw SHA, not a branch."""
+    git.current_branch.return_value = None
+    git.head_sha.return_value = CANDIDATE_SHA
+    gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/91", ""]
+    result = upsert_pr(BRANCH, "Title", "Body", "Message", base="main")
+
+    assert result.operation == PrOperation.CREATED
+    # The base commit comes from the remote branch, never from the checkout.
+    git.fetch_remote_branch.assert_any_call("main", remote="origin")
+    create_args = gh.call_args_list[1].args[0]
+    assert create_args[create_args.index("--base") + 1] == "main"
+    # A detached checkout is restored by SHA, since there is no branch to name.
+    git.checkout.assert_called_once_with(CANDIDATE_SHA)
+
+
+def test_upsert_pr_carries_commits_the_job_made_itself(git, gh):
+    """`prepare-release` commits freeze and unfreeze; both must reach the PR."""
+    git.stage_all.return_value = False
+    git.count_commits_between.return_value = 2
+    gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/92", ""]
+    result = upsert_pr(BRANCH, "Title", "Body", "Message", base="main")
+
+    assert result.operation == PrOperation.CREATED
+    # Nothing uncommitted, so no extra commit is manufactured on top.
+    git.commit_staged.assert_not_called()
+    git.force_push_branch.assert_called_once()
+
+
+def test_upsert_pr_replays_carried_commits_onto_a_moved_base(git, gh):
+    git.is_ancestor.return_value = False
+    git.merge_base.return_value = "f" * 40
+    gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/93", ""]
+    upsert_pr(BRANCH, "Title", "Body", "Message", base="main")
+
+    git.rebase_onto.assert_called_once()
+    onto, fork_point, _branch = git.rebase_onto.call_args.args
+    assert onto == BASE_SHA
+    assert fork_point == "f" * 40
+
+
+def test_upsert_pr_publishes_anyway_when_the_replay_conflicts(git, gh):
+    """A branch on a stale base still opens a usable PR; the next run converges."""
+    git.is_ancestor.return_value = False
+    git.rebase_onto.return_value = False
+    gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/94", ""]
+    result = upsert_pr(BRANCH, "Title", "Body", "Message", base="main")
+
+    assert result.operation == PrOperation.CREATED
+    git.force_push_branch.assert_called_once()
+
+
+def test_upsert_pr_skips_the_replay_when_history_is_unrelatable(git, gh):
+    """A shallow clone answers neither yes nor no, and must not be rebased blind."""
+    git.is_ancestor.return_value = None
+    gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/95", ""]
+    upsert_pr(BRANCH, "Title", "Body", "Message", base="main")
+
+    git.rebase_onto.assert_not_called()
+
+
+def test_upsert_pr_creates_a_draft_when_asked(git, gh):
+    gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/96", ""]
+    upsert_pr(BRANCH, "Title", "Body", "Message", base="main", draft=True)
+    assert "--draft" in gh.call_args_list[1].args[0]
+
+
+def test_upsert_pr_puts_a_readied_pr_back_into_draft(git, gh):
+    """`draft` is re-applied on update, matching the action's always-true mode."""
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "main" else REMOTE_SHA
+    )
+    git.tree_sha.side_effect = ["new", "old"]
+    gh.side_effect = [
+        json.dumps([{"number": 97, "title": "Old", "isDraft": False}]),
+        "",
+        "",
+        "",
+    ]
+    result = upsert_pr(BRANCH, "Title", "Body", "Message", base="main", draft=True)
+
+    assert result.operation == PrOperation.UPDATED
+    assert verbs(gh)[-1] == "pr ready"
+    assert "--undo" in gh.call_args_list[-1].args[0]
+
+
+def test_upsert_pr_leaves_an_already_draft_pr_alone(git, gh):
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "main" else REMOTE_SHA
+    )
+    git.tree_sha.side_effect = ["new", "old"]
+    gh.side_effect = [
+        json.dumps([{"number": 98, "title": "Old", "isDraft": True}]),
+        "",
+        "",
+    ]
+    upsert_pr(BRANCH, "Title", "Body", "Message", base="main", draft=True)
+    assert "pr ready" not in verbs(gh)

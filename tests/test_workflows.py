@@ -555,10 +555,9 @@ def test_version_bump_branches_match_changelog_workflow() -> None:
         job = jobs.get(job_name, {})
         parts = job.get("strategy", {}).get("matrix", {}).get("part") or [None]
         for step in job.get("steps", ()):
-            uses = step.get("uses", "")
-            if not uses.startswith("peter-evans/create-pull-request@"):
+            if "repomatic pr-sync" not in (step.get("run") or ""):
                 continue
-            branch_template = step.get("with", {}).get("branch", "")
+            branch_template = pr_sync_branch(step)
             for part in parts:
                 if part is None:
                     created_branches.add(branch_template)
@@ -736,36 +735,24 @@ def test_version_bump_commit_in_changelog_workflow() -> None:
     version_increments = jobs.get("bump-version", {})
     steps = version_increments.get("steps", [])
 
-    # Look for the create-pull-request step which contains the commit message.
+    # Look for the pr-sync step, which carries the commit message in its env.
     create_pr_step = None
     for step in steps:
-        if step.get("uses", "").startswith("peter-evans/create-pull-request"):
+        if "repomatic pr-sync" in (step.get("run") or ""):
             create_pr_step = step
             break
 
     assert create_pr_step is not None, (
-        "changelog.yaml bump-version job must have a create-pull-request step"
+        "changelog.yaml bump-version job must have a pr-sync step"
     )
 
-    commit_message = create_pr_step.get("with", {}).get("commit-message", "")
+    commit_message = (create_pr_step.get("env") or {}).get("GHA_PR_COMMIT_MESSAGE", "")
     # The commit message is now sourced from the pr-metadata step output.
     assert "pr-metadata.outputs.commit_message" in commit_message, (
         "bump-version commit message must reference pr-metadata output. "
         f"Found: {commit_message}"
     )
 
-
-ACTION_PR_JOBS = frozenset((
-    ("changelog.yaml", "fix-changelog"),
-    ("changelog.yaml", "bump-version"),
-    ("changelog.yaml", "prepare-release"),
-))
-"""The only jobs still opening their pull request with a third-party action.
-
-Each needs something {func}`repomatic.github.pr.upsert_pr` does not cover: a
-detached-`HEAD` checkout with an explicit base, commits the job made itself, or
-`draft: always-true` held across updates. Everything else runs `pr-sync`.
-"""
 
 PR_SYNC_ENV_KEYS = frozenset((
     "GHA_PR_ASSIGNEE",
@@ -779,7 +766,8 @@ PR_SYNC_ENV_KEYS = frozenset((
 Keeping `github.actor` and the rendered body out of the shell command is what
 stops a `run:` block from interpolating attacker-controllable text (zizmor's
 `template-injection` audit); the token is there because `gh` reads it from the
-environment.
+environment. A step may declare more (`bump-version` adds `PR_BRANCH` to keep
+`matrix.part` out of its command line), never fewer.
 """
 
 
@@ -792,22 +780,33 @@ def _iter_steps() -> Iterator[tuple[str, str, dict[str, Any]]]:
                 yield path.name, job_id, step
 
 
+def pr_sync_branch(step: dict[str, Any]) -> str:
+    """Return the head branch a `pr-sync` step targets.
+
+    Resolves the shell indirection `bump-version` uses to keep `matrix.part`
+    out of its command line, so callers see the branch either way.
+    """
+    match = re.search(r"--branch \"?(\S+?)\"?(?:\s|$)", step["run"])
+    assert match, f"no --branch in {step['run']!r}"
+    branch = match.group(1)
+    if branch.startswith("$"):
+        env = step.get("env") or {}
+        branch = env[branch.lstrip("${").rstrip("}")]
+    return branch
+
+
 def test_pull_requests_are_opened_by_the_cli_not_an_action() -> None:
-    """Only the jobs named in `ACTION_PR_JOBS` may still call the PR action.
+    """No workflow may open a pull request with a third-party action.
 
     The drift guard for the migration off `peter-evans/create-pull-request`: a
-    new job copy-pasting the action from an old example fails here by name, and
-    so does a wave-2 job whose migration lands without updating this set.
+    new job copy-pasting the action from an old example fails here by name.
     """
-    found = {
-        (workflow, job)
+    found = sorted(
+        f"{workflow}::{job}"
         for workflow, job, step in _iter_steps()
         if step.get("uses", "").startswith("peter-evans/create-pull-request@")
-    }
-    assert found == ACTION_PR_JOBS, (
-        f"unexpected: {sorted(found - ACTION_PR_JOBS)}, "
-        f"migrated but still listed: {sorted(ACTION_PR_JOBS - found)}"
     )
+    assert found == [], f"still opening PRs with the action: {found}"
 
 
 def test_pr_sync_steps_pass_everything_through_env() -> None:
@@ -820,15 +819,39 @@ def test_pr_sync_steps_pass_everything_through_env() -> None:
     assert steps, "no pr-sync step found: has the migration been reverted?"
     for workflow, job, step in steps:
         where = f"{workflow}::{job}"
-        assert "--branch " in step["run"], f"{where} pr-sync step names no branch"
-        assert set(step.get("env") or {}) == PR_SYNC_ENV_KEYS, (
-            f"{where} pr-sync env is {sorted(step.get('env') or {})}, "
-            f"expected {sorted(PR_SYNC_ENV_KEYS)}"
-        )
+        assert pr_sync_branch(step), f"{where} pr-sync step names no branch"
+        missing = PR_SYNC_ENV_KEYS - set(step.get("env") or {})
+        assert not missing, f"{where} pr-sync env is missing {sorted(missing)}"
         assert "${{" not in step["run"], (
             f"{where} interpolates a template expression into its run block; "
             "pass the value through env: instead"
         )
+
+
+def test_detached_head_pr_sync_steps_name_a_base() -> None:
+    """A job checking out a raw SHA must tell `pr-sync` what to open against.
+
+    `--base` is inferred from the checked-out branch, and a checkout pinned to
+    `github.sha` is detached, so omitting it turns into a runtime error rather
+    than a wrong pull request. Catching it here keeps that error out of CI.
+    """
+    for path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
+        for job_id, job in (load_workflow(path.name).get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            detached = any(
+                "github.sha" in str((s.get("with") or {}).get("ref", ""))
+                for s in steps
+                if s.get("uses", "").startswith("actions/checkout@")
+            )
+            if not detached:
+                continue
+            for step in steps:
+                if "repomatic pr-sync" not in (step.get("run") or ""):
+                    continue
+                assert "--base " in step["run"], (
+                    f"{path.name}::{job_id} checks out a detached HEAD but its "
+                    "pr-sync step names no --base"
+                )
 
 
 def test_version_bumps_relock_before_committing() -> None:

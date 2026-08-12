@@ -330,6 +330,64 @@ def count_commits_between(start: str, end: str) -> int:
     return int(_git("rev-list", "--count", f"{start}..{end}").stdout.strip())
 
 
+def is_ancestor(maybe_ancestor: str, ref: str) -> bool | None:
+    """Return whether *maybe_ancestor* is reachable from *ref*.
+
+    :return: `True` or `False` when git can relate the two commits, and `None`
+        when it cannot — a shallow clone whose grafted history stops before
+        their common ancestor answers neither yes nor no.
+    """
+    related = _git("merge-base", "--is-ancestor", maybe_ancestor, ref, check=False)
+    if related.returncode in (0, 1):
+        return related.returncode == 0
+    logging.debug(f"Cannot relate {maybe_ancestor} to {ref}: {related.stderr.strip()}")
+    return None
+
+
+def merge_base(left: str, right: str) -> str | None:
+    """Return the best common ancestor of two commits, or `None` if unrelated.
+
+    `None` also covers the shallow-clone case described in {func}`is_ancestor`.
+    """
+    common = _git("merge-base", left, right, check=False)
+    return common.stdout.strip() if common.returncode == 0 else None
+
+
+def rebase_onto(new_base: str, old_base: str, branch: str) -> bool:
+    """Replay `old_base..branch` on top of *new_base*, keeping the replayed side.
+
+    `--strategy-option=theirs` resolves overlaps in favour of the commits being
+    replayed, which for a generated branch means the freshly generated content
+    wins over whatever the new base happens to carry.
+
+    :return: `True` on success. On conflict the rebase is aborted and `False`
+        returned, leaving *branch* exactly as it was: a branch built on a
+        slightly stale base still opens a usable pull request, and the next run
+        converges it, so this is not worth failing the job over.
+    """
+    rebased = _git(
+        "-c",
+        f"user.name={COMMIT_IDENTITY_NAME}",
+        "-c",
+        f"user.email={COMMIT_IDENTITY_EMAIL}",
+        "rebase",
+        "--onto",
+        new_base,
+        old_base,
+        branch,
+        "--strategy-option=theirs",
+        check=False,
+    )
+    if rebased.returncode:
+        _git("rebase", "--abort", check=False)
+        logging.warning(
+            f"Could not replay {branch} onto {new_base}: {rebased.stderr.strip()}\n"
+            "Publishing it on its original base instead."
+        )
+        return False
+    return True
+
+
 def create_branch(name: str) -> None:
     """Create or reset branch *name* at `HEAD` and switch to it.
 
