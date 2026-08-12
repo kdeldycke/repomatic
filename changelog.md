@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.10.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.10.0` (2026-08-12)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...v7.10.0)
 
 - **Breaking:** the `update-dep-graph` job moved from `autofix.yaml` into the release engine, its only firing moment being a release push. A required check or `needs:` edge naming it under Autofix must follow.
 - **Breaking:** manual version-bump commits now read `` [changelog] Bump minor version to `vX.Y.0` ``: every version-machinery commit carries the `[changelog] ` prefix, and anything matching the old unprefixed titles must follow.
