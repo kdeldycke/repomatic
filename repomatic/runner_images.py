@@ -57,7 +57,7 @@ import re
 from dataclasses import dataclass
 
 from .github.gh import gh_api_json
-from .github.issue import manage_issue_lifecycle
+from .github.issue import BOT_ISSUE_LABEL, manage_issue_lifecycle
 from .github.pr_body import render_template, sanitize_markdown_mentions
 
 TYPE_CHECKING = False
@@ -80,9 +80,6 @@ ISSUE_TITLE = "GitHub runner image announcements"
 title, so changing this string orphans the issue already open in every
 repository rather than renaming it.
 """
-
-ISSUE_LABEL = "🤖 ci"
-"""Label applied when the issue is first created."""
 
 DEPRECATION_MARKERS = (
     "deprecation",
@@ -289,7 +286,7 @@ def manage_runner_images_issue(known_runners: Iterable[str]) -> None:
     manage_issue_lifecycle(
         has_issues=bool(announcements),
         body=body,
-        labels=[ISSUE_LABEL],
+        labels=[BOT_ISSUE_LABEL],
         title=ISSUE_TITLE,
         no_issues_comment="No open runner image announcements.",
     )

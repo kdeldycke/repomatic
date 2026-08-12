@@ -33,7 +33,7 @@ from click_extra import TableFormat, render_table
 
 from .github import token
 from .github.gh import run_gh_command
-from .github.issue import manage_issue_lifecycle
+from .github.issue import BOT_ISSUE_LABEL, manage_issue_lifecycle
 from .github.pr_body import render_template
 from .lint_repo import (
     check_branch_ruleset_on_default,
@@ -417,7 +417,7 @@ def manage_setup_guide(
     manage_issue_lifecycle(
         has_issues=needs_issue,
         body=setup_body,
-        labels=["🤖 ci"],
+        labels=[BOT_ISSUE_LABEL],
         title="Repomatic setup guide",
         no_issues_comment=(
             "PAT configured, all permissions verified, repository settings complete."

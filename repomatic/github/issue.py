@@ -50,6 +50,17 @@ if TYPE_CHECKING:
     from typing import Any
 
 
+BOT_ISSUE_LABEL = "🤖 ci"
+"""Label carried by every issue this module's lifecycle helper maintains.
+
+Applied by {func}`~repomatic.github.issue.manage_issue_lifecycle` on creation.
+Lives here rather than in a calling module because both callers reach the label
+through that helper, and neither should have to import the other to agree on
+it. The value is one of the labels `repomatic/data/labels.toml` declares, so
+renaming it there means renaming it here: an issue labelled with a name the
+registry does not carry is created unlabelled, silently.
+"""
+
 LOCKED_CONVERSATION_MARKER = "is locked"
 """Substring GitHub returns when a write is refused on a locked conversation.
 
