@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from dataclasses import MISSING, fields as dc_fields
+
 import pytest
 from extra_platforms import ALL_AGENTS, ALL_CI
 
@@ -29,6 +31,8 @@ from repomatic.config import (
     AgentLayout,
     Config,
     FlavorConfig,
+    config_reference,
+    load_repomatic_config,
 )
 
 # -- Vocabulary ---------------------------------------------------------------
@@ -165,3 +169,115 @@ def test_explicit_locations_override_the_flavor(monkeypatch, overrides, expected
     config = Config(flavor=FlavorConfig(agent="cursor"), **overrides)
     for field_name, value in expected.items():
         assert getattr(config, field_name) == value
+
+
+def test_load_repomatic_config_defaults(tmp_path, monkeypatch):
+    """Test that load_repomatic_config returns a Config instance with defaults."""
+    monkeypatch.chdir(tmp_path)
+    config = load_repomatic_config()
+    assert isinstance(config, Config)
+    assert config.dependency_graph.output == "./docs/assets/dependencies.mmd"
+    assert config.dependency_graph.all_groups is True
+    assert config.dependency_graph.all_extras is True
+    assert config.dependency_graph.no_groups == []
+    assert config.dependency_graph.no_extras == []
+    assert config.dependency_graph.level is None
+    assert config.nuitka_enabled is True
+    assert config.nuitka_entry_points == []
+    assert config.labels.extra_files == []
+    assert config.pypi_package_history == []
+    assert config.setup_guide is True
+    assert config.workflow.sync is True
+    assert config.exclude == []
+    assert config.include == []
+
+def test_load_repomatic_config_custom_values(tmp_path, monkeypatch):
+    """Test that load_repomatic_config reads custom values from pyproject.toml."""
+    pyproject_content = """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[tool.repomatic]
+dependency-graph.output = "./custom/deps.mmd"
+nuitka.enabled = false
+"""
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+
+    config = load_repomatic_config()
+    assert config.dependency_graph.output == "./custom/deps.mmd"
+    assert config.nuitka_enabled is False
+
+def test_load_repomatic_config_with_preloaded_data():
+    """Test that load_repomatic_config accepts pre-parsed pyproject data."""
+    data = {
+        "tool": {
+            "repomatic": {
+                "dependency-graph": {"output": "./custom/deps.mmd"},
+            },
+        },
+    }
+    config = load_repomatic_config(data)
+    assert config.dependency_graph.output == "./custom/deps.mmd"
+    # Other defaults are still present.
+    assert config.gitignore.location == "./.gitignore"
+
+def test_load_repomatic_config_warns_unknown_keys(tmp_path, monkeypatch, caplog):
+    """Unknown keys in [tool.repomatic] produce a warning, not an error."""
+    pyproject_content = """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[tool.repomatic]
+nonexistent-option = true
+"""
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+
+    config = load_repomatic_config()
+    assert isinstance(config, Config)
+    # The warning comes from click-extra's schema layer (warn_unknown), which
+    # names keys in their normalized snake_case form.
+    assert "Unknown configuration option(s): nonexistent_option" in caplog.text
+
+def test_load_repomatic_config_warns_unknown_keys_once(tmp_path, monkeypatch, caplog):
+    """Re-loading the same project reports its unknown keys only once.
+
+    Every helper needing a setting re-loads the config, so without the
+    per-project dedup a single stale key floods each invocation's output.
+    """
+    pyproject_content = """\
+[project]
+name = "test-project"
+version = "1.0.0"
+
+[tool.repomatic]
+nonexistent-option = true
+"""
+    (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+
+    load_repomatic_config()
+    load_repomatic_config()
+    assert caplog.text.count("Unknown configuration option(s)") == 1
+
+def test_config_reference():
+    """Config reference table covers all Config fields with descriptions."""
+    rows = config_reference()
+
+    # Count expected rows: one per flat Config field, plus sub-fields for
+    # nested dataclass fields (which are expanded, not listed as a single row).
+    expected_rows = 0
+    for f in dc_fields(Config):
+        default = f.default_factory() if f.default_factory is not MISSING else f.default
+        if hasattr(default, "__dataclass_fields__"):
+            expected_rows += len(dc_fields(type(default)))  # type: ignore[arg-type]
+        else:
+            expected_rows += 1
+    assert len(rows) == expected_rows
+
+    # Every row has a non-empty description.
+    for option, ftype, default, desc in rows:
+        assert desc, f"Empty description for {option}"

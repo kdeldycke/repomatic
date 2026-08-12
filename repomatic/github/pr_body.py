@@ -51,7 +51,7 @@ from string import Template
 
 from .. import __version__
 from ..frontmatter import split_frontmatter
-from .actions import extract_workflow_filename
+from .actions import extract_workflow_filename, trim_to_budget
 from .releases import dev_release_url_and_previous_version
 
 TYPE_CHECKING = False
@@ -70,13 +70,13 @@ trimmed before it is posted. The obvious trim is the wrong one: cutting the
 did before {mod}`repomatic.github.pr` replaced it) drops whatever sits last,
 which here is the refresh tip, the metadata block and the attribution footer:
 the navigational parts a reader needs most when a report is too long to read.
-{func}`build_pr_body` (PRs) and {func}`fit_issue_body` (issues) therefore trim
+{func}`build_pr_body` (PRs) and {func}`fit_github_body` (issues) therefore trim
 the leading content instead, so the tail always survives.
 """
 
 _TRUNCATION_NOTICE = "> [!CAUTION]\n> Report truncated to fit GitHub's body size limit."
 """Admonition replacing the content dropped by {func}`build_pr_body` and
-{func}`fit_issue_body`."""
+{func}`fit_github_body`."""
 
 _ZERO_WIDTH_SPACE = "\u200b"
 """Unicode zero-width space inserted to break GitHub's mention/issue parser.
@@ -501,6 +501,22 @@ def template_docs_url(name: str | Path) -> str:
     return docs if isinstance(docs, str) else ""
 
 
+def template_stem(filename: str) -> str:
+    """Return a template's name, shorn of its `.md` or `.md.noformat` extension.
+
+    The one place that knows how template filenames decompose: `.md.noformat`
+    files are renamed `.md` files hidden from mdformat (see
+    {func}`load_template`), so both extensions strip down to the same name.
+    Callers derive a PR branch or a documentation label from a
+    `--template-file` path with it, and {func}`get_template_names` names the
+    bundled templates through it.
+
+    :param filename: A template file's basename.
+    :return: The name with neither extension.
+    """
+    return filename.removesuffix(".noformat").removesuffix(".md")
+
+
 def get_template_names() -> list[str]:
     """Discover all available template names from the templates package.
 
@@ -510,11 +526,8 @@ def get_template_names() -> list[str]:
     names = []
     for item in template_dir.iterdir():
         item_name = getattr(item, "name", str(item))
-        # .md.noformat files are renamed .md files hidden from mdformat.
-        if item_name.endswith(".md.noformat"):
-            names.append(item_name.removesuffix(".md.noformat"))
-        elif item_name.endswith(".md"):
-            names.append(item_name.removesuffix(".md"))
+        if item_name.endswith((".md", ".md.noformat")):
+            names.append(template_stem(item_name))
     return sorted(names)
 
 
@@ -645,21 +658,14 @@ def _utf16_len(text: str) -> int:
 def _trim_to_budget(text: str, budget: int) -> str:
     """Keep the leading whole lines of *text* that fit in *budget*.
 
-    Cutting on line boundaries keeps the trimmed markdown rendering: a table
-    missing rows still renders, one cut mid-row does not.
+    {func}`~repomatic.github.actions.trim_to_budget` in the body-content unit,
+    UTF-16 code units.
 
     :param text: Content to trim.
     :param budget: Available room, in UTF-16 code units.
     :return: The kept lines, right-stripped; empty when nothing fits.
     """
-    kept: list[str] = []
-    used = 0
-    for line in text.splitlines():
-        used += _utf16_len(line) + 1  # The joining newline.
-        if used > budget:
-            break
-        kept.append(line)
-    return "\n".join(kept).rstrip()
+    return trim_to_budget(text, budget, _utf16_len)
 
 
 def build_pr_body(prefix: str, metadata_block: str, refresh_tip: str = "") -> str:
@@ -700,16 +706,18 @@ def build_pr_body(prefix: str, metadata_block: str, refresh_tip: str = "") -> st
     return f"{truncated_prefix}\n\n\n{tail}"
 
 
-def fit_issue_body(body: str) -> str:
-    """Trim an oversized issue body, keeping the attribution footer.
+def fit_github_body(body: str) -> str:
+    """Trim an oversized issue or pull-request body, keeping the footer.
 
-    The {func}`build_pr_body` counterpart for issue bodies rendered straight
-    from a footer-carrying template (broken-links report, setup guide). The
-    GitHub API rejects oversized issue bodies outright (`gh issue create` and
-    `gh issue edit` fail), so the content above the attribution footer is
+    The {func}`build_pr_body` counterpart for bodies rendered straight from a
+    footer-carrying template (broken-links report, setup guide), and the
+    safety net {func}`~repomatic.github.pr.upsert_pr` runs over an explicit
+    `--body` that never went through {func}`build_pr_body`. The GitHub API
+    rejects oversized bodies outright (`gh issue create`, `gh issue edit` and
+    `gh pr create` all fail), so the content above the attribution footer is
     trimmed on line boundaries, with a caution admonition marking the cut.
 
-    :param body: The rendered issue body, attribution footer included.
+    :param body: The rendered body, attribution footer included.
     :return: The body unchanged when it fits, else trimmed to fit.
     """
     if _utf16_len(body) <= GITHUB_BODY_MAX_CHARS:

@@ -62,6 +62,7 @@ from repomatic.sync_ops import (
 )
 from repomatic.tool_registry import TOOL_REGISTRY
 from repomatic.version_sync import is_newer
+from tests.conftest import load_workflow
 
 OPERATION_NAMES = [op.name for op in SYNC_OPERATIONS]
 
@@ -258,7 +259,7 @@ def test_sync_deps_reports_nothing_to_do_in_an_empty_tree() -> None:
 
 
 def _consolidated_job_steps() -> list[dict]:
-    workflow = yaml.safe_load(AUTOFIX_WORKFLOW.read_text(encoding="UTF-8"))
+    workflow = load_workflow("autofix.yaml")
     steps: list[dict] = workflow["jobs"]["sync-deps"]["steps"]
     return steps
 
@@ -269,8 +270,7 @@ def _host_job_steps(op: SyncOperation) -> list[dict]:
     Most operations share the consolidated `sync-deps` job, but one whose write
     domain exists only upstream gets its own job in a self-maintenance workflow.
     """
-    path = AUTOFIX_WORKFLOW.parent / op.workflow
-    workflow = yaml.safe_load(path.read_text(encoding="UTF-8"))
+    workflow = load_workflow(op.workflow)
     steps: list[dict] = workflow["jobs"][op.job]["steps"]
     return steps
 
@@ -418,7 +418,7 @@ def test_pinned_with_packages_keeps_the_lowest_of_two_pins(monkeypatch) -> None:
 
 def test_no_standalone_dependency_jobs_remain() -> None:
     """The four bumpers live only in the consolidated job, not as separate jobs."""
-    workflow = yaml.safe_load(AUTOFIX_WORKFLOW.read_text(encoding="UTF-8"))
+    workflow = load_workflow("autofix.yaml")
     jobs = set(workflow["jobs"])
     assert "sync-deps" in jobs
     assert not (jobs & {op.name for op in SYNC_OPERATIONS})

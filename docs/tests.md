@@ -198,15 +198,6 @@
    :undoc-members:
 ```
 
-## `tests.test_github_releases` module
-
-```{eval-rst}
-.. automodule:: tests.test_github_releases
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `tests.test_gitignore` module
 
 ```{eval-rst}
@@ -279,10 +270,10 @@
    :undoc-members:
 ```
 
-## `tests.test_labeller_rules` module
+## `tests.test_labels` module
 
 ```{eval-rst}
-.. automodule:: tests.test_labeller_rules
+.. automodule:: tests.test_labels
    :members:
    :show-inheritance:
    :undoc-members:
@@ -414,6 +405,15 @@
    :undoc-members:
 ```
 
+## `tests.test_releases` module
+
+```{eval-rst}
+.. automodule:: tests.test_releases
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_runner_images` module
 
 ```{eval-rst}
@@ -463,15 +463,6 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_suite_hygiene
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `tests.test_sync_labels` module
-
-```{eval-rst}
-.. automodule:: tests.test_sync_labels
    :members:
    :show-inheritance:
    :undoc-members:

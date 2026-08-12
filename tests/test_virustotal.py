@@ -36,7 +36,7 @@ from repomatic.virustotal import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_records():
     """Two scan records spanning two releases."""
     return [

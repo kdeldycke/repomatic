@@ -62,8 +62,9 @@ from uuid import uuid4
 
 from .. import git_ops
 from ..compat import StrEnum
-from .gh import run_gh_command
-from .pr_body import fit_issue_body, temp_body_file
+from .gh import parse_create_output, run_gh_command
+from .issue import run_unlocking
+from .pr_body import fit_github_body, temp_body_file
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -127,8 +128,8 @@ def list_open_prs_by_branch(branch: str) -> list[dict[str, Any]]:
     """List open pull requests whose head branch matches `branch`.
 
     :param branch: The head branch name to filter on.
-    :return: List of PR dicts with `number`, `title` and `isDraft`. Empty if no
-        open PR exists on `branch`.
+    :return: List of PR dicts with `number` and `isDraft`. Empty if no open PR
+        exists on `branch`.
     """
     output = run_gh_command([
         "pr",
@@ -138,7 +139,7 @@ def list_open_prs_by_branch(branch: str) -> list[dict[str, Any]]:
         "--head",
         branch,
         "--json",
-        "number,title,isDraft",
+        "number,isDraft",
     ])
     prs: list[dict[str, Any]] = json.loads(output)
     return prs
@@ -178,6 +179,10 @@ def list_changed_files(number: int, repository: str = "") -> list[str]:
 def close_pr(number: int, comment: str, delete_branch: bool = True) -> None:
     """Close a pull request with a comment.
 
+    The close comment is refused on a locked conversation, so the write goes
+    through {func}`~repomatic.github.issue.run_unlocking`: a hand-locked pull
+    request would otherwise wedge {func}`upsert_pr`'s whole retire path.
+
     :param number: The PR number to close.
     :param comment: The comment to add when closing.
     :param delete_branch: When `True`, also delete the head branch.
@@ -191,7 +196,7 @@ def close_pr(number: int, comment: str, delete_branch: bool = True) -> None:
     ]
     if delete_branch:
         args.append("--delete-branch")
-    run_gh_command(args)
+    run_unlocking(args, number, is_pr=True)
     logging.info(f"Closed PR #{number}")
 
 
@@ -215,26 +220,6 @@ def close_open_prs_on_branch(branch: str, comment: str) -> list[int]:
     return closed
 
 
-def _parse_pr_number(output: str) -> int:
-    """Read the pull-request number out of `gh pr create` output.
-
-    `gh` prints the PR URL last, in the form
-    `https://github.com/owner/repo/pull/123`. Read the last line rather than
-    the whole output: `gh` prepends advisory lines of its own (a deprecation
-    notice, a "Warning: N uncommitted changes" banner), and parsing the joined
-    output turns one of those into an error that reads as a failed creation
-    when the pull request was in fact created.
-
-    :raises RuntimeError: When the output carries no parsable PR URL.
-    """
-    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
-    tail = lines[-1].rstrip("/").rsplit("/", 1)[-1] if lines else ""
-    if not tail.isdigit():
-        msg = f"Could not read the PR number from `gh pr create`: {output!r}"
-        raise RuntimeError(msg)
-    return int(tail)
-
-
 def _apply_pr_attributes(
     number: int,
     labels: Sequence[str] = (),
@@ -249,13 +234,13 @@ def _apply_pr_attributes(
     but not yet synced is refused the same way. Neither is worth losing the
     pull request over, so both degrade to a warning.
     """
+    if not labels and not assignees:
+        return
     args = ["pr", "edit", str(number)]
     for label in labels:
         args.extend(["--add-label", label])
     for assignee in assignees:
         args.extend(["--add-assignee", assignee])
-    if len(args) == 3:
-        return
     try:
         run_gh_command(args)
     except RuntimeError as error:
@@ -425,7 +410,7 @@ def upsert_pr(
         return PrSyncResult(PrOperation.NONE, branch)
 
     open_prs = list_open_prs_by_branch(branch)
-    fitted = fit_issue_body(body)
+    fitted = fit_github_body(body)
     if fitted != body:
         logging.warning("PR body exceeds GitHub's size limit, trimming.")
 
@@ -463,8 +448,7 @@ def upsert_pr(
             args.append("--draft")
         output = run_gh_command(args)
 
-    number = _parse_pr_number(output)
-    url = output.strip().splitlines()[-1].strip()
+    number, url = parse_create_output(output, "pr")
     logging.info(f"Created PR #{number}: {url}")
     _apply_pr_attributes(number, labels, assignees)
     return PrSyncResult(PrOperation.CREATED, branch, number=number, url=url)

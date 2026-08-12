@@ -41,6 +41,7 @@ which is exactly what the schema now says and nothing more.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 import tempfile
@@ -49,6 +50,7 @@ from pathlib import Path
 import tomlrt
 from wcmatch import glob
 
+from .github.gh import resolve_gh_token
 from .tool_runner import ensure_binary
 
 TYPE_CHECKING = False
@@ -88,7 +90,7 @@ Every entry is a plain keyword, compiled case-insensitively with word
 boundaries on its word-character edges (see {func}`compile_content_pattern`),
 so `Bug` matches and `prefix` does not trip `fix`. The keys must name labels
 that `repomatic/data/labels.toml` defines, or the labelling call fails on a
-label GitHub does not have; `tests/test_labeller_rules.py` enforces that.
+label GitHub does not have; `tests/test_labels.py` enforces that.
 
 Tune for precision, not recall: a missing label costs one manual click, a
 wrong one is noise on every issue that trips it. Never key a rule off a token
@@ -400,17 +402,25 @@ def serialize_inline_labels(entries: list[dict[str, Any]]) -> str:
 def _run_labelmaker(labelmaker_path: Path, *args: str) -> None:
     """Run a `labelmaker` command.
 
+    The canonical token ({func}`~repomatic.github.gh.resolve_gh_token`) is
+    injected as `GH_TOKEN`, which labelmaker reads, so an environment carrying
+    only `REPOMATIC_PAT` still syncs authenticated — the same promotion every
+    `gh` call gets.
+
     :param labelmaker_path: Path to the labelmaker binary.
     :param args: Arguments to pass to labelmaker.
     :raises RuntimeError: If labelmaker fails.
     """
     cmd = [str(labelmaker_path), *args]
     logging.info(f"Running: {' '.join(cmd)}")
+    token = resolve_gh_token()
+    env = {**os.environ, "GH_TOKEN": token} if token else None
     result = subprocess.run(
         cmd,
         capture_output=True,
         encoding="UTF-8",
         check=False,
+        env=env,
     )
     if result.returncode:
         msg = f"labelmaker failed: {result.stderr}"

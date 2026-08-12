@@ -59,13 +59,13 @@ from .dep_report import (
 from .github.gh import run_gh_command
 from .pypi import PYPI_PACKAGE_URL
 from .uv import (
+    LockFile,
     add_exclude_newer_packages,
     diff_lock_versions,
     packages_outside_cooldown,
-    parse_lock_exclude_newer,
-    parse_lock_upload_times,
     parse_lock_versions,
     uv_cmd,
+    uv_lock_command,
 )
 
 AUDIT_HEADER_DEFS: tuple[tuple[str, str], ...] = (
@@ -483,8 +483,10 @@ def fix_vulnerable_deps(
     before = parse_lock_versions(lock_path)
 
     # Step 4: Upgrade all fixable packages in a single resolution pass.
-    # Running one command avoids sequential re-resolution undoing earlier upgrades.
-    cmd = [*uv_cmd("lock")]
+    # Running one command avoids sequential re-resolution undoing earlier
+    # upgrades. The project's own exclude-newer window rides along explicitly
+    # (see uv_lock_command), so only the named packages bypass the cooldown.
+    cmd = uv_lock_command(lock_path.parent / "pyproject.toml")
     for pkg in fixable_sorted:
         cmd.extend([
             "--upgrade-package",
@@ -495,9 +497,9 @@ def fix_vulnerable_deps(
     logging.info(f"Upgrading: {fixable_list}...")
     subprocess.run(cmd, check=True, cwd=lock_path.parent)
 
-    # Step 5: Compute version diff.
-    after = parse_lock_versions(lock_path)
-    changes = diff_lock_versions(before, after)
+    # Step 5: Compute version diff, reading the upgraded lock state once.
+    post = LockFile.load(lock_path)
+    changes = diff_lock_versions(before, post.versions)
     if not changes:
         logging.info("No version changes after upgrading vulnerable packages.")
         return False, ""
@@ -518,12 +520,10 @@ def fix_vulnerable_deps(
 
     # Step 7: Build the combined output.
     vuln_table = format_vulnerability_table(vulns)
-    upload_times = parse_lock_upload_times(lock_path)
-    exclude_newer = parse_lock_exclude_newer(lock_path)
     diff_table = format_diff_table(
         changes,
-        upload_times,
-        format_exclude_newer_note(exclude_newer),
+        post.upload_times,
+        format_exclude_newer_note(post.exclude_newer),
         name_urls=pypi_name_urls(changes),
         reference_date=datetime.now(timezone.utc).date(),
     )

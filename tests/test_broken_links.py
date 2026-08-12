@@ -29,6 +29,7 @@ from repomatic.broken_links import (
     get_label,
     parse_output_json,
 )
+from repomatic.github.pr_body import sanitize_markdown_mentions
 
 # ---------------------------------------------------------------------------
 # Label selection tests
@@ -354,8 +355,6 @@ def test_report_leaves_external_content_unsanitized(info):
 
 def test_lychee_output_sanitized(tmp_path):
     """Lychee markdown output is sanitized before embedding in issue body."""
-    from repomatic.github.pr_body import sanitize_markdown_mentions
-
     raw = "Broken: @admin mentioned in https://github.com/org/repo #99"
     sanitized = sanitize_markdown_mentions(raw)
     assert f"@{ZWS}admin" in sanitized

@@ -95,7 +95,6 @@ from .binary import (
 from .changelog import (
     GITHUB_RELEASE_URL,
     Changelog,
-    build_expected_body,
     build_release_admonition,
 )
 from .compat import StrEnum
@@ -128,6 +127,7 @@ from .git_ops import (
 from .github.actions import NULL_SHA, WorkflowEvent, generate_delimiter
 from .github.gh import run_gh_command
 from .github.matrix import Matrix, stale_axis_values
+from .github.release_sync import build_expected_body
 from .mailmap import MAILMAP_PATH
 from .matrix_axes import (
     SINGLE_RUNNER_PYTHON_VERSIONS,
@@ -501,7 +501,7 @@ class Metadata:
         event_file = Path(event_path)
         if not event_file.exists():
             raise FileNotFoundError(f"Event file not found: {event_path}")
-        event = json.loads(event_file.read_text(encoding="utf-8"))
+        event = json.loads(event_file.read_text(encoding="UTF-8"))
         logging.debug("--- GitHub event payload ---")
         logging.debug(json.dumps(event, indent=4))
         return event  # type:ignore[no-any-return]
@@ -2339,52 +2339,26 @@ class Metadata:
         {func}`_metadata_config_fields`, which is what keeps `--list-keys`,
         {func}`all_metadata_keys` and the emitted output from drifting apart.
 
+        Derived from {data}`_METADATA_KEY_DESCRIPTIONS` rather than re-listing
+        every key: most keys read the attribute of the same name, so only the
+        handful whose value is not a plain attribute carry an explicit
+        factory.
+
         :return: Key name to a zero-argument callable producing its value.
         """
-        factories: dict[str, Callable[[], Any]] = {
-            "is_bot": lambda: self.is_bot,
-            "skip_binary_build": lambda: self.skip_binary_build,
-            "yaml_changed": lambda: self.yaml_changed,
-            "zsh_changed": lambda: self.zsh_changed,
-            "workflows_changed": lambda: self.workflows_changed,
+        non_attribute: dict[str, Callable[[], Any]] = {
             "new_commits": lambda: self.new_commits_hash,
             "release_commits": lambda: self.release_commits_hash,
-            "mailmap_exists": lambda: self.mailmap_exists,
-            "gitignore_exists": lambda: self.gitignore_exists,
-            "python_files": lambda: self.python_files,
-            "json_files": lambda: self.json_files,
-            "yaml_files": lambda: self.yaml_files,
-            "pyproject_files": lambda: self.pyproject_files,
-            "workflow_files": lambda: self.workflow_files,
-            "doc_files": lambda: self.doc_files,
-            "markdown_files": lambda: self.markdown_files,
-            "image_files": lambda: self.image_files,
-            "shfmt_files": lambda: self.shfmt_files,
-            "zsh_files": lambda: self.zsh_files,
-            "is_python_project": lambda: self.is_python_project,
-            "is_python_package": lambda: self.is_python_package,
-            "package_name": lambda: self.package_name,
             "cli_scripts": lambda: [cli_id for cli_id, _, _ in self.script_entries],
-            "project_description": lambda: self.project_description,
-            "mypy_params": lambda: self.mypy_params,
-            "current_version": lambda: self.current_version,
-            "released_version": lambda: self.released_version,
-            "is_sphinx": lambda: self.is_sphinx,
-            "active_autodoc": lambda: self.active_autodoc,
-            "uses_myst": lambda: self.uses_myst,
-            "release_notes": lambda: self.release_notes,
-            "release_notes_with_admonition": lambda: self.release_notes_with_admonition,
-            "new_commits_matrix": lambda: self.new_commits_matrix,
-            "release_commits_matrix": lambda: self.release_commits_matrix,
             "build_targets": lambda: FLAT_BUILD_TARGETS,
-            "nuitka_matrix": lambda: self.nuitka_matrix,
-            "test_matrix": lambda: self.test_matrix,
-            "test_matrix_pr": lambda: self.test_matrix_pr,
-            "minor_bump_allowed": lambda: self.minor_bump_allowed,
-            "major_bump_allowed": lambda: self.major_bump_allowed,
             "npm_min_release_age_days": lambda: min_release_age_days(
                 self.config.minimum_release_age
             ),
+        }
+        factories: dict[str, Callable[[], Any]] = {
+            # `partial` binds `key` eagerly, dodging the late-binding pitfall.
+            key: non_attribute.get(key, partial(getattr, self, key))
+            for key in _METADATA_KEY_DESCRIPTIONS
         }
 
         # Add config from [tool.repomatic] in pyproject.toml.
@@ -2392,7 +2366,6 @@ class Metadata:
         # Exclude nuitka internal config (dedicated properties with validation logic)
         # and subcommand config fields (read directly by dep-graph).
         for name in _metadata_config_fields():
-            # `partial` binds `name` eagerly, dodging the late-binding pitfall.
             factories[name] = partial(getattr, self.config, name)
 
         return factories

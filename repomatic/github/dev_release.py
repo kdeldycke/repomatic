@@ -41,13 +41,13 @@ to allow asset uploads. See `CLAUDE.md` § Immutable releases.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
 from ..binary import BINARY_ASSET_SUFFIXES, PYTHON_DIST_SUFFIXES
-from ..changelog import Changelog, build_expected_body
-from .gh import run_gh_command
+from ..changelog import Changelog
+from .gh import gh_api_json, run_gh_command
+from .release_sync import build_expected_body
 from .releases import edit_release_notes
 
 DEV_ASSET_PATTERNS = tuple(
@@ -182,21 +182,20 @@ def _delete_release_assets(tag: str, nwo: str) -> int:
     :param nwo: Repository name-with-owner (e.g. `user/repo`).
     :return: Number of assets successfully deleted.
     """
-    try:
-        output = run_gh_command([
-            "release",
-            "view",
-            tag,
-            "--repo",
-            nwo,
-            "--json",
-            "assets",
-        ])
-    except RuntimeError:
+    payload = gh_api_json([
+        "release",
+        "view",
+        tag,
+        "--repo",
+        nwo,
+        "--json",
+        "assets",
+    ])
+    if payload is None:
         logging.debug(f"Could not view release {tag} for asset deletion.")
         return 0
 
-    assets = json.loads(output).get("assets", [])
+    assets = payload.get("assets", [])
     deleted = 0
     for asset in assets:
         # Extract numeric asset ID from the apiUrl field.
@@ -266,20 +265,18 @@ def cleanup_dev_releases(nwo: str, *, keep_tag: str | None = None) -> None:
     :param keep_tag: Tag to preserve (e.g. `v6.2.0.dev0`). If `None`,
         all dev releases are deleted.
     """
-    try:
-        output = run_gh_command([
-            "release",
-            "list",
-            "--json",
-            "tagName",
-            "--repo",
-            nwo,
-        ])
-    except RuntimeError:
+    releases = gh_api_json([
+        "release",
+        "list",
+        "--json",
+        "tagName",
+        "--repo",
+        nwo,
+    ])
+    if releases is None:
         logging.debug("Could not list releases.")
         return
 
-    releases = json.loads(output)
     for release in releases:
         tag = release["tagName"]
         if (
@@ -288,21 +285,6 @@ def cleanup_dev_releases(nwo: str, *, keep_tag: str | None = None) -> None:
             and delete_release_by_tag(tag, nwo)
         ):
             logging.info(f"Deleted stale dev release {tag}.")
-
-
-def delete_dev_release(version: str, nwo: str) -> None:
-    """Delete the dev pre-release and its tag from GitHub.
-
-    Silently succeeds if no dev release exists. This is used during
-    real releases to clean up the dev pre-release for the version
-    being released.
-
-    :param version: Dev version string (e.g. `6.1.1.dev0`).
-    :param nwo: Repository name-with-owner (e.g. `user/repo`).
-    """
-    tag = f"v{version}"
-    if delete_release_by_tag(tag, nwo):
-        logging.info(f"Deleted dev release {tag}.")
 
 
 def delete_release_by_tag(tag: str, nwo: str) -> bool:

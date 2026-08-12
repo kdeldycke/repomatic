@@ -573,18 +573,17 @@ def fetch_github_release_notes(
         except GitHubReleasesUnavailable as exc:
             logging.warning(f"Skipping release notes for {name}: {exc}")
             continue
-        try:
-            old_version, new_version = Version(old), Version(new)
-        except InvalidVersion:
+        old_version = parse_release_version(old)
+        new_version = parse_release_version(new)
+        if old_version is None or new_version is None:
             continue
         fetched: list[tuple[Version, str, str]] = []
         for tag, release in tags.items():
             version = extract_version(tag, tag_pattern)
             if not version or not release.body:
                 continue
-            try:
-                parsed = Version(version)
-            except InvalidVersion:
+            parsed = parse_release_version(version)
+            if parsed is None:
                 continue
             if old_version < parsed <= new_version:
                 fetched.append((parsed, tag, release.body))

@@ -23,8 +23,10 @@ from importlib.resources import files
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
 from repomatic import __version__
+from repomatic.cli import repomatic
 from repomatic.config import config_reference
 from repomatic.dep_sources import RELEASE_READY_SENTENCE
 from repomatic.frontmatter import split_frontmatter
@@ -42,7 +44,7 @@ from repomatic.github.pr_body import (
     build_pr_body,
     build_release_review_steps,
     demote_markdown_headings,
-    fit_issue_body,
+    fit_github_body,
     generate_pr_metadata_block,
     generate_refresh_tip,
     get_template_names,
@@ -760,7 +762,7 @@ def test_build_pr_body_under_limit_untouched(github_env):
     assert "> Report truncated" not in result
 
 
-def test_fit_issue_body_trims_keeping_footer():
+def test_fit_github_body_trims_keeping_footer():
     """An oversized issue body is trimmed above the footer, which survives.
 
     Unlike PR bodies (silently truncated by create-pull-request), oversized
@@ -775,7 +777,7 @@ def test_fit_issue_body_trims_keeping_footer():
     )
     assert _utf16_len(body) > GITHUB_BODY_MAX_CHARS
 
-    fitted = fit_issue_body(body)
+    fitted = fit_github_body(body)
 
     assert _utf16_len(fitted) <= GITHUB_BODY_MAX_CHARS
     # The attribution footer still closes the body.
@@ -789,21 +791,21 @@ def test_fit_issue_body_trims_keeping_footer():
     assert fitted.index("> [!CAUTION]") < fitted.index("Generated with")
 
 
-def test_fit_issue_body_small_unchanged():
+def test_fit_github_body_small_unchanged():
     """A body under the limit passes through byte-for-byte."""
     body = render_template(
         "broken-links-issue",
         lychee_section="## Lychee\n\nNo broken links found.",
         sphinx_section="",
     )
-    assert fit_issue_body(body) == body
+    assert fit_github_body(body) == body
 
 
-def test_fit_issue_body_without_footer_still_fits():
+def test_fit_github_body_without_footer_still_fits():
     """A footerless oversized body is trimmed too, without inventing a footer."""
     body = "\n".join(["| papaya | 🆙 |"] * 9000)
 
-    fitted = fit_issue_body(body)
+    fitted = fit_github_body(body)
 
     assert _utf16_len(fitted) <= GITHUB_BODY_MAX_CHARS
     assert "> Report truncated to fit GitHub's body size limit." in fitted
@@ -1070,10 +1072,6 @@ def _invoke_pr_body(
     stable and {func}`~repomatic.cli.prep_path` does not call ``fileno()`` on
     the in-memory stream that Click's runner installs.
     """
-    from click.testing import CliRunner
-
-    from repomatic.cli import repomatic
-
     for key in GITHUB_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("GHA_PR_BODY_PREFIX", raising=False)

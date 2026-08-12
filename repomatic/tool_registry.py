@@ -919,11 +919,11 @@ def _fix_myst_directives(extra_args: Sequence[str]) -> None:
         path = Path(arg)
         if not path.is_file():
             continue
-        content = path.read_text(encoding="utf-8")
+        content = path.read_text(encoding="UTF-8")
         fixed = _DIRECTIVE_YAML_OPTIONS_RE.sub(_yaml_block_to_field_list, content)
         fixed = _ESCAPED_COLON_FENCE_RE.sub(_unescape_colon_fence, fixed)
         if fixed != content:
-            path.write_text(fixed, encoding="utf-8")
+            path.write_text(fixed, encoding="UTF-8")
             logging.debug("Fixed MyST directives in %s", path)
 
 

@@ -29,14 +29,12 @@ from repomatic.github.actions import (
     cancel_superseded_runs,
     format_file_output,
     format_multiline_output,
-    read_file_output,
-    trim_to_byte_budget,
-    write_output_file,
-)
-from repomatic.github.sponsor import (
     get_default_author,
     get_default_number,
     is_pull_request,
+    read_file_output,
+    trim_to_byte_budget,
+    write_output_file,
 )
 
 # -- ReportAction -------------------------------------------------------------
@@ -64,10 +62,6 @@ def test_report_action_labels_are_distinct():
 
 
 # -- Event payload readers ----------------------------------------------------
-#
-# These live in `repomatic.github.sponsor` but read `get_github_event()`, this
-# module's view of the event payload, and `sponsor` has no test module of its
-# own.
 
 
 _PR_EVENT = {"pull_request": {"number": 7, "user": {"login": "papaya"}}}
@@ -94,9 +88,8 @@ _ISSUE_EVENT = {"issue": {"number": 12, "user": {"login": "quince"}}}
 )
 def test_event_subject_readers_agree(event, is_pr, author, number):
     """All three payload readers resolve the same subject node."""
-    # Patched in `sponsor`, not `actions`: the readers bound the name at
-    # import time, and it also sidesteps the `lru_cache` on the real one.
-    with patch("repomatic.github.sponsor.get_github_event", return_value=event):
+    # Patching the module global also sidesteps the `lru_cache` on the real one.
+    with patch("repomatic.github.actions.get_github_event", return_value=event):
         assert is_pull_request() is is_pr
         assert get_default_author() == author
         assert get_default_number() == number

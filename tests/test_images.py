@@ -18,12 +18,14 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from repomatic.images import (
+    OPTIMIZERS,
     OptimizationResult,
     generate_markdown_summary,
     optimize_image,
@@ -119,8 +121,6 @@ def test_optimize_image_unsupported_extension(tmp_path: Path) -> None:
 
 def _patch_optimizer(ext, mock_fn):
     """Temporarily replace the optimizer function for an extension in OPTIMIZERS."""
-    from repomatic.images import OPTIMIZERS
-
     original = OPTIMIZERS[ext]
     return patch.dict(OPTIMIZERS, {ext: (original[0], mock_fn)})
 
@@ -191,8 +191,6 @@ def test_optimize_image_above_threshold(tmp_path: Path) -> None:
 
 def test_optimize_image_restores_on_failure(tmp_path: Path) -> None:
     """Original file is restored when the optimizer tool fails."""
-    import subprocess
-
     img = tmp_path / "test.jpg"
     original_data = b"\xff\xd8\xff" + b"\x00" * 100
     img.write_bytes(original_data)

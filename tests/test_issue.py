@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -29,7 +30,6 @@ from repomatic.github.issue import (
     LOCK_ISSUE_COMMENT,
     LOCK_PR_COMMENT,
     LOCK_REASON,
-    _fit_body_file,
     close_issue,
     create_issue,
     lock_stale_threads,
@@ -149,23 +149,33 @@ def test_triage_issues(issues, needed, expected):
     assert triage_issues(issues, TITLE, needed) == expected
 
 
-def test_fit_body_file_rewrites_oversized_body(tmp_path):
-    """Oversized issue bodies are trimmed in place before reaching `gh`.
+def test_lifecycle_trims_oversized_body_before_writing():
+    """Oversized issue bodies are trimmed before they ever reach `gh`.
 
     The GitHub API rejects bodies over the size limit outright, so the
-    lifecycle helpers rewrite the body file to fit, keeping the attribution
-    footer at the end.
+    lifecycle helper fits the rendered body before writing it to disk,
+    marking the cut with a truncation notice.
     """
-    body_file = tmp_path / "body.md"
-    small = "A short issue body."
-    body_file.write_text(small, encoding="UTF-8")
-    _fit_body_file(body_file)
-    assert body_file.read_text(encoding="UTF-8") == small
+    bodies: list[str] = []
+
+    def fake_gh(args):
+        if args[:2] == ["issue", "list"]:
+            return "[]"
+        if args[:2] == ["issue", "create"]:
+            body_path = Path(args[args.index("--body-file") + 1])
+            bodies.append(body_path.read_text(encoding="UTF-8"))
+            return "https://github.com/user/repo/issues/1\n"
+        return ""
 
     oversized = "\n".join(["- broken link report row 🍈"] * 5000)
-    body_file.write_text(oversized, encoding="UTF-8")
-    _fit_body_file(body_file)
-    fitted = body_file.read_text(encoding="UTF-8")
+    with (
+        patch("repomatic.github.issue.run_gh_command", side_effect=fake_gh),
+        patch("repomatic.github.issue.Metadata"),
+        patch("repomatic.github.issue.generate_pr_metadata_block", return_value=""),
+    ):
+        manage_issue_lifecycle(has_issues=True, body=oversized, labels=[], title=TITLE)
+
+    (fitted,) = bodies
     assert len(fitted.encode("utf-16-le")) // 2 <= GITHUB_BODY_MAX_CHARS
     assert "> Report truncated to fit GitHub's body size limit." in fitted
 
@@ -338,7 +348,7 @@ def test_create_issue_rejects_unparsable_output(tmp_path, output):
     body_file.write_text("Papaya crate is empty.", encoding="UTF-8")
     with (
         patch("repomatic.github.issue.run_gh_command", return_value=output),
-        pytest.raises(RuntimeError, match="Could not read the issue number"),
+        pytest.raises(RuntimeError, match="Could not read a thread number"),
     ):
         create_issue(body_file, [], "Papaya")
 
@@ -365,7 +375,12 @@ def _thread(
 
 
 def _locking_calls(threads, **kwargs):
-    """Run `lock_stale_threads` over *threads*, returning its rows and gh calls."""
+    """Run `lock_stale_threads` over *threads*, returning its rows and gh calls.
+
+    Runs live unless the test asks for a dry run: the library default is the
+    safe dry run, and most tests here are about what a live run writes.
+    """
+    kwargs.setdefault("dry_run", False)
     calls: list[list[str]] = []
 
     def fake_gh(args):

@@ -16,15 +16,13 @@
 
 from __future__ import annotations
 
-import functools
 import logging
 import os
 import subprocess
 import sys
 import tempfile
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from shutil import rmtree
 
 from click.shell_completion import CompletionItem
 from click_extra import (
@@ -73,7 +71,6 @@ from .binary import (
     verify_binary_floor,
 )
 from .broken_links import manage_combined_broken_links_issue
-from .bundle import get_data_content
 from .cache import (
     CACHE_LIST_HEADER_DEFS,
     cache_dir as _cache_dir,
@@ -84,7 +81,12 @@ from .cache import (
     config_cache_info,
     http_cache_info,
 )
-from .changelog import Changelog, lint_changelog_dates, resolved_changelog_path
+from .changelog import (
+    Changelog,
+    lint_changelog_dates,
+    load_changelog_repo,
+    resolved_changelog_path,
+)
 from .checksums import update_registry_checksums
 from .config import (
     CONFIG_REFERENCE_HEADER_DEFS,
@@ -97,9 +99,6 @@ from .dep_graph import (
     generate_dependency_graph,
     resolve_subgraph_selection,
 )
-from .dep_report import (
-    format_upload_date,
-)
 from .dep_sources import (
     LINT_DEPS_HEADER_DEFS,
     build_release_readiness,
@@ -107,16 +106,19 @@ from .dep_sources import (
     scan_project,
 )
 from .docs import update_docs as _update_docs
-from .frontmatter import split_frontmatter
 from .git_ops import commit_and_push_files, create_and_push_tag, current_branch
 from .github import token as _token_mod, unsubscribe as _unsub_mod
 from .github.actions import (
     AnnotationLevel,
     cancel_superseded_runs,
     emit_annotation,
-    format_file_output,
+    emit_report,
     format_multiline_output,
+    get_default_author,
+    get_default_number,
+    get_event_subject,
     get_github_event,
+    is_pull_request,
     read_file_output,
 )
 from .github.dev_release import (
@@ -149,6 +151,7 @@ from .github.pr_body import (
     template_docs_url,
     template_draft,
     template_labels,
+    template_stem,
 )
 from .github.release_sync import (
     render_sync_report as _render_sync_report,
@@ -160,14 +163,10 @@ from .github.releases import (
     owner_repo,
 )
 from .github.sponsor import (
-    add_sponsor_label,
-    get_default_author,
-    get_default_number,
     get_default_owner,
-    get_event_subject,
-    is_pull_request,
     is_sponsor,
 )
+from .github.token import require_token
 from .github.unsubscribe import (
     render_report as _render_report,
     unsubscribe_threads as _unsubscribe_threads,
@@ -181,7 +180,7 @@ from .images import (
     generate_markdown_summary,
     optimize_images,
 )
-from .init_project import run_init
+from .init_project import prune_paths, run_init
 from .labels import (
     apply_labels,
     match_content_rules,
@@ -208,15 +207,13 @@ from .pyproject import get_project_name
 from .registry import (
     ALL_COMPONENTS,
     COMPONENT_HELP_TABLE,
-    COMPONENTS_BY_NAME,
     DEFAULT_REPO,
     EPHEMERAL_TARGETS,
     FILE_SELECTOR_COMPONENTS,
-    SKILL_FILENAME,
     SKILL_PHASE_ORDER,
-    SKILL_PHASES,
     WORKFLOW_TARGET_ROOT,
     parse_component_entries,
+    skill_catalog,
     valid_file_ids,
 )
 from .runner_images import manage_runner_images_issue
@@ -224,11 +221,12 @@ from .setup_guide import manage_setup_guide
 from .sync_ops import (
     OPERATIONS_BY_NAME,
     ResolveContext,
-    SyncPlan,
+    emit_lockfile_sync_report,
     print_plan_tables,
     render_plan_markdown,
     resolve_lockfile_plan,
     run_sync_operations,
+    run_version_sync,
     selected_operations,
 )
 from .tool_registry import (
@@ -375,6 +373,32 @@ has_virustotal_key_option = option(
     envvar="HAS_VIRUSTOTAL_API_KEY",
     help="Whether VIRUSTOTAL_API_KEY is configured.",
 )
+# The template-feeding trio shared verbatim by `pr-body` and `pr-sync`; their
+# `--template`/`--template-file` options stay per-command, whose help texts
+# document command-specific derivations.
+template_arg_option = option(
+    "--template-arg",
+    "template_args_cli",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help=(
+        "Pass an arbitrary key/value pair to the template. Repeat to provide"
+        " multiple. Use this to feed template variables not covered by the"
+        " dedicated --version / --part / --pr-ref flags. Example:"
+        " --template-arg channel=Nix."
+    ),
+)
+template_version_option = option(
+    "--version",
+    "version",
+    default=None,
+    help="Version string passed to the template (e.g. 1.2.0).",
+)
+template_part_option = option(
+    "--part",
+    default=None,
+    help="Version part passed to the bump-version template (e.g. minor, major).",
+)
 
 
 def exit_if_disabled(ctx: Context, enabled: bool, key: str) -> None:
@@ -393,38 +417,6 @@ def exit_if_disabled(ctx: Context, enabled: bool, key: str) -> None:
         ctx.exit(0)
 
 
-def emit_report(
-    body: str,
-    output: Path | None,
-    output_format: str,
-    key: str = "diff_table",
-) -> None:
-    """Write a markdown report to `--output`, optionally as a step output.
-
-    The shared tail of every report-producing command: nothing is written
-    when no output path is set or the body is empty; with
-    `--output-format github-actions` the body is spilled to a file and the step
-    output named `<key>_file` carries its path, for `$GITHUB_OUTPUT`
-    consumption.
-
-    A report is the one value here with no ceiling of its own, so it is the one
-    that must not travel inline: see {func}`repomatic.github.actions.format_file_output`.
-
-    :param body: The markdown report.
-    :param output: The `--output` path (`None` to skip, `-` for stdout).
-    :param output_format: `markdown` or `github-actions`.
-    :param key: The step output variable name, before the `_file` suffix, for
-        the `github-actions` format.
-    """
-    if output is None or not body:
-        return
-    if output_format == "github-actions":
-        content = format_file_output(key, body)
-    else:
-        content = body
-    echo(content, file=prep_path(output))
-
-
 def log_output_target(subject: str, output: Path) -> None:
     """Log where a command is about to write *subject*.
 
@@ -440,52 +432,6 @@ def log_output_target(subject: str, output: Path) -> None:
         logging.info(f"Print {subject} to {sys.stdout.name}")
     else:
         logging.info(f"Write {subject} to {output}")
-
-
-def load_changelog_repo(config: Config) -> tuple[Path, str] | None:
-    """Load the configured changelog and read the repository URL out of it.
-
-    The shared preamble of the two release-notes syncers, which both need the
-    changelog's path (to read sections from) and the repository it belongs to
-    (to address the GitHub API with). The URL comes from the changelog's own
-    comparison links rather than from the git remote, so a project whose
-    changelog points elsewhere stays authoritative.
-
-    :param config: The resolved `[tool.repomatic]` configuration.
-    :return: `(changelog_path, repo_url)`, or `None` after logging why neither
-        could be determined (no changelog on disk, or no comparison link in it).
-    """
-    changelog_path = resolved_changelog_path(config)
-    if not changelog_path.exists():
-        logging.warning(f"{changelog_path} not found.")
-        return None
-    repo_url = Changelog(changelog_path.read_text(encoding="UTF-8")).extract_repo_url()
-    if not repo_url:
-        logging.warning("Could not extract repository URL from changelog.")
-        return None
-    return changelog_path, repo_url
-
-
-def _require_token(module, attr):
-    """Decorator that runs a token validator before the Click command body.
-
-    Uses late-bound `getattr(module, attr)` so that
-    `unittest.mock.patch` can replace the module attribute after import
-    and the decorator sees the mock at call time.
-    """
-
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                getattr(module, attr)()
-            except RuntimeError as exc:
-                raise ClickException(str(exc))
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
 
 
 # included_params=() disables merge_default_map: all [tool.repomatic] keys are
@@ -545,25 +491,6 @@ class ComponentSelector(ParamType):
         return completions
 
 
-def _unlink_with_empty_parents(target: Path, root: Path) -> None:
-    """Delete `target`, then prune now-empty parent directories up to `root`.
-
-    A skill is a whole folder, so *target* may be a directory: remove it and
-    everything it carries (`scripts/`, `references/`, `assets/`) in one go.
-    """
-    if target.is_dir():
-        rmtree(target)
-    else:
-        target.unlink()
-    parent = target.parent
-    while parent != root:
-        try:
-            parent.rmdir()
-        except OSError:
-            break
-        parent = parent.parent
-
-
 def _report_paths(
     paths: Sequence[str] | Sequence[tuple[str, str]],
     heading: str,
@@ -597,29 +524,6 @@ def _report_paths(
         note = style(f"  ({successor})", dim=True) if successor else ""
         styled = style(path, fg=color) if color else style(path, dim=True)
         echo(f"  {styled}{note}")
-
-
-def _prune_paths(
-    paths: Sequence[str] | Sequence[tuple[str, str]],
-    output_dir: Path,
-    *,
-    prune_parents: bool = True,
-) -> None:
-    """Delete every path of an `init` report section.
-
-    :param prune_parents: Also remove parent directories left empty. On for the
-        removed-asset and excluded sections, whose targets sit in directories
-        repomatic itself created (`.claude/skills/<name>/`). Off for unmodified
-        tool configs, which share `.github/` and the repository root with files
-        repomatic does not own.
-    """
-    for entry in paths:
-        path = entry[0] if isinstance(entry, tuple) else entry
-        target = output_dir / path
-        if prune_parents:
-            _unlink_with_empty_parents(target, output_dir)
-        else:
-            target.unlink()
 
 
 @repomatic.command(
@@ -801,7 +705,7 @@ def init_project(
     # Each remaining section pairs a delete flag with the two reports it picks
     # between: acted-on when the flag says so, left-on-disk otherwise.
     if delete_excluded:
-        _prune_paths(result.excluded_existing, output_dir)
+        prune_paths(result.excluded_existing, output_dir)
         _report_paths(
             result.excluded_existing,
             f"Deleted {len(result.excluded_existing)} excluded file(s) still on disk:",
@@ -817,7 +721,7 @@ def init_project(
         )
 
     if delete_unmodified:
-        _prune_paths(result.unmodified_configs, output_dir, prune_parents=False)
+        prune_paths(result.unmodified_configs, output_dir, prune_parents=False)
         _report_paths(
             result.unmodified_configs,
             f"Deleted {len(result.unmodified_configs)} unmodified file(s) identical"
@@ -843,7 +747,7 @@ def init_project(
             hint=" (--keep-removed set; delete manually):",
         )
     else:
-        _prune_paths(result.removed_prunable, output_dir)
+        prune_paths(result.removed_prunable, output_dir)
         _report_paths(
             result.removed_prunable,
             f"Pruned {len(result.removed_prunable)} removed-upstream file(s)"
@@ -853,7 +757,7 @@ def init_project(
         )
 
     if delete_removed_modified:
-        _prune_paths(result.removed_review, output_dir)
+        prune_paths(result.removed_review, output_dir)
         _report_paths(
             result.removed_review,
             f"Force-deleted {len(result.removed_review)} removed-upstream file(s)"
@@ -1655,7 +1559,7 @@ def sync_mailmap(ctx, source, create_if_missing, destination_mailmap):
     default=None,
     help="Specify issue or pull request. Auto-detected from $GITHUB_EVENT_PATH.",
 )
-@_require_token(_token_mod, "validate_gh_token_env")
+@require_token(_token_mod, "validate_gh_token_env")
 def sponsor_label(
     owner: str | None,
     author: str | None,
@@ -1721,7 +1625,7 @@ def sponsor_label(
     assert owner and author and repo and number
 
     if is_sponsor(owner, author):
-        if add_sponsor_label(repo, number, label, is_pr=is_pr):
+        if add_labels(repo, number, [label], is_pr=is_pr):
             echo(f"Added {label!r} label to {'PR' if is_pr else 'issue'} #{number}")
         else:
             raise ClickException("Failed to add sponsor label")
@@ -1747,7 +1651,7 @@ def sponsor_label(
 )
 @repo_slug_option
 @dry_run_option
-@_require_token(_token_mod, "validate_gh_token_env")
+@require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def apply_labels_cmd(
     ctx: Context,
@@ -1832,18 +1736,18 @@ def apply_labels_cmd(
             list_changed_files(number, repo),
         )
 
-    kind = "PR" if is_pr else "issue"
+    thread = "PR" if is_pr else "issue"
     if not matched:
-        echo(f"No rule matched {kind} #{number}.")
+        echo(f"No rule matched {thread} #{number}.")
         return
 
     labels = sorted(matched)
     if dry_run:
-        echo(f"Would label {kind} #{number} with: {', '.join(labels)}")
+        echo(f"Would label {thread} #{number} with: {', '.join(labels)}")
         return
     if not add_labels(repo, number, labels, is_pr=is_pr):
-        raise ClickException(f"Failed to label {kind} #{number}")
-    echo(f"Labelled {kind} #{number} with: {', '.join(labels)}")
+        raise ClickException(f"Failed to label {thread} #{number}")
+    echo(f"Labelled {thread} #{number} with: {', '.join(labels)}")
 
 
 @repomatic.command(
@@ -2121,7 +2025,7 @@ def update_docs(check: bool) -> None:
     help="Repository name (for label selection)."
     " Defaults to $GITHUB_REPOSITORY name component.",
 )
-@_require_token(_token_mod, "validate_gh_token_env")
+@require_token(_token_mod, "validate_gh_token_env")
 def broken_links(
     lychee_exit_code: int | None,
     body_file: Path | None,
@@ -2168,7 +2072,7 @@ def broken_links(
 @repomatic.command(
     short_help="Manage runner image announcements issue", section=_section_github
 )
-@_require_token(_token_mod, "validate_gh_token_env")
+@require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def runner_images(ctx: Context) -> None:
     """Report GitHub's open runner image announcements as an issue.
@@ -2200,7 +2104,7 @@ def runner_images(ctx: Context) -> None:
 @has_pat_option
 @has_virustotal_key_option
 @repo_slug_option
-@_require_token(_token_mod, "validate_gh_token_env")
+@require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def setup_guide(
     ctx: Context,
@@ -2286,7 +2190,7 @@ def setup_guide(
 )
 @repo_slug_option
 @dry_run_option
-@_require_token(_token_mod, "validate_gh_token_env")
+@require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def lock_threads(
     ctx: Context,
@@ -2366,7 +2270,7 @@ def lock_threads(
     help="Maximum number of threads/items to process per phase.",
 )
 @dry_run_option
-@_require_token(_unsub_mod, "_validate_notifications_token")
+@require_token(_unsub_mod, "_validate_notifications_token")
 def unsubscribe_threads(months: int, batch_size: int, dry_run: bool) -> None:
     """Unsubscribe from closed, inactive GitHub notification threads.
 
@@ -2801,7 +2705,7 @@ def sync_dep_sources(
     if plan.changes:
         echo(f"{len(plan.changes)} package(s) updated.")
 
-    _emit_lockfile_sync_report(
+    emit_lockfile_sync_report(
         ctx,
         plan,
         reference_date=rc.today,
@@ -2907,7 +2811,7 @@ def sync_uv_lock_cmd(
             + ", ".join(plan.uv_project.frozen_bypasses)
         )
 
-    _emit_lockfile_sync_report(
+    emit_lockfile_sync_report(
         ctx,
         plan,
         reference_date=rc.today,
@@ -2915,115 +2819,6 @@ def sync_uv_lock_cmd(
         output=output,
         output_format=output_format,
     )
-
-
-def _emit_lockfile_sync_report(
-    ctx: Context,
-    plan: SyncPlan,
-    *,
-    reference_date: date,
-    table: bool,
-    output: Path | None,
-    output_format: str,
-) -> None:
-    """Emit the terminal tables and markdown report of a lockfile sync.
-
-    `sync-uv-lock` and `sync-dep-sources` share this tail. They alone can suppress
-    the terminal tables with `--no-table` (their CI jobs want only the markdown
-    report), and they alone have an `exclude-newer` cutoff to announce, uv's
-    lock-level cooldown standing in for the `minimum-release-age` window the
-    version-sync trio reports.
-    """
-    if table:
-        if plan.uv_project.exclude_newer:
-            echo(
-                "exclude-newer cutoff: "
-                f"{format_upload_date(plan.uv_project.exclude_newer)}"
-            )
-        print_plan_tables(ctx, plan, reference_date)
-
-    # Release notes echoed to the terminal (already fetched during resolve).
-    if plan.notes_section:
-        echo("")
-        echo(plan.notes_section)
-
-    # File output: markdown report for CI or downstream tooling.
-    if output:
-        emit_report(render_plan_markdown(plan), output, output_format)
-
-
-def _emit_version_sync_report(
-    ctx: Context,
-    plan: SyncPlan,
-    output: Path | None,
-    output_format: str,
-) -> None:
-    """Print a terminal report and optionally write a markdown PR-body report.
-
-    Shared by the three `sync-*` version updaters. The terminal table and the
-    markdown PR body (diff table, held-back section, release notes) route
-    through the same shared renderers `sync-uv-lock` and `sync-deps` use
-    ({func}`~repomatic.sync_ops.render_plan_markdown`), so every dependency
-    updater's report matches.
-    """
-    echo(f"{len(plan.changes)} {plan.subject.lower()}(s) updated.")
-    if plan.cutoff is not None:
-        echo(f"minimum-release-age cutoff: {plan.cutoff:%Y-%m-%d}")
-    print_plan_tables(
-        ctx, plan, plan.reference_date or datetime.now(timezone.utc).date()
-    )
-    if plan.notes_section:
-        echo("")
-        echo(plan.notes_section)
-    if output:
-        emit_report(render_plan_markdown(plan), output, output_format)
-
-
-def _run_version_sync(
-    ctx: Context,
-    op_name: str,
-    enabled: bool,
-    key: str,
-    output: Path | None,
-    output_format: str,
-    release_notes: bool,
-    held_back: bool,
-    up_to_date: str,
-) -> None:
-    """Shared body of the three version-sync commands.
-
-    `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` differ
-    only in their operation, feature flag, and messages: the guard, resolve,
-    apply, and report sequence is identical.
-
-    :param ctx: The Click context.
-    :param op_name: The {data}`~repomatic.sync_ops.OPERATIONS_BY_NAME` key.
-    :param enabled: The resolved feature flag value.
-    :param key: The `[tool.repomatic]` flag key, for the disabled log line.
-    :param output: The `--output` report path.
-    :param output_format: The `--output-format` value.
-    :param release_notes: Whether to fetch GitHub release notes.
-    :param held_back: Whether to report cooldown-held releases.
-    :param up_to_date: Message printed when nothing needs updating.
-    """
-    exit_if_disabled(ctx, enabled, key)
-
-    op = OPERATIONS_BY_NAME[op_name]
-    rc = ResolveContext(
-        config=get_tool_config(ctx),
-        today=datetime.now(timezone.utc).date(),
-        release_notes=release_notes,
-        held_back=held_back,
-    )
-    plan = op.resolve(rc)
-
-    if not plan.has_changes:
-        echo(up_to_date)
-        ctx.exit(0)
-
-    op.apply(plan)
-
-    _emit_version_sync_report(ctx, plan, output, output_format)
 
 
 @repomatic.command(
@@ -3064,11 +2859,10 @@ def sync_tool_versions(
         repomatic sync-tool-versions \\
             --output "$GITHUB_OUTPUT" --output-format github-actions
     """
-    _run_version_sync(
+    exit_if_disabled(ctx, get_tool_config(ctx).tool_versions_sync, "tool-versions.sync")
+    run_version_sync(
         ctx,
         "sync-tool-versions",
-        get_tool_config(ctx).tool_versions_sync,
-        "tool-versions.sync",
         output,
         output_format,
         release_notes,
@@ -3106,11 +2900,10 @@ def sync_action_pins(
     Example:
         repomatic sync-action-pins
     """
-    _run_version_sync(
+    exit_if_disabled(ctx, get_tool_config(ctx).action_pins_sync, "action-pins.sync")
+    run_version_sync(
         ctx,
         "sync-action-pins",
-        get_tool_config(ctx).action_pins_sync,
-        "action-pins.sync",
         output,
         output_format,
         release_notes,
@@ -3146,11 +2939,10 @@ def sync_workflow_pins(
     Example:
         repomatic sync-workflow-pins
     """
-    _run_version_sync(
+    exit_if_disabled(ctx, get_tool_config(ctx).workflow_pins_sync, "workflow-pins.sync")
+    run_version_sync(
         ctx,
         "sync-workflow-pins",
-        get_tool_config(ctx).workflow_pins_sync,
-        "workflow-pins.sync",
         output,
         output_format,
         release_notes,
@@ -3318,8 +3110,9 @@ def sync_labels(ctx: Context, repository: str | None) -> None:
     repository using labelmaker. Applies the default profile to all
     repositories, plus the awesome profile for awesome-* repos.
 
-    Requires GITHUB_TOKEN in the environment. Downloads labelmaker
-    automatically via the tool registry.
+    Authentication follows the canonical token resolution (REPOMATIC_PAT,
+    then GH_TOKEN, then GITHUB_TOKEN). Downloads labelmaker automatically via
+    the tool registry.
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.labels.sync, "labels.sync")
@@ -3359,21 +3152,7 @@ def list_skills() -> None:
     Reads skill definitions from the bundled data files and displays them
     in a table grouped by phase: Setup, Development, Quality, and Release.
     """
-    # Collect skill metadata from bundled files.
-    skills_comp = COMPONENTS_BY_NAME["skills"]
-    skills = []
-    for entry in skills_comp.files:
-        # Each skill is a bundled folder, so reach past it for the entry point.
-        content = get_data_content(f"{entry.source}/{SKILL_FILENAME}")
-        meta, _body = split_frontmatter(content)
-        name = meta.get("name", entry.file_id)
-        description = meta.get("description", "")
-        # Strip trailing period for table display.
-        description = description.removesuffix(".")
-        # Phases are keyed by the registry file_id, not the frontmatter name,
-        # so a skill renamed in frontmatter still lands in its phase.
-        phase = SKILL_PHASES[entry.file_id]
-        skills.append((phase, name, description))
+    skills = skill_catalog()
 
     # Group by phase in canonical order.
     for phase in SKILL_PHASE_ORDER:
@@ -4371,29 +4150,9 @@ def sync_binaries(
         " ships with the metadata block."
     ),
 )
-@option(
-    "--template-arg",
-    "template_args_cli",
-    multiple=True,
-    metavar="KEY=VALUE",
-    help=(
-        "Pass an arbitrary key/value pair to the template. Repeat to provide"
-        " multiple. Use this to feed template variables not covered by the"
-        " dedicated --version / --part / --pr-ref flags. Example:"
-        " --template-arg channel=Nix."
-    ),
-)
-@option(
-    "--version",
-    "version",
-    default=None,
-    help="Version string passed to the template (e.g. 1.2.0).",
-)
-@option(
-    "--part",
-    default=None,
-    help="Version part passed to bump-version template (e.g. minor, major).",
-)
+@template_arg_option
+@template_version_option
+@template_part_option
 @option(
     "--pr-ref",
     "pr_ref",
@@ -4512,7 +4271,11 @@ def _render_pr_content(
     :raises UsageError: When a template argument cannot be resolved.
     """
     if prefix_file:
-        prefix = prefix_file.read_text(encoding="utf-8")
+        prefix = prefix_file.read_text(encoding="UTF-8")
+
+    # One Metadata for the whole render: the review steps, the `repo_url`
+    # template arg and the metadata block must all read the same CI state.
+    md = Metadata()
 
     def _auto_version() -> str:
         """Read current_version from bumpversion config and strip .dev suffix."""
@@ -4536,7 +4299,7 @@ def _render_pr_content(
     def _review_step(key: str) -> str:
         if not review_steps:
             dev_review, changes_review = build_release_review_steps(
-                Metadata(), _resolve_version()
+                md, _resolve_version()
             )
             review_steps["dev_release_review"] = dev_review
             review_steps["changes_review"] = changes_review
@@ -4569,7 +4332,7 @@ def _render_pr_content(
         "pr_ref": pr_ref,
         "release_readiness": _release_readiness,
         # Callable, will be invoked if needed.
-        "repo_url": lambda: Metadata().repo_url,
+        "repo_url": lambda: md.repo_url,
         "version": version if version is not None else _auto_version,
     }
     arg_sources.update(cli_extra_args)
@@ -4607,8 +4370,7 @@ def _render_pr_content(
         if template:
             docs_name = template
         elif template_file:
-            docs_name = template_file.name.removesuffix(".noformat").removesuffix(".md")
-    md = Metadata()
+            docs_name = template_stem(template_file.name)
     metadata_block = generate_pr_metadata_block(
         md, docs_url=docs_url, docs_name=docs_name
     )
@@ -4636,25 +4398,9 @@ def _render_pr_content(
     "project-specific PRs. Same derivations, with the branch defaulting "
     "to the file's stem.",
 )
-@option(
-    "--template-arg",
-    "template_args_cli",
-    multiple=True,
-    metavar="KEY=VALUE",
-    help="Pass an arbitrary key/value pair to the template. Repeat to "
-    "provide multiple.",
-)
-@option(
-    "--version",
-    "version",
-    default=None,
-    help="Version string passed to the template (e.g. 1.2.0).",
-)
-@option(
-    "--part",
-    default=None,
-    help="Version part passed to the bump-version template (e.g. minor).",
-)
+@template_arg_option
+@template_version_option
+@template_part_option
 @option(
     "--branch",
     default=None,
@@ -4782,7 +4528,7 @@ def pr_sync(
         if template:
             branch = template
         elif template_file:
-            branch = template_file.name.removesuffix(".noformat").removesuffix(".md")
+            branch = template_stem(template_file.name)
         else:
             msg = "Without --template, --branch is required."
             raise UsageError(msg)

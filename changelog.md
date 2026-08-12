@@ -14,6 +14,9 @@
 - A bare content pattern is now a keyword, matched case-insensitively on word boundaries, so `"🐛 bug" = ["bug", "error"]` works as written; the `/…/flags` form passes a regex through. Keyword lists used to be AND-joined and never fired.
 - `repomatic init labels` no longer writes `.github/labeller-content-based.yaml` or `.github/labeller-file-based.yaml`: the default rules live in the package. Delete any committed copy, and move customizations to `[tool.repomatic.labels]`.
 - The `sponsor-label` command now applies the `💖 sponsor` label the registry defines, instead of a plural variant that exists in no repository and failed every labelling attempt.
+- `pr-sync` now clears a conversation lock standing in the way of retiring a stale automation PR, instead of dying on the refused close comment.
+- `sync-labels` now hands labelmaker the canonical token (`REPOMATIC_PAT`, then `GH_TOKEN`, then `GITHUB_TOKEN`), so an environment carrying only the PAT syncs authenticated.
+- Every re-lock (`sync-dep-sources`, `audit --fix`) now passes the project's own `[tool.uv] exclude-newer` explicitly, so CI's ambient `UV_EXCLUDE_NEWER` can no longer retime the lock.
 
 ## [`7.10.0` (2026-08-12)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...v7.10.0)
 

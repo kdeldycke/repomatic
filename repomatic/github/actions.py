@@ -60,11 +60,14 @@ from pathlib import Path
 from random import randint
 from tempfile import mkstemp
 
+from click_extra import echo, prep_path
+
 from ..compat import StrEnum
 from .gh import run_gh_command
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from typing import Any
 
 
@@ -221,25 +224,48 @@ def generate_delimiter() -> str:
     return f"GHA_DELIMITER_{randint(10**8, (10**9) - 1)}"
 
 
-def trim_to_byte_budget(text: str, budget: int) -> str:
-    """Keep the leading whole lines of *text* that fit in *budget* UTF-8 bytes.
+def trim_to_budget(text: str, budget: int, measure: Callable[[str], int]) -> str:
+    """Keep the leading whole lines of *text* that fit in *budget*.
 
     Cutting on line boundaries keeps the trimmed markdown rendering: a table
-    missing rows still renders, one cut mid-row does not. It also keeps the
-    result valid UTF-8, which slicing a byte string cannot promise.
+    missing rows still renders, one cut mid-row does not.
+
+    The one trimming loop behind both of GitHub's size ceilings, which count
+    in different units: *measure* prices a line in whatever unit the caller's
+    budget is denominated in (UTF-8 bytes for a step output, UTF-16 code units
+    for a PR or issue body).
 
     :param text: Content to trim.
-    :param budget: Available room, in UTF-8 bytes.
+    :param budget: Available room, in *measure*'s unit.
+    :param measure: Returns the size of one line in that unit.
     :return: The kept lines, right-stripped; empty when nothing fits.
     """
     kept: list[str] = []
     used = 0
     for line in text.splitlines():
-        used += len(line.encode("utf-8")) + 1  # The joining newline.
+        used += measure(line) + 1  # The joining newline.
         if used > budget:
             break
         kept.append(line)
     return "\n".join(kept).rstrip()
+
+
+def _utf8_len(text: str) -> int:
+    """Length of *text* in UTF-8 bytes, the unit `$GITHUB_OUTPUT` is capped in."""
+    return len(text.encode("utf-8"))
+
+
+def trim_to_byte_budget(text: str, budget: int) -> str:
+    """Keep the leading whole lines of *text* that fit in *budget* UTF-8 bytes.
+
+    {func}`trim_to_budget` in the step-output unit. Trimming whole lines also
+    keeps the result valid UTF-8, which slicing a byte string cannot promise.
+
+    :param text: Content to trim.
+    :param budget: Available room, in UTF-8 bytes.
+    :return: The kept lines, right-stripped; empty when nothing fits.
+    """
+    return trim_to_budget(text, budget, _utf8_len)
 
 
 def format_multiline_output(name: str, value: str) -> str:
@@ -295,7 +321,7 @@ def write_output_file(name: str, value: str) -> Path:
     )
     os.close(handle)
     spilled = Path(path)
-    spilled.write_text(value, encoding="utf-8")
+    spilled.write_text(value, encoding="UTF-8")
     return spilled
 
 
@@ -325,6 +351,38 @@ def format_file_output(name: str, value: str) -> str:
     return f"{name}_file={write_output_file(name, value)}"
 
 
+def emit_report(
+    body: str,
+    output: Path | None,
+    output_format: str,
+    key: str = "diff_table",
+) -> None:
+    """Write a markdown report to `--output`, optionally as a step output.
+
+    The shared tail of every report-producing command: nothing is written
+    when no output path is set or the body is empty; with
+    `--output-format github-actions` the body is spilled to a file and the step
+    output named `<key>_file` carries its path, for `$GITHUB_OUTPUT`
+    consumption.
+
+    A report is the one value here with no ceiling of its own, so it is the one
+    that must not travel inline: see {func}`format_file_output`.
+
+    :param body: The markdown report.
+    :param output: The `--output` path (`None` to skip, `-` for stdout).
+    :param output_format: `markdown` or `github-actions`.
+    :param key: The step output variable name, before the `_file` suffix, for
+        the `github-actions` format.
+    """
+    if output is None or not body:
+        return
+    if output_format == "github-actions":
+        content = format_file_output(key, body)
+    else:
+        content = body
+    echo(content, file=prep_path(output))
+
+
 def read_file_output(name: str) -> str:
     """Read a value passed either as a file path or inline.
 
@@ -339,7 +397,7 @@ def read_file_output(name: str) -> str:
     """
     path = os.getenv(f"{name}_FILE")
     if path:
-        return Path(path).read_text(encoding="utf-8")
+        return Path(path).read_text(encoding="UTF-8")
     return os.getenv(name, "")
 
 
@@ -375,6 +433,48 @@ def get_github_event() -> dict[str, Any]:
     return json.loads(  # type: ignore[no-any-return]
         event_file.read_text(encoding="UTF-8")
     )
+
+
+def get_event_pull_request() -> dict[str, Any]:
+    """Return the event payload's `pull_request` node, empty when absent.
+
+    Truthiness, not key presence, is the test every reader below shares. A
+    payload carrying `pull_request` as an empty object has no PR to act on,
+    and it has to read that way to {func}`is_pull_request` as well as to the
+    default lookups: testing `"pull_request" in event` here (as this code
+    once did) let the two disagree, so `is_pull_request` reported a pull
+    request while {func}`get_default_number` fell through to the issue branch.
+    """
+    return get_github_event().get("pull_request") or {}
+
+
+def get_event_subject() -> dict[str, Any]:
+    """Return the issue or pull request the current event is about.
+
+    Pull requests win: the two nodes are mutually exclusive on the events
+    these readers handle, and preferring the PR keeps the lookups reading the
+    same node {func}`is_pull_request` reports on.
+
+    :return: The subject node, or an empty dict when the event carries neither.
+    """
+    return get_event_pull_request() or get_github_event().get("issue") or {}
+
+
+def get_default_author() -> str | None:
+    """Get the issue/PR author from the GitHub event payload."""
+    login = get_event_subject().get("user", {}).get("login")
+    return str(login) if login else None
+
+
+def get_default_number() -> int | None:
+    """Get the issue/PR number from the GitHub event payload."""
+    number = get_event_subject().get("number")
+    return int(number) if number else None
+
+
+def is_pull_request() -> bool:
+    """Check if the current event is a pull request."""
+    return bool(get_event_pull_request())
 
 
 def cancel_superseded_runs(branch: str, current_run_id: str) -> int:

@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -186,6 +187,23 @@ def _dispatch_gh(
         return json.dumps(detail_map[subject_url])
 
     return _run
+
+
+@contextmanager
+def patch_gh(**mock_kwargs):
+    """Patch both `gh` dispatch points of the module with one shared mock.
+
+    The thread-detail lookups go through `gh_api_json` (which calls the `gh`
+    module's `run_gh_command`) while every other call uses the name imported
+    into `unsubscribe` directly; one mock keeps each test's dispatch table and
+    call records in a single place.
+    """
+    mock_gh = Mock(**mock_kwargs)
+    with (
+        patch(f"{_MODULE}.run_gh_command", mock_gh),
+        patch("repomatic.github.gh.run_gh_command", mock_gh),
+    ):
+        yield mock_gh
 
 
 def _gh_calls_matching(mock_gh, prefix):
@@ -442,7 +460,7 @@ def test_fetch_notification_threads_reverses_and_truncates():
         json.dumps({"id": "t1", "subject_url": "u1"}),
         json.dumps({"id": "t2", "subject_url": "u2"}),
     ]
-    with patch(f"{_MODULE}.run_gh_command", return_value="\n".join(lines)):
+    with patch_gh(return_value="\n".join(lines)):
         total, batch = _fetch_notification_threads(2)
     assert total == 3
     assert [t["id"] for t in batch] == ["t2", "t1"]
@@ -456,7 +474,7 @@ def test_fetch_notification_threads_skips_malformed_lines():
         "",
         json.dumps({"id": "t1", "subject_url": "u1"}),
     ]
-    with patch(f"{_MODULE}.run_gh_command", return_value="\n".join(lines)):
+    with patch_gh(return_value="\n".join(lines)):
         total, batch = _fetch_notification_threads(10)
     assert total == 2
     assert {t["id"] for t in batch} == {"t0", "t1"}
@@ -464,13 +482,13 @@ def test_fetch_notification_threads_skips_malformed_lines():
 
 def test_fetch_notification_threads_gh_failure_returns_empty():
     """A gh failure degrades to a zero total and an empty batch."""
-    with patch(f"{_MODULE}.run_gh_command", side_effect=RuntimeError("boom")):
+    with patch_gh(side_effect=RuntimeError("boom")):
         assert _fetch_notification_threads(10) == (0, [])
 
 
 def test_fetch_notification_threads_query_args():
     """The fetch requests both subject types with pagination and all=true."""
-    with patch(f"{_MODULE}.run_gh_command", return_value="") as mock_gh:
+    with patch_gh(return_value="") as mock_gh:
         _fetch_notification_threads(10)
     args = mock_gh.call_args.args[0]
     assert args[:4] == ["api", "--method", "GET", "/notifications"]
@@ -488,19 +506,19 @@ def test_fetch_notification_threads_query_args():
 def test_get_thread_details_success():
     """A well-formed response is parsed and returned verbatim."""
     detail = _closed_detail()
-    with patch(f"{_MODULE}.run_gh_command", return_value=json.dumps(detail)):
+    with patch_gh(return_value=json.dumps(detail)):
         assert _get_thread_details("https://api.github.com/x") == detail
 
 
 def test_get_thread_details_inaccessible_returns_none():
     """A gh failure (inaccessible subject) yields None."""
-    with patch(f"{_MODULE}.run_gh_command", side_effect=RuntimeError("404")):
+    with patch_gh(side_effect=RuntimeError("404")):
         assert _get_thread_details("https://api.github.com/x") is None
 
 
 def test_get_thread_details_malformed_returns_none():
     """A non-JSON response yields None instead of raising."""
-    with patch(f"{_MODULE}.run_gh_command", return_value="not-json{"):
+    with patch_gh(return_value="not-json{"):
         assert _get_thread_details("https://api.github.com/x") is None
 
 
@@ -509,7 +527,7 @@ def test_get_thread_details_malformed_returns_none():
 
 def test_unsubscribe_rest_thread_success():
     """A successful unsubscribe deletes the subscription then marks it read."""
-    with patch(f"{_MODULE}.run_gh_command") as mock_gh:
+    with patch_gh() as mock_gh:
         assert _unsubscribe_rest_thread("42") is True
     assert mock_gh.call_args_list[0].args[0] == [
         "api",
@@ -527,15 +545,14 @@ def test_unsubscribe_rest_thread_success():
 
 def test_unsubscribe_rest_thread_delete_failure():
     """A failed DELETE returns False and never attempts the PATCH."""
-    with patch(f"{_MODULE}.run_gh_command", side_effect=RuntimeError("no")) as mock_gh:
+    with patch_gh(side_effect=RuntimeError("no")) as mock_gh:
         assert _unsubscribe_rest_thread("42") is False
     assert mock_gh.call_count == 1
 
 
 def test_unsubscribe_rest_thread_patch_failure():
     """A failed PATCH (after a successful DELETE) returns False."""
-    with patch(
-        f"{_MODULE}.run_gh_command",
+    with patch_gh(
         side_effect=[None, RuntimeError("no")],
     ) as mock_gh:
         assert _unsubscribe_rest_thread("42") is False
@@ -547,7 +564,7 @@ def test_unsubscribe_rest_thread_patch_failure():
 
 def test_graphql_unsubscribe_success():
     """A successful mutation passes the node id and query, returning True."""
-    with patch(f"{_MODULE}.run_gh_command") as mock_gh:
+    with patch_gh() as mock_gh:
         assert _graphql_unsubscribe("node-1") is True
     args = mock_gh.call_args.args[0]
     assert args[:2] == ["api", "graphql"]
@@ -557,7 +574,7 @@ def test_graphql_unsubscribe_success():
 
 def test_graphql_unsubscribe_failure():
     """A failed mutation returns False."""
-    with patch(f"{_MODULE}.run_gh_command", side_effect=RuntimeError("no")):
+    with patch_gh(side_effect=RuntimeError("no")):
         assert _graphql_unsubscribe("node-1") is False
 
 
@@ -566,7 +583,7 @@ def test_graphql_unsubscribe_failure():
 
 def test_get_authenticated_username_strips():
     """The login is trimmed of trailing whitespace."""
-    with patch(f"{_MODULE}.run_gh_command", return_value="octocat\n") as mock_gh:
+    with patch_gh(return_value="octocat\n") as mock_gh:
         assert _get_authenticated_username() == "octocat"
     assert mock_gh.call_args.args[0] == ["api", "/user", "--jq", ".login"]
 
@@ -574,7 +591,7 @@ def test_get_authenticated_username_strips():
 def test_get_authenticated_username_propagates_error():
     """A gh failure propagates so the caller can skip phase 2."""
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=RuntimeError("boom")),
+        patch_gh(side_effect=RuntimeError("boom")),
         pytest.raises(RuntimeError, match="boom"),
     ):
         _get_authenticated_username()
@@ -651,7 +668,7 @@ def test_phase1_live_unsubscribes_closed_stale():
         details={url: _closed_detail()},
     )
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run) as mock_gh,
+        patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
@@ -673,7 +690,7 @@ def test_phase1_dry_run_records_candidate_without_mutations():
         details={url: _closed_detail()},
     )
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run) as mock_gh,
+        patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
@@ -713,7 +730,7 @@ def test_phase1_skip_scenarios(detail, counter):
     url = "https://api.github.com/repos/fruits/apple/issues/1"
     run = _dispatch_gh(notifications=_thread_line("t1", url), details={url: detail})
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run) as mock_gh,
+        patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
@@ -727,7 +744,7 @@ def test_phase1_inaccessible_subject_skipped():
     url = "https://api.github.com/repos/fruits/apple/issues/1"
     run = _dispatch_gh(notifications=_thread_line("t1", url), details={})
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run),
+        patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
@@ -744,7 +761,7 @@ def test_phase1_delete_failure_records_failed():
         fail_delete={"t1"},
     )
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run) as mock_gh,
+        patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
@@ -763,7 +780,7 @@ def test_phase1_batch_size_truncates_but_reports_total():
     details = {f"{base}/{i}": _closed_detail(number=i) for i in range(5)}
     run = _dispatch_gh(notifications=lines, details=details)
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run),
+        patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
         result = unsubscribe_threads(months=3, batch_size=2, dry_run=True)
@@ -776,7 +793,7 @@ def test_phase1_fetch_failure_skips_phase():
     """A fetch failure leaves phase 1 empty while phase 2 still runs."""
     run = _dispatch_gh(fail_notifications=True)
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run),
+        patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
@@ -797,7 +814,7 @@ def test_phase2_filters_non_subscribed_items():
     ]
     run = _dispatch_gh(notifications="")
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run),
+        patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
@@ -821,7 +838,7 @@ def test_phase2_skips_items_active_since_cutoff():
     ]
     run = _dispatch_gh(notifications="")
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run),
+        patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
@@ -836,7 +853,7 @@ def test_phase2_dry_run_no_mutation_calls():
     items = [_gql_item("n1", subscription="SUBSCRIBED")]
     run = _dispatch_gh(notifications="")
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run) as mock_gh,
+        patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
@@ -850,7 +867,7 @@ def test_phase2_live_unsubscribes_subscribed():
     items = [_gql_item("n1", subscription="SUBSCRIBED")]
     run = _dispatch_gh(notifications="")
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run) as mock_gh,
+        patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
@@ -866,7 +883,7 @@ def test_phase2_mutation_failure_records_failed():
     items = [_gql_item("n1", subscription="SUBSCRIBED")]
     run = _dispatch_gh(notifications="", fail_mutation={"n1"})
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run),
+        patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
@@ -879,7 +896,7 @@ def test_phase2_username_failure_skips_search():
     """A username lookup failure skips phase 2 before any search."""
     run = _dispatch_gh(notifications="", fail_username=True)
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run),
+        patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes") as mock_iter,
     ):
         result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
@@ -892,7 +909,7 @@ def test_phase2_search_failure_skips():
     """A GraphQL search failure marks phase 2 skipped with a reason."""
     run = _dispatch_gh(notifications="")
     with (
-        patch(f"{_MODULE}.run_gh_command", side_effect=run),
+        patch_gh(side_effect=run),
         patch(
             f"{_MODULE}.iter_graphql_nodes",
             side_effect=RuntimeError("no graphql"),
@@ -909,7 +926,7 @@ def test_phase2_search_query_built():
         mock_dt.now.return_value = datetime(2026, 7, 16, tzinfo=timezone.utc)
         run = _dispatch_gh(notifications="", username="fruitbot")
         with (
-            patch(f"{_MODULE}.run_gh_command", side_effect=run),
+            patch_gh(side_effect=run),
             patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
         ):
             result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)

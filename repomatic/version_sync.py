@@ -297,9 +297,8 @@ def _best_candidate(
             released = date.fromisoformat(candidate.date)
         except ValueError:
             continue
-        try:
-            parsed = Version(candidate.version)
-        except InvalidVersion:
+        parsed = safe_version(candidate.version)
+        if parsed is None:
             continue
         if parsed.is_prerelease and not allow_prerelease:
             continue
@@ -491,16 +490,43 @@ def npm_candidates(package: str) -> list[Candidate]:
     ]
 
 
+def safe_version(value: str) -> Version | None:
+    """Parse a PEP 440 version, returning `None` for anything unparsable.
+
+    Every version this package reads comes from somewhere it does not control
+    (a lock file, a package index, a git tag), so the parse has to tolerate
+    junk. Collapsing the `try`/`except InvalidVersion` into one helper keeps
+    the callers reading as the filters they are.
+
+    ```{note}
+    The modules *below* this one in the import graph (`pypi`, `git_ops`,
+    `virustotal`, `github.releases`) keep a local two-line copy of this parse:
+    importing it from here would either close an import cycle or drag this
+    module's index clients into dependency-light modules.
+    ```
+
+    :param value: A version string.
+    :return: The parsed {class}`~packaging.version.Version`, or `None` when
+        *value* is empty or not PEP 440.
+    """
+    if not value:
+        return None
+    try:
+        return Version(value)
+    except InvalidVersion:
+        return None
+
+
 def is_newer(new: str, old: str) -> bool:
     """Return `True` when *new* is a strictly higher version than *old*.
 
     Unparsable versions compare as not-newer, so a malformed candidate never
     triggers a bump.
     """
-    try:
-        return Version(new) > Version(old)
-    except InvalidVersion:
+    new_v, old_v = safe_version(new), safe_version(old)
+    if new_v is None or old_v is None:
         return False
+    return new_v > old_v
 
 
 def strip_dev_suffix(version: str) -> str:

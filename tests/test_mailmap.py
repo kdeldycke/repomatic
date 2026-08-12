@@ -14,6 +14,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+"""Tests for `repomatic.mailmap`: `.mailmap` parsing and contributor sync."""
+
 from __future__ import annotations
 
 import subprocess
@@ -25,7 +27,7 @@ from repomatic.cli import repomatic
 from repomatic.mailmap import Mailmap, Record, remove_header
 
 
-def test_sync_mailmap_bootstraps_missing_file(tmp_path, monkeypatch):
+def test_sync_mailmap_bootstraps_missing_file(tmp_path, monkeypatch, hermetic_git):
     """A repository with no `.mailmap` yet gets one created instead of crashing.
 
     The `--create-if-missing` default path used to read an unbound `content`

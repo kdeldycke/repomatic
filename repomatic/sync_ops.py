@@ -68,7 +68,7 @@ from functools import partial
 from pathlib import Path
 
 import click
-from click_extra import OperationTrail, echo, resolve_jobs, run_jobs
+from click_extra import OperationTrail, echo, get_tool_config, resolve_jobs, run_jobs
 
 from . import tool_registry
 from .checksums import update_registry_checksums
@@ -87,6 +87,7 @@ from .dep_report import (
     format_held_back_table,
     format_release_notes,
     format_released,
+    format_upload_date,
     pypi_name_urls,
 )
 from .dep_sources import (
@@ -96,6 +97,7 @@ from .dep_sources import (
     format_swap_section,
     tracked_git_overrides,
 )
+from .github.actions import emit_report
 from .github.pr_body import template_docs_url
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .init_project import init_config, is_source_repo
@@ -111,15 +113,14 @@ from .registry import (
 )
 from .tool_registry import TOOL_REGISTRY, ToolBackend
 from .uv import (
+    LockFile,
     compute_bypass_forecasts,
     compute_held_back_packages,
     diff_lock_versions,
-    parse_lock_exclude_newer,
-    parse_lock_upload_times,
     parse_lock_versions,
     sync_uv_lock,
     upsert_exclude_newer_packages,
-    uv_cmd,
+    uv_lock_command,
 )
 from .version_sync import (
     MIN_AGE_HELD_BACK_NOTE,
@@ -591,7 +592,9 @@ def _resolve_dep_sources(rc: ResolveContext) -> SyncPlan:
                 pyproject_path,
                 {swap.name: swap.freeze_cutoff for swap in swaps},
             )
-            subprocess.run(uv_cmd("lock"), check=True, cwd=lockfile.parent)
+            subprocess.run(
+                uv_lock_command(pyproject_path), check=True, cwd=lockfile.parent
+            )
         except subprocess.CalledProcessError:
             # A conflicting constraint elsewhere in the tree: not this run's
             # call to untangle. Leave the project as found and report nothing.
@@ -602,7 +605,8 @@ def _resolve_dep_sources(rc: ResolveContext) -> SyncPlan:
             restore()
             raise
 
-        after = parse_lock_versions(lockfile)
+        post = LockFile.load(lockfile)
+        after = post.versions
         missed = [swap.name for swap in swaps if after.get(swap.name) != swap.release]
         if missed:
             restore()
@@ -614,8 +618,8 @@ def _resolve_dep_sources(rc: ResolveContext) -> SyncPlan:
 
         plan.uv_project.source_swaps = swaps
         plan.changes = diff_lock_versions(before, after)
-        plan.dates = parse_lock_upload_times(lockfile)
-        plan.uv_project.exclude_newer = parse_lock_exclude_newer(lockfile)
+        plan.dates = post.upload_times
+        plan.uv_project.exclude_newer = post.exclude_newer
         plan.cooldown_note = format_exclude_newer_note(plan.uv_project.exclude_newer)
         plan.name_urls = pypi_name_urls(plan.changes)
         # The fresh freezes are this run's news: they render as 📌 rows.
@@ -1261,6 +1265,110 @@ def print_plan_tables(ctx: Context, plan: SyncPlan, reference_date: date) -> Non
         print_bypass_table(ctx, plan.uv_project.bypass_forecasts)
     if plan.held_back:
         print_held_back_table(ctx, plan.held_back, subject=plan.subject)
+
+
+def emit_lockfile_sync_report(
+    ctx: Context,
+    plan: SyncPlan,
+    *,
+    reference_date: date,
+    table: bool,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Emit the terminal tables and markdown report of a lockfile sync.
+
+    `sync-uv-lock` and `sync-dep-sources` share this tail. They alone can suppress
+    the terminal tables with `--no-table` (their CI jobs want only the markdown
+    report), and they alone have an `exclude-newer` cutoff to announce, uv's
+    lock-level cooldown standing in for the `minimum-release-age` window the
+    version-sync trio reports.
+    """
+    if table:
+        if plan.uv_project.exclude_newer:
+            echo(
+                "exclude-newer cutoff: "
+                f"{format_upload_date(plan.uv_project.exclude_newer)}"
+            )
+        print_plan_tables(ctx, plan, reference_date)
+
+    # Release notes echoed to the terminal (already fetched during resolve).
+    if plan.notes_section:
+        echo("")
+        echo(plan.notes_section)
+
+    # File output: markdown report for CI or downstream tooling.
+    if output:
+        emit_report(render_plan_markdown(plan), output, output_format)
+
+
+def emit_version_sync_report(
+    ctx: Context,
+    plan: SyncPlan,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Print a terminal report and optionally write a markdown PR-body report.
+
+    Shared by the three `sync-*` version updaters. The terminal table and the
+    markdown PR body (diff table, held-back section, release notes) route
+    through the same shared renderers `sync-uv-lock` and `sync-deps` use
+    ({func}`render_plan_markdown`), so every dependency updater's report
+    matches.
+    """
+    echo(f"{len(plan.changes)} {plan.subject.lower()}(s) updated.")
+    if plan.cutoff is not None:
+        echo(f"minimum-release-age cutoff: {plan.cutoff:%Y-%m-%d}")
+    print_plan_tables(
+        ctx, plan, plan.reference_date or datetime.now(timezone.utc).date()
+    )
+    if plan.notes_section:
+        echo("")
+        echo(plan.notes_section)
+    if output:
+        emit_report(render_plan_markdown(plan), output, output_format)
+
+
+def run_version_sync(
+    ctx: Context,
+    op_name: str,
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+    up_to_date: str,
+) -> None:
+    """Shared body of the three version-sync commands.
+
+    `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` differ
+    only in their operation, feature flag, and messages: the resolve, apply,
+    and report sequence is identical. The feature-flag guard stays with each
+    command, which knows its own `[tool.repomatic]` key.
+
+    :param ctx: The Click context, exited with `0` when nothing needs updating.
+    :param op_name: The {data}`OPERATIONS_BY_NAME` key.
+    :param output: The `--output` report path.
+    :param output_format: The `--output-format` value.
+    :param release_notes: Whether to fetch GitHub release notes.
+    :param held_back: Whether to report cooldown-held releases.
+    :param up_to_date: Message printed when nothing needs updating.
+    """
+    op = OPERATIONS_BY_NAME[op_name]
+    rc = ResolveContext(
+        config=get_tool_config(ctx),
+        today=datetime.now(timezone.utc).date(),
+        release_notes=release_notes,
+        held_back=held_back,
+    )
+    plan = op.resolve(rc)
+
+    if not plan.has_changes:
+        echo(up_to_date)
+        ctx.exit(0)
+
+    op.apply(plan)
+
+    emit_version_sync_report(ctx, plan, output, output_format)
 
 
 def resolve_lockfile_plan(

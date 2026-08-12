@@ -42,6 +42,7 @@ from repomatic.plugin import ARCHIVE_NAME
 from repomatic.prepare_release import LOCAL_CLI_INVOCATION
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
+    COMPONENTS,
     RELEASE_ENGINE_WORKFLOWS,
     SELF_MAINTENANCE_WORKFLOWS,
     WORKFLOW_SOURCES,
@@ -50,6 +51,7 @@ from repomatic.version_sync import find_workflow_literals
 from tests.conftest import (
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
+    load_workflow,
 )
 
 # Commit message prefix that identifies release commits. These commits are protected
@@ -158,14 +160,6 @@ WORKFLOWS_WITH_CONDITIONAL_CANCEL = tuple(
         and name not in WORKFLOWS_WITHOUT_PUSH_TRIGGER
     )
 )
-
-
-def load_workflow(workflow_name: str) -> dict[str, Any]:
-    """Load and parse a workflow YAML file."""
-    workflow_path = WORKFLOWS_DIR / workflow_name
-    with workflow_path.open(encoding="UTF-8") as f:
-        result: dict[str, Any] = yaml.safe_load(f)
-        return result
 
 
 @pytest.mark.parametrize("workflow_name", WORKFLOWS_WITH_CONCURRENCY)
@@ -1328,8 +1322,6 @@ def test_action_symlinks_resolve_correctly() -> None:
     sits under `.github/actions/` must be backed by a symlink at the declared
     `source` path that resolves to the declared target file.
     """
-    from repomatic.registry import COMPONENTS
-
     for component in COMPONENTS:
         for entry in component.files:
             if not entry.target.startswith(".github/actions/"):
@@ -1844,7 +1836,7 @@ def test_declared_release_asset_has_a_producing_job(asset: str) -> None:
     drifting fails the release at `extra-assets`, or worse, publishes an immutable
     release without the asset.
     """
-    jobs = yaml.safe_load((WORKFLOWS_DIR / "release.yaml").read_text(encoding="UTF-8"))[
+    jobs = load_workflow("release.yaml")[
         "jobs"
     ]
 

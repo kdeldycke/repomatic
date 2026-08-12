@@ -22,6 +22,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+import yaml
 from click_extra import ClickException
 
 from repomatic.github.token import PatPermissionResults
@@ -30,6 +31,8 @@ from repomatic.tool_runner import ensure_binary, run_tool
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from typing import Any
+
     from typing_extensions import Self
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -44,12 +47,6 @@ PACKAGE_FILES = sorted(PACKAGE_DIR.rglob("*.py"))
 Sorted because `@pytest.mark.parametrize` derives test IDs from iteration
 order, and `pytest-xdist` aborts a run whose workers disagree on them.
 """
-
-TESTS_DIR = PROJECT_ROOT / "tests"
-"""Root of the test suite."""
-
-TEST_FILES = sorted(TESTS_DIR.rglob("*.py"))
-"""Every Python module of the test suite, sorted for the same reason."""
 
 WORKFLOWS_DIR = PROJECT_ROOT / ".github" / "workflows"
 """Directory holding this repository's own workflow files."""
@@ -100,6 +97,30 @@ def skip_unless_tool_runs(name: str) -> None:
         pytest.skip(f"{name} is unavailable: {exc}")
     if exit_code != 0:
         pytest.skip(f"{name} cannot run here: `--version` exited {exit_code}")
+
+
+def load_workflow(workflow_name: str) -> dict[str, Any]:
+    """Load and parse one of this repository's workflow YAML files.
+
+    The one loader behind every test that reads a workflow off disk, so they
+    all parse the same bytes the same way.
+    """
+    workflow_path = WORKFLOWS_DIR / workflow_name
+    with workflow_path.open(encoding="UTF-8") as f:
+        result: dict[str, Any] = yaml.safe_load(f)
+        return result
+
+
+@pytest.fixture
+def hermetic_git(monkeypatch):
+    """Shield temporary git repos from the developer's own git configuration.
+
+    Commit signing, hooks, templates and identity from the global or system
+    config would otherwise leak into repos a test builds under `tmp_path` and
+    break hermeticity in machine-specific ways.
+    """
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 
 
 @pytest.fixture(autouse=True)

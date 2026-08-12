@@ -32,6 +32,7 @@ from repomatic.cli import repomatic
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
 from repomatic.tool_registry import TOOL_REGISTRY
+from repomatic.version_sync import safe_version
 
 TODAY = date(2026, 6, 27)
 
@@ -1047,3 +1048,18 @@ def test_every_simple_action_pin_is_discoverable():
                 assert ref in found, (
                     f"{ref} in {path} not discovered by find_action_pins"
                 )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        ("1.2.3", "1.2.3"),
+        ("1.0", "1.0"),
+        ("2.1.0.dev0", "2.1.0.dev0"),
+        ("", None),
+        ("not-a-version", None),
+    ),
+)
+def test_safe_version(value, expected):
+    parsed = safe_version(value)
+    assert (str(parsed) if parsed else None) == expected

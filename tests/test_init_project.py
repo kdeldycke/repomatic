@@ -138,6 +138,11 @@ def pin_build(monkeypatch: pytest.MonkeyPatch):
 # --- Bundled data and export tests ---
 
 
+
+def _sync_tool_config(content: str, comp) -> str | None:
+    """Drive `_update_tool_config` from raw content, as `init_config` does."""
+    return _update_tool_config(tomlrt.loads(content), content, comp)
+
 def test_all_component_types_handled() -> None:
     """Verify every component in the registry has a handled type.
 
@@ -2079,7 +2084,7 @@ def test_preserves_local_array_entries(tmp_path: Path) -> None:
 
     bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
-    result = _update_tool_config(content, bv)
+    result = _sync_tool_config(content, bv)
 
     assert result is not None
     parsed = tomlrt.loads(result)
@@ -2106,12 +2111,12 @@ def test_ongoing_sync_idempotent_with_local_entries(tmp_path: Path) -> None:
     pyproject.write_text(content, encoding="UTF-8")
 
     # First run: updates template entries.
-    result1 = _update_tool_config(content, bv_comp)
+    result1 = _sync_tool_config(content, bv_comp)
     assert result1 is not None
     pyproject.write_text(result1, encoding="UTF-8")
 
     # Second run: should be a no-op.
-    result2 = _update_tool_config(result1, bv_comp)
+    result2 = _sync_tool_config(result1, bv_comp)
     assert result2 is None
 
 
@@ -2183,7 +2188,7 @@ def test_local_entries_preserved_via_update(tmp_path: Path) -> None:
 
     bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
-    result = _update_tool_config(content, bv)
+    result = _sync_tool_config(content, bv)
 
     assert result is not None
     parsed = tomlrt.loads(result)
@@ -2228,7 +2233,7 @@ def test_local_entry_comments_preserved(tmp_path: Path) -> None:
 
     bv = COMPONENTS_BY_NAME["bumpversion"]
     assert isinstance(bv, ToolConfigComponent)
-    result = _update_tool_config(content, bv)
+    result = _sync_tool_config(content, bv)
 
     assert result is not None
     # Comments between local entries survive (attached to preceding entry's
@@ -4291,7 +4296,7 @@ def test_update_tool_config_output_contract(comp: ToolConfigComponent) -> None:
         'local_only_key = "preserved"\n'
     )
 
-    result = _update_tool_config(seed, comp)
+    result = _sync_tool_config(seed, comp)
 
     assert result is not None, "expected the sync to modify the seed"
     assert result.strip(), "tomlrt produced an empty document"

@@ -71,6 +71,7 @@ Token permission mapping:
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from dataclasses import dataclass, fields
@@ -78,9 +79,33 @@ from typing import NamedTuple
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from click_extra import ClickException
+
 from ..http import DEFAULT_TIMEOUT
 from .gh import api_headers, resolve_gh_token, run_gh_command
 from .status import status_annotation
+
+
+def require_token(module, attr):
+    """Decorator that runs a token validator before the Click command body.
+
+    Uses late-bound `getattr(module, attr)` so that
+    `unittest.mock.patch` can replace the module attribute after import
+    and the decorator sees the mock at call time.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                getattr(module, attr)()
+            except RuntimeError as exc:
+                raise ClickException(str(exc))
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 def _with_status_annotation(msg: str) -> str:

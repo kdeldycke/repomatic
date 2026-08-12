@@ -49,7 +49,14 @@ import re
 
 import pytest
 
-from tests.conftest import TEST_FILES, TESTS_DIR
+from tests.conftest import PROJECT_ROOT
+
+TESTS_DIR = PROJECT_ROOT / "tests"
+"""Root of the test suite."""
+
+TEST_FILES = sorted(TESTS_DIR.rglob("*.py"))
+"""Every Python module of the test suite, sorted because `pytest-xdist` needs
+identical parametrize IDs in every worker."""
 
 UNORDERED_CALLS = frozenset({"set", "frozenset"})
 """Builtins whose result has no stable iteration order across processes."""
@@ -249,4 +256,95 @@ def test_encoding_argument_spelling_is_uniform(test_file) -> None:
         f"{test_file.relative_to(TESTS_DIR.parent)} spells encoding as"
         f" {', '.join(repr(o) for o in offenders)}; the suite uses"
         f" encoding={FILE_ENCODING!r} everywhere."
+    )
+
+
+BARE_TEXT_IO_CALLS = frozenset({"read_text", "write_text", "open"})
+"""Text-I/O calls that silently fall back to the platform encoding when bare."""
+
+
+@pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
+def test_text_io_always_names_its_encoding(test_file) -> None:
+    """Every text-mode I/O call passes `encoding=` explicitly.
+
+    Windows still defaults to cp1252, so a bare `read_text()` hides until the
+    content grows a non-ASCII character and only fails in Windows CI. Ruff's
+    `PLW1514` covers the receivers its inference can type; this sweep covers
+    the unannotated `Path` locals it misses.
+    """
+    tree = ast.parse(test_file.read_text(encoding=FILE_ENCODING))
+    violations = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr not in BARE_TEXT_IO_CALLS:
+            continue
+        keywords = {kw.arg for kw in node.keywords}
+        if "encoding" in keywords:
+            continue
+        if node.func.attr == "open":
+            # Archive modules open bytes, never text.
+            receiver = node.func.value
+            if isinstance(receiver, ast.Name) and receiver.id in {
+                "bz2",
+                "gzip",
+                "lzma",
+                "tarfile",
+                "zipfile",
+            }:
+                continue
+            # `.open()` in binary mode (`"rb"`, or tarfile's `"w:gz"` family)
+            # needs no encoding; only flag text modes.
+            modes = [
+                arg.value
+                for arg in (*node.args, *(kw.value for kw in node.keywords))
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+            ]
+            if any("b" in mode or ":" in mode for mode in modes):
+                continue
+        violations.append(f"line {node.lineno}: {node.func.attr}()")
+    assert not violations, (
+        f"{test_file.name} has text I/O without an explicit encoding:"
+        f" {'; '.join(violations)}."
+    )
+
+
+@pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
+def test_no_function_local_imports(test_file) -> None:
+    """Imports live at module level, never inside test or helper bodies.
+
+    Function-local imports hide dependencies and bypass ruff's import sorting
+    (see `claude.md` § Imports); nothing in the suite needs one to break an
+    import cycle.
+    """
+    tree = ast.parse(test_file.read_text(encoding=FILE_ENCODING))
+    violations = [
+        f"line {node.lineno}"
+        for func in ast.walk(tree)
+        if isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in ast.walk(func)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+    assert not violations, (
+        f"{test_file.name} imports inside a function body: {'; '.join(violations)}."
+        " Hoist to module level."
+    )
+
+
+@pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
+def test_no_classes_for_grouping(test_file) -> None:
+    """No `Test*` classes: tests are top-level functions, per `claude.md`.
+
+    Non-test helper classes (doubles, matcher sentinels) are fine; only a
+    class pytest would collect as a grouping container is flagged.
+    """
+    tree = ast.parse(test_file.read_text(encoding=FILE_ENCODING))
+    offenders = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name.startswith("Test")
+    ]
+    assert not offenders, (
+        f"{test_file.name} groups tests in classes: {', '.join(offenders)}."
+        " Write top-level test functions instead."
     )

@@ -225,6 +225,30 @@ def run_gh_command(args: list[str]) -> str:
     return process.stdout
 
 
+def parse_create_output(output: str, kind: str) -> tuple[int, str]:
+    """Read the number and URL of a thread out of `gh {kind} create` output.
+
+    `gh issue create` and `gh pr create` both print the new thread's URL last,
+    in the form `https://github.com/owner/repo/{issues,pull}/123`. Read the
+    last line rather than the whole output: `gh` prepends advisory lines of
+    its own (a deprecation notice, a "Warning: N uncommitted changes" banner),
+    and parsing the joined output turns one of those into an error that reads
+    as a failed creation when the thread was in fact created.
+
+    :param output: The raw `gh ... create` standard output.
+    :param kind: The thread kind for the error message, `issue` or `pr`.
+    :return: The `(number, url)` pair of the created thread.
+    :raises RuntimeError: When the output carries no parsable thread URL.
+    """
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    url = lines[-1].rstrip("/") if lines else ""
+    tail = url.rsplit("/", 1)[-1]
+    if not tail.isdigit():
+        msg = f"Could not read a thread number from `gh {kind} create`: {output!r}"
+        raise RuntimeError(msg)
+    return int(tail), url
+
+
 def gh_api_json(args: Sequence[str]) -> Any | None:
     """Run a `gh` command expected to emit JSON, and parse it.
 

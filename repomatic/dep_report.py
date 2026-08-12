@@ -34,7 +34,6 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 import arrow
-from packaging.version import InvalidVersion, Version
 
 from .github.pr_body import demote_markdown_headings, sanitize_markdown_mentions
 from .github.releases import get_github_release_body
@@ -44,6 +43,7 @@ from .pypi import (
     get_release_dates as get_pypi_release_dates,
     get_source_url as get_pypi_source_url,
 )
+from .version_sync import safe_version
 
 RELEASE_NOTES_MAX_LENGTH = 2000
 """Maximum characters per package release body before truncation."""
@@ -52,34 +52,6 @@ RELEASE_NOTES_MAX_LENGTH = 2000
 # ---------------------------------------------------------------------------
 # Shared primitives
 # ---------------------------------------------------------------------------
-
-
-def safe_version(value: str) -> Version | None:
-    """Parse a PEP 440 version, returning `None` for anything unparsable.
-
-    Every version this package reads comes from somewhere it does not control
-    (a lock file, a package index, a git tag), so the parse has to tolerate
-    junk. Collapsing the `try`/`except InvalidVersion` into one helper keeps
-    the callers reading as the filters they are.
-
-    ```{note}
-    This belongs next to {func}`repomatic.version_sync.is_newer` in
-    {mod}`repomatic.version_sync`, which owns version comparison. It lives
-    here because that module imports nothing from this one and the dependency
-    would have to run the other way; move it when the two are next touched
-    together.
-    ```
-
-    :param value: A version string.
-    :return: The parsed {class}`~packaging.version.Version`, or `None` when
-        *value* is empty or not PEP 440.
-    """
-    if not value:
-        return None
-    try:
-        return Version(value)
-    except InvalidVersion:
-        return None
 
 
 def link_name(name: str, name_urls: dict[str, str] | None) -> str:

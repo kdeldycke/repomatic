@@ -14,18 +14,21 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+"""Tests for `repomatic.github.release_sync`: changelog-to-release-notes sync."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
 
 import pytest
 
-from repomatic.changelog import Changelog, build_expected_body
+from repomatic.changelog import Changelog
 from repomatic.github.actions import ReportAction
 from repomatic.github.release_sync import (
     SyncResult,
     SyncRow,
     _normalize_body,
+    build_expected_body,
     render_sync_report,
     sync_github_releases,
 )

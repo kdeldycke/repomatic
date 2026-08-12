@@ -43,9 +43,9 @@ from operator import itemgetter
 from pathlib import Path
 
 from ..metadata import Metadata
-from .gh import run_gh_command
+from .gh import parse_create_output, run_gh_command
 from .pr_body import (
-    fit_issue_body,
+    fit_github_body,
     generate_pr_metadata_block,
     temp_body_file,
 )
@@ -230,8 +230,8 @@ def search_stale_threads(
 
 
 def lock_thread(
-    number: int,
     repository: str,
+    number: int,
     *,
     is_pr: bool,
     comment: str = "",
@@ -243,8 +243,8 @@ def lock_thread(
     lock lifted again, and a reader arriving at a locked thread with no
     explanation has no way to learn where to go instead.
 
-    :param number: The issue or pull request number to lock.
     :param repository: GitHub repository in `owner/name` form.
+    :param number: The issue or pull request number to lock.
     :param is_pr: Whether *number* names a pull request rather than an issue.
     :param comment: Comment to post before locking. Skipped when empty.
     :param reason: Lock reason, one of GitHub's four accepted values. Omitted
@@ -276,7 +276,8 @@ def lock_stale_threads(
     exclude_labels: Sequence[str] = (BOT_ISSUE_LABEL,),
     limit: int = LOCK_SEARCH_LIMIT,
     reason: str = LOCK_REASON,
-    dry_run: bool = False,
+    *,
+    dry_run: bool = True,
 ) -> list[tuple[str, str, str, str]]:
     """Lock every closed thread left inactive for *inactive_days*.
 
@@ -285,7 +286,7 @@ def lock_stale_threads(
     {func}`manage_issue_lifecycle` maintains are *designed* to be reopened when
     their condition recurs, and GitHub refuses `addComment` on a locked
     conversation. Locking one turns the next reopen into a failed job, which is
-    the hole {func}`_run_unlocking` exists to patch after the fact. Excluding
+    the hole {func}`run_unlocking` exists to patch after the fact. Excluding
     the label stops the collision at the source; the recovery path stays in
     place for locks applied by hand.
     ```
@@ -326,8 +327,8 @@ def lock_stale_threads(
             continue
 
         lock_thread(
-            number,
             repository,
+            number,
             is_pr=is_pr,
             comment=pr_comment if is_pr else issue_comment,
             reason=reason,
@@ -372,26 +373,30 @@ def list_issues(title: str = "") -> list[dict[str, Any]]:
     return issues
 
 
-def unlock_issue(number: int) -> None:
-    """Unlock an issue's conversation.
+def unlock_thread(number: int, *, is_pr: bool = False) -> None:
+    """Unlock an issue or pull request's conversation.
 
-    :param number: The issue number to unlock.
+    :param number: The issue or pull request number to unlock.
+    :param is_pr: Whether *number* names a pull request rather than an issue.
     """
+    kind = "pr" if is_pr else "issue"
     run_gh_command([
-        "issue",
+        kind,
         "unlock",
         str(number),
     ])
-    logging.info(f"Unlocked issue #{number}")
+    logging.info(f"Unlocked {kind} #{number}")
 
 
-def _run_unlocking(args: Sequence[str], number: int) -> str:
-    """Run a commenting `gh issue` command, clearing a conversation lock if it blocks.
+def run_unlocking(args: Sequence[str], number: int, *, is_pr: bool = False) -> str:
+    """Run a commenting `gh` command, clearing a conversation lock if it blocks.
 
     GitHub refuses `addComment` on a locked conversation, which is how a lock
     breaks the recurring issues this module manages: the next run that needs to
     reopen one (because the condition recurred) has its reopen comment
-    rejected. Nothing downstream distinguishes that from a real failure, so the
+    rejected. The same refusal breaks `gh pr close --comment` on a locked pull
+    request, which is {func}`~repomatic.github.pr.close_pr`'s whole retire
+    path. Nothing downstream distinguishes either from a real failure, so the
     job dies and the report is never filed.
 
     {func}`lock_stale_threads` no longer causes that, since it skips anything
@@ -402,19 +407,20 @@ def _run_unlocking(args: Sequence[str], number: int) -> str:
 
     Unlocking is deliberate rather than incidental. A conversation that repomatic
     is reopening is one it is about to comment on again, so the lock has outlived
-    its purpose; autolock re-applies it 90 days after the issue next closes.
+    its purpose; autolock re-applies it 90 days after the thread next closes.
 
     ```{note}
     The lock is cleared only *after* a write actually fails, never
     speculatively. An unlocked conversation therefore costs no extra API call,
-    and a lock set by hand on an issue repomatic never writes to is left alone.
+    and a lock set by hand on a thread repomatic never writes to is left alone.
     `gh issue list --json` and `gh issue view --json` both omit the `locked`
     field, so a pre-flight check would need a REST round-trip on every run to
     buy nothing.
     ```
 
     :param args: The `gh` command arguments to run.
-    :param number: The issue number the command targets, used to unlock.
+    :param number: The thread number the command targets, used to unlock.
+    :param is_pr: Whether *number* names a pull request rather than an issue.
     :return: The command's standard output.
     :raises RuntimeError: When the command fails for any reason other than a
         conversation lock, or when it still fails after unlocking.
@@ -424,10 +430,11 @@ def _run_unlocking(args: Sequence[str], number: int) -> str:
     except RuntimeError as error:
         if LOCKED_CONVERSATION_MARKER not in str(error):
             raise
+        kind = "PR" if is_pr else "issue"
         logging.warning(
-            f"Issue #{number} conversation is locked, unlocking to write to it."
+            f"{kind} #{number} conversation is locked, unlocking to write to it."
         )
-        unlock_issue(number)
+        unlock_thread(number, is_pr=is_pr)
         return run_gh_command(list(args))
 
 
@@ -437,7 +444,7 @@ def close_issue(number: int, comment: str) -> None:
     :param number: The issue number to close.
     :param comment: The comment to add when closing.
     """
-    _run_unlocking(
+    run_unlocking(
         [
             "issue",
             "close",
@@ -454,7 +461,7 @@ def reopen_issue(number: int, comment: str = "") -> None:
     """Reopen a previously closed issue.
 
     A closed issue old enough to reopen is old enough to have been autolocked,
-    so the write goes through {func}`_run_unlocking`.
+    so the write goes through {func}`run_unlocking`.
 
     :param number: The issue number to reopen.
     :param comment: Optional comment to add when reopening.
@@ -466,34 +473,21 @@ def reopen_issue(number: int, comment: str = "") -> None:
     ]
     if comment:
         args.extend(["--comment", comment])
-    _run_unlocking(args, number)
+    run_unlocking(args, number)
     logging.info(f"Reopened issue #{number}")
-
-
-def _fit_body_file(body_file: Path) -> None:
-    """Rewrite the body file in place when it exceeds GitHub's size limit.
-
-    Guards `gh issue create` and `gh issue edit` against the API's hard
-    rejection of oversized bodies. See
-    {func}`repomatic.github.pr_body.fit_issue_body`.
-    """
-    body = body_file.read_text(encoding="UTF-8")
-    fitted = fit_issue_body(body)
-    if fitted != body:
-        logging.warning("Issue body exceeds GitHub's size limit, trimming.")
-        body_file.write_text(fitted, encoding="UTF-8")
 
 
 def create_issue(body_file: Path, labels: list[str], title: str) -> int:
     """Create a new issue.
 
-    :param body_file: Path to the file containing the issue body.
+    :param body_file: Path to the file containing the issue body, already
+        trimmed to GitHub's size limit (see
+        {func}`~repomatic.github.pr_body.fit_github_body`).
     :param labels: List of labels to apply.
     :param title: Issue title.
     :return: The created issue number.
     :raises RuntimeError: When the output carries no parsable issue URL.
     """
-    _fit_body_file(body_file)
     args = [
         "issue",
         "create",
@@ -506,18 +500,7 @@ def create_issue(body_file: Path, labels: list[str], title: str) -> int:
         args.extend(["--label", label])
 
     output = run_gh_command(args)
-    # `gh issue create` prints the issue URL last, in the form
-    # `https://github.com/owner/repo/issues/123`. Read the last line rather
-    # than the whole output: gh prepends advisory lines of its own (a
-    # deprecation notice, a "Warning: N uncommitted changes" banner), and
-    # parsing the joined output turns one of those into a ValueError that
-    # reads as a failed creation when the issue was in fact created.
-    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
-    tail = lines[-1].rstrip("/").rsplit("/", 1)[-1] if lines else ""
-    if not tail.isdigit():
-        msg = f"Could not read the issue number from `gh issue create`: {output!r}"
-        raise RuntimeError(msg)
-    issue_number = int(tail)
+    issue_number, _url = parse_create_output(output, "issue")
     logging.info(f"Created issue #{issue_number}")
     return issue_number
 
@@ -526,9 +509,10 @@ def update_issue(number: int, body_file: Path) -> None:
     """Update an existing issue body.
 
     :param number: The issue number to update.
-    :param body_file: Path to the file containing the new issue body.
+    :param body_file: Path to the file containing the new issue body, already
+        trimmed to GitHub's size limit (see
+        {func}`~repomatic.github.pr_body.fit_github_body`).
     """
-    _fit_body_file(body_file)
     run_gh_command([
         "issue",
         "edit",
@@ -606,7 +590,7 @@ def manage_issue_lifecycle(
     closed, it is reopened and updated rather than creating a duplicate. A
     conversation lock standing in the way of that reopen is cleared first, so a
     recurring issue survives the autolock workflow that closes over it; see
-    {func}`_run_unlocking`.
+    {func}`run_unlocking`.
 
     :param has_issues: Whether issues were found that warrant an open issue.
     :param body: The rendered markdown issue body. Written to a temporary file
@@ -642,8 +626,14 @@ def manage_issue_lifecycle(
     if not has_issues:
         return
 
-    # Create, update, or reopen the issue.
-    with temp_body_file(body) as body_path:
+    # Create, update, or reopen the issue. The body is fitted to GitHub's
+    # size limit before it ever touches disk, so the write paths below need
+    # no rewrite-in-place dance.
+    fitted = fit_github_body(body)
+    if fitted != body:
+        logging.warning("Issue body exceeds GitHub's size limit, trimming.")
+
+    with temp_body_file(fitted) as body_path:
         if issue_to_update:
             # Reopen the issue if it was closed.
             if issue_state == "CLOSED":

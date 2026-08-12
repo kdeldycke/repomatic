@@ -42,8 +42,9 @@ from functools import partial
 
 import arrow
 
+from ..dep_report import parse_iso_datetime
 from .actions import ReportAction
-from .gh import iter_graphql_nodes, run_gh_command
+from .gh import gh_api_json, iter_graphql_nodes, run_gh_command
 from .pr_body import render_template
 from .token import validate_classic_pat_scope
 
@@ -255,20 +256,15 @@ def _get_thread_details(subject_url: str) -> dict[str, Any] | None:
     :return: Dict with `state`, `updated_at`, `html_url`, `number`,
         or `None` if the subject is inaccessible.
     """
-    try:
-        output = run_gh_command([
-            "api",
-            subject_url,
-            "--jq",
-            "{state, updated_at, html_url, number}",
-        ])
-        return json.loads(output)  # type: ignore[no-any-return]
-    except RuntimeError:
-        logging.debug(f"Subject inaccessible: {subject_url}")
-        return None
-    except json.JSONDecodeError:
-        logging.debug(f"Malformed subject response: {subject_url}")
-        return None
+    details = gh_api_json([
+        "api",
+        subject_url,
+        "--jq",
+        "{state, updated_at, html_url, number}",
+    ])
+    if details is None:
+        logging.debug(f"Subject inaccessible or malformed: {subject_url}")
+    return details
 
 
 def _unsubscribe_rest_thread(thread_id: str) -> bool:
@@ -591,12 +587,7 @@ def unsubscribe_threads(
             continue
 
         state = details.get("state", "unknown")
-        updated_str = details.get("updated_at", "")
-        updated_at = None
-        try:
-            updated_at = arrow.get(updated_str).datetime
-        except (ValueError, TypeError):
-            pass
+        updated_at = parse_iso_datetime(details.get("updated_at", ""))
 
         # Track oldest/newest across all items with valid timestamps.
         if updated_at is not None:
@@ -677,12 +668,7 @@ def unsubscribe_threads(
                 continue
 
             # Parse updatedAt and url from GraphQL result.
-            gql_updated_str = item.get("updatedAt", "")
-            gql_updated_at = None
-            try:
-                gql_updated_at = arrow.get(gql_updated_str).datetime
-            except (ValueError, TypeError):
-                pass
+            gql_updated_at = parse_iso_datetime(item.get("updatedAt", ""))
 
             # Re-validate staleness client-side, mirroring phase 1: the
             # search query's `updated:<` filter is day-granular and served

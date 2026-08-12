@@ -31,6 +31,8 @@ from contextlib import contextmanager
 from itertools import combinations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+from extra_platforms import ALL_PLATFORMS
 from urllib.error import URLError
 
 import pytest
@@ -51,7 +53,9 @@ from extra_platforms import (
     Platform,
 )
 
+from repomatic.cache import cached_binary_path
 from repomatic.images import _check_tool
+from repomatic.metadata import Metadata
 from repomatic.tool_registry import (
     _DIRECTIVE_YAML_OPTIONS_RE,
     _ESCAPED_COLON_FENCE_RE,
@@ -164,8 +168,6 @@ def test_tool_spec_integrity(name, spec):
 
     # computed_params must also produce long-form flags.
     if spec.computed_params:
-        from repomatic.metadata import Metadata
-
         with patch.object(Metadata, "__init__", lambda self: None):
             m = Metadata()
             # Provide minimal stubs for mypy_params.
@@ -1004,8 +1006,6 @@ def test_extract_binary_format_override(tmp_path):
     """Per-platform archive format from dict is used when passed."""
     archive = _create_zip(tmp_path, "gitleaks.exe")
 
-    from extra_platforms import ALL_PLATFORMS
-
     spec = BinarySpec(
         urls={},
         checksums={},
@@ -1023,8 +1023,6 @@ def test_extract_binary_format_override(tmp_path):
 
 def test_get_archive_format_dict_resolution():
     """Dict archive_format resolves Platform > Group membership."""
-    from extra_platforms import ALL_PLATFORMS
-
     spec = BinarySpec(
         urls={},
         checksums={},
@@ -1179,14 +1177,11 @@ def _on_linux_x86_64():
 
 def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
     """_install_binary returns cached path when cache hit and sidecar matches."""
-
     # Pre-populate the cache with a fake binary and its .sha256 sidecar.
     fake_binary = b"cached-binary-content"
     binary_checksum = hashlib.sha256(fake_binary).hexdigest()
 
     spec = _binary_spec(checksum="archive-checksum-not-used-for-cache")
-
-    from repomatic.cache import cached_binary_path
 
     cache_path = cached_binary_path("testtool", "1.0.0", "linux-x86_64", "testtool")
     cache_path.parent.mkdir(parents=True)
@@ -1204,7 +1199,6 @@ def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
 
 def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
     """_install_binary stores the binary in cache after download on miss."""
-
     fake_binary = b"downloaded-binary"
     checksum = hashlib.sha256(fake_binary).hexdigest()
 
@@ -1225,8 +1219,6 @@ def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
 
         result = _install_binary(spec, staging)
 
-    from repomatic.cache import cached_binary_path
-
     expected_cache = cached_binary_path("testtool", "2.0.0", "linux-x86_64", "testtool")
     assert result == expected_cache
     assert expected_cache.read_bytes() == fake_binary
@@ -1240,7 +1232,6 @@ def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
 
 def test_install_binary_no_cache_flag(tmp_path, monkeypatch, cache_env):
     """_install_binary with no_cache=True bypasses cache entirely."""
-
     spec = _binary_spec(url=TARBALL_URL)
 
     staging = tmp_path / "staging"
@@ -1266,10 +1257,7 @@ def test_install_binary_no_cache_flag(tmp_path, monkeypatch, cache_env):
 
 def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch, cache_env):
     """_install_binary re-downloads when cached binary fails sidecar check."""
-
     # Put a tampered binary in the cache with a sidecar for the original.
-    from repomatic.cache import cached_binary_path
-
     cache_path = cached_binary_path("testtool", "1.0.0", "linux-x86_64", "testtool")
     cache_path.parent.mkdir(parents=True)
     cache_path.write_bytes(b"tampered-content")
@@ -1305,7 +1293,6 @@ def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch, cache_env
 
 def test_install_binary_cache_store_fallback(tmp_path, monkeypatch, cache_env):
     """_install_binary falls back to temp path when cached file is missing."""
-
     fake_binary = b"downloaded-binary"
     checksum = hashlib.sha256(fake_binary).hexdigest()
 
@@ -1515,7 +1502,6 @@ def test_ensure_binary_keeps_staging_fallback_alive(mock_install):
     write), `_install_binary` returns the staging copy: the staging directory
     must then outlive the call, or the caller would exec a just-deleted file.
     """
-
     def install(spec, staging_dir, **kwargs):
         path = staging_dir / "labelmaker"
         path.touch()

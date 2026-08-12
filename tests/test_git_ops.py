@@ -143,14 +143,9 @@ def _seed_commit(workdir, filename: str, content: str, message: str) -> None:
     )
 
 
-@pytest.fixture()
-def git_workdir(tmp_path, monkeypatch):
+@pytest.fixture
+def git_workdir(tmp_path, monkeypatch, hermetic_git):
     """A working clone (cwd) of a bare `origin` remote, one commit on main."""
-    # Shield the temporary repos (and the code under test) from the
-    # developer's global git config: commit signing, hooks, and identity
-    # would otherwise leak in and break hermeticity.
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
     remote = tmp_path / "remote.git"
     _run_git("init", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
     work = tmp_path / "work"

@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
+from shutil import rmtree
 from urllib.request import Request, urlopen
 
 import tomlrt
@@ -321,6 +322,7 @@ def _overlay_owned_keys(
 
 
 def _update_tool_config(
+    doc: tomlrt.Document,
     content: str,
     comp: ToolConfigComponent,
 ) -> str | None:
@@ -336,18 +338,14 @@ def _update_tool_config(
     updated in place via {func}`_overlay_owned_keys`, leaving the rest of the
     project-owned section (and its key order) intact.
 
-    :param content: The current pyproject.toml content.
+    :param doc: The parsed pyproject.toml document, whose `[tool]` table the
+        caller ({func}`init_config`) already found `comp.tool_name` in.
+    :param content: The current pyproject.toml content, for the no-op check.
     :param comp: The component whose config is being synced.
     :return: Modified pyproject.toml content, or `None` if already up to date.
     """
-    doc = tomlrt.loads(content)
-    tool_name = comp.tool_section.removeprefix("tool.")
-
-    tool_table = doc.get("tool")
-    if not tool_table or tool_name not in tool_table:
-        return None
-
-    existing_section = tool_table[tool_name]
+    tool_table = doc["tool"]
+    existing_section = tool_table[comp.tool_name]
 
     if comp.overlay:
         return _overlay_owned_keys(doc, existing_section, comp, content)
@@ -386,7 +384,7 @@ def _update_tool_config(
             new_section[key] = existing_section[key]
 
     # Replace the section in the document.
-    tool_table[tool_name] = new_section
+    tool_table[comp.tool_name] = new_section
 
     modified = tomlrt.dumps(doc)
 
@@ -432,13 +430,12 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
 
     content = pyproject_path.read_text(encoding="UTF-8")
     doc = tomlrt.loads(content)
-    tool_name = comp.tool_section.removeprefix("tool.")
 
     # Check if the config section already exists.
     tool_table = doc.get("tool")
-    if tool_table and tool_name in tool_table:
+    if tool_table and comp.tool_name in tool_table:
         if comp.sync_mode == SyncMode.ONGOING:
-            return _update_tool_config(content, comp)
+            return _update_tool_config(doc, content, comp)
         logging.info(f"[{comp.tool_section}] already exists in {pyproject_path.name}")
         return None
 
@@ -450,7 +447,7 @@ def init_config(config_type: str, pyproject_path: Path | None = None) -> str | N
     native_stripped = _strip_header_comments(native_source)
     new_section = tomlrt.loads(native_stripped)
 
-    doc.install(("tool", tool_name), new_section)
+    doc.install(("tool", comp.tool_name), new_section)
 
     return tomlrt.dumps(doc)
 
@@ -780,6 +777,56 @@ def _write_managed(
     result.created.append(rel)
     logging.info(f"{verb or 'Created'}: {rel}")
     return "created"
+
+
+def _unlink_with_empty_parents(target: Path, root: Path) -> None:
+    """Delete `target`, then prune now-empty parent directories up to `root`.
+
+    A skill is a whole folder, so *target* may be a directory: remove it and
+    everything it carries (`scripts/`, `references/`, `assets/`) in one go.
+    """
+    if target.is_dir():
+        rmtree(target)
+    else:
+        target.unlink()
+    parent = target.parent
+    while parent != root:
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+        parent = parent.parent
+
+
+def prune_paths(
+    paths: Sequence[str] | Sequence[tuple[str, str]],
+    output_dir: Path,
+    *,
+    prune_parents: bool = True,
+) -> None:
+    """Delete every path of an {class}`InitResult` report section.
+
+    The deleting half of `init`'s delete flags (`--delete-excluded`,
+    `--delete-unmodified`, the removed-asset pruning), kept beside
+    {func}`run_init`, which produced the paths: the CLI decides *which*
+    sections get deleted, this module owns the filesystem mutation.
+
+    :param paths: Bare relative paths, or `(path, successor)` pairs for the
+        removed-asset sections.
+    :param output_dir: Repository root the paths are relative to.
+    :param prune_parents: Also remove parent directories left empty. On for the
+        removed-asset and excluded sections, whose targets sit in directories
+        repomatic itself created (`.claude/skills/<name>/`). Off for unmodified
+        tool configs, which share `.github/` and the repository root with files
+        repomatic does not own.
+    """
+    for entry in paths:
+        path = entry[0] if isinstance(entry, tuple) else entry
+        target = output_dir / path
+        if prune_parents:
+            _unlink_with_empty_parents(target, output_dir)
+        else:
+            target.unlink()
 
 
 def run_init(

@@ -14,6 +14,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+"""Tests for `repomatic.github.matrix`: the workflow matrix model."""
+
 from __future__ import annotations
 
 from itertools import permutations

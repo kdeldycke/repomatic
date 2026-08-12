@@ -31,7 +31,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from .bundle import get_data_content
 from .config import Config
+from .frontmatter import split_frontmatter
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -409,6 +411,16 @@ class ToolConfigComponent(Component):
     canonicalizes that one position once, after which steady-state syncs are
     no-ops.
     """
+
+    @property
+    def tool_name(self) -> str:
+        """The bare tool name, without the `tool.` table prefix.
+
+        The key this component's section sits under inside a parsed
+        `[tool]` table, derived once here rather than re-spelled by every
+        consumer of `tool_section`.
+        """
+        return self.tool_section.removeprefix("tool.")
 
     def __post_init__(self) -> None:
         """Validate required fields."""
@@ -1255,6 +1267,26 @@ SKILL_PHASES: dict[str, str] = {
     f.file_id: f.phase for f in COMPONENTS_BY_NAME["skills"].files if f.phase
 }
 """Maps skill names to lifecycle phases for display grouping."""
+
+
+def skill_catalog() -> list[tuple[str, str, str]]:
+    """Read every bundled skill's display metadata off its frontmatter.
+
+    :return: One `(phase, name, description)` tuple per bundled skill, in
+        registry order, with the description's trailing period stripped for
+        table display. Phases are keyed by the registry `file_id`, not the
+        frontmatter name, so a skill renamed in frontmatter still lands in
+        its phase.
+    """
+    skills = []
+    for entry in COMPONENTS_BY_NAME["skills"].files:
+        # Each skill is a bundled folder, so reach past it for the entry point.
+        content = get_data_content(f"{entry.source}/{SKILL_FILENAME}")
+        meta, _body = split_frontmatter(content)
+        name = str(meta.get("name", entry.file_id))
+        description = str(meta.get("description", "")).removesuffix(".")
+        skills.append((SKILL_PHASES[entry.file_id], name, description))
+    return skills
 
 
 FILE_SELECTOR_COMPONENTS: tuple[str, ...] = tuple(c.name for c in COMPONENTS if c.files)

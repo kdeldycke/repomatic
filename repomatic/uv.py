@@ -190,6 +190,28 @@ def project_exclude_newer(pyproject_path: Path) -> str:
     return str(window) if window else ""
 
 
+def uv_lock_command(pyproject_path: Path, *extra: str) -> list[str]:
+    """Build a `uv lock` argv carrying the project's own cooldown window.
+
+    The one builder behind every re-lock this package runs (`sync-uv-lock`,
+    the dep-sources swap, `audit --fix`), so none of them can forget the
+    explicit `--exclude-newer` that keeps CI's ambient `UV_EXCLUDE_NEWER`
+    from retiming the lock: see {func}`project_exclude_newer`.
+
+    :param pyproject_path: Path to the project's `pyproject.toml`. A missing
+        file or an unset window leaves the flag off.
+    :param extra: Extra `uv lock` arguments (`--upgrade`,
+        `--upgrade-package`, ...), appended before the window flag.
+    :return: The argv to run, with `cwd` set to the project directory.
+    """
+    cmd = [*uv_cmd("lock"), *extra]
+    if pyproject_path.exists():
+        window = project_exclude_newer(pyproject_path)
+        if window:
+            cmd += ["--exclude-newer", window]
+    return cmd
+
+
 def packages_outside_cooldown(
     pyproject_path: Path,
     lock_path: Path,
@@ -1154,14 +1176,9 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     lock_before = lock_path.read_bytes() if lock_path.exists() else None
 
     # Step 3: Run uv lock --upgrade in the project directory. The project's own
-    # exclude-newer window is passed explicitly so CI's ambient UV_EXCLUDE_NEWER
-    # cannot retime the lock; see project_exclude_newer.
+    # exclude-newer window travels as an explicit flag; see uv_lock_command.
     project_dir = lock_path.parent
-    lock_cmd = [*uv_cmd("lock"), "--upgrade"]
-    if pyproject_path.exists():
-        window = project_exclude_newer(pyproject_path)
-        if window:
-            lock_cmd += ["--exclude-newer", window]
+    lock_cmd = uv_lock_command(pyproject_path, "--upgrade")
     logging.info(f"Running {' '.join(lock_cmd)} in {project_dir}...")
     subprocess.run(lock_cmd, check=True, cwd=project_dir)
 

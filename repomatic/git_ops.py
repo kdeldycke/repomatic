@@ -57,6 +57,19 @@ the commit to the verified `github-actions[bot]` account.
 COMMIT_IDENTITY_NAME = "github-actions[bot]"
 """Commit author name for automated commits."""
 
+_BOT_IDENTITY_ARGS = (
+    "-c",
+    f"user.name={COMMIT_IDENTITY_NAME}",
+    "-c",
+    f"user.email={COMMIT_IDENTITY_EMAIL}",
+)
+"""Per-command `git -c` overrides authoring a commit as the CI bot.
+
+CI checkouts carry no git identity of their own, so every command that writes
+a commit object (`commit`, `rebase`) has to supply one. Passed per-command
+rather than written to the checkout's config, so nothing persists past the
+call."""
+
 SHORT_SHA_LENGTH = 7
 """Default SHA length hard-coded to `7`.
 
@@ -366,10 +379,7 @@ def rebase_onto(new_base: str, old_base: str, branch: str) -> bool:
         converges it, so this is not worth failing the job over.
     """
     rebased = _git(
-        "-c",
-        f"user.name={COMMIT_IDENTITY_NAME}",
-        "-c",
-        f"user.email={COMMIT_IDENTITY_EMAIL}",
+        *_BOT_IDENTITY_ARGS,
         "rebase",
         "--onto",
         new_base,
@@ -426,15 +436,7 @@ def commit_staged(message: str) -> str:
     git identity of their own. Mirrors {func}`commit_and_push_files`, which
     does the same for the direct-to-default-branch case.
     """
-    _git(
-        "-c",
-        f"user.name={COMMIT_IDENTITY_NAME}",
-        "-c",
-        f"user.email={COMMIT_IDENTITY_EMAIL}",
-        "commit",
-        "--message",
-        message,
-    )
+    _git(*_BOT_IDENTITY_ARGS, "commit", "--message", message)
     return head_sha()
 
 
@@ -706,15 +708,7 @@ def commit_and_push_files(
         logging.info("No changes to commit.")
         return False
 
-    _git(
-        "-c",
-        f"user.name={COMMIT_IDENTITY_NAME}",
-        "-c",
-        f"user.email={COMMIT_IDENTITY_EMAIL}",
-        "commit",
-        "--message",
-        message,
-    )
+    _git(*_BOT_IDENTITY_ARGS, "commit", "--message", message)
     logging.info(f"Committed: {message}")
 
     for attempt in range(1, attempts + 1):
@@ -728,15 +722,7 @@ def commit_and_push_files(
         )
         _git("fetch", remote, branch)
         # Replaying the commit needs a committer identity too.
-        rebase = _git(
-            "-c",
-            f"user.name={COMMIT_IDENTITY_NAME}",
-            "-c",
-            f"user.email={COMMIT_IDENTITY_EMAIL}",
-            "rebase",
-            "FETCH_HEAD",
-            check=False,
-        )
+        rebase = _git(*_BOT_IDENTITY_ARGS, "rebase", "FETCH_HEAD", check=False)
         if rebase.returncode:
             _git("rebase", "--abort", check=False)
             raise RuntimeError(

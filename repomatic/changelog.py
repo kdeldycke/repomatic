@@ -154,6 +154,30 @@ def resolved_changelog_path(config: Config) -> Path:
     return Path(config.changelog_location).resolve()
 
 
+def load_changelog_repo(config: Config) -> tuple[Path, str] | None:
+    """Load the configured changelog and read the repository URL out of it.
+
+    The shared preamble of the two release-notes syncers, which both need the
+    changelog's path (to read sections from) and the repository it belongs to
+    (to address the GitHub API with). The URL comes from the changelog's own
+    comparison links rather than from the git remote, so a project whose
+    changelog points elsewhere stays authoritative.
+
+    :param config: The resolved `[tool.repomatic]` configuration.
+    :return: `(changelog_path, repo_url)`, or `None` after logging why neither
+        could be determined (no changelog on disk, or no comparison link in it).
+    """
+    changelog_path = resolved_changelog_path(config)
+    if not changelog_path.exists():
+        logging.warning(f"{changelog_path} not found.")
+        return None
+    repo_url = Changelog(changelog_path.read_text(encoding="UTF-8")).extract_repo_url()
+    if not repo_url:
+        logging.warning("Could not extract repository URL from changelog.")
+        return None
+    return changelog_path, repo_url
+
+
 AVAILABLE_VERB = "is available on"
 """Verb phrase for versions present on a platform."""
 
@@ -1506,48 +1530,3 @@ def lint_changelog_dates(
     # a comparison URL to link it from has not fixed the changelog, and letting
     # downstream steps proceed on that would publish the gap.
     return 1 if has_mismatch and unfixed_problem else 0
-
-
-def build_expected_body(
-    changelog: Changelog,
-    version: str,
-    *,
-    admonition_override: str | None = None,
-) -> str:
-    """Build the expected release body from the changelog.
-
-    Decomposes the changelog section into discrete elements and renders
-    them through the `github-releases` template. This allows the
-    GitHub release body to include a different subset of elements than
-    the `release-notes` template used for `changelog.md` entries.
-
-    :param changelog: Parsed changelog instance.
-    :param version: Version string (e.g. `1.2.3`).
-    :param admonition_override: If provided, replaces the
-        `availability_admonition` from the changelog. Used by
-        `release_notes_with_admonition` to inject a pre-computed
-        admonition at release time.
-    :return: The rendered release body, or empty string if the
-        version has no changelog section.
-    """
-    elements = changelog.decompose_version(version)
-    if (
-        not elements.changes
-        and not elements.availability_admonition
-        and not elements.development_warning
-        and not elements.editorial_admonition
-        and not elements.yanked_admonition
-    ):
-        return ""
-
-    if admonition_override is not None:
-        elements.availability_admonition = admonition_override
-    # Extract tag range from compare URL (e.g. "v1.1.0...v2.0.0").
-    tag_range = (
-        elements.compare_url.rsplit("/compare/", 1)[-1] if elements.compare_url else ""
-    )
-    return render_template(
-        "github-releases",
-        **asdict(elements),
-        tag_range=tag_range,
-    )

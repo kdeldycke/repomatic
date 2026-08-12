@@ -1149,7 +1149,10 @@ def _workflow_texts(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, str]:
     texts: dict[Path, str] = {}
     if not workflow_dir.is_dir():
         return texts
-    for path in sorted(workflow_dir.glob("*.yaml")):
+    # Both extensions, since GitHub accepts either: a downstream repository
+    # may have picked the short one (see registry.GITHUB_YAML_PATTERNS).
+    paths = [*workflow_dir.glob("*.yaml"), *workflow_dir.glob("*.yml")]
+    for path in sorted(paths):
         try:
             texts[path] = path.read_text(encoding="UTF-8")
         except OSError as e:

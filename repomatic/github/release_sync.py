@@ -24,10 +24,10 @@ Compares each GitHub release body against the corresponding
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from ..changelog import Changelog, build_expected_body
+from ..changelog import Changelog
 from .actions import ReportAction
 from .pr_body import render_template
 from .releases import (
@@ -36,6 +36,56 @@ from .releases import (
     get_github_releases,
     owner_repo,
 )
+
+
+def build_expected_body(
+    changelog: Changelog,
+    version: str,
+    *,
+    admonition_override: str | None = None,
+) -> str:
+    """Build the expected release body from the changelog.
+
+    Decomposes the changelog section into discrete elements and renders
+    them through the `github-releases` template. This allows the
+    GitHub release body to include a different subset of elements than
+    the `release-notes` template used for `changelog.md` entries.
+
+    Lives here, with the release publishers, rather than in
+    {mod}`repomatic.changelog`: every caller is a GitHub-release writer (this
+    sync, the dev pre-release, the release-notes metadata keys), and the
+    changelog module renders changelog entries, not release bodies.
+
+    :param changelog: Parsed changelog instance.
+    :param version: Version string (e.g. `1.2.3`).
+    :param admonition_override: If provided, replaces the
+        `availability_admonition` from the changelog. Used by
+        `release_notes_with_admonition` to inject a pre-computed
+        admonition at release time.
+    :return: The rendered release body, or empty string if the
+        version has no changelog section.
+    """
+    elements = changelog.decompose_version(version)
+    if (
+        not elements.changes
+        and not elements.availability_admonition
+        and not elements.development_warning
+        and not elements.editorial_admonition
+        and not elements.yanked_admonition
+    ):
+        return ""
+
+    if admonition_override is not None:
+        elements.availability_admonition = admonition_override
+    # Extract tag range from compare URL (e.g. "v1.1.0...v2.0.0").
+    tag_range = (
+        elements.compare_url.rsplit("/compare/", 1)[-1] if elements.compare_url else ""
+    )
+    return render_template(
+        "github-releases",
+        **asdict(elements),
+        tag_range=tag_range,
+    )
 
 
 @dataclass(frozen=True)

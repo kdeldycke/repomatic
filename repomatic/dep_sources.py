@@ -74,7 +74,6 @@ from .dep_report import (
     link_name,
     markdown_section,
     parse_iso_datetime,
-    safe_version,
 )
 from .github.actions import AnnotationLevel
 from .pypi import get_release_dates
@@ -86,6 +85,7 @@ from .uv import (
     resolve_exclude_newer_cutoff,
     uv_table,
 )
+from .version_sync import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

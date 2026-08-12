@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from repomatic.github import workflow_sync as ws
 from repomatic.config import Config, WorkflowConfig
 from repomatic.github.actions import AnnotationLevel
 from repomatic.github.workflow_sync import (
@@ -612,8 +613,6 @@ def _patch_release_yaml(monkeypatch, body: str) -> None:
     extraction; a blanket override would feed the test body to that call and
     break `extract_trigger_info`.
     """
-    from repomatic.github import workflow_sync as ws
-
     real_get = ws.get_data_content
 
     def fake_get(name: str) -> str:
@@ -1850,9 +1849,9 @@ def test_resolve_source_paths_explicit_config() -> None:
 def test_resolve_source_paths_none_derives() -> None:
     """Auto-derive when config is None."""
     config = Config(workflow=WorkflowConfig(source_paths=None))
-    pyproject_data = {"project": {"name": "my-pkg"}}
+    pyproject_data = {"project": {"name": "papaya-press"}}
     result = resolve_source_paths(config, pyproject_data)
-    assert result == ["my_pkg"]
+    assert result == ["papaya_press"]
 
 
 def test_resolve_source_paths_empty_list_returns_none() -> None:

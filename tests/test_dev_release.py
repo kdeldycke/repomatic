@@ -14,17 +14,19 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+"""Tests for `repomatic.github.dev_release`: the rolling dev pre-release sync."""
+
 from __future__ import annotations
 
 import json
-from unittest.mock import call, patch
+from contextlib import contextmanager
+from unittest.mock import Mock, call, patch
 
 import pytest
 
 from repomatic.github.dev_release import (
     _delete_release_assets,
     cleanup_dev_releases,
-    delete_dev_release,
     delete_release_by_tag,
     sync_dev_release,
     upload_release_assets,
@@ -74,11 +76,26 @@ def _delete_call(tag: str, repo: str = "user/repo") -> list[str]:
     return ["release", "delete", tag, "--cleanup-tag", "--yes", "--repo", repo]
 
 
+@contextmanager
+def patch_gh(**mock_kwargs):
+    """Patch every `gh` dispatch point of the module with one shared mock.
+
+    The read paths go through `gh_api_json` (which calls the `gh` module's
+    `run_gh_command`) while the write paths call the name imported into
+    `dev_release` directly; patching both with the same mock keeps the tests'
+    single call sequence intact across the two layers.
+    """
+    mock_gh = Mock(**mock_kwargs)
+    with (
+        patch("repomatic.github.dev_release.run_gh_command", mock_gh),
+        patch("repomatic.github.gh.run_gh_command", mock_gh),
+    ):
+        yield mock_gh
+
+
 def test_sync_dev_release_dry_run(unreleased_changelog):
     """Dry-run reports without calling gh."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-    ) as mock_gh:
+    with patch_gh() as mock_gh:
         result = sync_dev_release(
             unreleased_changelog,
             "6.1.1.dev0",
@@ -95,8 +112,7 @@ def test_sync_dev_release_live(unreleased_changelog):
     # gh release list returns no existing dev releases.
     # Edit fails (no existing release), then create succeeds.
     with (
-        patch(
-            "repomatic.github.dev_release.run_gh_command",
+        patch_gh(
             side_effect=[
                 json.dumps([]),  # list releases for cleanup
                 None,  # create new release
@@ -139,8 +155,7 @@ def test_sync_dev_release_edits_existing(unreleased_changelog):
     # gh release list returns the current dev release.
     release_list = json.dumps([{"tagName": "v6.1.1.dev0"}])
     with (
-        patch(
-            "repomatic.github.dev_release.run_gh_command",
+        patch_gh(
             side_effect=[
                 release_list,  # list releases (current kept, not deleted)
             ],
@@ -182,8 +197,7 @@ def test_sync_dev_release_cleans_stale_releases(unreleased_changelog):
         {"tagName": "v6.1.0"},
     ])
     with (
-        patch(
-            "repomatic.github.dev_release.run_gh_command",
+        patch_gh(
             side_effect=[
                 release_list,  # list releases
                 None,  # delete v6.0.1.dev0 (stale)
@@ -220,8 +234,7 @@ def test_sync_dev_release_empty_body(tmp_path):
     # Version exists in changelog but has no content.
     changelog_path.write_text(RELEASED_ONLY_CHANGELOG, encoding="UTF-8")
 
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
     ) as mock_gh:
         result = sync_dev_release(
             changelog_path,
@@ -237,8 +250,7 @@ def test_sync_dev_release_empty_body(tmp_path):
 def test_sync_dev_release_body_content(unreleased_changelog):
     """Verifies the release body includes changelog changes."""
     with (
-        patch(
-            "repomatic.github.dev_release.run_gh_command",
+        patch_gh(
             side_effect=[
                 json.dumps([]),  # list releases for cleanup
                 None,  # create new release
@@ -274,8 +286,7 @@ def test_cleanup_dev_releases_deletes_all_dev_tags():
         {"tagName": "v6.1.0"},
         {"tagName": "v6.0.1"},
     ])
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=[release_list, None, None],
     ) as mock_gh:
         cleanup_dev_releases("user/repo")
@@ -292,8 +303,7 @@ def test_cleanup_dev_releases_no_dev_releases():
         {"tagName": "v6.1.0"},
         {"tagName": "v6.0.1"},
     ])
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         return_value=release_list,
     ) as mock_gh:
         cleanup_dev_releases("user/repo")
@@ -304,8 +314,7 @@ def test_cleanup_dev_releases_no_dev_releases():
 
 def test_cleanup_dev_releases_list_failure():
     """Silently succeeds when release listing fails."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=RuntimeError("API error"),
     ):
         # Should not raise.
@@ -318,8 +327,7 @@ def test_cleanup_dev_releases_delete_failure():
         {"tagName": "v6.2.0.dev0"},
         {"tagName": "v6.1.1.dev0"},
     ])
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=[
             release_list,
             RuntimeError("immutable"),  # First delete fails.
@@ -339,8 +347,7 @@ def test_cleanup_dev_releases_keeps_current_tag():
         {"tagName": "v6.1.1.dev0"},
         {"tagName": "v6.1.0"},
     ])
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=[release_list, None],
     ) as mock_gh:
         cleanup_dev_releases("user/repo", keep_tag="v6.2.0.dev0")
@@ -350,36 +357,12 @@ def test_cleanup_dev_releases_keeps_current_tag():
     assert mock_gh.call_args_list[1] == call(_delete_call("v6.1.1.dev0"))
 
 
-# --- delete_dev_release() tests ---
-
-
-def test_delete_dev_release_success():
-    """Calls gh release delete with correct arguments."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-    ) as mock_gh:
-        delete_dev_release("6.1.1.dev0", "user/repo")
-
-    mock_gh.assert_called_once_with(_delete_call("v6.1.1.dev0"))
-
-
-def test_delete_dev_release_missing():
-    """Silently succeeds when no dev release exists."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
-        side_effect=RuntimeError("release not found"),
-    ):
-        # Should not raise.
-        delete_dev_release("6.1.1.dev0", "user/repo")
-
-
 # --- delete_release_by_tag() tests ---
 
 
 def test_delete_release_by_tag_success():
     """Calls gh release delete with the given tag, and reports the deletion."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
     ) as mock_gh:
         assert delete_release_by_tag("v6.1.1.dev0", "user/repo") is True
 
@@ -388,8 +371,7 @@ def test_delete_release_by_tag_success():
 
 def test_delete_release_by_tag_immutable():
     """Silently succeeds for immutable published releases, reporting no deletion."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=RuntimeError("HTTP 422"),
     ):
         # Should not raise.
@@ -398,7 +380,7 @@ def test_delete_release_by_tag_immutable():
 
 def test_delete_release_by_tag_leaves_naming_to_the_caller(caplog):
     """The generic helper never calls what it deleted a "dev release"."""
-    with patch("repomatic.github.dev_release.run_gh_command"):
+    with patch_gh():
         delete_release_by_tag("v1.2.3", "user/repo")
     assert "dev release" not in caplog.text
 
@@ -414,8 +396,7 @@ def test_delete_release_assets_success():
             {"apiUrl": "https://api.github.com/repos/user/repo/releases/assets/222"},
         ],
     })
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=[assets_json, None, None],
     ) as mock_gh:
         result = _delete_release_assets("v6.1.1.dev0", "user/repo")
@@ -437,8 +418,7 @@ def test_delete_release_assets_success():
 
 def test_delete_release_assets_no_release():
     """Returns 0 when the release does not exist."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=RuntimeError("not found"),
     ):
         result = _delete_release_assets("v6.1.1.dev0", "user/repo")
@@ -448,8 +428,7 @@ def test_delete_release_assets_no_release():
 
 def test_delete_release_assets_empty():
     """Returns 0 when the release has no assets."""
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         return_value=json.dumps({"assets": []}),
     ):
         result = _delete_release_assets("v6.1.1.dev0", "user/repo")
@@ -465,8 +444,7 @@ def test_delete_release_assets_partial_failure():
             {"apiUrl": "https://api.github.com/repos/user/repo/releases/assets/222"},
         ],
     })
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=[
             assets_json,
             RuntimeError("forbidden"),
@@ -491,8 +469,7 @@ def test_upload_release_assets_success(tmp_path):
     (tmp_path / "readme.txt").touch()
 
     assets_json = json.dumps({"assets": []})
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=[assets_json, None],
     ) as mock_gh:
         result = upload_release_assets("v6.2.0.dev0", "user/repo", tmp_path)
@@ -509,8 +486,7 @@ def test_upload_release_assets_no_files(tmp_path):
     """Returns empty list and makes no gh calls when no matching files."""
     (tmp_path / "readme.txt").touch()
 
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
     ) as mock_gh:
         result = upload_release_assets("v6.2.0.dev0", "user/repo", tmp_path)
 
@@ -527,8 +503,7 @@ def test_upload_release_assets_deletes_existing_first(tmp_path):
             {"apiUrl": "https://api.github.com/repos/user/repo/releases/assets/999"},
         ],
     })
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
         side_effect=[
             assets_json,  # view assets
             None,  # delete asset 999
@@ -561,8 +536,7 @@ def test_sync_dev_release_with_assets(unreleased_changelog, tmp_path):
     (asset_dir / "repomatic-6.1.1.dev0.tar.gz").touch()
 
     with (
-        patch(
-            "repomatic.github.dev_release.run_gh_command",
+        patch_gh(
             side_effect=[
                 json.dumps([]),  # list releases for cleanup
                 None,  # create release
@@ -596,8 +570,7 @@ def test_sync_dev_release_dry_run_with_assets(unreleased_changelog, tmp_path):
     (asset_dir / "repomatic-6.1.1.dev0.whl").touch()
     (asset_dir / "repomatic-6.1.1.dev0.tar.gz").touch()
 
-    with patch(
-        "repomatic.github.dev_release.run_gh_command",
+    with patch_gh(
     ) as mock_gh:
         result = sync_dev_release(
             unreleased_changelog,
