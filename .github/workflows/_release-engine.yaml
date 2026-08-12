@@ -122,7 +122,13 @@ jobs:
       # __DATE__/__TIME__ macros. The cache-prep step below also writes both
       # into $CCACHE_DIR/ccache.conf, so whichever channel reaches the
       # wrapper carries the same values. Nuitka's internal clcache on MSVC
-      # ignores both settings.
+      # ignores both settings. The sloppiness half never actually reaches
+      # ccache either way: enableCcache() unconditionally overwrites
+      # CCACHE_SLOPPINESS, unlike the CCACHE_DIR guard right next to it in
+      # the same function. Reported upstream as
+      # https://github.com/Nuitka/Nuitka/issues/3998 (see docs/nuitka.md).
+      # Kept here regardless: harmless, and correct the moment Nuitka fixes
+      # it.
       CCACHE_COMPILERCHECK: content
       CCACHE_SLOPPINESS: time_macros
     steps:
@@ -187,8 +193,10 @@ jobs:
           # uv extracts packages into a randomly-named cache directory that
           # can leak into Nuitka's -I flags, changing the hashed compiler
           # arguments on every run: the proven root cause of the macOS 0/470
-          # misses (docs/nuitka.md). base_dir makes ccache hash those paths
-          # relative to the runner work root, so keys survive across VMs.
+          # misses (docs/nuitka.md). Reported upstream as
+          # https://github.com/Nuitka/Nuitka/issues/3996. base_dir makes
+          # ccache hash those paths relative to the runner work root, so
+          # keys survive across VMs.
           printf 'base_dir = %s\n' "$(dirname "${RUNNER_WORKSPACE}")" \
             >> .nuitka-cache/ccache/ccache.conf
       # The manylinux containers ship no ccache (Nuitka warns and compiles
@@ -254,14 +262,15 @@ jobs:
           NUITKA_PYTHON_FLAGS: ${{ matrix.nuitka_python_flags }}
           # On macOS Nuitka auto-downloads a ccache binary from nuitka.net,
           # with no checksum at the call site (SconsCaching.py's
-          # getCachedDownload passes none), and runs it under Rosetta on arm
-          # with measured overhead. Since the macOS cache is not persisted,
-          # ccache brings no benefit there and the unchecksummed download is
-          # pure supply-chain surface: disable it. Empty (and inert)
-          # elsewhere; Linux ccache and MSVC clcache are unaffected. See
-          # docs/nuitka.md for the root cause of the historical macOS misses
-          # and what re-enabling would take (a native, checksummed ccache via
-          # NUITKA_CCACHE_BINARY).
+          # getCachedDownload passes none; reported upstream as
+          # https://github.com/Nuitka/Nuitka/issues/3997), and runs it under
+          # Rosetta on arm with measured overhead. Since the macOS cache is
+          # not persisted, ccache brings no benefit there and the
+          # unchecksummed download is pure supply-chain surface: disable it.
+          # Empty (and inert) elsewhere; Linux ccache and MSVC clcache are
+          # unaffected. See docs/nuitka.md for the root cause of the
+          # historical macOS misses and what re-enabling would take (a
+          # native, checksummed ccache via NUITKA_CCACHE_BINARY).
           NUITKA_CCACHE_FLAG: >-
             ${{ matrix.platform_id == 'macos' && '--disable-ccache' || '' }}
           BIN_NAME: ${{ matrix.bin_name }}
