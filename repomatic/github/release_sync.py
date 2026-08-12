@@ -160,7 +160,7 @@ def sync_github_releases(
 
     # Parse owner/repo for gh CLI.
     parsed = owner_repo(repo_url)
-    nwo = "/".join(parsed) if parsed else ""
+    repository = "/".join(parsed) if parsed else ""
 
     # Iterate over released versions in the changelog.
     for version, _date in changelog.extract_all_releases():
@@ -205,7 +205,7 @@ def sync_github_releases(
             continue
 
         # Live mode: update the release body.
-        if edit_release_notes(f"v{version}", nwo, expected):
+        if edit_release_notes(f"v{version}", repository, expected):
             result.updated += 1
             result.rows.append(
                 SyncRow(

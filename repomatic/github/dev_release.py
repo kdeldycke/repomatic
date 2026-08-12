@@ -74,7 +74,7 @@ package name.
 def sync_dev_release(
     changelog_path: Path,
     version: str,
-    nwo: str,
+    repository: str,
     dry_run: bool = True,
     asset_dir: Path | None = None,
 ) -> bool:
@@ -92,7 +92,7 @@ def sync_dev_release(
 
     :param changelog_path: Path to `changelog.md`.
     :param version: Current version string (e.g. `6.1.1.dev0`).
-    :param nwo: Repository name-with-owner (e.g. `user/repo`).
+    :param repository: GitHub repository in `owner/name` form.
     :param dry_run: If `True`, report without making changes.
     :param asset_dir: Directory containing assets to upload. If `None`,
         no asset upload is performed.
@@ -122,11 +122,11 @@ def sync_dev_release(
         return True
 
     # Delete stale dev releases from previous versions, preserving the current one.
-    cleanup_dev_releases(nwo, keep_tag=tag)
+    cleanup_dev_releases(repository, keep_tag=tag)
 
     # Try to edit the existing release first. This preserves assets (binaries)
     # from previous successful builds when the current push skips compilation.
-    if edit_release_notes(tag, nwo, body, title=version):
+    if edit_release_notes(tag, repository, body, title=version):
         logging.info(f"Updated existing dev draft pre-release {tag}.")
     else:
         # No existing release to edit; create a new draft pre-release targeting
@@ -146,12 +146,12 @@ def sync_dev_release(
             "--notes",
             body,
             "--repo",
-            nwo,
+            repository,
         ])
         logging.info(f"Created dev draft pre-release {tag}.")
 
     if asset_dir is not None:
-        uploaded = upload_release_assets(tag, nwo, asset_dir)
+        uploaded = upload_release_assets(tag, repository, asset_dir)
         if uploaded:
             names = ", ".join(f.name for f in uploaded)
             logging.info(f"Uploaded {len(uploaded)} assets: {names}")
@@ -171,7 +171,7 @@ def _collect_asset_files(asset_dir: Path) -> list[Path]:
     return sorted(set(files))
 
 
-def _delete_release_assets(tag: str, nwo: str) -> int:
+def _delete_release_assets(tag: str, repository: str) -> int:
     """Delete all assets from an existing release.
 
     Fetches the asset list via `gh release view` and deletes each asset
@@ -179,7 +179,7 @@ def _delete_release_assets(tag: str, nwo: str) -> int:
     mirroring the shell script's `|| true` behavior.
 
     :param tag: Git tag name (e.g. `v6.1.1.dev0`).
-    :param nwo: Repository name-with-owner (e.g. `user/repo`).
+    :param repository: GitHub repository in `owner/name` form.
     :return: Number of assets successfully deleted.
     """
     payload = gh_api_json([
@@ -187,7 +187,7 @@ def _delete_release_assets(tag: str, nwo: str) -> int:
         "view",
         tag,
         "--repo",
-        nwo,
+        repository,
         "--json",
         "assets",
     ])
@@ -205,7 +205,7 @@ def _delete_release_assets(tag: str, nwo: str) -> int:
                 "api",
                 "--method",
                 "DELETE",
-                f"repos/{nwo}/releases/assets/{asset_id}",
+                f"repos/{repository}/releases/assets/{asset_id}",
             ])
             deleted += 1
         except RuntimeError:
@@ -215,7 +215,7 @@ def _delete_release_assets(tag: str, nwo: str) -> int:
 
 def upload_release_assets(
     tag: str,
-    nwo: str,
+    repository: str,
     asset_dir: Path,
 ) -> list[Path]:
     """Upload assets to a GitHub release.
@@ -227,7 +227,7 @@ def upload_release_assets(
     stale files from accumulating when the naming scheme changes.
 
     :param tag: Git tag name (e.g. `v6.1.1.dev0`).
-    :param nwo: Repository name-with-owner (e.g. `user/repo`).
+    :param repository: GitHub repository in `owner/name` form.
     :param asset_dir: Directory containing assets to upload.
     :return: List of uploaded file paths.
     """
@@ -236,7 +236,7 @@ def upload_release_assets(
         logging.info("No matching assets found; preserving existing release assets.")
         return []
 
-    deleted = _delete_release_assets(tag, nwo)
+    deleted = _delete_release_assets(tag, repository)
     logging.debug(f"Deleted {deleted} existing assets before upload.")
 
     file_args = [str(f) for f in files]
@@ -246,13 +246,13 @@ def upload_release_assets(
         tag,
         *file_args,
         "--repo",
-        nwo,
+        repository,
         "--clobber",
     ])
     return files
 
 
-def cleanup_dev_releases(nwo: str, *, keep_tag: str | None = None) -> None:
+def cleanup_dev_releases(repository: str, *, keep_tag: str | None = None) -> None:
     """Delete stale dev pre-releases from GitHub.
 
     Lists all releases and deletes any whose tag ends with `.dev0`,
@@ -261,7 +261,7 @@ def cleanup_dev_releases(nwo: str, *, keep_tag: str | None = None) -> None:
     version bumps. Silently succeeds if no dev releases exist or if
     individual deletions fail.
 
-    :param nwo: Repository name-with-owner (e.g. `user/repo`).
+    :param repository: GitHub repository in `owner/name` form.
     :param keep_tag: Tag to preserve (e.g. `v6.2.0.dev0`). If `None`,
         all dev releases are deleted.
     """
@@ -271,7 +271,7 @@ def cleanup_dev_releases(nwo: str, *, keep_tag: str | None = None) -> None:
         "--json",
         "tagName",
         "--repo",
-        nwo,
+        repository,
     ])
     if releases is None:
         logging.debug("Could not list releases.")
@@ -282,12 +282,12 @@ def cleanup_dev_releases(nwo: str, *, keep_tag: str | None = None) -> None:
         if (
             tag.endswith(".dev0")
             and tag != keep_tag
-            and delete_release_by_tag(tag, nwo)
+            and delete_release_by_tag(tag, repository)
         ):
             logging.info(f"Deleted stale dev release {tag}.")
 
 
-def delete_release_by_tag(tag: str, nwo: str) -> bool:
+def delete_release_by_tag(tag: str, repository: str) -> bool:
     """Delete a release and its tag from GitHub.
 
     Silently succeeds if the release does not exist or cannot be deleted. The
@@ -296,7 +296,7 @@ def delete_release_by_tag(tag: str, nwo: str) -> bool:
     it accurately.
 
     :param tag: Git tag name (e.g. `v6.1.1.dev0`).
-    :param nwo: Repository name-with-owner (e.g. `user/repo`).
+    :param repository: GitHub repository in `owner/name` form.
     :return: `True` when the release was deleted, `False` when it did not exist
         or could not be removed.
     """
@@ -308,7 +308,7 @@ def delete_release_by_tag(tag: str, nwo: str) -> bool:
             "--cleanup-tag",
             "--yes",
             "--repo",
-            nwo,
+            repository,
         ])
     except RuntimeError:
         logging.debug(f"Could not delete release {tag}.")

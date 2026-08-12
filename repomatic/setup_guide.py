@@ -27,6 +27,8 @@ outcome, and the issue closes only once every verifiable step passes.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 from click_extra import TableFormat, render_table
@@ -36,6 +38,7 @@ from .github.gh import run_gh_command
 from .github.issue import BOT_ISSUE_LABEL, manage_issue_lifecycle
 from .github.pr_body import render_template
 from .lint_repo import (
+    CheckResult,
     check_branch_ruleset_on_default,
     check_fork_pr_approval_policy,
     check_immutable_releases,
@@ -51,6 +54,8 @@ from .pypi import (
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .config import Config
 
 
@@ -85,6 +90,369 @@ def _wrap_setup_step(title: str, content: str, *, passed: bool | None) -> str:
     )
 
 
+CANNOT_VERIFY = (
+    "\n\n> [!NOTE]\n"
+    "> This setting could not be verified: `REPOMATIC_PAT` is missing the"
+    " **Administration: Read-only** permission. Update the token with the"
+    " pre-filled link in the first step. The setting may well be correct"
+    " already, but nothing here can confirm it."
+)
+"""Note appended to a step whose probe could not run.
+
+Both settings it covers are read through Administration-scoped endpoints, so a
+PAT issued without that permission answers `403` and the check lands on `None`.
+Saying so in the step beats dropping it: dropping also hid the token gap
+itself, since the missing permission had no other symptom.
+"""
+
+
+@dataclass
+class GuideContext:
+    """Everything the steps read, resolved once per run.
+
+    The expensive lookups (PAT permission probes, `pyproject.toml`) are cached
+    properties, so a step that never asks never pays and two steps asking the
+    same question share one answer.
+    """
+
+    config: Config
+    """The resolved `[tool.repomatic]` configuration."""
+
+    repo: str | None
+    """Repository in `owner/repo` form, or `None` when undetectable."""
+
+    has_pat: bool
+    """Whether `REPOMATIC_PAT` is configured."""
+
+    has_notifications_pat: bool
+    """Whether `REPOMATIC_NOTIFICATIONS_PAT` is configured."""
+
+    has_virustotal_key: bool
+    """Whether `VIRUSTOTAL_API_KEY` is configured."""
+
+    @cached_property
+    def md(self) -> Metadata:
+        """CI and project context, for the repository identity fields."""
+        return Metadata()
+
+    @cached_property
+    def has_changelog(self) -> bool:
+        """Whether the configured changelog exists on disk."""
+        return Path(self.config.changelog_location).exists()
+
+    @cached_property
+    def nuitka_active(self) -> bool:
+        """Whether this project compiles binaries with Nuitka."""
+        return bool(self.config.nuitka_enabled and self.md.script_entries)
+
+    @cached_property
+    def pypi_package_name(self) -> str | None:
+        """The PyPI name to register a Trusted Publisher for, if any.
+
+        Gated on `is_python_package` rather than on `package_name` being set: a
+        uv virtual project declares `[project] name` purely to carry
+        dependencies, so the name alone says nothing about whether anything is
+        ever published. Asking those projects to register a publisher points
+        them at a PyPI name they do not own, for a workflow file they do not
+        have.
+        """
+        return self.md.package_name if self.md.is_python_package else None
+
+    @cached_property
+    def pat_results(self) -> token.PatPermissionResults | None:
+        """The PAT permission probe results, or `None` when unrunnable."""
+        if not (self.has_pat and self.repo):
+            return None
+        return token.check_all_pat_permissions(self.repo)
+
+    @cached_property
+    def missing_permissions_section(self) -> str:
+        """Warning table naming the permissions the configured PAT lacks."""
+        failures = self.pat_results.failed() if self.pat_results else []
+        if not failures:
+            return ""
+        table = render_table(
+            [[message] for _field_name, message in failures],
+            headers=["Permission issue"],
+            table_format=TableFormat.GITHUB,
+        )
+        return (
+            "> [!WARNING]\n"
+            "> Your `REPOMATIC_PAT` secret is configured but missing"
+            " some permissions.\n"
+            "> Update the token using the pre-filled link below.\n\n"
+            f"{table}\n"
+        )
+
+    @property
+    def token_ok(self) -> bool:
+        """Whether a PAT is configured and every permission probe passed."""
+        return self.has_pat and not self.missing_permissions_section
+
+    @property
+    def dependabot_ok(self) -> bool:
+        """Whether vulnerability alerts are confirmed enabled.
+
+        Piggybacks the Dependabot alerts permission probe, which only answers
+        `200` when the alerts themselves are on.
+        """
+        return bool(self.pat_results and self.pat_results.vulnerability_alerts[0])
+
+    def probe_settings(
+        self, check: Callable[[str], CheckResult]
+    ) -> bool | None:
+        """Run a repository-settings *check*, or report it as failed.
+
+        Without a PAT or a repository there is nothing to read, and the step
+        is reported incomplete rather than indeterminate: the reader still has
+        to perform it.
+        """
+        if not (self.has_pat and self.repo):
+            return False
+        return check(self.repo).passed
+
+    def probe_trusted_publisher(self) -> bool | None:
+        """Whether PyPI provenance confirms the Trusted Publisher entry.
+
+        Needs no PAT: the probe hits the public PyPI integrity API.
+        """
+        if not (self.repo and self.pypi_package_name):
+            return None
+        return check_pypi_trusted_publisher(self.repo, self.pypi_package_name).passed
+
+
+@dataclass(frozen=True)
+class SetupStep:
+    """One step of the setup guide, declared once and read by every phase.
+
+    The guide used to spell each step out four times: a probe, a render, a
+    template keyword and a clause of the close gate. Keeping the four in sync
+    was manual, and the applicability guards were duplicated between the probe
+    and the render. One entry per step now drives all four.
+    """
+
+    placeholder: str
+    """The `$name` this step's rendered block fills in `setup-guide.md`."""
+
+    title: str
+    """Heading shown in the collapsible section's `<summary>` line."""
+
+    template: str
+    """Template rendered as the section's body."""
+
+    probe: Callable[[GuideContext], bool | None] = lambda ctx: False
+    """Read the step's completion state. Tri-state, per {class}`CheckResult`."""
+
+    applies: Callable[[GuideContext], bool] = lambda ctx: True
+    """Whether this repository needs the step at all.
+
+    A step that does not apply renders nothing and satisfies its gate, so a
+    non-Sphinx project is never asked about Pages.
+    """
+
+    args: Callable[[GuideContext], dict[str, str | None]] = lambda ctx: {
+        "repo_url": ctx.md.repo_url,
+        "repo_slug": ctx.md.repo_slug,
+    }
+    """Template variables, defaulting to the pair almost every step wants."""
+
+    gates_closure: bool = True
+    """Whether this step's outcome can hold the issue open.
+
+    `False` for the two steps with nothing to probe (immutable releases,
+    the final verification), which would otherwise wedge the issue open
+    forever.
+    """
+
+    tolerates_unknown: bool = False
+    """Whether an indeterminate probe (`None`) satisfies the gate.
+
+    `True` for the settings read through Administration-scoped endpoints: a
+    PAT without that permission answers `403`, and a reader has no way to
+    satisfy a check that cannot run, so it must not block the issue closing.
+    Everywhere else `None` is treated as incomplete, keeping the step
+    prompting.
+    """
+
+    explains_unverifiable: bool = False
+    """Append {data}`CANNOT_VERIFY` to the body when the probe answered `None`.
+
+    The reader is looking at a setting they were told to configure, so the
+    difference between "verified" and "nobody could look" belongs on screen.
+    """
+
+    def outcome(self, ctx: GuideContext) -> bool | None:
+        """The step's state as the section renders it.
+
+        `None` survives only where {attr}`tolerates_unknown` says an
+        unreadable probe is not the reader's fault; elsewhere it collapses to
+        incomplete so the section stays open.
+        """
+        passed = self.probe(ctx)
+        if passed is None and not self.tolerates_unknown:
+            return False
+        return passed
+
+    def render(self, ctx: GuideContext) -> str:
+        """Render this step's collapsible section, empty when it does not apply."""
+        if not self.applies(ctx):
+            return ""
+        passed = self.outcome(ctx)
+        content = render_template(self.template, **self.args(ctx))
+        if self.explains_unverifiable and passed is None:
+            content += CANNOT_VERIFY
+        return _wrap_setup_step(self.title, content, passed=passed)
+
+    def satisfied(self, ctx: GuideContext) -> bool:
+        """Whether this step lets the issue close.
+
+        A step that does not apply, or that gates nothing, is always
+        satisfied.
+        """
+        if not self.gates_closure or not self.applies(ctx):
+            return True
+        passed = self.outcome(ctx)
+        return passed is None if self.tolerates_unknown and passed is None else bool(
+            passed
+        )
+
+
+SETUP_STEPS: tuple[SetupStep, ...] = (
+    SetupStep(
+        placeholder="step_token",
+        title="Create and configure the token",
+        template="setup-guide-token",
+        probe=lambda ctx: ctx.token_ok,
+        args=lambda ctx: {
+            "repo_url": ctx.md.repo_url,
+            "repo_name": ctx.md.repo_name,
+            "repo_owner": ctx.md.repo_owner,
+            "repo_slug": ctx.md.repo_slug,
+        },
+    ),
+    SetupStep(
+        placeholder="step_dependabot",
+        title="Configure Dependabot settings",
+        template="setup-guide-dependabot",
+        probe=lambda ctx: ctx.dependabot_ok,
+    ),
+    SetupStep(
+        placeholder="immutable_releases_step",
+        title="Enable immutable releases",
+        template="immutable-releases",
+        probe=lambda ctx: ctx.probe_settings(check_immutable_releases),
+        applies=lambda ctx: ctx.has_changelog,
+        args=lambda ctx: {"repo_url": ctx.md.repo_url},
+        gates_closure=False,
+        tolerates_unknown=True,
+    ),
+    SetupStep(
+        placeholder="step_branch_ruleset",
+        title="Protect the main branch",
+        template="setup-guide-branch-ruleset",
+        # An unreadable rulesets API answers `None`, which this guide treats as
+        # incomplete: the step is the only place a maintainer is told to
+        # protect the branch, so an indeterminate probe must keep prompting.
+        probe=lambda ctx: ctx.probe_settings(check_branch_ruleset_on_default),
+        args=lambda ctx: {"repo_url": ctx.md.repo_url},
+    ),
+    SetupStep(
+        placeholder="step_fork_pr_approval",
+        title="Require approval for fork PR workflows",
+        template="setup-guide-fork-pr-approval",
+        probe=lambda ctx: ctx.probe_settings(check_fork_pr_approval_policy),
+        tolerates_unknown=True,
+        explains_unverifiable=True,
+    ),
+    SetupStep(
+        placeholder="step_sha_pinning_required",
+        title="Require SHA pinning for GitHub Actions",
+        template="setup-guide-sha-pinning-required",
+        probe=lambda ctx: ctx.probe_settings(check_sha_pinning_required),
+        tolerates_unknown=True,
+        explains_unverifiable=True,
+    ),
+    SetupStep(
+        placeholder="step_pypi_trusted_publisher",
+        title="Register the PyPI Trusted Publisher entry",
+        template="setup-guide-pypi-trusted-publisher",
+        # Indeterminate (never released, or a pre-OIDC release carrying no
+        # provenance) counts as incomplete, so the step keeps prompting until a
+        # successful OIDC-attested upload is observed.
+        probe=lambda ctx: ctx.probe_trusted_publisher(),
+        applies=lambda ctx: bool(ctx.pypi_package_name),
+        args=lambda ctx: {
+            "package_name": ctx.pypi_package_name,
+            "repo_owner": ctx.md.repo_owner,
+            "repo_name": ctx.md.repo_name,
+            "workflow_filename": PYPI_TRUSTED_PUBLISHER_WORKFLOW,
+            "settings_url": pypi_trusted_publisher_settings_url(
+                ctx.pypi_package_name or "",
+                owner=ctx.md.repo_owner,
+                repository=ctx.md.repo_name,
+                workflow_filename=PYPI_TRUSTED_PUBLISHER_WORKFLOW,
+            ),
+        },
+    ),
+    SetupStep(
+        placeholder="step_pages_source",
+        title="Set GitHub Pages deployment source to GitHub Actions",
+        template="setup-guide-pages-source",
+        probe=lambda ctx: (
+            check_pages_deployment_source(ctx.repo).passed
+            if ctx.md.is_sphinx and ctx.repo
+            else None
+        ),
+        applies=lambda ctx: bool(ctx.md.is_sphinx),
+    ),
+    SetupStep(
+        placeholder="step_virustotal",
+        title="Configure VirusTotal scanning (optional)",
+        template="setup-guide-virustotal",
+        probe=lambda ctx: ctx.has_virustotal_key,
+        applies=lambda ctx: ctx.nuitka_active,
+    ),
+    SetupStep(
+        placeholder="step_notifications_pat",
+        title="Create and configure the notifications token",
+        template="setup-guide-notifications-pat",
+        # The unsubscribe workflow skips silently without the secret, so the
+        # guide is the only onboarding surface for it.
+        probe=lambda ctx: ctx.has_notifications_pat,
+        applies=lambda ctx: ctx.config.notification_unsubscribe,
+    ),
+    SetupStep(
+        placeholder="step_verify",
+        title="Verify the setup",
+        template="setup-guide-verify",
+        gates_closure=False,
+    ),
+)
+"""Every step of the setup guide, in the order the issue body lists them."""
+
+
+def _org_tip(repo_owner: str | None) -> str:
+    """Suggest a machine user when the repository owner is an organization."""
+    if not repo_owner:
+        return ""
+    try:
+        owner_type = run_gh_command(
+            ["api", f"users/{repo_owner}", "--jq", ".type"],
+        ).strip()
+    except RuntimeError:
+        logging.debug(f"Failed to detect owner type for {repo_owner!r}.")
+        return ""
+    if owner_type != "Organization":
+        return ""
+    return (
+        "> 💡 **For organizations**: Consider using a"
+        " [machine user account](https://docs.github.com/en/"
+        "get-started/learning-about-github/types-of-github-accounts"
+        "#personal-accounts) or a dedicated service account to own"
+        " the PAT, rather than tying it to an individual's account."
+    )
+
+
 def manage_setup_guide(
     config: Config,
     *,
@@ -95,10 +463,9 @@ def manage_setup_guide(
 ) -> None:
     """Render the setup guide issue body and drive the issue lifecycle.
 
-    Runs the per-step checks (PAT permissions, branch ruleset, immutable
-    releases, fork PR approval, PyPI Trusted Publisher, Pages source), renders
-    each as a collapsible section, and opens, updates, or closes the setup
-    issue accordingly. The issue closes only when all verifiable steps pass.
+    Walks {data}`SETUP_STEPS`: each step probes its own state, renders its
+    collapsible section, and reports whether it lets the issue close. The
+    issue closes only when every applicable gating step passes.
 
     :param config: The resolved `[tool.repomatic]` configuration.
     :param has_pat: Whether `REPOMATIC_PAT` is configured.
@@ -108,314 +475,27 @@ def manage_setup_guide(
     :param repo: Repository in `owner/repo` format; permission and settings
         checks are skipped when `None`.
     """
-    # Resolve repo identity for template variables.
-    md = Metadata()
-    repo_name = md.repo_name
-    repo_owner = md.repo_owner
-    repo_slug = md.repo_slug
-    repo_url = md.repo_url
-
-    # --- Per-step checks ---
-
-    # Token + permissions check.
-    missing_permissions_section = ""
-    has_permission_failures = False
-    dependabot_ok = False
-    if has_pat and repo:
-        pat_results = token.check_all_pat_permissions(repo)
-        failures = pat_results.failed()
-        if failures:
-            has_permission_failures = True
-            table = render_table(
-                [[message] for _field_name, message in failures],
-                headers=["Permission issue"],
-                table_format=TableFormat.GITHUB,
-            )
-            missing_permissions_section = (
-                "> [!WARNING]\n"
-                "> Your `REPOMATIC_PAT` secret is configured but missing"
-                " some permissions.\n"
-                "> Update the token using the pre-filled link below.\n\n"
-                f"{table}\n"
-            )
-        # Vulnerability alerts are confirmed enabled when the Dependabot
-        # alerts permission check passes (HTTP 200 from the alerts API).
-        dependabot_ok = pat_results.vulnerability_alerts[0]
-
-    token_ok = has_pat and not has_permission_failures
-
-    # Branch ruleset check. An unreadable rulesets API answers `None`, which
-    # this guide treats as incomplete: the step is the only place a maintainer
-    # is told to protect the branch, so an indeterminate probe must keep
-    # prompting rather than quietly pass.
-    branch_ok: bool | None = False
-    if has_pat and repo:
-        branch_ok = check_branch_ruleset_on_default(repo).passed
-
-    # Immutable releases check.
-    has_changelog = Path(config.changelog_location).exists()
-    immutable_ok: bool | None = False
-    if has_pat and repo and has_changelog:
-        immutable_ok = check_immutable_releases(repo).passed
-
-    # Fork PR approval policy check.
-    fork_pr_ok: bool | None = False
-    if has_pat and repo:
-        fork_pr_ok = check_fork_pr_approval_policy(repo).passed
-
-    # SHA pinning required policy check.
-    sha_pinning_ok: bool | None = False
-    if has_pat and repo:
-        sha_pinning_ok = check_sha_pinning_required(repo).passed
-
-    # PyPI Trusted Publisher check (only for projects that publish to PyPI).
-    # The probe does not need a PAT: it hits the public PyPI integrity API.
-    # Gated on `is_python_package` rather than on `package_name` being set: a uv
-    # virtual project declares `[project] name` purely to carry dependencies, so
-    # the name alone says nothing about whether anything is ever published. It is
-    # the same predicate `RepoScope.PACKAGE_ONLY` resolves against, which is what
-    # already keeps `release.yaml` out of such a repository. Asking those projects
-    # to register a publisher points them at a PyPI name they do not own, for a
-    # workflow file they do not have.
-    pypi_package_name = md.package_name if md.is_python_package else None
-    pypi_publisher_ok: bool | None = None
-    if repo and pypi_package_name:
-        pypi_publisher_ok = check_pypi_trusted_publisher(repo, pypi_package_name).passed
-
-    # Pages deployment source check (Sphinx projects only).
-    pages_ok: bool | None = None
-    if md.is_sphinx and repo:
-        pages_ok = check_pages_deployment_source(repo).passed
-
-    # --- Render each step as a collapsible section ---
-
-    step_token = _wrap_setup_step(
-        "Create and configure the token",
-        render_template(
-            "setup-guide-token",
-            repo_url=repo_url,
-            repo_name=repo_name,
-            repo_owner=repo_owner,
-            repo_slug=repo_slug,
-        ),
-        passed=token_ok,
+    ctx = GuideContext(
+        config=config,
+        repo=repo,
+        has_pat=has_pat,
+        has_notifications_pat=has_notifications_pat,
+        has_virustotal_key=has_virustotal_key,
     )
 
-    step_dependabot = _wrap_setup_step(
-        "Configure Dependabot settings",
-        render_template(
-            "setup-guide-dependabot",
-            repo_url=repo_url,
-            repo_slug=repo_slug,
-        ),
-        passed=dependabot_ok,
-    )
-
-    immutable_releases_step = ""
-    if has_changelog:
-        immutable_releases_step = _wrap_setup_step(
-            "Enable immutable releases",
-            render_template("immutable-releases", repo_url=repo_url),
-            passed=immutable_ok,
-        )
-
-    step_branch_ruleset = _wrap_setup_step(
-        "Protect the main branch",
-        render_template("setup-guide-branch-ruleset", repo_url=repo_url),
-        passed=branch_ok or False,
-    )
-
-    # Both settings below are read through Administration-scoped endpoints, so
-    # a PAT issued without that permission answers 403 and the check lands on
-    # `None`. Say so in the step instead of dropping it: the reader is looking
-    # at a setting they were told to configure, and the difference between
-    # "verified" and "nobody could look" belongs on screen. Dropping it also
-    # hid the token gap itself, since the missing permission had no other
-    # symptom.
-    cannot_verify = (
-        "\n\n> [!NOTE]\n"
-        "> This setting could not be verified: `REPOMATIC_PAT` is missing the"
-        " **Administration: Read-only** permission. Update the token with the"
-        " pre-filled link in the first step. The setting may well be correct"
-        " already, but nothing here can confirm it."
-    )
-
-    step_fork_pr_approval = _wrap_setup_step(
-        "Require approval for fork PR workflows",
-        render_template(
-            "setup-guide-fork-pr-approval",
-            repo_url=repo_url,
-            repo_slug=repo_slug,
-        )
-        + (cannot_verify if fork_pr_ok is None else ""),
-        passed=fork_pr_ok,
-    )
-
-    step_sha_pinning_required = _wrap_setup_step(
-        "Require SHA pinning for GitHub Actions",
-        render_template(
-            "setup-guide-sha-pinning-required",
-            repo_url=repo_url,
-            repo_slug=repo_slug,
-        )
-        + (cannot_verify if sha_pinning_ok is None else ""),
-        passed=sha_pinning_ok,
-    )
-
-    # PyPI Trusted Publisher step: only relevant for projects that publish to
-    # PyPI. Treat indeterminate (None: never released, or pre-OIDC release with
-    # no provenance) as incomplete so the step keeps prompting until a
-    # successful OIDC-attested upload is observed.
-    step_pypi_trusted_publisher = ""
-    if pypi_package_name:
-        step_pypi_trusted_publisher = _wrap_setup_step(
-            "Register the PyPI Trusted Publisher entry",
-            render_template(
-                "setup-guide-pypi-trusted-publisher",
-                package_name=pypi_package_name,
-                repo_owner=repo_owner,
-                repo_name=repo_name,
-                workflow_filename=PYPI_TRUSTED_PUBLISHER_WORKFLOW,
-                settings_url=pypi_trusted_publisher_settings_url(
-                    pypi_package_name,
-                    owner=repo_owner,
-                    repository=repo_name,
-                    workflow_filename=PYPI_TRUSTED_PUBLISHER_WORKFLOW,
-                ),
-            ),
-            passed=pypi_publisher_ok or False,
-        )
-
-    # Pages deployment source step: only relevant for Sphinx projects.
-    # Treat "not configured" (None) as incomplete so the step renders open.
-    step_pages_source = ""
-    if md.is_sphinx:
-        step_pages_source = _wrap_setup_step(
-            "Set GitHub Pages deployment source to GitHub Actions",
-            render_template(
-                "setup-guide-pages-source",
-                repo_url=repo_url,
-                repo_slug=repo_slug,
-            ),
-            passed=pages_ok or False,
-        )
-
-    # VirusTotal step: only relevant when Nuitka binary compilation is active.
-    nuitka_active = config.nuitka_enabled and bool(md.script_entries)
-    step_virustotal = ""
-    if nuitka_active:
-        step_virustotal = _wrap_setup_step(
-            "Configure VirusTotal scanning (optional)",
-            render_template(
-                "setup-guide-virustotal",
-                repo_url=repo_url,
-                repo_slug=repo_slug,
-            ),
-            passed=has_virustotal_key,
-        )
-
-    # Notifications PAT step: only relevant when the unsubscribe workflow is
-    # opted in via notification.unsubscribe. The workflow skips silently
-    # without the secret, so the guide is the only onboarding surface.
-    step_notifications_pat = ""
-    if config.notification_unsubscribe:
-        step_notifications_pat = _wrap_setup_step(
-            "Create and configure the notifications token",
-            render_template(
-                "setup-guide-notifications-pat",
-                repo_url=repo_url,
-                repo_slug=repo_slug,
-            ),
-            passed=has_notifications_pat,
-        )
-
-    step_verify = _wrap_setup_step(
-        "Verify the setup",
-        render_template(
-            "setup-guide-verify",
-            repo_url=repo_url,
-            repo_slug=repo_slug,
-        ),
-        passed=False,
-    )
-
-    # Detect if the repository owner is an organization.
-    org_tip = ""
-    if repo_owner:
-        try:
-            owner_type = run_gh_command(
-                ["api", f"users/{repo_owner}", "--jq", ".type"],
-            ).strip()
-            if owner_type == "Organization":
-                org_tip = (
-                    "> 💡 **For organizations**: Consider using a"
-                    " [machine user account](https://docs.github.com/en/"
-                    "get-started/learning-about-github/types-of-github-accounts"
-                    "#personal-accounts) or a dedicated service account to own"
-                    " the PAT, rather than tying it to an individual's account."
-                )
-        except RuntimeError:
-            logging.debug(f"Failed to detect owner type for {repo_owner!r}.")
-
-    # --- Assemble issue body ---
-
+    sections: dict[str, str | None] = {
+        step.placeholder: step.render(ctx) for step in SETUP_STEPS
+    }
     setup_body = render_template(
         "setup-guide",
-        missing_permissions_section=missing_permissions_section,
-        step_token=step_token,
-        step_dependabot=step_dependabot,
-        immutable_releases_step=immutable_releases_step,
-        step_branch_ruleset=step_branch_ruleset,
-        step_fork_pr_approval=step_fork_pr_approval,
-        step_sha_pinning_required=step_sha_pinning_required,
-        step_pypi_trusted_publisher=step_pypi_trusted_publisher,
-        step_pages_source=step_pages_source,
-        step_virustotal=step_virustotal,
-        step_notifications_pat=step_notifications_pat,
-        step_verify=step_verify,
-        org_tip=org_tip,
-        repo_url=repo_url,
-    )
-    # Close issue only when all verifiable steps pass.
-    # Immutable releases and verify are excluded (no API to check).
-    # Fork PR approval and SHA pinning count only when determinate: an
-    # unreadable probe must not wedge the issue open, since the reader has no
-    # way to satisfy a check that never runs. Their steps still render,
-    # carrying the reason they could not be checked, so the gap stays visible
-    # without being a blocker.
-    # Pages source: when is_sphinx, treat "not configured" (None) as a
-    # failure so the setup guide reopens with the Pages step.
-    vt_ok = not nuitka_active or has_virustotal_key
-    notifications_ok = not config.notification_unsubscribe or has_notifications_pat
-    # Branch ruleset: an indeterminate probe (`None`) keeps the issue open, the
-    # same verdict an outright failure gets. Spelled out rather than left to
-    # `None` being falsy, so the intent survives the next edit.
-    branch_gate = bool(branch_ok)
-    fork_pr_gate = fork_pr_ok is not False
-    sha_pinning_gate = sha_pinning_ok is not False
-    pages_gate = bool(pages_ok) if md.is_sphinx else pages_ok is not False
-    # Trusted Publisher: when the project publishes to PyPI, only close once
-    # provenance confirms the entry is wired. None (no published release yet,
-    # or pre-OIDC release) keeps the step open. When the project does not
-    # publish to PyPI, the gate is a no-op. Reading `package_name` here instead
-    # would wedge the issue permanently open on every uv virtual project: the
-    # name is set, so the gate demands provenance for an upload that never
-    # happens, and no amount of completing the other steps closes the issue.
-    pypi_publisher_gate = bool(pypi_publisher_ok) if pypi_package_name else True
-    needs_issue = not (
-        token_ok
-        and dependabot_ok
-        and branch_gate
-        and vt_ok
-        and notifications_ok
-        and fork_pr_gate
-        and sha_pinning_gate
-        and pages_gate
-        and pypi_publisher_gate
+        missing_permissions_section=ctx.missing_permissions_section,
+        org_tip=_org_tip(ctx.md.repo_owner),
+        repo_url=ctx.md.repo_url,
+        **sections,
     )
 
     manage_issue_lifecycle(
-        has_issues=needs_issue,
+        has_issues=not all(step.satisfied(ctx) for step in SETUP_STEPS),
         body=setup_body,
         labels=[BOT_ISSUE_LABEL],
         title="Repomatic setup guide",

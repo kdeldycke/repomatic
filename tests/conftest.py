@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -133,6 +135,46 @@ def _reset_metadata():
     Metadata.reset()
     yield
     Metadata.reset()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_gh_subprocess():
+    """Refuse to shell out to a real `gh` from the suite.
+
+    A test that patches no `gh` seam at all used to run the actual binary
+    against whatever credentials the machine carries, hitting the network once
+    per unmocked check: `tests/test_lint_repo.py` spent seconds per test that
+    way, and its results depended on the developer's `gh auth` state. Failing
+    the call instead makes every such check report "could not run", which is
+    the outcome an offline CI runner would see anyway.
+
+    Tests wanting specific `gh` behavior patch a higher layer
+    (`run_gh_command`, `gh_api_json`) or re-patch this one; either shadows the
+    stub for their duration.
+    """
+    refused = CompletedProcess(
+        args=["gh"],
+        returncode=1,
+        stdout="",
+        stderr="gh is not invoked for real in the test suite.",
+    )
+    with patch("repomatic.github.gh.run", return_value=refused):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _stub_gh_executable():
+    """Keep the suite off the network when resolving the `gh` binary.
+
+    `run_gh_command` resolves a registry-pinned `gh` through
+    {func}`~repomatic.tool_runner.ensure_binary`, which downloads and
+    checksum-verifies an archive. Every test that exercises a `gh` path
+    already patches the subprocess call, so the resolution is pure overhead
+    and would make the suite depend on the network. Tests covering the
+    resolver itself patch `ensure_binary` and call it directly.
+    """
+    with patch("repomatic.github.gh.gh_executable", return_value="gh"):
+        yield
 
 
 @pytest.fixture(autouse=True)

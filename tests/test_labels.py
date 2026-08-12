@@ -277,7 +277,7 @@ def test_default_content_rules_match_as_advertised(text, expected):
         pytest.param(["changelog.md"], {"🆙 changelog"}, id="changelog"),
         pytest.param(["uv.lock"], {"🔗 dependencies"}, id="lockfile"),
         pytest.param(["docs/guide/index.md"], {"📚 documentation"}, id="docs-tree"),
-        pytest.param([".github/funding.yml"], {"🤖 ci", "💖 sponsor"}, id="funding"),
+        pytest.param([".github/funding.yml"], {"🤖 ci"}, id="funding"),
         pytest.param(["repomatic/cli.py"], set(), id="source-is-unlabelled"),
     ),
 )

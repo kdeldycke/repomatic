@@ -30,7 +30,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from repomatic import dep_sources

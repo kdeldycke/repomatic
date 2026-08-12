@@ -478,7 +478,7 @@ def extract_version(tag: str, tag_pattern: str | None) -> str | None:
     return tag.removeprefix("v")
 
 
-def edit_release_notes(tag: str, nwo: str, body: str, *, title: str = "") -> bool:
+def edit_release_notes(tag: str, repository: str, body: str, *, title: str = "") -> bool:
     """Edit a release's notes (and optionally its title) in place.
 
     The one `gh release edit` path shared by every release writer, so the
@@ -486,13 +486,13 @@ def edit_release_notes(tag: str, nwo: str, body: str, *, title: str = "") -> boo
     same arguments and failure contract. Assets are never touched.
 
     :param tag: Git tag name of the release (e.g. `v1.2.3`).
-    :param nwo: Repository name-with-owner (e.g. `user/repo`).
+    :param repository: GitHub repository in `owner/name` form.
     :param body: The new release body text.
     :param title: When non-empty, also replace the release title.
     :return: `True` when the edit landed, `False` when the release does not
         exist or the edit failed.
     """
-    args = ["release", "edit", tag, "--repo", nwo, "--notes", body]
+    args = ["release", "edit", tag, "--repo", repository, "--notes", body]
     if title:
         args += ["--title", title]
     try:

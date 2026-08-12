@@ -50,10 +50,12 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 from extra_platforms import is_macos, is_windows
 
 from .config import load_repomatic_config
+from .humanize import format_age, format_file_size
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -95,69 +97,134 @@ def _atomic_write(dest: Path, prefix: str, write: Callable[[Path], object]) -> N
 
 
 @dataclass(frozen=True)
-class CacheEntry:
+class CachedFile:
+    """The filesystem facts every cached entry carries, whatever it holds.
+
+    The three caches (binaries, HTTP responses, tool configs) differ only in
+    how they *name* an entry; everything the listing, the age filter and the
+    purge loop need is here, so those all take a `CachedFile` and never care
+    which subtree it came from.
+
+    Subclasses supply their own identity fields plus {attr}`kind` and
+    {attr}`scope`.
+    """
+
+    size: int
+    """File size in bytes."""
+
+    path: Path
+    """Absolute path to the cached file."""
+
+    mtime: float
+    """File modification time (seconds since epoch)."""
+
+    kind: ClassVar[str] = ""
+    """The cache this entry belongs to, as the `repomatic cache show` table
+    spells it."""
+
+    @property
+    def scope(self) -> str:
+        """The name a `cache clean` filter matches this entry on.
+
+        Doubles as the table's subject column: the thing a reader identifies
+        the entry by (`--tool ruff`, `--namespace pypi`) is the same thing the
+        listing shows them, so one property serves both.
+        """
+        raise NotImplementedError
+
+    @property
+    def detail(self) -> str:
+        """What distinguishes this entry from its siblings in the same scope."""
+        raise NotImplementedError
+
+    def is_fresh(self, max_age_days: int | None) -> bool:
+        """Whether this entry is younger than the age cutoff.
+
+        A `None` cutoff keeps nothing: age-unfiltered clears delete every
+        entry the caller's other filters matched.
+        """
+        if max_age_days is None:
+            return False
+        return self.mtime >= time.time() - max_age_days * 86400
+
+    def as_row(self) -> tuple[str, str, str, str, str]:
+        """Render this entry as one `repomatic cache show` table row."""
+        return (
+            self.kind,
+            self.scope,
+            self.detail,
+            format_file_size(self.size),
+            format_age(self.mtime),
+        )
+
+
+@dataclass(frozen=True)
+class CacheEntry(CachedFile):
     """A single cached binary with its metadata."""
 
-    tool: str
+    tool: str = ""
     """Tool name (registry key)."""
 
-    version: str
+    version: str = ""
     """Pinned version string."""
 
-    platform: str
+    platform: str = ""
     """Platform key (e.g., `linux-x64`, `macos-arm64`)."""
 
-    executable: str
+    executable: str = ""
     """Executable filename."""
 
-    size: int
-    """File size in bytes."""
+    kind: ClassVar[str] = "binary"
 
-    path: Path
-    """Absolute path to the cached binary."""
+    @property
+    def scope(self) -> str:
+        return self.tool
 
-    mtime: float
-    """File modification time (seconds since epoch)."""
+    @property
+    def detail(self) -> str:
+        return f"{self.version} ({self.platform})"
 
 
 @dataclass(frozen=True)
-class HttpCacheEntry:
+class HttpCacheEntry(CachedFile):
     """A single cached HTTP response with its metadata."""
 
-    namespace: str
+    namespace: str = ""
     """Cache namespace (e.g., `pypi`, `github-releases`)."""
 
-    key: str
+    key: str = ""
     """Cache key within the namespace (e.g., `requests`, `astral-sh/ruff`)."""
 
-    size: int
-    """File size in bytes."""
+    kind: ClassVar[str] = "http"
 
-    path: Path
-    """Absolute path to the cached response file."""
+    @property
+    def scope(self) -> str:
+        return self.namespace
 
-    mtime: float
-    """File modification time (seconds since epoch)."""
+    @property
+    def detail(self) -> str:
+        return self.key
 
 
 @dataclass(frozen=True)
-class ConfigCacheEntry:
+class ConfigCacheEntry(CachedFile):
     """A single cached tool configuration file with its metadata."""
 
-    tool: str
+    tool: str = ""
     """Tool name (registry key)."""
 
-    filename: str
+    filename: str = ""
     """Config filename (e.g., `yamllint.yaml`, `biome.json`)."""
 
-    size: int
-    """File size in bytes."""
+    kind: ClassVar[str] = "config"
 
-    path: Path
-    """Absolute path to the cached config file."""
+    @property
+    def scope(self) -> str:
+        return self.tool
 
-    mtime: float
-    """File modification time (seconds since epoch)."""
+    @property
+    def detail(self) -> str:
+        return self.filename
 
 
 def _platform_cache_dir() -> Path:
@@ -369,16 +436,11 @@ def clear_cache(
         this many days. Otherwise remove all matching entries.
     :return: Tuple of (files_deleted, bytes_freed).
     """
-    bin_root = _bin_dir()
-    if not bin_root.is_dir():
-        return 0, 0
-
-    return _purge(
+    return _clear_subtree(
         cache_info(),
-        bin_root,
-        keep=lambda entry: (
-            (tool is not None and entry.tool != tool) or _is_fresh(entry, max_age_days)
-        ),
+        _bin_dir(),
+        scope=tool,
+        max_age_days=max_age_days,
         sidecars=True,
     )
 
@@ -496,17 +558,11 @@ def clear_http_cache(
         this many days. Otherwise remove all matching entries.
     :return: Tuple of (files_deleted, bytes_freed).
     """
-    http_root = _http_dir()
-    if not http_root.is_dir():
-        return 0, 0
-
-    return _purge(
+    return _clear_subtree(
         http_cache_info(),
-        http_root,
-        keep=lambda entry: (
-            (namespace is not None and entry.namespace != namespace)
-            or _is_fresh(entry, max_age_days)
-        ),
+        _http_dir(),
+        scope=namespace,
+        max_age_days=max_age_days,
     )
 
 
@@ -593,35 +649,66 @@ def clear_config_cache(
         days, matching {func}`clear_cache` and {func}`clear_http_cache`.
     :return: Tuple of (files_deleted, bytes_freed).
     """
-    config_root = _config_dir()
-    if not config_root.is_dir():
-        return 0, 0
-
-    return _purge(
+    return _clear_subtree(
         config_cache_info(),
-        config_root,
-        keep=lambda entry: (
-            (tool is not None and entry.tool != tool) or _is_fresh(entry, max_age_days)
-        ),
+        _config_dir(),
+        scope=tool,
+        max_age_days=max_age_days,
     )
 
 
-def _is_fresh(
-    entry: CacheEntry | HttpCacheEntry | ConfigCacheEntry,
-    max_age_days: int | None,
-) -> bool:
-    """Whether *entry* is younger than the age cutoff.
+def cache_rows() -> tuple[list[tuple[str, str, str, str, str]], int]:
+    """List every cached file across the three caches, as table rows.
 
-    A `None` cutoff keeps nothing: age-unfiltered clears delete every entry
-    the caller's other filters matched.
+    Backs `repomatic cache show`: each entry renders itself
+    ({meth}`CachedFile.as_row`), so the command stays a print call and a new
+    cache kind shows up in the listing by existing.
+
+    :return: `(rows, total_size)`, rows ordered binaries, then HTTP responses,
+        then tool configs.
     """
-    if max_age_days is None:
-        return False
-    return entry.mtime >= time.time() - max_age_days * 86400
+    entries: list[Any] = [*cache_info(), *http_cache_info(), *config_cache_info()]
+    return [entry.as_row() for entry in entries], sum(e.size for e in entries)
+
+
+def _clear_subtree(
+    entries: list[Any],
+    root: Path,
+    *,
+    scope: str | None,
+    max_age_days: int | None,
+    sidecars: bool = False,
+) -> tuple[int, int]:
+    """Remove the entries of one cache subtree, honoring both filters.
+
+    The shared body of {func}`clear_cache`, {func}`clear_http_cache` and
+    {func}`clear_config_cache`, which differ only in the subtree they walk and
+    the name their scope filter goes by on the command line.
+
+    :param entries: Candidate entries, from that cache's `*_cache_info()`.
+    :param root: The subtree they live in. A missing one clears nothing.
+    :param scope: Keep entries whose {attr}`~CachedFile.scope` differs. `None`
+        selects every entry.
+    :param max_age_days: Keep entries younger than this. `None` selects every
+        entry.
+    :param sidecars: Also remove each entry's `.sha256` sidecar.
+    :return: Tuple of (files_deleted, bytes_freed).
+    """
+    if not root.is_dir():
+        return 0, 0
+    return _purge(
+        entries,
+        root,
+        keep=lambda entry: (
+            (scope is not None and entry.scope != scope)
+            or entry.is_fresh(max_age_days)
+        ),
+        sidecars=sidecars,
+    )
 
 
 def _purge(
-    entries: list[CacheEntry] | list[HttpCacheEntry] | list[ConfigCacheEntry],
+    entries: list[Any],
     root: Path,
     *,
     keep: Callable[[Any], bool],

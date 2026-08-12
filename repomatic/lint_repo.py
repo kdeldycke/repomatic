@@ -28,6 +28,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import NamedTuple
 
@@ -54,6 +56,10 @@ from .pypi import (
 )
 from .registry import DEFAULT_REPO, INSTALL_GUIDE_PATH, WORKFLOW_TARGET_ROOT
 from .version_sync import find_upstream_ref_versions
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator
 
 WORKFLOW_DIR = Path(WORKFLOW_TARGET_ROOT)
 """Directory every workflow check walks.
@@ -1811,6 +1817,272 @@ def _report_result(
     return True
 
 
+@dataclass
+class LintContext:
+    """Everything the checks read, resolved once per `lint-repo` run."""
+
+    package_name: str | None = None
+    """The Python package name."""
+
+    repo_name: str | None = None
+    """The repository name."""
+
+    is_package: bool = False
+    """Whether the project builds a distributable package.
+
+    Per {func}`repomatic.pyproject.is_python_package`. Gates the checks that
+    only make sense for something actually published to PyPI.
+    """
+
+    is_sphinx: bool = False
+    """Whether the project uses Sphinx documentation."""
+
+    project_description: str | None = None
+    """Description from `pyproject.toml`."""
+
+    keywords: list[str] | None = None
+    """Keywords list from `pyproject.toml`."""
+
+    repo: str | None = None
+    """Repository in `owner/repo` format."""
+
+    has_pat: bool = False
+    """Whether `GH_TOKEN` contains `REPOMATIC_PAT`."""
+
+    has_virustotal_key: bool = False
+    """Whether `VIRUSTOTAL_API_KEY` is configured."""
+
+    nuitka_active: bool = False
+    """Whether this project compiles binaries with Nuitka."""
+
+    has_notifications_pat: bool = False
+    """Whether `REPOMATIC_NOTIFICATIONS_PAT` is configured."""
+
+    unsubscribe_active: bool = False
+    """Whether the unsubscribe workflow is opted in."""
+
+    @cached_property
+    def repo_metadata(self) -> dict[str, str | None]:
+        """The repository's GitHub-side description and homepage.
+
+        Fetched once and shared by the checks that compare a `pyproject.toml`
+        field against it. An absent repository answers empty rather than
+        failing, so those checks report a miss instead of the run dying.
+        """
+        if not self.repo:
+            logging.warning("No repo specified, skipping API-based checks.")
+            return {"homepageUrl": None, "description": None}
+        return get_repo_metadata(self.repo) or {
+            "homepageUrl": None,
+            "description": None,
+        }
+
+
+@dataclass(frozen=True)
+class RepoCheck:
+    """One entry of the `lint-repo` check sequence.
+
+    The sequence used to be twenty-five hand-numbered `if` blocks whose
+    comment numbering had degraded to `Check 10b-quater`, and two checks this
+    module defines were never reached by it at all. Declaring each check once
+    makes the roster the thing tests and readers walk.
+    """
+
+    name: str
+    """Stable identity, for tests and for grepping the roster."""
+
+    run: Callable[[LintContext], CheckResult | Iterable[CheckResult]]
+    """Perform the check. May answer one result or a stream of them."""
+
+    applies: Callable[[LintContext], bool] = lambda ctx: True
+    """Whether this repository has anything for the check to look at."""
+
+    fatal: bool = False
+    """Whether a failure fails the command.
+
+    A fatal check reports at {attr}`~repomatic.github.actions.AnnotationLevel.ERROR`
+    and sets the non-zero exit code; every other check is advisory, per
+    `claude.md` § Defensive workflow design.
+    """
+
+    def results(self, ctx: LintContext) -> tuple[CheckResult, ...]:
+        """Run the check, normalizing one-or-many into a tuple."""
+        produced = self.run(ctx)
+        if isinstance(produced, CheckResult):
+            return (produced,)
+        return tuple(produced)
+
+
+def _virustotal_secret(ctx: LintContext) -> CheckResult:
+    """Report whether the VirusTotal API key is available to release builds."""
+    if ctx.has_virustotal_key:
+        return CheckResult(True, "VIRUSTOTAL_API_KEY secret is configured.")
+    return CheckResult(
+        False,
+        "VIRUSTOTAL_API_KEY secret is not configured."
+        " Release binaries will not be submitted to VirusTotal."
+        " Get a free API key at https://www.virustotal.com/gui/my-apikey"
+        " and add it as a repository secret.",
+    )
+
+
+def _notifications_secret(ctx: LintContext) -> CheckResult:
+    """Report whether the unsubscribe workflow has the token it needs."""
+    if ctx.has_notifications_pat:
+        return CheckResult(True, "REPOMATIC_NOTIFICATIONS_PAT secret is configured.")
+    return CheckResult(
+        False,
+        "REPOMATIC_NOTIFICATIONS_PAT secret is not configured."
+        " The unsubscribe workflow will skip silently."
+        " Create a classic PAT with the notifications scope at"
+        " https://github.com/settings/tokens/new"
+        "?description=REPOMATIC_NOTIFICATIONS_PAT&scopes=notifications"
+        " and add it as a repository secret.",
+    )
+
+
+def _pat_permissions(ctx: LintContext) -> Iterator[CheckResult]:
+    """Yield one result per PAT permission probe, or a skip note."""
+    if not ctx.has_pat:
+        yield CheckResult(None, "PAT capability checks: skipped (no REPOMATIC_PAT)")
+        return
+    if not ctx.repo:
+        return
+    for passed, message in check_all_pat_permissions(ctx.repo).iter_results():
+        yield CheckResult(passed, message)
+
+
+REPO_CHECKS: tuple[RepoCheck, ...] = (
+    RepoCheck(
+        "package-name-vs-repo",
+        lambda ctx: check_package_name_vs_repo(ctx.package_name or "", ctx.repo_name or ""),
+        applies=lambda ctx: bool(ctx.package_name and ctx.repo_name),
+    ),
+    RepoCheck(
+        "website-for-sphinx",
+        lambda ctx: check_website_for_sphinx(
+            ctx.repo or "", ctx.is_sphinx, ctx.repo_metadata.get("homepageUrl")
+        ),
+        applies=lambda ctx: ctx.is_sphinx,
+    ),
+    RepoCheck(
+        "pages-deployment-source",
+        lambda ctx: check_pages_deployment_source(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.is_sphinx and ctx.repo),
+    ),
+    RepoCheck(
+        "stale-gh-pages-branch",
+        lambda ctx: check_stale_gh_pages_branch(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.is_sphinx and ctx.repo),
+    ),
+    RepoCheck(
+        "description-matches",
+        lambda ctx: check_description_matches(
+            ctx.repo or "",
+            ctx.project_description or "",
+            ctx.repo_metadata.get("description"),
+        ),
+        applies=lambda ctx: bool(ctx.project_description),
+        fatal=True,
+    ),
+    RepoCheck(
+        "topics-subset-of-keywords",
+        lambda ctx: check_topics_subset_of_keywords(ctx.repo or "", ctx.keywords or []),
+        applies=lambda ctx: bool(ctx.keywords and ctx.repo),
+    ),
+    RepoCheck(
+        "funding-file",
+        lambda ctx: check_funding_file(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        "stale-draft-releases",
+        lambda ctx: check_stale_draft_releases(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        "install-guide-downloads",
+        lambda ctx: check_install_guide_downloads(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        "tag-protection-rules",
+        lambda ctx: check_tag_protection_rules(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        "branch-ruleset-on-default",
+        lambda ctx: check_branch_ruleset_on_default(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        "immutable-releases",
+        lambda ctx: check_immutable_releases(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo and ctx.is_package),
+    ),
+    RepoCheck(
+        "fork-pr-approval-policy",
+        lambda ctx: check_fork_pr_approval_policy(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        "sha-pinning-required",
+        lambda ctx: check_sha_pinning_required(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        # Gated on `is_package`, not on `package_name`: a uv virtual project
+        # sets a `[project] name` to carry dependencies and never publishes it,
+        # so matching that name against PyPI reports on a project someone else
+        # owns.
+        "pypi-trusted-publisher",
+        lambda ctx: check_pypi_trusted_publisher(ctx.repo or "", ctx.package_name or ""),
+        applies=lambda ctx: bool(ctx.repo and ctx.package_name and ctx.is_package),
+    ),
+    RepoCheck("workflow-permissions", lambda ctx: check_workflow_permissions()),
+    RepoCheck("test-matrix-excludes", lambda ctx: check_test_matrix_excludes()),
+    RepoCheck(
+        "python-version-consistency",
+        lambda ctx: check_python_version_consistency(),
+    ),
+    RepoCheck("runner-images", lambda ctx: check_runner_images()),
+    RepoCheck("release-path", lambda ctx: check_release_path()),
+    RepoCheck(
+        "inline-pins-match-upstream",
+        lambda ctx: check_inline_pins_match_upstream(),
+        fatal=True,
+    ),
+    RepoCheck("pr-templates", lambda ctx: check_pr_templates()),
+    RepoCheck(
+        "virustotal-secret",
+        _virustotal_secret,
+        applies=lambda ctx: ctx.nuitka_active,
+    ),
+    RepoCheck(
+        "notifications-pat-secret",
+        _notifications_secret,
+        applies=lambda ctx: ctx.unsubscribe_active,
+    ),
+    RepoCheck("pat-permissions", _pat_permissions, fatal=True),
+    RepoCheck(
+        "pat-repository-scope",
+        lambda ctx: check_pat_repository_scope(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.has_pat and ctx.repo),
+    ),
+    RepoCheck(
+        "pat-stale-statuses-permission",
+        lambda ctx: check_pat_stale_statuses_permission(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.has_pat and ctx.repo),
+    ),
+)
+"""Every check `lint-repo` runs, in report order.
+
+Two of these (`branch-ruleset-on-default`, `immutable-releases`) were defined
+in this module but reached only from {mod}`repomatic.setup_guide`, so
+`lint-repo` silently skipped them until the roster made the omission visible.
+"""
+
+
 def run_repo_lint(
     package_name: str | None = None,
     repo_name: str | None = None,
@@ -1827,177 +2099,49 @@ def run_repo_lint(
 ) -> int:
     """Run all repository lint checks.
 
-    Emits GitHub Actions annotations for each check result.
+    Walks {data}`REPO_CHECKS`, printing each result and emitting its GitHub
+    Actions annotation. Only a check declaring itself fatal can fail the
+    command; everything else is advisory, so a scheduled run stays green on
+    findings a maintainer merely needs to see.
 
     :param package_name: The Python package name.
     :param repo_name: The repository name.
-    :param is_package: Whether the project builds a distributable package, per
-        {func}`repomatic.pyproject.is_python_package`. Gates the checks that
-        only make sense for something actually published to PyPI.
+    :param is_package: Whether the project builds a distributable package.
     :param is_sphinx: Whether the project uses Sphinx documentation.
     :param project_description: Description from pyproject.toml.
     :param keywords: Keywords list from pyproject.toml.
     :param repo: Repository in 'owner/repo' format.
     :param has_pat: Whether `GH_TOKEN` contains `REPOMATIC_PAT`.
     :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
+    :param nuitka_active: Whether Nuitka binary compilation is active.
     :param has_notifications_pat: Whether `REPOMATIC_NOTIFICATIONS_PAT` is
         configured.
     :param unsubscribe_active: Whether the unsubscribe workflow is opted in
         via `notification.unsubscribe`.
     :return: Exit code (0 for success, 1 for errors).
     """
+    ctx = LintContext(
+        package_name=package_name,
+        repo_name=repo_name,
+        is_package=is_package,
+        is_sphinx=is_sphinx,
+        project_description=project_description,
+        keywords=keywords,
+        repo=repo,
+        has_pat=has_pat,
+        has_virustotal_key=has_virustotal_key,
+        nuitka_active=nuitka_active,
+        has_notifications_pat=has_notifications_pat,
+        unsubscribe_active=unsubscribe_active,
+    )
+
     fatal_error = False
-
-    # Fetch repo metadata once, for the checks that compare against it.
-    repo_metadata: dict[str, str | None] | None = None
-    if is_sphinx or project_description:
-        if repo:
-            repo_metadata = get_repo_metadata(repo)
-        else:
-            logging.warning("No repo specified, skipping API-based checks.")
-            repo_metadata = {"homepageUrl": None, "description": None}
-
-    # Check 1: Package name vs repo name.
-    if package_name and repo_name:
-        _report_result(check_package_name_vs_repo(package_name, repo_name))
-
-    # Check 2: Website for Sphinx projects.
-    if is_sphinx:
-        homepage_url = repo_metadata.get("homepageUrl") if repo_metadata else None
-        _report_result(check_website_for_sphinx(repo or "", is_sphinx, homepage_url))
-
-    # Check 3: Pages deployment source (Sphinx projects only).
-    if is_sphinx and repo:
-        _report_result(check_pages_deployment_source(repo))
-
-    # Check 3b: Stale gh-pages branch (Sphinx projects only).
-    if is_sphinx and repo:
-        _report_result(check_stale_gh_pages_branch(repo))
-
-    # Check 4: Description matches (fatal).
-    if project_description:
-        repo_description = repo_metadata.get("description") if repo_metadata else None
-        if _report_result(
-            check_description_matches(
-                repo or "", project_description, repo_description
-            ),
-            AnnotationLevel.ERROR,
-        ):
-            fatal_error = True
-
-    # Check 5: GitHub topics are a subset of pyproject.toml keywords.
-    if keywords and repo:
-        _report_result(check_topics_subset_of_keywords(repo, keywords))
-
-    # Check 6: Funding file present when owner has GitHub Sponsors.
-    if repo:
-        _report_result(check_funding_file(repo))
-
-    # Check 7: Stale draft releases (warning).
-    if repo:
-        _report_result(check_stale_draft_releases(repo))
-
-    # Check 7b: Install guide download URLs still resolve (warning).
-    if repo:
-        _report_result(check_install_guide_downloads(repo))
-
-    # Check 8: Tag protection rules (warning).
-    if repo:
-        _report_result(check_tag_protection_rules(repo))
-
-    # Check 9: Fork PR approval policy strict enough (warning).
-    if repo:
-        _report_result(check_fork_pr_approval_policy(repo))
-
-    # Check 9a: SHA pinning required for Actions (warning).
-    if repo:
-        _report_result(check_sha_pinning_required(repo))
-
-    # Check 9b: PyPI Trusted Publisher entry registered (warning).
-    # Gated on *is_package*, not on *package_name*: a uv virtual project sets a
-    # `[project] name` to carry dependencies and never publishes it, so matching
-    # that name against PyPI reports on a project someone else owns.
-    if repo and package_name and is_package:
-        _report_result(check_pypi_trusted_publisher(repo, package_name))
-
-    # Check 10: Workflow permissions declared on custom-step workflows.
-    for result in check_workflow_permissions():
-        _report_result(result)
-
-    # Check 10b: Test matrix excludes reference values present in a live axis.
-    for result in check_test_matrix_excludes():
-        _report_result(result)
-
-    # Check 10b-bis: Python versions required, advertised and tested agree.
-    for result in check_python_version_consistency():
-        _report_result(result)
-
-    # Check 10b-ter: Runner images are pinned, and known to the matrix axes.
-    for result in check_runner_images():
-        _report_result(result)
-
-    # Check 10b-quater: Release-only steps resolved against this project, and
-    # gated on the capability each one consumes.
-    for result in check_release_path():
-        _report_result(result)
-
-    # Check 10c: Inline upstream pins match the workflow uses: ref version (error).
-    if _report_result(check_inline_pins_match_upstream(), AnnotationLevel.ERROR):
-        fatal_error = True
-
-    # Check 10d: Repository-local PR body templates (warning).
-    for result in check_pr_templates():
-        _report_result(result)
-
-    # Check 11: VIRUSTOTAL_API_KEY secret (warning, only when Nuitka builds are active).
-    if nuitka_active:
-        if has_virustotal_key:
-            _report_result(
-                CheckResult(True, "VIRUSTOTAL_API_KEY secret is configured.")
-            )
-        else:
-            vt_msg = (
-                "VIRUSTOTAL_API_KEY secret is not configured."
-                " Release binaries will not be submitted to VirusTotal."
-                " Get a free API key at https://www.virustotal.com/gui/my-apikey"
-                " and add it as a repository secret."
-            )
-            _report_result(CheckResult(False, vt_msg))
-
-    # Check 12: REPOMATIC_NOTIFICATIONS_PAT secret (warning, only when the
-    # unsubscribe workflow is opted in via notification.unsubscribe).
-    if unsubscribe_active:
-        if has_notifications_pat:
-            _report_result(
-                CheckResult(True, "REPOMATIC_NOTIFICATIONS_PAT secret is configured.")
-            )
-        else:
-            notif_msg = (
-                "REPOMATIC_NOTIFICATIONS_PAT secret is not configured."
-                " The unsubscribe workflow will skip silently."
-                " Create a classic PAT with the notifications scope at"
-                " https://github.com/settings/tokens/new"
-                "?description=REPOMATIC_NOTIFICATIONS_PAT&scopes=notifications"
-                " and add it as a repository secret."
-            )
-            _report_result(CheckResult(False, notif_msg))
-
-    # PAT capability checks (only when REPOMATIC_PAT is configured).
-    if not has_pat or not repo:
-        if not has_pat:
-            echo("ℹ PAT capability checks: skipped (no REPOMATIC_PAT)")
-        return 1 if fatal_error else 0
-
-    results = check_all_pat_permissions(repo)
-
-    for passed, msg in results.iter_results():
-        if _report_result(CheckResult(passed, msg), AnnotationLevel.ERROR):
-            fatal_error = True
-
-    # Check PAT repository scope (warning, not fatal).
-    _report_result(check_pat_repository_scope(repo))
-
-    # Check for the dropped Commit statuses permission (warning, not fatal).
-    _report_result(check_pat_stale_statuses_permission(repo))
+    for check in REPO_CHECKS:
+        if not check.applies(ctx):
+            continue
+        level = AnnotationLevel.ERROR if check.fatal else AnnotationLevel.WARNING
+        for result in check.results(ctx):
+            if _report_result(result, level) and check.fatal:
+                fatal_error = True
 
     return 1 if fatal_error else 0

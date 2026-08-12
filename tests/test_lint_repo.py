@@ -18,13 +18,16 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from repomatic import lint_repo
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
+    REPO_CHECKS,
     check_branch_ruleset_on_default,
     check_description_matches,
     check_funding_file,
@@ -1438,3 +1441,35 @@ def test_check_immutable_releases_api_error():
         passed, msg = check_immutable_releases("owner/repo")
     assert passed is None
     assert "skipped" in msg
+
+
+def test_every_check_is_reachable_from_the_roster():
+    """Every `check_*` this module defines is wired into `REPO_CHECKS`.
+
+    `check_branch_ruleset_on_default` and `check_immutable_releases` shipped
+    defined here but reached only from `setup_guide`, so `lint-repo` silently
+    skipped two of its own checks. A check nobody calls is a check nobody
+    benefits from: adding one now means adding it to the roster, or the
+    omission fails here.
+    """
+    module_source = inspect.getsource(lint_repo)
+    roster_source = module_source.split("REPO_CHECKS", 1)[1]
+    defined = {
+        name
+        for name, value in vars(lint_repo).items()
+        if name.startswith("check_")
+        and callable(value)
+        # Defined here, not imported from another module.
+        and getattr(value, "__module__", "") == lint_repo.__name__
+    }
+    unreachable = {name for name in defined if name not in roster_source}
+    assert not unreachable, (
+        f"checks defined but never run by lint-repo: {sorted(unreachable)}."
+        " Add them to REPO_CHECKS."
+    )
+
+
+def test_repo_check_names_are_unique():
+    """Two checks sharing a name would make the roster ambiguous to read."""
+    names = [check.name for check in REPO_CHECKS]
+    assert len(set(names)) == len(names), "duplicate RepoCheck names"

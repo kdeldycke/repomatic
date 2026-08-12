@@ -118,6 +118,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import indent
+from typing import NamedTuple
 
 from packaging.version import Version
 
@@ -980,6 +981,365 @@ def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
                 )
 
 
+@dataclass
+class ReleaseSources:
+    """The external lookups a changelog's dates and availability are checked against.
+
+    Both lookups are TTL-cached, and the boundary versions derived from them
+    used to be recomputed by hand after a forced refresh: deriving them here
+    means a refresh cannot leave a stale boundary behind.
+    """
+
+    package: str | None
+    """PyPI package name, `None` when the project publishes nothing."""
+
+    pypi_data: dict[str, PyPIRelease]
+    """Released versions on PyPI, keyed by version string."""
+
+    repo_url: str
+    """Repository URL read out of the changelog's own comparison links."""
+
+    github_releases: dict[str, GitHubRelease]
+    """Published GitHub releases, keyed by version string."""
+
+    github_fetch_failed: bool = False
+    """Whether the GitHub lookup errored, as opposed to answering empty."""
+
+    @property
+    def use_pypi(self) -> bool:
+        """Whether PyPI is the reference source, rather than git tags."""
+        return bool(self.pypi_data)
+
+    @property
+    def first_pypi_version(self) -> Version | None:
+        """Oldest version on PyPI, for the predates-the-index boundary."""
+        return min(map(Version, self.pypi_data), default=None)
+
+    @property
+    def first_github_version(self) -> Version | None:
+        """Oldest GitHub release, for the predates-the-releases boundary."""
+        return min(map(Version, self.github_releases), default=None)
+
+    @classmethod
+    def load(
+        cls,
+        changelog: Changelog,
+        package: str | None,
+        pypi_package_history: Sequence[str] | None,
+        *,
+        force_refresh: bool = False,
+    ) -> ReleaseSources:
+        """Fetch both release sources, reporting what each answered.
+
+        :param changelog: Parsed changelog, read for its repository URL.
+        :param package: PyPI package name, auto-detected when `None`.
+        :param pypi_package_history: Former package names to merge in.
+        :param force_refresh: Bypass the caches, for a live re-confirmation.
+        """
+        if package is None:
+            package = get_project_name()
+        pypi_data = _load_pypi_releases(
+            package, pypi_package_history or (), force_refresh=force_refresh
+        )
+        if not package:
+            logging.info("No package name detected, falling back to git tags.")
+        elif pypi_data:
+            logging.info(
+                f"Using PyPI as reference for {package!r}"
+                f" ({len(pypi_data)} releases found)."
+            )
+        else:
+            logging.info(
+                f"Package {package!r} not found on PyPI, falling back to git tags."
+            )
+
+        repo_url = changelog.extract_repo_url()
+        github_releases: dict[str, GitHubRelease] = {}
+        github_fetch_failed = False
+        if repo_url:
+            try:
+                github_releases = get_github_releases(
+                    repo_url, force_refresh=force_refresh
+                )
+            except GitHubReleasesUnavailable as exc:
+                github_fetch_failed = True
+                logging.warning(f"GitHub releases lookup failed: {exc}")
+                emit_annotation(
+                    AnnotationLevel.WARNING,
+                    f"GitHub releases lookup failed: {exc}",
+                )
+            if github_releases:
+                logging.info(f"GitHub releases: {len(github_releases)} found.")
+
+        sources = cls(
+            package=package,
+            pypi_data=pypi_data,
+            repo_url=repo_url or "",
+            github_releases=github_releases,
+            github_fetch_failed=github_fetch_failed,
+        )
+        if sources.first_pypi_version:
+            logging.info(f"First PyPI version: {sources.first_pypi_version}")
+        if sources.first_github_version:
+            logging.info(f"First GitHub version: {sources.first_github_version}")
+        return sources
+
+    def retracted_versions(
+        self, changelog: Changelog, releases: Sequence[tuple[str, str]]
+    ) -> set[str]:
+        """Versions whose section claims availability these lookups now deny.
+
+        An available platform renders as a markdown link and a missing one as
+        a bare label, so the `[` prefix is what separates a claim of presence
+        from one of absence.
+        """
+        found = set()
+        for candidate, _candidate_date in releases:
+            existing = changelog.decompose_version(candidate).availability_admonition
+            parsed = Version(candidate)
+            drops_pypi = (
+                _is_platform_gap(
+                    parsed,
+                    candidate in self.pypi_data,
+                    bool(self.package),
+                    self.first_pypi_version,
+                )
+                and f"[{PYPI_LABEL}](" in existing
+            )
+            drops_github = (
+                _is_platform_gap(
+                    parsed,
+                    candidate in self.github_releases,
+                    bool(self.repo_url),
+                    self.first_github_version,
+                )
+                and f"[{GITHUB_LABEL}](" in existing
+            )
+            if drops_pypi or drops_github:
+                found.add(candidate)
+        return found
+
+
+class DateCheck(NamedTuple):
+    """What comparing every changelog date against its reference source found."""
+
+    corrections: dict[str, str]
+    """Version to the date it should carry, for the versions `--fix` repairs."""
+
+    mismatched: bool
+    """Whether any version's date disagreed with its reference source."""
+
+    unfixed: bool
+    """Whether a mismatch was left standing (no `--fix` to apply)."""
+
+
+def _check_release_dates(
+    releases: Sequence[tuple[str, str]],
+    sources: ReleaseSources,
+    *,
+    fix: bool,
+    abandoned_versions: Sequence[str],
+) -> DateCheck:
+    """Compare each documented release date against its reference source.
+
+    PyPI upload dates are canonical when the project publishes there, since
+    they are immutable; a project without a PyPI presence falls back to git
+    tag dates, which can be recreated. A version absent from the reference is
+    reported rather than corrected: it may predate the source, be
+    deliberately abandoned, or be a genuine gap.
+
+    :param releases: `(version, date)` pairs read from the changelog.
+    :param sources: The loaded release lookups.
+    :param fix: Whether a mismatch is collected for repair or left standing.
+    :param abandoned_versions: Versions never published, reported as skipped.
+    :return: The collected corrections and the two problem flags.
+    """
+    corrections: dict[str, str] = {}
+    mismatched = False
+    unfixed = False
+    abandoned = frozenset(abandoned_versions)
+    # Point maintainers at the remedy: a version that is intentionally absent
+    # from the reference source is declared once in config, not re-flagged.
+    abandoned_hint = (
+        "list under [tool.repomatic] abandoned-versions if intentionally unpublished"
+    )
+
+    for version, changelog_date in releases:
+        if sources.use_pypi:
+            release = sources.pypi_data.get(version)
+            if release is None:
+                if version in abandoned:
+                    logging.info(f"  {version}: abandoned (skipped per config)")
+                    continue
+                first = sources.first_pypi_version
+                if first and Version(version) < first:
+                    logging.info(f"  {version}: predates PyPI (first: {first})")
+                    continue
+                logging.warning(f"⚠ {version}: not found on PyPI ({abandoned_hint})")
+                emit_annotation(
+                    AnnotationLevel.WARNING,
+                    f"Version {version} not found on PyPI ({abandoned_hint})",
+                )
+                continue
+            ref_date = release.date
+            source = "PyPI"
+        else:
+            tag_date = get_tag_date(f"v{version}")
+            source = "tag"
+            if tag_date is None:
+                if version in abandoned:
+                    logging.info(f"  {version}: abandoned (skipped per config)")
+                    continue
+                logging.warning(
+                    f"⚠ {version}: not found on {source} ({abandoned_hint})"
+                )
+                emit_annotation(
+                    AnnotationLevel.WARNING,
+                    f"Version {version} not found on {source} ({abandoned_hint})",
+                )
+                continue
+            ref_date = tag_date
+
+        if changelog_date == ref_date:
+            logging.info(f"✓ {version}: {changelog_date} ({source})")
+            continue
+
+        logging.error(f"✗ {version}: changelog={changelog_date}, {source}={ref_date}")
+        emit_annotation(
+            AnnotationLevel.ERROR,
+            (
+                f"Date mismatch for {version}:"
+                f" changelog={changelog_date}, {source}={ref_date}"
+            ),
+        )
+        mismatched = True
+        if fix:
+            corrections[version] = ref_date
+        else:
+            unfixed = True
+
+    return DateCheck(corrections, mismatched, unfixed)
+
+
+class OrphanReconciliation(NamedTuple):
+    """What reconciling versions missing from the changelog produced."""
+
+    releases: list[tuple[str, str]]
+    """Documented releases, re-read when insertions changed the file."""
+
+    found: bool
+    """Whether any orphan was detected at all."""
+
+    modified: bool
+    """Whether a section was actually inserted."""
+
+    unfixed: bool
+    """Whether an orphan was left in place, unrepaired."""
+
+
+def _reconcile_orphans(
+    changelog: Changelog,
+    releases: list[tuple[str, str]],
+    sources: ReleaseSources,
+    *,
+    fix: bool,
+    archive_path: Path | None,
+) -> OrphanReconciliation:
+    """Report versions published somewhere but absent from the changelog.
+
+    An orphan is a version the outside world knows (a git tag, a GitHub
+    release, a PyPI upload) that the changelog never documents. With *fix*
+    they are inserted oldest-first, so each insertion updates the adjacent
+    section's comparison URL correctly.
+
+    :param changelog: Parsed changelog, mutated in place when inserting.
+    :param releases: Documented `(version, date)` pairs.
+    :param sources: The loaded release lookups.
+    :param fix: Whether to insert the missing sections.
+    :param archive_path: Frozen changelog whose versions count as documented.
+    :return: The (possibly re-read) releases and the three outcome flags.
+    """
+    tag_versions = get_all_version_tags()
+    changelog_headings = changelog.extract_all_version_headings()
+    # Versions documented in the frozen archive count as present, so entries
+    # split out of the live changelog are neither flagged nor re-inserted as
+    # orphans.
+    archive_headings: set[str] = set()
+    if archive_path and archive_path.exists():
+        archive_headings = Changelog(
+            archive_path.read_text(encoding="UTF-8")
+        ).extract_all_version_headings()
+    # The changelog documents only final releases. Exclude pre-releases
+    # (dev/alpha/beta/rc) so a published `X.Y.Z.dev0` tag, PyPI upload, or
+    # GitHub prerelease is never mistaken for a missing changelog entry: an
+    # orphan insertion would both drop a spurious pre-release section and
+    # rewrite the adjacent release's comparison-URL base to point at it.
+    all_known = {
+        v
+        for v in (
+            set(sources.pypi_data) | set(sources.github_releases) | set(tag_versions)
+        )
+        if not Version(v).is_prerelease
+    }
+    orphans = all_known - changelog_headings - archive_headings
+    if not orphans:
+        return OrphanReconciliation(releases, False, False, False)
+
+    for orphan in sorted(orphans, key=Version):
+        logging.warning(
+            f"⚠ {orphan}: found in external sources but missing from changelog"
+        )
+        emit_annotation(
+            AnnotationLevel.WARNING,
+            (
+                f"Version {orphan} exists as a tag, GitHub release,"
+                " or PyPI package but has no changelog entry"
+            ),
+        )
+
+    if not (fix and sources.repo_url):
+        # Without `--fix`, or without a repository URL to build comparison
+        # links from, the orphans stay orphaned.
+        return OrphanReconciliation(releases, True, False, True)
+
+    modified = False
+    unfixed = False
+    # Insert orphans oldest-first so each insertion correctly updates the
+    # adjacent section's comparison URL.
+    all_versions = sorted(changelog_headings | orphans, key=Version, reverse=True)
+    for orphan in sorted(orphans, key=Version):
+        # Determine date: prefer PyPI, then GitHub, then git tag.
+        orphan_date = ""
+        if orphan in sources.pypi_data:
+            orphan_date = sources.pypi_data[orphan].date
+        elif orphan in sources.github_releases:
+            orphan_date = sources.github_releases[orphan].date
+        elif orphan in tag_versions:
+            orphan_date = tag_versions[orphan]
+        if not orphan_date:
+            # No source agrees on a date, so there is nothing truthful to
+            # write. A placeholder would satisfy the heading pattern and then
+            # mismatch its reference date on every later run, which is worse
+            # than leaving the orphan reported.
+            logging.warning(
+                f"⚠ {orphan}: no release date found in any source, skipping insertion"
+            )
+            unfixed = True
+            continue
+        if changelog.insert_version_section(
+            orphan, orphan_date, sources.repo_url, list(all_versions)
+        ):
+            modified = True
+        else:
+            unfixed = True
+
+    # Re-extract releases so the admonition phase processes the newly
+    # inserted sections.
+    return OrphanReconciliation(
+        changelog.extract_all_releases(), True, modified, unfixed
+    )
+
+
 def lint_changelog_dates(
     changelog_path: Path,
     package: str | None = None,
@@ -1063,26 +1423,8 @@ def lint_changelog_dates(
         logging.info("No released versions found in changelog.")
         return 0
 
-    # Auto-detect package name for PyPI lookups.
-    if package is None:
-        package = get_project_name()
+    sources = ReleaseSources.load(changelog, package, pypi_package_history)
 
-    # Fetch all PyPI release dates in a single API call, merged with the
-    # releases of any former package name (for renamed projects).
-    pypi_data = _load_pypi_releases(package, pypi_package_history)
-    if not package:
-        logging.info("No package name detected, falling back to git tags.")
-    elif pypi_data:
-        logging.info(
-            f"Using PyPI as reference for {package!r}"
-            f" ({len(pypi_data)} releases found)."
-        )
-    else:
-        logging.info(
-            f"Package {package!r} not found on PyPI, falling back to git tags."
-        )
-
-    use_pypi = bool(pypi_data)
     has_mismatch = False
     modified = False
     # Set whenever a flagged problem is left standing: no `--fix`, a fix that
@@ -1090,70 +1432,6 @@ def lint_changelog_dates(
     # `has_mismatch` so a partial repair still fails, where counting any single
     # file write as success would report green on a changelog still wrong.
     unfixed_problem = False
-
-    # Determine the first version published to PyPI for boundary detection.
-    first_pypi_version: Version | None = None
-    if use_pypi:
-        first_pypi_version = min(Version(v) for v in pypi_data)
-        logging.info(f"First PyPI version: {first_pypi_version}")
-
-    # Extract repository URL and fetch GitHub releases.
-    repo_url = changelog.extract_repo_url()
-    github_releases: dict[str, GitHubRelease] = {}
-    github_fetch_failed = False
-    if repo_url:
-        try:
-            github_releases = get_github_releases(repo_url)
-        except GitHubReleasesUnavailable as exc:
-            github_fetch_failed = True
-            logging.warning(f"GitHub releases lookup failed: {exc}")
-            emit_annotation(
-                AnnotationLevel.WARNING,
-                f"GitHub releases lookup failed: {exc}",
-            )
-        if github_releases:
-            logging.info(f"GitHub releases: {len(github_releases)} found.")
-
-    # Determine the first version released on GitHub for boundary detection.
-    first_github_version: Version | None = None
-    if github_releases:
-        first_github_version = min(Version(v) for v in github_releases)
-        logging.info(f"First GitHub version: {first_github_version}")
-
-    def retracted_versions() -> set[str]:
-        """Versions whose section claims availability the lookups now deny.
-
-        Reads the enclosing scope on every call, so re-running it after a
-        forced refresh answers against the fresh data. An available platform
-        is rendered as a markdown link and a missing one as a bare label, so
-        the `[` prefix is what separates a claim of presence from one of
-        absence.
-        """
-        found = set()
-        for candidate, _candidate_date in releases:
-            existing = changelog.decompose_version(candidate).availability_admonition
-            parsed_candidate = Version(candidate)
-            drops_pypi = (
-                _is_platform_gap(
-                    parsed_candidate,
-                    candidate in pypi_data,
-                    bool(package),
-                    first_pypi_version,
-                )
-                and f"[{PYPI_LABEL}](" in existing
-            )
-            drops_github = (
-                _is_platform_gap(
-                    parsed_candidate,
-                    candidate in github_releases,
-                    bool(repo_url),
-                    first_github_version,
-                )
-                and f"[{GITHUB_LABEL}](" in existing
-            )
-            if drops_pypi or drops_github:
-                found.add(candidate)
-        return found
 
     # Retraction gate: never demote an existing "is available" claim to
     # "is **not available**" on cached data. Both lookups are TTL-cached for a
@@ -1165,39 +1443,31 @@ def lint_changelog_dates(
     # most likely to run. Adding availability stays cheap and cached; dropping
     # it has to be confirmed live. Running before the date loop means the
     # spurious "not found on PyPI" warning goes away with it.
-    retracted = retracted_versions()
+    retracted = sources.retracted_versions(changelog, releases)
     if retracted:
         logging.warning(
             f"Cached lookups would retract availability for"
             f" {', '.join(sorted(retracted))}; re-confirming live."
         )
-        pypi_data = _load_pypi_releases(
-            package, pypi_package_history, force_refresh=True
+        confirmed = ReleaseSources.load(
+            changelog, sources.package, pypi_package_history, force_refresh=True
         )
-        first_pypi_version = min(Version(v) for v in pypi_data) if pypi_data else None
-        use_pypi = bool(pypi_data)
-        if repo_url:
-            try:
-                github_releases = get_github_releases(repo_url, force_refresh=True)
-            except GitHubReleasesUnavailable as exc:
-                logging.warning(f"Confirming GitHub lookup failed: {exc}")
-                if fix:
-                    msg = (
-                        f"Refusing to rewrite changelog: cached data would drop"
-                        f" the availability of {', '.join(sorted(retracted))},"
-                        f" and the confirming GitHub lookup failed ({exc})."
-                        f" Re-run when the GitHub API is reachable."
-                    )
-                    logging.error(msg)
-                    emit_annotation(AnnotationLevel.ERROR, msg)
-                    return 2
-            else:
-                first_github_version = (
-                    min(Version(v) for v in github_releases)
-                    if github_releases
-                    else None
-                )
-        still_missing = retracted_versions()
+        if sources.repo_url and confirmed.github_fetch_failed and fix:
+            msg = (
+                f"Refusing to rewrite changelog: cached data would drop"
+                f" the availability of {', '.join(sorted(retracted))},"
+                f" and the confirming GitHub lookup failed."
+                f" Re-run when the GitHub API is reachable."
+            )
+            logging.error(msg)
+            emit_annotation(AnnotationLevel.ERROR, msg)
+            return 2
+        if not confirmed.github_fetch_failed:
+            sources = confirmed
+        else:
+            # Keep the fresh PyPI half; the GitHub half stays as fetched.
+            sources.pypi_data = confirmed.pypi_data
+        still_missing = sources.retracted_versions(changelog, releases)
         if still_missing:
             # Confirmed against the live APIs: the release really is gone (a
             # deleted GitHub release, a removed PyPI file). Retracting is then
@@ -1212,150 +1482,20 @@ def lint_changelog_dates(
                 " the cache was stale."
             )
 
-    # Detect orphaned versions: present in external sources but missing
-    # from the changelog.
-    tag_versions = get_all_version_tags()
-    changelog_headings = changelog.extract_all_version_headings()
-    # Versions documented in the frozen archive count as present, so entries
-    # split out of the live changelog are neither flagged nor re-inserted as
-    # orphans.
-    archive_headings: set[str] = set()
-    if archive_path and archive_path.exists():
-        archive_headings = Changelog(
-            archive_path.read_text(encoding="UTF-8")
-        ).extract_all_version_headings()
-    # The changelog documents only final releases. Exclude pre-releases
-    # (dev/alpha/beta/rc) so a published `X.Y.Z.dev0` tag, PyPI upload, or
-    # GitHub prerelease is never mistaken for a missing changelog entry: an
-    # orphan insertion would both drop a spurious pre-release section and
-    # rewrite the adjacent release's comparison-URL base to point at it.
-    all_known = {
-        v
-        for v in (set(pypi_data) | set(github_releases) | set(tag_versions))
-        if not Version(v).is_prerelease
-    }
-    orphans = all_known - changelog_headings - archive_headings
-    if orphans:
-        for orphan in sorted(orphans, key=Version):
-            logging.warning(
-                f"⚠ {orphan}: found in external sources but missing from changelog"
-            )
-            emit_annotation(
-                AnnotationLevel.WARNING,
-                (
-                    f"Version {orphan} exists as a tag, GitHub release,"
-                    " or PyPI package but has no changelog entry"
-                ),
-            )
-        has_mismatch = True
-
-        if fix and repo_url:
-            # Insert orphans oldest-first so each insertion correctly
-            # updates the adjacent section's comparison URL.
-            all_versions = sorted(
-                changelog_headings | orphans,
-                key=Version,
-                reverse=True,
-            )
-            for orphan in sorted(orphans, key=Version):
-                # Determine date: prefer PyPI, then GitHub, then git tag.
-                orphan_date = ""
-                if orphan in pypi_data:
-                    orphan_date = pypi_data[orphan].date
-                elif orphan in github_releases:
-                    orphan_date = github_releases[orphan].date
-                elif orphan in tag_versions:
-                    orphan_date = tag_versions[orphan]
-                if not orphan_date:
-                    # No source agrees on a date, so there is nothing truthful
-                    # to write. A placeholder would satisfy the heading pattern
-                    # and then mismatch its reference date on every later run,
-                    # which is worse than leaving the orphan reported.
-                    logging.warning(
-                        f"⚠ {orphan}: no release date found in any source,"
-                        " skipping insertion"
-                    )
-                    unfixed_problem = True
-                    continue
-                if changelog.insert_version_section(
-                    orphan, orphan_date, repo_url, list(all_versions)
-                ):
-                    modified = True
-                else:
-                    unfixed_problem = True
-
-            # Re-extract releases so the admonition loop below processes
-            # the newly inserted sections.
-            releases = changelog.extract_all_releases()
-        else:
-            # Without `--fix`, or without a repository URL to build comparison
-            # links from, the orphans stay orphaned.
-            unfixed_problem = True
-
-    date_corrections: dict[str, str] = {}
-    abandoned = frozenset(abandoned_versions)
-    # Point maintainers at the remedy: a version that is intentionally absent
-    # from the reference source is declared once in config, not re-flagged.
-    abandoned_hint = (
-        "list under [tool.repomatic] abandoned-versions if intentionally unpublished"
+    orphan_result = _reconcile_orphans(
+        changelog, releases, sources, fix=fix, archive_path=archive_path
     )
+    releases = orphan_result.releases
+    has_mismatch = has_mismatch or orphan_result.found
+    modified = modified or orphan_result.modified
+    unfixed_problem = unfixed_problem or orphan_result.unfixed
 
-    for version, changelog_date in releases:
-        if use_pypi:
-            release = pypi_data.get(version)
-            if release is None:
-                if version in abandoned:
-                    logging.info(f"  {version}: abandoned (skipped per config)")
-                    continue
-                parsed = Version(version)
-                if first_pypi_version and parsed < first_pypi_version:
-                    logging.info(
-                        f"  {version}: predates PyPI (first: {first_pypi_version})"
-                    )
-                    continue
-                logging.warning(f"⚠ {version}: not found on PyPI ({abandoned_hint})")
-                emit_annotation(
-                    AnnotationLevel.WARNING,
-                    f"Version {version} not found on PyPI ({abandoned_hint})",
-                )
-                continue
-            ref_date = release.date
-            source = "PyPI"
-        else:
-            tag_date = get_tag_date(f"v{version}")
-            source = "tag"
-            if tag_date is None:
-                if version in abandoned:
-                    logging.info(f"  {version}: abandoned (skipped per config)")
-                    continue
-                logging.warning(
-                    f"⚠ {version}: not found on {source} ({abandoned_hint})"
-                )
-                emit_annotation(
-                    AnnotationLevel.WARNING,
-                    f"Version {version} not found on {source} ({abandoned_hint})",
-                )
-                continue
-            ref_date = tag_date
-
-        if changelog_date == ref_date:
-            logging.info(f"✓ {version}: {changelog_date} ({source})")
-        else:
-            logging.error(
-                f"✗ {version}: changelog={changelog_date}, {source}={ref_date}"
-            )
-            emit_annotation(
-                AnnotationLevel.ERROR,
-                (
-                    f"Date mismatch for {version}:"
-                    f" changelog={changelog_date}, {source}={ref_date}"
-                ),
-            )
-            has_mismatch = True
-            if fix:
-                date_corrections[version] = ref_date
-            else:
-                unfixed_problem = True
+    date_check = _check_release_dates(
+        releases, sources, fix=fix, abandoned_versions=abandoned_versions
+    )
+    date_corrections = date_check.corrections
+    has_mismatch = has_mismatch or date_check.mismatched
+    unfixed_problem = unfixed_problem or date_check.unfixed
 
     # Sanity gate: refuse to rewrite admonitions when an upstream data
     # source returned empty (or failed) while the existing changelog has
@@ -1380,7 +1520,7 @@ def lint_changelog_dates(
         # unambiguous signal that the data is unreliable. Refuse to
         # rewrite as soon as the existing changelog has any GitHub
         # coverage, since the rewrite would silently strip it.
-        if github_fetch_failed and existing_github_links > 0:
+        if sources.github_fetch_failed and existing_github_links > 0:
             msg = (
                 f"Refusing to rewrite changelog: GitHub releases lookup "
                 f"failed but {existing_github_links} existing version"
@@ -1392,7 +1532,7 @@ def lint_changelog_dates(
             emit_annotation(AnnotationLevel.ERROR, msg)
             return 2
 
-        # PyPI side: `pypi_data == {}` cannot distinguish "package not
+        # PyPI side: `sources.pypi_data == {}` cannot distinguish "sources.package not
         # on PyPI" from "transient failure" — see the
         # `EMPTY_PYPI_SANITY_THRESHOLD` docstring for the two layers of
         # ambiguity (client-side catch-all in `_fetch_json`, plus
@@ -1401,17 +1541,17 @@ def lint_changelog_dates(
         # PyPI links combined with an empty fetch is the fingerprint of
         # a transient failure rather than a genuine non-PyPI project.
         if (
-            package
-            and not pypi_data
+            sources.package
+            and not sources.pypi_data
             and existing_pypi_links >= EMPTY_PYPI_SANITY_THRESHOLD
         ):
             msg = (
                 f"Refusing to rewrite changelog: PyPI lookup for "
-                f"{package!r} returned no data but {existing_pypi_links} "
+                f"{sources.package!r} returned no data but {existing_pypi_links} "
                 f"existing version section(s) reference a PyPI release. "
                 f"Likely a transient API failure. Re-run when PyPI is "
                 f"reachable. If the project genuinely no longer publishes to "
-                f"PyPI, run with an empty package name (`--package ''`) to "
+                f"PyPI, run with an empty sources.package name (`--sources.package ''`) to "
                 f"check dates against git tags instead."
             )
             logging.error(msg)
@@ -1431,25 +1571,25 @@ def lint_changelog_dates(
             if version in date_corrections:
                 elements.date = date_corrections[version]
 
-            on_pypi = version in pypi_data
-            on_github = version in github_releases
-            is_yanked = on_pypi and pypi_data[version].yanked
+            on_pypi = version in sources.pypi_data
+            on_github = version in sources.github_releases
+            is_yanked = on_pypi and sources.pypi_data[version].yanked
 
             # Build the NOTE admonition for platforms where available.
-            # Use the package name embedded in the PyPIRelease entry so
+            # Use the sources.package name embedded in the PyPIRelease entry so
             # renamed projects point to the correct PyPI page.
             # Yanked releases are excluded from the NOTE — the CAUTION
             # admonition below links to the specific PyPI page instead.
             pypi_url = (
                 PYPI_PROJECT_URL.format(
-                    package=pypi_data[version].package, version=version
+                    package=sources.pypi_data[version].package, version=version
                 )
                 if on_pypi and not is_yanked
                 else ""
             )
             github_url = (
-                GITHUB_RELEASE_URL.format(repo_url=repo_url, version=version)
-                if on_github and repo_url
+                GITHUB_RELEASE_URL.format(repo_url=sources.repo_url, version=version)
+                if on_github and sources.repo_url
                 else ""
             )
 
@@ -1458,13 +1598,13 @@ def lint_changelog_dates(
             parsed = Version(version)
             is_first_pypi = (
                 on_pypi
-                and first_pypi_version is not None
-                and parsed == first_pypi_version
+                and sources.first_pypi_version is not None
+                and parsed == sources.first_pypi_version
             )
             is_first_github = (
                 on_github
-                and first_github_version is not None
-                and parsed == first_github_version
+                and sources.first_github_version is not None
+                and parsed == sources.first_github_version
             )
             first_on_all = (
                 (is_first_pypi or not on_pypi)
@@ -1483,10 +1623,10 @@ def lint_changelog_dates(
             # Only warn about gaps: versions that postdate the first
             # release on that platform but are absent from it.
             pypi_gap = _is_platform_gap(
-                parsed, on_pypi, bool(package), first_pypi_version
+                parsed, on_pypi, bool(sources.package), sources.first_pypi_version
             )
             github_gap = _is_platform_gap(
-                parsed, on_github, bool(repo_url), first_github_version
+                parsed, on_github, bool(sources.repo_url), sources.first_github_version
             )
             warning = build_unavailable_admonition(
                 version,
@@ -1502,11 +1642,11 @@ def lint_changelog_dates(
                 # PyPI accepts a yank with no reason, so the clause carrying
                 # it is rendered only when there is one. Its own trailing
                 # period is dropped: the template supplies the sentence's.
-                reason = pypi_data[version].yanked_reason.strip().rstrip(".")
+                reason = sources.pypi_data[version].yanked_reason.strip().rstrip(".")
                 elements.yanked_admonition = render_template(
                     "yanked-admonition",
                     version=version,
-                    package=pypi_data[version].package,
+                    package=sources.pypi_data[version].package,
                     reason=f": {reason}" if reason else "",
                 )
 

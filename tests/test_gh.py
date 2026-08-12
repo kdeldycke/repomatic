@@ -19,13 +19,17 @@
 from __future__ import annotations
 
 import json
+import logging
+from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
 import pytest
+from click_extra import ClickException
 
 from repomatic.github.gh import (
     api_headers,
+    gh_executable,
     iter_graphql_nodes,
     parse_create_output,
     run_gh_command,
@@ -614,3 +618,25 @@ def test_parse_create_output(output, kind, expected):
 def test_parse_create_output_rejects_unparsable_output(output, kind):
     with pytest.raises(RuntimeError, match=f"`gh {kind} create`"):
         parse_create_output(output, kind)
+
+
+def test_gh_executable_prefers_the_pinned_registry_binary():
+    """The pinned, checksum-verified `gh` wins over whatever `$PATH` holds."""
+    with patch(
+        "repomatic.tool_runner.ensure_binary", return_value=Path("/cache/gh")
+    ) as ensure:
+        gh_executable.cache_clear()
+        assert gh_executable() == "/cache/gh"
+    assert ensure.call_args.args == ("gh",)
+    gh_executable.cache_clear()
+
+
+@pytest.mark.parametrize("failure", (ClickException("no network"), OSError("boom")))
+def test_gh_executable_falls_back_to_path(failure, caplog):
+    """A download failure degrades to `$PATH` loudly, never stranding the job."""
+    caplog.set_level(logging.WARNING)
+    with patch("repomatic.tool_runner.ensure_binary", side_effect=failure):
+        gh_executable.cache_clear()
+        assert gh_executable() == "gh"
+    assert "falling back to whatever is on PATH" in caplog.text
+    gh_executable.cache_clear()

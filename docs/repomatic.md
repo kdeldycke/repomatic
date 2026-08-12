@@ -164,6 +164,15 @@
    :undoc-members:
 ```
 
+## `repomatic.file_inventory` module
+
+```{eval-rst}
+.. automodule:: repomatic.file_inventory
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.frontmatter` module
 
 ```{eval-rst}
@@ -366,15 +375,6 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.tool_runner
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.tool_runner_page` module
-
-```{eval-rst}
-.. automodule:: repomatic.tool_runner_page
    :members:
    :show-inheritance:
    :undoc-members:

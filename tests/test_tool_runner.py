@@ -31,8 +31,6 @@ from contextlib import contextmanager
 from itertools import combinations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-from extra_platforms import ALL_PLATFORMS
 from urllib.error import URLError
 
 import pytest

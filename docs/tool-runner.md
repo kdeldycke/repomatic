@@ -44,7 +44,7 @@ invoke(repomatic, args=['run', '--list'])
 ## Available tools
 
 ```{python:render}
-from repomatic.tool_runner_page import tool_summary
+from repomatic.tool_registry import tool_summary
 
 print(tool_summary())
 ```
@@ -248,7 +248,7 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 ## Tool details
 
 ```{python:render}
-from repomatic.tool_runner_page import tool_reference
+from repomatic.tool_registry import tool_reference
 
 print(tool_reference())
 ```

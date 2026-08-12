@@ -483,8 +483,14 @@ def test_extract_all_releases(content, expected):
     assert changelog.extract_all_releases() == expected
 
 
-def _github_unavailable(_repo_url):
-    """Stand in for `get_github_releases` during a GitHub API outage."""
+def _github_unavailable(_repo_url, force_refresh=False):
+    """Stand in for `get_github_releases` during a GitHub API outage.
+
+    Mirrors the real signature, `force_refresh` included: the lint reloads
+    both sources live when a cached answer would retract an availability
+    claim, and a double that refuses the keyword fails there instead of at
+    the behavior under test.
+    """
     raise GitHubReleasesUnavailable("simulated 502 Bad Gateway")
 
 

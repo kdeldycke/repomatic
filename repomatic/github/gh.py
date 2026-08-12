@@ -43,7 +43,10 @@ import json
 import logging
 import os
 import time
+from functools import lru_cache
 from subprocess import run
+
+from click_extra import ClickException
 
 from .status import status_annotation
 
@@ -99,6 +102,44 @@ def _matched_marker(stderr: str, markers: tuple[str, ...]) -> str | None:
     :return: The matched marker, or `None`.
     """
     return next((m for m in markers if m in stderr), None)
+
+
+@lru_cache(maxsize=1)
+def gh_executable() -> str:
+    """Resolve the `gh` binary every call in this package shells out to.
+
+    Prefers the registry-pinned build over whatever `$PATH` offers, which is
+    the rule `claude.md` § "A cooldown is not a hash" states for any tool
+    repomatic shells out to: the registry pin carries a version, a checksum
+    and a cooldown, while `$PATH` carries none of the three and hands each
+    runner image (and each developer laptop) a different `gh`.
+
+    ```{caution}
+    Falls back to bare `gh` on `$PATH` when the registry build cannot be
+    obtained. Unlike a formatter, `gh` is on the critical path of jobs that
+    have already done real work (a release publish, an issue upsert), so a
+    download failure must not strand them: a hosted runner ships a usable
+    `gh`, and degrading to it beats failing the job. The fallback is logged,
+    never silent.
+    ```
+
+    Memoized: the install-and-verify path runs once per process however many
+    of the ~60 call sites fire.
+    """
+    # Imported here rather than at module scope: `tool_runner` reaches
+    # `metadata`, which imports this module, so a top-level import would close
+    # the cycle.
+    from ..tool_runner import ensure_binary
+
+    try:
+        return str(ensure_binary("gh"))
+    except (ClickException, OSError) as error:
+        logging.warning(
+            "Could not install the pinned gh, falling back to whatever is on"
+            " PATH (unpinned and unverified): %s",
+            error,
+        )
+        return "gh"
 
 
 def resolve_gh_token() -> str:
@@ -163,7 +204,7 @@ def run_gh_command(args: list[str]) -> str:
     :raises RuntimeError: If the command fails (after retries and fallback,
         if attempted).
     """
-    cmd = ["gh", *args]
+    cmd = [gh_executable(), *args]
     logging.debug(f"Running: {' '.join(cmd)}")
 
     # Build the env override for the gh subprocess. The gh CLI only reads

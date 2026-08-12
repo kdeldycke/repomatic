@@ -82,7 +82,6 @@ DEFAULT_CONTENT_RULES: dict[str, tuple[str, ...]] = {
         "sphinx",
         "typo",
     ),
-    "💖 sponsor": ("funding", "sponsor"),
 }
 """Default content rules: keywords matched against a thread's title and body.
 
@@ -96,6 +95,16 @@ Tune for precision, not recall: a missing label costs one manual click, a
 wrong one is noise on every issue that trips it. Never key a rule off a token
 the project prints in its own output, or a user pasting a trace sets every
 label at once.
+
+```{note}
+`💖 sponsor` deliberately has no rule here, nor in {data}`DEFAULT_FILE_RULES`.
+It means "a sponsor is involved", which is a fact about the author that only
+the GraphQL sponsorship query can establish, and `sponsor-label` applies it
+from exactly that. Matching the *words* "funding" or "sponsor" (or a pull
+request touching `.github/funding.yml`) labels the topic instead, so anyone
+opening "Add a funding.yml" read as a sponsor. Precision-first means no rule
+beats an ambiguous one when an authoritative source already exists.
+```
 """
 
 DEFAULT_FILE_RULES: dict[str, tuple[str, ...]] = {
@@ -114,7 +123,6 @@ DEFAULT_FILE_RULES: dict[str, tuple[str, ...]] = {
         "license",
         "readme.md",
     ),
-    "💖 sponsor": (".github/funding.yml",),
 }
 """Default file rules: globs matched against the paths a pull request changes.
 

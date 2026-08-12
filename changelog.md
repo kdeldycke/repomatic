@@ -17,6 +17,10 @@
 - `pr-sync` now clears a conversation lock standing in the way of retiring a stale automation PR, instead of dying on the refused close comment.
 - `sync-labels` now hands labelmaker the canonical token (`REPOMATIC_PAT`, then `GH_TOKEN`, then `GITHUB_TOKEN`), so an environment carrying only the PAT syncs authenticated.
 - Every re-lock (`sync-dep-sources`, `audit --fix`) now passes the project's own `[tool.uv] exclude-newer` explicitly, so CI's ambient `UV_EXCLUDE_NEWER` can no longer retime the lock.
+- **Breaking:** `repomatic init` and `repomatic workflow lint` take `--upstream-repo` for the upstream toolkit; `--repo` now means the `owner/name` slug everywhere, including on `sync-labels`.
+- `lint-repo` now runs the branch-ruleset and immutable-releases checks it already defined but never invoked.
+- `apply-labels` no longer applies `💖 sponsor` from the words "funding" or "sponsor", or from a pull request touching `.github/funding.yml`: only `sponsor-label` sets it, from actual sponsorship.
+- Every `gh` call now runs the registry-pinned, checksum-verified binary, falling back to `$PATH` with a warning when it cannot be installed.
 
 ## [`7.10.0` (2026-08-12)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...v7.10.0)
 
