@@ -253,7 +253,9 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 
 #### 🔒 Lock inactive threads (`lock`)
 
-- Automatically locks closed issues and PRs after 90 days of inactivity using [`lock-threads`](https://github.com/dessant/lock-threads)
+- Automatically locks closed issues and PRs after 90 days of inactivity with `repomatic lock-threads`
+- Counts the 90 days from a thread's last update, so a closed thread people are still replying to is left alone
+- Posts a short comment pointing at a fresh issue before locking, and skips anything carrying the `🤖 ci` label, since those issues are meant to reopen when their condition recurs
 
 (github-workflows-debug-yaml-jobs)=
 
@@ -261,7 +263,8 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 
 #### 🩺 Dump context (`dump-context`)
 
-- Dumps GitHub Actions context and runner environment info across all build targets using [`ghaction-dump-context`](https://github.com/crazy-max/ghaction-dump-context)
+- Dumps the GitHub Actions contexts, the environment variables, and the runner's kernel, disk, CPU and memory across all build targets
+- Reads only what each runner image already ships, installing nothing
 - Useful for debugging runner differences and CI environment issues
 - **Runs on**:
   - Push to `main` (only when `debug.yaml` itself changes)
@@ -375,14 +378,14 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 #### 📁 File-based PR labeller (`file-labeller`)
 
-- Automatically labels PRs based on changed file paths using [`labeler`](https://github.com/actions/labeler)
+- Automatically labels PRs based on changed file paths, with `repomatic apply-labels --rules file`
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
 
 #### 📝 Content-based labeller (`content-labeller`)
 
-- Automatically labels issues and PRs based on title and body content using [`issue-labeler`](https://github.com/github/issue-labeler)
+- Automatically labels issues and PRs based on title and body content, with `repomatic apply-labels --rules content`
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs

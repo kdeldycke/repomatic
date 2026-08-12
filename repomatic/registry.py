@@ -622,20 +622,15 @@ COMPONENTS: tuple[Component, ...] = (
     # --- Bundled file components ---
     BundledComponent(
         name="labels",
-        description="Label config files (labels.toml + labeller rules)",
+        description="Label definitions for labelmaker (labels.toml)",
         init_default=InitDefault.EXCLUDE,
         ephemeral=True,
-        files=(
-            FileEntry(
-                "labeller-content-based.yaml",
-                ".github/labeller-content-based.yaml",
-            ),
-            FileEntry(
-                "labeller-file-based.yaml",
-                ".github/labeller-file-based.yaml",
-            ),
-            FileEntry("labels.toml"),
-        ),
+        # The two `labeller-*.yaml` rule files are no longer listed here: they
+        # existed to stage a config on disk for `actions/labeler` and
+        # `github/issue-labeler` to read, and `repomatic apply-labels` reads
+        # them straight out of the package instead. They stay bundled as
+        # package data, just never written to a repository.
+        files=(FileEntry("labels.toml"),),
     ),
     BundledComponent(
         name="publish-pypi-action",

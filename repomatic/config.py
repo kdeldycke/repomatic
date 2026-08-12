@@ -343,12 +343,14 @@ class LabelsConfig:
     Each `[[tool.repomatic.labels.content-rules]]` entry has:
 
     - `label` (required): label name to apply when any pattern matches.
-    - `patterns` (required): list of regex patterns evaluated against the issue
-      or PR title and body by `github/issue-labeller`.
+    - `patterns` (required): regexes evaluated against the issue or pull
+      request title and body, in either a bare form (matched
+      case-sensitively) or the JavaScript-flavoured `/body/flags` spelling,
+      where only `i`, `m` and `s` change anything.
 
-    Repeating the same `label` across entries merges their patterns. Serialized
-    to YAML at export time and appended to the bundled
-    `labeller-content-based.yaml`.
+    Patterns are OR-joined: any one of them matching applies the label.
+    Repeating the same `label` across entries merges their patterns, and both
+    merge over the bundled defaults rather than replacing them.
     """
 
     extra: list[dict[str, str | bool | list[str]]] = field(default_factory=list)
@@ -394,10 +396,11 @@ class LabelsConfig:
     - `any`: list of nested sub-groups, OR'd together.
     - `all`: list of nested sub-groups, AND'd together.
 
-    Repeating the same `label` across entries OR's the resulting groups, the
-    same as listing multiple top-level groups under one label in
-    `actions/labeler`. Together with `any` / `all` wrappers this covers the
-    full `actions/labeler` v5+ schema.
+    Repeating the same `label` across entries OR's the resulting groups, and
+    they OR with whatever the bundled defaults already declare for that label,
+    so a project adds to a default rule rather than replacing it. Together with
+    the `any` / `all` wrappers this covers the full `actions/labeler` v5+
+    schema, which `repomatic apply-labels` reimplements natively.
     """
 
     sync: bool = True
@@ -800,7 +803,7 @@ class Config:
     names exclude an entire component (e.g., `"workflows"`). Qualified
     `component/identifier` entries exclude a specific file within a component
     (e.g., `"workflows/debug.yaml"`, `"skills/repomatic-audit"`,
-    `"labels/labeller-content-based.yaml"`).
+    `"labels/labels.toml"`).
 
     Affects `repomatic init`, `workflow sync`, and `workflow create`.
     Explicit CLI positional arguments override this list.

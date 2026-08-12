@@ -1,4 +1,14 @@
 ---
+# Default file-matching rules for `repomatic apply-labels`, evaluated against
+# the paths a pull request changes.
+#
+# The schema is `actions/labeler`'s v5, kept verbatim when the matcher moved
+# in-tree: groups under one label are OR'd, conditions inside a group are AND'd,
+# and the globs follow the `minimatch` dialect (`**` crosses directories, a
+# leading `!` negates, `{a,b}` expands, and a leading dot is matched by `*`).
+#
+# Keep the globs precise: a glob broad enough to catch unrelated changes
+# mislabels every pull request touching them.
 "🆙 changelog":
   - changed-files:
     - any-glob-to-any-file:

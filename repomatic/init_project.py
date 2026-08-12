@@ -56,7 +56,6 @@ from .github.workflow_sync import (
     render_thin_caller_for_target,
 )
 from .http import DEFAULT_TIMEOUT
-from .labels import augment_labeller_content
 from .metadata import Metadata
 from .plugin import merge_plugin_settings
 from .pyproject import is_python_package, is_python_project, resolve_source_paths
@@ -102,7 +101,12 @@ if TYPE_CHECKING:
         from importlib.abc import Traversable
 
 
-RUNTIME_FRAGMENTS: tuple[str, ...] = ("release.yaml", "vt-trend-chart.js")
+RUNTIME_FRAGMENTS: tuple[str, ...] = (
+    "labeller-content-based.yaml",
+    "labeller-file-based.yaml",
+    "release.yaml",
+    "vt-trend-chart.js",
+)
 """Bundled files loaded by `repomatic` at runtime, not deployed verbatim.
 
 These files live in `repomatic/data/` so they ship in the wheel and are
@@ -112,8 +116,12 @@ reads to assemble each downstream `release.yaml`, copying its jobs and rewriting
 the local `uses:` refs (see `_generate_release_caller`); the deployed
 `release.yaml` is generated, not this bundled copy. `vt-trend-chart.js` is the
 detections-chart script `repomatic.binaries_page.render_chart_section` splices
-into `docs/binaries.md` with its payload placeholders filled. New entries must
-be added explicitly so the data-file registry tests stay authoritative.
+into `docs/binaries.md` with its payload placeholders filled. The two
+`labeller-*.yaml` files are the default label-matching rules
+{mod}`repomatic.labels` reads; they used to be staged on disk for the
+`actions/labeler` and `github/issue-labeler` actions to pick up, and stopped
+being written anywhere once `apply-labels` took over the matching. New entries
+must be added explicitly so the data-file registry tests stay authoritative.
 """
 
 
@@ -1493,9 +1501,6 @@ def _init_config_files(
             continue
 
         content = export_content(entry.source)
-        if component_name == "labels":
-            content = augment_labeller_content(entry.source, content, config)
-
         outcome = _write_managed(target, content, result, output_dir)
         if outcome == "unchanged" and not comp.keep_unmodified and not comp.ephemeral:
             rel = target.relative_to(output_dir).as_posix()

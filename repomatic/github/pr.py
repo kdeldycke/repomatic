@@ -144,6 +144,37 @@ def list_open_prs_by_branch(branch: str) -> list[dict[str, Any]]:
     return prs
 
 
+def list_changed_files(number: int, repository: str = "") -> list[str]:
+    """List the repository-relative paths a pull request changes.
+
+    Reads the REST files endpoint with `--paginate` rather than the diff, since
+    a diff has to be transferred and parsed to recover names the API already
+    hands over one field at a time.
+
+    ```{caution}
+    GitHub caps this endpoint at 3,000 files, silently. A pull request past
+    that returns a truncated list, so a file-glob rule keyed on the tail of a
+    very large diff can miss. Nothing here can lift the cap, and the labeller
+    this feeds is a first-pass convenience, so the truncation is tolerated
+    rather than reported.
+    ```
+
+    :param number: The pull request number.
+    :param repository: Repository in `owner/name` form. Left to `gh`'s own
+        resolution when empty.
+    :return: Changed paths, in the order GitHub returns them.
+    """
+    args = [
+        "api",
+        f"repos/{repository or '{owner}/{repo}'}/pulls/{number}/files",
+        "--paginate",
+        "--jq",
+        ".[].filename",
+    ]
+    output = run_gh_command(args)
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
 def close_pr(number: int, comment: str, delete_branch: bool = True) -> None:
     """Close a pull request with a comment.
 

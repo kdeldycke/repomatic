@@ -16,10 +16,15 @@
 
 """GitHub issue lifecycle management.
 
-Generic primitives for listing, creating, updating, closing, and triaging
-GitHub issues via the `gh` CLI, used by {mod}`repomatic.broken_links` and
-other modules that manage bot-created issues. The pull-request counterpart
+Generic primitives for listing, creating, updating, closing, triaging and
+locking GitHub issues via the `gh` CLI, used by {mod}`repomatic.broken_links`
+and other modules that manage bot-created issues. The pull-request counterpart
 lives in {mod}`~repomatic.github.pr`.
+
+Conversation locking covers both kinds rather than issues alone, because
+GitHub gives issues and pull requests one number space and one lock endpoint:
+{func}`lock_stale_threads` backs the `lock-threads` command and the autolock
+workflow behind it.
 
 The life-cycle of issues created in CI jobs is managed here by hand because the
 `create-issue-from-file` action blindly creates issues ad-nauseam.
@@ -33,6 +38,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from operator import itemgetter
 from pathlib import Path
 
@@ -68,6 +74,267 @@ The full message is `GraphQL: Unable to create comment because issue is locked
 (addComment)`. Matching the tail alone also covers the pull-request phrasing,
 which names the other kind in the same slot.
 """
+
+LOCK_INACTIVE_DAYS = 90
+"""Days a closed thread must sit untouched before {func}`lock_stale_threads` locks it.
+
+Counted from the thread's last update, not its closing date, so a closed issue
+someone is still commenting on keeps resetting the clock. That is the same
+measure `dessant/lock-threads` used, at the same 90-day value this repository
+configured it with, so replacing the action changed no thread's fate.
+"""
+
+LOCK_ISSUE_COMMENT = (
+    "This issue has been automatically locked since there has not been any"
+    " recent activity after it was closed. Please open a new issue for related"
+    " bugs."
+)
+"""Comment posted on an issue just before locking it."""
+
+LOCK_PR_COMMENT = (
+    "This pull request has been automatically locked since there has not been"
+    " any recent activity after it was closed. Please open a new issue for"
+    " related bugs."
+)
+"""Comment posted on a pull request just before locking it."""
+
+LOCK_REASON = "resolved"
+"""Reason attached to every automated lock.
+
+One of the four values GitHub accepts (`off_topic`, `resolved`, `spam`,
+`too_heated`), spelled the way `gh issue lock --reason` wants it. `resolved` is
+what `dessant/lock-threads` defaulted to, and it is the only one of the four
+that describes a thread locked for age rather than for conduct.
+"""
+
+LOCK_THREADS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
+    ("Kind", "kind"),
+    ("Thread", "thread"),
+    ("Title", "title"),
+    ("Outcome", "outcome"),
+)
+"""Column definitions for the `repomatic lock-threads` table.
+
+Lives beside {func}`lock_stale_threads`, whose rows it names, so the columns
+and the tuple they render cannot drift apart; the CLI derives its `--sort-by`
+choices from it.
+"""
+
+LOCK_SEARCH_LIMIT = 200
+"""Threads examined per {func}`lock_stale_threads` run.
+
+The search API caps a query at 1,000 results and the job runs weekly, so a
+lower bound keeps one run's blast radius small while still draining a backlog
+over a few weeks. A run that hits the cap says so, rather than reporting a
+clean sweep of a set it only partially saw.
+"""
+
+
+def add_labels(
+    repository: str,
+    number: int,
+    labels: Sequence[str],
+    *,
+    is_pr: bool = False,
+) -> bool:
+    """Add labels to an issue or pull request.
+
+    Additive only: labels already on the thread are left in place, and none is
+    ever removed. Every automated labeller here pre-labels for the
+    maintainer's first pass, so it must never undo a classification made by
+    hand.
+
+    :param repository: GitHub repository in `owner/name` form.
+    :param number: The issue or pull request number.
+    :param labels: Labels to add. A no-op when empty.
+    :param is_pr: Whether *number* names a pull request rather than an issue.
+    :return: Whether the labels were applied. `False` on an API failure, which
+        is logged rather than raised: a labelling run is a convenience, and
+        failing the job over it would be louder than the outcome deserves.
+    """
+    if not labels:
+        return True
+    resource = "pr" if is_pr else "issue"
+    args = [resource, "edit", str(number), "--repo", repository]
+    for label in labels:
+        args.extend(["--add-label", label])
+    try:
+        run_gh_command(args)
+    except RuntimeError:
+        logging.error(f"Failed to label {resource} #{number} in {repository}")
+        return False
+    logging.info(
+        f"Added {', '.join(map(repr, labels))} to {resource} #{number} in {repository}"
+    )
+    return True
+
+
+def search_stale_threads(
+    repository: str,
+    inactive_days: int = LOCK_INACTIVE_DAYS,
+    limit: int = LOCK_SEARCH_LIMIT,
+) -> list[dict[str, Any]]:
+    """Search closed, unlocked issues and pull requests left inactive too long.
+
+    Issues and pull requests share one number space and one search index, so a
+    single `--include-prs` query covers both and `isPullRequest` sorts them
+    afterwards. Halving the round-trips matters less than the ordering it
+    buys: results come back newest-first across both kinds, so a `limit` that
+    truncates cuts the same slice from either.
+
+    ```{note}
+    The `is:unlocked` half of the filter is what makes the whole operation
+    idempotent, and it needs no state of its own: locking a thread removes it
+    from this result set permanently. A second run minutes after the first
+    therefore finds nothing, which is also why the search is authoritative
+    enough to skip a per-thread `locked` re-check before writing.
+    ```
+
+    :param repository: GitHub repository in `owner/name` form.
+    :param inactive_days: Days without an update before a closed thread
+        qualifies.
+    :param limit: Maximum number of threads to return.
+    :return: Search result dicts carrying `number`, `title`, `url`,
+        `isPullRequest`, `labels` and `updatedAt`, newest first.
+    """
+    cutoff = datetime.now(timezone.utc).date() - timedelta(days=inactive_days)
+    output = run_gh_command([
+        "search",
+        "issues",
+        "--repo",
+        repository,
+        "--state",
+        "closed",
+        "--locked=false",
+        "--include-prs",
+        "--updated",
+        f"<{cutoff.isoformat()}",
+        "--sort",
+        "updated",
+        "--limit",
+        str(limit),
+        "--json",
+        "number,title,url,isPullRequest,labels,updatedAt",
+    ])
+    threads: list[dict[str, Any]] = json.loads(output)
+    logging.info(
+        f"Found {len(threads)} closed thread(s) in {repository} with no activity"
+        f" since {cutoff.isoformat()}."
+    )
+    if len(threads) >= limit:
+        logging.warning(
+            f"Search returned the full {limit}-thread limit, so older threads may"
+            " remain unlocked. They are picked up by the next run."
+        )
+    return threads
+
+
+def lock_thread(
+    number: int,
+    repository: str,
+    *,
+    is_pr: bool,
+    comment: str = "",
+    reason: str = LOCK_REASON,
+) -> None:
+    """Comment on a closed thread, then lock its conversation.
+
+    The comment goes first on purpose: posting it after the lock would need the
+    lock lifted again, and a reader arriving at a locked thread with no
+    explanation has no way to learn where to go instead.
+
+    :param number: The issue or pull request number to lock.
+    :param repository: GitHub repository in `owner/name` form.
+    :param is_pr: Whether *number* names a pull request rather than an issue.
+    :param comment: Comment to post before locking. Skipped when empty.
+    :param reason: Lock reason, one of GitHub's four accepted values. Omitted
+        from the call when empty.
+    """
+    kind = "pr" if is_pr else "issue"
+    if comment:
+        run_gh_command([
+            kind,
+            "comment",
+            str(number),
+            "--repo",
+            repository,
+            "--body",
+            comment,
+        ])
+    args = [kind, "lock", str(number), "--repo", repository]
+    if reason:
+        args.extend(["--reason", reason])
+    run_gh_command(args)
+    logging.info(f"Locked {kind} #{number}")
+
+
+def lock_stale_threads(
+    repository: str,
+    inactive_days: int = LOCK_INACTIVE_DAYS,
+    issue_comment: str = LOCK_ISSUE_COMMENT,
+    pr_comment: str = LOCK_PR_COMMENT,
+    exclude_labels: Sequence[str] = (BOT_ISSUE_LABEL,),
+    limit: int = LOCK_SEARCH_LIMIT,
+    reason: str = LOCK_REASON,
+    dry_run: bool = False,
+) -> list[tuple[str, str, str, str]]:
+    """Lock every closed thread left inactive for *inactive_days*.
+
+    ```{caution}
+    `exclude_labels` defaults to {data}`BOT_ISSUE_LABEL` because the issues
+    {func}`manage_issue_lifecycle` maintains are *designed* to be reopened when
+    their condition recurs, and GitHub refuses `addComment` on a locked
+    conversation. Locking one turns the next reopen into a failed job, which is
+    the hole {func}`_run_unlocking` exists to patch after the fact. Excluding
+    the label stops the collision at the source; the recovery path stays in
+    place for locks applied by hand.
+    ```
+
+    Label exclusion is applied here rather than folded into the search query.
+    GitHub's `-label:` qualifier would work, but it starts with a hyphen, which
+    `gh search` parses as a flag and needs shell-level escaping to survive: a
+    client-side filter over a field the search already returns costs one
+    comparison and no quoting.
+
+    :param repository: GitHub repository in `owner/name` form.
+    :param inactive_days: Days without an update before a closed thread
+        qualifies.
+    :param issue_comment: Comment posted on an issue before locking it.
+    :param pr_comment: Comment posted on a pull request before locking it.
+    :param exclude_labels: Threads carrying any of these labels are left alone.
+    :param limit: Maximum number of threads to examine in one run.
+    :param reason: Lock reason passed to `gh {issue,pr} lock --reason`.
+    :param dry_run: Report what would be locked without writing anything.
+    :return: One `(kind, number, title, outcome)` row per examined thread.
+    """
+    excluded = {label.casefold() for label in exclude_labels}
+    rows: list[tuple[str, str, str, str]] = []
+
+    for thread in search_stale_threads(repository, inactive_days, limit):
+        is_pr = bool(thread["isPullRequest"])
+        number = int(thread["number"])
+        kind = "PR" if is_pr else "issue"
+        labels = {label["name"].casefold() for label in thread.get("labels", ())}
+
+        if held := sorted(labels & excluded):
+            logging.debug(f"Skipping {kind} #{number}, labelled {held}.")
+            rows.append((kind, f"#{number}", thread["title"], "skipped (labelled)"))
+            continue
+
+        if dry_run:
+            rows.append((kind, f"#{number}", thread["title"], "would lock"))
+            continue
+
+        lock_thread(
+            number,
+            repository,
+            is_pr=is_pr,
+            comment=pr_comment if is_pr else issue_comment,
+            reason=reason,
+        )
+        rows.append((kind, f"#{number}", thread["title"], "locked"))
+
+    return rows
 
 
 def list_issues(title: str = "") -> list[dict[str, Any]]:
@@ -121,12 +388,17 @@ def unlock_issue(number: int) -> None:
 def _run_unlocking(args: Sequence[str], number: int) -> str:
     """Run a commenting `gh issue` command, clearing a conversation lock if it blocks.
 
-    GitHub refuses `addComment` on a locked conversation, which is how the
-    autolock workflow this project ships breaks the recurring issues this module
-    manages: `dessant/lock-threads` locks a closed issue after 90 days of
-    inactivity, and the next run that needs to reopen it (because the condition
-    recurred) has its reopen comment rejected. Nothing downstream distinguishes
-    that from a real failure, so the job dies and the report is never filed.
+    GitHub refuses `addComment` on a locked conversation, which is how a lock
+    breaks the recurring issues this module manages: the next run that needs to
+    reopen one (because the condition recurred) has its reopen comment
+    rejected. Nothing downstream distinguishes that from a real failure, so the
+    job dies and the report is never filed.
+
+    {func}`lock_stale_threads` no longer causes that, since it skips anything
+    carrying {data}`BOT_ISSUE_LABEL`. This path remains for the locks it does
+    not own: one applied by hand, or one left behind by the
+    `dessant/lock-threads` action this command replaced, which had no such
+    exclusion configured.
 
     Unlocking is deliberate rather than incidental. A conversation that repomatic
     is reopening is one it is about to comment on again, so the lock has outlived

@@ -1,31 +1,57 @@
 ---
-# One pattern per label, always.
+# Default content-matching rules for `repomatic apply-labels`, evaluated
+# against an issue or pull request's title and body.
 #
-# `github/issue-labeler` AND-joins a label's patterns: its `checkRegexes()`
-# returns false on the first entry that does not match, so a label listing
-# several bare keywords fires only when *every* one of them appears in the same
-# issue, which in practice means never. "Any of these keywords" must therefore
-# be a single alternation, not a list.
+# A label's patterns are OR'd: any one of them matching applies the label. Each
+# is a Python regex, in the JavaScript-flavoured `/body/flags` spelling the
+# `github/issue-labeler` action defined and this file kept when the matcher
+# moved in-tree. Only `i`, `m` and `s` change anything.
 #
-# Each pattern is written in the `/…/i` form so it is matched case-insensitively
-# (a bare entry is case-sensitive, and users capitalize freely: `Bug`, `README`),
-# and anchored with `\b` on every edge that closes on a word character, so `fix`
-# no longer fires on `prefix`. Single-quoted so YAML keeps the backslashes
-# literal.
+# Two conventions every pattern below follows:
+#
+# - `/…/i`, because users capitalize freely: `Bug`, `README`, `CI`.
+# - `\b` on every edge closing on a word character, so `fix` does not fire on
+#   `prefix`.
+#
+# Single-quoted so YAML keeps the backslashes literal.
+#
+# Tune for precision, not recall. A missing label costs one manual click; a
+# wrong one is noise on every issue that trips it. Never key a rule off a token
+# the project prints in its own output, or a user pasting a trace sets every
+# label at once.
 "🐛 bug":
-  - '/\bbug\b|\berror\b|\btraceback\b|\bfix\b|\bexception\b/i'
+  - '/\bbug\b/i'
+  - '/\berror\b/i'
+  - '/\bexception\b/i'
+  - '/\bfix\b/i'
+  - '/\btraceback\b/i'
 
 "🆙 changelog":
-  - '/\bchange-log\b|\bchangelog\b/i'
+  - '/\bchange-log\b/i'
+  - '/\bchangelog\b/i'
 
 "🤖 ci":
-  - '/\bci-cd\b|\bcicd\b|\.github\b|\bcoverage\b|\bworkflow\b|\bactions\b|\bgitignore\b/i'
+  - '/\.github\b/i'
+  - '/\bactions\b/i'
+  - '/\bci-cd\b/i'
+  - '/\bcicd\b/i'
+  - '/\bcoverage\b/i'
+  - '/\bgitignore\b/i'
+  - '/\bworkflow\b/i'
 
 "🔗 dependencies":
-  - '/\.lock\b|\bpyproject\.toml\b/i'
+  - '/\.lock\b/i'
+  - '/\bpyproject\.toml\b/i'
 
 "📚 documentation":
-  - '/\bsphinx\b|\breadme\b|\bmarkdown\b|\btypo\b|\bdocstring\b|\bmailmap\b|\blicense\b/i'
+  - '/\bdocstring\b/i'
+  - '/\blicense\b/i'
+  - '/\bmailmap\b/i'
+  - '/\bmarkdown\b/i'
+  - '/\breadme\b/i'
+  - '/\bsphinx\b/i'
+  - '/\btypo\b/i'
 
 "💖 sponsor":
-  - '/\bsponsor\b|\bfunding\b/i'
+  - '/\bfunding\b/i'
+  - '/\bsponsor\b/i'

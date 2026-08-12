@@ -28,7 +28,7 @@
 
 Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repository secrets. Each action is a trust delegation: you depend on the maintainer's security practices, their CI pipeline, and their transitive dependencies. A compromised action can steal secrets, inject code into builds, or tamper with releases.
 
-`repomatic` has systematically eliminated 18 third-party actions since late 2025, replacing them with internal CLI commands, SHA-256-verified binary downloads, and runner built-in tools:
+`repomatic` has systematically eliminated 22 third-party actions since late 2025, replacing them with internal CLI commands, SHA-256-verified binary downloads, and runner built-in tools:
 
 | Removed action                           | Replacement                 | Strategy                |
 | :--------------------------------------- | :-------------------------- | :---------------------- |
@@ -36,6 +36,9 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `crazy-max/ghaction-virustotal`          | `repomatic scan-virustotal` | Internal CLI            |
 | `AndreasAugustin/actions-template-sync`  | `repomatic init`            | Internal CLI            |
 | `JasonEtco/is-sponsor-label-action`      | `repomatic sponsor-label`   | Internal CLI            |
+| `dessant/lock-threads`                   | `repomatic lock-threads`    | Internal CLI            |
+| `actions/labeler`                        | `repomatic apply-labels`    | Internal CLI            |
+| `github/issue-labeler`                   | `repomatic apply-labels`    | Internal CLI            |
 | `lycheeverse/lychee-action`              | `repomatic run lychee`      | Direct binary + SHA-256 |
 | `crate-ci/typos`                         | `repomatic run typos`       | Direct binary + SHA-256 |
 | `biomejs/setup-biome`                    | `repomatic run biome`       | Direct binary + SHA-256 |
@@ -44,6 +47,7 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `taiki-e/install-action`                 | Direct `curl` + checksum    | Direct binary + SHA-256 |
 | `softprops/action-gh-release`            | `gh release create`         | Runner built-in         |
 | `actions/github-script`                  | Bash + `gh` CLI             | Runner built-in         |
+| `crazy-max/ghaction-dump-context`        | Bash + runner built-ins     | Runner built-in         |
 | `actions-rust-lang/setup-rust-toolchain` | Runner built-in Rust        | Runner built-in         |
 | `actions/setup-python`                   | `astral-sh/setup-uv`        | Consolidated            |
 | `peaceiris/actions-gh-pages`             | `actions/deploy-pages`      | First-party replacement |
@@ -51,13 +55,17 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `codecov/test-results-action`            | None (feature dropped)      | Removed entirely        |
 | `GitHubSecurityLab/actions-permissions`  | Explicit `permissions:` key | Removed entirely        |
 
-The remaining third-party actions (3 of 14 total) are:
+The only remaining third-party action (1 of 10 total) is `astral-sh/setup-uv`, which installs the toolchain every other job runs through.
 
-| Action                            | Purpose                               |
-| :-------------------------------- | :------------------------------------ |
-| `astral-sh/setup-uv`              | Core toolchain: installs `uv`         |
-| `dessant/lock-threads`            | Locks inactive issues                 |
-| `crazy-max/ghaction-dump-context` | Debug diagnostics (no secrets access) |
+Every other `uses:` in the tree is GitHub's own: `actions/checkout`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/attest`, `actions/upload-pages-artifact` and `actions/deploy-pages`. The five that speak the Actions cache, artifact and attestation backplanes are kept deliberately: those are internal service protocols GitHub reserves the right to change, so a reimplementation would break silently rather than loudly.
+
+#### Issue and pull-request labelling
+
+`repomatic apply-labels` evaluates both rule families the two retired labeller actions covered: `actions/labeler`'s v5 file globs and `github/issue-labeler`'s content regexes. The schema is kept verbatim, so a `[tool.repomatic.labels]` written against either action still resolves; {mod}`repomatic.labels` holds the matcher and `tests/test_labeller_rules.py` pins the semantics, including the `minimatch` glob dialect.
+
+The supply-chain gain is the usual one, and modest: both actions were SHA-pinned with cooldown-gated bumps. The concrete win is that the rules no longer have to round-trip through a file on disk. Each job used to run `repomatic init labels` to stage a YAML config purely so the action could read it back out of the checkout, which is why the `labels` component was `ephemeral` and why `repomatic/labels.py` carried two YAML serializers. Matching in-process deleted the staging step, the two exported files, and the export layer under them.
+
+It also fixed a silent bug the export could only warn about. `github/issue-labeler` AND-joined a label's `patterns`, so the obvious "any of these keywords" rule matched nothing; patterns are OR-joined now, and the bundled defaults are written as the keyword lists they always read like.
 
 #### Pull-request creation
 

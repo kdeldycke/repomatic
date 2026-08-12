@@ -123,7 +123,18 @@ from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
     sync_dev_release as _sync_dev_release,
 )
-from .github.pr import close_open_prs_on_branch, upsert_pr
+from .github.issue import (
+    BOT_ISSUE_LABEL,
+    LOCK_INACTIVE_DAYS,
+    LOCK_ISSUE_COMMENT,
+    LOCK_PR_COMMENT,
+    LOCK_REASON,
+    LOCK_SEARCH_LIMIT,
+    LOCK_THREADS_HEADER_DEFS,
+    add_labels,
+    lock_stale_threads,
+)
+from .github.pr import close_open_prs_on_branch, list_changed_files, upsert_pr
 from .github.pr_body import (
     build_pr_body,
     build_release_review_steps,
@@ -152,6 +163,8 @@ from .github.sponsor import (
     get_default_author,
     get_default_number,
     get_default_owner,
+    get_event_pull_request,
+    get_event_subject,
     is_pull_request,
     is_sponsor,
 )
@@ -169,7 +182,13 @@ from .images import (
     optimize_images,
 )
 from .init_project import run_init
-from .labels import apply_labels
+from .labels import (
+    apply_labels,
+    load_content_rules,
+    load_file_rules,
+    match_content_rules,
+    match_file_rules,
+)
 from .lint_repo import (
     KNOWN_RUNNERS,
     run_repo_lint,
@@ -1708,6 +1727,121 @@ def sponsor_label(
 
 
 @repomatic.command(
+    name="apply-labels",
+    short_help="Label an issue or PR from its content and changed files",
+    section=_section_github,
+)
+@option(
+    "--rules",
+    type=Choice(["all", "content", "file"]),
+    default="all",
+    help="Which rule family to evaluate. File rules need a pull request.",
+)
+@option(
+    "--number",
+    type=IntRange(min=1),
+    help="Issue or PR number. Defaults to the number in $GITHUB_EVENT_PATH.",
+)
+@option(
+    "--pr/--issue",
+    "is_pr",
+    default=None,
+    help="Specify issue or pull request. Auto-detected from $GITHUB_EVENT_PATH.",
+)
+@repo_slug_option
+@dry_run_option
+@_require_token(_token_mod, "validate_gh_token_env")
+@pass_context
+def apply_labels_cmd(
+    ctx: Context,
+    rules: str,
+    number: int | None,
+    is_pr: bool | None,
+    repo: str | None,
+    dry_run: bool,
+) -> None:
+    """Label a freshly opened issue or pull request from the project's rules.
+
+    Two rule families, both declared under `[tool.repomatic.labels]` and both
+    merged over the bundled defaults:
+
+    \b
+      content-rules  regexes matched against the title and body, of an issue
+                     or a pull request alike
+      file-rules     globs matched against the paths a pull request changes,
+                     plus its head and base branch
+
+    Additive only. A label already on the thread stays, and none is ever
+    removed, so a classification made by hand survives every later run.
+
+    This pre-labels for the maintainer's first pass and never replaces it, so
+    the rules are tuned for precision: a missing label costs one click, a wrong
+    one is noise on every issue that trips it.
+
+    Requires the gh CLI to be installed and authenticated.
+
+    \b
+    Examples:
+        # Preview what the current event's issue or PR would earn
+        repomatic apply-labels
+
+    \b
+        # Apply them, as the labeller jobs do
+        repomatic apply-labels --rules content --live
+        repomatic apply-labels --rules file --live
+
+    \b
+        # Manual invocation against one pull request
+        repomatic apply-labels --live --pr --number 42
+    """
+    config = get_tool_config(ctx)
+
+    if repo is None:
+        repo = Metadata().repo_slug
+    if number is None:
+        number = get_default_number()
+    if is_pr is None:
+        is_pr = is_pull_request()
+    if not repo or not number:
+        raise UsageError(
+            "Missing --repo or --number, and neither could be auto-detected"
+            " from the environment."
+        )
+
+    matched: set[str] = set()
+
+    if rules in {"all", "content"}:
+        subject = get_event_subject()
+        text = f"{subject.get('title') or ''}\n{subject.get('body') or ''}"
+        matched |= match_content_rules(load_content_rules(config), text)
+
+    # File rules need a diff, which only a pull request has. Asking for them on
+    # an issue is not an error: the `all` default reaches this branch on every
+    # issue opened, and the two labeller jobs share one command.
+    if rules in {"all", "file"} and is_pr:
+        pull_request = get_event_pull_request()
+        matched |= match_file_rules(
+            load_file_rules(config),
+            list_changed_files(number, repo),
+            head_branch=pull_request.get("head", {}).get("ref", ""),
+            base_branch=pull_request.get("base", {}).get("ref", ""),
+        )
+
+    kind = "PR" if is_pr else "issue"
+    if not matched:
+        echo(f"No rule matched {kind} #{number}.")
+        return
+
+    labels = sorted(matched)
+    if dry_run:
+        echo(f"Would label {kind} #{number} with: {', '.join(labels)}")
+        return
+    if not add_labels(repo, number, labels, is_pr=is_pr):
+        raise ClickException(f"Failed to label {kind} #{number}")
+    echo(f"Labelled {kind} #{number} with: {', '.join(labels)}")
+
+
+@repomatic.command(
     name="update-dep-graph",
     short_help="Generate dependency graph from uv lockfile",
     section=_section_setup,
@@ -2104,6 +2238,110 @@ def setup_guide(
         has_virustotal_key=has_virustotal_key,
         repo=repo,
     )
+
+
+@repomatic.command(
+    short_help="Lock closed, inactive issues and PRs",
+    section=_section_github,
+)
+@option(
+    "--inactive-days",
+    type=IntRange(min=1),
+    default=LOCK_INACTIVE_DAYS,
+    help="Days without activity before a closed thread is locked.",
+)
+@option(
+    "--issue-comment",
+    default=LOCK_ISSUE_COMMENT,
+    help="Comment posted on an issue before locking it. Empty to post none.",
+)
+@option(
+    "--pr-comment",
+    default=LOCK_PR_COMMENT,
+    help="Comment posted on a pull request before locking it. Empty to post none.",
+)
+@option(
+    "--exclude-label",
+    "exclude_labels",
+    multiple=True,
+    default=(BOT_ISSUE_LABEL,),
+    help="Leave threads carrying this label unlocked. Repeatable.",
+)
+@option(
+    "--limit",
+    type=IntRange(min=1, max=1000),
+    default=LOCK_SEARCH_LIMIT,
+    help="Maximum number of threads to examine in one run.",
+)
+@option(
+    "--reason",
+    type=Choice(["off_topic", "resolved", "spam", "too_heated"]),
+    default=LOCK_REASON,
+    help="Reason recorded with the lock.",
+)
+@repo_slug_option
+@dry_run_option
+@_require_token(_token_mod, "validate_gh_token_env")
+@pass_context
+def lock_threads(
+    ctx: Context,
+    inactive_days: int,
+    issue_comment: str,
+    pr_comment: str,
+    exclude_labels: tuple[str, ...],
+    limit: int,
+    reason: str,
+    repo: str | None,
+    dry_run: bool,
+) -> None:
+    """Lock closed issues and pull requests left inactive too long.
+
+    Keeps spam and necro-posting off threads whose discussion is over, without
+    touching anything still moving: the clock counts from a thread's last
+    update, so a closed issue people are still replying to keeps resetting it.
+
+    Locking is one-way here. Nothing unlocks a thread on a schedule, and a
+    thread already locked never reappears in the search, so re-running the
+    command right after a run finds nothing left to do.
+
+    Issues repomatic maintains itself are excluded by default: they are meant
+    to reopen when their condition recurs, which a lock would block.
+
+    Requires the gh CLI to be installed and authenticated.
+
+    \b
+    Examples:
+        # Preview what a run would lock
+        repomatic lock-threads
+
+    \b
+        # Lock them, as the autolock workflow does
+        repomatic lock-threads --live
+
+    \b
+        # Lock silently after six months, sparing triaged threads
+        repomatic lock-threads --live --inactive-days 180 \\
+            --issue-comment "" --exclude-label "🚧 needs triage"
+    """
+    if repo is None:
+        repo = Metadata().repo_slug
+    if not repo:
+        raise ClickException("Cannot detect repository.")
+
+    rows = lock_stale_threads(
+        repo,
+        inactive_days=inactive_days,
+        issue_comment=issue_comment,
+        pr_comment=pr_comment,
+        exclude_labels=exclude_labels,
+        limit=limit,
+        reason=reason,
+        dry_run=dry_run,
+    )
+    if not rows:
+        echo(f"No closed thread in {repo} has been inactive for {inactive_days} days.")
+        return
+    ctx.print_table(rows, LOCK_THREADS_HEADER_DEFS)
 
 
 @repomatic.command(

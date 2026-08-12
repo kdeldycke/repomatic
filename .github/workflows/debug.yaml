@@ -76,7 +76,67 @@ jobs:
         include: ${{ fromJSON(needs.metadata.outputs.build_targets) }}
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: crazy-max/ghaction-dump-context@4d9eeaf15dd59aa4346919ea84a84ccf514b4db8 # v3.1.0
+      # `toJSON()` already pretty-prints, so each context reaches the log
+      # readable with no jq in the way, which also keeps this step identical on
+      # the Windows runners. `::group::` folds each dump the way the action
+      # this replaced did. The `steps` context is left out: this is the first
+      # step of the job, so it is always empty. Secrets appearing in a context
+      # or an environment variable are redacted by the runner's log masking,
+      # and this workflow is granted none anyway (`permissions: {}`).
+      - name: Dump GitHub contexts
+        shell: bash
+        env:
+          GITHUB_CONTEXT: ${{ toJSON(github) }}
+          JOB_CONTEXT: ${{ toJSON(job) }}
+          MATRIX_CONTEXT: ${{ toJSON(matrix) }}
+          RUNNER_CONTEXT: ${{ toJSON(runner) }}
+          STRATEGY_CONTEXT: ${{ toJSON(strategy) }}
+        run: |
+          for context in GITHUB JOB MATRIX RUNNER STRATEGY; do
+            variable="${context}_CONTEXT"
+            echo "::group::${context} context"
+            printf '%s\n' "${!variable}"
+            echo "::endgroup::"
+          done
+          echo "::group::Environment variables"
+          env | sort
+          echo "::endgroup::"
+      # Host probes the runner ships on its own: nothing is installed to read
+      # them, which is the point. The Docker, cgroup and containerd probes the
+      # action ran are dropped along with the `apt-get install` they needed, as
+      # no job in this repository builds an image or runs a container outside
+      # the release engine's digest-pinned manylinux one.
+      - name: Dump host info
+        shell: bash
+        # Every probe tolerates its own absence: a diagnostics job that goes
+        # red because one runner image dropped a utility teaches people to
+        # ignore its red runs, which then hides a real failure.
+        # `wmic` is deliberately not used: Windows Server 2025 and Windows 11
+        # 24H2 (both runner images here) ship without it.
+        run: |
+          echo "::group::Kernel and host"
+          uname -a || true
+          echo "::endgroup::"
+          echo "::group::Disk space"
+          df -h || true
+          echo "::endgroup::"
+          echo "::group::CPU and memory"
+          case "${RUNNER_OS}" in
+            Linux)
+              cat /proc/cpuinfo || true
+              free -h || true
+              ;;
+            macOS)
+              sysctl hw machdep.cpu || true
+              ;;
+            Windows)
+              powershell -NoProfile -Command "Get-CimInstance Win32_Processor |
+                Format-List Name, NumberOfCores, NumberOfLogicalProcessors;
+                Get-CimInstance Win32_OperatingSystem |
+                Format-List TotalVisibleMemorySize, FreePhysicalMemory" || true
+              ;;
+          esac
+          echo "::endgroup::"
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.1"

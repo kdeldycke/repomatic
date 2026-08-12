@@ -32,7 +32,7 @@ from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__, init_project as ip
 from repomatic.cli import init_project, repomatic
-from repomatic.config import Config, LabelsConfig, WorkflowConfig
+from repomatic.config import Config, WorkflowConfig
 from repomatic.init_project import (
     EXPORTABLE_FILES,
     RUNTIME_FRAGMENTS,
@@ -1349,7 +1349,9 @@ def test_init_creates_all_default_files(
         if filename not in _OPT_IN_IDS:
             assert (tmp_path / ".github" / "workflows" / filename).exists()
 
-    # Ephemeral label files stay out of the tree until named explicitly.
+    # The ephemeral label definitions stay out of the tree until named
+    # explicitly. The two `labeller-*.yaml` rule files are never written at
+    # all now: `apply-labels` reads them straight out of the package.
     assert not (tmp_path / "labels.toml").exists()
     assert not (tmp_path / ".github" / "labeller-file-based.yaml").exists()
     assert not (tmp_path / ".github" / "labeller-content-based.yaml").exists()
@@ -1510,60 +1512,12 @@ def test_init_only_labels(tmp_path: Path):
     result = run_init(output_dir=tmp_path, components=("labels",))
 
     created_set = set(result.created)
-    assert "labels.toml" in created_set
-    assert ".github/labeller-file-based.yaml" in created_set
-    assert ".github/labeller-content-based.yaml" in created_set
+    assert created_set == {"labels.toml"}
 
     # No workflows or changelog should be created.
     for filename in REUSABLE_WORKFLOWS:
         assert f".github/workflows/{filename}" not in created_set
     assert "changelog.md" not in created_set
-
-
-def test_init_labels_appends_structured_rules(tmp_path: Path):
-    """Custom rules in `[tool.repomatic.labels]` land in the exported YAML.
-
-    Wires the end-to-end path: structured TOML in `LabelsConfig` →
-    `repomatic init labels` → `.github/labeller-*.yaml`. Without this test
-    the wire-up could regress to dead-code, where the fields exist on the
-    dataclass but nothing reads them at export time.
-    """
-    config = Config(
-        labels=LabelsConfig(
-            file_rules=[
-                {
-                    "label": "📦 manager: apk",
-                    "any-glob-to-any-file": ["managers/apk*", "tests/*apk*"],
-                },
-            ],
-            content_rules=[
-                {"label": "🔌 bar-plugin", "patterns": ["xbar", "swiftbar"]},
-            ],
-        ),
-    )
-
-    run_init(output_dir=tmp_path, components=("labels",), config=config)
-
-    file_yaml = (tmp_path / ".github" / "labeller-file-based.yaml").read_text(
-        encoding="UTF-8"
-    )
-    file_parsed = yaml.safe_load(file_yaml)
-    # Bundled labels must still be present.
-    assert "🆙 changelog" in file_parsed
-    # Structured rule landed.
-    assert file_parsed["📦 manager: apk"] == [
-        {
-            "changed-files": [
-                {"any-glob-to-any-file": ["managers/apk*", "tests/*apk*"]},
-            ],
-        },
-    ]
-
-    content_yaml = (tmp_path / ".github" / "labeller-content-based.yaml").read_text(
-        encoding="UTF-8"
-    )
-    content_parsed = yaml.safe_load(content_yaml)
-    assert content_parsed["🔌 bar-plugin"] == ["xbar", "swiftbar"]
 
 
 def test_init_only_skills(tmp_path: Path):
@@ -2865,23 +2819,16 @@ def test_init_respects_exclude_label_files(
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n'
         "[tool.repomatic]\n"
-        'exclude = ["labels/labeller-content-based.yaml"]\n',
+        'exclude = ["labels/labels.toml"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
 
     # `labels` is ephemeral, so only naming it explicitly writes it out. This
-    # is the path the labeller jobs take to stage a config for the actions
-    # that read it from the checkout.
+    # is the path `sync-labels` takes to stage definitions for labelmaker.
     result = run_init(output_dir=tmp_path, components=("labels",))
 
-    created_set = set(result.created)
-    # Excluded label file should not be created.
-    assert ".github/labeller-content-based.yaml" not in created_set
-
-    # Other label files should still be created.
-    assert "labels.toml" in created_set
-    assert ".github/labeller-file-based.yaml" in created_set
+    assert "labels.toml" not in set(result.created)
 
 
 def test_init_mixed_exclude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -3845,10 +3792,7 @@ def test_init_explicit_selection_materializes_ephemeral(tmp_path: Path):
     """Verify naming an ephemeral component explicitly still writes its files."""
     result = run_init(output_dir=tmp_path, components=("labels",))
 
-    created_set = set(result.created)
-    assert "labels.toml" in created_set
-    assert ".github/labeller-file-based.yaml" in created_set
-    assert ".github/labeller-content-based.yaml" in created_set
+    assert set(result.created) == {"labels.toml"}
 
 
 def test_init_exclude_additive_to_defaults(
@@ -4175,7 +4119,6 @@ def test_init_no_unmodified_when_different(
         "workflows/autofix.yaml",
         "skills/repomatic-audit",
         "labels/labels.toml",
-        "labels/labeller-content-based.yaml",
     ],
 )
 def test_parse_component_entries_accepts_valid_qualified_entries(entry: str) -> None:
@@ -4266,11 +4209,10 @@ def test_init_mixed_bare_and_qualified(tmp_path: Path):
         components=("labels", "skills/repomatic-topics"),
     )
     created_set = set(result.created)
-    assert "labels.toml" in created_set
-    assert ".github/labeller-file-based.yaml" in created_set
-    assert ".github/labeller-content-based.yaml" in created_set
-    assert ".claude/skills/repomatic-topics/SKILL.md" in created_set
-    assert len(created_set) == 4
+    assert created_set == {
+        "labels.toml",
+        ".claude/skills/repomatic-topics/SKILL.md",
+    }
 
 
 def test_init_qualified_workflow(tmp_path: Path):

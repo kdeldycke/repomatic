@@ -32,7 +32,8 @@ from functools import lru_cache
 
 from ..metadata import Metadata
 from .actions import get_github_event
-from .gh import iter_graphql_nodes, run_gh_command
+from .gh import iter_graphql_nodes
+from .issue import add_labels
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ def get_default_owner() -> str | None:
     return owner if owner else None
 
 
-def _event_pull_request() -> dict[str, Any]:
+def get_event_pull_request() -> dict[str, Any]:
     """Return the event payload's `pull_request` node, empty when absent.
 
     Truthiness, not key presence, is the test every reader below shares. A
@@ -63,7 +64,7 @@ def _event_pull_request() -> dict[str, Any]:
     return get_github_event().get("pull_request") or {}
 
 
-def _event_subject() -> dict[str, Any]:
+def get_event_subject() -> dict[str, Any]:
     """Return the issue or pull request the current event is about.
 
     Pull requests win: the two nodes are mutually exclusive on the events this
@@ -72,24 +73,24 @@ def _event_subject() -> dict[str, Any]:
 
     :return: The subject node, or an empty dict when the event carries neither.
     """
-    return _event_pull_request() or get_github_event().get("issue") or {}
+    return get_event_pull_request() or get_github_event().get("issue") or {}
 
 
 def get_default_author() -> str | None:
     """Get the issue/PR author from the GitHub event payload."""
-    login = _event_subject().get("user", {}).get("login")
+    login = get_event_subject().get("user", {}).get("login")
     return str(login) if login else None
 
 
 def get_default_number() -> int | None:
     """Get the issue/PR number from the GitHub event payload."""
-    number = _event_subject().get("number")
+    number = get_event_subject().get("number")
     return int(number) if number else None
 
 
 def is_pull_request() -> bool:
     """Check if the current event is a pull request."""
-    return bool(_event_pull_request())
+    return bool(get_event_pull_request())
 
 
 # GraphQL query for user sponsors.
@@ -187,7 +188,11 @@ def add_sponsor_label(
     label: str,
     is_pr: bool = False,
 ) -> bool:
-    """Add a label to an issue or PR.
+    """Add the sponsor label to an issue or PR.
+
+    A thin alias over {func}`~repomatic.github.issue.add_labels`, kept so this
+    module's caller reads in its own vocabulary while both labellers share one
+    mechanism.
 
     :param repo: The repository in "owner/repo" format.
     :param number: The issue or PR number.
@@ -195,20 +200,4 @@ def add_sponsor_label(
     :param is_pr: True if this is a PR, False for an issue.
     :return: True if label was added successfully, False otherwise.
     """
-    resource = "pr" if is_pr else "issue"
-    try:
-        run_gh_command([
-            resource,
-            "edit",
-            str(number),
-            "--add-label",
-            label,
-            "--repo",
-            repo,
-        ])
-    except RuntimeError:
-        logging.error(f"Failed to add label to {resource} #{number} in {repo}")
-        return False
-
-    logging.info(f"Added {label!r} label to {resource} #{number} in {repo}")
-    return True
+    return add_labels(repo, number, [label], is_pr=is_pr)

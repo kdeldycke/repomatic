@@ -241,10 +241,25 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic lint-repo"
 
 [[cases]]
+cli_parameters = "apply-labels --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic apply-labels"
+
+[[cases]]
 cli_parameters = "list-skills --help"
 exit_code = 0
 strip_ansi = true
 stdout_contains = "Usage: repomatic list-skills"
+
+[[cases]]
+cli_parameters = "lock-threads --help"
+# XXX This command's help fails on Windows: the `--exclude-label` default is an
+# emoji label, outside the console's cp1252 codepage, raising UnicodeEncodeError.
+skip_platforms = "windows"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic lock-threads"
 
 [[cases]]
 cli_parameters = "metadata --help"

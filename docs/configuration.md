@@ -82,7 +82,7 @@ Those files are therefore staged only when the component is named explicitly:
 $ repomatic init labels
 ```
 
-which is how the labeller jobs put a config where `actions/labeler` and `github/issue-labeler` can read it from the checkout. A bare `repomatic init` leaves them out, and listing `labels` in `include` does not change that: the override is refused with a warning rather than silently honored. Everything downstream repositories customize (`labels.extra`, `labels.file-rules`, `labels.content-rules`, `labels.extra-files`) is read straight from `pyproject.toml` by those commands, so no generated label file needs committing.
+which is how `sync-labels` stages the definitions labelmaker applies. A bare `repomatic init` leaves them out, and listing `labels` in `include` does not change that: the override is refused with a warning rather than silently honored. Everything downstream repositories customize (`labels.extra`, `labels.file-rules`, `labels.content-rules`, `labels.extra-files`) is read straight from `pyproject.toml` by those commands, so no generated label file needs committing.
 
 A repository that committed them before will see them reported as excluded files still on disk. Clear them with:
 
@@ -130,7 +130,11 @@ Workflow triggers deserve particular care, because a reverted trigger restores i
 
 ### Labeller rules
 
-`labels.file-rules` match a pull request's changed paths through `actions/labeler`, which OR-joins repeated globs for the same label. `labels.content-rules` match issue and pull request prose through `github/issue-labeler`, which does the opposite: it **AND-joins** a label's `patterns`, so a list of bare keywords fires only when every one of them shows up in the same issue. Give each label a single pattern that ORs its keywords into one alternation, written in the `/…/i` form so it matches case-insensitively, and anchored with `\b` so `fix` does not fire on `prefix`. `sync-labels` warns when a label carries more than one pattern.
+`repomatic apply-labels` evaluates both families. `labels.file-rules` match a pull request's changed paths, `labels.content-rules` match issue and pull request prose, and both merge over the bundled defaults rather than replacing them: adding a rule for a label upstream already declares widens it.
+
+Within a label, everything ORs. Repeated file-rule groups match independently, and so does every entry in a `patterns` list, so "any of these keywords" is written as the list it reads like. Two conventions are still worth following in each pattern: write it in the `/…/i` form, since a bare pattern is case-sensitive and users capitalize freely, and anchor it with `\b` so `fix` does not fire on `prefix`.
+
+The schema is `actions/labeler` v5 and `github/issue-labeler`'s, kept verbatim when those actions were retired, so rules written against them keep working. The one exception is that `github/issue-labeler` AND-joined a label's `patterns`, which made a bare keyword list fire for nobody; a rule written around that quirk still matches, it simply matches more often now.
 
 ### Flavors
 
