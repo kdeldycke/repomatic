@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.8.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.9.0
 ```
 
 > [!IMPORTANT]
@@ -75,7 +75,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 - Reads the open `Announcement`-labelled issues of [`actions/runner-images`](https://github.com/actions/runner-images/issues?q=is%3Aissue+is%3Aopen+label%3AAnnouncement), which cover both newly available images and images entering deprecation, and maintains a single issue listing them
 - Sorts an announcement to the top and names the image in an **Affects** column when it acts on a runner the repo runs on, read from the announcement's `Possible impact` section so a migration *destination* is never reported as affected
-- Nothing bumps a `runs-on:` value automatically (Dependabot rewrites `uses:` references, `sync-workflow-pins` rewrites version literals), so a retirement otherwise arrives as a failing build with no warning
+- Nothing bumps a `runs-on:` value automatically (`sync-action-pins` rewrites `uses:` references, `sync-workflow-pins` rewrites version literals), so a retirement otherwise arrives as a failing build with no warning
 - Automatically closes the issue once GitHub has closed every open announcement
 - **Runs on**: the weekly schedule and manual `workflow_dispatch` only, since the feed changes on GitHub's clock rather than on any push here
 - **Skipped if**:
@@ -157,6 +157,8 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 #### 🔄 Sync bumpversion config (`sync-bumpversion`)
 
 - Re-derives the `[tool.bumpversion]` configuration in `pyproject.toml` from the bundled template on every run using [`repomatic sync-bumpversion`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py), overwriting canonical entries while preserving local-only additions
+- **Requires**:
+  - A Python project that builds a distributable, gated on the `is_python_package` metadata key rather than `is_python_project`: a uv virtual project (`[tool.uv] package = false`) has a `[project]` table but nothing to version
 - **Skipped if**:
   - `bumpversion.sync = false` in `[tool.repomatic]`
 
@@ -306,6 +308,7 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 
 - Creates a release PR with two commits: a **freeze commit** that freezes everything to the release version, and an **unfreeze commit** that reverts to development references and bumps the patch version
 - The PR body's `How-to release` checklist opens with two review links, the draft dev pre-release and the full changes against `main`, before the merge instructions; each is omitted when its GitHub data is unavailable (no dev pre-release, no prior release, or an unauthenticated run)
+- The body opens on a dependency shippability verdict, regenerated on every push to `main`: the usual "This PR is ready to be merged" sentence, or a `[!CAUTION]` block naming each dependency the release would ship unresolvable. See [Dependency management § Shippable sources](dependencies.md#shippable-sources)
 - Uses [`bump-my-version`](https://github.com/callowayproject/bump-my-version) and [`repomatic changelog`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/changelog.py)
 - Re-locks `uv.lock` in both commits with a plain `uv lock` (never `--upgrade`: a version bump refreshes only the project's own entry, never its dependencies), so a tag never ships with `pyproject.toml` ahead of its own lock entry
 - Must be merged with "Rebase and merge" (not squash): the auto-tagging job needs both commits separate
@@ -485,7 +488,7 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
   - The `package_built` output from the `build` lane, reflecting whether the `build-package` job succeeded.
 - The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests in the engine lane) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
 - The job touches only PyPI; it does not edit the GitHub release. The PyPI availability admonition is baked into the release notes by the engine's `create-release` job at draft creation, which removes the cross-lane race where editing the release from this fast lane ran before the engine had created it (and silently dropped the admonition under `continue-on-error`).
-- Runs on `ubuntu-slim`.
+- Runs on `ubuntu-26.04`.
 
 #### 🧩 Pack Claude Code plugin (`pack-plugin`)
 
@@ -496,7 +499,7 @@ Repomatic-only. This job is not part of the shape `repomatic init` generates: it
 - Runs `repomatic pack-plugin`, which assembles `.claude-plugin/plugin.json` and every skill and agent the component registry declares into `repomatic-claude-plugin.zip`, then uploads it as the `release-asset-repomatic-claude-plugin.zip` run artifact the engine's `extra-assets` job collects. See [§ Claude Code plugin](plugin.md).
 - Deliberately unconditional, with no `if:` and no matrix. The `release` job gates on it, so a skip here would cascade into skipping the whole engine on ordinary pushes, taking `sync-dev-release` with it. Packing a zip is cheap enough to pay on every push.
 - The artifact is only ever consumed on a release commit, where `main` HEAD is the freeze commit whose version `pack-plugin` stamps into the packaged manifest.
-- Runs on `ubuntu-slim`.
+- Runs on `ubuntu-26.04`.
 
 (github-workflows-release-build-yaml-jobs)=
 

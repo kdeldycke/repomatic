@@ -17,8 +17,7 @@
 """Image optimization using external CLI tools.
 
 Replaces the Docker-based `calibreapp/image-actions` GitHub Action with direct
-invocations of lightweight CLI tools, removing the Docker dependency and enabling
-`ubuntu-slim` runners.
+invocations of lightweight CLI tools, removing the Docker dependency.
 
 Tools used per format:
 

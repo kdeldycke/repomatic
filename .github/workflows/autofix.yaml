@@ -723,14 +723,14 @@ jobs:
 
       # --- sync-dep-sources: adopt released dependencies (Python projects). ---
       - if: >
-          ${{ !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).is_python_project }}
+          !cancelled()
+          && fromJSON(needs.metadata.outputs.metadata).is_python_project
         name: Reset tree before sync-dep-sources
         run: git checkout -- .
       - id: sync-dep-sources
         if: >
-          ${{ !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).is_python_project }}
+          !cancelled()
+          && fromJSON(needs.metadata.outputs.metadata).is_python_project
         name: Sync dependency sources
         run: >
           uv --no-progress run --frozen -- repomatic sync-dep-sources
@@ -746,8 +746,8 @@ jobs:
           --template sync-dep-sources
           --output "$GITHUB_OUTPUT"
       - if: >
-          ${{ !cancelled()
-          && steps.sync-dep-sources-meta.outcome == 'success' }}
+          !cancelled()
+          && steps.sync-dep-sources-meta.outcome == 'success'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -761,14 +761,14 @@ jobs:
 
       # --- sync-uv-lock: re-lock dependencies (Python projects). ---
       - if: >
-          ${{ !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).is_python_project }}
+          !cancelled()
+          && fromJSON(needs.metadata.outputs.metadata).is_python_project
         name: Reset tree before sync-uv-lock
         run: git checkout -- .
       - id: sync-uv-lock
         if: >
-          ${{ !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).is_python_project }}
+          !cancelled()
+          && fromJSON(needs.metadata.outputs.metadata).is_python_project
         name: Sync uv.lock
         run: >
           uv --no-progress run --frozen -- repomatic sync-uv-lock
@@ -797,14 +797,14 @@ jobs:
 
       # --- sync-action-pins: bump SHA-pinned actions (repos with workflows). ---
       - if: >
-          ${{ !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).workflow_files }}
+          !cancelled()
+          && fromJSON(needs.metadata.outputs.metadata).workflow_files
         name: Reset tree before sync-action-pins
         run: git checkout -- .
       - id: sync-action-pins
         if: >
-          ${{ !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).workflow_files }}
+          !cancelled()
+          && fromJSON(needs.metadata.outputs.metadata).workflow_files
         name: Sync action pins
         # GH_TOKEN raises the GitHub releases API rate limit when resolving
         # the latest tag and its commit SHA for each pinned action.
@@ -823,8 +823,8 @@ jobs:
           --template sync-action-pins
           --output "$GITHUB_OUTPUT"
       - if: >
-          ${{ !cancelled()
-          && steps.sync-action-pins-meta.outcome == 'success' }}
+          !cancelled()
+          && steps.sync-action-pins-meta.outcome == 'success'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -838,14 +838,14 @@ jobs:
 
       # --- sync-workflow-pins: bump npm/PyPI literals (repos with workflows). ---
       - if: >
-          ${{ !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).workflow_files }}
+          !cancelled()
+          && fromJSON(needs.metadata.outputs.metadata).workflow_files
         name: Reset tree before sync-workflow-pins
         run: git checkout -- .
       - id: sync-workflow-pins
         if: >
-          ${{ !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).workflow_files }}
+          !cancelled()
+          && fromJSON(needs.metadata.outputs.metadata).workflow_files
         name: Sync workflow pins
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -862,8 +862,8 @@ jobs:
           --template sync-workflow-pins
           --output "$GITHUB_OUTPUT"
       - if: >
-          ${{ !cancelled()
-          && steps.sync-workflow-pins-meta.outcome == 'success' }}
+          !cancelled()
+          && steps.sync-workflow-pins-meta.outcome == 'success'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}

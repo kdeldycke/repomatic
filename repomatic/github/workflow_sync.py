@@ -899,8 +899,8 @@ def _render_publish_pypi_job(
       its own `release.yaml` (see pypi/warehouse#11096).
 
     The runner is carried through unchanged: downstream callers run on the same
-    `ubuntu-slim` repomatic uses. If a downstream repo turns out to need a
-    fuller image, that surfaces as a failure to revisit then.
+    image repomatic uses. If a downstream repo turns out to need a fuller one,
+    that surfaces as a failure to revisit then.
 
     Sourcing the body from a `.yaml` file (rather than building it in Python)
     keeps any future third-party SHA pin in the job visible to `sync-action-pins`.

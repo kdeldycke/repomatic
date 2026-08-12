@@ -144,9 +144,11 @@ Values are dictionaries with the following keys:
 - `os`: Operating system name, as used in [GitHub-hosted runners](https://docs.github.com/en/actions/writing-workflows/choosing-where-your-workflow-runs/choosing-the-runner-for-a-job#standard-github-hosted-runners-for-public-repositories).
 
     ```{hint}
-    Compilation only runs on the latest supported version of each OS, for each
-    architecture. macOS and Windows do not offer their latest version on every
-    architecture.
+    One compile job per target, each on one of the six runners the test matrix
+    already covers, so a published binary is built on an image the suite is
+    validated against. The targets are exactly
+    {data}`~repomatic.lint_repo.KNOWN_RUNNERS`, not a separate selection: an
+    image is added here by widening the test axes, never on its own.
     ```
 
 - `platform_id`: Platform identifier, as defined by [Extra Platform](https://github.com/kdeldycke/extra-platforms).

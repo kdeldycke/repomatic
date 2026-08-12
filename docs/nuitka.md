@@ -12,7 +12,7 @@ The release engine compiles every selected `[project.scripts]` entry point into 
 
 ## Build targets
 
-One compile job per target, always on the latest runner image each OS offers for the architecture:
+One compile job per target, each on one of the six runners the test matrix already covers, so a published binary is built on an image the suite is validated against (see the [runner inventory](test-matrix.md#github-hosted-runner-inventory)):
 
 ```{python:render}
 from repomatic.binary import NUITKA_BUILD_TARGETS

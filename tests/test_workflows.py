@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ import pytest
 import tomlrt
 import yaml
 
+from repomatic.binary import NUITKA_BUILD_TARGETS
 from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
@@ -918,6 +920,30 @@ def test_every_job_runs_on_a_test_axis(
     )
 
 
+def test_binary_build_targets_are_the_test_axes() -> None:
+    """The Nuitka build fleet is exactly the set of images the suite runs on.
+
+    The companion to {func}`test_every_job_runs_on_a_test_axis`, which can only
+    see a literal `runs-on:`. The `compile-binaries` job takes its runner from a
+    matrix expression fed by {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`, so
+    that test skips it and the build fleet would otherwise be the one place an
+    untracked image could sit unnoticed.
+
+    The equality is the invariant, in both directions: a published binary is
+    built on an image the suite is validated against, and an image the suite
+    covers is one binaries can be built on. Adding a target therefore means
+    widening the test axes in {mod}`repomatic.matrix_axes`, never editing this
+    fleet alone. `binary.py`'s own docstring states the rule; this holds it.
+    """
+    build_runners = {target["os"] for target in NUITKA_BUILD_TARGETS.values()}
+    assert build_runners == set(KNOWN_RUNNERS), (
+        "Nuitka build targets and the test axes have diverged. Only in "
+        f"NUITKA_BUILD_TARGETS: {sorted(build_runners - set(KNOWN_RUNNERS))}; "
+        f"only in KNOWN_RUNNERS: {sorted(set(KNOWN_RUNNERS) - build_runners)}. "
+        "Widen the runner sets in repomatic/matrix_axes.py so the two agree."
+    )
+
+
 # --- uv provisioning tests ---
 
 
@@ -1001,6 +1027,102 @@ def test_uv_invoking_job_provisions_setup_uv(workflow_name: str, job_name: str) 
         f"{workflow_name} ({job_name}): runs uv/uvx but has no "
         "`astral-sh/setup-uv@` step to provision it. Jobs inherit no toolchain, "
         "so each must provision its own uv."
+    )
+
+
+# --- Condition expression tests ---
+
+
+def _iter_node_conditions(node: yaml.Node | None) -> Iterator[tuple[int, str]]:
+    """Recursively yield `(line, value)` for every `if:` scalar under a node.
+
+    Walks the composed node graph instead of the loaded mapping: only the nodes
+    carry the source line a failure has to name.
+    """
+    if isinstance(node, yaml.MappingNode):
+        for key, value in node.value:
+            if (
+                isinstance(key, yaml.ScalarNode)
+                and key.value == "if"
+                and isinstance(value, yaml.ScalarNode)
+            ):
+                yield key.start_mark.line + 1, value.value
+            yield from _iter_node_conditions(value)
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            yield from _iter_node_conditions(item)
+
+
+def iter_all_conditions() -> Iterator[tuple[str, int, str]]:
+    """Yield `(file_path, line, condition)` for every `if:` in the Actions tree.
+
+    Covers the composite actions alongside the workflows: both ship downstream
+    and GitHub Actions evaluates their `if:` by the same rule.
+
+    Sorted so parametrize IDs are stable across processes (xdist collects in
+    every worker and aborts on a mismatch).
+    """
+    files = sorted(WORKFLOWS_DIR.glob("*.yaml"))
+    files += sorted((REPO_ROOT / ".github" / "actions").glob("*/action.yaml"))
+    for path in files:
+        root = yaml.compose(path.read_text(encoding="UTF-8"), Loader=yaml.SafeLoader)
+        for line, condition in _iter_node_conditions(root):
+            yield str(path.relative_to(REPO_ROOT)), line, condition
+
+
+# Every `if:` condition in the Actions tree. Enumerated once so the parametrized
+# test both covers each condition and fails loudly if the walker ever regresses
+# to matching nothing (guarded by the discovery test below).
+ALL_CONDITIONS = list(iter_all_conditions())
+
+# A condition GitHub Actions evaluates as an expression: the value is one
+# `${{ … }}` and nothing else. The `(?!\}\})` guard is what rejects a value
+# holding two expressions, which would otherwise pass on its first and last
+# three characters alone. Matched with `fullmatch`, so a trailing newline is a
+# leftover character and fails, which is the whole point.
+SOLE_EXPRESSION = re.compile(r"\$\{\{(?:(?!\}\}).)*\}\}", re.DOTALL)
+
+
+def test_conditions_discovered() -> None:
+    """The condition walker must find conditions (guards against a dead walk)."""
+    assert ALL_CONDITIONS, (
+        "No `if:` conditions discovered. The _iter_node_conditions walker likely "
+        "regressed: every workflow gates something."
+    )
+
+
+@pytest.mark.parametrize(
+    ("file_path", "line", "condition"),
+    ALL_CONDITIONS,
+    ids=[f"{path}:{line}" for path, line, _ in ALL_CONDITIONS],
+)
+def test_condition_wrapper_spans_the_whole_value(
+    file_path: str, line: int, condition: str
+) -> None:
+    """A condition using `${{ }}` holds nothing outside its braces.
+
+    GitHub Actions evaluates an `if:` value as an expression only when the value
+    is *entirely* one `${{ … }}`. Any character outside the braces switches it
+    to string interpolation, and the resulting non-empty string is truthy, so
+    the step silently stops gating and runs unconditionally.
+
+    A folded block scalar is the trap, because it appends a trailing newline: a
+    wrapped expression under `if: >` becomes that expression plus a newline, and
+    the character outside the braces is invisible in the diff. Eleven steps of
+    the `sync-deps` job in `autofix.yaml` were gated this way, all of them
+    always-on until this test was written.
+
+    Write a multi-line condition bare instead, with no wrapper at all: a bare
+    `if:` value is evaluated as an expression whatever whitespace trails it. A
+    leading `!` (as in `!cancelled()`) rules out the bare *single-line* form,
+    since YAML reads it as a tag indicator, so those stay either folded-and-bare
+    or single-line-and-wrapped.
+    """
+    assert "${{" not in condition or SOLE_EXPRESSION.fullmatch(condition), (
+        f"{file_path}:{line}: condition {condition!r} has characters outside its "
+        "`${{ }}` braces, so GitHub Actions interpolates it into a truthy string "
+        "instead of evaluating it, and the gate never holds. Drop the wrapper "
+        "and write the expression bare."
     )
 
 

@@ -226,7 +226,7 @@ Twenty of twenty-two jobs improved, by 20-56%. One tied and one was 5% slower, b
 The lean image was never faster; it was slower almost everywhere, and most of the gap sits in exactly the setup phase the earlier measurement could not see. So `ubuntu-slim` is retired, and `lint-repo` now rejects it like any other untracked image.
 
 ```{caution}
-The `ubuntu-26.04` column is a single run against a seven-to-nine run baseline, so treat the *magnitude* as provisional. What makes the direction trustworthy is that twenty-two independent jobs moved the same way at once, which noise does not usually do. Re-confirm against your own timings before copying the conclusion: a project whose light jobs are dominated by something else may still find the lean image wins.
+The `ubuntu-26.04` column is a single run against a seven-to-nine run baseline, so treat the *magnitude* as provisional. What makes the direction trustworthy is that twenty of twenty-two independent jobs moved the same way at once, which noise does not usually do. Re-confirm against your own timings before copying the conclusion: a project whose light jobs are dominated by something else may still find the lean image wins.
 ```
 
 ### Measuring your own

@@ -65,7 +65,7 @@ Every `lint-*` operation checks content without modifying it. Lint operations ar
 **Required properties:**
 
 1. **CLI command.** A `repomatic lint-*` command. Returns exit code 0 on pass, non-zero on failure.
-2. **Workflow job.** A `lint-*` job in `lint.yaml` (not `autofix.yaml`). No PR creation — lints gate merges via status checks.
+2. **Workflow job.** A `lint-*` job in `lint.yaml` (not `autofix.yaml`), unless the check only makes sense at a lifecycle moment: `lint-deps` lives in `_release-build.yaml`, where it gates the wheel build. No PR creation — lints gate merges via status checks.
 3. **Documentation.** Job description in `docs/workflows.md`. Changelog entry.
 
 **Optional properties:**
@@ -74,8 +74,8 @@ Every `lint-*` operation checks content without modifying it. Lint operations ar
 
 **Invariants:**
 
-- Read-only. No file writes, no PRs, no side effects beyond exit code and stdout/stderr output.
-- Lives in `lint.yaml`, not `autofix.yaml`.
+- Read-only. No file writes, no PRs, no side effects beyond exit code and stdout/stderr output. A markdown report written with `--output`, for a PR body to render, is not a file write in this sense: it is the exit code spelled out.
+- Never in `autofix.yaml`: a lint has nothing to commit. `lint.yaml` is the default home, and the release lane is the one documented alternative.
 
 ## Pack job contract
 

@@ -54,10 +54,8 @@ jobs:
           uv --no-progress run --frozen -- repomatic --verbosity DEBUG metadata
           --format github-json --output "$GITHUB_OUTPUT"
           build_targets
-      # Unwraps the nested JSON string the metadata output carries. This used to
-      # append `ubuntu-slim` as well, so the dump covered the one image outside
-      # the test axes; now that every job runs on an axis, the build targets
-      # already span the fleet.
+      # Unwraps the nested JSON string the metadata output carries. Every job
+      # runs on a test axis, so the build targets already span the fleet.
       - name: Unwrap build targets
         id: extend-matrix
         env:

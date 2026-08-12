@@ -681,9 +681,9 @@ def _install_binary(
 
     # Store in cache for future use. Verify the cached copy is accessible
     # before returning it; fall back to the temp directory copy otherwise.
-    # Docker-based CI runners (e.g., ubuntu-slim) can silently lose cached
-    # files due to overlay filesystem or mount restrictions, and an unwritable
-    # cache root makes store_binary return None.
+    # A containerized CI runner can silently lose cached files to overlay
+    # filesystem or mount restrictions, and an unwritable cache root makes
+    # store_binary return None.
     if not no_cache:
         cached = store_binary(spec.name, spec.version, cache_key, extracted)
         if cached is not None and cached.is_file():
