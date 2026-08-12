@@ -468,6 +468,19 @@ The issue and PR labeller (content keyword rules, file glob rules) pre-labels a 
 
 Mind the bundled actions' matching semantics. `github/issue-labeler` treats each pattern as an unanchored, case-sensitive regex and **AND-joins** a label's pattern list (every pattern must match). So anchor keywords with `\b`, emit them case-insensitively in the `/regex/i` form, and OR-join a label's keywords into a **single alternation** (`/\bfoo\b|\bbar\b/i`): a multi-item list reads as "all of these", not "any". `actions/labeler` instead OR's repeated groups for the same label, which is what you want for file globs.
 
+### Retiring a label is a migration, not a deletion
+
+`sync-labels` only creates and updates. Dropping a label from the configuration never removes it from the repository, it just stops managing it, so the label stays live on every issue and pull request still carrying it. A downstream that reorganizes its taxonomy (folding per-item labels into an ecosystem group, renaming a family) therefore silently accumulates orphans that no longer appear in any config and that only a maintainer can clear.
+
+Prefer a rename to a create-and-delete, because GitHub keeps every issue and pull request attached across a rename while a deletion drops the association outright. `rename-from` is how that is declared, and it is strictly **one-to-one**: labelmaker renames only when the target does *not* exist and exactly one listed source does. Two live sources is an unconditional error, and a target that already exists falls to `on-rename-clash`, which `[defaults]` pins to `error` so the clash surfaces instead of passing silently.
+
+Two consequences worth knowing before writing the field:
+
+- **An N-to-1 merge cannot be automated.** Name the single source carrying the most history, let the rename move it wholesale, and hand-migrate the remainder. Listing every source instead errors and migrates nothing.
+- **Order matters against the sync.** Once a sync has created the new label, a rename into it can only clash. So declare `rename-from` in the same change that introduces the label, never after; a fold whose target is already live has missed the window and is left with a manual migration.
+
+Check what is actually attached before planning any of this (`gh issue list --label ... --state all`, and the same for `gh pr list`). An orphan with nothing on it is a plain deletion, and much of a taxonomy change usually turns out to be exactly that.
+
 ### Linting and formatting
 
 [Linting](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-lint-yaml-jobs) and [formatting](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-autofix-yaml-jobs) are automated via GitHub workflows. Developers needn't run them manually; pushing triggers the workflows, which catch issues and handle the nitpicking.

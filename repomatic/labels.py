@@ -79,7 +79,13 @@ INLINE_LABEL_FIELDS: tuple[str, ...] = (
 
 `serialize_inline_labels` passes them through verbatim (colors get their
 leading `#` stripped), so declarative renames and the other per-label knobs
-ride the regular sync."""
+ride the regular sync.
+
+`rename-from` is the one field with a constraint worth knowing before use: it
+is strictly one-to-one, renaming only when the target is absent and exactly one
+listed source exists. It therefore cannot merge several labels into one, and is
+useless once a sync has already created the target. See "Retiring a label is a
+migration, not a deletion" in `claude.md`."""
 
 
 def _dump_labeller_yaml(grouped: dict[str, Any]) -> str:
