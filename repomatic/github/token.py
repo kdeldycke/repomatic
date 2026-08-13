@@ -40,6 +40,16 @@ The **Settings → Actions → General → Workflow permissions** setting has
 no effect on this limitation — it's a hard security boundary enforced by
 GitHub regardless of repository-level settings.
 
+The permission has to reach the actual `git push`, not just the `gh` CLI:
+setting `GH_TOKEN` in a step's `env` only authenticates `gh`/`repomatic` API
+calls made by that process. A bare `git push` (`git_ops.force_push_branch`,
+which every `pr-sync` template goes through) instead authenticates with
+whatever credentials `actions/checkout` configured for the job, which
+defaults to `github.token` regardless of `GH_TOKEN`. A job whose diff can
+touch `.github/workflows/` needs `token: ${{ secrets.REPOMATIC_PAT ||
+github.token }}` on its own checkout step too, or the push is rejected
+exactly as if the PAT had never been set.
+
 Jobs that use `REPOMATIC_PAT`:
 
 - `autofix.yaml`: fix-typos, sync-repomatic, sync-action-pins,
