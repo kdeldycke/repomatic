@@ -36,6 +36,7 @@ from repomatic.config import (
 )
 from repomatic.github.actions import NULL_SHA
 from repomatic.matrix_axes import (
+    PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
     UNSTABLE_PYTHON_VERSIONS,
@@ -813,7 +814,11 @@ expected: dict[str, Any] = {
         ],
         "include": [
             {"state": "stable"},
-            {"state": "unstable", "python-version": "3.15"},
+            {
+                "state": "unstable",
+                "python-version": "3.15",
+                "python-label": "3.15-dev",
+            },
             {"os": "ubuntu-26.04-arm", "python-version": "3.14t", "state": "stable"},
         ],
         "exclude": [
@@ -1937,6 +1942,48 @@ def test_single_runner_python_versions_are_stable_and_pinned(tmp_path, monkeypat
         ]
         # The reduced PR matrix never carries a flavor.
         assert all(j["python-version"] != version for j in pr_jobs)
+
+
+def test_unstable_python_versions_carry_a_prerelease_label(tmp_path, monkeypatch):
+    """Each in-development Python gets a display label; the axis keeps the version.
+
+    The label is what the CI job name shows, so an unstable cell reads
+    `py3.15-dev` and says why it may fail rather than looking like any released
+    one. Adding a version to UNSTABLE_PYTHON_VERSIONS and forgetting its label
+    is the failure this catches.
+
+    Label and axis value stay separate on purpose: `uv venv --python`, which
+    `tests.yaml` feeds from `python-version`, does not parse the `-dev`
+    spelling, and downstream `[tool.repomatic.test-matrix]` directives key on
+    the bare version.
+    """
+    metadata = metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n',
+    )
+
+    full_jobs = list(metadata.test_matrix.solve())
+    pr_jobs = list(metadata.test_matrix_pr.solve())
+    assert UNSTABLE_PYTHON_VERSIONS
+    for version in UNSTABLE_PYTHON_VERSIONS:
+        # The axis carries the bare version, never the labelled spelling.
+        assert version in TEST_PYTHON_FULL
+        assert f"{version}{PRERELEASE_LABEL_SUFFIX}" not in TEST_PYTHON_FULL
+        probes = [j for j in full_jobs if j["python-version"] == version]
+        assert probes
+        for job in probes:
+            assert job["state"] == "unstable"
+            assert job["python-label"] == f"{version}{PRERELEASE_LABEL_SUFFIX}"
+        # The reduced PR matrix never probes an unreleased Python.
+        assert all(j["python-version"] != version for j in pr_jobs)
+
+    # Labelled and unstable are the same set of cells: a released Python must
+    # stay unlabelled so the job name falls back to its own version.
+    assert all(
+        ("python-label" in job) == (job["python-version"] in UNSTABLE_PYTHON_VERSIONS)
+        for job in full_jobs
+    )
 
 
 def test_stale_test_matrix_excludes(tmp_path, monkeypatch):

@@ -121,6 +121,34 @@ Jobs using these versions run with `continue-on-error` in CI. Contrast with
 {data}`SINGLE_RUNNER_PYTHON_VERSIONS`, which are released and run stable.
 """
 
+PRERELEASE_LABEL_SUFFIX: Final[str] = "-dev"
+"""Suffix marking an unreleased Python in a CI job name.
+
+Appended to each {data}`UNSTABLE_PYTHON_VERSIONS` member to form the
+`python-label` matrix key, so a `continue-on-error` cell states *why* it may
+fail: `⁉️ ubuntu-26.04 / py3.15-dev` rather than a bare `py3.15` indistinguishable
+from a released one. Being a plain suffix append, it composes with the
+free-threaded flavor the way both tools below spell it: `3.15t` reads
+`3.15t-dev`.
+
+The spelling is borrowed, not invented. pyenv ships version definitions named
+`3.15-dev` and `3.15t-dev` that build from the CPython branch tip, and
+[`actions/setup-python`](https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md)
+documents an `x.y-dev` syntax resolving to "the latest patch version of Python,
+alpha, beta and rc (release candidate) releases included". Anyone reading a
+GitHub Actions job name has met it in one of the two.
+
+```{warning} A label, never a uv request
+uv does not implement the syntax. `uv python find 3.15` parses as a version
+request ("No interpreter found for Python 3.15"), while `uv python find
+3.15-dev` falls through to the executable-name branch ("No interpreter found
+for executable name `3.15-dev`"). The workflow hands `python-version` straight
+to `uv venv --python`, so the axis value stays the bare version and this suffix
+reaches the job `name:` alone. Writing it into a
+`[tool.repomatic.test-matrix]` directive matches no cell.
+```
+"""
+
 SINGLE_RUNNER_PYTHON_VERSIONS: Final[dict[str, str]] = {"3.14t": "ubuntu-26.04-arm"}
 """Released Python build flavors smoke-tested on a single runner, mapped to it.
 

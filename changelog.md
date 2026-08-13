@@ -21,6 +21,7 @@
 - `lint-repo` now runs the branch-ruleset and immutable-releases checks it already defined but never invoked.
 - `apply-labels` no longer applies `💖 sponsor` from the words "funding" or "sponsor", or from a pull request touching `.github/funding.yml`: only `sponsor-label` sets it, from actual sponsorship.
 - Every `gh` call now runs the registry-pinned, checksum-verified binary, falling back to `$PATH` with a warning when it cannot be installed.
+- Test jobs running an unreleased Python are now titled `py3.15-dev`, so a `continue-on-error` cell states why it is allowed to fail.
 
 ## [`7.10.0` (2026-08-12)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...v7.10.0)
 

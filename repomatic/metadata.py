@@ -119,6 +119,7 @@ from .github.matrix import Matrix, stale_axis_values
 from .github.release_sync import build_expected_body
 from .mailmap import MAILMAP_PATH
 from .matrix_axes import (
+    PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
     TEST_PYTHON_PR,
@@ -1945,8 +1946,18 @@ class Metadata:
         if "windows-11-arm" not in removed_os:
             matrix.add_excludes({"os": "windows-11-arm", "python-version": "3.10"})
         matrix.add_includes({"state": "stable"})
+        # `python-label` is display-only: it spells the version the way pyenv and
+        # actions/setup-python name a prerelease, so the job title says why the
+        # cell is continue-on-error. It rides alongside the version rather than
+        # replacing it because uv rejects the `-dev` form, and because downstream
+        # `test-matrix` directives key on the bare version. See
+        # {data}`~repomatic.matrix_axes.PRERELEASE_LABEL_SUFFIX`.
         for version in sorted(UNSTABLE_PYTHON_VERSIONS):
-            matrix.add_includes({"state": "unstable", "python-version": version})
+            matrix.add_includes({
+                "state": "unstable",
+                "python-version": version,
+                "python-label": f"{version}{PRERELEASE_LABEL_SUFFIX}",
+            })
         # Released build flavors (free-threaded) are a variant of an
         # already-broadly-covered base version, so they smoke-test stable on a
         # single runner rather than the full spread. Each is a standalone

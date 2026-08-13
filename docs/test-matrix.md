@@ -55,6 +55,8 @@ The combination your users actually install — released dependencies on a stabl
 
 Anything not yet shipped is an early-warning signal, not a support promise: a prerelease Python, a dependency's development branch, an unreleased build. Run each on a *single* runner. If it breaks you want a heads-up, not a cross-platform report, and once that version ships the broad shipped-config coverage picks it up anyway. Flag these jobs `continue-on-error` through [`test-matrix.unstable`](configuration.md) so an expected breakage does not fail the build.
 
+A prerelease Python says so in its job title. `repomatic` attaches a `python-label` key to those cells, spelling the version the way [pyenv](https://github.com/pyenv/pyenv) and [`actions/setup-python`](https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md) name a development build, so the job reads `⁉️ ubuntu-26.04 / py3.15-dev` and its `continue-on-error` marking carries its own explanation. That label is display-only: `uv` does not parse the `-dev` form, so the `python-version` axis keeps the bare `3.15`, and `3.15` remains the value a `test-matrix` directive has to name.
+
 (smoke-test-released-build-flavors-on-one-runner)=
 
 ### Smoke-test released build flavors on one runner

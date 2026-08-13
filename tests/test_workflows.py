@@ -1055,6 +1055,24 @@ def test_binary_build_targets_are_the_test_axes() -> None:
     )
 
 
+def test_prerelease_python_label_reaches_the_job_name() -> None:
+    """The test job titles itself from `python-label`, falling back to the version.
+
+    `repomatic metadata` attaches `python-label` to the cells whose Python is
+    unreleased and to no others (see
+    {data}`~repomatic.matrix_axes.PRERELEASE_LABEL_SUFFIX`), so the fallback is
+    not decoration: on every released cell the key resolves to an empty string,
+    and the job would be titled `py` with nothing after it. The metadata half of
+    the contract is held by
+    `tests/test_metadata.py::test_unstable_python_versions_carry_a_prerelease_label`.
+    """
+    name = load_workflow("tests.yaml")["jobs"]["tests"]["name"]
+    assert "py${{ matrix.python-label || matrix.python-version }}" in name, (
+        "The test job name no longer reads the prerelease label, or dropped the "
+        f"fallback every released cell needs. Got: {name!r}"
+    )
+
+
 # --- uv provisioning tests ---
 
 

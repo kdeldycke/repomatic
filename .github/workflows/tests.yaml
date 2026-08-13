@@ -104,7 +104,13 @@ jobs:
         ${{ github.event_name != 'pull_request'
         && fromJSON(needs.metadata.outputs.metadata).test_matrix
         || fromJSON(needs.metadata.outputs.metadata).test_matrix_pr }}
-    name: "${{ matrix.state == 'stable' && '✅' || '⁉️' }} ${{ matrix.os }} / py${{ matrix.python-version }}"
+    # `python-label` is set by repomatic metadata only where the plain version
+    # would hide why a cell is continue-on-error (a prerelease reads `3.15-dev`);
+    # every other cell falls back to the version itself. See
+    # repomatic/matrix_axes.py for why the label never replaces the axis value.
+    name: >-
+      ${{ matrix.state == 'stable' && '✅' || '⁉️' }} ${{ matrix.os }} /
+      py${{ matrix.python-label || matrix.python-version }}
     runs-on: ${{ matrix.os }}
     # We keep going when a job flagged as not stable fails.
     continue-on-error: ${{ matrix.state == 'unstable' }}
