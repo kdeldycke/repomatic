@@ -215,14 +215,23 @@ def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     Decodes output as UTF-8 so non-ASCII commit metadata (accented author
     names, emoji in messages) survives on platforms whose default encoding is
     not UTF-8 (Windows `cp1252`).
+
+    A failure is logged before the exception propagates: `CalledProcessError`'s
+    default traceback prints only the command and exit code, never the
+    captured `stderr`, which otherwise strands a CI failure with no way to
+    tell a lease rejection from a permission error from a rate limit.
     """
-    return subprocess.run(
+    process = subprocess.run(
         ["git", *args],
         capture_output=True,
         text=True,
         encoding="UTF-8",
-        check=check,
+        check=False,
     )
+    if check and process.returncode:
+        logging.error(f"git {' '.join(args)} failed:\n{process.stderr.strip()}")
+        process.check_returncode()
+    return process
 
 
 def _parse_commit_log(output: str) -> tuple[Commit, ...]:

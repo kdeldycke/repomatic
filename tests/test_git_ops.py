@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -474,6 +475,35 @@ def test_force_push_refuses_an_outdated_lease(git_workdir):
     commit_staged("Sync fruits")
     with pytest.raises(subprocess.CalledProcessError):
         force_push_branch("tmp-late", "sync-fruits", expected_sha=observed)
+
+
+def test_force_push_rejection_logs_stderr(git_workdir, caplog):
+    """A rejected push logs git's stderr, which `CalledProcessError` itself drops."""
+    caplog.set_level(logging.ERROR)
+
+    def publish(content: str, branch: str, expected_sha: str | None) -> str:
+        (git_workdir / "fruits.txt").write_text(content, encoding="UTF-8")
+        stage_all()
+        create_branch(branch)
+        sha = commit_staged("Sync fruits")
+        force_push_branch(branch, "sync-fruits", expected_sha=expected_sha)
+        checkout("main")
+        return sha
+
+    observed = publish("papaya\nquince\n", "tmp-first", None)
+    publish("papaya\nrhubarb\n", "tmp-concurrent", observed)
+
+    (git_workdir / "fruits.txt").write_text("papaya\nsorrel\n", encoding="UTF-8")
+    stage_all()
+    create_branch("tmp-late")
+    commit_staged("Sync fruits")
+    with pytest.raises(subprocess.CalledProcessError):
+        force_push_branch("tmp-late", "sync-fruits", expected_sha=observed)
+
+    [record] = caplog.records
+    assert record.levelname == "ERROR"
+    assert "git push" in record.message
+    assert "sync-fruits" in record.message
 
 
 def test_branch_deletion_is_idempotent(git_workdir):
