@@ -168,7 +168,7 @@ def test_monitored_workflows_missing_directory(tmp_path):
     assert monitored_workflows(tmp_path / "absent") == []
 
 
-def test_monitored_workflows_skips_unparseable_file(tmp_path):
+def test_monitored_workflows_skips_unparsable_file(tmp_path):
     """One malformed file never aborts the sweep."""
     (tmp_path / "broken.yaml").write_text("name: [unclosed\n", encoding="UTF-8")
     (tmp_path / "ok.yaml").write_text("name: Ok\non:\n  push:\n", encoding="UTF-8")

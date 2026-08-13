@@ -265,7 +265,7 @@ def test_missing_file_reports_nothing(tmp_path):
 
 
 def test_malformed_requirement_is_skipped(tmp_path):
-    """An unparseable entry is somebody else's error to report."""
+    """An unparsable entry is somebody else's error to report."""
     path = write_pyproject(
         tmp_path,
         """\
