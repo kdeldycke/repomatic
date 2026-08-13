@@ -46,6 +46,7 @@ from repomatic.lint_repo import (
     check_topics_subset_of_keywords,
     check_website_for_sphinx,
     check_workflow_permissions,
+    documentation_url,
     get_repo_metadata,
     run_repo_lint,
 )
@@ -145,6 +146,95 @@ def test_sphinx_fetches_metadata():
         mock_get.assert_called_once_with("owner/repo")
 
 
+@pytest.mark.parametrize(
+    ("project_urls", "expected"),
+    (
+        (None, None),
+        ({}, None),
+        ({"Homepage": "https://papaya.example"}, None),
+        (
+            {"Documentation": "https://docs.papaya.example"},
+            "https://docs.papaya.example",
+        ),
+        # PEP 621 fixes neither the case nor the wording of the key.
+        (
+            {"documentation": "https://docs.papaya.example"},
+            "https://docs.papaya.example",
+        ),
+        ({"DOCS": "https://docs.papaya.example"}, "https://docs.papaya.example"),
+        # `Documentation` outranks `Docs` when a project declares both.
+        (
+            {"Docs": "https://kiwi.example", "Documentation": "https://papaya.example"},
+            "https://papaya.example",
+        ),
+        # An empty value is not a declaration.
+        (
+            {"Documentation": "  ", "Docs": "https://papaya.example"},
+            "https://papaya.example",
+        ),
+    ),
+)
+def test_documentation_url(project_urls, expected):
+    """Resolve the documentation site a project declares in `[project.urls]`."""
+    assert documentation_url(project_urls) == expected
+
+
+@pytest.mark.parametrize(
+    ("homepage_url", "docs_url"),
+    (
+        # GitHub stores the trailing slash a browser appends, while
+        # `[project.urls]` is usually written without one.
+        ("https://papaya.example/", "https://papaya.example"),
+        ("https://papaya.example", "https://papaya.example/"),
+        ("https://kiwi.github.io/papaya/", "https://kiwi.github.io/papaya"),
+        # Scheme and host are case-insensitive per RFC 3986.
+        ("HTTPS://Papaya.Example", "https://papaya.example"),
+    ),
+)
+def test_sphinx_website_matches_docs_url(homepage_url, docs_url):
+    """Pass when the website field and the declared docs URL name one address."""
+    result = check_website_for_sphinx(
+        "owner/repo", is_sphinx=True, homepage_url=homepage_url, docs_url=docs_url
+    )
+    assert result.passed is True
+    assert "matches" in result.message
+
+
+@pytest.mark.parametrize(
+    ("homepage_url", "docs_url"),
+    (
+        # The move this check exists to catch: the documentation gained a
+        # domain and the sidebar kept pointing at the origin it left.
+        ("https://kiwi.github.io/papaya", "https://papaya.example"),
+        # A path's case is significant, unlike a host's.
+        ("https://papaya.example/Docs", "https://papaya.example/docs"),
+        # Two origins, not one.
+        ("http://papaya.example", "https://papaya.example"),
+        ("https://papaya.example/docs", "https://papaya.example/manual"),
+    ),
+)
+def test_sphinx_website_differs_from_docs_url(homepage_url, docs_url):
+    """Fail when the website field names something other than the docs URL."""
+    result = check_website_for_sphinx(
+        "owner/repo", is_sphinx=True, homepage_url=homepage_url, docs_url=docs_url
+    )
+    assert result.passed is False
+    assert homepage_url in result.message
+    assert docs_url in result.message
+
+
+def test_sphinx_website_without_declared_docs_url():
+    """Keep the presence-only check when the project declares no docs URL."""
+    result = check_website_for_sphinx(
+        "owner/repo",
+        is_sphinx=True,
+        homepage_url="https://kiwi.github.io/papaya",
+        docs_url=None,
+    )
+    assert result.passed is True
+    assert "is set" in result.message
+
+
 def test_descriptions_match():
     """No error when descriptions match."""
     result = check_description_matches(
@@ -242,6 +332,24 @@ def test_website_warning(capsys):
         assert exit_code == 0
         captured = capsys.readouterr()
         assert "::warning::" in captured.out
+
+
+def test_website_docs_url_mismatch_warning(capsys):
+    """A website field pointing away from the docs URL warns without failing."""
+    with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
+        mock_get.return_value = {
+            "homepageUrl": "https://kiwi.github.io/papaya",
+            "description": None,
+        }
+        exit_code = run_repo_lint(
+            is_sphinx=True,
+            docs_url="https://papaya.example",
+            repo="owner/repo",
+        )
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "::warning::" in captured.out
+        assert "https://papaya.example" in captured.out
 
 
 @pytest.mark.parametrize(

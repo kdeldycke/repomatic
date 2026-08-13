@@ -188,6 +188,7 @@ from .labels import (
 )
 from .lint_repo import (
     KNOWN_RUNNERS,
+    documentation_url,
     run_repo_lint,
 )
 from .mailmap import Mailmap, remove_header
@@ -2075,7 +2076,8 @@ def lint_repo(
     \b
     Checks:
       - Package name vs repository name (warning).
-      - Website field set for Sphinx projects (warning).
+      - Website field set for Sphinx projects, and matching the documentation
+        URL declared in [project.urls] (warning).
       - Repository description matches project description (error).
       - GitHub topics subset of pyproject.toml keywords (warning).
       - Funding file present when owner has GitHub Sponsors (warning).
@@ -2114,12 +2116,15 @@ def lint_repo(
         # Extract repo name from owner/repo format.
         repo_name = repo.split("/")[-1] if "/" in repo else repo
 
-    # Derive package_name, is_sphinx, project_description, keywords from pyproject.toml.
+    # Derive package_name, is_sphinx, project_description, docs_url and keywords
+    # from pyproject.toml.
     metadata = Metadata()
     package_name = get_project_name()
     is_sphinx = metadata.is_sphinx
     project_description = metadata.project_description
-    keywords = metadata.pyproject_toml.get("project", {}).get("keywords")
+    project_table = metadata.pyproject_toml.get("project", {})
+    docs_url = documentation_url(project_table.get("urls"))
+    keywords = project_table.get("keywords")
 
     config = get_tool_config(ctx)
     nuitka_active = config.nuitka_enabled and bool(metadata.script_entries)
@@ -2130,6 +2135,7 @@ def lint_repo(
         is_package=metadata.is_python_package,
         is_sphinx=is_sphinx,
         project_description=project_description,
+        docs_url=docs_url,
         keywords=keywords,
         repo=repo if repo else None,
         has_pat=has_pat,

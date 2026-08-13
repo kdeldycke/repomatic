@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import urlsplit
 
 import yaml
 from click_extra import echo
@@ -59,7 +60,17 @@ from .version_sync import find_upstream_ref_versions
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator, Mapping
+
+DOCS_URL_KEYS = ("documentation", "docs")
+"""Keys in `[project.urls]` naming the published documentation site.
+
+Checked in priority order, and looked up in a lowercased index of the
+project's own keys: PEP 621 leaves the spelling to the project, so
+`Documentation`, `documentation` and `Docs` all occur in the wild. Mirrors the
+same convention {data}`repomatic.pypi._SOURCE_URL_KEYS` applies to the PyPI
+copy of the same mapping.
+"""
 
 WORKFLOW_DIR = Path(WORKFLOW_TARGET_ROOT)
 """Directory every workflow check walks.
@@ -206,14 +217,76 @@ def check_package_name_vs_repo(package_name: str | None, repo_name: str) -> Chec
     return CheckResult(True, f"Package name '{package_name}' matches repository name.")
 
 
+def _url_key(url: str) -> tuple[str, str, str, str, str]:
+    """Reduce a URL to what two spellings of the same address share.
+
+    Lowercases the scheme and host, which are case-insensitive per
+    [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986#section-3.1), and
+    drops a trailing slash. GitHub stores the website field with the trailing
+    slash a browser appends, while `[project.urls]` is usually written without
+    one, so comparing raw strings would report a correctly configured
+    repository as a mismatch.
+
+    Every other difference survives. A path's case is significant, and `http`
+    and `https` really are two origins: those are the splits a comparison
+    exists to surface, not noise to smooth over.
+    """
+    parts = urlsplit(url.strip())
+    return (
+        parts.scheme.lower(),
+        parts.netloc.lower(),
+        parts.path.rstrip("/"),
+        parts.query,
+        parts.fragment,
+    )
+
+
+def documentation_url(project_urls: Mapping[str, str] | None) -> str | None:
+    """The documentation site a project declares in `[project.urls]`.
+
+    :param project_urls: The `[project.urls]` mapping, keys untouched.
+    :return: The first URL found per {data}`DOCS_URL_KEYS`, or `None` when the
+        project declares none.
+    """
+    if not project_urls:
+        return None
+    by_key = {key.lower(): str(value).strip() for key, value in project_urls.items()}
+    for key in DOCS_URL_KEYS:
+        if candidate := by_key.get(key):
+            return candidate
+    return None
+
+
 def check_website_for_sphinx(
-    repo: str, is_sphinx: bool, homepage_url: str | None = None
+    repo: str,
+    is_sphinx: bool,
+    homepage_url: str | None = None,
+    docs_url: str | None = None,
 ) -> CheckResult:
-    """Check that Sphinx projects have a website set.
+    """Check that a Sphinx project's website field names its documentation.
+
+    GitHub renders the website field in the repository sidebar, and for a
+    project publishing Sphinx documentation that is where a visitor expects to
+    land. So the check has two halves: the field is set at all, and it names
+    the site the project itself declares under {data}`DOCS_URL_KEYS`.
+
+    The second half is what a documentation move leaves behind. Sphinx emits
+    `<link rel="canonical">` from `html_baseurl`, and a `conf.py` commonly
+    derives that from the same `[project.urls]` entry, so a project that moves
+    to a new domain has every published page naming the new origin as canonical
+    while the sidebar keeps sending visitors to the one it replaced. Nothing
+    but a reader noticing connects the two.
+
+    ```{note}
+    A project declaring no documentation URL gets the presence half only. The
+    comparison needs the project to have named an expected answer, and nothing
+    here invents one from the repository slug.
+    ```
 
     :param repo: Repository in 'owner/repo' format.
     :param is_sphinx: Whether the project uses Sphinx documentation.
     :param homepage_url: The homepage URL from API (to avoid duplicate calls).
+    :param docs_url: Documentation URL declared in `[project.urls]`.
     :return: A `CheckResult`.
     """
     if not is_sphinx:
@@ -226,7 +299,20 @@ def check_website_for_sphinx(
     if not homepage_url:
         msg = "Sphinx documentation detected but repository website field is not set."
         return CheckResult(False, msg)
-    return CheckResult(True, f"Website field is set: {homepage_url}")
+
+    if not docs_url:
+        return CheckResult(True, f"Website field is set: {homepage_url}")
+
+    if _url_key(homepage_url) != _url_key(docs_url):
+        msg = (
+            f"Repository website field '{homepage_url}' differs from the"
+            f" documentation URL '{docs_url}' declared in [project.urls]."
+        )
+        return CheckResult(False, msg)
+
+    return CheckResult(
+        True, f"Website field matches the documentation URL: {homepage_url}"
+    )
 
 
 def check_description_matches(
@@ -1840,6 +1926,9 @@ class LintContext:
     project_description: str | None = None
     """Description from `pyproject.toml`."""
 
+    docs_url: str | None = None
+    """Documentation site declared in `[project.urls]`, per {data}`DOCS_URL_KEYS`."""
+
     keywords: list[str] | None = None
     """Keywords list from `pyproject.toml`."""
 
@@ -1963,7 +2052,10 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "website-for-sphinx",
         lambda ctx: check_website_for_sphinx(
-            ctx.repo or "", ctx.is_sphinx, ctx.repo_metadata.get("homepageUrl")
+            ctx.repo or "",
+            ctx.is_sphinx,
+            ctx.repo_metadata.get("homepageUrl"),
+            ctx.docs_url,
         ),
         applies=lambda ctx: ctx.is_sphinx,
     ),
@@ -2093,6 +2185,7 @@ def run_repo_lint(
     is_package: bool = False,
     is_sphinx: bool = False,
     project_description: str | None = None,
+    docs_url: str | None = None,
     keywords: list[str] | None = None,
     repo: str | None = None,
     has_pat: bool = False,
@@ -2113,6 +2206,7 @@ def run_repo_lint(
     :param is_package: Whether the project builds a distributable package.
     :param is_sphinx: Whether the project uses Sphinx documentation.
     :param project_description: Description from pyproject.toml.
+    :param docs_url: Documentation URL declared in `[project.urls]`.
     :param keywords: Keywords list from pyproject.toml.
     :param repo: Repository in 'owner/repo' format.
     :param has_pat: Whether `GH_TOKEN` contains `REPOMATIC_PAT`.
@@ -2130,6 +2224,7 @@ def run_repo_lint(
         is_package=is_package,
         is_sphinx=is_sphinx,
         project_description=project_description,
+        docs_url=docs_url,
         keywords=keywords,
         repo=repo,
         has_pat=has_pat,

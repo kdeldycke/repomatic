@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `lint-repo` now warns when a Sphinx project's GitHub website field differs from the documentation URL declared in `[project.urls]`.
+
 ## [`7.11.0` (2026-08-13)](https://github.com/kdeldycke/repomatic/compare/v7.10.0...v7.11.0)
 
 - **Breaking:** `labels.content-rules` and `labels.file-rules` are now tables mapping each label to its patterns, like `"📚 docs" = ["docs/**"]`. The array-of-tables form and its `actions/labeler` v5 matcher schema are gone; an un-migrated config is ignored with a warning.
