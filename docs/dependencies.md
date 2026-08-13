@@ -41,6 +41,20 @@ This page documents the version specifier conventions and dependency audit proce
 - **Extras syntax** is fine: `"coverage[toml]>=7.11"`.
 - **One dependency per line** for readable diffs. Short groups that fit on one line are acceptable: the `format-json` workflow normalizes layout automatically.
 
+### What is checked automatically
+
+`repomatic lint-deps` reports the rules above that are decidable from `pyproject.toml` alone, and `lint.yaml` runs it on every push:
+
+- An upper bound on a runtime dependency, `~=` and `==` included.
+- A dependency carrying no version specifier. A second mention selecting an extra of a package already floored elsewhere (`click-extra[sphinx]` beside `click-extra>=8.8`) is not one: repeating the floor there would just be a second number to keep in step.
+- A list that is not in alphabetical order. Only the first entry out of place is named, since one misplaced entry makes every later one look wrong too.
+- A `types-*` stub outside the `typing` group.
+- A floor with no comment above it. A comment above the array's opening line documents the whole array, which is how a run of related entries is usually justified.
+
+These are warnings and never affect the exit code: a release is not held for an uncommented floor. Pass `--no-policy` to skip them.
+
+What no parser settles stays a judgment call, and is where a review is worth spending time: whether a floor is *justified* by the APIs the code actually calls, whether its comment has gone stale, and whether a rationale contradicts its conditional marker. See [§ Floor verification](#floor-verification).
+
 ## Shippable sources
 
 A dependency is **shippable** when whoever installs the published artifact gets the same code the release was tested against. `repomatic lint-deps` checks that, and the release lane refuses to build a package while any dependency fails it.
