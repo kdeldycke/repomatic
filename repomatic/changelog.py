@@ -981,6 +981,51 @@ def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
                 )
 
 
+def warn_on_empty_sections(changelog: Changelog) -> None:
+    """Warn about released sections holding no entry, non-fatally.
+
+    A published heading with nothing under it reads as broken to anyone
+    scanning release notes, and it is not merely cosmetic: the GitHub
+    release body is rebuilt from this section, so an empty one publishes an
+    empty release. `claude.md` § Changelog and docs updates gives the fix,
+    which is to name what actually moved rather than to leave the section
+    blank.
+
+    Only *released* sections are inspected. The unreleased section is
+    legitimately empty for most of a cycle, since the post-release bump
+    creates it with no entries, so flagging it would fire on every push in
+    the hours after a release and train the reader to ignore the check.
+    That is the mirror of {func}`warn_on_long_bullets`, which inspects the
+    unreleased section alone because re-flagging immutable history is the
+    noise there.
+
+    Availability, editorial and yanked admonitions live in their own
+    {class}`VersionElements` fields, so a section carrying nothing but a
+    `[!WARNING]` about missing binaries still counts as empty: an
+    admonition explains a caveat, it does not say what changed.
+
+    :param changelog: The parsed changelog to inspect.
+    """
+    for version, _date in sorted(
+        changelog.extract_all_releases(), key=lambda r: Version(r[0]), reverse=True
+    ):
+        elements = changelog.decompose_version(version)
+        if split_changelog_bullets(elements.changes):
+            continue
+        logging.warning(
+            f"⚠ {version}: released section holds no entry. Add one naming what "
+            f"moved, even on a purely mechanical cycle."
+        )
+        emit_annotation(
+            AnnotationLevel.WARNING,
+            f"Changelog section for {version} is empty. A published release "
+            f"heading with no entries reads as broken, and the GitHub release "
+            f"body is rebuilt from it. Name what moved, per "
+            f"https://github.com/kdeldycke/repomatic/blob/main/claude.md"
+            f"#changelog-and-docs-updates",
+        )
+
+
 @dataclass
 class ReleaseSources:
     """The external lookups a changelog's dates and availability are checked against.
@@ -1364,6 +1409,10 @@ def lint_changelog_dates(
     GitHub releases, or PyPI packages but have no corresponding changelog
     entry. Orphans are logged as warnings and cause a non-zero exit code.
 
+    Two non-fatal content checks run first and never affect the exit code:
+    {func}`warn_on_long_bullets` over the unreleased section, and
+    {func}`warn_on_empty_sections` over the released ones.
+
     When `fix` is enabled, date mismatches are corrected in-place and
     admonitions are added to the changelog:
 
@@ -1417,6 +1466,7 @@ def lint_changelog_dates(
     content = changelog_path.read_text(encoding="UTF-8")
     changelog = Changelog(content)
     warn_on_long_bullets(changelog, bullet_word_threshold)
+    warn_on_empty_sections(changelog)
     releases = changelog.extract_all_releases()
 
     if not releases:

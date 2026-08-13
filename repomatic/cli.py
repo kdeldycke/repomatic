@@ -236,6 +236,7 @@ from .tool_registry import (
 from .tool_runner import (
     resolve_config_source,
     run_tool,
+    verify_via_write_path,
 )
 from .version_sync import strip_dev_suffix
 from .virustotal import (
@@ -2161,6 +2162,16 @@ _run_sort = SortByOption(*TOOL_LIST_HEADER_DEFS, default="tool")
 @argument("extra_args", nargs=-1, type=UNPROCESSED)
 @option("--list", "list_tools", is_flag=True, help="List all managed tools.")
 @option(
+    "--verify",
+    is_flag=True,
+    default=False,
+    help=(
+        "Report which targets the tool would rewrite, without touching them."
+        " Runs the write path against throwaway copies, so the answer holds"
+        " even for a tool whose own --check mode is unreliable."
+    ),
+)
+@option(
     "--version",
     "tool_version",
     default=None,
@@ -2189,6 +2200,7 @@ def run_cmd(
     tool_name,
     extra_args,
     list_tools,
+    verify,
     tool_version,
     checksum,
     skip_checksum,
@@ -2210,6 +2222,10 @@ def run_cmd(
         repomatic run zizmor -- --offline .
 
     \b
+    Report what a formatter would rewrite, leaving the tree alone:
+        repomatic run mdformat --verify -- changelog.md
+
+    \b
     Override the pinned version:
         repomatic run shfmt --version 3.14.0 --skip-checksum -- .
 
@@ -2229,6 +2245,19 @@ def run_cmd(
         raise UsageError(
             "Missing argument 'TOOL_NAME'. Use --list to see available tools."
         )
+
+    if verify:
+        exit_code, drifted = verify_via_write_path(
+            tool_name,
+            extra_args=extra_args,
+            version=tool_version,
+            checksum=checksum,
+            skip_checksum=skip_checksum,
+            no_cache=no_cache,
+        )
+        for path in drifted:
+            echo(f"Would rewrite: {path}")
+        ctx.exit(exit_code)
 
     exit_code = run_tool(
         tool_name,

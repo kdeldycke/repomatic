@@ -126,11 +126,10 @@ jobs:
         if: fromJSON(needs.metadata.outputs.metadata).is_python_project
         run: uv --no-progress sync --frozen --all-extras --all-groups
       - name: Run Mypy
-        env:
-          PYTHON_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).python_files }}
-        run: >
-          echo "${PYTHON_FILES}" | xargs uv --no-progress run --frozen -- repomatic
-          run mypy --
+        # No file list: the tool runner resolves mypy's targets from the same
+        # inventory this workflow's `python_files` comes from. See
+        # `ToolSpec.default_paths` in repomatic/tool_registry.py.
+        run: uv --no-progress run --frozen -- repomatic run mypy
 
   lint-yaml:
     name: 📄 Lint YAML
@@ -148,7 +147,7 @@ jobs:
         with:
           version: "0.12.2"
       - name: Run yamllint
-        run: uv --no-progress run --frozen -- repomatic run yamllint -- .
+        run: uv --no-progress run --frozen -- repomatic run yamllint
 
   lint-zsh:
     name: 🐚 Lint Zsh
@@ -221,7 +220,7 @@ jobs:
         with:
           version: "0.12.2"
       - name: Run zizmor
-        run: uv --no-progress run --frozen -- repomatic run zizmor -- .
+        run: uv --no-progress run --frozen -- repomatic run zizmor
 
   lint-awesome:
     name: 🌟 Lint awesome

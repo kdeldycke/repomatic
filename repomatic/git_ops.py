@@ -100,6 +100,23 @@ of enumerating each message shape. Conformance tests in
 `bump-version` template title, and the workflow gates to this prefix.
 """
 
+RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX}Release"
+"""Head-commit-message prefix marking a push that carries the release commit.
+
+The coarser sibling of {data}`RELEASE_COMMIT_PATTERN`: where that one
+validates and extracts a version, this is the prefix test every workflow's
+`cancel-in-progress` gate performs, so a release run is never cancelled by a
+later push entering its concurrency group. A prefix is deliberately weaker
+than the full pattern here, because the question is "does this push carry a
+release" rather than "which version is it", and answering it must not depend
+on the version number parsing.
+
+{func}`repomatic.github.actions.cancel_superseded_runs` applies the same test
+from the API side, which is the half GitHub's own concurrency mechanism
+cannot cover: a manual sweep of a branch's live runs enters no concurrency
+group at all.
+"""
+
 RELEASE_COMMIT_PATTERN = re.compile(
     r"^\[changelog\] Release v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$"
 )

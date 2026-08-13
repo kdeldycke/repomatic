@@ -68,8 +68,8 @@ The header (name, `on:`, `concurrency:`) is synced automatically, but custom job
 
 Header-only sync inherits the canonical `paths:` filter verbatim (after `repomatic/**` substitution). When the project's filesystem layout doesn't match, two outcomes are possible:
 
-- **Inherited entries that don't exist locally** (e.g., `tests/**`, `uv.lock` in a non-Python repo): the trigger never fires for them. Coverage is missing, not noisy. Recommend `[tool.repomatic.workflow.ignore_paths]` to drop them.
-- **Locally relevant paths not in the canonical filter** (e.g., `install.sh`, `dotfiles/**` in a config repo): the trigger silently skips PRs that should run CI. Recommend `[tool.repomatic.workflow.extra_paths]` to append them globally, or `[tool.repomatic.workflow.paths]` keyed by filename for a per-workflow wholesale replacement.
+- **Inherited entries that don't exist locally** (e.g., `tests/**`, `uv.lock` in a non-Python repo): the trigger never fires for them. Coverage is missing, not noisy. Recommend `[tool.repomatic.workflow.ignore-paths]` to drop them.
+- **Locally relevant paths not in the canonical filter** (e.g., `install.sh`, `dotfiles/**` in a config repo): the trigger silently skips PRs that should run CI. Recommend `[tool.repomatic.workflow.extra-paths]` to append them globally, or `[tool.repomatic.workflow.paths]` keyed by filename for a per-workflow wholesale replacement.
 
 The relevant config schema lives in `WorkflowConfig` (`repomatic/config.py`): `source_paths`, `extra_paths`, `ignore_paths`, and `paths` (per-workflow override dict, keyed by workflow filename). Per-workflow override is authoritative — it replaces the entire `paths:` list and ignores the other knobs.
 

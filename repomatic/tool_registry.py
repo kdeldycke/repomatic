@@ -655,6 +655,42 @@ class ToolSpec:
     ci_flags: tuple[str, ...] = ()
     """Flags added only when `$GITHUB_ACTIONS` is set (e.g., output format)."""
 
+    default_args: tuple[str, ...] = ()
+    """Arguments used when the caller passes none of their own.
+
+    Together with {attr}`default_paths`, this makes a bare
+    `repomatic run <tool>` the invocation CI performs, so nobody has to
+    reconstruct it from a workflow step. It applies **only** when
+    `extra_args` is empty: any explicit argument means the caller is
+    driving, and nothing is injected on top of it.
+
+    That all-or-nothing rule is what keeps a subcommand safe to put here.
+    biome's defaults open with `format`, and splicing them into a caller's
+    `check .` would build `biome format … check .`; because an explicit
+    argument suppresses them entirely, that command cannot be built.
+    """
+
+    default_paths: str | None = None
+    """Name of the {class}`~repomatic.file_inventory.FileInventory` attribute
+    supplying this tool's targets, when the caller passes no arguments.
+
+    ```{caution}
+    An empty inventory means the tool is **skipped**, not invoked with no
+    path. The distinction is the whole point: a formatter handed zero paths
+    does not no-op, it walks the entire tree in write mode. Replaying a
+    workflow's `xargs` pipe on a repo with no matching file did exactly
+    that once, rewriting 3,000+ files, and it is the reason this resolves
+    the list in-process rather than leaving it to a shell.
+    ```
+    """
+
+    per_file: bool = False
+    """Invoke the tool once per target rather than once for all of them.
+
+    Mirrors `xargs -n1`, for a tool whose per-file behaviour differs from its
+    batch behaviour. Only meaningful alongside {attr}`default_paths`.
+    """
+
     with_packages: tuple[str, ...] = ()
     """Extra packages installed alongside the tool (e.g., mdformat plugins).
 
@@ -1238,6 +1274,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "autopep8": ToolSpec(
         name="autopep8",
+        default_paths="python_files",
         version="2.3.2",
         source_url="https://github.com/hhatto/autopep8",
         cli_docs_url="https://pypi.org/project/autopep8/",
@@ -1268,6 +1305,16 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "biome": ToolSpec(
         name="biome",
+        default_args=(
+            "format",
+            "--write",
+            "--no-errors-on-unmatched",
+            # JSONC files: biome auto-detects the well-known ones, these
+            # cover the rest.
+            "--json-parse-allow-comments=true",
+            "--json-parse-allow-trailing-commas=true",
+        ),
+        default_paths="json_files",
         display_name="Biome",
         version="2.5.7",
         source_url="https://github.com/biomejs/biome",
@@ -1578,6 +1625,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     #   and https://github.com/hukkin/mdformat/issues/562
     "mdformat": ToolSpec(
         name="mdformat",
+        default_paths="markdown_files",
+        per_file=True,
         version="1.0.0",
         source_url="https://github.com/hukkin/mdformat",
         config_docs_url="https://mdformat.readthedocs.io/en/stable/users/configuration_file.html",
@@ -1635,6 +1684,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "mypy": ToolSpec(
         name="mypy",
+        default_paths="python_files",
         version="2.3.0",
         source_url="https://github.com/python/mypy",
         config_docs_url="https://mypy.readthedocs.io/en/stable/config_file.html",
@@ -1762,6 +1812,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
+        default_paths="pyproject_files",
         version="2.27.0",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
@@ -1818,6 +1869,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "shfmt": ToolSpec(
         name="shfmt",
+        default_paths="shfmt_files",
         version="3.13.1",
         source_url="https://github.com/mvdan/sh",
         config_docs_url="https://github.com/mvdan/sh/blob/master/cmd/shfmt/shfmt.1.scd",
@@ -1930,6 +1982,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "yamllint": ToolSpec(
         name="yamllint",
+        default_args=(".",),
         version="1.38.0",
         source_url="https://github.com/adrienverge/yamllint",
         config_docs_url="https://yamllint.readthedocs.io/en/stable/configuration.html",
@@ -1962,6 +2015,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "zizmor": ToolSpec(
         name="zizmor",
+        default_args=(".",),
         version="1.29.0",
         source_url="https://github.com/zizmorcore/zizmor",
         config_docs_url="https://docs.zizmor.sh/configuration/",

@@ -66,6 +66,7 @@ from .cache import (
     store_config,
 )
 from .config import load_repomatic_config
+from .file_inventory import FileInventory
 from .metadata import Metadata
 from .tool_registry import (
     NPM_MIN_VERSION_FOR_COOLDOWN,
@@ -1033,6 +1034,36 @@ def _dereference_data_dir_symlinks(
     return fixed
 
 
+def resolve_default_args(spec: ToolSpec) -> list[list[str]] | None:
+    """Build the argument batches for a bare `repomatic run <tool>`.
+
+    Combines {attr}`~repomatic.tool_registry.ToolSpec.default_args` with the
+    file list named by
+    {attr}`~repomatic.tool_registry.ToolSpec.default_paths`, splitting into
+    one batch per file when
+    {attr}`~repomatic.tool_registry.ToolSpec.per_file` is set.
+
+    :param spec: The tool to resolve defaults for.
+    :return: One argument list per invocation; a single empty-argument batch
+        when the tool declares no defaults, so the caller runs it bare as
+        before. `None` when the tool wants targets and the repository holds
+        none, which means *skip the tool* rather than invoke it pathless.
+    """
+    if not spec.default_args and not spec.default_paths:
+        return [[]]
+
+    base = list(spec.default_args)
+    if not spec.default_paths:
+        return [base]
+
+    paths = [str(path) for path in getattr(FileInventory(), spec.default_paths)]
+    if not paths:
+        return None
+    if spec.per_file:
+        return [[*base, path] for path in paths]
+    return [[*base, *paths]]
+
+
 def run_tool(
     name: str,
     extra_args: Sequence[str] = (),
@@ -1043,13 +1074,21 @@ def run_tool(
 ) -> int:
     """Run an external tool with managed config resolution.
 
+    With no *extra_args*, a tool declaring
+    {attr}`~repomatic.tool_registry.ToolSpec.default_args` or
+    {attr}`~repomatic.tool_registry.ToolSpec.default_paths` runs the
+    invocation CI performs, resolved in-process by
+    {func}`resolve_default_args`. Any explicit argument suppresses that
+    entirely and is passed through as before.
+
     :param name: Tool name (must be in `TOOL_REGISTRY`).
     :param extra_args: Extra arguments passed through to the tool.
     :param version: Override the pinned version.
     :param checksum: Override the SHA-256 checksum for the current platform.
     :param skip_checksum: Skip SHA-256 verification entirely.
     :param no_cache: Bypass the binary cache when `True`.
-    :return: The tool's exit code.
+    :return: The tool's exit code; the first non-zero one when the defaults
+        resolved to several invocations.
     """
     if name not in TOOL_REGISTRY:
         msg = (
@@ -1059,6 +1098,19 @@ def run_tool(
         raise ValueError(msg)
 
     spec = TOOL_REGISTRY[name]
+
+    # A caller-supplied argument means the caller is driving: the registry
+    # defaults apply only to a bare invocation. See ToolSpec.default_args.
+    if extra_args:
+        arg_batches: list[list[str]] = [list(extra_args)]
+    else:
+        resolved = resolve_default_args(spec)
+        if resolved is None:
+            logging.info(
+                "Skipping %s: the repository holds no %s.", name, spec.default_paths
+            )
+            return 0
+        arg_batches = resolved
 
     # Apply CLI overrides to the frozen spec.
     if version:
@@ -1122,50 +1174,63 @@ def run_tool(
         if spec.computed_params:
             cmd.extend(spec.computed_params(Metadata()))
 
-        # Config args from resolution (cache path or empty).
-        cmd.extend(_splice_config_args(config_args, extra_args, spec))
-
-        # Pre-create parent directories for the tool's declared report
-        # destination; see `ToolSpec.output_flag` for why.
-        if spec.output_flag:
-            for i, arg in enumerate(extra_args):
-                if arg == spec.output_flag and i + 1 < len(extra_args):
-                    destination = Path(extra_args[i + 1])
-                elif arg.startswith(f"{spec.output_flag}="):
-                    destination = Path(arg.split("=", 1)[1])
-                else:
-                    continue
-                destination.parent.mkdir(parents=True, exist_ok=True)
-
         env = _path_tools_env(spec, skip_checksum, no_cache, path_dirs)
+        # The prefix (executable, flags, computed params) is resolved once and
+        # reused: a per-file tool must not re-install itself per file.
+        prefix = cmd
+        exit_code = 0
 
-        logging.info("Running: %s", " ".join(cmd))
-        result = subprocess.run(cmd, check=False, env=env)
+        for batch in arg_batches:
+            # Config args from resolution (cache path or empty).
+            cmd = [*prefix, *_splice_config_args(config_args, batch, spec)]
 
-        logging.info("%s exited with code %d.", spec.name, result.returncode)
+            # Pre-create parent directories for the tool's declared report
+            # destination; see `ToolSpec.output_flag` for why.
+            if spec.output_flag:
+                for i, arg in enumerate(batch):
+                    if arg == spec.output_flag and i + 1 < len(batch):
+                        destination = Path(batch[i + 1])
+                    elif arg.startswith(f"{spec.output_flag}="):
+                        destination = Path(arg.split("=", 1)[1])
+                    else:
+                        continue
+                    destination.parent.mkdir(parents=True, exist_ok=True)
 
-        # post_process is a write-mode-only fixup: it rewrites files on disk,
-        # so it runs only after a successful write (return code 0), never in
-        # check/dry-run mode, which writes nothing. The warning below covers
-        # that gap; see ToolSpec.check_bypasses_post_process.
-        if result.returncode == 0 and spec.post_process:
-            spec.post_process(extra_args)
+            logging.info("Running: %s", " ".join(cmd))
+            result = subprocess.run(cmd, check=False, env=env)
 
-        # A check/dry-run invocation of a post_process tool cannot be trusted:
-        # the fixup never ran, so warn rather than report a misleading status.
-        if spec.check_bypasses_post_process(extra_args):
-            logging.warning(
-                "%s ran in check mode, but it relies on a repomatic "
-                "post-processing step that only runs when files are written. "
-                "Its exit status is unreliable here: it can flag drift the "
-                "write path would reconcile, or miss drift the write path "
-                "would introduce. Re-run in write mode and inspect the diff "
-                "for an authoritative result; from Python, "
-                "verify_via_write_path() does that against throwaway copies.",
-                spec.name,
-            )
+            logging.info("%s exited with code %d.", spec.name, result.returncode)
 
-        return result.returncode
+            # post_process is a write-mode-only fixup: it rewrites files on
+            # disk, so it runs only after a successful write (return code 0),
+            # never in check/dry-run mode, which writes nothing. The warning
+            # below covers that gap; see ToolSpec.check_bypasses_post_process.
+            if result.returncode == 0 and spec.post_process:
+                spec.post_process(batch)
+
+            # A check/dry-run invocation of a post_process tool cannot be
+            # trusted: the fixup never ran, so warn rather than report a
+            # misleading status.
+            if spec.check_bypasses_post_process(batch):
+                logging.warning(
+                    "%s ran in check mode, but it relies on a repomatic "
+                    "post-processing step that only runs when files are "
+                    "written. Its exit status is unreliable here: it can flag "
+                    "drift the write path would reconcile, or miss drift the "
+                    "write path would introduce. Re-run in write mode and "
+                    "inspect the diff for an authoritative result; from the "
+                    "CLI, `repomatic run %s --verify` does that against "
+                    "throwaway copies.",
+                    spec.name,
+                    spec.name,
+                )
+
+            # Keep going after a failure, the way `xargs` does, but never let a
+            # later success overwrite an earlier failure.
+            if result.returncode != 0 and exit_code == 0:
+                exit_code = result.returncode
+
+        return exit_code
 
     finally:
         if bin_dir is not None:
@@ -1205,13 +1270,30 @@ def verify_via_write_path(
     :param extra_args: Arguments for the tool. Any existing path among them is
         copied and rewritten to its copy; check flags are dropped, since they
         would defeat the write path this relies on. Every other argument is
-        passed through untouched.
+        passed through untouched. Empty resolves the tool's registry defaults,
+        the same set {func}`run_tool` would have run, flattened into one batch:
+        the copies are per-path already, so a `per_file` split would only cost
+        extra invocations.
     :param run_kwargs: Forwarded verbatim to {func}`run_tool`.
     :return: `(exit_code, drifted)`, where `exit_code` is `0` when every target
         is already formatted and `1` otherwise, and `drifted` names the paths
         the write path would have changed.
     """
     spec = TOOL_REGISTRY[name]
+    if not extra_args:
+        batches = resolve_default_args(spec)
+        if batches is None:
+            logging.info(
+                "Skipping %s: the repository holds no %s.", name, spec.default_paths
+            )
+            return 0, []
+        # Deduplicate while preserving order: a non-per-file tool repeats its
+        # `default_args` in no batch, but a per-file one repeats them in each.
+        seen: dict[str, None] = {}
+        for batch in batches:
+            for arg in batch:
+                seen.setdefault(arg, None)
+        extra_args = tuple(seen)
     scratch = Path(tempfile.mkdtemp(prefix=".repomatic-verify-", dir=Path.cwd()))
     try:
         rewritten: list[str] = []
@@ -1225,7 +1307,19 @@ def verify_via_write_path(
             if not source.exists():
                 rewritten.append(arg)
                 continue
-            copy = scratch / source.name
+            # Mirror the path under the scratch root rather than flattening to
+            # the basename. Two targets sharing a name would otherwise land on
+            # the same copy, and every one but the last would be compared
+            # against a neighbour's formatting: with 16 skills all entered
+            # through a `SKILL.md`, that reports the whole set as drifted.
+            try:
+                relative = source.resolve().relative_to(Path.cwd().resolve())
+            except ValueError:
+                # Outside the working directory: nothing to mirror against, so
+                # fall back to the basename.
+                relative = Path(source.name)
+            copy = scratch / relative
+            copy.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
                 shutil.copytree(source, copy)
             else:

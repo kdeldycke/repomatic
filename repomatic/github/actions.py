@@ -63,6 +63,7 @@ from tempfile import mkstemp
 from click_extra import echo, prep_path
 
 from ..compat import StrEnum
+from ..git_ops import RELEASE_COMMIT_PREFIX
 from .gh import run_gh_command
 
 TYPE_CHECKING = False
@@ -485,11 +486,24 @@ def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
     enters the same group, and closing a PR fires no such run, so the
     branch's live runs would otherwise burn CI minutes to completion.
 
-    Every listed run except *current_run_id* (the cancelling run itself) is
-    cancelled. A run that fails to cancel (already finished, insufficient
-    token scope) is logged and skipped so one straggler never aborts the
-    sweep. The repository is resolved by the `gh` CLI from `GH_REPO` or the
-    checkout, matching every other `gh api` call.
+    Every listed run is cancelled except two: *current_run_id* (the
+    cancelling run itself), and any run whose head commit carries
+    {data}`~repomatic.git_ops.RELEASE_COMMIT_PREFIX`. A run that fails to
+    cancel (already finished, insufficient token scope) is logged and
+    skipped so one straggler never aborts the sweep. The repository is
+    resolved by the `gh` CLI from `GH_REPO` or the checkout, matching every
+    other `gh api` call.
+
+    ```{caution}
+    The release guard is what makes this safe to point at a default branch.
+    Every workflow's `cancel-in-progress` gate already spares a release run
+    from *automatic* supersession, but a sweep like this one enters no
+    concurrency group, so nothing else would stop it from killing the
+    matrix that publishes a release. Cancelling a release run mid-flight
+    costs the version its binaries permanently, since publishing locks the
+    asset list (`claude.md` § A published release freezes what is missing
+    from it).
+    ```
 
     :param branch: Head branch whose runs to cancel.
     :param current_run_id: Run ID to spare (the caller's own run).
@@ -502,10 +516,20 @@ def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
             "--paginate",
             f"repos/{{owner}}/{{repo}}/actions/runs?branch={branch}&status={status}",
             "--jq",
-            ".workflow_runs[].id",
+            # Tab-separated so a display title carrying spaces stays one field.
+            '.workflow_runs[] | "\\(.id)\\t\\(.display_title)"',
         ])
-        for run_id in listing.split():
+        for line in listing.splitlines():
+            if not line.strip():
+                continue
+            run_id, _, display_title = line.partition("\t")
             if run_id == current_run_id:
+                continue
+            if display_title.startswith(RELEASE_COMMIT_PREFIX):
+                logging.info(
+                    f"Sparing release run {run_id}: {display_title!r} carries "
+                    f"{RELEASE_COMMIT_PREFIX!r}."
+                )
                 continue
             logging.info(f"Cancelling run {run_id} (status: {status}).")
             try:

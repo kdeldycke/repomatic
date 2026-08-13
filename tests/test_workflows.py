@@ -32,6 +32,7 @@ from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     RELEASE_COMMIT_PATTERN,
+    RELEASE_COMMIT_PREFIX,
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
 )
@@ -53,10 +54,6 @@ from tests.conftest import (
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
     load_workflow,
 )
-
-# Commit message prefix that identifies release commits. These commits are protected
-# from cancellation to ensure proper tagging, PyPI publishing, and GitHub releases.
-RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX}Release"
 
 # Commit message prefix for post-release version bump.
 POST_RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX}Post-release bump"

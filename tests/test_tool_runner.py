@@ -52,6 +52,7 @@ from extra_platforms import (
 )
 
 from repomatic.cache import cached_binary_path
+from repomatic.file_inventory import FileInventory
 from repomatic.images import _check_tool
 from repomatic.metadata import Metadata
 from repomatic.tool_registry import (
@@ -85,6 +86,7 @@ from repomatic.tool_runner import (
     get_data_file_path,
     resolve_config,
     resolve_config_source,
+    resolve_default_args,
     run_tool,
 )
 
@@ -2777,3 +2779,163 @@ def test_image_optimizers_resolve_through_registry_or_path():
     with patch("repomatic.images.shutil.which", return_value=None):
         assert _check_tool("oxipng") is True
         assert _check_tool("jpegoptim") is False
+
+
+# ---------------------------------------------------------------------------
+# Default argument scope
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_default_args_without_defaults():
+    """A tool declaring none runs bare, exactly as before."""
+    assert resolve_default_args(TOOL_REGISTRY["ruff"]) == [[]]
+
+
+def test_resolve_default_args_flags_only():
+    """A tool whose CI shape is a literal argument needs no inventory."""
+    assert resolve_default_args(TOOL_REGISTRY["zizmor"]) == [["."]]
+
+
+def test_resolve_default_args_appends_the_inventory(tmp_path, monkeypatch):
+    """Declared paths resolve to the repository's own matching files."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "harvest.py").write_text("mango = 1\n", encoding="UTF-8")
+    (tmp_path / "orchard.py").write_text("papaya = 2\n", encoding="UTF-8")
+
+    assert resolve_default_args(TOOL_REGISTRY["mypy"]) == [["harvest.py", "orchard.py"]]
+
+
+def test_resolve_default_args_keeps_default_args_ahead_of_paths(tmp_path, monkeypatch):
+    """A subcommand stays the first token, where the tool's parser wants it."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "harvest.json").write_text("{}\n", encoding="UTF-8")
+
+    batches = resolve_default_args(TOOL_REGISTRY["biome"])
+    assert batches is not None
+    (batch,) = batches
+    assert batch[0] == "format"
+    assert batch[-1] == "harvest.json"
+
+
+def test_resolve_default_args_splits_per_file(tmp_path, monkeypatch):
+    """`per_file` mirrors `xargs -n1`: one invocation per target."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "harvest.md").write_text("# Mango\n", encoding="UTF-8")
+    (tmp_path / "orchard.md").write_text("# Papaya\n", encoding="UTF-8")
+
+    assert resolve_default_args(TOOL_REGISTRY["mdformat"]) == [
+        ["harvest.md"],
+        ["orchard.md"],
+    ]
+
+
+def test_resolve_default_args_empty_inventory_means_skip(tmp_path, monkeypatch):
+    """No matching file resolves to `None`, never to a pathless invocation.
+
+    This is the guard the whole feature exists for: a write-mode formatter
+    handed zero paths walks the entire tree instead of doing nothing.
+    """
+    monkeypatch.chdir(tmp_path)
+    assert resolve_default_args(TOOL_REGISTRY["mdformat"]) is None
+
+
+@patch("repomatic.tool_runner._install_binary")
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_skips_a_tool_with_no_targets(
+    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+):
+    """An empty inventory means the tool is never spawned."""
+    monkeypatch.chdir(tmp_path)
+
+    assert run_tool("mdformat") == 0
+    mock_run.assert_not_called()
+
+
+@patch("repomatic.tool_runner._install_binary")
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_runs_once_per_file(
+    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+):
+    """A per-file tool is invoked once per target, installed once."""
+    monkeypatch.chdir(tmp_path)
+    mock_run.return_value = MagicMock(returncode=0)
+    (tmp_path / "harvest.md").write_text("# Mango\n", encoding="UTF-8")
+    (tmp_path / "orchard.md").write_text("# Papaya\n", encoding="UTF-8")
+
+    assert run_tool("mdformat") == 0
+    assert mock_run.call_count == 2
+    assert [call[0][0][-1] for call in mock_run.call_args_list] == [
+        "harvest.md",
+        "orchard.md",
+    ]
+
+
+@patch("repomatic.tool_runner._install_binary")
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_reports_the_first_failure_across_batches(
+    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+):
+    """Every target still runs, and no later success masks an earlier failure."""
+    monkeypatch.chdir(tmp_path)
+    mock_run.side_effect = [MagicMock(returncode=2), MagicMock(returncode=0)]
+    (tmp_path / "harvest.md").write_text("# Mango\n", encoding="UTF-8")
+    (tmp_path / "orchard.md").write_text("# Papaya\n", encoding="UTF-8")
+
+    assert run_tool("mdformat") == 2
+    assert mock_run.call_count == 2
+
+
+@patch("repomatic.tool_runner._install_binary")
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_explicit_args_suppress_defaults(
+    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+):
+    """A caller-supplied argument means the caller drives the whole argv.
+
+    Without the all-or-nothing rule, biome's `format` default would splice
+    ahead of an explicit `check`, building a command neither one asked for.
+    """
+    monkeypatch.chdir(tmp_path)
+    mock_run.return_value = MagicMock(returncode=0)
+    (tmp_path / "harvest.json").write_text("{}\n", encoding="UTF-8")
+
+    assert run_tool("biome", extra_args=("check", "harvest.json")) == 0
+    cmd = mock_run.call_args[0][0]
+    assert "format" not in cmd
+    assert cmd[-2:] == ["check", "harvest.json"]
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [spec for spec in TOOL_REGISTRY.values() if spec.default_paths],
+    ids=lambda spec: spec.name,
+)
+def test_default_paths_names_a_real_inventory_group(spec):
+    """A tool's declared target group exists and yields paths.
+
+    The field is a string because the inventory resolves against the working
+    directory at call time, so a typo would otherwise surface as an
+    `AttributeError` mid-run, in CI, after the tool was already installed.
+    """
+    group = getattr(FileInventory(), spec.default_paths, None)
+    assert group is not None, (
+        f"{spec.name} declares default_paths={spec.default_paths!r}, which is "
+        "not a FileInventory attribute"
+    )
+    assert all(isinstance(path, Path) for path in group)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [spec for spec in TOOL_REGISTRY.values() if spec.per_file],
+    ids=lambda spec: spec.name,
+)
+def test_per_file_requires_default_paths(spec):
+    """`per_file` splits a target list, so it is meaningless without one."""
+    assert spec.default_paths, (
+        f"{spec.name} sets per_file with no default_paths to split"
+    )

@@ -34,6 +34,7 @@ from repomatic.changelog import (
     count_bullet_words,
     lint_changelog_dates,
     split_changelog_bullets,
+    warn_on_empty_sections,
     warn_on_long_bullets,
 )
 from repomatic.github.pr_body import render_template
@@ -866,6 +867,48 @@ def test_warn_on_long_bullets_threshold_zero_disables(caplog):
     with caplog.at_level(logging.WARNING):
         warn_on_long_bullets(changelog, threshold=0)
     assert caplog.records == []
+
+
+def _released_changelog(body: str) -> str:
+    return dedent(
+        """\
+        # Changelog
+
+        ## [`1.2.3` (unreleased)](https://github.com/user/repo/compare/v1.2.2...main)
+
+        ## [`1.2.2` (2024-01-15)](https://github.com/user/repo/compare/v1.2.1...v1.2.2)
+
+        {body}
+        """
+    ).format(body=body)
+
+
+def test_warn_on_empty_sections_flags_released(caplog):
+    """A released section with no entry emits a non-fatal warning."""
+    changelog = Changelog(_released_changelog(""))
+    with caplog.at_level(logging.WARNING):
+        warn_on_empty_sections(changelog)
+    assert "1.2.2: released section holds no entry" in caplog.text
+
+
+def test_warn_on_empty_sections_ignores_the_unreleased_one(caplog):
+    """The empty unreleased section the post-release bump creates is expected."""
+    changelog = Changelog(_released_changelog("- Add the seasonal fruit basket."))
+    with caplog.at_level(logging.WARNING):
+        warn_on_empty_sections(changelog)
+    assert caplog.records == []
+
+
+def test_warn_on_empty_sections_counts_an_admonition_as_empty(caplog):
+    """An availability caveat is not a statement of what changed."""
+    changelog = Changelog(
+        _released_changelog(
+            "> [!WARNING]\n> This version ships without `windows-arm64` binaries."
+        )
+    )
+    with caplog.at_level(logging.WARNING):
+        warn_on_empty_sections(changelog)
+    assert "1.2.2: released section holds no entry" in caplog.text
 
 
 def test_lint_changelog_dates_warns_long_unreleased_bullet(tmp_path, caplog):

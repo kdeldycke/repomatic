@@ -6,6 +6,11 @@
 > This version is **not released yet** and is under active development.
 
 - `lint-repo` now warns when a Sphinx project's GitHub website field differs from the documentation URL declared in `[project.urls]`.
+- New `repomatic run <tool> --verify` reporting which files a formatter would rewrite, without touching the working tree.
+- `repomatic run` now resolves a tool's targets itself when given no arguments, running the invocation CI performs. A tool with no matching file is skipped instead of invoked pathless.
+- `lint-changelog` now warns about a released section holding no entry.
+- `cancel-runs` now spares a run whose head commit carries `[changelog] Release`, so a sweep of the default branch cannot kill a release matrix.
+- Fix the `[tool.repomatic.workflow]` key names the `repomatic-audit` skill recommends: they are `extra-paths` and `ignore-paths`, not the snake_case attribute names.
 
 ## [`7.11.0` (2026-08-13)](https://github.com/kdeldycke/repomatic/compare/v7.10.0...v7.11.0)
 

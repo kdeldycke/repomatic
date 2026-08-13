@@ -101,8 +101,9 @@ def test_event_subject_readers_agree(event, is_pr, author, number):
 def _dispatch(listings: dict[str, str], cancel_error: str = ""):
     """Build a `run_gh_command` double serving listings and cancellations.
 
-    :param listings: Status name to newline-separated run IDs returned by
-        the listing call.
+    :param listings: Status name to the listing call's raw output: one
+        `{id}\\t{display title}` line per run. A line with no tab stands in
+        for a run whose title the API omitted.
     :param cancel_error: When set, every cancellation call raises a
         `RuntimeError` with this message.
     """
@@ -166,6 +167,40 @@ def test_cancel_superseded_runs_empty_listing():
         cancelled = cancel_superseded_runs("melon-branch", "1")
     assert cancelled == 0
     assert all("/cancel" not in call.args[0][-1] for call in mock_gh.call_args_list)
+
+
+def test_cancel_superseded_runs_spares_release_runs():
+    """A run publishing a release survives the sweep.
+
+    Nothing else protects it: this sweep enters no concurrency group, so the
+    `cancel-in-progress` gate every workflow carries never fires for it, and
+    a cancelled release matrix costs that version its binaries for good.
+    """
+    run = _dispatch({
+        "in_progress": ("11\tFix the melon parser\n12\t[changelog] Release v1.2.3"),
+        "queued": "13\t[changelog] Post-release bump to `v1.2.4`",
+    })
+    with patch("repomatic.github.actions.run_gh_command", side_effect=run) as mock_gh:
+        cancelled = cancel_superseded_runs("main", "1")
+    assert cancelled == 2
+    cancel_calls = [
+        call.args[0] for call in mock_gh.call_args_list if "/cancel" in call.args[0][-1]
+    ]
+    assert [args[-1] for args in cancel_calls] == [
+        "repos/{owner}/{repo}/actions/runs/11/cancel",
+        "repos/{owner}/{repo}/actions/runs/13/cancel",
+    ]
+
+
+def test_cancel_superseded_runs_reads_titles_from_the_listing():
+    """The listing asks for the display title, tab-separated from the ID."""
+    run = _dispatch({})
+    with patch("repomatic.github.actions.run_gh_command", side_effect=run) as mock_gh:
+        cancel_superseded_runs("melon-branch", "1")
+    for call in mock_gh.call_args_list:
+        args = call.args[0]
+        assert args[3] == "--jq"
+        assert args[4] == '.workflow_runs[] | "\\(.id)\\t\\(.display_title)"'
 
 
 # -- Step output size guard ---------------------------------------------------
