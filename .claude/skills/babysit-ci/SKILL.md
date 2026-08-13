@@ -88,11 +88,11 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    ```shell-session
    $ uv run pytest --no-header -q &
-   $ git ls-files '*.py' | xargs uv run --group typing repomatic run mypy -- &
+   $ uv run --group typing repomatic run mypy &
    $ uv run repomatic run ruff -- check repomatic tests docs &
    ```
 
-   The mypy command must cover **every tracked Python file**, which is why it pipes `git ls-files` rather than naming directories: CI's `lint.yaml` feeds `metadata`'s `python_files` through `xargs` into the same command, so this form matches it exactly, while a directory list silently misses any tracked `.py` living outside them (see § mypy scope mismatch below).
+   Give `run mypy` no arguments: the tool runner resolves the same file list CI's `lint.yaml` runs it on, so the two cannot diverge. Naming directories instead is what used to make mypy pass locally and fail in CI.
 
    **Gate 1 (local, ~30s):** if any local check fails, you already have the diagnosis: skip straight to step 5 without waiting for CI.
 
@@ -117,13 +117,13 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    **Every wait between polls must be a `sleep`, never a busy-wait.** A poll loop with no delay (`until gh run view ...; do true; done`) fires thousands of requests per minute and exhausts the REST quota (5,000/hour) within minutes. The harness blocking a bare foreground `sleep` is not a reason to drop the delay: put the `sleep 60` *inside* the loop command itself, which runs fine in both foreground and background. Exhaustion does not just blind your own polling — workflows authenticating with the same PAT start failing server-side with misleading errors (see [§ GitHub API rate-limit exhaustion](#github-api-rate-limit-exhaustion)).
 
-4. **On any CI failure**, cancel remaining `tests.yaml` runs to free runners:
+4. **On any CI failure**, cancel the branch's remaining runs to free runners:
 
    ```shell-session
-   $ gh run list --workflow=tests.yaml --status=queued --status=in_progress --json databaseId,displayTitle
+   $ uv run repomatic cancel-runs --branch=<BRANCH>
    ```
 
-   **Never cancel** a run whose `displayTitle` starts with `[changelog] Release`: this mirrors the `cancel-in-progress` condition in the `tests.yaml` concurrency group, which protects release runs. Cancel everything else.
+   The command spares any run whose head commit carries `[changelog] Release`, mirroring the `cancel-in-progress` condition in every workflow's concurrency group. Cancelling a release run costs that version its binaries permanently, so never hand-roll the sweep with `gh run cancel`.
 
    Then download logs from **all** failed jobs across the workflows (logs are retained after cancellation):
 
@@ -151,7 +151,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    ```shell-session
    $ uv run pytest --no-header -q
-   $ git ls-files '*.py' | xargs uv run --group typing repomatic run mypy --
+   $ uv run --group typing repomatic run mypy
    $ uv run repomatic run ruff -- check repomatic tests docs
    $ uv run repomatic run ruff -- format repomatic tests docs
    ```
@@ -222,7 +222,7 @@ When the same lines toggle between fixes across iterations, stop and apply a com
 
 ### mypy scope mismatch (local vs CI)
 
-The most common false-green scenario: mypy passes locally because you checked a subset of directories, while CI's `lint.yaml` runs mypy on **every tracked Python file** (`tests/` and `docs/` included). Always drive it from the file list locally, `git ls-files '*.py' | xargs repomatic run mypy --`, which is what CI pipes in: an error only in a test or docs file still blocks CI, and a tracked `.py` outside `repomatic/`, `tests/` and `docs/` is invisible to a directory list.
+The classic false green: mypy passes locally over a subset of directories while CI checks **every tracked Python file** (`tests/` and `docs/` included). Run it as a bare `repomatic run mypy` and the runner resolves that same list, so an error in a test or docs file surfaces before the push rather than after it. A directory list is what reintroduces the gap.
 
 ### Platform-specific test skips
 

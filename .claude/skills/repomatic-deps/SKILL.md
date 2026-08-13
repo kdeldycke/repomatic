@@ -55,7 +55,11 @@ The `_release-engine.yaml` workflow's `update-dep-graph` job regenerates the dep
 
 ## Review mode
 
-This is purely analytical work with no mechanical equivalent in CI.
+### Mechanical layer
+
+`<cmd> lint-deps` decides everything readable from `pyproject.toml` alone, and `lint.yaml` runs it on every push: upper bounds, missing specifiers, unsorted lists, type stubs outside the `typing` group, and floors with no comment above them. Run it first and let it own those rows.
+
+What is left is the part no parser settles, and it is the reason this mode exists: whether a floor is **justified** by the APIs the code actually calls, whether a comment is **stale or weak**, and whether a rationale **contradicts** its conditional marker. Spend the review there.
 
 ### Scope selection
 
@@ -107,20 +111,15 @@ These conventions are derived from the `pyproject.toml` files across all `kdeldy
 
 ### Audit procedure
 
-Read the full `pyproject.toml`. For each dependency entry, check:
+Read the full `pyproject.toml`. `lint-deps` already reports the specifier style, missing comments, ordering, bare dependencies and misplaced type stubs, so read its output rather than re-deriving them. For each dependency entry, check what it cannot:
 
 | Check                     | What to flag                                                                                                                                                    |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Specifier style           | `~=`, `==`, or upper bounds on runtime deps                                                                                                                     |
-| Missing comment           | No comment above the entry explaining the version floor                                                                                                         |
 | Weak comment              | Comment cites Python version support instead of a concrete code dependency. Flag unless it documents a `requires-python` alignment or a Python version drop     |
 | Stale comment             | Comment references a reason that no longer applies (e.g., the cited method was replaced, or the Python version was dropped from the support matrix)             |
 | Inflated floor            | Floor higher than the oldest version providing the APIs actually used (see [floor verification](#floor-verification) below)                                     |
 | Marker/rationale mismatch | Floor rationale contradicts the conditional marker (e.g., "Python 3.14 wheels" on a dep gated by `python_version<'3.11'` — that dep is never installed on 3.14) |
-| Ordering                  | Dependencies not in alphabetical order                                                                                                                          |
-| Group placement           | Type stubs outside `typing` group, test deps outside `test` group                                                                                               |
 | Section style             | `[project.optional-dependencies]` used where `[dependency-groups]` would be appropriate                                                                         |
-| Bare dependency           | No version specifier at all (e.g., `"requests"`)                                                                                                                |
 | Conditional markers       | Missing Python version marker for backport packages                                                                                                             |
 | Stale cooldown exceptions | `exclude-newer-package` entries in `[tool.uv]` for packages that no longer need them (see below)                                                                |
 
