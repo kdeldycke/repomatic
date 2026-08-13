@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - `lint-repo` now warns when a Sphinx project's GitHub website field differs from the documentation URL declared in `[project.urls]`.
+- New `ci-status` command reporting each workflow's latest run and which of its failing jobs actually gate a merge. Reads jobs rather than runs, so an allowed-failure probe cannot hide inside a green run conclusion.
 - New `repomatic run <tool> --verify` reporting which files a formatter would rewrite, without touching the working tree.
 - `repomatic run` now resolves a tool's targets itself when given no arguments, running the invocation CI performs. A tool with no matching file is skipped instead of invoked pathless.
 - `lint-changelog` now warns about a released section holding no entry.

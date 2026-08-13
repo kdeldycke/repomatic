@@ -120,6 +120,11 @@ from .github.actions import (
     is_pull_request,
     read_file_output,
 )
+from .github.ci_status import (
+    CI_STATUS_HEADER_DEFS,
+    monitored_workflows,
+    read_ci_status,
+)
 from .github.dev_release import (
     cleanup_dev_releases as _cleanup_dev_releases,
     sync_dev_release as _sync_dev_release,
@@ -189,6 +194,7 @@ from .labels import (
 )
 from .lint_repo import (
     KNOWN_RUNNERS,
+    WORKFLOW_DIR,
     documentation_url,
     run_repo_lint,
 )
@@ -719,6 +725,101 @@ def broken_links(
         sphinx_output_json=output_json,
         sphinx_source_url=source_url,
     )
+
+
+_ci_status_sort = SortByOption(*CI_STATUS_HEADER_DEFS, default="workflow")
+
+
+@repomatic.command(
+    name="ci-status",
+    short_help="Report which CI jobs are red, and which of them gate a merge",
+    section=_section_github,
+    params=[_ci_status_sort],
+)
+@option(
+    "--branch",
+    default="main",
+    show_default=True,
+    help="Branch whose latest run of each workflow to read.",
+)
+@option(
+    "--workflow",
+    "workflows",
+    multiple=True,
+    help=(
+        "Workflow file to read, repeatable. Defaults to every workflow a push"
+        " can start, derived from .github/workflows/."
+    ),
+)
+@option(
+    "--fatal/--no-fatal",
+    default=True,
+    help="Exit non-zero when a required job failed.",
+)
+@pass_context
+def ci_status(
+    ctx: Context, branch: str, workflows: tuple[str, ...], fatal: bool
+) -> None:
+    """Report the latest CI run of each workflow, and what is actually broken.
+
+    Reads jobs rather than runs, so a crashed allowed-failure probe cannot
+    hide inside a green run conclusion and a run still reading "queued"
+    cannot hide the dozen jobs of it that already finished.
+
+    A job whose name starts with the unstable glyph is allowed to fail and
+    never affects the exit code. Every other job is required, including the
+    non-matrix ones that carry no glyph at all.
+
+    \b
+    Examples:
+        # What is red on main right now
+        repomatic ci-status
+
+        # One workflow, without failing the shell
+        repomatic ci-status --workflow tests.yaml --no-fatal
+    """
+    names = list(workflows) or monitored_workflows(WORKFLOW_DIR)
+    if not names:
+        echo("No workflow to read.")
+        ctx.exit(0)
+
+    status = read_ci_status(names, branch)
+    if not status.runs:
+        echo(f"No run found on {branch!r} for: {', '.join(names)}.")
+        ctx.exit(0)
+
+    rows = [
+        (
+            run.workflow,
+            run.head_sha[:8],
+            run.status,
+            run.verdict,
+        )
+        for run in status.runs
+    ]
+    ctx.print_table(rows, CI_STATUS_HEADER_DEFS)
+
+    for run in status.runs:
+        if run.workflow_level_failure:
+            message = (
+                f"{run.workflow}: run {run.run_id} failed with no failed job. "
+                "This is a workflow-level error (an invalid matrix expression, "
+                "malformed YAML, a missing secret): read the run's error "
+                "annotations, there is no job log."
+            )
+            emit_annotation(AnnotationLevel.ERROR, message)
+            echo(f"✗ {message}")
+        for job in run.failed_required:
+            message = f"{run.workflow}: required job failed: {job.name}"
+            emit_annotation(AnnotationLevel.ERROR, message)
+            echo(f"✗ {message}")
+        for job in run.failed_probes:
+            echo(f"⚠ {run.workflow}: allowed-failure probe failed: {job.name}")
+
+    if not status.settled:
+        echo("… some jobs have not settled yet.")
+
+    ctx.exit(1 if status.blocking and fatal else 0)
 
 
 @repomatic.command(
