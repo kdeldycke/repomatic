@@ -638,11 +638,12 @@ def test_parse_create_output_rejects_unparsable_output(output, kind):
 
 def test_gh_executable_prefers_the_pinned_registry_binary():
     """The pinned, checksum-verified `gh` wins over whatever `$PATH` holds."""
+    pinned_path = Path("/cache/gh")
     with patch(
-        "repomatic.tool_runner.ensure_binary", return_value=Path("/cache/gh")
+        "repomatic.tool_runner.ensure_binary", return_value=pinned_path
     ) as ensure:
         gh_executable.cache_clear()
-        assert gh_executable() == "/cache/gh"
+        assert gh_executable() == str(pinned_path)
     assert ensure.call_args.args == ("gh",)
     gh_executable.cache_clear()
 
