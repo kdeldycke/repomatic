@@ -137,6 +137,15 @@
    :undoc-members:
 ```
 
+## `repomatic.dep_policy` module
+
+```{eval-rst}
+.. automodule:: repomatic.dep_policy
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.dep_report` module
 
 ```{eval-rst}

@@ -9,6 +9,7 @@
 - New `repomatic run <tool> --verify` reporting which files a formatter would rewrite, without touching the working tree.
 - `repomatic run` now resolves a tool's targets itself when given no arguments, running the invocation CI performs. A tool with no matching file is skipped instead of invoked pathless.
 - `lint-changelog` now warns about a released section holding no entry.
+- `lint-deps` now reports declarations departing from version policy: upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors. Warnings only, disabled with `--no-policy`.
 - `cancel-runs` now spares a run whose head commit carries `[changelog] Release`, so a sweep of the default branch cannot kill a release matrix.
 - Fix the `[tool.repomatic.workflow]` key names the `repomatic-audit` skill recommends: they are `extra-paths` and `ignore-paths`, not the snake_case attribute names.
 

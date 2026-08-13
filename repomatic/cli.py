@@ -97,6 +97,7 @@ from .dep_graph import (
     generate_dependency_graph,
     resolve_subgraph_selection,
 )
+from .dep_policy import scan_policy
 from .dep_sources import (
     LINT_DEPS_HEADER_DEFS,
     build_release_readiness,
@@ -1951,6 +1952,15 @@ _lint_deps_sort = SortByOption(*LINT_DEPS_HEADER_DEFS, default="package")
     ),
 )
 @option(
+    "--policy/--no-policy",
+    default=True,
+    help=(
+        "Also report declarations departing from the project's version"
+        " policy: upper bounds, missing floors, unsorted lists, misplaced"
+        " type stubs, uncommented floors. Never blocks a release."
+    ),
+)
+@option(
     "--output",
     type=file_path(writable=True, resolve_path=True, allow_dash=True),
     default=None,
@@ -1963,6 +1973,7 @@ def lint_deps(
     pyproject_path: Path,
     lockfile: Path,
     fatal: bool,
+    policy: bool,
     output: Path | None,
     output_format: str,
 ) -> None:
@@ -2014,20 +2025,26 @@ def lint_deps(
         allow=config.lint_deps.allow,
     )
 
-    if not findings:
+    policy_findings = scan_policy(pyproject_path) if policy else []
+
+    if not findings and not policy_findings:
         echo("✓ Every dependency resolves from the public package index.")
         ctx.exit(0)
 
-    rows = [
-        (
-            finding.package,
-            str(finding.kind),
-            finding.location,
-            finding.verdict,
-        )
-        for finding in findings
-    ]
-    ctx.print_table(rows, LINT_DEPS_HEADER_DEFS)
+    if not findings:
+        echo("✓ Every dependency resolves from the public package index.")
+
+    if findings:
+        rows = [
+            (
+                finding.package,
+                str(finding.kind),
+                finding.location,
+                finding.verdict,
+            )
+            for finding in findings
+        ]
+        ctx.print_table(rows, LINT_DEPS_HEADER_DEFS)
 
     blocking = [finding for finding in findings if finding.blocking]
     for finding in findings:
@@ -2039,6 +2056,12 @@ def lint_deps(
         else:
             emit_annotation(AnnotationLevel.WARNING, finding.message)
             echo(f"⚠ {finding.message}")
+
+    # Style findings render after the shippability ones and never reach the
+    # exit code: a release is not held for an uncommented floor.
+    for policy_finding in policy_findings:
+        emit_annotation(AnnotationLevel.WARNING, policy_finding.message)
+        echo(f"⚠ {policy_finding.message}")
 
     if output:
         log_output_target("dependency blockers", output)
