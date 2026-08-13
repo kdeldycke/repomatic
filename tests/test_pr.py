@@ -464,7 +464,6 @@ def test_pr_sync_cli_resolves_everything_from_the_template(cli_upsert, monkeypat
 
 def test_pr_sync_cli_reads_draft_from_frontmatter(cli_upsert, monkeypatch):
 
-
     monkeypatch.setattr("repomatic.cli.current_branch", lambda: "main")
     result = CliRunner().invoke(
         repomatic,
@@ -502,7 +501,6 @@ def test_pr_sync_cli_falls_back_to_the_event_default_branch(
 
 def test_pr_sync_cli_explicit_labels_override_frontmatter(cli_upsert, monkeypatch):
 
-
     monkeypatch.setattr("repomatic.cli.current_branch", lambda: "main")
     result = CliRunner().invoke(
         repomatic,
@@ -531,7 +529,6 @@ def test_pr_sync_cli_explicit_labels_override_frontmatter(cli_upsert, monkeypatc
     ),
 )
 def test_pr_sync_cli_validates_its_inputs(cli_upsert, args, error):
-
 
     result = CliRunner().invoke(repomatic, ["pr-sync", *args])
     assert result.exit_code != 0

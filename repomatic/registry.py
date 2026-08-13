@@ -276,8 +276,8 @@ class Component:
     `repomatic init` therefore skips these components, and `[tool.repomatic]
     include` cannot opt into materializing them: only naming the component
     explicitly on the CLI (`repomatic init labels`) writes its files out, which
-    is how the labeller jobs stage a config for the GitHub Actions that read it
-    from the checkout.
+    is how `sync-labels` stages `labels.toml` into a temporary directory to
+    hand to `labelmaker`, leaving the working tree untouched.
     """
 
     location_field: str = ""
@@ -905,6 +905,29 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
         "7.8.0.dev0",
         ("e8e96bfead62334599f4ec4c0448f2376352629789a70a76ae6fc3746ff7057b",),
         successor="coverage is now gated by pytest --cov-fail-under",
+    ),
+    RemovedAsset(
+        "labels",
+        ".github/labeller-content-based.yaml",
+        "7.11.0.dev0",
+        (
+            "1f3e670c0b4c6687a8920fb3738a15fb82b8639b7825d81f76c55bc5784cdb08",
+            "adf62c78c539229d34d4d2518a9af7f39df44d599c60852784b0faa47a6defa9",
+            "5cf481b4aec2bf98a4056757f41ef5fc50f808dbd7c8a43f1dea0b224ecb7f1f",
+            "8a047d53d5449ea0b53517e2f63e126360050127342084b7a705f34fb735d818",
+        ),
+        successor="rules now live in repomatic.labels.DEFAULT_CONTENT_RULES",
+    ),
+    RemovedAsset(
+        "labels",
+        ".github/labeller-file-based.yaml",
+        "7.11.0.dev0",
+        (
+            "9dc0948e23a3a83d2cec5f11e400c75992fb1ce326eb6c5811c1fc3bfe258b31",
+            "b216d370e4d2c6118f46d9bb2eacaf91392e6a6267a4f4857f44a698422cc860",
+            "9a4feeb49c37ee7eba1d13957d26aaaa867c791ec12be8cd4197e7526bfbf963",
+        ),
+        successor="rules now live in repomatic.labels.DEFAULT_FILE_RULES",
     ),
     _removed_skill(
         "gha-changelog",

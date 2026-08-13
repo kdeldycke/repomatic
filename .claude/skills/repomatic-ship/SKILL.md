@@ -213,7 +213,7 @@ Once `main` is green and the release PR exists (`gh pr list --head prepare-relea
 
 - the release PR URL,
 - the version it will cut, plus the bump advisory from step 3,
-- that the PR is opened as a **draft** (`prepare-release` creates it with `draft: always-true`), so the remaining human actions are to mark it **"Ready for review"**, then **"Rebase and merge"** (never squash).
+- that the PR is opened as a **draft** (the `prepare-release` PR template's frontmatter carries `draft: true`, which `pr-sync` re-applies on every refresh, not just at creation), so the remaining human actions are to mark it **"Ready for review"**, then **"Rebase and merge"** (never squash).
 
 Do not merge the PR, and do not mark it ready yourself. That final human action is the boundary this skill stops at.
 

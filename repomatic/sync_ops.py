@@ -157,9 +157,13 @@ DEPENDENCY_LABEL = "🔗 dependencies"
 """GitHub label applied to every dependency-update PR.
 
 Shared by all five bumpers so a single label filters the whole family. Workflow
-YAML cannot import Python, so `autofix.yaml` and the bundled label data files
-repeat this string literally; `tests/test_sync_ops.py` asserts they all match
-this constant, which is what keeps the copies aligned.
+YAML cannot import Python, so `autofix.yaml` repeats this string literally, and
+the labeller's own rule tables ({data}`repomatic.labels.DEFAULT_CONTENT_RULES`
+and {data}`~repomatic.labels.DEFAULT_FILE_RULES`) key their dependency rules on
+the same spelling. `tests/test_sync_ops.py` asserts both copies match this
+constant, and `tests/test_labels.py` that it names a label `labels.toml`
+actually defines: applying an unknown label fails the `gh` call outright, so a
+rename in the registry has to reach all of them at once.
 """
 
 _UV_PROJECT_MUTEX = threading.Lock()

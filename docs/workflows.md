@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.9.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.10.0
 ```
 
 > [!IMPORTANT]
@@ -365,7 +365,7 @@ docs = [
 
 ### 🏷️ [`.github/workflows/labels.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/labels.yaml)
 
-None of these jobs read a label config committed to the repository. `labels.toml` and the two labeller YAMLs are [ephemeral](configuration.md#ephemeral-components): each job regenerates them from `[tool.repomatic]` right before reading, so the only thing a downstream repository maintains is its `pyproject.toml`.
+None of these jobs read a label config committed to the repository. `labels.toml` is [ephemeral](configuration.md#ephemeral-components), regenerated from `[tool.repomatic]` right before labelmaker reads it, and the labeller rules live in the package rather than in any file at all. The only thing a downstream repository maintains is its `pyproject.toml`.
 
 #### 🔄 Sync labels (`sync-labels`)
 
@@ -382,14 +382,14 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Rules are configured as `[tool.repomatic.labels]` tables mapping each label to its patterns, overlaid on the bundled defaults
 - Additive only: labels already on the thread stay, and none is ever removed
 - **Skipped for**:
-  - `prepare-release` branch
+  - `prepare-release`, `major-version-increment` and `minor-version-increment` branches
   - Bot-created PRs
 
 #### 💝 Tag sponsors (`sponsor-label`)
 
-- Adds a `💖 sponsor` label to issues and PRs from sponsors using the GitHub GraphQL API
+- Adds a `💖 sponsor` label to issues and PRs from sponsors using the GitHub GraphQL API, and is the only job that sets it
 - **Skipped for**:
-  - `prepare-release` branch
+  - `prepare-release`, `major-version-increment` and `minor-version-increment` branches
   - Bot-created PRs
 
 (github-workflows-lint-yaml-jobs)=
@@ -670,7 +670,7 @@ flowchart TD
 
 - Maintains a rolling dev pre-release on GitHub that mirrors the unreleased changelog section
 - Attaches binaries and Python packages from build jobs via `--upload-assets`
-- The dev tag (e.g. `v6.1.1.dev0`) is force-updated to point to the latest `main` commit
+- The dev tag (e.g. `v7.10.1.dev0`) is force-updated to point to the latest `main` commit
 - Automatically cleaned up when a real release is created
 - **Runs on**: Non-release pushes to `main` only
 - **Requires**:

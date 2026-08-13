@@ -28,7 +28,7 @@
 
 Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repository secrets. Each action is a trust delegation: you depend on the maintainer's security practices, their CI pipeline, and their transitive dependencies. A compromised action can steal secrets, inject code into builds, or tamper with releases.
 
-`repomatic` has systematically eliminated 22 third-party actions since late 2025, replacing them with internal CLI commands, SHA-256-verified binary downloads, and runner built-in tools:
+`repomatic` has systematically eliminated 23 third-party actions since late 2025, replacing them with internal CLI commands, SHA-256-verified binary downloads, and runner built-in tools:
 
 | Removed action                           | Replacement                 | Strategy                |
 | :--------------------------------------- | :-------------------------- | :---------------------- |
@@ -39,6 +39,7 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `dessant/lock-threads`                   | `repomatic lock-threads`    | Internal CLI            |
 | `actions/labeler`                        | `repomatic apply-labels`    | Internal CLI            |
 | `github/issue-labeler`                   | `repomatic apply-labels`    | Internal CLI            |
+| `peter-evans/create-pull-request`        | `repomatic pr-sync`         | Internal CLI            |
 | `lycheeverse/lychee-action`              | `repomatic run lychee`      | Direct binary + SHA-256 |
 | `crate-ci/typos`                         | `repomatic run typos`       | Direct binary + SHA-256 |
 | `biomejs/setup-biome`                    | `repomatic run biome`       | Direct binary + SHA-256 |
@@ -55,9 +56,9 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `codecov/test-results-action`            | None (feature dropped)      | Removed entirely        |
 | `GitHubSecurityLab/actions-permissions`  | Explicit `permissions:` key | Removed entirely        |
 
-The only remaining third-party action (1 of 10 total) is `astral-sh/setup-uv`, which installs the toolchain every other job runs through.
+The only remaining third-party action (1 of 8 total) is `astral-sh/setup-uv`, which installs the toolchain every other job runs through.
 
-Every other `uses:` in the tree is GitHub's own: `actions/checkout`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/attest`, `actions/upload-pages-artifact` and `actions/deploy-pages`. The five that speak the Actions cache, artifact and attestation backplanes are kept deliberately: those are internal service protocols GitHub reserves the right to change, so a reimplementation would break silently rather than loudly.
+Every other `uses:` in the tree is GitHub's own: `actions/checkout`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/attest`, `actions/upload-pages-artifact` and `actions/deploy-pages`. All but `actions/checkout` speak the Actions cache, artifact, attestation and Pages backplanes, and are kept deliberately: those are internal service protocols GitHub reserves the right to change, so a reimplementation would break silently rather than loudly.
 
 #### Issue and pull-request labelling
 

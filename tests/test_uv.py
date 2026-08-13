@@ -430,5 +430,3 @@ def test_compute_pruned_forecasts_snapshots_cleared_freezes(tmp_path):
     # The held upload (2026-01-01) plus the lock's P1W span, long past.
     assert records[0].expires.startswith("2026-01-08")
     assert compute_pruned_forecasts(set(), lock) == []
-
-

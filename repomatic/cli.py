@@ -568,7 +568,7 @@ def apply_labels_cmd(
     the rules are tuned for precision: a missing label costs one click, a wrong
     one is noise on every issue that trips it.
 
-    Requires the gh CLI to be installed and authenticated.
+    Requires the gh CLI to be authenticated.
 
     \b
     Examples:
@@ -687,7 +687,7 @@ def broken_links(
     Combines Lychee and Sphinx linkcheck results into a single "Broken links"
     issue. Creates, updates, or closes the issue based on results.
 
-    Requires the gh CLI to be installed and authenticated.
+    Requires the gh CLI to be authenticated.
 
     \b
     In GitHub Actions, most options are auto-detected:
@@ -818,7 +818,7 @@ def lock_threads(
     Issues repomatic maintains itself are excluded by default: they are meant
     to reopen when their condition recurs, which a lock would block.
 
-    Requires the gh CLI to be installed and authenticated.
+    Requires the gh CLI to be authenticated.
 
     \b
     Examples:
@@ -1322,7 +1322,7 @@ def runner_images(ctx: Context) -> None:
     Nothing bumps a runs-on: value automatically, so a retirement otherwise
     lands as a failing build with no warning.
 
-    Requires the gh CLI to be installed and authenticated.
+    Requires the gh CLI to be authenticated.
 
     \b
     Example:
@@ -1363,7 +1363,7 @@ def setup_guide(
     granular PAT permission checks and repository settings checks.
     The issue closes only when all verifiable steps pass.
 
-    Requires the gh CLI to be installed and authenticated.
+    Requires the gh CLI to be authenticated.
 
     \b
     Examples:
@@ -1400,11 +1400,7 @@ def setup_guide(
     help="GitHub username of the issue/PR author to check. "
     "Defaults to author from $GITHUB_EVENT_PATH.",
 )
-@option(
-    "--repo",
-    envvar="GITHUB_REPOSITORY",
-    help="Repository in 'owner/repo' format. Defaults to $GITHUB_REPOSITORY.",
-)
+@repo_slug_option
 @option(
     "--number",
     type=IntRange(min=1),
@@ -1438,7 +1434,7 @@ def sponsor_label(
     Checks if the author of an issue or PR is a sponsor of the repository owner.
     If they are, adds the specified label.
 
-    This command requires the gh CLI to be installed and authenticated.
+    This command requires the gh CLI to be authenticated.
 
     When run in GitHub Actions, all parameters are auto-detected from environment
     variables ($GITHUB_REPOSITORY_OWNER, $GITHUB_REPOSITORY) and the event payload
@@ -3333,8 +3329,8 @@ def init_project(
     """Bootstrap a repository to use reusable workflows from kdeldycke/repomatic.
 
     With no arguments, generates thin-caller workflow files, exports
-    configuration files (labels, labeller rules), and creates a
-    minimal changelog. Specify COMPONENTS to initialize only selected parts.
+    configuration files (labels), and creates a minimal changelog. Specify
+    COMPONENTS to initialize only selected parts.
 
     Scope restrictions (awesome-only, non-awesome) and [tool.repomatic]
     exclude entries only apply during bare init (no arguments). Explicitly
@@ -4370,7 +4366,9 @@ def sync_labels(ctx: Context, repo: str | None) -> None:
             logging.info(f"Exported: {path}")
 
         try:
-            apply_labels(config, repo, is_awesome=meta.is_awesome, labels_dir=labels_dir)
+            apply_labels(
+                config, repo, is_awesome=meta.is_awesome, labels_dir=labels_dir
+            )
         except RuntimeError as e:
             raise ClickException(str(e))
 

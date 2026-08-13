@@ -63,6 +63,7 @@ class FileInventory:
     @cached_property
     def gitignore_exists(self) -> bool:
         return GITIGNORE_PATH.is_file()
+
     @cached_property
     def gitignore_parser(self) -> Parser | None:
         """Returns a parser for the `.gitignore` file, if it exists."""
@@ -70,8 +71,10 @@ class FileInventory:
             logging.debug(f"Parse {GITIGNORE_PATH}")
             return get_parser_from_file(GITIGNORE_PATH)
         return None
+
     def gitignore_match(self, file_path: Path | str) -> bool:
         return bool(self.gitignore_parser and self.gitignore_parser.match(file_path))
+
     def glob_files(self, *patterns: str) -> list[Path]:
         """Return all file path matching the `patterns`.
 
@@ -136,10 +139,12 @@ class FileInventory:
 
             seen.add(normalized_path)
         return sorted(seen)
+
     @cached_property
     def python_files(self) -> list[Path]:
         """Returns a list of python files."""
         return self.glob_files("**/*.{py,pyi,pyw,pyx,ipynb}")
+
     @cached_property
     def json_files(self) -> list[Path]:
         """Returns a list of JSON files.
@@ -153,30 +158,36 @@ class FileInventory:
             "**/.code-workspace",
             "!**/package-lock.json",
         )
+
     @cached_property
     def yaml_files(self) -> list[Path]:
         """Returns a list of YAML files."""
         return self.glob_files("**/*.{yaml,yml}")
+
     @cached_property
     def pyproject_files(self) -> list[Path]:
         """Returns a list of `pyproject.toml` files."""
         return self.glob_files("**/pyproject.toml")
+
     @cached_property
     def workflow_files(self) -> list[Path]:
         """Returns a list of GitHub workflow files."""
         return self.glob_files(".github/workflows/**/*.{yaml,yml}")
+
     @cached_property
     def doc_files(self) -> list[Path]:
         """Returns a list of doc files."""
         return self.glob_files(
             "**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx,rst,tex}"
         )
+
     @cached_property
     def markdown_files(self) -> list[Path]:
         """Returns a list of Markdown files."""
         return self.glob_files(
             "**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx}"
         )
+
     @cached_property
     def image_files(self) -> list[Path]:
         """Returns a list of image files.
@@ -185,6 +196,7 @@ class FileInventory:
         WebP, and AVIF. See {mod}`repomatic.images` for the optimization tools.
         """
         return self.glob_files("**/*.{jpeg,jpg,png,webp,avif}")
+
     @staticmethod
     def shebang_names_zsh(path: Path) -> bool | None:
         """Whether *path* opens with a shebang line naming zsh.
@@ -206,6 +218,7 @@ class FileInventory:
         except OSError:
             return None
         return first_line.startswith(b"#!") and b"zsh" in first_line
+
     @cached_property
     def shfmt_files(self) -> list[Path]:
         """Returns a list of shell files that `shfmt` can reliably format.
@@ -231,6 +244,7 @@ class FileInventory:
         # Only a file that reads cleanly *and* is not zsh qualifies: an
         # unreadable file yields `None`, which drops it here too.
         return [path for path in candidates if self.shebang_names_zsh(path) is False]
+
     @cached_property
     def zsh_files(self) -> list[Path]:
         """Returns a list of Zsh files.

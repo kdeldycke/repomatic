@@ -136,9 +136,14 @@ request touching them.
 CONTENT_PATTERN_RE = re.compile(r"^/(?P<body>.*)/(?P<flags>[a-z]*)$", re.DOTALL)
 """The `/body/flags` spelling a content pattern may take, mirroring JavaScript.
 
-A pattern not in this shape is used as the regex itself, case-sensitively,
-which is what `github/issue-labeler` did with a bare entry. Authors reach for
-the slashed form to get `i`, since users capitalize freely.
+Matching this shape is what makes a pattern a regex: the body is passed to
+`re` as written, and only the flags named between the slashes apply, so a
+bare `/foo/` is case-sensitive. A pattern not in this shape is a literal
+keyword instead, escaped and word-anchored and always matched
+case-insensitively (see {func}`compile_content_pattern`). So the slashed form
+is the one to reach for when a rule genuinely needs regex syntax, and the one
+that has to spell `i` out to get back the case-insensitivity the bare form
+gives for free.
 """
 
 CONTENT_PATTERN_FLAGS: dict[str, int] = {

@@ -1836,9 +1836,7 @@ def test_declared_release_asset_has_a_producing_job(asset: str) -> None:
     drifting fails the release at `extra-assets`, or worse, publishes an immutable
     release without the asset.
     """
-    jobs = load_workflow("release.yaml")[
-        "jobs"
-    ]
+    jobs = load_workflow("release.yaml")["jobs"]
 
     artifact = f"{RELEASE_ASSET_ARTIFACT_PREFIX}{asset}"
     producers = [

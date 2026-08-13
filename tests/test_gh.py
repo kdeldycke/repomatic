@@ -599,11 +599,27 @@ def test_iter_graphql_nodes_missing_connection_yields_nothing():
 @pytest.mark.parametrize(
     ("output", "kind", "expected"),
     (
-        ("https://github.com/kate/fruits/pull/123", "pr", (123, "https://github.com/kate/fruits/pull/123")),
-        ("https://github.com/kate/fruits/pull/123/", "pr", (123, "https://github.com/kate/fruits/pull/123")),
-        ("https://github.com/kate/fruits/issues/7", "issue", (7, "https://github.com/kate/fruits/issues/7")),
+        (
+            "https://github.com/kate/fruits/pull/123",
+            "pr",
+            (123, "https://github.com/kate/fruits/pull/123"),
+        ),
+        (
+            "https://github.com/kate/fruits/pull/123/",
+            "pr",
+            (123, "https://github.com/kate/fruits/pull/123"),
+        ),
+        (
+            "https://github.com/kate/fruits/issues/7",
+            "issue",
+            (7, "https://github.com/kate/fruits/issues/7"),
+        ),
         # `gh` prepends advisory lines of its own; only the last line counts.
-        ("Warning: 3 uncommitted changes\nhttps://x/pull/9", "pr", (9, "https://x/pull/9")),
+        (
+            "Warning: 3 uncommitted changes\nhttps://x/pull/9",
+            "pr",
+            (9, "https://x/pull/9"),
+        ),
     ),
 )
 def test_parse_create_output(output, kind, expected):

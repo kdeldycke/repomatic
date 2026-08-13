@@ -49,6 +49,7 @@ from repomatic.labels import (
     resolve_file_rules,
     serialize_inline_labels,
 )
+from repomatic.sync_ops import DEPENDENCY_LABEL
 
 
 def _make_config(**labels_kwargs):
@@ -228,13 +229,15 @@ def test_file_globs(patterns, files, expected):
 
 
 def test_default_rule_labels_exist_in_the_label_registry():
-    """Every default rule names a label `labels.toml` actually defines.
+    """Every label the package hard-codes names one `labels.toml` defines.
 
     Applying an unknown label fails the `gh` call outright, so a rule keyed on
     a label the registry dropped or renamed is not a dead rule but a broken
     one. The sponsor-label command's default rides the same registry and gets
     the same check: its label once carried a stray plural that existed in no
     repository, and every sponsor-labelling attempt died on it.
+    {data}`~repomatic.sync_ops.DEPENDENCY_LABEL` is in the population for the
+    same reason, being applied to every dependency-update PR.
     """
     registry = tomlrt.loads(get_data_content("labels.toml"))
     defined = {
@@ -251,6 +254,8 @@ def test_default_rule_labels_exist_in_the_label_registry():
         if param.name == "label"
     )
     assert sponsor_default in defined
+
+    assert DEPENDENCY_LABEL in defined
 
 
 @pytest.mark.parametrize(

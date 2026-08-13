@@ -1500,6 +1500,7 @@ def test_ensure_binary_keeps_staging_fallback_alive(mock_install):
     write), `_install_binary` returns the staging copy: the staging directory
     must then outlive the call, or the caller would exec a just-deleted file.
     """
+
     def install(spec, staging_dir, **kwargs):
         path = staging_dir / "labelmaker"
         path.touch()
@@ -2004,10 +2005,20 @@ def test_run_tool_pyproject_fmt(mock_ci, mock_run, tmp_path, monkeypatch):
 
 
 @patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner._install_binary")
 @patch("repomatic.tool_runner.is_github_ci", return_value=False)
-def test_run_tool_mdformat_with_packages(mock_ci, mock_run, tmp_path, monkeypatch):
+def test_run_tool_mdformat_with_packages(
+    mock_ci,
+    mock_install,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+):
     """mdformat runs via uvx with all plugin packages."""
     monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "shfmt"
+    bin_path.touch()
+    mock_install.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     run_tool("mdformat", extra_args=("readme.md",))
@@ -2599,9 +2610,11 @@ def test_check_bypasses_post_process():
 
 
 @patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner._install_binary")
 @patch("repomatic.tool_runner.is_github_ci", return_value=False)
 def test_run_tool_warns_when_check_bypasses_post_process(
     mock_ci,
+    mock_install,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -2609,6 +2622,9 @@ def test_run_tool_warns_when_check_bypasses_post_process(
 ):
     """mdformat --check warns that the post-process fixup is skipped."""
     monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "shfmt"
+    bin_path.touch()
+    mock_install.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=1)
 
     with caplog.at_level(logging.WARNING):
@@ -2618,9 +2634,11 @@ def test_run_tool_warns_when_check_bypasses_post_process(
 
 
 @patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner._install_binary")
 @patch("repomatic.tool_runner.is_github_ci", return_value=False)
 def test_run_tool_no_check_warning_in_write_mode(
     mock_ci,
+    mock_install,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -2628,6 +2646,9 @@ def test_run_tool_no_check_warning_in_write_mode(
 ):
     """mdformat in write mode (no check flag) emits no check-mode warning."""
     monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "shfmt"
+    bin_path.touch()
+    mock_install.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     with caplog.at_level(logging.WARNING):

@@ -2145,5 +2145,3 @@ cli = "{value}"
     metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     with pytest.raises(ValueError, match=r"\[project\.scripts\] value"):
         _ = metadata.script_entries
-
-

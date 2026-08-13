@@ -331,6 +331,74 @@ def test_no_function_local_imports(test_file) -> None:
     )
 
 
+INTEGRATION_TOOL_GUARD = "skip_unless_tool_runs"
+"""Marks a test that deliberately runs a tool for real, downloads included.
+
+The opt-out for {func}`test_run_tool_calls_mock_the_binary_install`: a test
+calling this has declared that reaching the network is the point, and is
+skipped wholesale on a runner where the tool cannot run.
+"""
+
+BINARY_INSTALL_MOCK = "_install_binary"
+"""The `tool_runner` internal a hermetic `run_tool` test has to patch."""
+
+
+def _installing_tools() -> frozenset[str]:
+    """Tool names whose `run_tool` reaches {data}`BINARY_INSTALL_MOCK`.
+
+    Two ways in: the tool *is* a downloaded binary, or it declares `path_tools`
+    and so downloads its helpers before running.
+    """
+    registry = importlib.import_module("repomatic.tool_registry")
+    return frozenset(
+        name
+        for name, spec in registry.TOOL_REGISTRY.items()
+        if spec.backend is registry.ToolBackend.BINARY or spec.path_tools
+    )
+
+
+@pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
+def test_run_tool_calls_mock_the_binary_install(test_file) -> None:
+    """A `run_tool` test on a downloading tool must patch its install.
+
+    Patching `subprocess.run` alone looks hermetic and is not: `run_tool`
+    resolves the binary *before* it builds a command line, so the download runs
+    for real and only the invocation is faked. Such a test passes in silence
+    for as long as GitHub Releases is healthy, then fails the whole Tests job
+    with an `HTTPError` naming a URL nothing in the test mentions. Three
+    `mdformat` tests shipped this way and went red on a 503, mdformat being a
+    `uvx` tool that still downloads `shfmt` to put on its `PATH`.
+
+    A test that means to hit the network says so with
+    {data}`INTEGRATION_TOOL_GUARD` and is exempt.
+    """
+    tree = ast.parse(test_file.read_text(encoding=FILE_ENCODING))
+    installing = _installing_tools()
+    violations = []
+    for func in ast.walk(tree):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        source = ast.unparse(func)
+        if INTEGRATION_TOOL_GUARD in source or BINARY_INSTALL_MOCK in source:
+            continue
+        for node in ast.walk(func):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "run_tool"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value in installing
+            ):
+                violations.append(f"{func.name} runs {node.args[0].value!r}")
+    assert not violations, (
+        f"{test_file.name} runs a downloading tool without patching"
+        f" `repomatic.tool_runner.{BINARY_INSTALL_MOCK}`: {'; '.join(violations)}."
+        " Patch it, or gate the test on"
+        f" `{INTEGRATION_TOOL_GUARD}` if the download is the point."
+    )
+
+
 @pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
 def test_no_classes_for_grouping(test_file) -> None:
     """No `Test*` classes: tests are top-level functions, per `claude.md`.

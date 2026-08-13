@@ -38,6 +38,7 @@ from repomatic.config import Config
 from repomatic.dep_report import HeldBackPackage
 from repomatic.github.pr_body import get_template_names, template_labels
 from repomatic.init_project import get_data_content
+from repomatic.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
 from repomatic.pypi import PyPIRelease
 from repomatic.registry import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
 from repomatic.sync_ops import (
@@ -109,8 +110,16 @@ def test_operation_job_name_is_descriptive(op: SyncOperation) -> None:
 
 
 def test_label_is_shared() -> None:
-    """All updaters share one dependency label, so one filter finds them."""
-    assert DEPENDENCY_LABEL == "🔗 dependencies"
+    """The bumper label and the labeller's rules name the same label.
+
+    The bumpers apply it to the PRs they open, and the labeller applies it to
+    anyone else's PR touching a lockfile or `pyproject.toml`. Both spellings
+    are hand-written (workflow YAML cannot import Python), so one renamed
+    without the other silently splits the family across two labels, and the
+    single filter this constant exists for stops finding half of it.
+    """
+    rule_labels = set(DEFAULT_CONTENT_RULES) | set(DEFAULT_FILE_RULES)
+    assert DEPENDENCY_LABEL in rule_labels
 
 
 def test_write_domains_justify_serial_apply() -> None:
