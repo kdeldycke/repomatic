@@ -308,22 +308,11 @@ lint.future-annotations = true
 output-prefer-rule-codes = true
 
 [tool.typos]
-default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "JavaScript", MacOS = "macOS", PNGs = "PNGs", PyPi = "PyPI", Typescript = "TypeScript" }
-# False positives. "Contribuer" is the French for "Contributing", part of the
-# translated-readme fixture in tests/test_awesome_toc.py. "quater" is the fourth
-# term of the Latin ordinal series numbering the repo-lint checks (bis, ter,
-# quater), not a misspelling of "quarter": the unattended fix-typos job rewrote
-# it once already and had to be reverted by hand.
-default.extend-words = { astroid = "astroid", Contribuer = "Contribuer", oject = "oject", PNGs = "PNGs", quater = "quater", sur = "sur" }
+default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "JavaScript", MacOS = "macOS", PyPi = "PyPI", Typescript = "TypeScript", PNGs = "PNGs" }
+# False positives: "astroid" is a Python AST library (not "asteroid"); "oject" appears when "pyproject.toml" is split across line breaks in CLI help output; "sur" is macOS 11 Big Sur and Homebrew's big_sur bottle tag (not "sure").
+default.extend-words = { astroid = "astroid", oject = "oject", sur = "sur", Contribuer = "Contribuer", PNGs = "PNGs", quater = "quater" }
 # Skip content between <!-- typos:off --> and <!-- typos:on --> markers.
-default.extend-ignore-re = [
-  "(?s)<!-- typos:off -->.*?<!-- typos:on -->",
-  # `{qeury}` is the intentional-typo example in the typos tool's own docs_notes
-  # guidance (tool_runner.py), which recommends downstream projects guard such
-  # examples and encoded hashes from the unattended fix-typos pull request.
-  "\\{qeury\\}",
-  'base32 "[0-9a-z]{52}"',
-]
+default.extend-ignore-re = [ "(?s)<!-- typos:off -->.*?<!-- typos:on -->", "\\{qeury\\}", "base32 \"[0-9a-z]{52}\"" ]
 default.extend-ignore-identifiers-re = [
   # error: `certifi` should be `certify`, `certifies`, `certified`
   #     ╭▸ ./docs/assets/dependencies.mmd:184:11
