@@ -32,6 +32,9 @@
 
 ## [`7.11.0` (2026-08-13)](https://github.com/kdeldycke/repomatic/compare/v7.10.0...v7.11.0)
 
+> [!NOTE]
+> `7.11.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.11.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.11.0).
+
 - **Breaking:** `labels.content-rules` and `labels.file-rules` are now tables mapping each label to its patterns, like `"📚 docs" = ["docs/**"]`. The array-of-tables form and its `actions/labeler` v5 matcher schema are gone; an un-migrated config is ignored with a warning.
 - **Breaking:** the `file-labeller` and `content-labeller` jobs merged into a single `apply-labels` job. Update any required check or `needs:` edge naming them.
 - **Breaking:** `repomatic init` and `repomatic workflow lint` take `--upstream-repo` for the upstream toolkit; `--repo` now means the `owner/name` slug everywhere, including on `sync-labels`.
