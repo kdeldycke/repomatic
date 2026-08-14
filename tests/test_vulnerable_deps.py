@@ -32,6 +32,7 @@ from repomatic.vulnerable_deps import (
     _uv_version,
     collect_vulnerable_packages,
     fetch_dependabot_alerts,
+    fix_vulnerable_deps,
     format_vulnerability_table,
     parse_uv_audit_json,
 )
@@ -455,6 +456,71 @@ def test_collect_dedupes_across_sources_via_alias(lock_with_raspberry):
     # uv is collected first, so its PYSEC stays primary and GHSA is an alias.
     assert only.advisory_id == "PYSEC-2026-1"
     assert "GHSA-fruit-1111-aaaa" in only.aliases
+
+
+def test_fix_restores_the_lock_when_the_upgrade_moves_nothing(tmp_path):
+    """An unreachable fix must leave `uv.lock` byte-identical.
+
+    uv writes the `--exclude-newer-package` overrides it is handed into the
+    lock's `[options]` table even when the resolution does not move, so a
+    vulnerability capped out of reach by another dependency would otherwise
+    dirty the file with a lone metadata line. That is enough for the
+    `fix-vulnerable-deps` job to open a pull request carrying no fix and an
+    empty report.
+    """
+    lock = tmp_path / "uv.lock"
+    original = (
+        "[options]\n"
+        'exclude-newer-span = "P1W"\n'
+        "\n"
+        "[options.exclude-newer-package]\n"
+        'papaya = "2026-08-11T00:00:00Z"\n'
+        "\n"
+        "[[package]]\n"
+        'name = "raspberry"\n'
+        'version = "3.1.46"\n'
+    )
+    lock.write_text(original, encoding="UTF-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.uv]\nexclude-newer = "1 week"\n', encoding="UTF-8"
+    )
+
+    vuln = VulnerablePackage(
+        name="raspberry",
+        current_version="3.1.46",
+        advisory_id="GHSA-fruit-1111-aaaa",
+        advisory_title="Raspberry juice leak under concurrent picking",
+        fixed_version="3.1.47",
+        advisory_url="https://github.com/advisories/GHSA-fruit-1111-aaaa",
+        sources={AdvisorySource.UV_AUDIT},
+    )
+
+    def record_the_override(*args, **kwargs):
+        """Stand in for `uv lock`: log the override, resolve the same version."""
+        lock.write_text(
+            original.replace(
+                'papaya = "2026-08-11T00:00:00Z"\n',
+                'papaya = "2026-08-11T00:00:00Z"\n'
+                'raspberry = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }\n',
+            ),
+            encoding="UTF-8",
+        )
+
+    with (
+        patch(
+            "repomatic.vulnerable_deps.collect_vulnerable_packages",
+            return_value=[vuln],
+        ),
+        patch(
+            "repomatic.vulnerable_deps.subprocess.run",
+            side_effect=record_the_override,
+        ),
+    ):
+        has_fixes, report = fix_vulnerable_deps(lock)
+
+    assert has_fixes is False
+    assert report == ""
+    assert lock.read_text(encoding="UTF-8") == original
 
 
 @pytest.mark.parametrize(

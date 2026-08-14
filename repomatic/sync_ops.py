@@ -369,6 +369,19 @@ class SyncPlan:
     it computed) while the apply replays the rewrite on current disk state.
     """
 
+    self_pin_exemptions: list[str] = field(default_factory=list)
+    """Workflow files that gained a missing self-pin cooldown exemption.
+
+    Names only the files whose *sole* edit was the splice, since a file that
+    also moved a version is already reported through {attr}`changes`. Kept as a
+    separate list for the same reason {attr}`UvProjectExtras.frozen_bypasses`
+    is: the rewrite has no `(name, old, new)` triple to render, yet it still
+    produced a hunk the report has to explain. Without it a splice-only run
+    reads as "nothing to update" and the write is dropped, which is what let an
+    exemption-less downstream pin sit broken indefinitely: the backfill only
+    ever landed on a run that happened to move the version too.
+    """
+
     rebase: Callable[[str], tuple[str, list[tuple[str, str, str]]]] | None = None
     """Replay this operation's rewriter against a file's current text.
 
@@ -392,10 +405,12 @@ class SyncPlan:
 
         Cooldown-bypass edits count: a run that only prunes or freezes
         `exclude-newer-package` entries still rewrites `pyproject.toml` and
-        must produce a report explaining that hunk.
+        must produce a report explaining that hunk. A run that only splices a
+        missing self-pin exemption into a workflow counts for the same reason.
         """
         return bool(
             self.changes
+            or self.self_pin_exemptions
             or self.uv_project.pruned_bypasses
             or self.uv_project.frozen_bypasses
         )
@@ -842,9 +857,18 @@ def _plan_file_rewrites(
     changes: list[tuple[str, str, str]] = []
     for path, text in file_data.items():
         new_content, file_changes = rewriter(text, resolved)
-        if file_changes:
-            plan.file_writes[path] = new_content
-            changes.extend(file_changes)
+        # Gate on the text, not on `file_changes`. A rewriter may edit a file
+        # without having a version move to report: `apply_workflow_literals`
+        # splices a missing self-pin cooldown exemption that way. Gating on the
+        # change list dropped those writes on the floor, so the backfill its
+        # docstring promises only ever landed on a run that also bumped a
+        # version, and a repo already pinned at the newest release never got it.
+        if new_content == text:
+            continue
+        plan.file_writes[path] = new_content
+        changes.extend(file_changes)
+        if not file_changes:
+            plan.self_pin_exemptions.append(path.name)
     plan.rebase = lambda text: rewriter(text, resolved)
     plan.changes = _widest_changes(changes)
     plan.note_cooldown(rc.config.minimum_release_age, min_age, rc.today)
@@ -1159,6 +1183,19 @@ def render_plan_markdown(plan: SyncPlan) -> str:
         frozen=uv.frozen_bypasses,
         name_urls=pypi_name_urls([(name, "", "") for name in bypass_names]),
     )
+    # A splice-only run moves no version, so it reaches the diff table with
+    # nothing to put in it. Without this section its PR would carry a workflow
+    # hunk and no prose saying why one command grew a flag.
+    exemption_section = ""
+    if plan.self_pin_exemptions:
+        files = ", ".join(f"`{name}`" for name in sorted(plan.self_pin_exemptions))
+        exemption_section = (
+            "## 🩹 Restored cooldown exemption\n\n"
+            f"Spliced the missing `--exclude-newer-package` flag into {files}. The"
+            " inline pin moves in lockstep with the `uses:` refs, so it names a"
+            " release younger than the workflow-wide `UV_EXCLUDE_NEWER` window and"
+            " could not resolve at all without the exemption."
+        )
     return "\n\n".join(
         section
         for section in (
@@ -1166,6 +1203,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
             diff_table,
             plan.notes_section,
             bypass_section,
+            exemption_section,
             held_back_section,
         )
         if section
@@ -1321,6 +1359,11 @@ def emit_version_sync_report(
     matches.
     """
     echo(f"{len(plan.changes)} {plan.subject.lower()}(s) updated.")
+    if plan.self_pin_exemptions:
+        echo(
+            "Backfilled the cooldown exemption on the self-pin in: "
+            + ", ".join(sorted(plan.self_pin_exemptions))
+        )
     if plan.cutoff is not None:
         echo(f"minimum-release-age cutoff: {plan.cutoff:%Y-%m-%d}")
     print_plan_tables(

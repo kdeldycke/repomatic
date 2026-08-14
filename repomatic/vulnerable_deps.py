@@ -448,6 +448,11 @@ def fix_vulnerable_deps(
     `sync-uv-lock` job) do not downgrade the fixed packages back within
     the cooldown window.
 
+    An upgrade that resolves to the versions already locked leaves the file
+    byte-identical to how it was found, because uv writes the overrides it was
+    handed into the lock's `[options]` table even when they change nothing.
+    See the restore in step 5.
+
     :param lock_path: Path to the `uv.lock` file.
     :param repo: Repository in `owner/repo` format. Required when
         {attr}`AdvisorySource.GITHUB_ADVISORIES` is among *sources*.
@@ -479,8 +484,11 @@ def fix_vulnerable_deps(
         f" {len(fixable_packages)} fixable packages: {fixable_list}."
     )
 
-    # Step 3: Snapshot versions before upgrading.
+    # Step 3: Snapshot the lock before upgrading. The raw bytes ride along with
+    # the version map so a resolution that moves nothing can be rolled back
+    # verbatim, per the restore in step 5.
     before = parse_lock_versions(lock_path)
+    lock_before = lock_path.read_bytes()
 
     # Step 4: Upgrade all fixable packages in a single resolution pass.
     # Running one command avoids sequential re-resolution undoing earlier
@@ -502,6 +510,17 @@ def fix_vulnerable_deps(
     changes = diff_lock_versions(before, post.versions)
     if not changes:
         logging.info("No version changes after upgrading vulnerable packages.")
+        # uv records the `--exclude-newer-package` overrides it was handed in
+        # the lock's own `[options]` table, whether or not they moved the
+        # resolution. A fix that cannot land (another dependency capping the
+        # vulnerable package below its patched release) therefore still leaves
+        # that one metadata line behind: enough for `fix-vulnerable-deps` to
+        # open a pull request carrying no fix and an empty report, and which
+        # the next `sync-uv-lock` re-lock strips again. Roll the file back so a
+        # failed fix leaves no trace. Discarding any other rewrite uv made in
+        # passing is intentional: normalizing the lock belongs to
+        # `sync-uv-lock`, which runs in the same workflow.
+        lock_path.write_bytes(lock_before)
         return False, ""
 
     # Step 6: Persist cooldown exemptions only for packages whose fixed

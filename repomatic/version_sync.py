@@ -693,6 +693,15 @@ def apply_workflow_literals(
         needs {func}`apply_self_pin_exemption` on the resulting command.
     :return: The updated text and a list of `(package, old_version,
         new_version)` changes actually applied.
+
+    ```{important}
+    The returned list covers version moves only. A *self_pin* splice edits the
+    text while reporting nothing, because it names a package rather than moving
+    a version, so a caller deciding whether to write must compare the returned
+    text against its input rather than test the list. Gating on the list
+    silently discards the backfill, which is what stranded downstream repos
+    already pinned at the newest release.
+    ```
     """
     changes: list[tuple[str, str, str]] = []
 

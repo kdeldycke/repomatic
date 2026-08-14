@@ -25,7 +25,8 @@ from __future__ import annotations
 import dataclasses
 import re
 import subprocess
-from datetime import date
+from datetime import date, timedelta
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -39,6 +40,7 @@ from repomatic.dep_report import HeldBackPackage
 from repomatic.github.pr_body import get_template_names, template_labels
 from repomatic.init_project import get_data_content
 from repomatic.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
+from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.pypi import PyPIRelease
 from repomatic.registry import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
 from repomatic.sync_ops import (
@@ -51,6 +53,7 @@ from repomatic.sync_ops import (
     UvProjectExtras,
     _apply_file_writes,
     _pinned_with_packages,
+    _plan_file_rewrites,
     _resolve_action_pins,
     _resolve_dep_sources,
     _resolve_tool_versions,
@@ -61,7 +64,7 @@ from repomatic.sync_ops import (
     selected_operations,
 )
 from repomatic.tool_registry import TOOL_REGISTRY
-from repomatic.version_sync import is_newer
+from repomatic.version_sync import apply_workflow_literals, is_newer
 from tests.conftest import load_workflow
 
 OPERATION_NAMES = [op.name for op in SYNC_OPERATIONS]
@@ -747,6 +750,69 @@ def test_resolve_dep_sources_noop_before_release(tmp_path, monkeypatch) -> None:
 
     assert not plan.has_changes
     assert (tmp_path / "pyproject.toml").read_text(encoding="UTF-8") == SWAP_PYPROJECT
+
+
+SELF_PIN_WORKFLOW = (
+    'env:\n  UV_EXCLUDE_NEWER: "1 week"\n'
+    "          uvx --no-progress 'repomatic==7.11.0' metadata\n"
+)
+"""A downstream workflow whose self-pin is current but carries no exemption."""
+
+
+def _rewrite_plan(tmp_path, text: str, resolved: dict) -> tuple[SyncPlan, Path]:
+    """Run `_plan_file_rewrites` over a single workflow file."""
+    path = tmp_path / "tests.yaml"
+    path.write_text(text, encoding="UTF-8")
+    plan = SyncPlan(operation="sync-workflow-pins", subject="Pin", heading="Updated")
+    rewriter = partial(
+        apply_workflow_literals,
+        self_pin=("repomatic", SELF_PIN_COOLDOWN_EXEMPTION),
+    )
+    rc = ResolveContext(config=Config(), today=date(2026, 8, 14), held_back=False)
+    _plan_file_rewrites(plan, rc, {path: text}, rewriter, resolved, timedelta(days=7))
+    return plan, path
+
+
+def test_plan_file_rewrites_backfills_exemption_without_a_version_bump(tmp_path):
+    """A splice-only rewrite is still a change, and still gets written.
+
+    The exemption backfill reports no `(name, old, new)` triple, since it names
+    a package rather than moving a version. Gating the write on that list threw
+    the rewrite away, so a downstream repo already pinned at the newest release
+    never got the flag and its whole test workflow stayed unresolvable.
+    """
+    plan, path = _rewrite_plan(tmp_path, SELF_PIN_WORKFLOW, {})
+
+    assert not plan.changes
+    assert plan.has_changes
+    assert plan.self_pin_exemptions == ["tests.yaml"]
+    assert path in plan.file_writes
+
+    _apply_file_writes(plan)
+    assert "--exclude-newer-package repomatic=P0D" in path.read_text(encoding="UTF-8")
+
+
+def test_plan_file_rewrites_reports_nothing_when_already_exempt(tmp_path):
+    """An exemption already in place leaves the plan empty, not endlessly dirty."""
+    exempt = SELF_PIN_WORKFLOW.replace(
+        "uvx --no-progress 'repomatic",
+        "uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic",
+    )
+    plan, _path = _rewrite_plan(tmp_path, exempt, {})
+
+    assert not plan.has_changes
+    assert not plan.self_pin_exemptions
+    assert not plan.file_writes
+
+
+def test_plan_file_rewrites_keeps_version_bumps_out_of_the_exemption_list(tmp_path):
+    """A file that also moved a version reports through `changes`, not twice."""
+    plan, _path = _rewrite_plan(
+        tmp_path, SELF_PIN_WORKFLOW, {("pypi", "repomatic"): "7.12.0"}
+    )
+
+    assert ("repomatic", "7.11.0", "7.12.0") in plan.changes
+    assert not plan.self_pin_exemptions
 
 
 @pytest.mark.parametrize("in_source_repo", (False, True))

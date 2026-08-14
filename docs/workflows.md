@@ -148,6 +148,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
   - The repository's [Dependabot alerts](https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts) feed against the [GitHub Advisory Database](https://github.com/advisories). Catches CVEs (including transitive `uv.lock` packages) that the PyPA database has not yet ingested.
 - Uses `uv lock --upgrade-package` with [`--exclude-newer-package`](https://docs.astral.sh/uv/reference/settings/#exclude-newer-package) bypass to resolve fix versions that may be within the [`exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) cooldown period
 - PR body includes a table of vulnerabilities (with the source database that surfaced each one) and updated package versions with release notes
+- Opens no pull request when the patched release is out of reach, which happens when another dependency caps the vulnerable package below it. `uv lock --upgrade-package` keeps the old version instead of failing, so the alert stays open until that cap lifts; the lockfile is restored to how the job found it, since `uv` records the cooldown bypass in its `[options]` table even when the resolution does not move
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
   - `uv` >= `0.11.15`, for the `uv audit --output-format json` output that `repomatic audit` parses (an older `uv` raises rather than silently scanning nothing)

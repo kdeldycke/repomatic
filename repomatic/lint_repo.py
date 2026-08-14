@@ -55,6 +55,7 @@ from .metadata import (
     Metadata,
     all_metadata_keys,
 )
+from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     get_latest_release_file,
@@ -62,7 +63,7 @@ from .pypi import (
     pypi_trusted_publisher_settings_url,
 )
 from .registry import DEFAULT_REPO, INSTALL_GUIDE_PATH, WORKFLOW_TARGET_ROOT
-from .version_sync import find_upstream_ref_versions
+from .version_sync import find_upstream_ref_versions, self_pin_exemption_re
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -1801,6 +1802,146 @@ def check_inline_pins_match_upstream(
     )
 
 
+def check_self_pin_cooldown_exemption(
+    workflow_dir: Path = WORKFLOW_DIR,
+    upstream_repo: str = DEFAULT_REPO,
+) -> CheckResult:
+    """Check every inline upstream pin carries its cooldown exemption.
+
+    A workflow pinning the upstream toolkit in a `run:` command
+    (`uvx 'repomatic==1.2.3' metadata`) resolves under the workflow-wide
+    `UV_EXCLUDE_NEWER`, and that pin moves in lockstep with the `uses:` refs, so
+    it routinely names a release published hours ago. Without
+    {data}`~repomatic.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION` on the
+    command line, `uvx` cannot resolve it at all. `uvx` reads no project
+    configuration, so there is nowhere else the bypass could live.
+
+    The failure is total rather than partial, which is why this is worth a
+    dedicated check: the pin usually sits in the `metadata` job, every other job
+    is `needs: metadata`, and the whole workflow reports failure while executing
+    nothing. Downstream repos are the exposed ones. `tests/test_workflows.py`
+    pins the canonical workflows, `sync-workflow-pins` splices a missing flag in
+    on any run that also moves the version, and a repo already pinned at the
+    newest release falls through both.
+
+    Only flags a pin under a workflow that actually sets a cooldown: a repo
+    without one has nothing to exempt.
+
+    :param workflow_dir: Directory holding the workflow YAML files.
+    :param upstream_repo: Upstream `owner/repo`; its name is the inline
+        package to match (like `repomatic`).
+    :return: A `CheckResult`.
+    """
+    package = upstream_repo.rsplit("/", 1)[-1]
+    if not workflow_dir.is_dir():
+        return CheckResult(
+            None,
+            f"{package} cooldown exemption: skipped (no {workflow_dir.as_posix()}).",
+        )
+
+    exemption_re = self_pin_exemption_re(package)
+    unexempt: list[str] = []
+    pinned = 0
+    for wf, content in _workflow_texts(workflow_dir).items():
+        # A workflow with no cooldown resolves the pin fine as-is.
+        if "UV_EXCLUDE_NEWER" not in content:
+            continue
+        for match in exemption_re.finditer(content):
+            pinned += 1
+            if SELF_PIN_COOLDOWN_EXEMPTION not in match.group("flags"):
+                unexempt.append(wf.name)
+                break
+
+    if not pinned:
+        return CheckResult(None, f"{package} cooldown exemption: no inline pin found.")
+    if unexempt:
+        files = ", ".join(sorted(set(unexempt)))
+        return CheckResult(
+            False,
+            f"Inline {package} pin resolves under a cooldown without"
+            f" `{SELF_PIN_COOLDOWN_EXEMPTION}`, so it cannot resolve once the pin"
+            f" names a release younger than the window: {files}.",
+        )
+    return CheckResult(
+        True, f"Inline {package} pins ({pinned}) all carry the cooldown exemption."
+    )
+
+
+_SETUP_UV_STEP_RE = re.compile(
+    r"uses:[ \t]*astral-sh/setup-uv@\S+[^\n]*\n"
+    r"(?P<body>(?:(?![ \t]*-[ \t])[ \t]+\S[^\n]*\n)*)"
+)
+"""A `setup-uv` step plus the indented block belonging to it.
+
+The `with:` mapping carrying `version:` is part of that block, so capturing it
+is what tells a pinned step from an unpinned one. The negative lookahead ends
+the body at the next `- ` list item: without it the body runs to the end of the
+job, and a single pinned step elsewhere would vouch for every unpinned one
+above it.
+"""
+
+
+def check_setup_uv_version_pin(workflow_dir: Path = WORKFLOW_DIR) -> CheckResult:
+    """Check every `astral-sh/setup-uv` step pins the uv version it installs.
+
+    `[tool.uv] required-version` is a floor for everyone; what a runner
+    downloads is a separate question, and left to `setup-uv` the answer is "the
+    newest release satisfying the floor", installed seconds after it lands.
+    That makes the tool enforcing every cooldown the one tool without one, so
+    each step carries `with: version: "X.Y.Z"` and `sync-workflow-pins` walks it
+    forward once a uv release clears `minimum-release-age`.
+
+    Steps naming two different versions in one repository are flagged too: the
+    pin exists so every job resolves through the same uv, and a split fleet
+    silently tests two.
+
+    :param workflow_dir: Directory holding the workflow YAML files.
+    :return: A `CheckResult`.
+    """
+    if not workflow_dir.is_dir():
+        return CheckResult(
+            None, f"setup-uv version pin: skipped (no {workflow_dir.as_posix()})."
+        )
+
+    version_re = re.compile(
+        r"^\s*version:\s*[\"']?(?P<version>[0-9][^\s\"']*)", re.MULTILINE
+    )
+    unpinned: list[str] = []
+    versions: dict[str, set[str]] = {}
+    steps = 0
+    for wf, content in _workflow_texts(workflow_dir).items():
+        for match in _SETUP_UV_STEP_RE.finditer(content):
+            steps += 1
+            found = version_re.search(match.group("body"))
+            if not found:
+                unpinned.append(wf.name)
+                continue
+            versions.setdefault(found["version"], set()).add(wf.name)
+
+    if not steps:
+        return CheckResult(None, "setup-uv version pin: no setup-uv step found.")
+    if unpinned:
+        files = ", ".join(sorted(set(unpinned)))
+        return CheckResult(
+            False,
+            "astral-sh/setup-uv step installs whatever uv is newest, with no"
+            ' `with: version: "X.Y.Z"` input, leaving the tool that enforces'
+            f" every cooldown without one: {files}.",
+        )
+    if len(versions) > 1:
+        detail = "; ".join(
+            f"{version} in {', '.join(sorted(files))}"
+            for version, files in sorted(versions.items())
+        )
+        return CheckResult(
+            False, f"astral-sh/setup-uv steps pin more than one uv version: {detail}."
+        )
+    pinned_version = next(iter(versions))
+    return CheckResult(
+        True, f"astral-sh/setup-uv steps ({steps}) all pin uv {pinned_version}."
+    )
+
+
 _METADATA_KEY_TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
 """Shape of a metadata key, used to tell one from a neighbouring shell token.
 
@@ -2325,7 +2466,15 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         fatal=True,
     ),
     # Fatal for the same reason as the pin check above: both describe a
-    # workflow that is already broken, not one that might age badly.
+    # workflow that is already broken, not one that might age badly. The
+    # exemption check is the sharper of the two, since the pin it guards takes
+    # every `needs: metadata` job down with it.
+    RepoCheck(
+        "self-pin-cooldown-exemption",
+        lambda ctx: check_self_pin_cooldown_exemption(),
+        fatal=True,
+    ),
+    RepoCheck("setup-uv-version-pin", lambda ctx: check_setup_uv_version_pin()),
     RepoCheck("metadata-keys", lambda ctx: check_metadata_keys(), fatal=True),
     RepoCheck("pr-templates", lambda ctx: check_pr_templates()),
     RepoCheck(

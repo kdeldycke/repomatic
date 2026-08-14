@@ -11,6 +11,9 @@
 - New repeatable `pr-sync --add-path` option limiting what the pull request commits to a git pathspec list.
 - `lint-deps` now warns about declarations departing from version policy: upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors. Disabled with `--no-policy`.
 - `lint-deps` now names the `lint-deps.allow` exemption in the remedy it prints for a git source.
+- `sync-workflow-pins` now backfills a missing `--exclude-newer-package` exemption on a run that moves no version, instead of computing the splice and discarding it.
+- `lint-repo` now fails when an inline upstream pin resolving under a cooldown carries no `--exclude-newer-package` exemption, which takes every `needs: metadata` job down with it.
+- `lint-repo` now warns when an `astral-sh/setup-uv` step declares no `version:` input, or when steps across the repository pin more than one uv version.
 - `lint-repo` now fails, and `repomatic init` now warns, when a workflow asks `repomatic metadata` for a key that no longer exists.
 - `lint-repo` now warns when a Sphinx project's GitHub website field differs from the documentation URL declared in `[project.urls]`.
 - `lint-changelog` now warns about a released section holding no entry.
@@ -23,6 +26,7 @@
 - `cancel-runs` now spares a run whose head commit carries `[changelog] Release`, so a sweep of the default branch cannot kill a release matrix.
 - Fix `gh` re-downloading on every command instead of once per version: a binary nested in an archive subdirectory was stored under one cache key and looked up under another.
 - Fix `repomatic init` realigning a workflow's inline `repomatic==X.Y.Z` pin without the cooldown exemption beside it, leaving a command that cannot resolve the version just written.
+- Fix `audit --fix` dirtying `uv.lock` with a cooldown-override record when no upgrade was reachable, which opened a `fix-vulnerable-deps` pull request carrying no fix.
 - A formatter exiting with its rewrite status while leaving every target unchanged is now reported as a crash, instead of passing for a successful reformat that never happened.
 - Fix stale guidance across the bundled skills: wrong `[tool.repomatic.workflow]` key names, wrong workflow and job names for `lint-deps` and `lint-changelog`, which tools a bundled default actually covers, and downstream audits comparing against `main` rather than the adopted release.
 

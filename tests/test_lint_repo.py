@@ -42,6 +42,8 @@ from repomatic.lint_repo import (
     check_pypi_trusted_publisher,
     check_python_version_consistency,
     check_runner_images,
+    check_self_pin_cooldown_exemption,
+    check_setup_uv_version_pin,
     check_sha_pinning_required,
     check_stale_draft_releases,
     check_test_matrix_excludes,
@@ -55,6 +57,7 @@ from repomatic.lint_repo import (
 )
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
 from repomatic.metadata import METADATA_VALUE_OPTIONS
+from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.pypi import TrustedPublisher
 from repomatic.registry import INSTALL_GUIDE_PATH
 from tests.conftest import metadata_from_pyproject, pat_results
@@ -1528,6 +1531,109 @@ def test_inline_pins_match_upstream_skips_without_refs(tmp_path):
     error, msg = check_inline_pins_match_upstream(tmp_path)
     assert error is None
     assert "nothing to compare" in msg
+
+
+# ---------------------------------------------------------------------------
+# Self-pin cooldown exemption check tests
+# ---------------------------------------------------------------------------
+
+_COOLDOWN_ENV = 'env:\n  UV_EXCLUDE_NEWER: "1 week"\n'
+"""The workflow-level cooldown that makes an unexempt inline pin unresolvable."""
+
+
+def test_self_pin_exemption_flags_unexempt_pin(tmp_path):
+    """A pin resolving under a cooldown without the bypass is a fatal error."""
+    (tmp_path / "tests.yaml").write_text(
+        _COOLDOWN_ENV + "      - run: uvx --no-progress 'repomatic==7.11.0' metadata\n",
+        encoding="UTF-8",
+    )
+    result = check_self_pin_cooldown_exemption(tmp_path)
+    assert result.passed is False
+    assert "tests.yaml" in result.message
+    assert SELF_PIN_COOLDOWN_EXEMPTION in result.message
+
+
+def test_self_pin_exemption_accepts_exempt_pin(tmp_path):
+    """The spelling both writers emit passes."""
+    (tmp_path / "tests.yaml").write_text(
+        _COOLDOWN_ENV + f"      - run: uvx --no-progress {SELF_PIN_COOLDOWN_EXEMPTION}"
+        " 'repomatic==7.11.0' metadata\n",
+        encoding="UTF-8",
+    )
+    result = check_self_pin_cooldown_exemption(tmp_path)
+    assert result.passed is True
+
+
+def test_self_pin_exemption_ignores_workflow_without_cooldown(tmp_path):
+    """No cooldown means nothing to exempt, so a bare pin resolves fine."""
+    (tmp_path / "tests.yaml").write_text(
+        "      - run: uvx --no-progress 'repomatic==7.11.0' metadata\n",
+        encoding="UTF-8",
+    )
+    result = check_self_pin_cooldown_exemption(tmp_path)
+    assert result.passed is None
+    assert "no inline pin" in result.message
+
+
+# ---------------------------------------------------------------------------
+# setup-uv version pin check tests
+# ---------------------------------------------------------------------------
+
+
+def _setup_uv_step(version: str | None) -> str:
+    """Render a `setup-uv` step, optionally pinning the uv it installs."""
+    step = "      - uses: astral-sh/setup-uv@c771a70e # v9.0.0\n"
+    if version:
+        step += f'        with:\n          version: "{version}"\n'
+    return step
+
+
+def test_setup_uv_version_pin_flags_unpinned_step(tmp_path):
+    """A step with no `version:` input installs whatever uv is newest."""
+    (tmp_path / "tests.yaml").write_text(
+        "jobs:\n" + _setup_uv_step(None), encoding="UTF-8"
+    )
+    result = check_setup_uv_version_pin(tmp_path)
+    assert result.passed is False
+    assert "tests.yaml" in result.message
+
+
+def test_setup_uv_version_pin_accepts_pinned_steps(tmp_path):
+    """Every step naming the same version passes."""
+    (tmp_path / "tests.yaml").write_text(
+        "jobs:\n" + _setup_uv_step("0.12.1") * 2, encoding="UTF-8"
+    )
+    result = check_setup_uv_version_pin(tmp_path)
+    assert result.passed is True
+    assert "0.12.1" in result.message
+
+
+def test_setup_uv_version_pin_flags_unpinned_step_next_to_pinned_one(tmp_path):
+    """A pinned step does not vouch for an unpinned one below it.
+
+    Regression guard on the step-body regex: an unbounded body ran to the end
+    of the job, so one `version:` anywhere covered every step above it.
+    """
+    (tmp_path / "tests.yaml").write_text(
+        "jobs:\n" + _setup_uv_step(None) + _setup_uv_step("0.12.1"),
+        encoding="UTF-8",
+    )
+    result = check_setup_uv_version_pin(tmp_path)
+    assert result.passed is False
+
+
+def test_setup_uv_version_pin_flags_split_versions(tmp_path):
+    """Steps pinning two versions silently test two uv releases."""
+    (tmp_path / "tests.yaml").write_text(
+        "jobs:\n" + _setup_uv_step("0.12.1"), encoding="UTF-8"
+    )
+    (tmp_path / "lint.yaml").write_text(
+        "jobs:\n" + _setup_uv_step("0.12.2"), encoding="UTF-8"
+    )
+    result = check_setup_uv_version_pin(tmp_path)
+    assert result.passed is False
+    assert "0.12.1" in result.message
+    assert "0.12.2" in result.message
 
 
 # ---------------------------------------------------------------------------
