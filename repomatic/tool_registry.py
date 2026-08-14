@@ -1218,6 +1218,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         native_config_files=(".github/actionlint.yaml", ".github/actionlint.yml"),
         config_flag="--config-file",
         native_format=NativeFormat.YAML,
+        default_config="actionlint.yaml",
         default_flags=("-color",),
         source_url="https://github.com/rhysd/actionlint",
         config_docs_url="https://github.com/rhysd/actionlint/blob/main/docs/config.md",

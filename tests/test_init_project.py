@@ -1235,6 +1235,42 @@ def test_init_realigns_an_inline_pin_in_downstream_jobs(tmp_path, monkeypatch, p
     assert "--exclude-newer-package repomatic=P0D" in content
 
 
+@pytest.mark.parametrize(
+    "pinned",
+    (
+        # The pin moves, so the rewrite happens either way.
+        "7.4.1",
+        # Already at the target version: nothing to realign, and the exemption
+        # is the only reason to write the file at all.
+        "7.4.2",
+    ),
+)
+def test_init_adds_a_missing_cooldown_exemption(tmp_path, monkeypatch, pinned):
+    """A bare self-pin gets the exemption, or the command cannot resolve at all.
+
+    Every workflow exports a `UV_EXCLUDE_NEWER`, and the pin `init` writes moves
+    in lockstep with the `uses:` refs regardless of the cooldown, so it routinely
+    names a release younger than that window. A bare `uvx 'repomatic==X.Y.Z'`
+    left behind here fails to install the very version just written.
+    """
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        _DOWNSTREAM_TESTS_YAML.replace(
+            "echo hello", f"uvx --no-progress 'repomatic=={pinned}' metadata"
+        ),
+        encoding="UTF-8",
+    )
+
+    content = _init_workflow(tmp_path, monkeypatch, "tests.yaml")
+
+    assert content is not None
+    assert (
+        "uvx --no-progress --exclude-newer-package repomatic=P0D "
+        "'repomatic==7.4.2'" in content
+    )
+
+
 def test_init_leaves_an_unrelated_pypi_pin_alone(tmp_path, monkeypatch):
     """Only the upstream toolkit's own literal is realigned, not every `==` pin."""
     target = tmp_path / ".github" / "workflows" / "tests.yaml"

@@ -1,0 +1,24 @@
+# Bundled default actionlint configuration for repomatic.
+# Used as a fallback when no native .github/actionlint.yaml exists.
+#
+# That file REPLACES this one rather than layering over it: the config walk
+# stops at its first hit and merges nothing. A downstream repo declaring a
+# label of its own must restate every label below that it still needs, and
+# will not pick up a label added here later.
+#
+# actionlint validates `runs-on:` against a list of GitHub-hosted runner labels
+# baked into the binary at build time. That list trails GitHub's image
+# announcements by however long it takes actionlint to cut a release, and the
+# generated workflows run on `ubuntu-26.04` (see `matrix_axes.DEFAULT_OS`),
+# which 1.7.12 does not know. Without this file every downstream Lint job fails
+# on workflows repomatic itself wrote.
+#
+# `self-hosted-runner.labels` is actionlint's documented escape hatch for a
+# label it does not recognize; it carries no implication that the runners are
+# self-hosted. Prune an entry once a pinned actionlint knows the label, and
+# check this file whenever `DEFAULT_OS` moves to a newer image.
+# https://github.com/rhysd/actionlint/blob/main/docs/config.md
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

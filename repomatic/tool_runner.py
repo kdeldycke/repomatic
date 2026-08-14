@@ -620,7 +620,16 @@ def _install_binary(
     key = binary.resolve_platform()
     cache_key = BinarySpec.platform_cache_key(key)
 
-    executable = binary.archive_executable or spec.name
+    # Names the cache entry and nothing else: extraction reads
+    # `archive_executable` off the spec itself. `store_binary` keys an entry on
+    # the *extracted file's* own name, so the probe has to be normalized the
+    # same two ways to ever match it: flatten a path inside the archive
+    # (`bin/gh` becomes `gh`), and allow the `.exe` a Windows archive carries,
+    # mirroring the candidates `_extract_from_zip` matches on. Probing the raw
+    # `bin/gh` missed every time, re-downloading a tool already sitting in the
+    # cache: since every `gh` call routes through the pinned binary, that was
+    # one 13 MB fetch per invocation, on laptops and CI runners alike.
+    stem = (binary.archive_executable or spec.name).rsplit("/", 1)[-1]
     # Fail closed on a spec that maps the platform to a URL but records no
     # digest for it (only reachable through hand-built specs: the registry
     # enforces URL/checksum key parity). Falling through with an empty digest
@@ -632,7 +641,11 @@ def _install_binary(
 
     # Check cache (unless --no-cache).
     if not no_cache:
-        cached = get_cached_binary(spec.name, spec.version, cache_key, executable)
+        cached = None
+        for candidate in (stem, f"{stem}.exe"):
+            cached = get_cached_binary(spec.name, spec.version, cache_key, candidate)
+            if cached is not None:
+                break
         if cached is not None:
             if skip_checksum:
                 logging.info(

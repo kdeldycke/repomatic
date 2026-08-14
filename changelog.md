@@ -12,6 +12,9 @@
 - `lint-changelog` now warns about a released section holding no entry.
 - `lint-deps` now reports declarations departing from version policy: upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors. Warnings only, disabled with `--no-policy`.
 - `cancel-runs` now spares a run whose head commit carries `[changelog] Release`, so a sweep of the default branch cannot kill a release matrix.
+- Fix `gh` re-downloading on every single command instead of once per version: a registry binary whose archive nests its executable in a subdirectory was stored under one cache key and looked up under another, so the cache never hit. `7.11.0` routed every GitHub call through the pinned binary, making it a 13 MB fetch per invocation.
+- Fix `repomatic init` realigning a workflow's inline `repomatic==X.Y.Z` pin without the cooldown exemption beside it, leaving a command that cannot resolve the version just written. `--no-cooldown` hit this on every run.
+- `repomatic run actionlint` now ships a bundled config declaring the `ubuntu-26.04` runner labels actionlint `1.7.12` predates, so the Lint job no longer fails on the `runs-on:` values repomatic itself generates.
 - Fix the `[tool.repomatic.workflow]` key names the `repomatic-audit` skill recommends: they are `extra-paths` and `ignore-paths`, not the snake_case attribute names.
 - Every job now caps its runtime with `timeout-minutes`, so a hung job frees its runner in minutes instead of holding it for the platform's 6-hour ceiling. Downstream callers inherit the caps.
 - The bundled `lychee.toml` now excludes `bitdefender.com`, `npmjs.com`, `star-history.com` and `githubstatus.com`, which answer bots with 403, 405 or JavaScript rather than a link.

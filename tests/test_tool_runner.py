@@ -54,6 +54,11 @@ from extra_platforms import (
 from repomatic.cache import cached_binary_path
 from repomatic.file_inventory import FileInventory
 from repomatic.images import _check_tool
+from repomatic.matrix_axes import (
+    SINGLE_RUNNER_PYTHON_VERSIONS,
+    TEST_RUNNERS_FULL,
+    TEST_RUNNERS_PR,
+)
 from repomatic.metadata import Metadata
 from repomatic.tool_registry import (
     _DIRECTIVE_YAML_OPTIONS_RE,
@@ -306,6 +311,34 @@ def test_tool_spec_integrity(name, spec):
             assert "/" not in spec.binary.archive_executable, (
                 f"{name}: RAW archive_executable must not contain path separators"
             )
+
+
+def test_bundled_actionlint_labels_name_runners_the_matrix_emits():
+    """Every declared label answers a runner the generated workflows can name.
+
+    actionlint validates `runs-on:` against a list baked into its binary, and
+    rejects a GitHub-hosted label its release predates. The bundled config
+    declares those through `self-hosted-runner`, actionlint's escape hatch for
+    an unrecognized label, which is why the entries carry no implication of
+    being self-hosted.
+
+    Pinning them to the matrix constants is what keeps the file from rotting: an
+    entry surviving a move to a newer image would go on whitelisting a runner
+    nothing uses, and read as still load-bearing.
+    """
+    with get_data_file_path("actionlint.yaml") as path:
+        config = yaml.safe_load(path.read_text(encoding="UTF-8"))
+
+    declared = set(config["self-hosted-runner"]["labels"])
+    emitted = (
+        set(TEST_RUNNERS_FULL)
+        | set(TEST_RUNNERS_PR)
+        | set(SINGLE_RUNNER_PYTHON_VERSIONS.values())
+    )
+    assert declared, "Bundled actionlint config declares no labels"
+    assert declared <= emitted, (
+        f"Declared but no longer emitted: {sorted(declared - emitted)}"
+    )
 
 
 def test_tool_backend_labels_unique():
@@ -1143,6 +1176,8 @@ def _binary_spec(
     version: str = "1.0.0",
     checksum: str = "a" * 64,
     url: str = "https://example.com/{version}/tool",
+    archive_executable: str | None = None,
+    archive_format: ArchiveFormat = ArchiveFormat.RAW,
 ) -> ToolSpec:
     """A single-platform `ToolSpec` for the Linux x86_64 cache tests.
 
@@ -1155,7 +1190,8 @@ def _binary_spec(
         binary=BinarySpec(
             urls={(LINUX, X86_64): url},
             checksums={(LINUX, X86_64): checksum},
-            archive_format=ArchiveFormat.RAW,
+            archive_format=archive_format,
+            archive_executable=archive_executable,
         ),
     )
 
@@ -1190,6 +1226,46 @@ def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
     # Write the sidecar with the binary's digest.
     sidecar = cache_path.with_suffix(cache_path.suffix + ".sha256")
     sidecar.write_text(binary_checksum, encoding="UTF-8")
+
+    with _on_linux_x86_64():
+        result = _install_binary(spec, tmp_path / "staging")
+
+    assert result == cache_path
+
+
+@pytest.mark.parametrize(
+    "cached_name",
+    (
+        # What `store_binary` records on POSIX: the extracted file's own name,
+        # with the archive's directory prefix already gone.
+        "testtool",
+        # What it records on Windows, where the archive carries the suffix.
+        "testtool.exe",
+    ),
+)
+def test_install_binary_cache_hit_on_a_nested_archive_executable(
+    tmp_path, monkeypatch, cache_env, cached_name
+):
+    """A cached entry is found whatever path the executable held in the archive.
+
+    `archive_executable` names a location *inside* the archive, while the cache
+    keys an entry on the extracted file's own name. Probing with the nested path
+    matched nothing, so a tool declaring one re-downloaded on every call despite
+    a complete, sidecar-verified copy sitting in the cache. `gh` (`bin/gh`) was
+    the only registry tool to declare one, and since every `gh` invocation
+    routes through the pinned binary, it re-fetched 13 MB per run.
+    """
+    fake_binary = b"cached-binary-content"
+    spec = _binary_spec(
+        archive_executable="bin/testtool", archive_format=ArchiveFormat.ZIP
+    )
+
+    cache_path = cached_binary_path("testtool", "1.0.0", "linux-x86_64", cached_name)
+    cache_path.parent.mkdir(parents=True)
+    cache_path.write_bytes(fake_binary)
+    cache_path.chmod(0o755)
+    sidecar = cache_path.with_suffix(cache_path.suffix + ".sha256")
+    sidecar.write_text(hashlib.sha256(fake_binary).hexdigest(), encoding="UTF-8")
 
     with _on_linux_x86_64():
         result = _install_binary(spec, tmp_path / "staging")

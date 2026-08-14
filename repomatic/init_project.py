@@ -59,6 +59,7 @@ from .github.workflow_sync import (
 from .http import DEFAULT_TIMEOUT
 from .metadata import Metadata
 from .plugin import merge_plugin_settings
+from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .pyproject import is_python_package, is_python_project, resolve_source_paths
 from .registry import (
     COMPONENTS,
@@ -83,6 +84,7 @@ from .tool_runner import find_unmodified_configs
 from .version_sync import (
     Candidate,
     UpstreamRefPin,
+    apply_self_pin_exemption,
     find_upstream_ref_pins,
     github_candidates,
     is_newer,
@@ -1349,10 +1351,19 @@ def _realign_inline_pins(
     `pr-body` calls of a release workflow), which header-only sync never
     touches; that is exactly where the lag hides.
 
+    Also splices in the per-package cooldown escape hatch
+    ({data}`~repomatic.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION`) wherever a
+    `uvx` command pinning the package lacks it. Every workflow exports a
+    `UV_EXCLUDE_NEWER` covering all resolution, and the pin this function writes
+    routinely names a release younger than that window, so realigning it without
+    the exemption produces a command that cannot resolve at all. `--no-cooldown`
+    makes that the normal case rather than the rare one: it adopts the running
+    version the day it is published.
+
     ```{note}
-    The single-`=` per-package cooldown escape hatch written beside the pin
-    (`--exclude-newer-package repomatic=P0D`) is left alone: it names a package,
-    not a version.
+    The exemption's own single-`=` literal (`repomatic=P0D`) is untouched by the
+    version rewrite: it names a package, not a version. Splicing is idempotent,
+    so a command already carrying it is left byte-identical.
     ```
 
     :param workflows_dir: The repository's `.github/workflows/` directory.
@@ -1370,7 +1381,9 @@ def _realign_inline_pins(
 
     for target in sorted(workflows_dir.glob("*.y*ml")):
         content = target.read_text(encoding="UTF-8")
-        new_content = pin_re.sub(replacement, content)
+        new_content = apply_self_pin_exemption(
+            pin_re.sub(replacement, content), package, SELF_PIN_COOLDOWN_EXEMPTION
+        )
         if new_content == content:
             continue
         _write_managed(
