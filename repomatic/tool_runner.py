@@ -1077,6 +1077,41 @@ def resolve_default_args(spec: ToolSpec) -> list[list[str]] | None:
     return [[*base, *paths]]
 
 
+TOOL_CRASH_EXIT_CODE = 70
+"""Exit code reported when a tool contradicts its own rewrite status.
+
+`EX_SOFTWARE` from `sysexits.h`: an internal error in the tool being run.
+Deliberately outside the set a formatter's caller tolerates, so a crash cannot
+land on the code that means "I reformatted a file". See
+{attr}`~repomatic.tool_registry.ToolSpec.rewrite_exit_code`.
+"""
+
+
+def _digest_targets(args: Sequence[str]) -> dict[str, str]:
+    """Digest every existing file among a batch's arguments.
+
+    Directories are walked, so a tool pointed at a tree is covered too.
+    Non-path arguments (flags, their values) simply do not exist on disk and
+    are skipped, which needs no flag parsing: a flag that happens to name a
+    real file is digested harmlessly.
+
+    :param args: One invocation's arguments.
+    :return: Path string mapped to the SHA-256 of its content.
+    """
+    digests: dict[str, str] = {}
+    for arg in args:
+        path = Path(arg)
+        if path.is_file():
+            candidates = [path]
+        elif path.is_dir():
+            candidates = [child for child in path.rglob("*") if child.is_file()]
+        else:
+            continue
+        for candidate in candidates:
+            digests[str(candidate)] = compute_file_sha256(candidate)
+    return digests
+
+
 def run_tool(
     name: str,
     extra_args: Sequence[str] = (),
@@ -1101,7 +1136,10 @@ def run_tool(
     :param skip_checksum: Skip SHA-256 verification entirely.
     :param no_cache: Bypass the binary cache when `True`.
     :return: The tool's exit code; the first non-zero one when the defaults
-        resolved to several invocations.
+        resolved to several invocations, or {data}`TOOL_CRASH_EXIT_CODE` when a
+        tool declaring
+        {attr}`~repomatic.tool_registry.ToolSpec.rewrite_exit_code` reports a
+        rewrite it did not perform.
     """
     if name not in TOOL_REGISTRY:
         msg = (
@@ -1209,10 +1247,35 @@ def run_tool(
                         continue
                     destination.parent.mkdir(parents=True, exist_ok=True)
 
+            # Snapshot the targets when the tool reports rewrites through its
+            # exit code, so the claim can be checked against the files below.
+            before = (
+                _digest_targets(batch) if spec.rewrite_exit_code is not None else {}
+            )
+
             logging.info("Running: %s", " ".join(cmd))
             result = subprocess.run(cmd, check=False, env=env)
 
             logging.info("%s exited with code %d.", spec.name, result.returncode)
+
+            # A rewrite status that rewrote nothing is a contradiction, and the
+            # shape a crash takes in a tool whose caller has to tolerate that
+            # status: pyproject-fmt exits 1 on a PanicException exactly as it
+            # does on a successful reformat. Trust the files over the code.
+            crashed = (
+                spec.rewrite_exit_code is not None
+                and result.returncode == spec.rewrite_exit_code
+                and _digest_targets(batch) == before
+            )
+            if crashed:
+                logging.error(
+                    "%s exited with code %d, which it uses to report rewritten "
+                    "files, but left every target unchanged. Treating it as a "
+                    "crash and reporting %d; re-run it directly to see why.",
+                    spec.name,
+                    result.returncode,
+                    TOOL_CRASH_EXIT_CODE,
+                )
 
             # post_process is a write-mode-only fixup: it rewrites files on
             # disk, so it runs only after a successful write (return code 0),
@@ -1240,8 +1303,9 @@ def run_tool(
 
             # Keep going after a failure, the way `xargs` does, but never let a
             # later success overwrite an earlier failure.
-            if result.returncode != 0 and exit_code == 0:
-                exit_code = result.returncode
+            batch_code = TOOL_CRASH_EXIT_CODE if crashed else result.returncode
+            if batch_code != 0 and exit_code == 0:
+                exit_code = batch_code
 
         return exit_code
 
@@ -1290,7 +1354,8 @@ def verify_via_write_path(
     :param run_kwargs: Forwarded verbatim to {func}`run_tool`.
     :return: `(exit_code, drifted)`, where `exit_code` is `0` when every target
         is already formatted and `1` otherwise, and `drifted` names the paths
-        the write path would have changed.
+        the write path would have changed. A tool that fails on the copies
+        yields its own exit code and no drift, since it measured nothing.
     """
     spec = TOOL_REGISTRY[name]
     if not extra_args:
@@ -1346,7 +1411,20 @@ def verify_via_write_path(
             )
             return 0, []
 
-        run_tool(name, extra_args=rewritten, **run_kwargs)
+        # A tool that died on the copies formatted nothing, so the comparison
+        # below would find no difference and report the tree as clean. Surface
+        # the failure instead of laundering it into a passing verdict. The
+        # rewrite status is the one non-zero code that means success here: it
+        # is what a formatter returns after reformatting a copy.
+        run_code = run_tool(name, extra_args=rewritten, **run_kwargs)
+        if run_code not in {0, spec.rewrite_exit_code}:
+            logging.error(
+                "%s failed with code %d on the throwaway copies; its formatting "
+                "cannot be verified.",
+                name,
+                run_code,
+            )
+            return run_code, []
 
         drifted = sorted(
             str(source_file)

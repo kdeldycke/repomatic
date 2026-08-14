@@ -781,6 +781,26 @@ class ToolSpec:
     ```
     """
 
+    rewrite_exit_code: int | None = None
+    """Exit code the tool returns when it rewrote at least one file.
+
+    Formatters that signal "I reformatted something" with a non-zero status
+    force every caller to tolerate that code, which is what lets a crash pass
+    for a success: pyproject-fmt exits `1` both when it reformats a file and
+    when it dies on a `PanicException`, and the autofix job cannot tell the two
+    apart from the status alone.
+
+    Declaring the code here gives `run_tool` the second signal it needs: the
+    files themselves. A run exiting with this code and leaving every target
+    byte-identical contradicts what the code claims, so it is reported as a
+    failure instead of being waved through. See
+    {data}`repomatic.tool_runner.TOOL_CRASH_EXIT_CODE`.
+
+    `None` for tools with no such convention, which is most of them: a
+    formatter that exits `0` whether or not it wrote anything needs no
+    disambiguation.
+    """
+
     binary: BinarySpec | None = None
     """Platform-specific binary download spec. When set, the tool is downloaded
     as a binary instead of installed via `uvx` or `uv run`.
@@ -1822,6 +1842,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         config_flag="--config",
         native_format=NativeFormat.TOML,
         reads_pyproject=True,
+        rewrite_exit_code=1,
         docs_notes=cleandoc(r"""
             **Try it:**
 

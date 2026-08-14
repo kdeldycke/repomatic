@@ -187,10 +187,12 @@ jobs:
           version: "0.12.2"
       - name: Run pyproject-fmt
         # pyproject-fmt returns exit code 1 when it reformats the file, which is
-        # the expected outcome in an autofix workflow. No file list: the tool
-        # runner resolves it, which also drops the xargs that used to translate
-        # that 1 into a 123. See `ToolSpec.default_paths` in
-        # repomatic/tool_registry.py.
+        # the expected outcome in an autofix workflow. Tolerating it is only safe
+        # because the tool runner checks the files too: a crash that exits 1
+        # without rewriting anything arrives here as 70 and fails the job. See
+        # `ToolSpec.rewrite_exit_code`. No file list: the tool runner resolves it,
+        # which also drops the xargs that used to translate that 1 into a 123.
+        # See `ToolSpec.default_paths` in repomatic/tool_registry.py.
         run: |
           rc=0
           uv --no-progress run --frozen -- repomatic run pyproject-fmt || rc=$?

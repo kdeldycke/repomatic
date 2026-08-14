@@ -78,6 +78,7 @@ from repomatic.tool_registry import (
     _yaml_block_to_field_list,
 )
 from repomatic.tool_runner import (
+    TOOL_CRASH_EXIT_CODE,
     _build_install_args,
     _dereference_data_dir_symlinks,
     _download_and_verify,
@@ -93,6 +94,7 @@ from repomatic.tool_runner import (
     resolve_config_source,
     resolve_default_args,
     run_tool,
+    verify_via_write_path,
 )
 
 # ---------------------------------------------------------------------------
@@ -3015,3 +3017,91 @@ def test_per_file_requires_default_paths(spec):
     assert spec.default_paths, (
         f"{spec.name} sets per_file with no default_paths to split"
     )
+
+
+# ---------------------------------------------------------------------------
+# Rewrite-status crash detection
+# ---------------------------------------------------------------------------
+
+MESSY_PYPROJECT = '[project]\nname="orchard"\nversion="1.0"\n'
+"""An unformatted `pyproject.toml`, the input a formatter is expected to rewrite."""
+
+
+@patch("repomatic.tool_runner._install_binary")
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_reports_a_rewrite_status_that_rewrote_nothing(
+    mock_ci, mock_run, mock_install, tmp_path, monkeypatch, caplog
+):
+    """A formatter claiming a rewrite it did not perform is reported as a crash.
+
+    This is how pyproject-fmt dies on a `PanicException`: exit code 1, the same
+    one it uses for a successful reformat, and an untouched file. Callers have
+    to tolerate that code, so without the file check the crash reads as a
+    normal run and the autofix job goes green having formatted nothing.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(MESSY_PYPROJECT, encoding="UTF-8")
+    mock_run.return_value = MagicMock(returncode=1)
+
+    with caplog.at_level(logging.ERROR):
+        assert run_tool("pyproject-fmt") == TOOL_CRASH_EXIT_CODE
+
+    assert "left every target unchanged" in caplog.text
+    assert (tmp_path / "pyproject.toml").read_text(encoding="UTF-8") == MESSY_PYPROJECT
+
+
+@patch("repomatic.tool_runner._install_binary")
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_passes_a_rewrite_status_that_rewrote_a_file(
+    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+):
+    """The same exit code is passed through untouched when a file did change."""
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "pyproject.toml"
+    target.write_text(MESSY_PYPROJECT, encoding="UTF-8")
+
+    def reformat(*args, **kwargs):
+        target.write_text('[project]\nname = "orchard"\n', encoding="UTF-8")
+        return MagicMock(returncode=1)
+
+    mock_run.side_effect = reformat
+
+    assert run_tool("pyproject-fmt") == 1
+
+
+@patch("repomatic.tool_runner._install_binary")
+@patch("repomatic.tool_runner.subprocess.run")
+@patch("repomatic.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_leaves_other_tools_exit_codes_alone(
+    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+):
+    """A tool declaring no rewrite status keeps reporting its own failures.
+
+    mdformat exits 1 on a genuine error, never to announce a rewrite, so the
+    contradiction check must not reinterpret it.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "harvest.md").write_text("# Mango\n", encoding="UTF-8")
+    mock_run.return_value = MagicMock(returncode=1)
+
+    assert TOOL_REGISTRY["mdformat"].rewrite_exit_code is None
+    assert run_tool("mdformat") == 1
+
+
+@patch("repomatic.tool_runner.run_tool", return_value=TOOL_CRASH_EXIT_CODE)
+def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monkeypatch):
+    """A tool that dies on the copies is a failure, not a clean bill of health.
+
+    The copies come back unformatted, so comparing them to the originals finds
+    no difference. Reporting that as "already formatted" would turn every
+    crash into a passing verification.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(MESSY_PYPROJECT, encoding="UTF-8")
+
+    exit_code, drifted = verify_via_write_path("pyproject-fmt")
+
+    assert exit_code == TOOL_CRASH_EXIT_CODE
+    assert drifted == []

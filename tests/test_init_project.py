@@ -1271,6 +1271,92 @@ def test_init_adds_a_missing_cooldown_exemption(tmp_path, monkeypatch, pinned):
     )
 
 
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    (
+        # The shape every downstream workflow uses, folded onto one line.
+        (
+            (
+                "uvx --no-progress 'repomatic==7.11.0' metadata "
+                '--format github-json --output "$GITHUB_OUTPUT" '
+                "coverage_cells test_matrix test_matrix_pr"
+            ),
+            ["coverage_cells", "test_matrix", "test_matrix_pr"],
+        ),
+        # No keys requested: the command dumps everything.
+        ("uvx 'repomatic==7.11.0' metadata", []),
+        # An option's value is never mistaken for a key.
+        ("uvx repomatic metadata --output out.json", []),
+        # A `--flag=value` option leaves the next token readable as a key.
+        ("uvx repomatic metadata --format=json current_version", ["current_version"]),
+        # Another command's arguments stop the scan.
+        ("uvx repomatic metadata test_matrix && echo mango", ["test_matrix"]),
+        # `metadata` outside an invocation of the package is not a subcommand.
+        ("grep metadata harvest.txt", []),
+        # Unbalanced quotes: no guess is better than a wrong one.
+        ("uvx repomatic metadata 'test_matrix", []),
+    ),
+)
+def test_requested_metadata_keys(command, expected):
+    """Keys are read out of a step's shell command, values and flags are not."""
+    assert ip._requested_metadata_keys(command, "repomatic") == expected
+
+
+def test_init_warns_about_a_metadata_key_this_version_dropped(tmp_path, monkeypatch):
+    """A workflow asking for a retired key is reported before the commit.
+
+    An unknown key is a hard `UsageError`, so the mismatch takes down the
+    metadata job and every job hanging off it on the first push.
+    """
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        _DOWNSTREAM_TESTS_YAML.replace(
+            "echo hello",
+            "uvx 'repomatic==7.4.1' metadata harvest_yield test_matrix",
+        ),
+        encoding="UTF-8",
+    )
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+
+    result = run_init(
+        output_dir=tmp_path, components=("workflows/tests.yaml",), cooldown=False
+    )
+
+    assert len(result.warnings) == 1
+    assert "'harvest_yield'" in result.warnings[0]
+    # The keys that do exist are not named.
+    assert "test_matrix" not in result.warnings[0]
+
+
+def test_init_skips_the_metadata_key_check_behind_a_cooldown(tmp_path, monkeypatch):
+    """A pin held back to an older release is judged by no key set at all.
+
+    The older release's keys cannot be read from this process, and this
+    version's would blame a workflow that works.
+    """
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        _DOWNSTREAM_TESTS_YAML.replace(
+            "echo hello", "uvx 'repomatic==7.4.1' metadata harvest_yield"
+        ),
+        encoding="UTF-8",
+    )
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+
+    result = run_init(
+        output_dir=tmp_path,
+        components=("workflows/tests.yaml",),
+        cooldown=False,
+        version="v7.4.1",
+    )
+
+    assert result.warnings == []
+
+
 def test_init_leaves_an_unrelated_pypi_pin_alone(tmp_path, monkeypatch):
     """Only the upstream toolkit's own literal is realigned, not every `==` pin."""
     target = tmp_path / ".github" / "workflows" / "tests.yaml"

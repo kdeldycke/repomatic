@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import shlex
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -44,6 +45,8 @@ from shutil import rmtree
 from urllib.request import Request, urlopen
 
 import tomlrt
+import yaml
+from packaging.version import InvalidVersion, Version
 
 from . import __git_tag_sha__, __version__
 from .bundle import get_data_content
@@ -57,7 +60,7 @@ from .github.workflow_sync import (
     render_thin_caller_for_target,
 )
 from .http import DEFAULT_TIMEOUT
-from .metadata import Metadata
+from .metadata import Metadata, all_metadata_keys
 from .plugin import merge_plugin_settings
 from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .pyproject import is_python_package, is_python_project, resolve_source_paths
@@ -1320,6 +1323,8 @@ def _init_workflows(
         )
 
     _realign_inline_pins(workflows_dir, version, result, output_dir, repo=repo)
+    # Runs after the realignment, so it reads the pin the workflows now carry.
+    _check_metadata_keys(workflows_dir, result, output_dir, version, repo=repo)
 
 
 def _realign_inline_pins(
@@ -1394,6 +1399,154 @@ def _realign_inline_pins(
             normalize=False,
             verb=f"Realigned inline {package} pin",
         )
+
+
+def _run_commands(workflow: Path) -> list[str]:
+    """Collect every `run:` script in a workflow file.
+
+    :param workflow: Path to a workflow YAML file.
+    :return: One entry per step carrying a `run:`. Empty when the file does not
+        parse as a workflow, which is not this function's problem to report.
+    """
+    try:
+        data = yaml.safe_load(workflow.read_text(encoding="UTF-8"))
+    except (yaml.YAMLError, OSError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    commands = []
+    for job in data.get("jobs", {}).values():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if isinstance(step, dict) and isinstance(step.get("run"), str):
+                commands.append(step["run"])
+    return commands
+
+
+def _requested_metadata_keys(command: str, package: str) -> list[str]:
+    """Extract the metadata keys a shell command asks for.
+
+    ```{note}
+    Deliberately conservative: a token is only read as a key when it is
+    lowercase snake_case and does not follow a bare option, which could be that
+    option's value. A boolean option ahead of the first key therefore hides it.
+    Under-reporting costs a missed warning; over-reporting would blame a
+    perfectly good workflow, and this runs on files the user did not write.
+    ```
+
+    :param command: One step's `run:` script.
+    :param package: Upstream package name, as it appears in the invocation.
+    :return: The key arguments, in the order they appear.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        # Unbalanced quotes: a shell script this function has no business
+        # second-guessing.
+        return []
+
+    keys = []
+    seen_package = False
+    after_subcommand = False
+    for index, token in enumerate(tokens):
+        previous = tokens[index - 1] if index else ""
+        if package in token:
+            seen_package = True
+        elif token == "metadata" and seen_package:
+            after_subcommand = True
+        # Outside the subcommand's arguments, or looking at an option or at the
+        # value of one written apart from it: none of these can be a key.
+        elif (
+            not after_subcommand
+            or token.startswith("-")
+            or (previous.startswith("-") and "=" not in previous)
+        ):
+            continue
+        elif re.fullmatch(r"[a-z][a-z0-9_]*", token):
+            keys.append(token)
+        else:
+            # A value that cannot be a key: the invocation moved on to
+            # something else (a shell operator, a path, another command).
+            after_subcommand = False
+    return keys
+
+
+def _check_metadata_keys(
+    workflows_dir: Path,
+    result: InitResult,
+    output_dir: Path,
+    version: str,
+    *,
+    repo: str = DEFAULT_REPO,
+) -> None:
+    """Warn when a workflow asks `metadata` for a key this version dropped.
+
+    A workflow reaches the toolkit's metadata through a `run:` command naming
+    the keys it wants, and an unknown key is a hard `UsageError`. So retiring a
+    key breaks every downstream workflow still asking for it, at the first push
+    after the adoption, in the job every other job hangs off: click-extra's
+    whole test workflow went dark that way when `coverage_cells` left with the
+    Codecov integration.
+
+    `init` is where the version changes, and the job bodies holding these
+    commands belong to the downstream repository, so header-only sync never
+    reads them. That makes this the one moment the mismatch is both introduced
+    and fixable, ahead of the commit rather than after the red run.
+
+    Scope is every workflow file, matching {func}`_realign_inline_pins`: the
+    invocation hides in a job body wherever the repository chose to put it.
+
+    ```{note}
+    The key set is the running version's, read in-process, so the check applies
+    only when the workflows end up pinned to that same version. A cooldown
+    holding the pin back leaves the answer unknowable from here: the older
+    release's key set is not importable, and judging it by this one's would
+    blame a workflow that works.
+    ```
+
+    :param workflows_dir: The repository's `.github/workflows/` directory.
+    :param result: {class}`InitResult` accumulator, mutated in place.
+    :param output_dir: Repository root, for the reported relative path.
+    :param version: Version just pinned into the workflows, `vX.Y.Z` spelling.
+    :param repo: Upstream `owner/repo`; its name is the package to match.
+    """
+    # Compared on the release tuple, so a development build checks the release
+    # it is heading for: the pin drops the `.devN` suffix the running version
+    # carries, and string equality would skip the check on every dev checkout.
+    try:
+        same_release = (
+            Version(version.removeprefix("v")).release == Version(__version__).release
+        )
+    except InvalidVersion:
+        same_release = False
+    if not same_release:
+        logging.debug(
+            "Workflows pin %s, not the running %s: skipping the metadata-key "
+            "check, whose key set is this version's.",
+            version,
+            __version__,
+        )
+        return
+
+    package = repo.rsplit("/", 1)[-1]
+    valid_keys = all_metadata_keys()
+    for target in sorted(workflows_dir.glob("*.y*ml")):
+        unknown = sorted({
+            key
+            for command in _run_commands(target)
+            for key in _requested_metadata_keys(command, package)
+            if key not in valid_keys
+        })
+        if not unknown:
+            continue
+        result.warnings.append(
+            f"{_relative_label(target, output_dir)} asks `{package} metadata` "
+            f"for {', '.join(repr(key) for key in unknown)}, which "
+            f"{package} {__version__} does not emit. The job will fail; drop "
+            "the key or pin an older version."
+        )
+        logging.warning(result.warnings[-1])
 
 
 def is_source_repo(output_dir: Path) -> bool:
