@@ -281,15 +281,31 @@ def _graft_local_additions(
                 else set()
             )
             # Array in both: append local-only items, preserving their order.
-            for item in existing_value:
-                if (
+            grafted = [
+                item
+                for item in existing_value
+                # Same slot as a canonical entry: superseded by the template.
+                if not (
                     isinstance(item, dict)
                     and _entry_identity(item, identity_keys) in template_slots
-                ):
-                    # Same slot as a canonical entry: superseded by the template.
-                    continue
-                if item not in template_value:
-                    target[key].append(item)
+                )
+                and item not in template_value
+            ]
+            if list(existing_value) == list(template_value) + grafted:
+                # The merge changes nothing, so keep the array the project
+                # wrote instead of rebuilding an equal one. Rebuilding re-emits
+                # every item in tomlrt's own style, because iterating an array
+                # yields decoded values rather than the nodes carrying their
+                # source lexeme: a literal `'base32 "[0-9a-z]{52}"'` comes back
+                # as an escaped `"base32 \"[0-9a-z]{52}\""`. Same content, and
+                # `pyproject-fmt` rewrites it straight back, so the unattended
+                # `sync-repomatic` and `format-pyproject` jobs each open a pull
+                # request undoing the other's, forever. Keeping the node also
+                # spares the per-entry comments a rebuild would drop.
+                target[key] = existing_value
+                continue
+            for item in grafted:
+                target[key].append(item)
         # Scalar in both: the canonical template value wins, nothing to graft.
 
 

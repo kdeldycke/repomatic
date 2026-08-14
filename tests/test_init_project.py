@@ -2141,6 +2141,70 @@ def test_ongoing_sync_template_survives_pyproject_fmt(
     )
 
 
+@pytest.mark.parametrize(
+    "config_type",
+    sorted(
+        c.name
+        for c in COMPONENTS
+        if isinstance(c, ToolConfigComponent) and c.sync_mode is SyncMode.ONGOING
+    ),
+)
+def test_ongoing_resync_preserves_local_string_style(
+    config_type: str, tmp_path: Path
+) -> None:
+    """Re-syncing an adopted config must not restyle what the project wrote.
+
+    The sibling `test_ongoing_sync_template_survives_pyproject_fmt` merges each
+    template into an *empty* file, so it only ever sees the template's own text.
+    The ping-pong this guards needs a **local addition**: iterating a tomlrt
+    array yields decoded values rather than the nodes carrying their source
+    lexeme, so rebuilding the array re-emits every item in tomlrt's style. A
+    local `'base32 "[0-9a-z]{52}"'`, which pyproject-fmt writes as a literal
+    string precisely because it contains a quote, came back as an escaped
+    `"base32 \\"[0-9a-z]{52}\\""`. Same content, so `format-pyproject` rewrote it
+    straight back, and the two unattended jobs opened pull requests undoing each
+    other indefinitely.
+
+    Offline by construction: it asserts the invariant that makes the file a
+    fixed point rather than shelling out to pyproject-fmt to observe one.
+    """
+    comp = COMPONENTS_BY_NAME[config_type]
+    assert isinstance(comp, ToolConfigComponent)
+
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n', encoding="UTF-8"
+    )
+    merged = init_config(config_type, pyproject)
+    assert merged is not None
+
+    # Splice a literal-quoted item into the first single-line array the template
+    # defines. A template carrying none cannot regress this way.
+    local = """'weather "[a-z]{3}"'"""
+    spliced, count = re.subn(
+        r"^(?P<key>[\w.-]+ = \[)(?P<body>[^\[\]\n]*)\]$",
+        lambda m: f"{m['key']}{m['body'].rstrip()}, {local} ]",
+        merged,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if not count:
+        pytest.skip(f"{comp.source_file} defines no single-line array to graft into.")
+    pyproject.write_text(spliced, encoding="UTF-8")
+    before = _tool_section(spliced, comp.tool_section)
+
+    resynced = init_config(config_type, pyproject)
+    after = _tool_section(resynced or spliced, comp.tool_section)
+
+    assert local in after, (
+        f"Re-syncing [{comp.tool_section}] re-serialized a local array item, "
+        f"turning {local} into something else. The project's own string style "
+        f"must survive a re-sync, or format-pyproject and sync-repomatic will "
+        f"each keep opening a pull request undoing the other's."
+    )
+    assert before == after
+
+
 def _bumpversion_pyproject(*file_entries: str) -> str:
     """Render a pyproject whose `[tool.bumpversion]` carries *file_entries*.
 

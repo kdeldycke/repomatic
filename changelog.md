@@ -27,6 +27,7 @@
 - Fix `gh` re-downloading on every command instead of once per version: a binary nested in an archive subdirectory was stored under one cache key and looked up under another.
 - Fix `repomatic init` realigning a workflow's inline `repomatic==X.Y.Z` pin without the cooldown exemption beside it, leaving a command that cannot resolve the version just written.
 - Fix `audit --fix` dirtying `uv.lock` with a cooldown-override record when no upgrade was reachable, which opened a `fix-vulnerable-deps` pull request carrying no fix.
+- Fix `repomatic init` restyling a locally added array item when it re-syncs a tool config, which had `sync-repomatic` and `format-pyproject` endlessly opening pull requests undoing each other.
 - A formatter exiting with its rewrite status while leaving every target unchanged is now reported as a crash, instead of passing for a successful reformat that never happened.
 - Fix stale guidance across the bundled skills: wrong `[tool.repomatic.workflow]` key names, wrong workflow and job names for `lint-deps` and `lint-changelog`, which tools a bundled default actually covers, and downstream audits comparing against `main` rather than the adopted release.
 - Fix the bundled `babysit-ci` skill classifying a CI job by a leading `✅`, which dropped every required job whose name carries no stability glyph from the failures it collects.
