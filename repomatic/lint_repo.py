@@ -1441,6 +1441,35 @@ def check_python_version_consistency() -> list[CheckResult]:
     return results
 
 
+def literal_runners(workflow_dir: Path = WORKFLOW_DIR) -> dict[str, list[str]]:
+    """Every runner image this repository names outright, and where.
+
+    Only literals: a value built from an expression (`${{ matrix.os }}`) names
+    no image here, and the axis it draws from is checked at its definition. A
+    thin caller declares no `steps:` and runs on whatever the reusable workflow
+    chose, which is that workflow's business rather than this repository's.
+
+    Separate from {data}`KNOWN_RUNNERS`, and deliberately so. That set is what
+    this project has *chosen*; this function reports what it is *running*, and
+    the two diverge exactly when something has been left behind. Callers wanting
+    "an image this repository has a stake in" need the union of both.
+
+    :param workflow_dir: Directory holding the workflow files.
+    :return: A mapping of runner label to the `file.yaml:job-id` locations
+        naming it, empty when no job names one literally.
+    """
+    seen: dict[str, list[str]] = {}
+    for path, data in _load_workflows(workflow_dir).items():
+        for job_id, job in data["jobs"].items():
+            if not isinstance(job, dict) or "steps" not in job:
+                continue
+            runner = job.get("runs-on")
+            if not isinstance(runner, str) or "${{" in runner:
+                continue
+            seen.setdefault(runner, []).append(f"{path.name}:{job_id}")
+    return seen
+
+
 def check_runner_images() -> list[CheckResult]:
     """Flag runner images that move on their own, or that no axis knows about.
 
@@ -1464,22 +1493,13 @@ def check_runner_images() -> list[CheckResult]:
 
     :return: A list of `CheckResult`.
     """
-    workflows = _load_workflows()
-    if not workflows:
-        return [CheckResult(None, "Runner images check: skipped (no workflows).")]
-
-    seen: dict[str, list[str]] = {}
-    for path, data in workflows.items():
-        for job_id, job in data["jobs"].items():
-            if not isinstance(job, dict) or "steps" not in job:
-                # A thin caller's runner is the reusable workflow's business.
-                continue
-            runner = job.get("runs-on")
-            if not isinstance(runner, str) or "${{" in runner:
-                continue
-            seen.setdefault(runner, []).append(f"{path.name}:{job_id}")
-
+    seen = literal_runners()
     if not seen:
+        # Only reached with nothing to report, so the second parse costs nothing
+        # in the common path. The two skips are worth telling apart: no workflows
+        # at all is a different repository from one whose jobs all delegate.
+        if not _load_workflows():
+            return [CheckResult(None, "Runner images check: skipped (no workflows).")]
         return [
             CheckResult(None, "Runner images check: skipped (none named literally).")
         ]

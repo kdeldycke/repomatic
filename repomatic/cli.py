@@ -196,6 +196,7 @@ from .lint_repo import (
     KNOWN_RUNNERS,
     WORKFLOW_DIR,
     documentation_url,
+    literal_runners,
     run_repo_lint,
 )
 from .mailmap import Mailmap, remove_header
@@ -1452,7 +1453,13 @@ def runner_images(ctx: Context) -> None:
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.runner_images, "runner-images")
 
-    manage_runner_images_issue(KNOWN_RUNNERS)
+    # The curated axes plus whatever the workflows actually name. Watching the
+    # axes alone would have skipped the images most in need of a warning: an
+    # off-axis runner is by definition one nobody chose deliberately, which is
+    # what `lint-repo`'s own runner check exists to say. Reporting a retirement
+    # for every image except those would have flagged the tracked ones and left
+    # the neglected ones to fail their build unannounced.
+    manage_runner_images_issue(KNOWN_RUNNERS | literal_runners().keys())
 
 
 @repomatic.command(

@@ -24,9 +24,14 @@ one retires entirely outside this repository's view, on GitHub's schedule.
 {func}`~repomatic.lint_repo.check_runner_images` covers the inward direction,
 checking that every literal `runs-on:` names an image the curated axes in
 {mod}`repomatic.matrix_axes` know about. This module covers the outward one:
-what GitHub has announced about those images. The two share
-{data}`~repomatic.lint_repo.KNOWN_RUNNERS` as their single notion of "an image
-this project tracks".
+what GitHub has announced about the images at stake.
+
+Those two sets are not the same set, and the difference is the whole point.
+{data}`~repomatic.lint_repo.KNOWN_RUNNERS` is what the project has *chosen*;
+{func}`~repomatic.lint_repo.literal_runners` is what its workflows are *running*.
+A job sitting on an image outside the axes is exactly the one nobody is
+tracking, so watching the axes alone would warn about every image except the
+neglected ones. The caller passes the union.
 
 ```{note} Why the announcement feed and not the README table
 `actions/runner-images` publishes an `Announcement`-labelled issue for every
@@ -126,8 +131,8 @@ BACKTICKED_TOKEN_RE = re.compile(r"`([A-Za-z][A-Za-z0-9.\-]*)`")
 
 Runner labels appear verbatim and backticked, so pulling every backticked token
 out of {data}`IMPACT_SECTION_RE` and intersecting with the images this project
-uses needs no fuzzy matching and cannot invent a label: anything not already in
-{data}`~repomatic.lint_repo.KNOWN_RUNNERS` is discarded.
+has a stake in needs no fuzzy matching and cannot invent a label: anything the
+caller did not name is discarded.
 """
 
 
@@ -260,8 +265,9 @@ def render_announcement_rows(
 def manage_runner_images_issue(known_runners: Iterable[str]) -> None:
     """Open, update, or close the runner image announcement issue.
 
-    :param known_runners: The images this project tracks, normally
-        {data}`~repomatic.lint_repo.KNOWN_RUNNERS`.
+    :param known_runners: The images this project has a stake in, normally the
+        union of {data}`~repomatic.lint_repo.KNOWN_RUNNERS` and the labels
+        {func}`~repomatic.lint_repo.literal_runners` finds in the workflows.
     """
     announcements = fetch_announcements()
     if announcements is None:

@@ -50,6 +50,7 @@ from repomatic.lint_repo import (
     check_workflow_permissions,
     documentation_url,
     get_repo_metadata,
+    literal_runners,
     run_repo_lint,
 )
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
@@ -1433,6 +1434,54 @@ def test_runner_images_ignores_thin_callers(tmp_path, monkeypatch):
     )
     results = check_runner_images()
     assert all(r.passed is not False for r in results)
+
+
+@pytest.mark.parametrize(
+    ("runner", "expected"),
+    [
+        # The whole reason this is separate from KNOWN_RUNNERS: an off-axis image
+        # is still what the job runs on, and is precisely the one no axis is
+        # watching for a deprecation announcement.
+        pytest.param(
+            "ubuntu-22.04", {"ubuntu-22.04": ["ci.yaml:build"]}, id="off-axis"
+        ),
+        pytest.param("ubuntu-26.04", {"ubuntu-26.04": ["ci.yaml:build"]}, id="on-axis"),
+        pytest.param("ubuntu-latest", {"ubuntu-latest": ["ci.yaml:build"]}, id="alias"),
+        pytest.param("${{ matrix.os }}", {}, id="expression"),
+    ],
+)
+def test_literal_runners(tmp_path, monkeypatch, runner, expected):
+    """Every literal `runs-on:` is reported, axis membership notwithstanding."""
+    monkeypatch.chdir(tmp_path)
+    _write_ci_workflow(
+        tmp_path,
+        f"on: push\njobs:\n  build:\n    runs-on: {runner}\n"
+        "    steps:\n      - run: echo apricot\n",
+    )
+    assert literal_runners() == expected
+
+
+def test_literal_runners_skips_thin_callers(tmp_path, monkeypatch):
+    """A delegating job contributes no runner: it names none of its own."""
+    monkeypatch.chdir(tmp_path)
+    _write_ci_workflow(
+        tmp_path,
+        "on: push\njobs:\n  build:\n    uses: ./.github/workflows/_build.yaml\n",
+    )
+    assert literal_runners() == {}
+
+
+def test_literal_runners_groups_every_location(tmp_path, monkeypatch):
+    """One image named by several jobs reports all of them, sorted by file."""
+    monkeypatch.chdir(tmp_path)
+    job = "    runs-on: ubuntu-26.04\n    steps:\n      - run: echo apricot\n"
+    _write_ci_workflow(tmp_path, f"on: push\njobs:\n  build:\n{job}  test:\n{job}")
+    _write_ci_workflow(
+        tmp_path, f"on: push\njobs:\n  deploy:\n{job}", name="deploy.yaml"
+    )
+    assert literal_runners() == {
+        "ubuntu-26.04": ["ci.yaml:build", "ci.yaml:test", "deploy.yaml:deploy"],
+    }
 
 
 # A SHA-pinned thin-caller `uses:` ref to the upstream toolkit, declaring v6.29.0.
