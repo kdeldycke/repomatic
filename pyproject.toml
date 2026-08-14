@@ -312,7 +312,7 @@ default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "Jav
 # False positives: "astroid" is a Python AST library (not "asteroid"); "oject" appears when "pyproject.toml" is split across line breaks in CLI help output; "sur" is macOS 11 Big Sur and Homebrew's big_sur bottle tag (not "sure").
 default.extend-words = { astroid = "astroid", oject = "oject", sur = "sur", Contribuer = "Contribuer", PNGs = "PNGs", quater = "quater" }
 # Skip content between <!-- typos:off --> and <!-- typos:on --> markers.
-default.extend-ignore-re = [ "(?s)<!-- typos:off -->.*?<!-- typos:on -->", "\\{qeury\\}", "base32 \"[0-9a-z]{52}\"" ]
+default.extend-ignore-re = [ "(?s)<!-- typos:off -->.*?<!-- typos:on -->", "\\{qeury\\}", 'base32 "[0-9a-z]{52}"' ]
 default.extend-ignore-identifiers-re = [
   # error: `certifi` should be `certify`, `certifies`, `certified`
   #     ╭▸ ./docs/assets/dependencies.mmd:184:11
