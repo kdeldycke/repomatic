@@ -351,10 +351,10 @@ These jobs require a `docs` [dependency group](https://docs.astral.sh/uv/concept
 ```toml
 [dependency-groups]
 docs = [
-    "furo",
-    "myst-parser",
-    "sphinx",
-    # …
+  "furo",
+  "myst-parser",
+  "sphinx",
+  # …
 ]
 ```
 
