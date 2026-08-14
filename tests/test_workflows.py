@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -1031,6 +1032,26 @@ def test_broken_links_skips_post_release_commits() -> None:
     assert POST_RELEASE_COMMIT_PREFIX in condition, (
         f"check-broken-links job must skip commits containing "
         f"'{POST_RELEASE_COMMIT_PREFIX}'. Found condition: {condition}"
+    )
+
+
+def test_docs_trigger_covers_translated_readmes() -> None:
+    """The docs `paths:` filter must fire on a translated readme.
+
+    `check-broken-links` crawls every file `metadata` reports under
+    `doc_files`, which globs all Markdown, so a `readme.{lang}.md` is already
+    inside the crawl. The trigger is what decides whether the crawl runs at
+    all: with `readme.md` as the only readme entry, a push touching just a
+    translation skipped the workflow, and those links went unchecked until
+    something else happened to touch a listed path. Downstream thin callers
+    inherit this list verbatim, so the gap reached every awesome list keeping
+    a translation beside its English readme.
+    """
+    paths = workflow_triggers(load_workflow("docs.yaml"))["push"]["paths"]
+    translated = "readme.zh.md"
+    assert any(fnmatch(translated, pattern) for pattern in paths), (
+        f"docs.yaml push paths {paths} match no translated readme "
+        f"({translated!r}), so a translation-only push skips the link crawl."
     )
 
 

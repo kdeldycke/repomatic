@@ -10,12 +10,19 @@ name: 📚 Docs
     # Sphinx sources, Python (autodoc), pyproject (project metadata + docs
     # group deps), `uv.lock` (resolved env), the docs workflow itself, and
     # the top-level Markdown / data files that the docs include or link to.
+    # `readme.*.md` catches the translated readmes kept beside the English
+    # one. `check-broken-links` crawls every file `metadata` reports under
+    # `doc_files`, translations included, so listing `readme.md` alone left a
+    # translation-only push with no link check at all: on an awesome list,
+    # where the translation carries the same few hundred links, that is most
+    # of what the crawl exists to cover.
     paths:
       - .github/workflows/docs.yaml
       - changelog.md
       - citation.cff
       - docs/**
       - pyproject.toml
+      - readme.*.md
       - readme.md
       - uv.lock
       - "**/*.py"
