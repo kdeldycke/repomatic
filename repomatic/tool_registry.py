@@ -1379,7 +1379,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "bump-my-version": ToolSpec(
         name="bump-my-version",
-        version="1.5.0",
+        version="1.5.1",
         reads_pyproject=True,
         source_url="https://github.com/callowayproject/bump-my-version",
         config_docs_url="https://callowayproject.github.io/bump-my-version/reference/configuration/",
