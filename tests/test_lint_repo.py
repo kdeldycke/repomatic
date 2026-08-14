@@ -1583,11 +1583,18 @@ def _metadata_step(command):
         # `metadata` also names a step id, an output and a job. Only the token
         # following the package invocation is the subcommand.
         pytest.param("echo metadata cli_scripts", [], id="bare-word"),
+        pytest.param("grep metadata harvest.txt", [], id="bare-word-with-path"),
+        # No positional key: the command dumps every one of them.
+        pytest.param("uvx 'repomatic==7.11.0' metadata", [], id="no-keys"),
+        pytest.param("uvx repomatic metadata --output out.json", [], id="only-options"),
+        # An unbalanced quote is a line a shell rejects too: no guess beats a
+        # wrong one.
+        pytest.param("uvx repomatic metadata 'test_matrix", [], id="unbalanced-quote"),
     ],
 )
 def test_requested_metadata_keys(command, expected):
     """Positional keys are read off the command line the way Click reads them."""
-    assert lint_repo._requested_metadata_keys(command, "repomatic") == expected
+    assert lint_repo.requested_metadata_keys(command, "repomatic") == expected
 
 
 def test_metadata_keys_flags_a_retired_key(tmp_path, monkeypatch):

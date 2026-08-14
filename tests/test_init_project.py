@@ -1328,37 +1328,6 @@ def test_init_adds_a_missing_cooldown_exemption(tmp_path, monkeypatch, pinned):
     )
 
 
-@pytest.mark.parametrize(
-    ("command", "expected"),
-    (
-        # The shape every downstream workflow uses, folded onto one line.
-        (
-            (
-                "uvx --no-progress 'repomatic==7.11.0' metadata "
-                '--format github-json --output "$GITHUB_OUTPUT" '
-                "coverage_cells test_matrix test_matrix_pr"
-            ),
-            ["coverage_cells", "test_matrix", "test_matrix_pr"],
-        ),
-        # No keys requested: the command dumps everything.
-        ("uvx 'repomatic==7.11.0' metadata", []),
-        # An option's value is never mistaken for a key.
-        ("uvx repomatic metadata --output out.json", []),
-        # A `--flag=value` option leaves the next token readable as a key.
-        ("uvx repomatic metadata --format=json current_version", ["current_version"]),
-        # Another command's arguments stop the scan.
-        ("uvx repomatic metadata test_matrix && echo mango", ["test_matrix"]),
-        # `metadata` outside an invocation of the package is not a subcommand.
-        ("grep metadata harvest.txt", []),
-        # Unbalanced quotes: no guess is better than a wrong one.
-        ("uvx repomatic metadata 'test_matrix", []),
-    ),
-)
-def test_requested_metadata_keys(command, expected):
-    """Keys are read out of a step's shell command, values and flags are not."""
-    assert ip._requested_metadata_keys(command, "repomatic") == expected
-
-
 def test_init_warns_about_a_metadata_key_this_version_dropped(tmp_path, monkeypatch):
     """A workflow asking for a retired key is reported before the commit.
 

@@ -35,7 +35,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-import shlex
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -60,6 +59,7 @@ from .github.workflow_sync import (
     render_thin_caller_for_target,
 )
 from .http import DEFAULT_TIMEOUT
+from .lint_repo import requested_metadata_keys
 from .metadata import Metadata, all_metadata_keys
 from .plugin import merge_plugin_settings
 from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
@@ -1466,54 +1466,6 @@ def _run_commands(workflow: Path) -> list[str]:
     return commands
 
 
-def _requested_metadata_keys(command: str, package: str) -> list[str]:
-    """Extract the metadata keys a shell command asks for.
-
-    ```{note}
-    Deliberately conservative: a token is only read as a key when it is
-    lowercase snake_case and does not follow a bare option, which could be that
-    option's value. A boolean option ahead of the first key therefore hides it.
-    Under-reporting costs a missed warning; over-reporting would blame a
-    perfectly good workflow, and this runs on files the user did not write.
-    ```
-
-    :param command: One step's `run:` script.
-    :param package: Upstream package name, as it appears in the invocation.
-    :return: The key arguments, in the order they appear.
-    """
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        # Unbalanced quotes: a shell script this function has no business
-        # second-guessing.
-        return []
-
-    keys = []
-    seen_package = False
-    after_subcommand = False
-    for index, token in enumerate(tokens):
-        previous = tokens[index - 1] if index else ""
-        if package in token:
-            seen_package = True
-        elif token == "metadata" and seen_package:
-            after_subcommand = True
-        # Outside the subcommand's arguments, or looking at an option or at the
-        # value of one written apart from it: none of these can be a key.
-        elif (
-            not after_subcommand
-            or token.startswith("-")
-            or (previous.startswith("-") and "=" not in previous)
-        ):
-            continue
-        elif re.fullmatch(r"[a-z][a-z0-9_]*", token):
-            keys.append(token)
-        else:
-            # A value that cannot be a key: the invocation moved on to
-            # something else (a shell operator, a path, another command).
-            after_subcommand = False
-    return keys
-
-
 def _check_metadata_keys(
     workflows_dir: Path,
     result: InitResult,
@@ -1577,7 +1529,7 @@ def _check_metadata_keys(
         unknown = sorted({
             key
             for command in _run_commands(target)
-            for key in _requested_metadata_keys(command, package)
+            for key in requested_metadata_keys(command, package)
             if key not in valid_keys
         })
         if not unknown:

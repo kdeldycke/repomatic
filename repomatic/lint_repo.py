@@ -74,7 +74,7 @@ DOCS_URL_KEYS = ("documentation", "docs")
 Checked in priority order, and looked up in a lowercased index of the
 project's own keys: PEP 621 leaves the spelling to the project, so
 `Documentation`, `documentation` and `Docs` all occur in the wild. Mirrors the
-same convention {data}`repomatic.pypi._SOURCE_URL_KEYS` applies to the PyPI
+same convention `_SOURCE_URL_KEYS` in {mod}`repomatic.pypi` applies to the PyPI
 copy of the same mapping.
 """
 
@@ -1817,7 +1817,7 @@ metadata keys.
 """
 
 
-def _requested_metadata_keys(command: str, package: str) -> list[str]:
+def requested_metadata_keys(command: str, package: str) -> list[str]:
     """Positional keys a shell command passes to `<package> metadata`.
 
     Reads the tail of the invocation the way Click would: options are dropped
@@ -1826,6 +1826,11 @@ def _requested_metadata_keys(command: str, package: str) -> list[str]:
     `uv run -- repomatic metadata …` and the downstream
     `uvx 'repomatic==1.2.3' metadata …`, by looking for the subcommand after
     any token naming the package.
+
+    Shared with {mod}`repomatic.init_project`, which asks the same question of
+    a downstream checkout at sync time rather than of this repository at lint
+    time. One parser, so the two verdicts cannot disagree about what a `run:`
+    line requests.
 
     :param command: The step's `run:` script, folded or literal.
     :param package: Upstream package name (like `repomatic`).
@@ -1910,7 +1915,7 @@ def check_metadata_keys(
                 command = step.get("run")
                 if not isinstance(command, str):
                     continue
-                requested = _requested_metadata_keys(command, package)
+                requested = requested_metadata_keys(command, package)
                 if not requested:
                     continue
                 where = f"{path.name}:{job_id}"

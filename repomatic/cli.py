@@ -122,6 +122,8 @@ from .github.actions import (
 )
 from .github.ci_status import (
     CI_STATUS_HEADER_DEFS,
+    STABLE_GLYPH,
+    UNSTABLE_GLYPH,
     monitored_workflows,
     read_ci_status,
 )
@@ -767,9 +769,9 @@ def ci_status(
     hide inside a green run conclusion and a run still reading "queued"
     cannot hide the dozen jobs of it that already finished.
 
-    A job whose name starts with the unstable glyph is allowed to fail and
-    never affects the exit code. Every other job is required, including the
-    non-matrix ones that carry no glyph at all.
+    A job whose name carries the unstable glyph anywhere is allowed to fail
+    and never affects the exit code. Every other job is required, including
+    the non-matrix ones that carry no glyph at all.
 
     \b
     Examples:
@@ -1998,6 +2000,10 @@ def lint_changelog(
     non-fatally, about unreleased changelog bullets longer than that many
     words. A changelog entry is a release note, not a commit message.
 
+    Warns, non-fatally, about a released section holding no entry: a
+    published release heading with nothing under it reads as broken to
+    anyone scanning the notes for that version.
+
     \b
     Output symbols:
         ✓  Dates match
@@ -2152,14 +2158,14 @@ def lint_deps(
 
     policy_findings = scan_policy(pyproject_path) if policy else []
 
-    if not findings and not policy_findings:
-        echo("✓ Every dependency resolves from the public package index.")
-        ctx.exit(0)
-
+    # The clean bill of health covers shippability alone, so it prints whenever
+    # there is no source finding, style findings or not: a policy warning is
+    # not a claim about where a dependency resolves from.
     if not findings:
         echo("✓ Every dependency resolves from the public package index.")
-
-    if findings:
+        if not policy_findings:
+            ctx.exit(0)
+    else:
         rows = [
             (
                 finding.package,
@@ -3868,10 +3874,16 @@ def show_config(ctx):
 
 
 TEST_MATRIX_STATE_DISPLAY = {
-    "stable": "✅ stable",
-    "unstable": "⁉️ unstable",
+    "stable": f"{STABLE_GLYPH} stable",
+    "unstable": f"{UNSTABLE_GLYPH} unstable",
 }
-"""Emoji-decorated labels for job states in the `show-test-matrix` grid."""
+"""Emoji-decorated labels for job states in the `show-test-matrix` grid.
+
+The same two glyphs the workflow templates stamp onto each matrix job's name,
+and that {meth}`repomatic.github.ci_status.JobStatus.required` reads back off
+it, so the grid and the CI verdict cannot come to disagree about which mark
+means "allowed to fail".
+"""
 
 
 @repomatic.command(

@@ -40,7 +40,13 @@ ENGLISH_SECTIONS = (
 """Section titles of the reference readme, in document order."""
 
 FRENCH_SECTIONS = ("Sommaire", "Mangue", "Papaye", "Litchi", "Contribuer", "Notes")
-"""The same sections, translated. Only positions tie one list to the other."""
+"""The same sections, translated. Only positions tie one list to the other.
+
+`Contribuer` is why `[tool.typos] default.extend-words` carries an entry for it:
+this is the token's only occurrence, and without the entry the unattended
+`fix-typos` job proposes "correcting" the French to English. Do not prune the
+allowlist entry while this fixture stands.
+"""
 
 
 def render_readme(sections: tuple[str, ...]) -> str:

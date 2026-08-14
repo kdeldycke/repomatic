@@ -5,30 +5,26 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- `lint-repo` now fails when a workflow asks `repomatic metadata` for a key that no longer exists. `init` syncs a header-only workflow's header and pins but never its job bodies, so a retired key sits in a `run:` line nothing sweeps until the command rejects it and every job gated on it through `needs:` dies with it. `coverage_cells` took a downstream test workflow down this way.
-- `lint-repo` now warns when a Sphinx project's GitHub website field differs from the documentation URL declared in `[project.urls]`.
-- `runner-images` now watches every image the workflows name literally, not just the curated test axes. An off-axis runner is the one nothing tracks, so its retirement was the one announcement never flagged.
-- The Docs workflow now triggers on `readme.*.md`, the translated readmes kept beside the English one. `check-broken-links` already crawled them, since `doc_files` globs all Markdown, but only `readme.md` gated the run: a translation-only push skipped the workflow outright and left those links unchecked. Downstream thin callers inherit the filter verbatim, so every awesome list carrying a translation was crawling half its links.
-- A bare `repomatic init` now re-syncs a tool config the repository already carries, so `[tool.typos]`, `[tool.uv]` and `[tool.bumpversion]` follow the bundled template once adopted. Naming them explicitly governs adoption, not upkeep, and the only sync that runs unattended is the bare `init` behind the `sync-repomatic` job: a section written by hand therefore never picked up a single canonical rule. An `awesome-*` list had been spell-checked without the proper-noun map since it migrated.
-- New `ci-status` command reporting each workflow's latest run and which of its failing jobs actually gate a merge. Reads jobs rather than runs, so an allowed-failure probe cannot hide inside a green run conclusion.
+- New `ci-status` command reporting each workflow's latest run and which of its failing jobs gate a merge, read from jobs rather than run conclusions.
 - New `repomatic run <tool> --verify` reporting which files a formatter would rewrite, without touching the working tree.
-- `repomatic run` now resolves a tool's targets itself when given no arguments, running the invocation CI performs. A tool with no matching file is skipped instead of invoked pathless.
+- `repomatic run` now resolves a tool's targets itself when given no arguments, and skips a tool with no matching file instead of invoking it pathless.
+- New repeatable `pr-sync --add-path` option limiting what the pull request commits to a git pathspec list.
+- `lint-deps` now warns about declarations departing from version policy: upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors. Disabled with `--no-policy`.
+- `lint-deps` now names the `lint-deps.allow` exemption in the remedy it prints for a git source.
+- `lint-repo` now fails, and `repomatic init` now warns, when a workflow asks `repomatic metadata` for a key that no longer exists.
+- `lint-repo` now warns when a Sphinx project's GitHub website field differs from the documentation URL declared in `[project.urls]`.
 - `lint-changelog` now warns about a released section holding no entry.
-- `lint-deps` now reports declarations departing from version policy: upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors. Warnings only, disabled with `--no-policy`.
-- `lint-deps` now names the `lint-deps.allow` exemption in the remedy it prints for a git source, which every other blocking kind already offered.
-- New repeatable `pr-sync --add-path` option limiting what the pull request commits to a git pathspec list, for a job that provisions tooling into its own checkout.
-- `cancel-runs` now spares a run whose head commit carries `[changelog] Release`, so a sweep of the default branch cannot kill a release matrix.
-- Fix `gh` re-downloading on every single command instead of once per version: a registry binary whose archive nests its executable in a subdirectory was stored under one cache key and looked up under another, so the cache never hit. `7.11.0` routed every GitHub call through the pinned binary, making it a 13 MB fetch per invocation.
-- Fix `repomatic init` realigning a workflow's inline `repomatic==X.Y.Z` pin without the cooldown exemption beside it, leaving a command that cannot resolve the version just written. `--no-cooldown` hit this on every run.
-- `repomatic run actionlint` now ships a bundled config declaring the `ubuntu-26.04` runner labels actionlint `1.7.12` predates, so the Lint job no longer fails on the `runs-on:` values repomatic itself generates.
-- `repomatic init` now warns when a workflow asks `metadata` for a key the adopted version no longer emits, instead of leaving the mismatch to fail the job every other job hangs off.
-- New `ToolSpec.rewrite_exit_code` naming the status a formatter returns after rewriting a file. A run exiting with it while leaving every target unchanged is reported as a crash (exit code `70`) instead of passing for a successful reformat: pyproject-fmt uses `1` for both, so its panics reached the autofix job as green runs that formatted nothing.
-- `repomatic run --verify` now surfaces a tool that failed on the throwaway copies, instead of reading the unformatted result as an absence of drift.
-- Fix the `[tool.repomatic.workflow]` key names the `repomatic-audit` skill recommends: they are `extra-paths` and `ignore-paths`, not the snake_case attribute names.
-- Fix the `repomatic-audit` and `repomatic-deps` skills auditing a downstream repository against `main` instead of the release it adopted, which reported unreleased work as local drift.
-- The `repomatic-audit` skill now names the five tools a bundled default actually covers at runtime, and warns that deleting any other `[tool.X]` section runs the tool bare instead of restoring one.
-- Every job now caps its runtime with `timeout-minutes`, so a hung job frees its runner in minutes instead of holding it for the platform's 6-hour ceiling. Downstream callers inherit the caps.
+- `runner-images` now watches every image the workflows name literally, not just the curated test axes.
+- A bare `repomatic init` now re-syncs a tool config the repository already carries, so `[tool.typos]`, `[tool.uv]` and `[tool.bumpversion]` follow the bundled template once adopted.
+- Every job now caps its runtime with `timeout-minutes`, so a hung job frees its runner in minutes instead of the platform's 6-hour ceiling. Downstream callers inherit the caps.
+- The Docs workflow now triggers on `readme.*.md`, so a push touching only a translated readme no longer skips link checking.
+- `repomatic run actionlint` now ships a bundled config declaring the `ubuntu-26.04` runner labels actionlint `1.7.12` predates.
 - The bundled `lychee.toml` now excludes `bitdefender.com`, `npmjs.com`, `star-history.com` and `githubstatus.com`, which answer bots with 403, 405 or JavaScript rather than a link.
+- `cancel-runs` now spares a run whose head commit carries `[changelog] Release`, so a sweep of the default branch cannot kill a release matrix.
+- Fix `gh` re-downloading on every command instead of once per version: a binary nested in an archive subdirectory was stored under one cache key and looked up under another.
+- Fix `repomatic init` realigning a workflow's inline `repomatic==X.Y.Z` pin without the cooldown exemption beside it, leaving a command that cannot resolve the version just written.
+- A formatter exiting with its rewrite status while leaving every target unchanged is now reported as a crash, instead of passing for a successful reformat that never happened.
+- Fix stale guidance across the bundled skills: wrong `[tool.repomatic.workflow]` key names, wrong workflow and job names for `lint-deps` and `lint-changelog`, which tools a bundled default actually covers, and downstream audits comparing against `main` rather than the adopted release.
 
 ## [`7.11.0` (2026-08-13)](https://github.com/kdeldycke/repomatic/compare/v7.10.0...v7.11.0)
 

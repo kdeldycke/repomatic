@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.10.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.11.0
 ```
 
 > [!IMPORTANT]
@@ -59,6 +59,7 @@ The caps are runaway backstops, not performance budgets. Each sits far above the
 
 | Cap        | Applies to                                                                                                     | Measured worst case                                      |
 | :--------- | :------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------- |
+| 10 minutes | `test-binaries`'s per-target smoke test, gated to release commits                                              | ~1-2 min (estimated; see the job's own timeout comment)  |
 | 15 minutes | Bounded local work or a handful of API calls: linting, formatting, `metadata`, the sync jobs, label management | 2.8 min (`autolock`'s thread sweep)                      |
 | 30 minutes | Jobs that provision a toolchain, iterate a matrix cell, or paginate a whole issue history                      | 4.8 min (`tests` on `macos-26-intel` / py3.10)           |
 | 45 minutes | `compile-binaries`, and `check-broken-links` whose crawl is paced by other people's servers                    | 17.4 min (cold-cache compile), 10.4 min (the link crawl) |
@@ -91,6 +92,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 #### 🖥️ Runner images (`runner-images`)
 
 - Reads the open `Announcement`-labelled issues of [`actions/runner-images`](https://github.com/actions/runner-images/issues?q=is%3Aissue+is%3Aopen+label%3AAnnouncement), which cover both newly available images and images entering deprecation, and maintains a single issue listing them
+- Watches every runner image the workflows name literally, not just the curated test-matrix axes: an off-axis `runs-on:` value is the one nothing else tracks, so its retirement was the one announcement previously never flagged
 - Sorts an announcement to the top and names the image in an **Affects** column when it acts on a runner the repo runs on, read from the announcement's `Possible impact` section so a migration *destination* is never reported as affected
 - Nothing bumps a `runs-on:` value automatically (`sync-action-pins` rewrites `uses:` references, `sync-workflow-pins` rewrites version literals), so a retirement otherwise arrives as a failing build with no warning
 - Automatically closes the issue once GitHub has closed every open announcement
@@ -352,7 +354,7 @@ docs = [
     "furo",
     "myst-parser",
     "sphinx",
-    …
+    # …
 ]
 ```
 
@@ -536,6 +538,7 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 #### 🔗 Lint deps (`lint-deps`)
 
 - Runs `repomatic lint-deps` against the tree being released, refusing to publish a project whose dependencies do not all resolve from the index its users install from
+- Also reports version-policy warnings (upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors) alongside the shippability findings; these never affect the gate, see [§ What is checked automatically](dependencies.md#what-is-checked-automatically)
 - Fatal only on a release commit; every other push reports and annotates without failing, so test-driving a git branch mid-cycle stays frictionless
 - `build-package` depends on it, which is what makes it a gate: a failure skips the wheel build, leaving `package_built` false so `publish-pypi` never fires, and fails the lane so the engine's tag, release and publish jobs are skipped with it
 - Checks out the release commit rather than the push head: a rebase-merged release PR delivers the freeze and the post-release bump together, so `main` HEAD already carries the next `.devN`
@@ -689,7 +692,7 @@ flowchart TD
 
 - Maintains a rolling dev pre-release on GitHub that mirrors the unreleased changelog section
 - Attaches binaries and Python packages from build jobs via `--upload-assets`
-- The dev tag (e.g. `v7.10.1.dev0`) is force-updated to point to the latest `main` commit
+- The dev tag (e.g. `v7.11.1.dev0`) is force-updated to point to the latest `main` commit
 - Automatically cleaned up when a real release is created
 - **Runs on**: Non-release pushes to `main` only
 - **Requires**:
@@ -865,7 +868,7 @@ Safe to re-run: tag creation skips if already exists, version bumps have eligibi
 
 ### Graceful degradation
 
-Fallback tokens (`secrets.REPOMATIC_PAT || secrets.GITHUB_TOKEN`) and `continue-on-error` for unstable targets. Job names use emoji prefixes for at-a-glance status: **✅** for stable jobs that must pass, **⁉️** for unstable jobs (e.g., experimental Python versions, unreleased platforms) that are expected to fail and won't block the workflow.
+Fallback tokens (`secrets.REPOMATIC_PAT || secrets.GITHUB_TOKEN`) and `continue-on-error` for unstable targets. Job names use emoji prefixes for at-a-glance status: **✅** for stable jobs that must pass, **⁉️** for unstable jobs (e.g., experimental Python versions, unreleased platforms) that are expected to fail and won't block the workflow. [`repomatic ci-status`](cli.md) reads the same glyphs back, reporting each workflow's latest run and which of its failing jobs actually gate a merge, so triaging red CI does not require eyeballing a run's job list by hand.
 
 ### Dogfooding
 
@@ -1015,9 +1018,6 @@ Workflows use two concurrency strategies depending on whether they perform criti
 ## `repomatic.github.workflow_sync` API
 
 ```{eval-rst}
-.. autoclasstree:: repomatic.github.workflow_sync
-   :strict:
-
 .. automodule:: repomatic.github.workflow_sync
    :members:
    :undoc-members:

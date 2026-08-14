@@ -102,7 +102,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
    $ uv run repomatic ci-status --branch=<BRANCH> --no-fatal
    ```
 
-   It reads every workflow a push can start, reports each one's latest run, and names the failing jobs that actually gate a merge. Three traps it settles, so no hand-rolled `jq` has to: a run's own `status` lags its jobs (all five workflows can read `queued` while a dozen jobs have already finished, which is indistinguishable from the runner-cap saturation a busy account genuinely hits); a `continue-on-error` probe that crashed hides inside a `success` run conclusion; and a run whose `conclusion` is `failure` with *no* failed job is a workflow-level error (an invalid `strategy.matrix` expression, malformed YAML, a missing secret) with no job log to read, which the command flags rather than letting you write off a persistently-red workflow as a known artifact.
+   It reads every workflow a push can start (derived from `.github/workflows/`, so its list is wider than the five above), reports each one's latest run, and names the failing jobs that actually gate a merge. Three traps it settles, so no hand-rolled `jq` has to: a run's own `status` lags its jobs (every monitored workflow can read `queued` while a dozen jobs have already finished, which is indistinguishable from the runner-cap saturation a busy account genuinely hits); a `continue-on-error` probe that crashed hides inside a `success` run conclusion; and a run whose `conclusion` is `failure` with *no* failed job is a workflow-level error (an invalid `strategy.matrix` expression, malformed YAML, a missing secret) with no job log to read, which the command flags rather than letting you write off a persistently-red workflow as a known artifact.
 
    The one thing run state *does* gate is log retrieval (step 4): job logs stay unreadable until the parent run itself reaches a terminal state.
 
@@ -189,7 +189,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
 The workflow uses `continue-on-error` for unstable jobs, so the run can succeed even when they fail.
 
-`repomatic ci-status` does this classification, and doing it by hand is where it goes wrong: job-name shapes differ across workflows — `tests.yaml` names carry no workflow prefix (`✅ ubuntu-26.04 / py3.10`) while `release.yaml`'s are templated (`workflow / ✅ {os} build`) — so a test anchored at the start of the name misfiles one shape and a split on `" / "` misfiles the other, either way masking a real failure as green. A job with no glyph at all (`Lint types`) is required. If you reformat job names for display, keep the raw string for the test.
+`repomatic ci-status` does this classification, and doing it by hand is where it goes wrong: job-name shapes differ across workflows — `tests.yaml` names carry no workflow prefix (`✅ ubuntu-26.04 / py3.10`) while the release engine's arrive through the reusable call (`release / ✅ ubuntu-26.04, abc1234 build`) — so a test anchored at the start of the name misfiles one shape and a split on `" / "` misfiles the other, either way masking a real failure as green. Containment is the one test both shapes satisfy. A job with no glyph at all (`Lint types`) is required. If you reformat job names for display, keep the raw string for the test.
 
 ## Error triage discipline
 

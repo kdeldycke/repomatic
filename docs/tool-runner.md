@@ -133,7 +133,7 @@ See [Click Extra's inventory of `pyproject.toml`-aware tools](https://kdeldycke.
 
 If the repo has no config at all, repomatic falls back to its own bundled defaults (stored in `repomatic/data/`). These provide sensible baseline rules so that tools produce useful results even without any project-specific configuration.
 
-Tools with bundled defaults: mdformat, ruff, yamllint, zizmor.
+Tools with bundled defaults: actionlint, mdformat, ruff, yamllint, zizmor.
 
 ### Level 4: bare invocation
 
@@ -233,6 +233,23 @@ $ repomatic cache path
 
 Use `--no-cache` on `repomatic run` to bypass the cache entirely.
 
+## Running with no arguments
+
+Some tools declare the arguments and target files CI would pass on their behalf, so `repomatic run <tool>` with nothing after it runs the same invocation:
+
+```shell-session
+$ repomatic run yamllint
+$ repomatic run mdformat
+```
+
+The first resolves to `repomatic run yamllint -- .`; the second walks every Markdown file in the repository and formats each one in turn, matching what the `format-markdown` job runs. A tool with no declared defaults runs bare, exactly as before.
+
+```{note}
+This only fires on a **bare** invocation. Passing any argument after `--`, even one that overlaps with the tool's defaults, hands control to you entirely: nothing is injected on top of it. Splicing repomatic's defaults into a caller-driven command could otherwise build something like `biome format … check .`, which is not a command anyone meant to run.
+```
+
+When a tool's defaults are file-driven and the repository holds no matching file, the tool is skipped rather than invoked with no path: a formatter handed zero paths does not no-op, it walks the entire tree in write mode.
+
 ## Passing extra arguments
 
 Everything after `--` is forwarded to the tool:
@@ -245,6 +262,18 @@ $ repomatic run biome -- format --write src/
 
 For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `--` as the first argument.
 
+## Verifying without writing
+
+`--verify` reports which targets a tool would rewrite, without touching the working tree:
+
+```shell-session
+$ repomatic run mdformat --verify -- changelog.md
+```
+
+It runs the write path against throwaway copies of the targets and diffs the results, rather than trusting the tool's own `--check` or `--dry-run` mode. That distinction matters for a tool whose check mode relies on a repomatic post-processing step that only runs after an actual write: for those, `--check` can report drift the write path would reconcile, or miss drift the write path would introduce. `--verify` is the authoritative answer either way.
+
+With no arguments after the tool name, `--verify` resolves the same defaults a bare `repomatic run <tool>` would, so `repomatic run mdformat --verify` checks every Markdown file in the repository.
+
 ## Tool details
 
 ```{python:render}
@@ -256,9 +285,6 @@ print(tool_reference())
 ## `repomatic.tool_runner` API
 
 ```{eval-rst}
-.. autoclasstree:: repomatic.tool_runner
-   :strict:
-
 .. automodule:: repomatic.tool_runner
    :members:
    :undoc-members:

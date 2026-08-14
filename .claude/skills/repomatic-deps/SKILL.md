@@ -57,7 +57,7 @@ The `_release-engine.yaml` workflow's `update-dep-graph` job regenerates the dep
 
 ### Mechanical layer
 
-`<cmd> lint-deps` decides everything readable from `pyproject.toml` alone, and `lint.yaml` runs it on every push: upper bounds, missing specifiers, unsorted lists, type stubs outside the `typing` group, and floors with no comment above them. Run it first and let it own those rows.
+`<cmd> lint-deps` decides everything readable from `pyproject.toml` alone: upper bounds, missing specifiers, unsorted lists, type stubs outside the `typing` group, and floors with no comment above them. Run it first and let it own those rows. CI runs it from the release lane's `lint-deps` job (`_release-build.yaml`, reached through `release.yaml`), which fires on every push but annotates with `--no-fatal` until a release commit makes the *shippability* findings fatal. These policy rows never block either way, so no CI gate will catch them for you.
 
 What is left is the part no parser settles, and it is the reason this mode exists: whether a floor is **justified** by the APIs the code actually calls, whether a comment is **stale or weak**, and whether a rationale **contradicts** its conditional marker. Spend the review there.
 
@@ -107,7 +107,7 @@ These conventions are derived from the `pyproject.toml` files across all `kdeldy
 
 11. **No upper bounds** (`<`, `<=`, `!=`, `~=` that implies an upper bound). The only exception is conditional markers like `python_version<'3.11'`.
 12. **Extras syntax** is fine: `"coverage[toml]>=7.11"`.
-13. **One dependency per line** for readable diffs. Short groups that fit on one line are acceptable — the `format-json` workflow normalizes layout automatically.
+13. **One dependency per line** for readable diffs. Short groups that fit on one line are acceptable — the `format-pyproject` job normalizes layout automatically.
 
 ### Audit procedure
 

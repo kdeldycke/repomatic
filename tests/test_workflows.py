@@ -446,14 +446,14 @@ def test_every_job_caps_its_runtime() -> None:
     """Every job that occupies a runner must declare `timeout-minutes`.
 
     Without one, a hung step holds its runner for
-    {data}`GITHUB_DEFAULT_JOB_TIMEOUT` minutes before the platform reclaims it.
+    `GITHUB_DEFAULT_JOB_TIMEOUT` minutes before the platform reclaims it.
     The macOS and Windows pools are capped per account and shared across every
     repository in it, so one stuck cell there starves all the others for the
     rest of those six hours: the cost of the omission lands on projects that
     have nothing to do with the workflow that hung.
 
     Callers of a reusable workflow are the one exemption, because GitHub
-    rejects the key on them (see {data}`REUSABLE_CALLER_KEYS`). Their runtime
+    rejects the key on them (see `REUSABLE_CALLER_KEYS`). Their runtime
     is still bounded, by the caps on the jobs of the workflow they call, which
     this same sweep covers.
     """
@@ -478,7 +478,7 @@ def test_job_timeouts_stay_within_bounds() -> None:
     """No cap may be absent-by-another-name: zero, negative, or effectively the
     platform default.
 
-    A cap above {data}`MAX_JOB_TIMEOUT` buys back almost none of the runner
+    A cap above `MAX_JOB_TIMEOUT` buys back almost none of the runner
     time the requirement exists to reclaim, so it needs the ceiling raised
     deliberately rather than one job quietly opting out.
     """
@@ -495,7 +495,7 @@ def test_job_timeouts_stay_within_bounds() -> None:
 
 
 def test_reusable_callers_carry_no_forbidden_keys() -> None:
-    """A `uses:` job may only declare {data}`REUSABLE_CALLER_KEYS`.
+    """A `uses:` job may only declare `REUSABLE_CALLER_KEYS`.
 
     GitHub fails the whole workflow at startup on any other key, so this
     catches a caller that grew a `timeout-minutes` (or a `runs-on`, or
