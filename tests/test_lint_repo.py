@@ -25,6 +25,7 @@ from unittest.mock import patch
 import pytest
 
 from repomatic import lint_repo
+from repomatic.cli import metadata as metadata_command
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
     REPO_CHECKS,
@@ -34,6 +35,7 @@ from repomatic.lint_repo import (
     check_immutable_releases,
     check_inline_pins_match_upstream,
     check_install_guide_downloads,
+    check_metadata_keys,
     check_package_name_vs_repo,
     check_pat_stale_statuses_permission,
     check_pr_templates,
@@ -51,6 +53,7 @@ from repomatic.lint_repo import (
     run_repo_lint,
 )
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
+from repomatic.metadata import METADATA_VALUE_OPTIONS
 from repomatic.pypi import TrustedPublisher
 from repomatic.registry import INSTALL_GUIDE_PATH
 from tests.conftest import metadata_from_pyproject, pat_results
@@ -1476,6 +1479,123 @@ def test_inline_pins_match_upstream_skips_without_refs(tmp_path):
     error, msg = check_inline_pins_match_upstream(tmp_path)
     assert error is None
     assert "nothing to compare" in msg
+
+
+# ---------------------------------------------------------------------------
+# Metadata key check tests
+# ---------------------------------------------------------------------------
+
+
+def _metadata_step(command):
+    """A one-job workflow whose single step runs *command*."""
+    return f"on: push\njobs:\n  metadata:\n    steps:\n      - run: {command}\n"
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        # Upstream spelling: the CLI comes from the project's own lockfile.
+        pytest.param(
+            "uv --no-progress run --frozen -- repomatic metadata --format github-json"
+            ' --output "$GITHUB_OUTPUT" cli_scripts package_name',
+            ["cli_scripts", "package_name"],
+            id="uv-run",
+        ),
+        # Downstream spelling: the CLI comes from a pinned uvx environment.
+        pytest.param(
+            "uvx --no-progress 'repomatic==7.11.0' metadata --format github-json"
+            ' --output "$GITHUB_OUTPUT" cli_scripts package_name',
+            ["cli_scripts", "package_name"],
+            id="uvx-pinned",
+        ),
+        # An option's value is never a key, whether attached or separate.
+        pytest.param(
+            "repomatic metadata --format=json current_version",
+            ["current_version"],
+            id="inline-option-value",
+        ),
+        pytest.param(
+            "repomatic metadata -o out current_version",
+            ["current_version"],
+            id="short-option-value",
+        ),
+        # Words belonging to another command are not arguments to this one.
+        pytest.param(
+            "repomatic metadata current_version && echo done",
+            ["current_version"],
+            id="shell-operator",
+        ),
+        pytest.param(
+            "repomatic metadata current_version\necho done",
+            ["current_version"],
+            id="second-line",
+        ),
+        pytest.param("uv run pytest -m once", [], id="unrelated-command"),
+        # `metadata` also names a step id, an output and a job. Only the token
+        # following the package invocation is the subcommand.
+        pytest.param("echo metadata cli_scripts", [], id="bare-word"),
+    ],
+)
+def test_requested_metadata_keys(command, expected):
+    """Positional keys are read off the command line the way Click reads them."""
+    assert lint_repo._requested_metadata_keys(command, "repomatic") == expected
+
+
+def test_metadata_keys_flags_a_retired_key(tmp_path, monkeypatch):
+    """A key removed upstream fails the lint instead of the next workflow run."""
+    monkeypatch.chdir(tmp_path)
+    _write_ci_workflow(
+        tmp_path,
+        _metadata_step(
+            "uvx --no-progress 'repomatic==7.11.0' metadata cli_scripts coverage_cells"
+        ),
+    )
+    failures = [r for r in check_metadata_keys() if r.passed is False]
+    assert failures
+    assert "coverage_cells" in failures[0].message
+    assert "--list-keys" in failures[0].message
+
+
+def test_metadata_keys_accepts_current_keys(tmp_path, monkeypatch):
+    """Keys the command still answers raise nothing."""
+    monkeypatch.chdir(tmp_path)
+    _write_ci_workflow(
+        tmp_path, _metadata_step("repomatic metadata cli_scripts package_name")
+    )
+    results = check_metadata_keys()
+    assert all(r.passed is not False for r in results)
+
+
+def test_metadata_keys_skips_a_repo_that_never_calls_it(tmp_path, monkeypatch):
+    """No invocation to read is a skip, not a pass."""
+    monkeypatch.chdir(tmp_path)
+    _write_ci_workflow(tmp_path, _metadata_step("echo apricot"))
+    results = check_metadata_keys()
+    assert [r.passed for r in results] == [None]
+
+
+def test_metadata_value_options_match_the_command():
+    """The hand-listed value options are the ones the command really declares.
+
+    `check_metadata_keys` cannot import the CLI to ask (see
+    `METADATA_VALUE_OPTIONS`), so the list is pinned here instead: an option
+    gaining a value would otherwise make the lint read that value as a key.
+    """
+    declared = {
+        opt
+        for param in metadata_command.params
+        if not getattr(param, "is_flag", False)
+        for opt in (*param.opts, *param.secondary_opts)
+        if opt.startswith("-")
+    }
+    assert declared == set(METADATA_VALUE_OPTIONS)
+
+
+def test_metadata_keys_covers_every_workflow_of_this_repo():
+    """This repository's own workflows only ask for keys that exist."""
+    results = check_metadata_keys(Path(".github/workflows"))
+    assert results
+    assert all(r.passed is not False for r in results)
 
 
 # ---------------------------------------------------------------------------

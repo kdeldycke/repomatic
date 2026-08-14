@@ -357,6 +357,25 @@ def all_metadata_keys() -> frozenset[str]:
     return frozenset(_METADATA_KEY_DESCRIPTIONS) | frozenset(_metadata_config_fields())
 
 
+METADATA_VALUE_OPTIONS: frozenset[str] = frozenset((
+    "--format",
+    "-o",
+    "--output",
+    "--sort-by",
+))
+"""Options on the `metadata` command consuming the token that follows them.
+
+Needed by {func}`repomatic.lint_repo.check_metadata_keys` to tell a positional
+key from an option's value while reading a workflow's `run:` line. The command
+itself is not importable from there: {mod}`repomatic.cli` reads `sys.stdout.name`
+at import time, so importing it under a test that has replaced stdout raises.
+
+Listed here rather than derived, and pinned against the real command by
+repomatic's own test suite, so an option added later cannot quietly turn its
+value into a token the lint reports as an unknown key.
+"""
+
+
 # Silence overly verbose debug messages from py-walk logger.
 logging.getLogger("py_walk").setLevel(logging.WARNING)
 

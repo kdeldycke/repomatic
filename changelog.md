@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `lint-repo` now fails when a workflow asks `repomatic metadata` for a key that no longer exists. `init` syncs a header-only workflow's header and pins but never its job bodies, so a retired key sits in a `run:` line nothing sweeps until the command rejects it and every job gated on it through `needs:` dies with it. `coverage_cells` took a downstream test workflow down this way.
 - `lint-repo` now warns when a Sphinx project's GitHub website field differs from the documentation URL declared in `[project.urls]`.
 - New `ci-status` command reporting each workflow's latest run and which of its failing jobs actually gate a merge. Reads jobs rather than runs, so an allowed-failure probe cannot hide inside a green run conclusion.
 - New `repomatic run <tool> --verify` reporting which files a formatter would rewrite, without touching the working tree.

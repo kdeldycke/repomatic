@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shlex
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -48,7 +49,12 @@ from .matrix_axes import (
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
 )
-from .metadata import Dialect, Metadata
+from .metadata import (
+    METADATA_VALUE_OPTIONS,
+    Dialect,
+    Metadata,
+    all_metadata_keys,
+)
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     get_latest_release_file,
@@ -1775,6 +1781,151 @@ def check_inline_pins_match_upstream(
     )
 
 
+_METADATA_KEY_TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
+"""Shape of a metadata key, used to tell one from a neighbouring shell token.
+
+Every key is a Python identifier, so a token carrying a hyphen (`github-json`),
+a dollar (`$GITHUB_OUTPUT`) or a dot is something else on the command line and
+is passed over rather than reported as unknown.
+"""
+
+_SHELL_OPERATORS = frozenset(("&&", "||", ";", "|", ">", ">>", "<", "&"))
+"""Tokens that end the invocation and start unrelated words.
+
+`repomatic metadata a b && echo done` must not report `echo` and `done` as
+metadata keys.
+"""
+
+
+def _requested_metadata_keys(command: str, package: str) -> list[str]:
+    """Positional keys a shell command passes to `<package> metadata`.
+
+    Reads the tail of the invocation the way Click would: options are dropped
+    along with the value each one consumes, and what remains are the positional
+    key arguments. Handles both spellings in use, the upstream
+    `uv run -- repomatic metadata …` and the downstream
+    `uvx 'repomatic==1.2.3' metadata …`, by looking for the subcommand after
+    any token naming the package.
+
+    :param command: The step's `run:` script, folded or literal.
+    :param package: Upstream package name (like `repomatic`).
+    :return: The key names requested, in the order written.
+    """
+    keys: list[str] = []
+    # A literal block scalar holds a whole script: read it a line at a time so
+    # a later command's words cannot be mistaken for this one's arguments.
+    # Backslash continuations are rejoined first, being one command still.
+    for line in command.replace("\\\n", " ").splitlines():
+        try:
+            tokens = shlex.split(line, comments=True)
+        except ValueError:
+            # An unbalanced quote is a line this cannot read. A shell would
+            # reject it too, so leave it to the shell to complain.
+            continue
+        seen_package = False
+        tail: list[str] | None = None
+        for token in tokens:
+            if tail is not None:
+                if token in _SHELL_OPERATORS:
+                    break
+                tail.append(token)
+            elif token == "metadata" and seen_package:
+                tail = []
+            elif token == package or token.startswith(f"{package}=="):
+                seen_package = True
+        if not tail:
+            continue
+
+        skip_next = False
+        for token in tail:
+            if skip_next:
+                skip_next = False
+                continue
+            if token.startswith("-"):
+                # `--format=json` carries its value inline, consuming nothing.
+                skip_next = "=" not in token and token in METADATA_VALUE_OPTIONS
+                continue
+            if _METADATA_KEY_TOKEN.match(token):
+                keys.append(token)
+    return keys
+
+
+def check_metadata_keys(
+    workflow_dir: Path = WORKFLOW_DIR,
+    upstream_repo: str = DEFAULT_REPO,
+) -> list[CheckResult]:
+    """Check the metadata keys workflows request still exist.
+
+    A downstream repository owns the job bodies of its header-only workflows:
+    `repomatic init` syncs their `name`, `on` and `concurrency` blocks and the
+    `uses:` pins, and never touches the steps below. So a key retired upstream
+    keeps being asked for by a `run:` line nothing sweeps, and the `metadata`
+    command answers a retired key with a `UsageError`. Since every other job in
+    a test workflow reaches it through `needs:`, the whole run dies at the first
+    job, on the next push, from a workflow file that looks freshly synced.
+
+    That is not hypothetical: `coverage_cells` went away with the Codecov
+    integration and took a downstream test workflow down with it. Failing here
+    instead moves the report to lint time, where it names the file and the job.
+
+    :param workflow_dir: Directory holding the workflow YAML files.
+    :param upstream_repo: Upstream `owner/repo`; its name is the package whose
+        `metadata` invocations are read (like `repomatic`).
+    :return: A list of `CheckResult`.
+    """
+    package = upstream_repo.rsplit("/", 1)[-1]
+    workflows = _load_workflows(workflow_dir)
+    if not workflows:
+        return [CheckResult(None, "Metadata keys check: skipped (no workflows).")]
+
+    valid = all_metadata_keys()
+    results: list[CheckResult] = []
+    for path, data in workflows.items():
+        for job_id, job in data["jobs"].items():
+            if not isinstance(job, dict):
+                continue
+            for step in job.get("steps", []) or ():
+                if not isinstance(step, dict):
+                    continue
+                command = step.get("run")
+                if not isinstance(command, str):
+                    continue
+                requested = _requested_metadata_keys(command, package)
+                if not requested:
+                    continue
+                where = f"{path.name}:{job_id}"
+                unknown = sorted(set(requested) - valid)
+                if unknown:
+                    names = ", ".join(f"`{key}`" for key in unknown)
+                    results.append(
+                        CheckResult(
+                            False,
+                            f"{where} asks `{package} metadata` for {names}, which"
+                            f" no longer exists. The command rejects an unknown"
+                            f" key outright, so this job fails on its next run,"
+                            f" and every job gated on it through `needs:` with"
+                            f" it. Run `{package} metadata --list-keys` for the"
+                            f" current set.",
+                        )
+                    )
+                else:
+                    count = len(requested)
+                    plural = "" if count == 1 else "s"
+                    results.append(
+                        CheckResult(
+                            True,
+                            f"{where}: {count} requested metadata key{plural}"
+                            f" exist{'s' if count == 1 else ''}.",
+                        )
+                    )
+
+    if not results:
+        return [
+            CheckResult(None, f"Metadata keys check: no `{package} metadata` calls.")
+        ]
+    return results
+
+
 def check_pr_templates(
     workflow_dir: Path = WORKFLOW_DIR,
     template_dir: Path = PR_TEMPLATE_DIR,
@@ -2148,6 +2299,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         lambda ctx: check_inline_pins_match_upstream(),
         fatal=True,
     ),
+    # Fatal for the same reason as the pin check above: both describe a
+    # workflow that is already broken, not one that might age badly.
+    RepoCheck("metadata-keys", lambda ctx: check_metadata_keys(), fatal=True),
     RepoCheck("pr-templates", lambda ctx: check_pr_templates()),
     RepoCheck(
         "virustotal-secret",
