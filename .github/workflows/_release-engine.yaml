@@ -44,6 +44,7 @@ jobs:
   metadata:
     name: 🧬 Project metadata
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     outputs:
       has_virustotal_key: ${{ steps.check-vt-key.outputs.has_key }}
       metadata: ${{ steps.metadata.outputs.metadata }}
@@ -486,6 +487,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -522,6 +524,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       # Allow project without REPOMATIC_PAT to create a GitHub release.
       contents: write
@@ -598,6 +601,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       attestations: write
       contents: write
@@ -684,6 +688,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       attestations: write
       contents: write
@@ -781,6 +786,7 @@ jobs:
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -950,6 +956,7 @@ jobs:
       group: sync-dev-release-${{ github.repository }}
       cancel-in-progress: false
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -982,6 +989,7 @@ jobs:
       fromJSON(needs.metadata.outputs.metadata).is_python_project
       && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write

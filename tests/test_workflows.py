@@ -404,6 +404,114 @@ def test_exemption_list_matches_what_is_on_disk() -> None:
     # Verify dynamic discovery found workflows.
     assert WORKFLOWS_WITH_CONCURRENCY, "No workflows discovered for concurrency testing"
 
+
+# Minutes a job runs for before anything stops it, when it declares no cap of
+# its own. `timeout-minutes` defaults to this, and it is also the hard ceiling
+# on a GitHub-hosted runner: "Each job in a workflow can run for up to 6 hours
+# of execution time. If a job reaches this limit, the job is terminated and
+# fails." https://docs.github.com/en/actions/reference/limits
+GITHUB_DEFAULT_JOB_TIMEOUT = 360
+
+# Ceiling for any single job's cap, currently held by `compile-binaries`.
+# Nothing else has measured within a factor of four of it. A job asking for
+# more is either a runaway being blessed as normal, or a workload that wants
+# splitting across cells.
+MAX_JOB_TIMEOUT = 45
+
+# The only keys GitHub accepts on a job that delegates via `uses:`. Quoted from
+# actionlint's own diagnostic, which rejects the file outright: "when a reusable
+# workflow is called with `uses`, `timeout-minutes` is not available". A caller
+# cannot cap the workflow it calls; the cap belongs on the callee's jobs.
+REUSABLE_CALLER_KEYS = frozenset((
+    "name",
+    "uses",
+    "with",
+    "secrets",
+    "needs",
+    "if",
+    "permissions",
+))
+
+
+def _iter_jobs() -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Yield `(workflow, job_id, job)` for every job in every workflow."""
+    for path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
+        workflow = load_workflow(path.name)
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            yield path.name, job_id, job
+
+
+def test_every_job_caps_its_runtime() -> None:
+    """Every job that occupies a runner must declare `timeout-minutes`.
+
+    Without one, a hung step holds its runner for
+    {data}`GITHUB_DEFAULT_JOB_TIMEOUT` minutes before the platform reclaims it.
+    The macOS and Windows pools are capped per account and shared across every
+    repository in it, so one stuck cell there starves all the others for the
+    rest of those six hours: the cost of the omission lands on projects that
+    have nothing to do with the workflow that hung.
+
+    Callers of a reusable workflow are the one exemption, because GitHub
+    rejects the key on them (see {data}`REUSABLE_CALLER_KEYS`). Their runtime
+    is still bounded, by the caps on the jobs of the workflow they call, which
+    this same sweep covers.
+    """
+    checked = 0
+    uncapped = []
+    for workflow, job_id, job in _iter_jobs():
+        if "uses" in job:
+            continue
+        checked += 1
+        if job.get("timeout-minutes") is None:
+            uncapped.append(f"{workflow}:{job_id}")
+    assert not uncapped, (
+        f"Jobs occupying a runner with no timeout-minutes: {sorted(uncapped)}."
+        f" Each would hold its runner for {GITHUB_DEFAULT_JOB_TIMEOUT} minutes"
+        " if it hung. Add a cap sized to the job's measured worst case."
+    )
+    # Guard the sweep against silently checking nothing.
+    assert checked >= 60
+
+
+def test_job_timeouts_stay_within_bounds() -> None:
+    """No cap may be absent-by-another-name: zero, negative, or effectively the
+    platform default.
+
+    A cap above {data}`MAX_JOB_TIMEOUT` buys back almost none of the runner
+    time the requirement exists to reclaim, so it needs the ceiling raised
+    deliberately rather than one job quietly opting out.
+    """
+    out_of_bounds = [
+        f"{workflow}:{job_id}={job['timeout-minutes']}"
+        for workflow, job_id, job in _iter_jobs()
+        if isinstance(job.get("timeout-minutes"), int)
+        and not 1 <= job["timeout-minutes"] <= MAX_JOB_TIMEOUT
+    ]
+    assert not out_of_bounds, (
+        f"Job caps outside 1..{MAX_JOB_TIMEOUT} minutes: {sorted(out_of_bounds)}."
+        f" Raise MAX_JOB_TIMEOUT here if a workload genuinely outgrew it."
+    )
+
+
+def test_reusable_callers_carry_no_forbidden_keys() -> None:
+    """A `uses:` job may only declare {data}`REUSABLE_CALLER_KEYS`.
+
+    GitHub fails the whole workflow at startup on any other key, so this
+    catches a caller that grew a `timeout-minutes` (or a `runs-on`, or
+    `steps`) before actionlint runs in CI.
+    """
+    violations = [
+        f"{workflow}:{job_id}:{key}"
+        for workflow, job_id, job in _iter_jobs()
+        if "uses" in job
+        for key in job
+        if key not in REUSABLE_CALLER_KEYS
+    ]
+    assert not violations, (
+        f"Keys GitHub rejects on a reusable-workflow caller: {sorted(violations)}."
+        f" Only {sorted(REUSABLE_CALLER_KEYS)} are allowed there."
+    )
+
     # Verify no overlap between exempt and concurrency categories.
     overlap = set(WORKFLOWS_WITH_CONCURRENCY) & WORKFLOWS_WITHOUT_CONCURRENCY
     assert not overlap, f"Workflows in both categories: {overlap}"

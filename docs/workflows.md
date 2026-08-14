@@ -49,6 +49,23 @@ GitHub Actions has several design limitations that the workflows work around:
 | [Branch deletion doesn't cancel runs](https://github.com/orgs/community/discussions/137976)                                                                                      | ❌ Not addressed   | Same root cause as PR close; partially mitigated by [`cancel-runs.yaml`](#github-workflows-cancel-runs-yaml-jobs) since branch deletion typically follows PR closure                                                                    |
 | [No native way to depend on all matrix jobs completing](https://github.com/orgs/community/discussions/26822)                                                                     | ❌ Not addressed   | GitHub limitation; use `needs:` with a summary job as workaround                                                                                                                                                                        |
 | [`actionlint` false positives for runtime env vars](https://github.com/rhysd/actionlint/issues/57)                                                                               | 🚫 Not addressable | Linter limitation, not GitHub's                                                                                                                                                                                                         |
+| [No default `timeout-minutes`, so an uncapped job runs 6 hours](https://docs.github.com/en/actions/reference/limits)                                                             | ✅ Addressed       | [Per-job runtime caps](#job-runtime-caps), enforced by `tests/test_workflows.py::test_every_job_caps_its_runtime`                                                                                                                       |
+
+### Job runtime caps
+
+Every job that occupies a runner declares `timeout-minutes`. GitHub offers no workflow-level or organization-level default for it, so the key has to be repeated on each job, and a job that omits it runs until the platform's [6-hour ceiling](https://docs.github.com/en/actions/reference/limits). That default is the wrong shape for a shared account: the macOS and Windows runner pools are capped per account and shared by every repository in it, so one hung cell starves all the others for the rest of those six hours. The cost of the omission lands on projects that have nothing to do with the workflow that hung.
+
+The caps are runaway backstops, not performance budgets. Each sits far above the job's measured worst case, so ordinary growth never trips one:
+
+| Cap        | Applies to                                                                                                     | Measured worst case                                      |
+| :--------- | :------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------- |
+| 15 minutes | Bounded local work or a handful of API calls: linting, formatting, `metadata`, the sync jobs, label management | 2.8 min (`autolock`'s thread sweep)                      |
+| 30 minutes | Jobs that provision a toolchain, iterate a matrix cell, or paginate a whole issue history                      | 4.8 min (`tests` on `macos-26-intel` / py3.10)           |
+| 45 minutes | `compile-binaries`, and `check-broken-links` whose crawl is paced by other people's servers                    | 17.4 min (cold-cache compile), 10.4 min (the link crawl) |
+
+Two jobs carry no cap, and cannot: `release.yaml`'s `build` and `release` delegate to a reusable workflow via `uses:`, where GitHub accepts only `name`, `uses`, `with`, `secrets`, `needs`, `if` and `permissions`. Their runtime is bounded by the caps on the jobs of the workflow they call.
+
+Downstream repositories inherit all of this: the caps live on the reusable workflows' own jobs, so a thin caller gets them without configuring anything.
 
 (github-workflows-autofix-yaml-jobs)=
 

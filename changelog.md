@@ -13,6 +13,8 @@
 - `lint-deps` now reports declarations departing from version policy: upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors. Warnings only, disabled with `--no-policy`.
 - `cancel-runs` now spares a run whose head commit carries `[changelog] Release`, so a sweep of the default branch cannot kill a release matrix.
 - Fix the `[tool.repomatic.workflow]` key names the `repomatic-audit` skill recommends: they are `extra-paths` and `ignore-paths`, not the snake_case attribute names.
+- Every job now caps its runtime with `timeout-minutes`, so a hung job frees its runner in minutes instead of holding it for the platform's 6-hour ceiling. Downstream callers inherit the caps.
+- The bundled `lychee.toml` now excludes `bitdefender.com`, `npmjs.com`, `star-history.com` and `githubstatus.com`, which answer bots with 403, 405 or JavaScript rather than a link.
 
 ## [`7.11.0` (2026-08-13)](https://github.com/kdeldycke/repomatic/compare/v7.10.0...v7.11.0)
 

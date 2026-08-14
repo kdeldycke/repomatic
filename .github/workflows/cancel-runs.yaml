@@ -32,6 +32,7 @@ jobs:
     name: ✂️ Cancel PR runs
     if: github.event.pull_request.number
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       actions: write
     steps:

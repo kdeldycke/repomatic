@@ -318,7 +318,16 @@ class GitignoreConfig:
             """
         ).strip()
     )
-    """Additional content to append at the end of the generated `.gitignore` file.
+    """Content appended at the end of the generated `.gitignore` file.
+
+    "Appended" describes where the string lands, after the gitignore.io block,
+    not how a downstream value combines with the default above: setting this key
+    **replaces** that default wholesale, so the entries shown there are lost
+    unless the override repeats them. {func}`repomatic.gitignore.orphaned_rules`
+    catches that for any rule an earlier sync already wrote to disk, but not for
+    one this repository never materialized, so copy the default and extend it
+    rather than writing only the new lines. Reach for {attr}`extra_categories`
+    instead when adding whole gitignore.io templates: that one is additive.
     """
 
     location: str = "./.gitignore"

@@ -61,6 +61,7 @@ jobs:
       github.event_name == 'push'
       && startsWith(github.event.head_commit.message, 'Release `v')
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     permissions:
       issues: write
     steps:
@@ -108,6 +109,7 @@ jobs:
   metadata:
     name: 🧬 Project metadata
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -146,6 +148,7 @@ jobs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).is_python_project
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -182,6 +185,8 @@ jobs:
         ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
         || fromJSON(needs.metadata.outputs.metadata).new_commits_matrix }}
     runs-on: ubuntu-26.04
+    # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
+    timeout-minutes: 30
     permissions:
       id-token: write
     steps:

@@ -43,6 +43,7 @@ jobs:
   metadata:
     name: 🧬 Project metadata
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -65,6 +66,8 @@ jobs:
       fromJSON(needs.metadata.outputs.metadata).is_python_project
       && fromJSON(needs.metadata.outputs.metadata).is_sphinx
     runs-on: ubuntu-26.04
+    # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
+    timeout-minutes: 30
     permissions:
       id-token: write
       pages: write
@@ -125,6 +128,11 @@ jobs:
     # once ran on a lean image with a 15-minute job cap, which killed the whole
     # crawl outright rather than failing a step.
     runs-on: ubuntu-26.04-arm
+    # Widest cap in the repository, for the reason just above: this crawl is the
+    # one job whose runtime is set by other people's servers. Triple the 15
+    # minutes that already killed it once, against a measured 10.4-minute worst
+    # case, so the growth has somewhere to go.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0

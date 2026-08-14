@@ -27,6 +27,8 @@ jobs:
   lock:
     name: 🔒 Lock inactive threads
     runs-on: ubuntu-26.04
+    # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
+    timeout-minutes: 30
     permissions:
       contents: read
       issues: write

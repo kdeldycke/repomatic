@@ -41,6 +41,7 @@ jobs:
   metadata:
     name: 🧬 Project metadata
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     outputs:
       build_targets: ${{ steps.extend-matrix.outputs.targets }}
     steps:
@@ -75,6 +76,8 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.metadata.outputs.build_targets) }}
     runs-on: ${{ matrix.os }}
+    # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
+    timeout-minutes: 30
     steps:
       # `toJSON()` already pretty-prints, so each context reaches the log
       # readable with no jq in the way, which also keeps this step identical on

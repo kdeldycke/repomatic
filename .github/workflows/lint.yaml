@@ -72,6 +72,7 @@ jobs:
       github.head_ref)
       && !startsWith(github.event.head_commit.message || '', '[changelog] ')
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
@@ -93,6 +94,7 @@ jobs:
     needs:
       - metadata
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -114,6 +116,7 @@ jobs:
     # filtered upstream by the metadata job's `if:` gate.
     if: fromJSON(needs.metadata.outputs.metadata).python_files
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -141,6 +144,7 @@ jobs:
       (! fromJSON(needs.metadata.outputs.metadata).is_bot)
       && fromJSON(needs.metadata.outputs.metadata).yaml_changed
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -158,6 +162,7 @@ jobs:
       (! fromJSON(needs.metadata.outputs.metadata).is_bot)
       && fromJSON(needs.metadata.outputs.metadata).zsh_changed
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Zsh
@@ -179,6 +184,7 @@ jobs:
       (! fromJSON(needs.metadata.outputs.metadata).is_bot)
       && fromJSON(needs.metadata.outputs.metadata).workflows_changed
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -214,6 +220,7 @@ jobs:
       (! fromJSON(needs.metadata.outputs.metadata).is_bot)
       && fromJSON(needs.metadata.outputs.metadata).workflows_changed
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -228,6 +235,7 @@ jobs:
       - metadata
     if: startsWith(github.event.repository.name, 'awesome-')
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -262,6 +270,7 @@ jobs:
     # Skip dependency update PRs.
     if: ${{ ! fromJSON(needs.metadata.outputs.metadata).is_bot }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
