@@ -23,6 +23,8 @@
 - New `ToolSpec.rewrite_exit_code` naming the status a formatter returns after rewriting a file. A run exiting with it while leaving every target unchanged is reported as a crash (exit code `70`) instead of passing for a successful reformat: pyproject-fmt uses `1` for both, so its panics reached the autofix job as green runs that formatted nothing.
 - `repomatic run --verify` now surfaces a tool that failed on the throwaway copies, instead of reading the unformatted result as an absence of drift.
 - Fix the `[tool.repomatic.workflow]` key names the `repomatic-audit` skill recommends: they are `extra-paths` and `ignore-paths`, not the snake_case attribute names.
+- Fix the `repomatic-audit` and `repomatic-deps` skills auditing a downstream repository against `main` instead of the release it adopted, which reported unreleased work as local drift.
+- The `repomatic-audit` skill now names the five tools a bundled default actually covers at runtime, and warns that deleting any other `[tool.X]` section runs the tool bare instead of restoring one.
 - Every job now caps its runtime with `timeout-minutes`, so a hung job frees its runner in minutes instead of holding it for the platform's 6-hour ceiling. Downstream callers inherit the caps.
 - The bundled `lychee.toml` now excludes `bitdefender.com`, `npmjs.com`, `star-history.com` and `githubstatus.com`, which answer bots with 403, 405 or JavaScript rather than a link.
 

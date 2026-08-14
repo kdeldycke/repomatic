@@ -25,7 +25,8 @@ You perform a comprehensive audit of a downstream repository against the upstrea
 Before flagging an issue, verify that the gap isn't **deliberate** or covered by a runtime mechanism. Common false positives:
 
 - **`[tool.repomatic] exclude` is authoritative.** Files listed there (like `workflows/changelog.yaml` or `labels`) are intentionally absent on disk. Do **not** report them as MISSING.
-- **Bundled defaults applied at runtime.** Some config is materialized from the bundled template at runtime when the file is absent: `[tool.ruff]`/`[tool.typos]` defaults from the tool registry are applied without requiring an on-disk copy. **Absence of these files is not a problem** — it is the intended state when the user is happy with the bundled policy. Only flag DRIFT if the user wants to deviate from the bundled policy.
+- **Bundled defaults applied at runtime.** Some config is materialized from the bundled template at runtime when the file is absent, so no on-disk copy is needed. **Absence of these files is not a problem**: it is the intended state when the user is happy with the bundled policy. Only flag DRIFT if the user wants to deviate from it. Exactly five tools carry such a fallback, the ones whose `ToolSpec` sets `default_config` in `repomatic/tool_registry.py`: `actionlint`, `mdformat`, `ruff`, `yamllint` and `zizmor`.
+- **A `[tool.X]` section is never a candidate for deletion.** The inverse of the rule above, and the more expensive mistake. Every other tool has no `default_config`, so its resolution chain has no level 3 to fall back on: `lychee`, `typos`, `mypy`, `pytest`, `coverage`, `bumpversion` and `uv` are *deployed* into `pyproject.toml` by `repomatic init`, and that section is the only config the tool will ever see. Deleting it does not restore inheritance from a bundled default, it drops the tool to level 4 and runs it bare, silently discarding every rule the section held. Read the tool's `default_config` before proposing a section be dropped "to inherit upstream updates". A deployed section that has gone stale is fixed by re-running `repomatic init`, which resyncs the components marked `SyncMode.ONGOING` in `repomatic/registry.py`.
 - **Generator artifacts vs user error.** When local thin-callers diverge from upstream (e.g., extra `workflow_dispatch:`, missing `paths:`), the cause may be the **upstream generator**, not downstream tampering. Inspect `repomatic/github/workflow_sync.py` (`generate_thin_caller`, `_adapt_trigger_paths`, `generate_workflow_header`) before recommending the user re-run `repomatic init` to "fix" something `init` itself produced.
 - **Project-level `claude.md` may live under a sub-directory.** `[tool.repomatic] agents.location` and `skills.location` indicate a project where `.claude/` is not at the root (e.g., dotfiles repos with `dotfiles/.claude/CLAUDE.md`). Search the configured location, not just `./CLAUDE.md`.
 
@@ -41,7 +42,19 @@ When in doubt, search the upstream codebase to confirm whether a behavior is int
 
 ### Fetching reference files
 
-Use `gh api repos/kdeldycke/repomatic/contents/{path} --jq '.content' | base64 -d` to fetch upstream reference files.
+Fetch every reference file at **the version the downstream repo has actually adopted**, never at the tip of `main`. The Context block above prints the `uses:` pins; take the tag from there and pass it as `ref` on every call:
+
+```shell-session
+$ gh api "repos/kdeldycke/repomatic/contents/{path}?ref=vX.Y.Z" --jq '.content' | base64 -d
+```
+
+An unpinned fetch resolves to `main`, which carries unreleased work. Audited against it, every change waiting for the next release reads as downstream drift, and the "fix" that follows can be worse than the phantom problem: a `[tool.X]` section matching its adopted bundled template exactly gets reported as stale, because `main` has since grown entries no release has shipped yet.
+
+Keep the two axes apart in the report, because only one of them is actionable:
+
+- **Drift** is a difference against the adopted tag. Report it.
+- **Available in a newer release** is a difference between the adopted tag and a later published one. That is an upgrade note, never a DRIFT row. Confirm the version actually exists with `gh api repos/kdeldycke/repomatic/releases --jq '.[].tag_name'`.
+- **Only on `main`** is unreleased and belongs in neither list. The changelog's top section is headed with a `.devN` version and a "not released yet" warning; anything described there is not yet available to any downstream repo.
 
 ### 1. Workflow audit (`workflows`)
 

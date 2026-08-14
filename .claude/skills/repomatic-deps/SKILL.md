@@ -173,7 +173,7 @@ Flag stale or unjustified entries as warnings.
 
 ### Cross-repo reference
 
-When the context shows `DOWNSTREAM`, also compare the dependency list against the canonical `repomatic` `pyproject.toml` (fetch with `gh api repos/kdeldycke/repomatic/contents/pyproject.toml --jq '.content' | base64 -d`) to identify:
+When the context shows `DOWNSTREAM`, also compare the dependency list against the canonical `repomatic` `pyproject.toml`, fetched at the version this repo has adopted rather than at the tip of `main`: take the tag from the `uses:` pins in `.github/workflows/`, then run `gh api "repos/kdeldycke/repomatic/contents/pyproject.toml?ref=vX.Y.Z" --jq '.content' | base64 -d`. An unpinned fetch resolves to `main`, whose floors may have moved for a release the downstream repo cannot use yet, turning unreleased work into a phantom "downstream is behind" finding. Use it to identify:
 
 - Shared dependencies where the downstream floor is lower than upstream (may be missing a needed bump).
 - Shared dev dependencies where upstream has moved to a newer group structure.
