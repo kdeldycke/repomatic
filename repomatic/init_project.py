@@ -63,7 +63,12 @@ from .http import DEFAULT_TIMEOUT
 from .metadata import Metadata, all_metadata_keys
 from .plugin import merge_plugin_settings
 from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
-from .pyproject import is_python_package, is_python_project, resolve_source_paths
+from .pyproject import (
+    is_python_package,
+    is_python_project,
+    read_pyproject_toml,
+    resolve_source_paths,
+)
 from .registry import (
     COMPONENTS,
     COMPONENTS_BY_NAME,
@@ -834,6 +839,42 @@ def prune_paths(
             target.unlink()
 
 
+def adopted_ongoing_configs(output_dir: Path) -> set[str]:
+    """Return the ongoing tool configs whose section `pyproject.toml` already carries.
+
+    {attr}`~repomatic.registry.InitDefault.EXPLICIT` governs *adoption*, not
+    upkeep: it keeps a bare `init` from pushing `[tool.typos]` onto a repository
+    that never asked for one. Once the section is there the repository has
+    asked, so an {attr}`~repomatic.registry.SyncMode.ONGOING` component rejoins
+    the bare-init set and resumes tracking the bundled template.
+
+    Without this the two flags cancel out. The only sync that ever runs
+    unattended is the bare `init` the `sync-repomatic` job calls, so an ONGOING
+    section is otherwise re-derived only when a human types its component name,
+    and a `[tool.typos]` written by hand sits indefinitely beside a bundled
+    template it never adopts a single rule from.
+
+    {attr}`~repomatic.registry.SyncMode.BOOTSTRAP` components stay out: their
+    template is a starting point the repository owns outright after the first
+    write, and re-selecting one would revert deliberate local edits.
+
+    :param output_dir: Repository root holding `pyproject.toml`.
+    :return: Component names to add to a bare `init` selection. Empty when the
+        file is absent, unparseable, or carries no `[tool]` table.
+    """
+    tool_table = read_pyproject_toml(output_dir).get("tool", {})
+    if not tool_table:
+        return set()
+    return {
+        comp.name
+        for comp in COMPONENTS
+        if isinstance(comp, ToolConfigComponent)
+        and comp.init_default is InitDefault.EXPLICIT
+        and comp.sync_mode is SyncMode.ONGOING
+        and comp.tool_name in tool_table
+    }
+
+
 def run_init(
     output_dir: Path,
     components: Sequence[str] = (),
@@ -899,6 +940,7 @@ def run_init(
             for c in COMPONENTS
             if c.init_default in (InitDefault.INCLUDE, InitDefault.EXCLUDE)
         }
+        selected |= adopted_ongoing_configs(output_dir)
     result = InitResult()
 
     # Auto-include awesome-template for awesome-* repositories.

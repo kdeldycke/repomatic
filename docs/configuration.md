@@ -184,6 +184,18 @@ Scope is a default, not a rule. Naming a component on the command line, or listi
 $ repomatic init changelog
 ```
 
+### Adopting a tool config
+
+Tool configs are the one group a bare `repomatic init` never introduces. `[tool.typos]`, `[tool.ruff]`, `[tool.pytest]` and their siblings land only when named:
+
+```shell-session
+$ repomatic init typos
+```
+
+Adoption is one-way. Once the section exists, a bare `init` picks it back up on every run, so the `sync-repomatic` job keeps it aligned with the bundled template from then on: new canonical rules arrive, local additions survive. The section is a managed file like any other after that, which makes it subject to [§ Diverging from a managed file](#diverging-from-a-managed-file): the sync rebuilds it from the template and grafts local content back, so hand-written comments inside it do not survive.
+
+Only the configs repomatic keeps syncing behave this way, `typos`, `uv` and `bumpversion`. The rest (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) are starting points the repository owns outright after the first write, and `init` never revisits them.
+
 ## `[tool.X]` bridge and tool runner
 
 `repomatic run` also bridges the gap for tools that can't read `pyproject.toml` natively: write your config in `[tool.<name>]` and repomatic translates it to the tool's native format at invocation time. See the [tool runner](tool-runner.md) page for the full list of supported tools, config resolution precedence, binary caching, and a tutorial.

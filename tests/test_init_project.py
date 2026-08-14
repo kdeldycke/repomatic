@@ -40,6 +40,7 @@ from repomatic.init_project import (
     _highest_upstream_pin,
     _select_cooldown_pin,
     _update_tool_config,
+    adopted_ongoing_configs,
     default_version_pin,
     export_content,
     get_data_content,
@@ -513,6 +514,62 @@ def test_init_config_lychee_preserves_other_sections(toml_file) -> None:
     parsed = tomlrt.loads(result)
     # Lychee was added.
     assert "lychee" in parsed["tool"]
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    (
+        pytest.param("", set(), id="no-tool-table"),
+        pytest.param('[project]\nname = "papaya"\n', set(), id="project-only"),
+        pytest.param("[tool.typos]\n", {"typos"}, id="ongoing-adopted"),
+        pytest.param("[tool.ruff]\n", set(), id="bootstrap-stays-out"),
+        pytest.param("[tool.gitleaks]\n", set(), id="unmanaged-section"),
+        pytest.param(
+            "[tool.typos]\n[tool.uv]\n[tool.bumpversion]\n[tool.mypy]\n",
+            {"typos", "uv", "bumpversion"},
+            id="every-ongoing-config",
+        ),
+    ),
+)
+def test_adopted_ongoing_configs(
+    tmp_path: Path, content: str, expected: set[str]
+) -> None:
+    """A section already on disk re-enters the bare-init set, if it is ONGOING.
+
+    `EXPLICIT` keeps `init` from pushing a tool config onto a repository that
+    never asked for one; it must not also stop the ongoing sync of a section the
+    repository already carries. `BOOTSTRAP` templates stay out either way: the
+    repository owns them outright after the first write.
+    """
+    (tmp_path / "pyproject.toml").write_text(content, encoding="UTF-8")
+    assert adopted_ongoing_configs(tmp_path) == expected
+
+
+def test_adopted_ongoing_configs_without_pyproject(tmp_path: Path) -> None:
+    """A repository with no pyproject.toml adopts nothing."""
+    assert adopted_ongoing_configs(tmp_path) == set()
+
+
+def test_adopted_ongoing_configs_are_explicit_and_ongoing(tmp_path: Path) -> None:
+    """Whatever the helper returns is an EXPLICIT, ONGOING tool config.
+
+    Guards the invariant against a registry edit that flips a component's
+    `init_default` or `sync_mode` without revisiting this selection path.
+    """
+    sections = "\n".join(
+        f"[{comp.tool_section}]"
+        for comp in COMPONENTS
+        if isinstance(comp, ToolConfigComponent)
+    )
+    (tmp_path / "pyproject.toml").write_text(sections + "\n", encoding="UTF-8")
+
+    adopted = adopted_ongoing_configs(tmp_path)
+    assert adopted
+    for name in adopted:
+        comp = COMPONENTS_BY_NAME[name]
+        assert isinstance(comp, ToolConfigComponent)
+        assert comp.init_default is InitDefault.EXPLICIT
+        assert comp.sync_mode is SyncMode.ONGOING
 
 
 def test_uv_component_uses_overlay_ongoing() -> None:
