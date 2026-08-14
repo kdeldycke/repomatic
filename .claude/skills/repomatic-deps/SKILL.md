@@ -161,15 +161,17 @@ These comment patterns typically signal a floor set at adoption or auto-bump tim
 
 ### `exclude-newer-package` cooldown audit
 
-The `[tool.uv]` section may contain `exclude-newer-package` entries that exempt specific packages from the global `exclude-newer` cooldown window. These exceptions exist for a reason (typically: the package is developed in-repo or needs immediate updates), but they accumulate over time and may outlive their purpose.
+The `[tool.uv]` section may contain `exclude-newer-package` entries that exempt specific packages from the global `exclude-newer` cooldown window. They arrive from two places: written by hand (the package is published by the same maintainer, or is developed in-repo), or written by `audit --fix`, which reaches a CVE fix still inside the window through an entry rather than lifting `exclude-newer` for the whole tree.
 
-For each `exclude-newer-package` entry, check:
+**Expiry is mechanical, so do not audit for it.** `sync-uv-lock` owns the lifecycle of every entry and reports each move in its PR body: it rewrites a relative span (`"0 day"`) into a fixed cutoff pinned to the locked version's upload time, which *holds* the package instead of letting it track latest, then prunes the entry outright once that held version ages past the global cooldown and the package rejoins normal resolution. A live fixed cutoff is therefore a freeze doing its job, not a leftover: proposing its deletion un-holds a package the freeze was deliberately pinning. A surviving relative span means the freeze has not run yet, not that a span is the steady state.
 
-1. **Is the package still a dependency?** If it was removed from `[project].dependencies` and all `[dependency-groups]`, the exception is dead weight.
-2. **Is the exception still justified?** A `"0 day"` override for an in-repo package makes sense. A `"0 day"` override for an external package that was temporarily pinned during a migration may no longer be needed.
-3. **Does the comment explain the reason?** Like version floors, cooldown exceptions should have a comment explaining why the package is exempted.
+What is left for this audit is the part no schedule settles:
 
-Flag stale or unjustified entries as warnings.
+1. **Is the package still a dependency?** If it was removed from `[project].dependencies` and all `[dependency-groups]`, the entry is dead weight that no prune will ever reach, since pruning keys off the locked version's age and the package is no longer in the lock.
+2. **Is a hand-written exemption still justified?** A same-maintainer or in-repo package keeps its span indefinitely and correctly. An external package exempted during a migration that has since finished no longer needs one.
+3. **Does the comment explain the reason?** Like version floors, a hand-written exemption should carry a comment naming why the cooldown does not apply to it.
+
+Flag those as warnings. Never flag an entry merely for existing or for looking old.
 
 ### Cross-repo reference
 

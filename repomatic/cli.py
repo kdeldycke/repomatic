@@ -2234,6 +2234,11 @@ def lint_repo(
       - Website field set for Sphinx projects, and matching the documentation
         URL declared in [project.urls] (warning).
       - Repository description matches project description (error).
+      - Inline upstream pins match the version the uses: refs name (error).
+      - Inline upstream pins resolving under a cooldown carry their
+        --exclude-newer-package exemption (error).
+      - Workflows only ask repomatic metadata for keys it still emits (error).
+      - Every astral-sh/setup-uv step pins one uv version (warning).
       - GitHub topics subset of pyproject.toml keywords (warning).
       - Funding file present when owner has GitHub Sponsors (warning).
       - Stale draft releases (non-.dev0 drafts) (warning).

@@ -1588,11 +1588,15 @@ def _setup_uv_step(version: str | None) -> str:
     return step
 
 
+def _setup_uv_workflow(*versions: str | None) -> str:
+    """A one-job workflow whose steps pin *versions*, `None` for unpinned."""
+    steps = "".join(_setup_uv_step(version) for version in versions)
+    return f"on: push\njobs:\n  build:\n    steps:\n{steps}"
+
+
 def test_setup_uv_version_pin_flags_unpinned_step(tmp_path):
     """A step with no `version:` input installs whatever uv is newest."""
-    (tmp_path / "tests.yaml").write_text(
-        "jobs:\n" + _setup_uv_step(None), encoding="UTF-8"
-    )
+    (tmp_path / "tests.yaml").write_text(_setup_uv_workflow(None), encoding="UTF-8")
     result = check_setup_uv_version_pin(tmp_path)
     assert result.passed is False
     assert "tests.yaml" in result.message
@@ -1601,7 +1605,7 @@ def test_setup_uv_version_pin_flags_unpinned_step(tmp_path):
 def test_setup_uv_version_pin_accepts_pinned_steps(tmp_path):
     """Every step naming the same version passes."""
     (tmp_path / "tests.yaml").write_text(
-        "jobs:\n" + _setup_uv_step("0.12.1") * 2, encoding="UTF-8"
+        _setup_uv_workflow("0.12.1", "0.12.1"), encoding="UTF-8"
     )
     result = check_setup_uv_version_pin(tmp_path)
     assert result.passed is True
@@ -1609,14 +1613,9 @@ def test_setup_uv_version_pin_accepts_pinned_steps(tmp_path):
 
 
 def test_setup_uv_version_pin_flags_unpinned_step_next_to_pinned_one(tmp_path):
-    """A pinned step does not vouch for an unpinned one below it.
-
-    Regression guard on the step-body regex: an unbounded body ran to the end
-    of the job, so one `version:` anywhere covered every step above it.
-    """
+    """A pinned step does not vouch for an unpinned one beside it."""
     (tmp_path / "tests.yaml").write_text(
-        "jobs:\n" + _setup_uv_step(None) + _setup_uv_step("0.12.1"),
-        encoding="UTF-8",
+        _setup_uv_workflow(None, "0.12.1"), encoding="UTF-8"
     )
     result = check_setup_uv_version_pin(tmp_path)
     assert result.passed is False
@@ -1624,12 +1623,8 @@ def test_setup_uv_version_pin_flags_unpinned_step_next_to_pinned_one(tmp_path):
 
 def test_setup_uv_version_pin_flags_split_versions(tmp_path):
     """Steps pinning two versions silently test two uv releases."""
-    (tmp_path / "tests.yaml").write_text(
-        "jobs:\n" + _setup_uv_step("0.12.1"), encoding="UTF-8"
-    )
-    (tmp_path / "lint.yaml").write_text(
-        "jobs:\n" + _setup_uv_step("0.12.2"), encoding="UTF-8"
-    )
+    (tmp_path / "tests.yaml").write_text(_setup_uv_workflow("0.12.1"), encoding="UTF-8")
+    (tmp_path / "lint.yaml").write_text(_setup_uv_workflow("0.12.2"), encoding="UTF-8")
     result = check_setup_uv_version_pin(tmp_path)
     assert result.passed is False
     assert "0.12.1" in result.message

@@ -70,7 +70,8 @@ Compare each local thin-caller workflow against its reference. These should be i
 
 The header (name, `on:`, `concurrency:`) is synced automatically, but custom job content is not. Compare the job content against the reference for:
 
-- **Stale action versions**: e.g., `actions/checkout`, `astral-sh/setup-uv` — compare pinned versions.
+- **Stale action versions**: e.g., `actions/checkout`, `astral-sh/setup-uv` — compare pinned versions. `setup-uv` carries a second, independent pin: a `with: version: "X.Y.Z"` input naming the uv it downloads. Absent, the runner installs whatever uv is newest, leaving the tool that enforces every cooldown without one; split across two values, the fleet silently tests two resolvers. `lint-repo`'s `setup-uv-version-pin` check reports both, non-fatally.
+- **Inline upstream pin with no cooldown exemption**: a `run:` command pinning the toolkit (`uvx 'repomatic==X.Y.Z' …`) under a workflow that sets `UV_EXCLUDE_NEWER` must carry `--exclude-newer-package repomatic=P0D` on the same command line, since `uvx` reads no project configuration and the pin routinely names a release published hours ago. Without it the command cannot resolve, and every `needs: metadata` job dies with it. `lint-repo`'s `self-pin-cooldown-exemption` check is fatal on this.
 - **Missing workarounds**: e.g., the "Force native ARM64 Python on Windows ARM64" step that sets `UV_PYTHON`.
 - **Missing matrix exclusions**: e.g., `windows-11-arm` + Python 3.10 (no native ARM64 build).
 - **Outdated integration patterns**: e.g., a third-party action still in use where upstream replaced it with a `repomatic run` tool.

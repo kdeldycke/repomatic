@@ -126,11 +126,13 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    ```shell-session
    # Failed stable test jobs:
-   $ gh run view <TESTS_RUN_ID> --json jobs --jq '[.jobs[] | select(.conclusion == "failure" and (.name | startswith("✅")))] | .[].databaseId'
+   $ gh run view <TESTS_RUN_ID> --json jobs --jq '[.jobs[] | select(.conclusion == "failure" and (.name | contains("⁉️") | not))] | .[].databaseId'
 
-   # Failed lint jobs (especially "Lint types" for mypy):
+   # Failed lint jobs (especially "🛡️ Lint types" for mypy):
    $ gh run view <LINT_RUN_ID> --json jobs --jq '[.jobs[] | select(.conclusion == "failure")] | .[].databaseId'
    ```
+
+   The first filter negates the unstable glyph rather than matching a `✅` prefix, mirroring `JobStatus.required`. `tests.yaml` runs four required jobs whose names carry no `✅` at all (`🧬 Project metadata`, `1️⃣ Run-once tests`, `📦 Package install`, `🖥️ Validate …`), and the release engine prefixes the workflow ahead of the glyph, so a prefix test silently drops a real failure from the batch.
 
    Fetch each failed job's log (`gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs`) and fix them as one batch: different sources surface different issues, and logs survive cancellation. Batch only what has *already failed*, never what might still fail. Once every harvested failure is root-caused and fixed, push immediately rather than waiting for undrained cells to surface more: the fresh run supersedes the stale one, and serially waiting out each full matrix is the slow path. Analyze following the [error triage discipline](#error-triage-discipline): stable-job `FAILED`/`AssertionError` lines only.
 
@@ -164,7 +166,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
    $ gh pr list --state=open --json number,title,headRefName,url
    ```
 
-   If any open autofix PR already contains your fix — a `format-python` branch (ruff's own autofixes), a `sync-repomatic`/`sync-workflow-pins` branch (a bumped workflow pin), or another `sync-*`/`fix-*` branch — prefer merging it over authoring your own commit: GitHub signs the merge commit server-side, so this sidesteps a local hardware-key signing prompt entirely. If it resolves the failure, merge it (`gh pr merge <n> --squash --delete-branch`), pull, and rebase your fix before pushing — or skip your own commit if the merge is the whole fix. If `gh pr merge` is denied outright (a standing `permissions.deny` on the verb, not a retryable prompt), see [§ PR-merge permission wall](#pr-merge-permission-wall).
+   If any open autofix PR already contains your fix — a `format-python` branch (ruff's own autofixes), a `sync-repomatic`/`sync-workflow-pins` branch (a bumped workflow pin, or a spliced-in `--exclude-newer-package` cooldown exemption carrying no version bump at all — that one is the whole fix when the `metadata` job cannot resolve its own pin), or another `sync-*`/`fix-*` branch — prefer merging it over authoring your own commit: GitHub signs the merge commit server-side, so this sidesteps a local hardware-key signing prompt entirely. If it resolves the failure, merge it (`gh pr merge <n> --squash --delete-branch`), pull, and rebase your fix before pushing — or skip your own commit if the merge is the whole fix. If `gh pr merge` is denied outright (a standing `permissions.deny` on the verb, not a retryable prompt), see [§ PR-merge permission wall](#pr-merge-permission-wall).
 
 7. **Commit the fix** with a clear message describing what changed and why, then `git push`.
 
@@ -184,12 +186,12 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
 ## Stable vs. unstable
 
-- **Stable jobs** (✅): must pass. Their names start with `✅`.
-- **Unstable jobs** (⁉️): allowed to fail (Python dev versions like 3.15, 3.15t). Their failures never gate the loop; a release context still fixes the repo-fixable ones (see [error triage discipline](#error-triage-discipline), rule 1).
+- **Stable jobs** (✅): must pass. So does every job carrying no stability glyph at all (`🛡️ Lint types`, `1️⃣ Run-once tests`, `📦 Package install`): the test is the *absence* of `⁉️` anywhere in the name, never the presence of a `✅` prefix.
+- **Unstable jobs** (⁉️): allowed to fail (an in-development Python, currently 3.15). Their failures never gate the loop; a release context still fixes the repo-fixable ones (see [error triage discipline](#error-triage-discipline), rule 1).
 
 The workflow uses `continue-on-error` for unstable jobs, so the run can succeed even when they fail.
 
-`repomatic ci-status` does this classification, and doing it by hand is where it goes wrong: job-name shapes differ across workflows — `tests.yaml` names carry no workflow prefix (`✅ ubuntu-26.04 / py3.10`) while the release engine's arrive through the reusable call (`release / ✅ ubuntu-26.04, abc1234 build`) — so a test anchored at the start of the name misfiles one shape and a split on `" / "` misfiles the other, either way masking a real failure as green. Containment is the one test both shapes satisfy. A job with no glyph at all (`Lint types`) is required. If you reformat job names for display, keep the raw string for the test.
+`repomatic ci-status` does this classification, and doing it by hand is where it goes wrong: job-name shapes differ across workflows — `tests.yaml` names carry no workflow prefix (`✅ ubuntu-26.04 / py3.10`) while the release engine's arrive through the reusable call (`release / ✅ ubuntu-26.04, abc1234 build`) — so a test anchored at the start of the name misfiles one shape and a split on `" / "` misfiles the other, either way masking a real failure as green. Containment is the one test both shapes satisfy. Only `✅`/`⁉️` carry stability: a job whose name opens on some other emoji (`🛡️ Lint types`, `1️⃣ Run-once tests`) is required, so test for the absence of `⁉️` rather than for the presence of any glyph. If you reformat job names for display, keep the raw string for the test.
 
 ## Error triage discipline
 
@@ -241,6 +243,7 @@ Not all CI failures are code bugs:
 - **Action version mismatches**: `Unable to resolve action`, deprecated-runtime errors. Fix the workflow YAML, not the Python.
 - **Network/registry flakiness**: `uv`/`pip` timeouts, PyPI 503s, `ConnectionResetError`. Re-run.
 - **Permission errors**: `Resource not accessible by integration`, 403s. Check `gh api rate_limit` first ([§ GitHub API rate-limit exhaustion](#github-api-rate-limit-exhaustion)), then token permissions; never code.
+- **A whole workflow red with nothing executed**, every job reporting failure and the `metadata` job unable to resolve its own toolkit pin: the inline `uvx 'repomatic==X.Y.Z'` command is missing `--exclude-newer-package repomatic=P0D`, so the workflow-wide `UV_EXCLUDE_NEWER` refuses a pin naming a release younger than the window, and each `needs: metadata` job dies with it. Splice the flag onto that command line — `uvx` reads no project configuration, so there is nowhere else the bypass can live — or merge the `sync-workflow-pins` PR that backfills it. `lint-repo`'s fatal `self-pin-cooldown-exemption` check names the offending files. Re-running changes nothing.
 
 For infrastructure, re-run the failed jobs (`gh run rerun <RUN_ID> --failed`) and continue polling; never modify code to work around transient infra.
 

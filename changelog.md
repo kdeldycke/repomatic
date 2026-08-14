@@ -29,6 +29,7 @@
 - Fix `audit --fix` dirtying `uv.lock` with a cooldown-override record when no upgrade was reachable, which opened a `fix-vulnerable-deps` pull request carrying no fix.
 - A formatter exiting with its rewrite status while leaving every target unchanged is now reported as a crash, instead of passing for a successful reformat that never happened.
 - Fix stale guidance across the bundled skills: wrong `[tool.repomatic.workflow]` key names, wrong workflow and job names for `lint-deps` and `lint-changelog`, which tools a bundled default actually covers, and downstream audits comparing against `main` rather than the adopted release.
+- Fix the bundled `babysit-ci` skill classifying a CI job by a leading `✅`, which dropped every required job whose name carries no stability glyph from the failures it collects.
 
 ## [`7.11.0` (2026-08-13)](https://github.com/kdeldycke/repomatic/compare/v7.10.0...v7.11.0)
 

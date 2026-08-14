@@ -1867,20 +1867,6 @@ def check_self_pin_cooldown_exemption(
     )
 
 
-_SETUP_UV_STEP_RE = re.compile(
-    r"uses:[ \t]*astral-sh/setup-uv@\S+[^\n]*\n"
-    r"(?P<body>(?:(?![ \t]*-[ \t])[ \t]+\S[^\n]*\n)*)"
-)
-"""A `setup-uv` step plus the indented block belonging to it.
-
-The `with:` mapping carrying `version:` is part of that block, so capturing it
-is what tells a pinned step from an unpinned one. The negative lookahead ends
-the body at the next `- ` list item: without it the body runs to the end of the
-job, and a single pinned step elsewhere would vouch for every unpinned one
-above it.
-"""
-
-
 def check_setup_uv_version_pin(workflow_dir: Path = WORKFLOW_DIR) -> CheckResult:
     """Check every `astral-sh/setup-uv` step pins the uv version it installs.
 
@@ -1895,28 +1881,38 @@ def check_setup_uv_version_pin(workflow_dir: Path = WORKFLOW_DIR) -> CheckResult
     pin exists so every job resolves through the same uv, and a split fleet
     silently tests two.
 
+    Reads the parsed workflow rather than its text: a `with:` input is a plain
+    mapping, so the step a pin belongs to is a fact the parser already knows.
+    Matching the raw text instead means bounding a step's block by hand, and a
+    body running past its own step lets one pinned step vouch for every
+    unpinned one above it.
+
     :param workflow_dir: Directory holding the workflow YAML files.
     :return: A `CheckResult`.
     """
-    if not workflow_dir.is_dir():
-        return CheckResult(
-            None, f"setup-uv version pin: skipped (no {workflow_dir.as_posix()})."
-        )
+    workflows = _load_workflows(workflow_dir)
+    if not workflows:
+        return CheckResult(None, "setup-uv version pin: skipped (no workflows).")
 
-    version_re = re.compile(
-        r"^\s*version:\s*[\"']?(?P<version>[0-9][^\s\"']*)", re.MULTILINE
-    )
     unpinned: list[str] = []
     versions: dict[str, set[str]] = {}
     steps = 0
-    for wf, content in _workflow_texts(workflow_dir).items():
-        for match in _SETUP_UV_STEP_RE.finditer(content):
-            steps += 1
-            found = version_re.search(match.group("body"))
-            if not found:
-                unpinned.append(wf.name)
+    for path, data in workflows.items():
+        for job in data["jobs"].values():
+            if not isinstance(job, dict):
                 continue
-            versions.setdefault(found["version"], set()).add(wf.name)
+            for step in job.get("steps", []) or ():
+                if not isinstance(step, dict):
+                    continue
+                if not str(step.get("uses", "")).startswith("astral-sh/setup-uv@"):
+                    continue
+                steps += 1
+                inputs = step.get("with")
+                version = inputs.get("version") if isinstance(inputs, dict) else None
+                if version is None:
+                    unpinned.append(path.name)
+                    continue
+                versions.setdefault(str(version), set()).add(path.name)
 
     if not steps:
         return CheckResult(None, "setup-uv version pin: no setup-uv step found.")
@@ -2474,7 +2470,13 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         lambda ctx: check_self_pin_cooldown_exemption(),
         fatal=True,
     ),
+    # The odd one out in this run of checks, and deliberately not fatal: an
+    # unpinned or split `setup-uv` resolves and runs, it just resolves through
+    # a uv nobody chose. That ages badly rather than being already broken,
+    # which is the line the checks around it sit on the other side of.
     RepoCheck("setup-uv-version-pin", lambda ctx: check_setup_uv_version_pin()),
+    # Fatal for the same reason again: a retired key fails the `metadata` job,
+    # and every other job is `needs: metadata`.
     RepoCheck("metadata-keys", lambda ctx: check_metadata_keys(), fatal=True),
     RepoCheck("pr-templates", lambda ctx: check_pr_templates()),
     RepoCheck(

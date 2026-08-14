@@ -246,6 +246,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
 - Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; `npm install`, `npx` and `uvx` pins are handled here). Flags sitting between the command and the package (`npx --yes pkg@1.2.3`) are skipped over, and scoped npm names are matched
 - The upstream toolkit's own pin (like `uvx 'repomatic==x.y.z'`) is exempt from the cooldown: the repomatic `uses:` refs are its source of truth (kept current by `repomatic init`'s thin-caller regeneration), and the `lint-repo` job fails on any drift between them, so the pin aligns to those refs in lockstep. Because that alignment ignores the cooldown, the rewrite also splices `--exclude-newer-package {package}=P0D` in ahead of the pin: `uvx` reads no per-package exemption from the environment, from `pyproject.toml`, or from an adjacent `uv.toml` ([astral-sh/uv#20995](https://github.com/astral-sh/uv/issues/20995) tracks the missing environment variable), so the flag has to ride on the command line for the workflow's own `UV_EXCLUDE_NEWER` not to withhold the version just written. Its PR table row shows a `⛓️ lockstep` marker in the `Released` column instead of a PyPI upload date, since no cooldown-checked release listing was consulted
+- Backfills that same `--exclude-newer-package` flag even on a run that moves no pin version at all, so a repository already pinned at the newest release still gets the splice instead of carrying a broken pin indefinitely. A PR opening for the splice alone carries a `🩹 Restored cooldown exemption` section in place of the usual pin-diff table
 - PR body lists each updated pin with old and new versions
 - **Requires**:
   - Workflow files (`.github/workflows/**/*.yaml`) in the repository
@@ -352,10 +353,10 @@ These jobs require a `docs` [dependency group](https://docs.astral.sh/uv/concept
 ```toml
 [dependency-groups]
 docs = [
-    "furo",
-    "myst-parser",
-    "sphinx",
-    # …
+  "furo",
+  "myst-parser",
+  "sphinx",
+  # …
 ]
 ```
 
@@ -421,7 +422,9 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Validates repository metadata (package name, Sphinx docs, project description) and Dependabot configuration using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py). Reads `pyproject.toml` directly. When `REPOMATIC_PAT` is configured, also validates PAT capabilities (contents, issues, pull requests, Dependabot alerts, workflows permissions). Warns when the fork PR workflow approval policy is weaker than `first_time_contributors`. Warns about missing `VIRUSTOTAL_API_KEY` when Nuitka binary compilation is active. Warns about missing `REPOMATIC_NOTIFICATIONS_PAT` when the unsubscribe workflow is enabled.
 - Warns when a Sphinx project's GitHub website field does not name the documentation URL it declares in `[project.urls]` (`Documentation`, then `Docs`). A trailing slash and the case of the scheme and host are ignored, since GitHub stores the website field with the slash a browser appends. Moving a documentation site to a new domain is what this catches: Sphinx renders `<link rel="canonical">` from `html_baseurl`, so every published page names the new origin while the repository sidebar keeps sending visitors to the old one. A project declaring no documentation URL keeps the presence-only check
 - Warns when a release download URL in `docs/install.md` names a file its release does not carry. The release freeze pins those URLs before the binaries exist, so a failed build lane leaves the guide advertising 404s until the next release moves past it: this is the check that surfaces the gap instead of leaving it for a user to hit. Versionless `releases/latest/download` URLs are checked against the latest published release too, and rot longer: nothing rewrites them at release time, so a renamed asset leaves one pointing at a 404 indefinitely
-- Fails when a workflow's `run:` line asks `repomatic metadata` for a key that no longer exists, reading the invocation the way Click does so an option's value is never mistaken for a positional key. `repomatic init` syncs a header-only workflow's header and its `uses:` pins and leaves the job bodies to the repository, so a key retired upstream stays in a `run:` line nothing sweeps. The command answers an unknown key with a `UsageError`, and every job reaching the metadata job through `needs:` dies with it, which turns a retired key into a whole workflow failing at its first job on the next push. Fatal, like the inline-pin check beside it: both describe a workflow that is already broken rather than one that might age badly
+- Fails when a workflow's inline upstream pin (like `uvx 'repomatic==X.Y.Z'`) resolves under a cooldown but carries no `--exclude-newer-package` exemption beside it, checked only in a workflow that sets `UV_EXCLUDE_NEWER` at all. `uvx` reads no project configuration, so the flag on the command line is the only place the bypass can live: without it, a pin naming a release younger than the window cannot resolve, and since the pin usually sits in the `metadata` job with every other job `needs: metadata`, the whole workflow fails at its first job while executing nothing. `sync-workflow-pins` backfills the flag on its next run, but a repository already pinned at the newest release never triggers that backfill on its own, which is what this check catches. The sharper of the two fatal pin checks, since the pin it guards takes every `needs: metadata` job down with it
+- Warns when an `astral-sh/setup-uv` step declares no `version:` input, or when steps across the repository pin more than one uv version. `[tool.uv] required-version` is only a floor; left unpinned, `setup-uv` installs whatever uv release is newest the moment the job runs, seconds after publication, making the one tool that enforces every cooldown the one tool carrying none of its own
+- Fails when a workflow's `run:` line asks `repomatic metadata` for a key that no longer exists, reading the invocation the way Click does so an option's value is never mistaken for a positional key. `repomatic init` syncs a header-only workflow's header and its `uses:` pins and leaves the job bodies to the repository, so a key retired upstream stays in a `run:` line nothing sweeps. The command answers an unknown key with a `UsageError`, and every job reaching the metadata job through `needs:` dies with it, which turns a retired key into a whole workflow failing at its first job on the next push. Fatal, like the inline-pin checks above: all three describe a workflow that is already broken rather than one that might age badly
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
 
@@ -693,7 +696,7 @@ flowchart TD
 
 - Maintains a rolling dev pre-release on GitHub that mirrors the unreleased changelog section
 - Attaches binaries and Python packages from build jobs via `--upload-assets`
-- The dev tag (e.g. `v7.11.1.dev0`) is force-updated to point to the latest `main` commit
+- The dev tag (`vX.Y.Z.dev0`) is force-updated to point to the latest `main` commit
 - Automatically cleaned up when a real release is created
 - **Runs on**: Non-release pushes to `main` only
 - **Requires**:

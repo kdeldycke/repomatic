@@ -37,9 +37,12 @@ specific ways this module exists to settle:
   and treating it as benign is how a persistently red workflow gets written
   off as a known artifact.
 
-A job carrying no glyph is required. That covers every non-matrix job
-(`Lint types`, `Sync pull request`), where the absence of a marker means the
-job was never optional rather than that its status is unknown.
+A job carrying no stability glyph is required. That covers every non-matrix job
+(`1️⃣ Run-once tests`, `📦 Package install`, `🛡️ Lint types`), where the absence
+of a marker means the job was never optional rather than that its status is
+unknown. Only the two stability glyphs count: a job name may carry any other
+emoji and still be required, which is why the test is for `⁉️` specifically
+rather than for a decorated name.
 """
 
 from __future__ import annotations

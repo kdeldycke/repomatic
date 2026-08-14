@@ -194,7 +194,7 @@ $ repomatic init typos
 
 Adoption is one-way. Once the section exists, a bare `init` picks it back up on every run, so the `sync-repomatic` job keeps it aligned with the bundled template from then on: new canonical rules arrive, local additions survive. The section is a managed file like any other after that, which makes it subject to [§ Diverging from a managed file](#diverging-from-a-managed-file): the sync rebuilds it from the template and grafts local content back, so hand-written comments inside it do not survive.
 
-Only the configs repomatic keeps syncing behave this way, `typos`, `uv` and `bumpversion`. The rest (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) are starting points the repository owns outright after the first write, and `init` never revisits them.
+Only the configs repomatic keeps syncing behave this way: `typos`, `uv` and `bumpversion` through this adoption path, plus `lychee` on awesome-list repos, where it lands by default rather than through explicit naming. The rest (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) are starting points the repository owns outright after the first write, and `init` never revisits them.
 
 ## `[tool.X]` bridge and tool runner
 
