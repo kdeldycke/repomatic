@@ -7,6 +7,9 @@
 
 ## [`7.12.0` (2026-08-14)](https://github.com/kdeldycke/repomatic/compare/v7.11.0...v7.12.0)
 
+> [!NOTE]
+> `7.12.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.12.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.12.0).
+
 - New `ci-status` command reporting each workflow's latest run and which of its failing jobs gate a merge, read from jobs rather than run conclusions.
 - New `repomatic run <tool> --verify` reporting which files a formatter would rewrite, without touching the working tree.
 - `repomatic run` now resolves a tool's targets itself when given no arguments, and skips a tool with no matching file instead of invoking it pathless.
