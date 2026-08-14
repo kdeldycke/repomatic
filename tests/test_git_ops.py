@@ -424,6 +424,49 @@ def test_branch_cycle_publishes_and_restores(git_workdir):
     assert count_commits_between(base_sha, published) == 1
 
 
+def test_stage_all_pathspec_leaves_everything_else_dirty(git_workdir):
+    """A scoped stage commits its pathspec and nothing else.
+
+    The case that needs it: a job installing its own tooling into the checkout,
+    where the whole-tree default would publish the installation alongside the
+    output. Anything outside the pathspec stays in the working tree, so it goes
+    away with the throwaway branch instead of into the pull request.
+    """
+    (git_workdir / "fruits.txt").write_text("papaya\nquince\n", encoding="UTF-8")
+    (git_workdir / "package-lock.json").write_text("{}\n", encoding="UTF-8")
+
+    assert stage_all(["fruits.txt"]) is True
+    create_branch("tmp-scoped")
+    commit_staged("Sync fruits")
+
+    # The lock file never reached the commit, and is still sitting in the tree.
+    assert (git_workdir / "package-lock.json").exists()
+    assert stage_all(["fruits.txt"]) is False
+    assert stage_all() is True
+
+
+def test_stage_all_pathspec_matching_nothing_reports_no_work(git_workdir):
+    """A pathspec no dirty file matches is not a commit waiting to happen."""
+    (git_workdir / "package-lock.json").write_text("{}\n", encoding="UTF-8")
+
+    assert stage_all(["fruits.txt"]) is False
+
+
+def test_stage_all_stale_pathspec_does_not_cost_the_others(git_workdir):
+    """One unresolvable entry no longer takes the whole staging down with it.
+
+    `git add` refuses the entire invocation on its first unmatched pathspec, so
+    an allowlist naming output a run happened not to produce would stage
+    nothing rather than stage the rest.
+    """
+    (git_workdir / "fruits.txt").write_text("papaya\nquince\n", encoding="UTF-8")
+
+    assert stage_all(["fruits.txt", "vegetables.txt"]) is True
+    create_branch("tmp-mixed")
+    commit_staged("Sync fruits")
+    assert not (git_workdir / "vegetables.txt").exists()
+
+
 def test_rebuilding_the_same_output_yields_the_same_tree(git_workdir):
     """The comparison that keeps an unchanged job from re-pushing."""
     (git_workdir / "fruits.txt").write_text("papaya\nquince\n", encoding="UTF-8")

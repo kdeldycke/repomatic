@@ -1309,6 +1309,16 @@ def _render_pr_content(
     "frontmatter. Re-applied on every update, not just at creation, so a "
     "PR marked ready-for-review goes back to draft on the next sync.",
 )
+@option(
+    "--add-path",
+    "add_paths",
+    multiple=True,
+    help="Git pathspec limiting what the pull request commits. Repeat to "
+    "provide multiple. Defaults to the whole tree, which is right when a "
+    "job's only writes are the ones it means to publish; narrow it when the "
+    "job also provisions tooling into the checkout, so an installed package "
+    "or a rewritten lock file cannot ride along.",
+)
 def pr_sync(
     template: str | None,
     template_file: Path | None,
@@ -1323,6 +1333,7 @@ def pr_sync(
     labels: tuple[str, ...],
     assignees: tuple[str, ...],
     draft: bool | None,
+    add_paths: tuple[str, ...],
 ) -> None:
     """Converge a branch and its PR onto whatever the working tree holds.
 
@@ -1341,6 +1352,11 @@ def pr_sync(
     Works from a detached HEAD: the base falls back to the repository default
     branch read from the CI event payload, and any commits the job made
     itself are carried through.
+
+    Commits the whole tree unless --add-path narrows it. A job that installs
+    its own linter into the checkout, or runs a package manager that rewrites
+    a lock file on the way past, wants the narrow form: those writes are not
+    what the pull request is for.
 
     \b
     Examples:
@@ -1403,6 +1419,7 @@ def pr_sync(
         labels=labels,
         assignees=assignees,
         draft=draft,
+        add_paths=add_paths,
     )
     if result.number:
         echo(f"{result.operation}: PR #{result.number} on {result.branch}")

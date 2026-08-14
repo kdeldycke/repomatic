@@ -50,6 +50,13 @@ detached at a commit, as long as `base` names the branch to open against, and
 the base may have moved on since — the carried commits are replayed onto its
 fresh tip. Nothing here is left for `peter-evans/create-pull-request`, and
 `tests/test_workflows.py` fails if a workflow reaches for it again.
+
+The one input that needs restating rather than inferring is the action's
+`add-paths`, ported as `add_paths`. Every job upstream writes only what it
+means to publish, so the whole-tree default is right for all of them; a
+downstream job that provisions its own tooling into the checkout (an `npm
+install` of a linter, a package manager rewriting a lock file on the way past)
+has to name its output, or the provisioning rides along into the pull request.
 ```
 """
 
@@ -309,6 +316,7 @@ def upsert_pr(
     labels: Sequence[str] = (),
     assignees: Sequence[str] = (),
     draft: bool = False,
+    add_paths: Sequence[str] = (),
     remote: str = "origin",
 ) -> PrSyncResult:
     """Converge *branch* and its pull request onto what the checkout now holds.
@@ -342,6 +350,12 @@ def upsert_pr(
     :param assignees: Assignees to attach, best-effort.
     :param draft: Hold the pull request in draft, on every update and not just
         at creation. See {func}`_set_draft`.
+    :param add_paths: Git pathspecs limiting what the uncommitted-changes
+        commit picks up. Empty commits the whole tree, which is right for a job
+        whose only writes are the ones it means to publish. A job that also
+        provisions its own tooling into the checkout needs the narrower form:
+        anything outside the pathspec is left dirty and discarded with the
+        throwaway branch.
     :param remote: Remote to publish to.
     :raises RuntimeError: When `HEAD` is detached and no *base* is given, or
         when *base* does not exist on *remote*.
@@ -365,7 +379,7 @@ def upsert_pr(
     pushed = False
     try:
         git_ops.create_branch(temp_branch)
-        if git_ops.stage_all():
+        if git_ops.stage_all(add_paths):
             git_ops.commit_staged(commit_message)
         carried = git_ops.count_commits_between(base_sha, temp_branch)
 

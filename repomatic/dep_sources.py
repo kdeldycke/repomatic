@@ -784,8 +784,11 @@ def _remedy(kind: SourceKind, package: str, floor: str | None) -> str:
     if kind is SourceKind.GIT:
         return (
             "Pair the override with a `.dev` version floor naming the awaited"
-            " release, and `sync-dep-sources` takes the swap from there;"
-            " otherwise drop the override."
+            " release, and `sync-dep-sources` takes the swap from there; drop"
+            " the override; or, when upstream has named no awaited release to"
+            " floor against and the published metadata resolves to something"
+            " tested, add it to `[tool.repomatic] lint-deps.allow` with the"
+            " reason it is safe."
         )
     if kind is SourceKind.DIRECT_REFERENCE:
         return (

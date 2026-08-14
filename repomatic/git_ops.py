@@ -446,13 +446,45 @@ def delete_branch(name: str) -> None:
         logging.debug(f"Could not delete local branch {name}: {deleted.stderr.strip()}")
 
 
-def stage_all() -> bool:
-    """Stage every working-tree change, untracked files included.
+def stage_all(paths: Sequence[str] = ()) -> bool:
+    """Stage working-tree changes, untracked files included.
 
+    Stages the whole tree by default. *paths* narrows that to a git pathspec
+    list, for a job whose own steps leave more behind than they mean to commit:
+    a linter installed into the checkout, a lock file a package manager rewrote
+    on the way past. Anything outside the pathspec stays dirty and is left for
+    the caller to restore or discard.
+
+    A pathspec matching nothing is dropped rather than fatal. `git add` exits
+    128 on the first one it cannot resolve and stages nothing at all, so a
+    glob covering output a run happened not to produce would take the whole job
+    down with it. Filtering first also keeps one stale entry in a list from
+    silently costing the others their staging.
+
+    :param paths: Git pathspecs to stage. Empty stages everything.
     :return: `True` when the index ends up carrying something to commit.
     """
-    _git("add", "--all")
+    if paths:
+        matching = [path for path in paths if _pathspec_matches(path)]
+        if matching:
+            _git("add", "--all", "--", *matching)
+    else:
+        _git("add", "--all")
     return _git("diff", "--cached", "--quiet", check=False).returncode != 0
+
+
+def _pathspec_matches(pathspec: str) -> bool:
+    """Whether *pathspec* resolves to any tracked or untracked file.
+
+    Both halves are needed: `--cached` covers a tracked file the run modified
+    or deleted, `--others` an output file it created. A pathspec matching only
+    ignored files reports `False`, which is the honest answer, since staging it
+    would have added nothing either.
+    """
+    listed = _git(
+        "ls-files", "--cached", "--others", "--exclude-standard", "--", pathspec
+    )
+    return bool(listed.stdout.strip())
 
 
 def commit_staged(message: str) -> str:
