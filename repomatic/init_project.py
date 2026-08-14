@@ -860,7 +860,7 @@ def adopted_ongoing_configs(output_dir: Path) -> set[str]:
 
     :param output_dir: Repository root holding `pyproject.toml`.
     :return: Component names to add to a bare `init` selection. Empty when the
-        file is absent, unparseable, or carries no `[tool]` table.
+        file is absent, unparsable, or carries no `[tool]` table.
     """
     tool_table = read_pyproject_toml(output_dir).get("tool", {})
     if not tool_table:
