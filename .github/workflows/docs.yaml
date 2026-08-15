@@ -111,11 +111,20 @@ jobs:
         # repository's own `pyproject.toml` holds, so expanding it inline would
         # let a `pull_request`-triggered caller run a fork's string as shell
         # code.
+        # `-d` keeps Sphinx's pickled parse cache out of the published tree. It
+        # otherwise defaults to `<outdir>/.doctrees`, which the upload below then
+        # ships: on a project with autodoc-heavy pages that was 118 MB of a 182 MB
+        # artifact, two thirds of every deploy. GitHub Pages never serves it (it
+        # refuses dot-prefixed paths) so nothing was exposed, but nothing needed
+        # sending either. The runner's temp directory keeps it out of the working
+        # tree as well, so no downstream `.gitignore` or `exclude_patterns` entry
+        # has to be added for it.
         env:
           SPHINX_BUILDER: ${{ fromJSON(needs.metadata.outputs.metadata).sphinx_builder }}
         run: >
           uv --no-progress run --frozen --all-extras --group docs --
           sphinx-build -b "$SPHINX_BUILDER"
+          -d "${{ runner.temp }}/sphinx-doctrees"
           ./docs ./docs/_build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
