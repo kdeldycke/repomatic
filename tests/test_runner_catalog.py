@@ -30,6 +30,7 @@ import pytest
 from repomatic.runner_catalog import (
     RunnerImage,
     by_display_name,
+    newer_version_than,
     parse_catalog,
     successor_for,
 )
@@ -115,27 +116,66 @@ def test_badges_are_read_with_and_without_a_link(catalog) -> None:
 @pytest.mark.parametrize(
     ("label", "expected"),
     [
-        # Skips the preview 26.04 in favour of the released 24.04.
+        # Released 24.04 wins over the newer-but-preview 26.04.
         ("ubuntu-22.04", "ubuntu-24.04"),
-        # Stays inside the architecture: the x64 macOS row, not the Arm64 one.
+        # Stays inside the architecture: the Arm64 macOS row, not the x64 one.
         ("macos-14", "macos-26"),
-        # Nothing newer that is both released and not deprecated.
-        ("ubuntu-26.04", None),
         # A label the table does not carry resolves to nothing.
         ("ubuntu-18.04", None),
     ],
 )
-def test_successor_skips_preview_and_deprecated(
+def test_successor_prefers_released_over_preview(
     catalog, label: str, expected: str | None
 ) -> None:
-    """A retirement moves onto released ground, never onto a preview.
+    """A retirement lands on released ground whenever released ground exists.
 
-    Forcing a move onto an image GitHub has not finished rolling out trades a
-    known deadline for an unknown one. Adopting a preview is the arrival path,
-    which proposes a probe rather than a migration.
+    A forced move should not trade a known deadline for an unknown one, so a
+    released successor wins however old it is. `newer_preview_than` is what
+    surfaces the fresher option without taking it.
     """
     successor = successor_for(label, catalog)
     assert (successor.preferred_label if successor else None) == expected
+
+
+def test_successor_accepts_a_same_version_sibling(catalog) -> None:
+    """A dying image with only a same-version sibling still has somewhere to go.
+
+    Version is not filtered here, unlike {func}`newer_version_than`: staying on
+    an image with an end date is worse than moving sideways to one without.
+    """
+    deprecated_arm = RunnerImage(
+        "Windows 11 Arm64", "arm64", ("windows-11-arm",), False, True, ""
+    )
+    sibling = RunnerImage(
+        "Windows 11 Arm64 with Visual Studio 2026",
+        "arm64",
+        ("windows-11-vs2026-arm",),
+        True,
+        False,
+        "",
+    )
+    successor = successor_for("windows-11-arm", [deprecated_arm, sibling])
+    assert successor is not None
+    assert successor.preferred_label == "windows-11-vs2026-arm"
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        # A genuine version bump, preview or not.
+        ("ubuntu-24.04", "ubuntu-26.04"),
+        # Already on the newest.
+        ("ubuntu-26.04", None),
+    ],
+)
+def test_newer_version_is_strict(catalog, label: str, expected: str | None) -> None:
+    """Only a strictly higher version counts as an upgrade.
+
+    This is what keeps a same-version flavour, like a Visual Studio variant,
+    from being proposed as a newer image when it is merely a different one.
+    """
+    newer = newer_version_than(label, catalog)
+    assert (newer.preferred_label if newer else None) == expected
 
 
 @pytest.mark.parametrize(

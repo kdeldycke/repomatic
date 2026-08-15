@@ -1095,13 +1095,6 @@ class Config:
     disable, which keeps the job silent.
     """
 
-    runner_images: bool = True
-    """Whether the runner image announcement issue is enabled for this project.
-
-    Projects that track GitHub's runner image announcements elsewhere, or that
-    pin no runner they care about, can set this to `false` to keep the job
-    silent.
-    """
 
     setup_guide: bool = True
     """Whether the setup guide issue is enabled for this project.
@@ -1274,7 +1267,6 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "nuitka_enabled",
     "nuitka_nofollow_imports",
     "pypi_package_history",
-    "runner_images",
     "settings_location",
     "setup_guide",
     "skills_location",

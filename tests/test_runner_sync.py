@@ -16,9 +16,9 @@
 
 """`sync-runner-images` proposes the right change, and only when there is one.
 
-Every case here runs against a hand-built catalog rather than the live table,
-so the suite never reaches the network and a GitHub restyle cannot turn these
-red for a reason that has nothing to do with the logic under test.
+Every case runs against a hand-built catalog rather than the live table, so the
+suite never reaches the network and a GitHub restyle cannot turn these red for
+a reason unrelated to the logic under test.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ import pytest
 
 from repomatic.runner_catalog import RunnerImage
 from repomatic.runner_images import (
-    Announcement,
     apply_arrival,
     apply_axes_retirement,
     apply_retirement,
@@ -40,96 +39,62 @@ CATALOG = [
     RunnerImage("Ubuntu 24.04", "x64", ("ubuntu-24.04",), False, False, ""),
     RunnerImage("Ubuntu 22.04", "x64", ("ubuntu-22.04",), False, True, ""),
     RunnerImage("macOS 26", "x64", ("macos-26-intel",), False, False, ""),
+    # Same version as its sibling below, different toolchain: a flavour, not an
+    # upgrade. This pair is why the rule keys on version rather than novelty.
+    RunnerImage("Windows 11 Arm64", "arm64", ("windows-11-arm",), False, False, ""),
+    RunnerImage(
+        "Windows 11 Arm64 with Visual Studio 2026",
+        "arm64",
+        ("windows-11-vs2026-arm",),
+        True,
+        False,
+        "",
+    ),
 ]
 
-RETIREMENT_BODY = """\
-### Possible impact
 
-Workflows using the `ubuntu-22.04` image label will be terminated.
-
-### Target date
-
-Deprecation: September 17th, 2026
-Retirement: April 17th, 2027
-"""
-
-ARRIVAL_BODY = """\
-### Possible impact
-
-Workflows dependent on behaviours specific to Ubuntu 24 may be affected.
-
-### Runner images affected
-
-- [ ] Ubuntu 24.04
-- [x] Ubuntu 26.04
-
-### Target date
-
-Thursday, June 11, 2026
-"""
-
-
-def announcement(title: str, body: str, number: int = 1) -> Announcement:
-    return Announcement(
-        number=number,
-        title=title,
-        url=f"https://github.com/actions/runner-images/issues/{number}",
-        created_at="2026-06-16T00:00:00Z",
-        body=body,
-    )
-
-
-RETIREMENT = announcement("[Ubuntu] Ubuntu 22 will begin deprecation", RETIREMENT_BODY)
-ARRIVAL = announcement("[Ubuntu] Ubuntu 26.04 is now available", ARRIVAL_BODY, 2)
-
-
-def test_retirement_moves_onto_the_released_successor() -> None:
-    """A dying label moves to the newest released image, never to a preview."""
+def test_deprecated_label_moves_to_a_released_successor() -> None:
+    """A dying image moves onto released ground, and says where it is used."""
     (change,) = plan_runner_changes(
-        {"ubuntu-22.04": ["tests.yaml:build"]},
-        {"ubuntu-22.04"},
-        [RETIREMENT],
-        CATALOG,
+        {"ubuntu-22.04": ["tests.yaml:build"]}, {"ubuntu-22.04"}, CATALOG
     )
     assert change.kind == "retirement"
     assert change.successor == "ubuntu-24.04"
     assert change.locations == ("tests.yaml:build",)
-    assert "September 17th" in change.target_date
+    assert "deprecated" in change.reason
+    # 26.04 is newer but still in preview, so it is named rather than taken.
+    assert change.alternative == "ubuntu-26.04"
 
 
-def test_arrival_is_proposed_only_for_a_preview_in_a_family_in_use() -> None:
-    """A probe needs a genuinely new image, on a platform already carried."""
-    (change,) = plan_runner_changes(
-        {}, {"ubuntu-24.04"}, [ARRIVAL], CATALOG
-    )
-    assert change.kind == "arrival"
-    assert change.label == "ubuntu-26.04"
+def test_a_same_version_flavour_is_never_an_upgrade() -> None:
+    """`windows-11-vs2026-arm` is a different toolchain, not a newer image.
 
-    # No Ubuntu job at all: nothing to probe, since every probe cell costs
-    # runner minutes on a capped pool.
-    assert not plan_runner_changes({}, {"macos-26-intel"}, [ARRIVAL], CATALOG)
-
-
-def test_a_generally_available_image_is_not_an_arrival() -> None:
-    """"Not a deprecation" is not the same as "an arrival".
-
-    A notice about a tooling default on a GA image would otherwise propose
-    probing an image that shipped months ago.
+    The distinction is the whole reason the upgrade rule keys on version: both
+    rows are "Windows 11 Arm64", so novelty alone would propose a migration
+    that buys nothing.
     """
-    tooling = announcement(
-        "[macOS] Default Xcode on macOS 26 will change",
-        "### Possible impact\n\nWorkflows using `macos-26-intel` are affected.\n",
-        3,
-    )
-    assert not plan_runner_changes({}, {"ubuntu-24.04"}, [tooling], CATALOG)
+    assert not plan_runner_changes({}, {"windows-11-arm"}, CATALOG)
+
+
+def test_a_strictly_newer_version_is_proposed_as_a_probe() -> None:
+    """An upgrade joins the matrix without anything being bet on it."""
+    (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, CATALOG)
+    assert change.kind == "upgrade"
+    assert change.successor == "ubuntu-26.04"
+    assert change.locations == ()
+    assert "supersedes" in change.reason
+
+
+def test_running_the_newest_proposes_nothing() -> None:
+    """The quiet steady state: nothing to say about a current fleet."""
+    assert not plan_runner_changes({}, {"ubuntu-26.04", "macos-26-intel"}, CATALOG)
 
 
 def test_ignored_labels_are_never_proposed() -> None:
     """A declined proposal stays declined across regenerations."""
     assert not plan_runner_changes(
         {"ubuntu-22.04": ["tests.yaml:build"]},
-        {"ubuntu-22.04"},
-        [RETIREMENT, ARRIVAL],
+        {"ubuntu-22.04", "ubuntu-24.04"},
         CATALOG,
         ignore=["ubuntu-22.04", "ubuntu-26.04"],
     )
@@ -138,8 +103,17 @@ def test_ignored_labels_are_never_proposed() -> None:
 def test_an_unreadable_catalog_proposes_nothing() -> None:
     """Fail closed: no table means no successor can be trusted."""
     assert not plan_runner_changes(
-        {"ubuntu-22.04": ["tests.yaml:build"]}, {"ubuntu-22.04"}, [RETIREMENT], []
+        {"ubuntu-22.04": ["tests.yaml:build"]}, {"ubuntu-22.04"}, []
     )
+
+
+def test_a_label_absent_from_the_table_is_reported_not_guessed() -> None:
+    """A withdrawn image has no successor to derive, so nothing is proposed.
+
+    Naming a replacement would mean inventing one: the row is gone, so its
+    family and architecture are gone with it.
+    """
+    assert not plan_runner_changes({}, {"ubuntu-18.04"}, CATALOG)
 
 
 def test_apply_retirement_rewrites_literals_only(tmp_path) -> None:
@@ -154,7 +128,7 @@ def test_apply_retirement_rewrites_literals_only(tmp_path) -> None:
         encoding="UTF-8",
     )
     (change,) = plan_runner_changes(
-        {"ubuntu-22.04": ["tests.yaml:a"]}, {"ubuntu-22.04"}, [RETIREMENT], CATALOG
+        {"ubuntu-22.04": ["tests.yaml:a"]}, {"ubuntu-22.04"}, CATALOG
     )
 
     assert [p.name for p in apply_retirement(change, workflows)] == ["tests.yaml"]
@@ -166,14 +140,10 @@ def test_apply_retirement_rewrites_literals_only(tmp_path) -> None:
 
 
 def test_apply_arrival_writes_sections_not_inline_tables(tmp_path) -> None:
-    """The probe lands as real sections, which `format-pyproject` leaves alone.
-
-    An inline table would be expanded back into sections by the formatter, and
-    the two would rewrite each other on every push.
-    """
+    """The probe lands as real sections and re-applies as a no-op."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[project]\nname = "demo"\n', encoding="UTF-8")
-    (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, [ARRIVAL], CATALOG)
+    (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, CATALOG)
 
     assert apply_arrival(change, pyproject)
     written = pyproject.read_text(encoding="UTF-8")
@@ -187,14 +157,11 @@ def test_apply_arrival_is_idempotent_against_the_formatter_shape(tmp_path) -> No
     """Re-reading what `format-pyproject` leaves behind finds the probe present.
 
     The applier writes sections; the formatter normalizes them into dotted keys
-    under `[tool.repomatic]`, and tomlrt cannot emit that form itself. So the
-    formatter gets the last word on layout, and what stops the two rewriting
-    each other on every push is this: the dotted shape reads back as the same
-    nested value, so a second apply finds the label already there and writes
-    nothing.
+    under `[tool.repomatic]`, and tomlrt cannot emit that form itself. What
+    stops the two rewriting each other on every push is that the dotted shape
+    reads back as the same nested value, so a second apply writes nothing.
 
-    The fixture is the formatter's real output, captured from running
-    `pyproject-fmt` over a freshly written probe.
+    The fixture is the formatter's real output.
     """
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
@@ -204,7 +171,7 @@ def test_apply_arrival_is_idempotent_against_the_formatter_shape(tmp_path) -> No
         'test-matrix.variations.os = [ "ubuntu-26.04" ]\n',
         encoding="UTF-8",
     )
-    (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, [ARRIVAL], CATALOG)
+    (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, CATALOG)
 
     assert not apply_arrival(change, pyproject), (
         "the probe is already declared in the formatter's dotted-key shape, so "
@@ -217,14 +184,14 @@ def test_apply_axes_retirement_moves_the_curated_tuple(tmp_path) -> None:
     """The axes move as text, keeping their comments and their ordering."""
     axes = tmp_path / "matrix_axes.py"
     axes.write_text(
-        'TEST_RUNNERS_FULL = (\n'
+        "TEST_RUNNERS_FULL = (\n"
         '    "ubuntu-22.04",  # the x86 slot\n'
         '    "macos-26-intel",\n'
-        ')\n',
+        ")\n",
         encoding="UTF-8",
     )
     (change,) = plan_runner_changes(
-        {"ubuntu-22.04": ["tests.yaml:a"]}, {"ubuntu-22.04"}, [RETIREMENT], CATALOG
+        {"ubuntu-22.04": ["tests.yaml:a"]}, {"ubuntu-22.04"}, CATALOG
     )
 
     assert apply_axes_retirement(change, axes)
@@ -233,31 +200,29 @@ def test_apply_axes_retirement_moves_the_curated_tuple(tmp_path) -> None:
     assert not apply_axes_retirement(change, axes), "second run should be a no-op"
 
 
-def test_change_table_carries_the_evidence() -> None:
-    """The body names the deadline and the announcement, not just the edit."""
+def test_change_table_carries_the_reasoning() -> None:
+    """The body says why, not just what, and names what was passed over."""
     changes = plan_runner_changes(
         {"ubuntu-22.04": ["tests.yaml:build"]},
-        {"ubuntu-22.04"},
-        [RETIREMENT, ARRIVAL],
+        {"ubuntu-22.04", "ubuntu-24.04"},
         CATALOG,
     )
     table = render_change_table(changes)
     # Retirements first: one carries a deadline, the other an opportunity.
     assert table.index("🔴 retirement") < table.index("🆕 probe")
-    assert "September 17th" in table
-    assert "issues/1" in table
+    assert "is deprecated" in table
+    assert "`ubuntu-26.04` (preview)" in table
 
 
-@pytest.mark.parametrize("kind", ["retirement", "arrival"])
-def test_every_change_names_its_announcement(kind: str) -> None:
-    """No proposal is made without a link to what justifies it."""
+@pytest.mark.parametrize("kind", ["retirement", "upgrade"])
+def test_every_change_explains_itself(kind: str) -> None:
+    """No proposal is made without a reason a reviewer can act on."""
     changes = plan_runner_changes(
         {"ubuntu-22.04": ["tests.yaml:build"]},
         {"ubuntu-22.04", "ubuntu-24.04"},
-        [RETIREMENT, ARRIVAL],
         CATALOG,
     )
     for change in changes:
         if change.kind == kind:
-            assert change.announcement_url.startswith("https://github.com/")
-            assert change.announcement_title
+            assert change.reason
+            assert change.successor

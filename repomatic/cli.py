@@ -238,8 +238,7 @@ from .runner_images import (
     apply_arrival,
     apply_axes_retirement,
     apply_retirement,
-    fetch_announcements,
-    manage_runner_images_issue,
+    close_legacy_issue,
     plan_runner_changes,
     render_change_table,
 )
@@ -856,7 +855,7 @@ def ci_status(
 
 @repomatic.command(
     name="sync-runner-images",
-    short_help="Propose the runner image moves GitHub's announcements justify",
+    short_help="Move runner images forward as GitHub retires and supersedes them",
     section=_section_github,
 )
 @option(
@@ -874,21 +873,24 @@ def ci_status(
 )
 @pass_context
 def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None:
-    """Move retiring runner images forward, and probe arriving ones.
+    """Move retiring runner images forward, and probe superseding ones.
 
-    Two shapes, deliberately asymmetric. A **retirement** rewrites every
-    literal `runs-on:` naming the dying label onto the successor GitHub's own
-    available-images table offers, because those jobs carry a deadline. An
-    **arrival** adds the new image to the full test matrix as a
+    Every label this repository runs is looked up in GitHub's available-images
+    table. A **retirement** rewrites each literal `runs-on:` naming a deprecated
+    image onto its successor, because those jobs carry an end date. An
+    **upgrade** adds a strictly newer *version* to the full test matrix as a
     `continue-on-error` probe rather than migrating onto it: nothing is bet on
-    an image still rolling out, but the suite starts exercising it at once,
-    which is what surfaces a dependency breaking there while there is runway to
-    report it upstream.
+    it, but the suite starts exercising it at once, which surfaces a dependency
+    breaking there while there is runway to report it upstream.
+
+    Strictly newer by version is what separates an upgrade from a flavour. A
+    same-version variant carrying a different toolchain is not a newer image and
+    is never proposed as one.
 
     Merging is the decision; the CI run this triggers is the evidence for it.
     To decline a proposal for good, name the label in
     `[tool.repomatic.sync-runner-images] ignore`: closing the pull request
-    alone brings it back on the next push.
+    alone brings it back on the next run.
 
     \b
     Examples:
@@ -896,16 +898,16 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
         repomatic sync-runner-images --dry-run
     """
     config = load_repomatic_config()
-    announcements = fetch_announcements()
-    if announcements is None:
-        echo("Could not read the announcements: proposing nothing.")
-        ctx.exit(0)
+    # Retires the issue the announcement feed used to maintain. Harmless where
+    # there never was one, and the only moment a repository adopting this
+    # release can be noticed.
+    if not dry_run:
+        close_legacy_issue()
 
     literal = literal_runners()
     changes = plan_runner_changes(
         literal,
         set(KNOWN_RUNNERS) | set(literal),
-        announcements,
         fetch_catalog(),
         config.sync_runner_images.ignore,
     )
@@ -919,9 +921,9 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
 
     for change in changes:
         echo(f"{change.kind}: {change.summary}")
-        if change.target_date:
-            echo(f"  deadline: {change.target_date}")
-        echo(f"  {change.announcement_url}")
+        echo(f"  because {change.reason}")
+        if change.alternative:
+            echo(f"  passed over: {change.alternative} (preview)")
         if dry_run:
             continue
         if change.kind == "retirement":
@@ -1653,40 +1655,6 @@ def pr_sync(
         echo(f"{result.operation}: PR #{result.number} on {result.branch}")
     else:
         echo(f"{result.operation}: {result.branch}")
-
-
-@repomatic.command(
-    short_help="Manage runner image announcements issue", section=_section_github
-)
-@require_token(_token_mod, "validate_gh_token_env")
-@pass_context
-def runner_images(ctx: Context) -> None:
-    """Report GitHub's open runner image announcements as an issue.
-
-    Reads the Announcement-labelled issues of actions/runner-images, which cover
-    both newly available images and images entering deprecation, and maintains a
-    single issue listing them. Announcements naming an image this repository
-    runs on are sorted first and flagged.
-
-    Nothing bumps a runs-on: value automatically, so a retirement otherwise
-    lands as a failing build with no warning.
-
-    Requires the gh CLI to be authenticated.
-
-    \b
-    Example:
-        repomatic runner-images
-    """
-    config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.runner_images, "runner-images")
-
-    # The curated axes plus whatever the workflows actually name. Watching the
-    # axes alone would have skipped the images most in need of a warning: an
-    # off-axis runner is by definition one nobody chose deliberately, which is
-    # what `lint-repo`'s own runner check exists to say. Reporting a retirement
-    # for every image except those would have flagged the tracked ones and left
-    # the neglected ones to fail their build unannounced.
-    manage_runner_images_issue(KNOWN_RUNNERS | literal_runners().keys())
 
 
 @repomatic.command(

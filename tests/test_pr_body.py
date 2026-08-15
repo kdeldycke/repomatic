@@ -851,7 +851,6 @@ PROGRAMMATIC_TEMPLATES = frozenset({
     "refresh-tip",
     "release-notes",
     "release-sync-report",
-    "runner-images-issue",
     "setup-guide",
     "setup-guide-branch-ruleset",
     "setup-guide-dependabot",

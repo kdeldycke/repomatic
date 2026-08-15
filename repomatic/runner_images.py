@@ -14,44 +14,39 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Watch GitHub's runner-image announcements and report them as an issue.
+"""Keep a repository's runner images current against what GitHub still offers.
 
 A `runs-on:` value is the one dependency in a workflow that nothing bumps:
 Dependabot rewrites `uses:` references, `sync-workflow-pins` rewrites version
-literals, and neither touches a runner image. So a new image ships and an old
-one retires entirely outside this repository's view, on GitHub's schedule.
+literals, and neither touches a runner image. So an image retires on GitHub's
+schedule, entirely outside this repository's view, and the first sign is a
+failing build.
 
-{func}`~repomatic.lint_repo.check_runner_images` covers the inward direction,
-checking that every literal `runs-on:` names an image the curated axes in
-{mod}`repomatic.matrix_axes` know about. This module covers the outward one:
-what GitHub has announced about the images at stake.
+The source is the *Available Images* table
+({mod}`repomatic.runner_catalog`), compared against the labels this repository
+actually runs. Nothing else is read.
 
-Those two sets are not the same set, and the difference is the whole point.
-{data}`~repomatic.lint_repo.KNOWN_RUNNERS` is what the project has *chosen*;
-{func}`~repomatic.lint_repo.literal_runners` is what its workflows are *running*.
-A job sitting on an image outside the axes is exactly the one nobody is
-tracking, so watching the axes alone would warn about every image except the
-neglected ones. The caller passes the union.
+```{note} Why the table and not the announcement feed
+This module previously polled the `Announcement`-labelled issues of
+`actions/runner-images`, and the two questions turn out to be different ones.
+The feed reports *what changed for anyone*; the table reports *what is true
+for me*, and only the second decides anything. Polling produced an issue whose
+every row was an image this repository either already ran or never would.
 
-```{note} Why the announcement feed and not the README table
-`actions/runner-images` publishes an `Announcement`-labelled issue for every
-image that arrives, changes default tooling, or enters deprecation, and closes
-it once the rollout lands. That makes the *open* set a self-limiting list of
-what is currently in flight, with no state to keep on this side.
-
-The alternative was scraping the "Available Images" table out of that
-repository's `readme.md`. It carries the same facts, but only as a snapshot of
-the current state: deriving *changes* from it means checking in a copy and
-diffing, and the parse breaks whenever GitHub restyles the table. The
-announcement feed is structured JSON reachable through `gh`, carries the dates
-and the rationale a table cannot, and needs no checked-in snapshot.
+Two things are given up, both deliberately. GitHub badges an image
+`deprecated` when deprecation *begins* rather than when it is announced, so a
+retirement surfaces here months later than the feed would have shown it: for
+Ubuntu 22.04, September rather than June. What remains is still ample, since
+the badge lands well before the image stops working. And a change to the
+*contents* of an image already in use, like a default toolchain moving, is
+invisible in the table; the test suite is what catches those.
 ```
 
 ```{caution}
-Editing an issue body sends no GitHub notification: only a new issue or a new
-comment does. So this reliably announces the *first* relevant announcement, and
-thereafter keeps a current list that a maintainer has to look at. Treat it as a
-standing dashboard rather than a pager.
+An unreadable or restyled table yields an empty catalog, and every caller here
+reads that as "propose nothing" rather than "nothing exists". Failing closed
+costs a cycle of not noticing; failing open would rewrite a `runs-on:` to an
+image GitHub does not host, taking every job with it.
 ```
 """
 
@@ -64,10 +59,13 @@ from pathlib import Path
 
 import tomlrt
 
-from .github.gh import gh_api_json
-from .github.issue import BOT_ISSUE_LABEL, manage_issue_lifecycle
-from .github.pr_body import render_template, sanitize_markdown_mentions
-from .runner_catalog import by_display_name, by_label, fetch_catalog, successor_for
+from .github.issue import close_issue, list_issues
+from .runner_catalog import (
+    by_label,
+    newer_preview_than,
+    newer_version_than,
+    successor_for,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -76,435 +74,83 @@ if TYPE_CHECKING:
 
     from .runner_catalog import RunnerImage
 
-ANNOUNCEMENTS_REPO = "actions/runner-images"
-"""Repository publishing the runner image announcements."""
+LEGACY_ISSUE_TITLE = "GitHub runner image announcements"
+"""Title of the issue this module used to maintain, closed on sight.
 
-ANNOUNCEMENT_LABEL = "Announcement"
-"""Label GitHub puts on every runner-image announcement issue.
-
-Capitalized upstream, and `gh` matches labels exactly, so the case matters.
+Dropping the announcement feed stopped anything from managing that issue, and
+an issue nothing manages never closes: every repository that ran the old
+version would keep one open forever, listing announcements no longer read.
+Closing it from here is the issue-shaped equivalent of a
+{class}`~repomatic.registry.RemovedAsset` tombstone.
 """
-
-ISSUE_TITLE = "GitHub runner image announcements"
-"""Title of the issue this module maintains.
-
-{func}`~repomatic.github.issue.manage_issue_lifecycle` matches on the exact
-title, so changing this string orphans the issue already open in every
-repository rather than renaming it.
-"""
-
-DEPRECATION_MARKERS = (
-    "deprecation",
-    "deprecated",
-    "deprecating",
-    "retire",
-    "unsupported",
-)
-"""Lowercased substrings marking an announcement as a retirement notice.
-
-Each inflection is spelled out rather than folded into one truncated stem: the
-stem was shorter, but a clipped word reads as a misspelling and `typos` fails
-the build on it.
-
-Matched against the **title only**. Bodies are long and discuss neighbouring
-images, so scanning one misreads an arrival as a retirement: the announcement
-introducing Ubuntu 26.04 uses the word "removal" once, deep in prose about
-unrelated tooling. Titles state the event and nothing else ("is now available",
-"will begin deprecation"), and classify every announcement open today
-correctly.
-"""
-
-IMPACT_SECTION_RE = re.compile(
-    r"^#+[ \t]*Possible impact[ \t]*$(?P<body>.*?)(?=^#+[ \t]|\Z)",
-    re.MULTILINE | re.DOTALL | re.IGNORECASE,
-)
-"""The `### Possible impact` section of an announcement body.
-
-The one section naming the labels an announcement *acts on*, as opposed to the
-ones it merely mentions. Retirement notices spell it out there ("Workflows using
-the ``macos-14``, ``macos-14-large``, ``macos-14-xlarge`` image labels will be
-terminated with an error"), which is what makes precise matching possible.
-
-Scoping to it is what keeps the match honest: the same body's migration advice
-recommends the images to move *to* ("should be updated to ``ubuntu-24.04-arm``"),
-so a whole-body scan reports a retirement as affecting the very image it tells
-you to adopt. Should GitHub rename this heading the section stops matching and
-nothing is flagged, which fails toward a missing warning rather than a wrong
-one, the safer direction per this project's precision-first labelling rule.
-"""
-
-TARGET_DATE_SECTION_RE = re.compile(
-    r"^#+[ \t]*Target date[ \t]*$(?P<body>.*?)(?=^#+[ \t]|\Z)",
-    re.MULTILINE | re.DOTALL | re.IGNORECASE,
-)
-"""The `### Target date` section, carrying an announcement's deadline."""
-
-TITLE_PLATFORM_RE = re.compile(r"^\[(?P<platform>[^\]]+)\]")
-"""The `[Ubuntu]`/`[macOS]`/`[Windows]` prefix every announcement title carries."""
-
-AFFECTED_SECTION_RE = re.compile(
-    r"^#+[ \t]*Runner images affected[ \t]*$(?P<body>.*?)(?=^#+[ \t]|\Z)",
-    re.MULTILINE | re.DOTALL | re.IGNORECASE,
-)
-"""The `### Runner images affected` checklist of an announcement body.
-
-The one section an *arrival* fills in: a new-image notice ticks the image it
-introduces here while naming no label anywhere in its prose. Scoped like
-{data}`IMPACT_SECTION_RE`, so a checklist elsewhere in the body is never read.
-"""
-
-CHECKED_BOX_RE = re.compile(
-    r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]*(?P<name>.+?)[ \t]*$", re.MULTILINE
-)
-"""A ticked checklist entry, capturing the display name it names.
-
-Ticked only. See {meth}`Announcement.checked_images` for why an unticked box is
-not evidence of anything.
-"""
-
-BACKTICKED_TOKEN_RE = re.compile(r"`([A-Za-z][A-Za-z0-9.\-]*)`")
-"""A backticked identifier in an announcement's markdown.
-
-Runner labels appear verbatim and backticked, so pulling every backticked token
-out of {data}`IMPACT_SECTION_RE` and intersecting with the images this project
-has a stake in needs no fuzzy matching and cannot invent a label: anything the
-caller did not name is discarded.
-"""
-
-
-@dataclass(frozen=True)
-class Announcement:
-    """One `Announcement`-labelled issue from `actions/runner-images`."""
-
-    number: int
-    """Issue number in the upstream repository."""
-
-    title: str
-    """Issue title, carrying a `[Ubuntu]`/`[macOS]`/`[Windows]` prefix."""
-
-    url: str
-    """Web URL of the upstream issue."""
-
-    created_at: str
-    """ISO 8601 creation timestamp, truncated to a date for display."""
-
-    body: str
-    """Issue body, searched for the runner labels an announcement affects."""
-
-    @property
-    def date(self) -> str:
-        """The creation date, without the time component."""
-        return self.created_at[:10]
-
-    @property
-    def target_date(self) -> str:
-        """The `### Target date` section, collapsed to one line.
-
-        Free text rather than a parsed date, and deliberately so: the section
-        carries a single day for an arrival ("Thursday, June 11, 2026") and a
-        pair for a retirement ("Deprecation: September 17th, 2026 / Retirement:
-        April 17th, 2027"). Parsing either into a `date` would throw away the
-        distinction that matters, and both are read by a human off a pull
-        request body.
-        """
-        section = TARGET_DATE_SECTION_RE.search(self.body)
-        if not section:
-            return ""
-        lines = [line.strip() for line in section.group("body").splitlines()]
-        return " / ".join(line for line in lines if line)
-
-    @property
-    def platform(self) -> str:
-        """Operating system family, from the title's `[Ubuntu]`-style prefix.
-
-        The one identifier every announcement carries, whatever it is about and
-        however its author filled the rest of the template. It is what makes a
-        row scannable when the label columns come up empty.
-        """
-        match = TITLE_PLATFORM_RE.match(self.title)
-        return match.group("platform") if match else "—"
-
-    @property
-    def is_deprecation(self) -> bool:
-        """Whether this announces a retirement rather than an arrival.
-
-        Read from the title alone, for the reason
-        {data}`DEPRECATION_MARKERS` gives.
-        """
-        title = self.title.lower()
-        return any(marker in title for marker in DEPRECATION_MARKERS)
-
-    def affected_runners(self, known_runners: Iterable[str]) -> frozenset[str]:
-        """Runner labels this announcement acts on that the project also uses.
-
-        Drawn from the `Possible impact` section only, so an image named as a
-        migration *destination* is never reported as affected. See
-        {data}`IMPACT_SECTION_RE`.
-
-        :param known_runners: The images this project tracks.
-        :return: The intersection, empty when the announcement names no impact
-            section or touches no image this project runs on.
-        """
-        return frozenset(self.concerned_labels() & set(known_runners))
-
-    def checked_images(self) -> frozenset[str]:
-        """Display names ticked under `Runner images affected`.
-
-        Only *checked* boxes are read. An unchecked one carries no information:
-        announcement 14225 announced a Windows image under a list holding six
-        Ubuntu entries and no tick at all, the template left exactly as it
-        shipped. Reading unchecked entries as "not affected" would take that
-        untouched form as a statement.
-        """
-        section = AFFECTED_SECTION_RE.search(self.body)
-        if not section:
-            return frozenset()
-        return frozenset(CHECKED_BOX_RE.findall(section.group("body")))
-
-    def concerned_labels(
-        self, catalog: Sequence[RunnerImage] | None = None
-    ) -> set[str]:
-        """Every runner label this announcement is about, whoever runs it.
-
-        Two sources, unioned, because neither covers both announcement kinds:
-
-        - **Backticked labels in `Possible impact`.** Precise, and what a
-          retirement spells out ("Workflows using the `ubuntu-22.04`,
-          `ubuntu-22.04-arm` image labels will be terminated").
-        - **Ticked `Runner images affected` boxes**, resolved to labels through
-          {mod}`repomatic.runner_catalog`. This is the only source an *arrival*
-          has: a new-image notice names no label in its impact prose, so before
-          this it produced nothing and a new image could never be reported.
-
-        :param catalog: Parsed available-images table, fetched when omitted.
-            Pass one when resolving several announcements, so the table is read
-            once rather than per announcement.
-        :return: Labels, empty when neither source yields any.
-        """
-        labels: set[str] = set()
-        section = IMPACT_SECTION_RE.search(self.body)
-        if section:
-            labels.update(BACKTICKED_TOKEN_RE.findall(section.group("body")))
-
-        ticked = self.checked_images()
-        if ticked:
-            images = by_display_name(
-                fetch_catalog() if catalog is None else list(catalog)
-            )
-            for display_name in ticked:
-                image = images.get(display_name)
-                if image:
-                    labels.update(image.labels)
-                else:
-                    # A name the table does not carry is a renamed row or a
-                    # restyled table. Skipped rather than guessed at: the
-                    # catalog docstring's fail-closed rule applies here too.
-                    logging.debug(f"No catalog row for {display_name!r}.")
-        return labels
-
-
-def fetch_announcements(repo: str = ANNOUNCEMENTS_REPO) -> list[Announcement] | None:
-    """Fetch the open runner-image announcements.
-
-    :param repo: Repository to read announcements from.
-    :return: The open announcements, newest first, or `None` when the API could
-        not be read. A failure is deliberately indistinguishable from "could not
-        run" so the caller reports a skip rather than closing the issue on a
-        transient outage, which would otherwise read as "all clear".
-    """
-    payload = gh_api_json([
-        "api",
-        f"repos/{repo}/issues?labels={ANNOUNCEMENT_LABEL}&state=open&per_page=100",
-    ])
-    if payload is None:
-        logging.warning(f"Could not read {repo} announcements.")
-        return None
-    if not isinstance(payload, list):
-        logging.warning(f"Unexpected payload reading {repo} announcements.")
-        return None
-
-    announcements = []
-    for item in payload:
-        # The issues endpoint returns pull requests too; they are never
-        # announcements.
-        if not isinstance(item, dict) or "pull_request" in item:
-            continue
-        announcements.append(
-            Announcement(
-                number=item.get("number", 0),
-                title=(item.get("title") or "").strip(),
-                url=item.get("html_url") or "",
-                created_at=item.get("created_at") or "",
-                body=item.get("body") or "",
-            )
-        )
-    announcements.sort(key=lambda a: a.created_at, reverse=True)
-    return announcements
-
-
-def render_announcement_rows(
-    announcements: Sequence[Announcement],
-    known_runners: Iterable[str],
-    catalog: Sequence[RunnerImage] | None = None,
-) -> str:
-    """Render the announcements as a markdown table, most relevant first.
-
-    Announcements naming an image this project runs on sort to the top and carry
-    that image in the `Affects` column. The rest are kept rather than filtered:
-    hiding an announcement because no label matched would silently drop the one
-    whose wording changed, and the whole list is short enough to scan.
-
-    :param announcements: The announcements to render.
-    :param known_runners: The images this project tracks.
-    :return: A GitHub-flavored markdown table.
-    """
-    known = frozenset(known_runners)
-    # Read the table once for the whole batch rather than per announcement, and
-    # take the caller's copy when it already has one: `manage_runner_images_issue`
-    # needs the same catalog to decide whether to open the issue at all.
-    if catalog is None:
-        catalog = fetch_catalog()
-    concerned = {item.number: item.concerned_labels(catalog) for item in announcements}
-
-    # Newest first, then a stable re-sort floating the ones naming an image in
-    # use to the top, so each group stays in date order.
-    by_date = sorted(announcements, key=lambda a: a.created_at, reverse=True)
-    ordered = sorted(by_date, key=lambda a: not (concerned[a.number] & known))
-
-    rows = []
-    for item in ordered:
-        labels = concerned[item.number]
-        affected = labels & known
-        kind = "🔴 retirement" if item.is_deprecation else "🆕 new"
-        cells = (
-            item.date,
-            item.platform,
-            kind,
-            ", ".join(f"`{label}`" for label in sorted(labels)) or "—",
-            ", ".join(f"`{label}`" for label in sorted(affected)) or "—",
-            f"[{sanitize_markdown_mentions(item.title)}]({item.url})",
-        )
-        rows.append(f"| {' | '.join(cells)} |")
-    header = (
-        "| Announced | Platform | Kind | Labels | Affects | Announcement |\n"
-        "| :-------- | :------- | :--- | :----- | :------ | :----------- |"
-    )
-    return "\n".join([header, *rows])
-
-
-def manage_runner_images_issue(known_runners: Iterable[str]) -> None:
-    """Open, update, or close the runner image announcement issue.
-
-    :param known_runners: The images this project has a stake in, normally the
-        union of {data}`~repomatic.lint_repo.KNOWN_RUNNERS` and the labels
-        {func}`~repomatic.lint_repo.literal_runners` finds in the workflows.
-    """
-    announcements = fetch_announcements()
-    if announcements is None:
-        # A failed read is not evidence that nothing is announced, so leave any
-        # open issue exactly as it stands.
-        logging.info("Skipping runner image issue: announcements unavailable.")
-        return
-
-    known = frozenset(known_runners)
-    catalog = fetch_catalog()
-    in_use = [a for a in announcements if a.concerned_labels(catalog) & known]
-    logging.info(
-        f"{len(announcements)} open announcements, "
-        f"{len(in_use)} naming an image in use."
-    )
-
-    body = render_template(
-        "runner-images-issue",
-        announcement_table=render_announcement_rows(announcements, known, catalog),
-        tracked_runners=", ".join(f"`{label}`" for label in sorted(known)),
-    )
-
-    # Gated on exposure, not on upstream activity. `actions/runner-images`
-    # always has something in flight, so opening on `announcements` left every
-    # repository holding a permanently-open issue about other people's images:
-    # kdeldycke/plumage#542 listed six rows, every one of them irrelevant to it.
-    # Gating here also turns the issue into the notification the module
-    # docstring says it cannot be, because a *new* issue does notify where an
-    # edited body does not: it now appears exactly when exposure is acquired.
-    manage_issue_lifecycle(
-        has_issues=bool(in_use),
-        body=body,
-        labels=[BOT_ISSUE_LABEL],
-        title=ISSUE_TITLE,
-        no_issues_comment="No open announcement names a runner image in use here.",
-    )
-
 
 @dataclass(frozen=True)
 class RunnerChange:
-    """One runner-image edit an announcement justifies.
-
-    Carries the evidence as well as the edit, because the edit is the trivial
-    half: what a reviewer needs is the deadline, the announcement, and which
-    jobs move.
-    """
+    """One runner-image edit the available-images table justifies."""
 
     kind: str
-    """`retirement` or `arrival`."""
+    """`retirement` when the current image is going away, `upgrade` when a
+    strictly newer version of it exists."""
 
     label: str
-    """Label retiring, or arriving."""
+    """Label this repository runs today."""
 
     successor: str
-    """Label to move onto. Empty for an arrival, which adds rather than moves."""
+    """Label to move onto, or to probe."""
 
     locations: tuple[str, ...]
     """`file.yaml:job-id` entries naming {attr}`label`, for a retirement."""
 
-    announcement_url: str
-    """The announcement justifying this change."""
+    reason: str
+    """Why the table says this change is warranted."""
 
-    announcement_title: str
-    """The announcement's title, for a pull request body."""
+    alternative: str
+    """A newer preview passed over in favour of a released successor.
 
-    target_date: str
-    """Deadline text, as {attr}`Announcement.target_date` collapses it."""
+    Reported, never taken. Whether a fresher preview beats a released image is
+    a capacity judgement, and the pull request exists to host exactly that.
+    """
 
     @property
     def summary(self) -> str:
         """One line naming the change, for a commit subject or a table row."""
-        if self.kind == "arrival":
-            return f"probe `{self.label}`"
+        if self.kind == "upgrade":
+            return f"probe `{self.successor}` alongside `{self.label}`"
         return f"`{self.label}` → `{self.successor}`"
 
 
 def plan_runner_changes(
     literal: Mapping[str, Sequence[str]],
     tracked: Iterable[str],
-    announcements: Sequence[Announcement],
     catalog: Sequence[RunnerImage],
     ignore: Iterable[str] = (),
 ) -> list[RunnerChange]:
-    """Work out which runner-image edits the open announcements justify.
+    """Work out which runner-image edits the table justifies.
 
-    Two shapes, deliberately asymmetric:
+    Every label this repository runs is looked up in the table, and yields at
+    most one change:
 
-    - **Retirement.** An image named in a literal `runs-on:` is retiring, so
-      the jobs on it move to the successor
-      {func}`~repomatic.runner_catalog.successor_for` picks. Only literals are
-      reachable: a value built from an expression draws on a matrix axis, which
-      is the axis owner's to move.
-    - **Arrival.** A newly available image joins the test matrix as a
-      `continue-on-error` probe rather than replacing anything. Nothing is
-      migrated onto an image GitHub is still rolling out, but the suite starts
-      exercising it immediately, which is what surfaces a dependency that
-      breaks there while there is still runway to report it upstream.
+    - **Retirement.** The row is badged deprecated, or the label is absent from
+      the table entirely, which means the image is already gone. Jobs naming it
+      outright move to {func}`~repomatic.runner_catalog.successor_for`'s pick.
+      Only literal `runs-on:` values are reachable: one built from an
+      expression draws on a matrix axis, which is the axis owner's to move.
+    - **Upgrade.** A strictly newer *version* exists. It joins the full matrix
+      as a `continue-on-error` probe rather than replacing anything, so nothing
+      is bet on it while the suite starts exercising it.
+
+    Strictly newer by **version** is what separates an upgrade from a flavour.
+    `Windows 11 Arm64 with Visual Studio 2026` sits at the same version as
+    `Windows 11 Arm64`: a different toolchain, not a newer image, and proposing
+    it as an upgrade would be wrong.
 
     :param literal: Labels named outright in workflows, mapped to their
         locations, as {func}`~repomatic.lint_repo.literal_runners` reports them.
     :param tracked: Every image this repository has a stake in.
-    :param announcements: Open announcements.
     :param catalog: Parsed available-images table.
     :param ignore: Labels the repository has declined. A `sync-*` job
-        regenerates on every push, so without this a closed pull request
-        reopens forever and the proposal becomes a nuisance rather than a
-        service.
+        regenerates on every run, so without this a closed pull request comes
+        back and the proposal becomes a nuisance rather than a service.
     :return: The changes to propose, retirements first.
     """
     if not catalog:
@@ -513,115 +159,108 @@ def plan_runner_changes(
         return []
 
     declined = frozenset(ignore)
-    known = frozenset(tracked)
-    catalog_by_label = by_label(catalog)
+    indexed = by_label(catalog)
     changes: list[RunnerChange] = []
 
-    for item in announcements:
-        labels = item.concerned_labels(catalog)
-        for label in sorted(labels - declined):
-            if item.is_deprecation and label in literal:
-                successor = successor_for(label, catalog)
-                if not successor:
-                    # Nothing released to move onto. The issue reports it; a
-                    # pull request has nothing to propose.
-                    logging.info(f"No released successor for {label!r}.")
-                    continue
-                changes.append(
-                    RunnerChange(
-                        kind="retirement",
-                        label=label,
-                        successor=successor.preferred_label,
-                        locations=tuple(literal[label]),
-                        announcement_url=item.url,
-                        announcement_title=item.title,
-                        target_date=item.target_date,
-                    )
+    for label in sorted(frozenset(tracked) - declined):
+        current = indexed.get(label)
+
+        if current is None or current.deprecated:
+            successor = successor_for(label, catalog) if current else None
+            if current is None:
+                # Absent from the table: already withdrawn, and nothing here can
+                # name a replacement without knowing what it used to be.
+                logging.warning(f"{label!r} is no longer an available image.")
+                continue
+            if successor is None:
+                # A dying image whose family offers nothing at all. Rare enough
+                # to be worth a loud log rather than a silent skip.
+                logging.warning(f"{label!r} is deprecated with no replacement.")
+                continue
+            preview_alt = newer_preview_than(successor, current, catalog)
+            changes.append(
+                RunnerChange(
+                    kind="retirement",
+                    label=label,
+                    successor=successor.preferred_label,
+                    locations=tuple(literal.get(label, ())),
+                    reason=f"{current.display_name} is deprecated",
+                    alternative=preview_alt.preferred_label if preview_alt else "",
                 )
-            elif not item.is_deprecation and label not in known:
-                image = catalog_by_label.get(label)
-                # Three conditions, each dropping a different false positive:
-                #
-                # - **Still in preview.** "Not deprecation" is not the same as
-                #   "arrival": the Xcode-default-change notice concerns the GA
-                #   macOS rows and would otherwise propose probing an image
-                #   that has been generally available for months. A genuinely
-                #   new image is the one GitHub is still rolling out.
-                # - **The row's plain label.** A size variant is a paid larger
-                #   runner, never something to adopt by default.
-                # - **A family already in use.** A repository running no macOS
-                #   job has no use for a macOS probe, and every probe cell costs
-                #   runner minutes on a capped pool.
-                if (
-                    not image
-                    or not image.preview
-                    or image.preferred_label != label
-                    or not _family_in_use(image, known, catalog_by_label)
-                ):
-                    continue
-                changes.append(
-                    RunnerChange(
-                        kind="arrival",
-                        label=label,
-                        successor="",
-                        locations=(),
-                        announcement_url=item.url,
-                        announcement_title=item.title,
-                        target_date=item.target_date,
-                    )
+            )
+            continue
+
+        newer = newer_version_than(label, catalog)
+        if newer and newer.preferred_label not in declined:
+            changes.append(
+                RunnerChange(
+                    kind="upgrade",
+                    label=label,
+                    successor=newer.preferred_label,
+                    locations=(),
+                    reason=f"{newer.display_name} supersedes {current.display_name}",
+                    alternative="",
                 )
+            )
 
     # Retirements first: one carries a deadline, the other an opportunity.
     changes.sort(key=lambda change: (change.kind != "retirement", change.label))
     return changes
 
 
-def _family_in_use(
-    image: RunnerImage,
-    known: frozenset[str],
-    catalog_by_label: Mapping[str, RunnerImage],
-) -> bool:
-    """Whether this repository already runs something in *image*'s family.
-
-    Bounds the arrival case to platforms already carried. A repository running
-    no macOS job has no use for a probe on a new macOS image, and every probe
-    cell costs runner minutes on a capped pool.
-    """
-    return any(
-        (other := catalog_by_label.get(label)) and other.family == image.family
-        for label in known
-    )
-
-
 def render_change_table(changes: Sequence[RunnerChange]) -> str:
     """Render proposed changes as a Markdown table for a pull request body.
 
-    Carries the evidence rather than just the edit: the diff already shows what
-    moved, and what a reviewer cannot see there is the deadline, the
-    announcement that set it, and the fact that an arrival is a probe rather
-    than a migration.
+    Carries the reasoning rather than just the edit: the diff shows what moved,
+    and what a reviewer cannot see there is why the table says it had to, which
+    jobs are affected, and what was passed over.
 
     :param changes: Changes from {func}`plan_runner_changes`.
     :return: A GitHub-flavored Markdown table, newline-terminated.
     """
     rows = [
-        "| Change | What | Deadline | Announcement |",
-        "| :----- | :--- | :------- | :----------- |",
+        "| Change | What | Why | Passed over |",
+        "| :----- | :--- | :-- | :---------- |",
     ]
     for change in changes:
-        kind = "🔴 retirement" if change.kind == "retirement" else "🆕 probe"
-        where = (
-            f"`{change.label}` → `{change.successor}` in "
-            + ", ".join(f"`{location}`" for location in change.locations)
-            if change.kind == "retirement"
-            else f"`{change.label}` joins the matrix as `continue-on-error`"
+        if change.kind == "retirement":
+            kind = "🔴 retirement"
+            where = f"`{change.label}` → `{change.successor}`"
+            if change.locations:
+                where += " in " + ", ".join(f"`{loc}`" for loc in change.locations)
+        else:
+            kind = "🆕 probe"
+            where = (
+                f"`{change.successor}` joins the matrix as `continue-on-error`, "
+                f"beside `{change.label}`"
+            )
+        alternative = (
+            f"`{change.alternative}` (preview)" if change.alternative else "—"
         )
-        title = sanitize_markdown_mentions(change.announcement_title)
-        rows.append(
-            f"| {kind} | {where} | {change.target_date or '—'} "
-            f"| [{title}]({change.announcement_url}) |"
-        )
+        rows.append(f"| {kind} | {where} | {change.reason} | {alternative} |")
     return "\n".join(rows) + "\n"
+
+
+def close_legacy_issue() -> None:
+    """Close the announcement issue this module no longer maintains.
+
+    Called on every run rather than once, because there is no "once" available:
+    a downstream repository adopts a release whenever it adopts one, and the
+    first run after that adoption is the only moment this can be noticed. The
+    close is a no-op when no such issue is open.
+    """
+    comment = (
+        "Runner images are now read from the [available-images table]"
+        "(https://github.com/actions/runner-images#available-images) and"
+        " compared against the labels this repository actually runs, so an"
+        " announcement about an image it does not use no longer opens an issue."
+        " `sync-runner-images` proposes what needs doing as a pull request"
+        " instead."
+    )
+    for issue in list_issues(LEGACY_ISSUE_TITLE):
+        if issue.get("state", "").upper() == "CLOSED":
+            continue
+        close_issue(issue["number"], comment)
 
 
 RUNS_ON_RE_TEMPLATE = (
@@ -752,11 +391,14 @@ def apply_arrival(change: RunnerChange, pyproject_path: Path) -> bool:
     unstable = matrix.setdefault("unstable", [])
 
     changed = False
-    if change.label not in list(axis):
-        axis.append(change.label)
+    # The *successor* is what joins the matrix: `label` is the image already in
+    # use, which the probe runs beside rather than replaces.
+    probed = change.successor
+    if probed not in list(axis):
+        axis.append(probed)
         changed = True
-    if not any(dict(entry).get("os") == change.label for entry in unstable):
-        unstable.append({"os": change.label})
+    if not any(dict(entry).get("os") == probed for entry in unstable):
+        unstable.append({"os": probed})
         changed = True
 
     if changed:

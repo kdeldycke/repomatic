@@ -89,26 +89,15 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
   - upstream `kdeldycke/repomatic` repo, `workflow_call` events
   - `setup-guide = false` in `[tool.repomatic]`
 
-#### 🖥️ Runner images (`runner-images`)
-
-- Reads the open `Announcement`-labelled issues of [`actions/runner-images`](https://github.com/actions/runner-images/issues?q=is%3Aissue+is%3Aopen+label%3AAnnouncement), which cover both newly available images and images entering deprecation, and maintains a single issue listing them
-- Watches every runner image the workflows name literally, not just the curated test-matrix axes: an off-axis `runs-on:` value is the one nothing else tracks, so its retirement was the one announcement previously never flagged
-- Resolves the images an announcement concerns from two sources: the backticked labels of its `Possible impact` section, and the entries ticked under `Runner images affected`, mapped to real labels through the *Available Images* table. Neither alone suffices, because a new-image notice names no label in prose while a retirement does
-- Reads only *ticked* boxes. An unticked list is not a statement: one Windows announcement shipped over an untouched template listing six Ubuntu entries
-- Names the labels each announcement is about in a **Labels** column, narrows that to the ones in use here in **Affects**, and sorts the affected rows first
-- Nothing bumps a `runs-on:` value automatically (`sync-action-pins` rewrites `uses:` references, `sync-workflow-pins` rewrites version literals), so a retirement otherwise arrives as a failing build with no warning
-- Opens the issue only when an open announcement names an image this repository runs on, and closes it once none does. Gating on exposure rather than on upstream activity is also what makes it a notification: editing an issue body sends nothing, while a new issue does
-- **Runs on**: the weekly schedule and manual `workflow_dispatch` only, since the feed changes on GitHub's clock rather than on any push here
-- **Skipped if**:
-  - `runner-images = false` in `[tool.repomatic]`
-
 #### 🖥️ Sync runner images (`sync-runner-images`)
 
-- Opens a pull request carrying the mechanical half of a runner image change, so the decision is made against a real CI run rather than against a description
-- A **retirement** rewrites every literal `runs-on:` naming the dying label onto its successor, taken from the *Available Images* table. A preview image is never chosen as a successor: a forced move should not trade a known deadline for an unknown one
-- An **arrival** adds the newly available image to the full test matrix as a `continue-on-error` probe (`test-matrix.variations.os` plus a `test-matrix.unstable` entry) rather than migrating onto it. The cell cannot fail the build, and the suite starts exercising the image immediately, which is what surfaces a dependency breaking there while there is still runway to report it upstream
-- Bounded to families already in use and to a row's plain label, so a new macOS image proposes nothing in a repository running no macOS job, and a paid larger runner is never proposed
+- Looks every runner label this repository runs up in the [*Available Images* table](https://github.com/actions/runner-images#available-images), and opens a pull request carrying the mechanical half of whatever it finds, so the decision is made against a real CI run rather than against a description
+- A **retirement** rewrites every literal `runs-on:` naming a deprecated image onto its successor. A released image always wins over a preview, since a forced move should not trade a known deadline for an unknown one; a newer preview passed over is named in the pull request body rather than taken
+- An **upgrade** adds a strictly newer *version* to the full test matrix as a `continue-on-error` probe (`test-matrix.variations.os` plus a `test-matrix.unstable` entry) rather than migrating onto it. The cell cannot fail the build, and the suite starts exercising the image immediately, which is what surfaces a dependency breaking there while there is runway to report it upstream
+- Strictly newer by **version** is what separates an upgrade from a flavour. `Windows 11 Arm64 with Visual Studio 2026` sits at the same version as `Windows 11 Arm64`: a different toolchain, not a newer image, and it is never proposed as one
+- Nothing bumps a `runs-on:` value automatically (`sync-action-pins` rewrites `uses:` references, `sync-workflow-pins` rewrites version literals), so a retirement otherwise arrives as a failing build with no warning
 - Only literal `runs-on:` values are rewritten. A value built from an expression draws on a matrix axis, which the axis owner moves
+- The announcement feed is deliberately not read. It reports what changed for anyone; the table reports what is true here, and only the second decides anything. The cost is that GitHub badges an image `deprecated` when deprecation *begins* rather than when it is announced, so a retirement surfaces months later than the feed would have shown it, still well before the image stops working
 - **Runs on**: the weekly schedule and manual `workflow_dispatch` only
 - **Skipped if**:
   - A label is named in `[tool.repomatic.sync-runner-images] ignore`, which is how a declined proposal stays declined: a `sync-*` job regenerates on every run, so closing its pull request alone brings the proposal back

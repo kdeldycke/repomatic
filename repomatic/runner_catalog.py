@@ -263,10 +263,9 @@ def parse_catalog(readme: str) -> list[RunnerImage]:
 def fetch_catalog(repo: str = CATALOG_REPO) -> list[RunnerImage]:
     """Download and parse the *Available Images* table.
 
-    Read through `gh` rather than a bare HTTP GET, for the same reason
-    {func}`~repomatic.runner_images.fetch_announcements` is: the authenticated
-    path carries a rate limit a CI job will not exhaust, where the anonymous
-    one shares 60 requests an hour with every other job on the runner.
+    Read through `gh` rather than a bare HTTP GET: the authenticated path
+    carries a rate limit a CI job will not exhaust, where the anonymous one
+    shares 60 requests an hour with every other job on the runner.
 
     :param repo: Repository whose readme to read.
     :return: The catalog, empty when the readme could not be read or parsed.
@@ -295,30 +294,102 @@ def by_display_name(catalog: Sequence[RunnerImage]) -> dict[str, RunnerImage]:
     return {image.display_name: image for image in catalog}
 
 
+def live_siblings(
+    current: RunnerImage, catalog: Sequence[RunnerImage]
+) -> list[RunnerImage]:
+    """Every image that could host a job currently on *current*.
+
+    Same operating system and architecture, not itself, and not on its way out.
+    Version is deliberately *not* filtered: a dying image whose family offers
+    only a same-version sibling still has somewhere to go, and going there beats
+    staying on a deadline.
+
+    :param current: The image being moved off.
+    :param catalog: Parsed catalog.
+    :return: Candidates, unordered.
+    """
+    return [
+        image
+        for image in catalog
+        if image.family == current.family
+        and image.architecture == current.architecture
+        and image.display_name != current.display_name
+        and not image.deprecated
+    ]
+
+
 def successor_for(label: str, catalog: Sequence[RunnerImage]) -> RunnerImage | None:
-    """The image a workflow on *label* should move to when it retires.
+    """The image a workflow on *label* should move to when its own is retiring.
 
-    Searches the same family and architecture for the highest-versioned entry
-    that is neither deprecated nor in preview. Preview is excluded on purpose:
-    a retirement forces a move, and forcing it onto an image GitHub has not
-    finished rolling out trades a known deadline for an unknown one. Adopting a
-    preview image is the arrival path, which proposes a `continue-on-error`
-    probe rather than a migration.
+    Prefers a released image over a preview, then the highest version. The
+    ordering matters more than it looks: a retirement is a forced move, and
+    landing it on something GitHub is still rolling out trades a known deadline
+    for an unknown one. So a released successor always wins, however old.
 
-    :param label: Label being retired.
+    A preview is still returned when the family offers nothing else, because the
+    alternative is proposing nothing and leaving the job on an image with an
+    end date. {func}`newer_preview_than` surfaces the preview separately when a
+    released successor was chosen, so a reviewer sees the fresher option
+    without it being taken on their behalf.
+
+    :param label: Label whose image is retiring, or has vanished.
     :param catalog: Parsed catalog.
     :return: The best replacement, or `None` when the family offers none.
     """
     current = by_label(catalog).get(label)
     if not current:
         return None
-    candidates = [
+    return max(
+        live_siblings(current, catalog),
+        key=lambda image: (not image.preview, image.version),
+        default=None,
+    )
+
+
+def newer_preview_than(
+    chosen: RunnerImage, current: RunnerImage, catalog: Sequence[RunnerImage]
+) -> RunnerImage | None:
+    """A preview image newer than the one {func}`successor_for` settled on.
+
+    Reported rather than adopted. Whether a fresher preview beats a released
+    image is a capacity-and-risk judgement the pull request exists to host, so
+    naming the alternative in the body is the useful half; picking it is not.
+
+    :param chosen: What `successor_for` returned.
+    :param current: The image being moved off.
+    :param catalog: Parsed catalog.
+    :return: The newest preview above *chosen*, or `None`.
+    """
+    if chosen.preview:
+        return None
+    previews = [
         image
-        for image in catalog
-        if image.family == current.family
-        and image.architecture == current.architecture
-        and not image.deprecated
-        and not image.preview
-        and image.version > current.version
+        for image in live_siblings(current, catalog)
+        if image.preview and image.version > chosen.version
     ]
-    return max(candidates, key=lambda image: image.version, default=None)
+    return max(previews, key=lambda image: image.version, default=None)
+
+
+def newer_version_than(
+    label: str, catalog: Sequence[RunnerImage]
+) -> RunnerImage | None:
+    """A genuinely newer *version* of the image behind *label*, if one exists.
+
+    Strictly newer by version, which is what separates an upgrade from a
+    flavour. `Windows 11 Arm64 with Visual Studio 2026` sits at the same version
+    as `Windows 11 Arm64` and is a different toolchain rather than a newer
+    image, so it is not an upgrade and is not reported as one.
+
+    :param label: Label currently in use.
+    :param catalog: Parsed catalog.
+    :return: The newest strictly-higher version available, or `None`.
+    """
+    current = by_label(catalog).get(label)
+    if not current:
+        return None
+    newer = [
+        image
+        for image in live_siblings(current, catalog)
+        if image.version > current.version
+    ]
+    return max(newer, key=lambda image: image.version, default=None)

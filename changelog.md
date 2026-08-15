@@ -15,11 +15,9 @@
 - New bundled `repomatic-test-matrix` skill deciding which Python versions, operating systems and runner images earn a test-matrix cell.
 - Bundled guidance moves its release-repair, label-retirement and test-matrix procedures out of `claude.md` and into the skills that run them, leaving the always-loaded file carrying rules rather than checklists.
 - New `job-timings` command reporting median whole-job wall-clock per runner image, read from recent successful runs.
-- New `sync-runner-images` command and weekly job opening a pull request that moves a retiring runner image onto its successor, or adds a newly available one to the test matrix as a `continue-on-error` probe. Decline one for good with `[tool.repomatic.sync-runner-images] ignore`.
+- **Breaking:** the `runner-images` command, its workflow job and its `[tool.repomatic] runner-images` config key are gone, along with the issue they maintained. Runner images are now read from GitHub's available-images table and compared against the labels a repository actually runs, so an announcement about an image it does not use no longer opens anything. `sync-runner-images` closes the old issue on its first run.
+- New `sync-runner-images` command and weekly job opening a pull request that moves a deprecated runner image onto its successor, or adds a strictly newer version to the test matrix as a `continue-on-error` probe. A same-version variant carrying a different toolchain is not an upgrade and is never proposed as one. Decline a proposal for good with `[tool.repomatic.sync-runner-images] ignore`.
 - New `pr-body` and `pr-sync` option `--template-arg-file KEY=PATH`, reading a template value from a file for a value with no ceiling on its size.
-- `runner-images` now opens its issue only when an open announcement names an image this repository runs on, rather than whenever GitHub has any announcement in flight.
-- `runner-images` now resolves the images an announcement concerns through GitHub's available-images table as well as its impact section, so a newly available image is reported instead of silently matching nothing.
-- The `runner-images` issue gains **Platform** and **Labels** columns, naming what each announcement is about whether or not it touches this repository.
 
 ## [`7.12.1` (2026-08-15)](https://github.com/kdeldycke/repomatic/compare/v7.12.0...v7.12.1)
 

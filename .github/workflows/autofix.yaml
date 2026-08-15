@@ -66,36 +66,12 @@ jobs:
           HAS_VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
         run: uv --no-progress run --frozen -- repomatic setup-guide
 
-  runner-images:
-    name: 🖥️ Runner images
-    # Schedule-only: the announcements come from actions/runner-images, so they
-    # change on GitHub's clock rather than on any push here, and a weekly read
-    # is well inside the months of notice a deprecation carries. Not gated
-    # against workflow_call: called that way the job runs in the caller's
-    # context and manages the caller's own issue. See
-    # repomatic/runner_images.py for why the announcement feed is the source.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 15
-    permissions:
-      issues: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.12.3"
-      - name: Manage runner images issue
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-          REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
-        run: uv --no-progress run --frozen -- repomatic runner-images
-
   sync-runner-images:
     name: 🖥️ Sync runner images
-    # Schedule-only for the same reason the issue job is: the announcements move
-    # on GitHub's clock, not on a push here, and a retirement carries months of
-    # notice. Running it per-push would re-propose on every commit and burn a
-    # readme read each time.
+    # Schedule-only: the available-images table changes on GitHub's clock, not
+    # on a push here, and a deprecation carries months of notice. Running it
+    # per-push would re-read that table on every commit to re-propose what it
+    # proposed an hour ago.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
