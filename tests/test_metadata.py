@@ -845,6 +845,8 @@ expected: dict[str, Any] = {
     "major_bump_allowed": AnyBool(),
     # `minimum-release-age` default "1 week", rendered as whole days for npm.
     "npm_min_release_age_days": 7,
+    # This repository publishes `.html` pages, the `sphinx.builder` default.
+    "sphinx_builder": "html",
 }
 
 

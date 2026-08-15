@@ -63,7 +63,7 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
-          is_python_project is_sphinx doc_files
+          is_python_project is_sphinx doc_files sphinx_builder
 
   deploy-docs:
     name: 📖 Deploy Sphinx doc
@@ -104,7 +104,12 @@ jobs:
             fonts-liberation graphviz mandoc
       - name: Build documentation
         # Install --all-extras so documentation can covers all features of the project, including the optional ones.
-        run: uv --no-progress run --frozen --all-extras --group docs -- sphinx-build -b html ./docs ./docs/_build
+        # The builder is `[tool.repomatic] sphinx.builder`, defaulting to `html`:
+        # a project serving extension-less URLs sets it to `dirhtml`.
+        run: >
+          uv --no-progress run --frozen --all-extras --group docs --
+          sphinx-build -b ${{ fromJSON(needs.metadata.outputs.metadata).sphinx_builder }}
+          ./docs ./docs/_build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

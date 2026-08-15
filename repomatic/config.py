@@ -1066,6 +1066,25 @@ class Config:
     enablement keys it owns into whatever the file already holds.
     """
 
+    sphinx_builder: str = field(
+        default="html",
+        metadata={CONFIG_PATH_METADATA_KEY: "sphinx.builder"},
+    )
+    """Sphinx builder producing the deployed documentation site.
+
+    The default `html` writes `page.html`, so the site serves `/page.html`.
+    Setting it to `dirhtml` writes `page/index.html` instead, so the same page
+    serves at `/page/` and the published URLs carry no extension, which is the
+    shape search engines and most static hosts expect.
+
+    The one Sphinx setting a project cannot make in its own `conf.py`, hence a
+    config key: the builder is chosen on the command line, and `docs.yaml` is
+    what runs it. Switching an already-published site republishes every URL it
+    has: the old paths stop existing, so the repository's own absolute
+    self-links (readme, packaging specs) move in the same commit, and whatever
+    fronts the site redirects the old ones.
+    """
+
     test_matrix: TestMatrixConfig = field(
         default_factory=TestMatrixConfig,
         metadata={
