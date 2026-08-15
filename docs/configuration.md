@@ -22,6 +22,7 @@ gitignore.sync = false
 labels.sync = false
 mailmap.sync = false
 setup-guide = false
+sphinx.builder = "dirhtml"
 uv-lock.sync = false
 
 dependency-graph.output = "./docs/assets/dependencies.mmd"

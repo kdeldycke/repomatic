@@ -47,6 +47,7 @@ from __future__ import annotations
 import re
 
 import pytest
+import yaml
 from click_extra import schema_field_infos
 
 from repomatic.bundle import get_data_content
@@ -54,7 +55,7 @@ from repomatic.config import Config
 from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.registry import COMPONENTS_BY_NAME, SKILL_FILENAME
 
-from .conftest import PROJECT_ROOT
+from .conftest import PROJECT_ROOT, WORKFLOWS_DIR
 
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 """Inline code span, the only context these checks read.
@@ -86,6 +87,21 @@ this stays keyed on the one shape in use rather than accepting three.
 
 MODULE_PATH_RE = re.compile(r"^(repomatic/[a-z0-9_/]+\.py)$")
 """A package module quoted as a repository-relative path."""
+
+WORKFLOW_FILE_RE = re.compile(r"^(_?[a-z][a-z0-9-]*\.yaml)$")
+"""A workflow filename quoted on its own."""
+
+WORKFLOW_JOB_RE = re.compile(
+    r"`(?P<workflow>_?[a-z][a-z0-9-]*\.yaml)` workflow's `(?P<job>[a-z][a-z0-9-]*)` job"
+)
+"""An asset attributing a job to the workflow that declares it.
+
+Matched across the prose rather than inside one code span, because the
+claim spans two of them. The possessive phrasing is what makes it safe to
+read as an assertion: a line merely listing several workflows and a job
+name never takes this shape, so the rule stays as under-inclusive as its
+siblings while still pinning the one form that states ownership.
+"""
 
 
 def bundled_assets() -> list[tuple[str, str]]:
@@ -186,4 +202,43 @@ def test_module_paths_exist(asset_id: str, body: str) -> None:
         module = match.group(1)
         assert (PROJECT_ROOT / module).is_file(), (
             f"{asset_id} points at {module}, which no longer exists."
+        )
+
+
+@bundled_asset
+def test_workflow_files_exist(asset_id: str, body: str) -> None:
+    """Every workflow filename quoted in an asset is still a workflow.
+
+    Assets name workflows constantly: which one to poll, which one runs a
+    fix, which one to dispatch. A renamed or retired workflow leaves those
+    sentences pointing at a file no `gh workflow run` will find.
+    """
+    for span in CODE_SPAN_RE.findall(body):
+        match = WORKFLOW_FILE_RE.match(span.strip())
+        if not match:
+            continue
+        workflow = match.group(1)
+        assert (WORKFLOWS_DIR / workflow).is_file(), (
+            f"{asset_id} names {workflow}, which is not a workflow file."
+        )
+
+
+@bundled_asset
+def test_attributed_jobs_live_in_the_named_workflow(asset_id: str, body: str) -> None:
+    """A job an asset attributes to a workflow is declared by that workflow.
+
+    Both halves of the claim can outlive the claim itself: `update-docs`
+    moved from `docs.yaml` to `autofix.yaml` in `5.7.1`, and the
+    `sphinx-docs` agent kept crediting `docs.yaml` for eleven releases,
+    because the workflow still existed and so did the job. Only the pairing
+    was wrong, which is exactly what no existence check can see.
+    """
+    for match in WORKFLOW_JOB_RE.finditer(body):
+        workflow, job = match.group("workflow"), match.group("job")
+        path = WORKFLOWS_DIR / workflow
+        assert path.is_file(), f"{asset_id} names {workflow}, which is not a workflow."
+        jobs = yaml.safe_load(path.read_text(encoding="UTF-8")).get("jobs", {})
+        assert job in jobs, (
+            f"{asset_id} credits {workflow} with a {job!r} job, which it does not "
+            f"declare. Its jobs are: {', '.join(sorted(jobs))}."
         )

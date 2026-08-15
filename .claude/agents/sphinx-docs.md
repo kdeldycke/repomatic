@@ -437,7 +437,7 @@ For Python source files (where the role appeared inside docstrings or comments),
 
 ## Auto-generated reference tables
 
-For `pyproject.toml` schemas, CLI command lists, and tool registries, generate the markdown from the source of truth. The pattern: a `docs/docs_update.py` script writes between named auto-region markers, invoked by the upstream `docs.yaml` workflow via `repomatic update-docs`.
+For `pyproject.toml` schemas, CLI command lists, and tool registries, generate the markdown from the source of truth. The pattern: a `docs/docs_update.py` script writes between named auto-region markers, invoked by the upstream `autofix.yaml` workflow's `update-docs` job via `repomatic update-docs`. It sits there rather than in `docs.yaml` because it commits a fix like every other autofix job; `docs.yaml` only builds and deploys.
 
 **Marker naming convention.** Name each auto-region descriptively as `{feature}-{kind}` and wrap it in click-extra's `<!-- {feature}-{kind} --> / <!-- {feature}-{kind}-end -->` marker grammar: the grammar of `click_extra.blocks.replace_region` and of click-extra's own `{matrix}` and `mirror` markers. Never use generic bare `<!-- start -->`/`<!-- end -->`. Rationale: a single doc page often holds two or three auto-regions (a summary table, a Mermaid graph, an autodata block). Generic markers force the regenerator to use index-based dispatch and break the moment a region is reordered or removed; named markers stay correct under any rearrangement and grep cleanly. Examples:
 
@@ -708,6 +708,7 @@ Default-pruning rule:
 - If a setting equals its Sphinx (or extension) default, delete it. Don't comment it out — `git blame` already records intent.
 - If you keep a setting that *looks* default for documentation purposes, add a one-line comment explaining why ("explicit so future readers see we considered it").
 - On every Sphinx or extension upgrade, run `sphinx-build -W -b html docs docs/_build/html`. Treat every `RemovedInSphinxX.YWarning`, `DeprecationWarning`, and `application.ExtensionError` as cleanup work, not noise. Fix them in the same PR as the upgrade.
+- **Match the deployed builder, which is not always `html`.** `[tool.repomatic] sphinx.builder` is what the Docs workflow passes to `sphinx-build -b`, and a project serving extension-less URLs sets it to `dirhtml` (`page/index.html` instead of `page.html`). Read it before assuming a local `-b html` reproduces CI. The builder is chosen on the command line, so it is the one Sphinx setting `conf.py` cannot carry: never "fix" its absence there.
 - Periodically diff against a fresh `sphinx-quickstart` output in a tmpdir to spot defaults that have shifted under you.
 - Drop conditional import shims once the project's minimum Python no longer needs them. The `try: import tomllib / except: import tomli` pattern is dead code on `requires-python = ">=3.11"`. Same for any `if sys.version_info < (3, X):` branch where `X` is now below the floor. The deps group should lose the corresponding fallback dependency in the same PR.
 - Always pass `encoding="utf-8"` to `Path.read_text()` calls in `conf.py`. Bare `read_text()` picks up the locale, which on minimal CI runners has bitten many projects.

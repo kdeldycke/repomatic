@@ -103,12 +103,19 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             fonts-liberation graphviz mandoc
       - name: Build documentation
-        # Install --all-extras so documentation can covers all features of the project, including the optional ones.
+        # Install --all-extras so documentation can cover all features of the project, including the optional ones.
         # The builder is `[tool.repomatic] sphinx.builder`, defaulting to `html`:
         # a project serving extension-less URLs sets it to `dirhtml`.
+        # It travels through the environment rather than being interpolated
+        # into the command, like DOC_FILES below: the value is whatever the
+        # repository's own `pyproject.toml` holds, so expanding it inline would
+        # let a `pull_request`-triggered caller run a fork's string as shell
+        # code.
+        env:
+          SPHINX_BUILDER: ${{ fromJSON(needs.metadata.outputs.metadata).sphinx_builder }}
         run: >
           uv --no-progress run --frozen --all-extras --group docs --
-          sphinx-build -b ${{ fromJSON(needs.metadata.outputs.metadata).sphinx_builder }}
+          sphinx-build -b "$SPHINX_BUILDER"
           ./docs ./docs/_build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

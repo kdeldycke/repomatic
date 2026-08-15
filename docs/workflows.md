@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.11.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.12.0
 ```
 
 > [!IMPORTANT]
@@ -363,6 +363,7 @@ docs = [
 #### 📖 Deploy Sphinx doc (`deploy-docs`)
 
 - Builds Sphinx-based documentation and publishes it to GitHub Pages using [`sphinx`](https://github.com/sphinx-doc/sphinx), [`upload-pages-artifact`](https://github.com/actions/upload-pages-artifact) and [`deploy-pages`](https://github.com/actions/deploy-pages)
+- Builder is `sphinx.builder` in `[tool.repomatic]`, defaulting to `html`; set it to `dirhtml` to publish extension-less URLs (`/page/` instead of `/page.html`)
 - **Requires**:
   - Python package with a `pyproject.toml` file
   - `docs` dependency group

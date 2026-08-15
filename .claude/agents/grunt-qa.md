@@ -18,7 +18,7 @@ Work beyond the local repository: check issues, PRs, and CI runs on GitHub. Fix 
 ## Tools of the trade
 
 - `gh issue list`, `gh pr list`, `gh pr view`, `gh run list`, `gh run view`
-- `uv run repomatic lint-repo`, `uv run repomatic metadata`, and every other subcommand
+- `repomatic lint-repo`, `repomatic metadata`, and every other subcommand. Inside `kdeldycke/repomatic` itself (a `repomatic/__init__.py` exists) reach it as `uv run repomatic`; anywhere else it is not a project dependency, so use `uvx --exclude-newer '1 week' --exclude-newer-package repomatic=P0D -- repomatic` (see `CLAUDE.md` § Cooldown on every install). A bare `uv run repomatic` downstream dies on `Failed to spawn: repomatic`.
 - Tests, type checking, linting (see `CLAUDE.md` § Testing guidelines and § Linting and formatting)
 
 ## Checks
