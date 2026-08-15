@@ -220,16 +220,30 @@ def test_csv_shield_tiers():
     ) in content
 
 
-def test_csv_analysis_link_without_record():
-    """A digest with no scan record links to the analysis without a score."""
+def test_csv_no_analysis_link_without_record():
+    """A digest with no scan record gets no link: that page does not exist.
+
+    A VirusTotal file URL only resolves for a file that was submitted, so
+    deriving one from the GitHub asset digest alone pointed every unscanned
+    binary at a blank page.
+    """
     sha = "d" * 64
     releases = [
         _release("v1.0.0", (_asset("papaya-1.0.0-macos-arm64.bin", sha256=sha),)),
     ]
     content = render_binaries_csv(REPO, releases, [])
-    assert (
-        f"[{{octicon}}`shield` analysis](https://www.virustotal.com/gui/file/{sha})"
-    ) in content
+    assert "virustotal.com" not in content
+    assert content.endswith("papaya-1.0.0-macos-arm64.bin),2026-07-01,\n")
+
+
+def test_csv_no_analysis_link_for_empty_record():
+    """A record whose verdict counts are all zero is no evidence of a page."""
+    sha = "d" * 64
+    releases = [
+        _release("v1.0.0", (_asset("papaya-1.0.0-macos-arm64.bin", sha256=sha),)),
+    ]
+    records = [_record("v1.0.0", sha, "2026-07-01", flagged=0, total=0)]
+    assert "virustotal.com" not in render_binaries_csv(REPO, releases, records)
 
 
 def test_csv_platform_fallback_to_filename():

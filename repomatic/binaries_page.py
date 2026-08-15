@@ -149,7 +149,7 @@ All standalone executables published by this repository, one row per binary, new
 
 Each target's minimum OS requirement (glibc floor on Linux, deployment target on macOS) and the distributions it opens execution to are documented in the [repomatic binaries page](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements).
 
-Compiled Python binaries are regularly flagged by heuristic antivirus engines, so every release is submitted to [VirusTotal](https://www.virustotal.com/): this seeds vendor databases with the new signatures and keeps false positives in check. The VirusTotal cell tracks those false positives: a green check marks binaries no engine flags, and flagged binaries show the share of engine verdicts flagging them, snapshotted minutes after publication and before false-positive reports get processed. The live analysis behind the link supersedes it.
+Compiled Python binaries are regularly flagged by heuristic antivirus engines, so every release is submitted to [VirusTotal](https://www.virustotal.com/): this seeds vendor databases with the new signatures and keeps false positives in check. The VirusTotal cell tracks those false positives: a green check marks binaries no engine flags, and flagged binaries show the share of engine verdicts flagging them, snapshotted minutes after publication and before false-positive reports get processed. The live analysis behind the link supersedes it. An empty cell means the binary was never submitted, so VirusTotal holds no analysis to link to: this covers every release predating the scan pipeline.
 
 ## Development builds
 
@@ -323,10 +323,18 @@ def render_binaries_csv(
     by MyST inside the `csv-table` directive): the version to the GitHub
     release, the platform to the binary download, and the VirusTotal cell to
     the file's analysis. The VirusTotal cell renders the at-release snapshot
-    as a green check when no engine flags the binary, as the flagged-verdict
-    share (tinted by {data}`FLAGGED_DANGER_PCT`) otherwise, and as a bare
-    `analysis` link when no snapshot exists. Assets without a digest get an
-    empty VirusTotal cell.
+    as a green check when no engine flags the binary, and as the
+    flagged-verdict share (tinted by {data}`FLAGGED_DANGER_PCT`) otherwise.
+
+    ```{caution}
+    Only a binary backed by a scan record gets a VirusTotal cell; every
+    other row leaves it empty. A file page exists on VirusTotal solely
+    because the file was submitted, while the catalog spans every release a
+    repository ever published, including those predating `scan-virustotal`
+    and those whose upload failed. Deriving the URL from the GitHub asset
+    digest alone therefore sent readers to a blank page for each binary
+    nobody ever uploaded, which was most of the catalog on older projects.
+    ```
 
     ```{caution}
     The version and platform cells decorate their links with sphinx-design's
@@ -355,30 +363,25 @@ def render_binaries_csv(
     for version, release in versioned:
         release_url = f"https://github.com/{repo_slug}/releases/tag/{release.tag}"
         for asset in _binary_assets(release):
-            if asset.sha256:
-                vt_url = VIRUSTOTAL_GUI_URL.format(sha256=asset.sha256)
-                record = at_scan.get(asset.sha256)
-                if record and record.stats.total:
-                    # The KPI is the distance to the goal (zero false
-                    # positives), so flagged rows show the failure share and
-                    # clean rows reduce to a green check: exceptions stand
-                    # out, the goal state stays calm.
-                    if record.stats.flagged == 0:
-                        vt_cell = (
-                            f"[{{octicon}}`shield-check;1em;sd-text-success`]({vt_url})"
-                        )
-                    else:
-                        pct = 100 * record.stats.flagged / record.stats.total
-                        tint = (
-                            "sd-text-danger"
-                            if pct >= FLAGGED_DANGER_PCT
-                            else "sd-text-warning"
-                        )
-                        vt_cell = (
-                            f"[{{octicon}}`shield;1em;{tint}` {pct:.1f}%]({vt_url})"
-                        )
+            record = at_scan.get(asset.sha256) if asset.sha256 else None
+            if record and record.stats.total:
+                vt_url = VIRUSTOTAL_GUI_URL.format(sha256=record.sha256)
+                # The KPI is the distance to the goal (zero false positives),
+                # so flagged rows show the failure share and clean rows reduce
+                # to a green check: exceptions stand out, the goal state stays
+                # calm.
+                if record.stats.flagged == 0:
+                    vt_cell = (
+                        f"[{{octicon}}`shield-check;1em;sd-text-success`]({vt_url})"
+                    )
                 else:
-                    vt_cell = f"[{{octicon}}`shield` analysis]({vt_url})"
+                    pct = 100 * record.stats.flagged / record.stats.total
+                    tint = (
+                        "sd-text-danger"
+                        if pct >= FLAGGED_DANGER_PCT
+                        else "sd-text-warning"
+                    )
+                    vt_cell = f"[{{octicon}}`shield;1em;{tint}` {pct:.1f}%]({vt_url})"
             else:
                 vt_cell = ""
             # The octicon role comes from sphinx-design, same as the icons in
