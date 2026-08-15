@@ -84,6 +84,7 @@ Closing it from here is the issue-shaped equivalent of a
 {class}`~repomatic.registry.RemovedAsset` tombstone.
 """
 
+
 @dataclass(frozen=True)
 class RunnerChange:
     """One runner-image edit the available-images table justifies."""
@@ -237,9 +238,7 @@ def render_change_table(changes: Sequence[RunnerChange]) -> str:
                 f"`{change.successor}` joins the matrix as `continue-on-error`, "
                 f"beside `{change.label}`"
             )
-        alternative = (
-            f"`{change.alternative}` (preview)" if change.alternative else "—"
-        )
+        alternative = f"`{change.alternative}` (preview)" if change.alternative else "—"
         rows.append(f"| {kind} | {where} | {change.reason} | {alternative} |")
     return "\n".join(rows) + "\n"
 

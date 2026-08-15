@@ -296,7 +296,9 @@ def test_exportable_file_loadable(filename: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "comp", [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)], ids=lambda c: c.name
+    "comp",
+    [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)],
+    ids=lambda c: c.name,
 )
 def test_native_templates_separate_header(comp: ToolConfigComponent) -> None:
     """Verify a template's file-level header ends with a blank line.
@@ -322,7 +324,9 @@ def test_native_templates_separate_header(comp: ToolConfigComponent) -> None:
 
 
 @pytest.mark.parametrize(
-    "comp", [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)], ids=lambda c: c.name
+    "comp",
+    [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)],
+    ids=lambda c: c.name,
 )
 def test_strip_header_comments_keeps_key_comments(comp: ToolConfigComponent) -> None:
     """Verify stripping removes the header and every comment below it survives.
@@ -346,9 +350,7 @@ def test_strip_header_comments_keeps_key_comments(comp: ToolConfigComponent) -> 
     # of documentation for a key it did not write itself.
     for line in lines[header_end:]:
         if line.lstrip().startswith("#"):
-            assert line in stripped, (
-                f"{comp.source_file}: dropped key comment {line!r}"
-            )
+            assert line in stripped, f"{comp.source_file}: dropped key comment {line!r}"
 
 
 # Keys intentionally different between template and repomatic's own pyproject.toml.

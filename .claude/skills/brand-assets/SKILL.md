@@ -106,9 +106,9 @@ A mark built from isometric solids (boxes, cubes, prisms) reads correctly with f
 **Three planes need three values.** A glance at an isometric solid shows at most three faces: one lit from above, and two vertical faces turned away from each other. Two brand colors are not enough on their own for that third plane, and the honest way to produce a third value without expanding the palette is the arithmetic midpoint of the other two, computed per channel and enforced with a test rather than hand-picked:
 
 ```python
-mid = "#{:02x}{:02x}{:02x}".format(*(
-    (int(ink[i : i + 2], 16) + int(wash[i : i + 2], 16)) // 2 for i in (1, 3, 5)
-))
+mid = "#{:02x}{:02x}{:02x}".format(
+    *((int(ink[i : i + 2], 16) + int(wash[i : i + 2], 16)) // 2 for i in (1, 3, 5))
+)
 ```
 
 That keeps the palette "two colors and a derivation" instead of three unrelated choices, and a test that recomputes the midpoint from the two brand constants and compares it against the shipped one catches drift the moment someone nudges the third value by eye instead of by formula.
