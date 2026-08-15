@@ -847,6 +847,8 @@ expected: dict[str, Any] = {
     "npm_min_release_age_days": 7,
     # This repository publishes `.html` pages, the `sphinx.builder` default.
     "sphinx_builder": "html",
+    # And publishes them to GitHub Pages, the `sphinx.deploy` default.
+    "sphinx_deploy": "github-pages",
 }
 
 

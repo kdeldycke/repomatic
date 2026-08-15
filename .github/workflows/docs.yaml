@@ -2,6 +2,16 @@
 name: 📚 Docs
 "on":
   workflow_call:
+    # Only the Cloudflare deploy target reads these, and only a repository that
+    # selected it will have them set: an unset optional secret arrives empty and
+    # the job that would use it never runs. Declared rather than inherited, so a
+    # caller forwards these two by name instead of handing over everything it
+    # holds.
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
   workflow_dispatch:
   push:
     branches:
@@ -69,9 +79,15 @@ jobs:
     name: 📖 Deploy Sphinx doc
     needs:
       - metadata
+    # Gated on the deploy target, which the Cloudflare job below answers for
+    # instead. Two jobs rather than one with conditional steps: each host wants
+    # different permissions, and GitHub Pages needs a job-level `environment:`
+    # that would be a lie on the other path. Only ever one of them runs, so the
+    # build is never done twice.
     if: >-
       fromJSON(needs.metadata.outputs.metadata).is_python_project
       && fromJSON(needs.metadata.outputs.metadata).is_sphinx
+      && fromJSON(needs.metadata.outputs.metadata).sphinx_deploy == 'github-pages'
     runs-on: ubuntu-26.04
     # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
     timeout-minutes: 30
@@ -133,6 +149,58 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+  deploy-docs-cloudflare:
+    name: 📖 Deploy Sphinx doc to Cloudflare Pages
+    needs:
+      - metadata
+    if: >-
+      fromJSON(needs.metadata.outputs.metadata).is_python_project
+      && fromJSON(needs.metadata.outputs.metadata).is_sphinx
+      && fromJSON(needs.metadata.outputs.metadata).sphinx_deploy == 'cloudflare-pages'
+    runs-on: ubuntu-26.04
+    # Same toolchain as the job above, so the same wider cap.
+    timeout-minutes: 30
+    # No `id-token`, no `pages`, and no environment: this path authenticates to
+    # Cloudflare with a stored token and never touches the repository's own
+    # deployment surface.
+    permissions: {}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.3"
+      - name: Install Graphviz and mandoc
+        # Same reasons as the GitHub Pages job above.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            fonts-liberation graphviz mandoc
+      - name: Build documentation
+        # Same invocation as the GitHub Pages job above, comments included.
+        env:
+          SPHINX_BUILDER: ${{ fromJSON(needs.metadata.outputs.metadata).sphinx_builder }}
+        run: >
+          uv --no-progress run --frozen --all-extras --group docs --
+          sphinx-build -b "$SPHINX_BUILDER"
+          -d "${{ runner.temp }}/sphinx-doctrees"
+          ./docs ./docs/_build
+      - name: Deploy to Cloudflare Pages
+        # Direct Upload: the tree built above is what reaches the edge, so
+        # Cloudflare never builds anything and needs no access to this
+        # repository. The project is named after it, and must already exist.
+        # `wrangler` is pinned as an npm literal, which `sync-workflow-pins`
+        # keeps current and the workflow-level cooldown holds to a release old
+        # enough to have been withdrawn if it were broken.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT_NAME: ${{ github.event.repository.name }}
+        run: >
+          npx --yes wrangler@4.120.0 pages deploy ./docs/_build
+          --project-name "$PROJECT_NAME"
+          --branch "${{ github.ref_name }}"
+          --commit-hash "${{ github.sha }}"
 
   check-broken-links:
     name: 💔 Check broken links

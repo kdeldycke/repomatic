@@ -28,6 +28,7 @@ from repomatic.config import (
     AGENT_LAYOUTS,
     DEFAULT_AGENT,
     DEFAULT_CI,
+    SPHINX_DEPLOY_TARGETS,
     AgentLayout,
     Config,
     FlavorConfig,
@@ -240,6 +241,30 @@ def test_load_repomatic_config_with_preloaded_data():
     assert config.dependency_graph.output == "./custom/deps.mmd"
     # Other defaults are still present.
     assert config.gitignore.location == "./.gitignore"
+
+
+@pytest.mark.parametrize("target", sorted(SPHINX_DEPLOY_TARGETS))
+def test_sphinx_deploy_accepts_every_implemented_target(target):
+    """Each target names a deploy job in `docs.yaml`, so each must load."""
+    assert (
+        load_repomatic_config({
+            "tool": {"repomatic": {"sphinx": {"deploy": target}}}
+        }).sphinx_deploy
+        == target
+    )
+
+
+def test_sphinx_deploy_rejects_a_target_with_no_job_behind_it():
+    """An unimplemented target would publish nowhere, from a green workflow.
+
+    The `docs.yaml` jobs gate on equality with a known value, so a typo or a
+    host nobody wired up simply matches neither, and the run reports success
+    having deployed nothing at all.
+    """
+    with pytest.raises(ValueError, match="Unsupported sphinx.deploy 'netlify'"):
+        load_repomatic_config({
+            "tool": {"repomatic": {"sphinx": {"deploy": "netlify"}}}
+        })
 
 
 def test_load_repomatic_config_warns_unknown_keys(tmp_path, monkeypatch, caplog):

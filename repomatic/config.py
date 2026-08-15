@@ -223,6 +223,17 @@ DEFAULT_AGENT: Final[str] = "claude_code"
 DEFAULT_CI: Final[str] = "github_ci"
 """CI system assumed when `[tool.repomatic.flavor] ci` is unset."""
 
+SPHINX_DEPLOY_TARGETS: Final[frozenset[str]] = frozenset((
+    "cloudflare-pages",
+    "github-pages",
+))
+"""Hosts the Docs workflow knows how to publish a built site to.
+
+One job per target, each with the permissions its own host needs, so a value
+outside this set has no job at all behind it. `Config.__post_init__` rejects one
+rather than letting the workflow run green and publish nothing.
+"""
+
 
 def _resolve_flavor(
     value: str, group: Iterable[Any], supported: set[str], key: str
@@ -1163,6 +1174,29 @@ class Config:
     fronts the site redirects the old ones.
     """
 
+    sphinx_deploy: str = field(
+        default="github-pages",
+        metadata={CONFIG_PATH_METADATA_KEY: "sphinx.deploy"},
+    )
+    """Where the Docs workflow publishes the built documentation.
+
+    `github-pages`, the default, uploads the tree as a Pages artifact and
+    deploys it with the repository's own OIDC identity: no stored credential,
+    and nothing to configure beyond enabling Pages.
+
+    `cloudflare-pages` uploads it to a Cloudflare Pages project instead, named
+    after the repository, through `wrangler pages deploy`. That path needs two
+    repository secrets, `CLOUDFLARE_API_TOKEN` (scoped to `Account →
+    Cloudflare Pages → Edit`) and `CLOUDFLARE_ACCOUNT_ID`, and it trades the
+    OIDC deploy for a long-lived token: give it an expiry, and something that
+    fails loudly when it lapses, since Cloudflare warns about neither.
+
+    Choose it for what the edge can do rather than for speed. A custom domain on
+    Cloudflare Pages carries its own certificate, so the zone's apex can be
+    proxied, which is what a `_redirects` file, a real `404.html` and any edge
+    rule on the apex all depend on.
+    """
+
     test_matrix: TestMatrixConfig = field(
         default_factory=TestMatrixConfig,
         metadata={
@@ -1227,7 +1261,9 @@ class Config:
 
         Only a location still sitting at its default is derived, so an explicit
         `skills.location`, `subagents.location`, `agent.location` or
-        `settings.location` always wins over the flavor.
+        `settings.location` always wins over the flavor. Also rejects a
+        `sphinx.deploy` target nothing implements, which would otherwise read as
+        a workflow that runs and publishes nowhere.
         """
         default = AGENT_LAYOUTS[DEFAULT_AGENT]
         layout = self.flavor.layout
@@ -1239,6 +1275,10 @@ class Config:
             self.agent_location = layout.instructions
         if self.settings_location == default.settings:
             self.settings_location = layout.settings
+        if self.sphinx_deploy not in SPHINX_DEPLOY_TARGETS:
+            targets = ", ".join(sorted(SPHINX_DEPLOY_TARGETS))
+            msg = f"Unsupported sphinx.deploy {self.sphinx_deploy!r}. Pick one of: {targets}."
+            raise ValueError(msg)
 
 
 SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
