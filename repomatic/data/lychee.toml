@@ -6,6 +6,7 @@
 # Native format - can be used standalone as lychee.toml.
 # When merged into pyproject.toml via `repomatic init lychee`,
 # the [tool.lychee] prefix is added automatically.
+
 exclude = [
   # GitHub issue comment fragments are dynamically loaded and can't be verified.
   "^https://github.com/.+/issues/[0-9]+#issuecomment-.*$",

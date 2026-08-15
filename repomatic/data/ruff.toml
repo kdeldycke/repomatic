@@ -3,6 +3,7 @@
 # Native format - can be used standalone as ruff.toml or .ruff.toml.
 # When merged into pyproject.toml via `repomatic init ruff`,
 # the [tool.ruff] prefix is added automatically.
+
 preview = true
 fix = true
 # Unsafe fixes rewrite semantics, not just style, and the autofix workflow

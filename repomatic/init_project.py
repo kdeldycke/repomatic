@@ -180,13 +180,31 @@ def export_content(filename: str) -> str:
 
 
 def _strip_header_comments(native_source: str) -> str:
-    """Drop the leading comment block from a native-format template.
+    """Drop the file-level header block from a native-format template.
 
-    Templates ship with file-level header comments that explain the standalone
-    format (`bumpversion.toml` etc.); those comments do not belong in the
-    `[tool.X]` section grafted into `pyproject.toml`. Skip lines until the
-    first non-blank, non-comment line, then preserve the rest verbatim
-    including the source's trailing newline.
+    Templates open with header comments explaining the standalone format
+    (`bumpversion.toml` etc.); those do not belong in the `[tool.X]` section
+    grafted into `pyproject.toml`. Everything below them does, per-key comments
+    included: they are the only documentation a downstream `pyproject.toml`
+    ever carries for a key it did not write.
+
+    The header is the leading comment run **terminated by a blank line**, and
+    the blank goes with it. A leading comment run running straight into a key
+    belongs to that key and is kept, which is what separates the two shapes a
+    template may open with:
+
+    ```toml
+    # Header, blank line below.      | # Header, key right below.
+                                     | preview = true
+    # Comment owned by the key.      |
+    default.extend-identifiers = {}  |
+    ```
+
+    Skipping to the first non-comment line instead, as this did until it was
+    caught by a downstream `[tool.typos]` whose identifier map arrived
+    undocumented, swallows the second comment along with the header: six of the
+    nine bundled templates lost their first key's documentation that way. The
+    blank-line convention is pinned by `test_native_templates_separate_header`.
 
     ```{note}
     Use `splitlines(keepends=True)`, not `"\\n".join(splitlines(...))`: the
@@ -197,12 +215,15 @@ def _strip_header_comments(native_source: str) -> str:
     ```
     """
     lines = native_source.splitlines(keepends=True)
-    first_key = next(
-        i
-        for i, line in enumerate(lines)
-        if line.strip() and not line.lstrip().startswith("#")
-    )
-    return "".join(lines[first_key:])
+    header_end = 0
+    while header_end < len(lines) and lines[header_end].lstrip().startswith("#"):
+        header_end += 1
+    # No blank line below means the run documents the first key, not the file.
+    if header_end >= len(lines) or lines[header_end].strip():
+        return native_source
+    while header_end < len(lines) and not lines[header_end].strip():
+        header_end += 1
+    return "".join(lines[header_end:])
 
 
 # Sentinel marking a key absent from the template, so a legitimate template

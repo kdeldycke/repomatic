@@ -295,6 +295,64 @@ def test_exportable_file_loadable(filename: str) -> None:
     assert len(content) > 0
 
 
+@pytest.mark.parametrize(
+    "comp", [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)], ids=lambda c: c.name
+)
+def test_native_templates_separate_header(comp: ToolConfigComponent) -> None:
+    """Verify a template's file-level header ends with a blank line.
+
+    The separator is what {func}`~repomatic.init_project._strip_header_comments`
+    keys on to tell a header apart from a comment documenting the first key,
+    the two being otherwise identical: a comment run at the top of the file.
+    Running the header straight into a key hides the key's own documentation
+    behind the same rule that drops the header, so it never reaches a
+    downstream `pyproject.toml`.
+    """
+    lines = export_content(comp.source_file).splitlines()
+    header_end = 0
+    while header_end < len(lines) and lines[header_end].lstrip().startswith("#"):
+        header_end += 1
+    if not header_end:
+        return
+    assert header_end < len(lines), f"{comp.source_file} is all header"
+    assert not lines[header_end].strip(), (
+        f"{comp.source_file}: header runs into {lines[header_end]!r}. "
+        "Separate it with a blank line, or the first key's comment is dropped."
+    )
+
+
+@pytest.mark.parametrize(
+    "comp", [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)], ids=lambda c: c.name
+)
+def test_strip_header_comments_keeps_key_comments(comp: ToolConfigComponent) -> None:
+    """Verify stripping removes the header and every comment below it survives.
+
+    The second half is the one that bites: skipping to the first non-comment
+    line also passes the "header is gone" check, while silently taking the
+    first key's documentation with it.
+    """
+    source = export_content(comp.source_file)
+    stripped = ip._strip_header_comments(source)
+    # Stripping only ever removes a prefix.
+    assert source.endswith(stripped)
+    assert "Native format" not in stripped
+
+    lines = source.splitlines()
+    header_end = 0
+    while header_end < len(lines) and lines[header_end].lstrip().startswith("#"):
+        header_end += 1
+    # Every comment written below the header documents a key, so it belongs in
+    # the `[tool.X]` section: a downstream pyproject.toml has no other source
+    # of documentation for a key it did not write itself.
+    for line in lines[header_end:]:
+        if line.lstrip().startswith("#"):
+            assert line in stripped, (
+                f"{comp.source_file}: dropped key comment {line!r}"
+            )
+
+
+
+
 # Keys intentionally different between template and repomatic's own pyproject.toml.
 # - ``exclude``: key exists only in the template (for downstream), not in own config.
 # - ``superset``: every template list entry must appear in own config, but own may

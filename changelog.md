@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `repomatic init` no longer drops the comment documenting a bundled template's first key: the header-stripping rule now ends at the blank line below the file-level block rather than at the first key. Six of the nine templates were losing their opening comment, `[tool.typos]` among them, so downstream `pyproject.toml` files carried an undocumented proper-noun map.
 - `lint-deps` now warns about a dependency floor comment running past `[tool.repomatic] lint-deps.comment-word-threshold` words, 40 by default.
 - The release PR's unshippable-dependency warning is now a single line naming each package, each linked to the line declaring it, instead of a paragraph and a four-column table.
 - The bundled `[tool.typos]` config now accepts `PNGs`, which typos otherwise splits and rewrites to `ONGs`.
