@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - New `[tool.repomatic] sphinx.builder` config choosing the Sphinx builder the Docs workflow deploys, so a project can publish extension-less URLs with `dirhtml`.
+- The bundled `repomatic-ship` skill now reads a green CI run as stale when supersession cancelled every run between it and `HEAD`, and ships a release's own reflection findings in that same release.
 - Fix stale guidance in the bundled agents and skills: the `update-docs` job credited to the wrong workflow, Furo logo and OpenGraph settings contradicting a working configuration, and a `repomatic` invocation that fails outside the canonical repository.
 
 ## [`7.12.0` (2026-08-14)](https://github.com/kdeldycke/repomatic/compare/v7.11.0...v7.12.0)

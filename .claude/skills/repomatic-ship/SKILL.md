@@ -219,7 +219,7 @@ Do not merge the PR, and do not mark it ready yourself. That final human action 
 
 ### 8. Reflect and contribute back
 
-This skill, the workflows it drives, and the conventions it enforces live upstream in `kdeldycke/repomatic` and sync down to each caller; a release is when their rough edges show. Before finishing, review the session and for each finding point at the exact `../repomatic` source with a concrete fix:
+This skill, the workflows it drives, and the conventions it enforces live upstream in `kdeldycke/repomatic` and sync down to each caller; a release is when their rough edges show. Before finishing, review the session and for each finding point at the exact source with a concrete fix: `../repomatic` from a downstream repo, this very tree when the repo *is* repomatic (see [§ Shipping the findings](#shipping-the-findings-when-the-repo-is-repomatic)).
 
 - **A skill instruction that misled you or forced a judgment call you got wrong**: a dangling cross-reference, a missing step, an instruction a sub-agent should have inherited but didn't (archetype: the `Co-Authored-By` trailer dropped because the attribution note leaned on an unsynced `CLAUDE.md` section).
 - **A workflow "failure" that turned out to be a real upstream bug**: trace it to its template in `repomatic/data/` or `.github/workflows/` instead of waving it off (archetype: `release.yaml` red on every push from a `strategy.matrix` evaluating `fromJSON('')`).
@@ -230,6 +230,21 @@ Surfacing these is how the skill improves release-over-release.
 **Implement each finding in `../repomatic` when that sibling checkout exists, and stop before the commit.** Describing a fix leaves the maintainer the whole implementation; a diff already sitting in their working tree leaves them only the review, which is the step they were going to do regardless. So edit the upstream code, update whatever tests the change breaks, and verify it there (`uv run --project ../repomatic --frozen -- pytest …`). Then **do not commit, do not push, do not open a PR or an issue** — the same boundary this skill stops at downstream. Report which files you touched and what verification you ran, so the review starts from evidence rather than from your summary.
 
 Fix at the mechanism, not the symptom: a wording repeated across many generated files has one generator, and editing the generated copies leaves the next render to undo you. Check first whether the text you are about to hand-edit is emitted by a function or asserted verbatim by a test. When no `../repomatic` checkout exists, fall back to describing the finding precisely enough to act on: the file, the mechanism, and the failure it causes.
+
+#### Shipping the findings when the repo *is* repomatic
+
+**Inside `kdeldycke/repomatic` there is no `../repomatic`, and the boundary above inverts.** The canonical repo is both the subject of the release and the home of every skill, workflow and convention these findings target, so "propose it upstream" collapses into "fix it here". Leaving the diff uncommitted there buys nothing and costs the release: the next cycle ships the same rough edge, and the diff sits in the tree collecting conflicts against whatever the machinery rewrites meanwhile. Detect the case the way the invocation rule already does (the context shows `CANONICAL_REPO`), then land the findings as an ordinary reconciliation commit rather than a working-tree diff.
+
+**A late commit still ships, which is what makes folding them in possible at all.** `prepare-release` regenerates the release PR on every push to `main`, replaying the freeze onto the new HEAD, so anything pushed before the maintainer merges lands in *this* release instead of the next. That is also why the pass stays here rather than moving before step 5: the findings worth shipping mostly do not exist until babysit has surfaced what CI does and the local gate cannot.
+
+Treat that commit as a reconciliation like any other, which means four things the uncommitted-diff path never had to handle:
+
+- **Verify it with the same gate.** Run the part of step 2 the change touches: the pinned `<cmd> run mdformat` over an edited Markdown asset, `pytest tests/test_claude_assets.py tests/test_skills.py` over a bundled skill or agent, the full gate over Python. Bundled assets carry conformance tests that a docs page does not, and that difference decides how much you run.
+- **Give it a changelog bullet only when a user can observe it.** A bundled skill, agent or workflow deploys verbatim to every downstream repo, so correcting one is a shipped fix and earns an entry. A change to this skill's own release choreography is not something a downstream user consumes, and earns none. When you do add one, re-run consolidation and present the diff (step 4) before committing.
+- **Time the push by what it rebuilds** (step 6): a `.claude/`-only or docs-only commit skips the matrices yet still cancels an in-flight `release.yaml` on a binaries-enabled project. Hold it until the heavy matrices are terminal, or bundle it into the next source-affecting push.
+- **Re-verify after it lands.** The push starts a fresh round of CI and re-bases the PR, so every green you read before it is stale. Confirm each monitored workflow is green on the new HEAD and that `behind_by` is `0` again before step 7, and never report a release green from a run that predates your own last commit.
+
+**Keep the pass bounded to what the session actually surfaced.** A release is the wrong moment to land a refactor, so a finding needing more than a contained edit, or touching code the release itself depends on, stays an uncommitted diff plus a note in the step-7 report, exactly as the downstream path prescribes. The usable test is whether the gate you just ran can verify it; when it cannot, it is not a release-time change. The archetype: a session's own step-8 finding was left uncommitted under the downstream boundary, the maintainer committed it by hand as a separate change, and it missed the release it was learned in.
 
 ### Why "Rebase and merge", never squash
 
