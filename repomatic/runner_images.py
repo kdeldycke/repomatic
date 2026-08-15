@@ -593,6 +593,37 @@ def _family_in_use(
     )
 
 
+def render_change_table(changes: Sequence[RunnerChange]) -> str:
+    """Render proposed changes as a Markdown table for a pull request body.
+
+    Carries the evidence rather than just the edit: the diff already shows what
+    moved, and what a reviewer cannot see there is the deadline, the
+    announcement that set it, and the fact that an arrival is a probe rather
+    than a migration.
+
+    :param changes: Changes from {func}`plan_runner_changes`.
+    :return: A GitHub-flavored Markdown table, newline-terminated.
+    """
+    rows = [
+        "| Change | What | Deadline | Announcement |",
+        "| :----- | :--- | :------- | :----------- |",
+    ]
+    for change in changes:
+        kind = "🔴 retirement" if change.kind == "retirement" else "🆕 probe"
+        where = (
+            f"`{change.label}` → `{change.successor}` in "
+            + ", ".join(f"`{location}`" for location in change.locations)
+            if change.kind == "retirement"
+            else f"`{change.label}` joins the matrix as `continue-on-error`"
+        )
+        title = sanitize_markdown_mentions(change.announcement_title)
+        rows.append(
+            f"| {kind} | {where} | {change.target_date or '—'} "
+            f"| [{title}]({change.announcement_url}) |"
+        )
+    return "\n".join(rows) + "\n"
+
+
 RUNS_ON_RE_TEMPLATE = (
     r"(?P<prefix>^[ \t]*runs-on:[ \t]*)(?P<quote>['\"]?){label}(?P=quote)[ \t]*$"
 )
@@ -635,6 +666,45 @@ def apply_retirement(change: RunnerChange, workflow_dir: Path) -> list[Path]:
             path.write_text(after, encoding="UTF-8")
             touched.append(path)
     return touched
+
+
+AXIS_LABEL_RE_TEMPLATE = r'(?P<quote>["\']){label}(?P=quote)'
+"""A runner label as a quoted string literal in the curated axes.
+
+Rewritten as text for the same reason a `runs-on:` is: the axes are a hand-kept
+tuple carrying comments and an ordering that says which runner is the fast one,
+and rebuilding the module from an AST would discard both.
+"""
+
+
+def apply_axes_retirement(change: RunnerChange, axes_path: Path) -> bool:
+    """Move a retiring label forward in the curated test-matrix axes.
+
+    Only meaningful inside `kdeldycke/repomatic`, where the axes live. A repo
+    consuming repomatic inherits them through the pin, so its matrix moves when
+    it adopts a release rather than when it edits anything.
+
+    This is the highest-blast-radius edit the operation makes: every downstream
+    repository picks these axes up at the next release. That is the argument
+    for proposing it in a pull request whose own CI runs the full matrix on the
+    new image, rather than for not proposing it.
+
+    :param change: A `retirement` change from {func}`plan_runner_changes`.
+    :param axes_path: Path to `matrix_axes.py`.
+    :return: Whether the file was modified.
+    """
+    if not axes_path.is_file():
+        return False
+    pattern = re.compile(AXIS_LABEL_RE_TEMPLATE.format(label=re.escape(change.label)))
+    before = axes_path.read_text(encoding="UTF-8")
+    after = pattern.sub(
+        lambda match: f"{match.group('quote')}{change.successor}{match.group('quote')}",
+        before,
+    )
+    if after == before:
+        return False
+    axes_path.write_text(after, encoding="UTF-8")
+    return True
 
 
 def apply_arrival(change: RunnerChange, pyproject_path: Path) -> bool:

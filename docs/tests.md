@@ -306,6 +306,15 @@
    :undoc-members:
 ```
 
+## `tests.test_job_timings` module
+
+```{eval-rst}
+.. automodule:: tests.test_job_timings
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_labels` module
 
 ```{eval-rst}
@@ -463,6 +472,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_runner_images
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_runner_sync` module
+
+```{eval-rst}
+.. automodule:: tests.test_runner_sync
    :members:
    :show-inheritance:
    :undoc-members:

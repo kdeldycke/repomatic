@@ -321,7 +321,16 @@ def test_get_template_names():
     assert "format-shell" in names
     assert "setup-guide-pypi-trusted-publisher" in names
     assert "sync-dep-sources" in names
-    assert len(names) == 49
+    assert "sync-runner-images" in names
+    # Counted off the directory rather than written here: a literal turns
+    # adding a template into a failure of a test that has nothing to say about
+    # it, while still catching a name discovered twice or not at all.
+    assert len(names) == len(set(names))
+    assert set(names) == {
+        item.name.removesuffix(".noformat").removesuffix(".md")
+        for item in files("repomatic.templates").iterdir()
+        if item.name.endswith((".md", ".md.noformat"))
+    }
 
 
 def test_load_template_frontmatter():

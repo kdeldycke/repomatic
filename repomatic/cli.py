@@ -194,7 +194,7 @@ from .images import (
     generate_markdown_summary,
     optimize_images,
 )
-from .init_project import prune_paths, run_init
+from .init_project import is_source_repo, prune_paths, run_init
 from .labels import (
     apply_labels,
     match_content_rules,
@@ -236,10 +236,12 @@ from .registry import (
 from .runner_catalog import fetch_catalog
 from .runner_images import (
     apply_arrival,
+    apply_axes_retirement,
     apply_retirement,
     fetch_announcements,
     manage_runner_images_issue,
     plan_runner_changes,
+    render_change_table,
 )
 from .setup_guide import manage_setup_guide
 from .sync_ops import (
@@ -411,6 +413,18 @@ template_arg_option = option(
         " multiple. Use this to feed template variables not covered by the"
         " dedicated --version / --part / --pr-ref flags. Example:"
         " --template-arg channel=Nix."
+    ),
+)
+template_arg_file_option = option(
+    "--template-arg-file",
+    "template_arg_files",
+    multiple=True,
+    metavar="KEY=PATH",
+    help=(
+        "Read a template value from a file. Repeat to provide multiple. Use"
+        " this for a value with no ceiling on its size, like a generated table:"
+        " a report travels as a path rather than inline. Example:"
+        " --template-arg-file summary=proposal.md."
     ),
 )
 template_version_option = option(
@@ -850,8 +864,16 @@ def ci_status(
     default=False,
     help="Report the changes without writing them.",
 )
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True),
+    help=(
+        "Write the proposal as a Markdown table to this file, for feeding a"
+        " pull request body through `pr-sync --template-arg-file`."
+    ),
+)
 @pass_context
-def sync_runner_images(ctx: Context, dry_run: bool) -> None:
+def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None:
     """Move retiring runner images forward, and probe arriving ones.
 
     Two shapes, deliberately asymmetric. A **retirement** rewrites every
@@ -889,6 +911,10 @@ def sync_runner_images(ctx: Context, dry_run: bool) -> None:
     )
     if not changes:
         echo("No runner image change to propose.")
+        if output:
+            # An empty file rather than none: the workflow step feeding it to
+            # `pr-sync` should not have to branch on whether it exists.
+            output.write_text("", encoding="UTF-8")
         ctx.exit(0)
 
     for change in changes:
@@ -901,8 +927,18 @@ def sync_runner_images(ctx: Context, dry_run: bool) -> None:
         if change.kind == "retirement":
             for path in apply_retirement(change, WORKFLOW_DIR):
                 echo(f"  rewrote {path.name}")
+            # Only here do the curated axes exist to move. Downstream they
+            # arrive through the pin, so a repo consuming repomatic picks the
+            # new matrix up when it adopts a release.
+            axes = Path("repomatic/matrix_axes.py")
+            if is_source_repo(Path.cwd()) and apply_axes_retirement(change, axes):
+                echo(f"  rewrote {axes.name} (every downstream matrix follows)")
         elif apply_arrival(change, Path("pyproject.toml")):
             echo("  added a continue-on-error probe to pyproject.toml")
+
+    if output:
+        output.write_text(render_change_table(changes), encoding="UTF-8")
+        echo(f"Wrote {output}")
 
 
 _job_timings_sort = SortByOption(*JOB_TIMINGS_HEADER_DEFS, default="median")
@@ -1170,6 +1206,7 @@ def lock_threads(
     ),
 )
 @template_arg_option
+@template_arg_file_option
 @template_version_option
 @template_part_option
 @option(
@@ -1195,6 +1232,7 @@ def pr_body(
     template: str | None,
     template_file: Path | None,
     template_args_cli: tuple[str, ...],
+    template_arg_files: tuple[str, ...],
     version: str | None,
     part: str | None,
     pr_ref: str | None,
@@ -1248,6 +1286,7 @@ def pr_body(
         template=template,
         template_file=template_file,
         template_args_cli=template_args_cli,
+        template_arg_files=template_arg_files,
         version=version,
         part=part,
         pr_ref=pr_ref,
@@ -1274,6 +1313,7 @@ def _render_pr_content(
     template: str | None = None,
     template_file: Path | None = None,
     template_args_cli: tuple[str, ...] = (),
+    template_arg_files: tuple[str, ...] = (),
     version: str | None = None,
     part: str | None = None,
     pr_ref: str | None = None,
@@ -1331,6 +1371,17 @@ def _render_pr_content(
             raise UsageError(msg)
         key, _, raw_value = entry.partition("=")
         cli_extra_args[key.strip()] = raw_value
+    # Read after the inline pairs, so a file wins on a key given both ways.
+    for entry in template_arg_files:
+        if "=" not in entry:
+            msg = f"--template-arg-file expects KEY=PATH, got {entry!r}."
+            raise UsageError(msg)
+        key, _, raw_path = entry.partition("=")
+        path = Path(raw_path)
+        if not path.is_file():
+            msg = f"--template-arg-file cannot read {raw_path!r}."
+            raise UsageError(msg)
+        cli_extra_args[key.strip()] = path.read_text(encoding="UTF-8").strip()
 
     # Map argument names to their values or callables. CLI-provided extras
     # override built-in flag-driven sources so callers can pass any name.
@@ -1423,6 +1474,7 @@ def _render_pr_content(
     "to the file's stem.",
 )
 @template_arg_option
+@template_arg_file_option
 @template_version_option
 @template_part_option
 @option(
@@ -1497,6 +1549,7 @@ def pr_sync(
     template: str | None,
     template_file: Path | None,
     template_args_cli: tuple[str, ...],
+    template_arg_files: tuple[str, ...],
     version: str | None,
     part: str | None,
     branch: str | None,
@@ -1557,6 +1610,7 @@ def pr_sync(
             template=template,
             template_file=template_file,
             template_args_cli=template_args_cli,
+        template_arg_files=template_arg_files,
             version=version,
             part=part,
         )

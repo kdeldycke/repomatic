@@ -11,7 +11,8 @@
 - New bundled `repomatic-test-matrix` skill deciding which Python versions, operating systems and runner images earn a test-matrix cell.
 - Bundled guidance moves its release-repair, label-retirement and test-matrix procedures out of `claude.md` and into the skills that run them, leaving the always-loaded file carrying rules rather than checklists.
 - New `job-timings` command reporting median whole-job wall-clock per runner image, read from recent successful runs.
-- New `sync-runner-images` command moving a retiring runner image onto its successor, and adding a newly available one to the test matrix as a `continue-on-error` probe.
+- New `sync-runner-images` command and weekly job opening a pull request that moves a retiring runner image onto its successor, or adds a newly available one to the test matrix as a `continue-on-error` probe. Decline one for good with `[tool.repomatic.sync-runner-images] ignore`.
+- New `pr-body` and `pr-sync` option `--template-arg-file KEY=PATH`, reading a template value from a file for a value with no ceiling on its size.
 - `runner-images` now opens its issue only when an open announcement names an image this repository runs on, rather than whenever GitHub has any announcement in flight.
 - `runner-images` now resolves the images an announcement concerns through GitHub's available-images table as well as its impact section, so a newly available image is reported instead of silently matching nothing.
 - The `runner-images` issue gains **Platform** and **Labels** columns, naming what each announcement is about whether or not it touches this repository.

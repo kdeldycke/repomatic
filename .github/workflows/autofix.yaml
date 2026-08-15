@@ -90,6 +90,42 @@ jobs:
           REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
         run: uv --no-progress run --frozen -- repomatic runner-images
 
+  sync-runner-images:
+    name: 🖥️ Sync runner images
+    # Schedule-only for the same reason the issue job is: the announcements move
+    # on GitHub's clock, not on a push here, and a retirement carries months of
+    # notice. Running it per-push would re-propose on every commit and burn a
+    # readme read each time.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.3"
+      # The proposal feeds the pull request body and is not repository content,
+      # so it is written outside the work tree rather than written in and then
+      # excluded from the commit by a pathspec.
+      - name: Propose runner image changes
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+          PROPOSAL: ${{ runner.temp }}/runner-images-proposal.md
+        run: >
+          uv --no-progress run --frozen -- repomatic
+          sync-runner-images --output "$PROPOSAL"
+      - name: Sync pull request
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+          PROPOSAL: ${{ runner.temp }}/runner-images-proposal.md
+        run: >
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template sync-runner-images
+          --template-arg-file proposal="$PROPOSAL"
+
   metadata:
     name: 🧬 Project metadata
     # Skipping this job propagates to every `needs: metadata` job below, so the
