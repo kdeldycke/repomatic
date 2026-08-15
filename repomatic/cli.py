@@ -1612,7 +1612,7 @@ def pr_sync(
             template=template,
             template_file=template_file,
             template_args_cli=template_args_cli,
-        template_arg_files=template_arg_files,
+            template_arg_files=template_arg_files,
             version=version,
             part=part,
         )

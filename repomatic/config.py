@@ -1106,7 +1106,6 @@ class Config:
     disable, which keeps the job silent.
     """
 
-
     setup_guide: bool = True
     """Whether the setup guide issue is enabled for this project.
 
