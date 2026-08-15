@@ -126,6 +126,15 @@
    :undoc-members:
 ```
 
+## `tests.test_claude_md` module
+
+```{eval-rst}
+.. automodule:: tests.test_claude_md
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_config` module
 
 ```{eval-rst}

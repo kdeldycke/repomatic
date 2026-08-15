@@ -2,20 +2,28 @@
 
 ## Downstream repositories
 
+<!-- audience: upstream -->
+
 This repository is the **canonical reference** for conventions. Repos using the `repomatic` CLI and its [`[tool.repomatic]` configuration](https://kdeldycke.github.io/repomatic/configuration.html) should mirror the patterns here for code style, documentation, testing, and design.
 
 **Contributing upstream:** Propose improvements to the `repomatic` CLI, configuration, reusable workflows, or this file via PR or issue at [`kdeldycke/repomatic`](https://github.com/kdeldycke/repomatic/issues).
 **Upstream runtime dependency boundary:** The only runtime dependency on upstream is reusable workflow `uses:` calls (like `kdeldycke/repomatic/.github/workflows/autofix.yaml@vX.Y.Z`), pinned to a git tag. Other references (PR body links, footer attribution) are informational. Do not introduce new runtime dependencies (Renovate shareable presets, remote config extends, API calls): they create unversioned coupling where upstream breaks cascade to all downstream repos.
 
-**Self-contained `claude.md`:** This file deploys as-is to downstream repos via `repomatic init`, so it must stand on its own: do not rely on user-level `~/.claude/CLAUDE.md` or other external instruction files. Every rule Claude needs must be inline here.
+**Self-contained `claude.md`:** A section that reaches downstream must stand on its own, because neither a user-level `~/.claude/CLAUDE.md` nor any other external instruction file is guaranteed to exist in a contributor's checkout. Every rule Claude needs there must be inline. Which sections travel is declared per section: see [§ Section audience tags](#section-audience-tags).
+
+**The push is not mechanical yet.** No `claude` component exists in {data}`~repomatic.registry.COMPONENTS`, so downstream copies are hand-maintained and have drifted badly: of the sections nominally shared with this file, roughly four in five have diverged, and three of the six downstream repos carry almost none of them. Until `repomatic init` owns the tagged sections, treat a downstream `claude.md` as stale rather than as evidence of what a repo was told.
 
 ## Cooldown on every install
+
+<!-- audience: all -->
 
 **Every command that resolves a package from a live registry carries a cooldown, except where this section names otherwise.** A cooldown refuses any version published more recently than a fixed window, so a compromised release has to survive that window before it can enter a build. Most malicious releases (stolen publishing credentials, dependency confusion, account takeover) are [caught and pulled within days of publication](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), which is what makes a window of days worth the delay it costs.
 
 The rule has **no scratch exemption**. It binds reusable workflows, one-off CI steps, test scripts, local reproduction commands, and throwaway experiments equally: an uncooled `uvx` in a five-minute debugging step resolves the same tree from the same registry onto the same runner as a production job. If you type an install command, it carries the cooldown. The exceptions are the three [documented exemptions](#documented-exemptions) below, and nothing else.
 
 ### A cooldown is not a hash
+
+<!-- audience: all -->
 
 The two guarantees are independent, and most of what CI installs has only one of them. Know which you are relying on before calling something verified.
 
@@ -35,6 +43,8 @@ Prefer a binary from the tool registry when one exists: it is the only path that
 
 ### Where the window comes from
 
+<!-- audience: all -->
+
 `[tool.repomatic] minimum-release-age` (default `1 week`) is the single source of truth. Never hard-code a duration next to an install command: read it from config, or from the `npm_min_release_age_days` output `repomatic metadata` derives from it.
 
 Two files carry the duration as a literal instead, and both are pinned back to that source by a conformance test rather than trusted:
@@ -47,6 +57,8 @@ That makes the cooldown the one place an environment variable beats an explicit 
 A command that resolves against a checked-in lockfile is the exception that needs the flag *back*. `uv lock` and `uv sync` are governed by the project's own `[tool.uv] exclude-newer`, and an ambient `UV_EXCLUDE_NEWER` silently overrides it, so CI would lock to a different window than a developer running the same command. `sync-uv-lock` therefore passes `--exclude-newer` explicitly, sourced from `[tool.uv]`: a CLI flag outranks the environment.
 
 ### Per-ecosystem knobs
+
+<!-- audience: all -->
 
 | Ecosystem                                                                             | Cooldown                                                           | Per-package exemption                                   |
 | :------------------------------------------------------------------------------------ | :----------------------------------------------------------------- | :------------------------------------------------------ |
@@ -64,11 +76,15 @@ For any other package manager, consult [meta-package-manager's cooldown inventor
 
 ### Live registries with no cooldown knob
 
+<!-- audience: all -->
+
 Fail closed. When a *live registry* client has no cooldown knob, do not hand it a floating version range. Either pin an exact version that a cooldown-gated updater already vetted (`sync-action-pins`, `sync-tool-versions` and `sync-workflow-pins` all apply `minimum-release-age` before proposing a bump), or route the install through a client that has one. An unpinned install against a self-service registry is the exact thing this rule exists to prevent.
 
 Check the [inventory](https://kdeldycke.github.io/meta-package-manager/cooldown.html#supported-managers) before concluding a client is knob-less, because they keep gaining one: `pip` grew `--uploaded-prior-to` / `PIP_UPLOADED_PRIOR_TO` in `26.1`, and `pipx` inherits it from the pip inside each venv it manages. A knob with a version floor also fails *open* on older releases, quietly ignoring the flag rather than erroring, so pair it with a floor check the way `repomatic run` does for npm (`NPM_MIN_VERSION_FOR_COOLDOWN`).
 
 ### Distro archives are out of scope, not an exception
+
+<!-- audience: all -->
 
 `apt` and its peers are **not** live registries, and this rule was never about them. A stable archive is frozen at release and moves only through the distro's own staging: Debian's migration windows are a cooldown, implemented one layer down and measured in weeks rather than days. Nobody self-publishes into it, which is the property the window exists to compensate for everywhere else.
 
@@ -86,6 +102,8 @@ Write the `apt-get` calls you do keep so they pull as little as possible:
 
 ### Documented exemptions
 
+<!-- audience: all -->
+
 Three installs deliberately bypass the window. The first two are per-package and never widen to the rest of the tree; the third is a whole job, and says why it has to be.
 
 - **The upstream toolkit's own pin.** `repomatic` runs from a pin that moves in lockstep with the `uses:` refs pointing at it, so a release must be installable the minute it is published or every downstream repo breaks until the window elapses. The release freeze emits an `--exclude-newer-package` escape hatch beside the pin it writes.
@@ -98,15 +116,17 @@ That inventory is this repository's own. A downstream repo runs the same rule ag
 
 ```toml
 [tool.uv]
-# plumage is my own theme, published by me: the cooldown guards against a
-# compromised upstream, which does not apply here, and it otherwise holds each
-# release back a week from the one repository that consumes it.
-exclude-newer-package = { plumage = "0 days" }
+# apricot is published by this repository's own maintainer: the cooldown guards
+# against a compromised upstream, which does not apply here, and it otherwise
+# holds each release back a week from the one repository that consumes it.
+exclude-newer-package = { apricot = "0 days" }
 ```
 
 Declaring it in `pyproject.toml` rather than in a machine's `~/.config/uv/uv.toml` is what makes a fresh clone resolve the same way, and keeps the exemption reviewable in a diff. It stays a bypass and not a hole: the transitive tree that release pulls in is still gated, and that tree is the part the maintainer did not publish.
 
 ## A release ships only released dependencies
+
+<!-- audience: all; scope: package -->
 
 Consuming a dependency from a git branch, a fork, a local path or a private index is the right move mid-cycle, and `[tool.uv.sources]` exists for it. Releasing while one is in place is not: source overrides never reach the published metadata, so the wheel builds and uploads exactly as it would have, and only the *install* fails. Nothing in this repository can feel it, because every workflow here installs from `uv.lock` and resolves straight through the override.
 
@@ -116,7 +136,32 @@ The gate runs in four places, and the release lane's copy is the backstop, not t
 
 ## Documentation requirements
 
+<!-- audience: all -->
+
+### Section audience tags
+
+<!-- audience: all -->
+
+Every heading below carries an HTML comment declaring who the section is written for. The tag is what lets `repomatic init` push the right subset into each repo, `lint-repo` report drift on what it pushed, and `repomatic-audit` tell a managed section from a repo-owned one without fetching upstream.
+
+| Tag                             | Reaches                                                               |
+| :------------------------------ | :-------------------------------------------------------------------- |
+| `<!-- audience: all -->`        | This repository and every downstream repo.                            |
+| `<!-- audience: upstream -->`   | `kdeldycke/repomatic` only. Never deployed.                           |
+| `<!-- audience: downstream -->` | Repos consuming repomatic; not repomatic itself, which consumes none. |
+
+A `; scope:` qualifier narrows an audience to a repository type, mirroring {class}`~repomatic.registry.RepoScope`. Only `package` is defined so far (`<!-- audience: all; scope: package -->`), covering the release lane: it skips a uv virtual project, which locks and tests like any Python repo but has nothing to publish, tag or write release notes for. A `python` scope is deliberately absent while every repo in the set is Python, since it would ship with no members distinct from the default.
+
+Two rules hold the tags together, both enforced by `tests/test_claude_md.py`:
+
+- **Every section is tagged.** An untagged heading has no declared reach, so a sync cannot place it and a reader cannot tell whether it binds them.
+- **A subsection never reaches wider than its parent.** An `all` section under an `upstream` heading would deploy with no heading above it, arriving as an orphan under whatever section precedes it.
+
+A section a downstream repo wrote for itself carries no tag and is never touched: the sync owns the tagged sections and nothing else.
+
 ### Keeping `claude.md` lean
+
+<!-- audience: all -->
 
 `claude.md` must contain only conventions, policies, rationale, and non-obvious rules Claude cannot discover by reading the codebase. Actively remove:
 
@@ -126,6 +171,8 @@ The gate runs in four places, and the release lane's copy is the backstop, not t
 - **Implementation details readable from code**: what a function does. Only the *rationale* for non-obvious choices belongs here.
 
 ### Changelog and docs updates
+
+<!-- audience: all; scope: package -->
 
 Always update documentation when making changes:
 
@@ -143,6 +190,8 @@ Use `**Breaking:**` when a surface the reader actually consumes is gone and thei
 To back a `**Deprecated:**` change in code, keep the old name importable for one cycle instead of deleting it: resolve it through an alias registry in a PEP 562 module `__getattr__` hook that emits the `DeprecationWarning` and redirects to the replacement, then remove it in the release the entry named. Reserve a hard `**Breaking:**` removal for a surface that genuinely cannot keep working. The `_deprecated.py` modules in `click-extra` and `extra-platforms` are reference implementations.
 
 #### Changelog entry length
+
+<!-- audience: all; scope: package -->
 
 A changelog entry is a **release note**, not a commit message or PR description. The reader scans to decide: does this affect me, and must I do anything? Write the shortest bullet that answers both.
 
@@ -162,6 +211,8 @@ A changelog entry is a **release note**, not a commit message or PR description.
 
 ### Documentation sync (upstream maintainers)
 
+<!-- audience: upstream -->
+
 ```{note}
 Applies only when developing the `kdeldycke/repomatic` package itself. Repos that use `repomatic` through its reusable workflows can skip this section.
 ```
@@ -169,6 +220,8 @@ Applies only when developing the `kdeldycke/repomatic` package itself. Repos tha
 When working inside `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Documentation sync](https://kdeldycke.github.io/repomatic/upstream-development.html#documentation-sync) for the canonical list of documentation artifacts that must stay in sync with the package source code (PAT permissions, workflow job descriptions, version references, auto-generated tables).
 
 ### Knowledge placement
+
+<!-- audience: all -->
 
 Each piece of knowledge has one canonical home, chosen by audience; other locations get a brief pointer ("See `module.py`.").
 
@@ -186,23 +239,35 @@ Each piece of knowledge has one canonical home, chosen by audience; other locati
 
 ### Documenting code decisions
 
+<!-- audience: all -->
+
 Document design decisions, trade-offs, and non-obvious choices in the code: MyST docstring admonitions (```` ```{warning} ````, ```` ```{note} ````, ```` ```{caution} ````), inline comments, and module-level docstrings for constants that need context.
 
 ### Example data
+
+<!-- audience: all -->
 
 Example data everywhere (docs, docstrings, comments, workflows, fixtures) must be domain-neutral: cities, weather, fruits, animals, recipes. Do not reference the project, software engineering concepts, or package metadata. The reader should understand the example without knowing what the project is.
 
 ## File naming conventions
 
+<!-- audience: all -->
+
 ### Extensions: prefer long form
+
+<!-- audience: all -->
 
 Use the longest, most explicit file extension. For YAML, `.yaml` (not `.yml`); likewise `.html` not `.htm`, `.jpeg` not `.jpg`.
 
 ### Filenames: lowercase
 
+<!-- audience: all -->
+
 Use lowercase filenames everywhere. Avoid shouting-case names like `FUNDING.YML` or `README.MD`.
 
 ### GitHub exceptions
+
+<!-- audience: all -->
 
 GitHub silently ignores certain files unless they use the exact name it expects. These are the known hard constraints where you **cannot** use `.yaml` or lowercase:
 
@@ -219,7 +284,11 @@ Workflows (`.github/workflows/*.yaml`) and action metadata (`action.yaml`) suppo
 
 ## Code style
 
+<!-- audience: all -->
+
 ### Terminology and spelling
+
+<!-- audience: all -->
 
 Use correct capitalization for proper nouns and trademarked names:
 
@@ -237,6 +306,8 @@ Use correct capitalization for proper nouns and trademarked names:
 
 ### Version formatting
 
+<!-- audience: all -->
+
 The version string is always bare (`1.2.3`). The `v` prefix is a **tag namespace**: it only appears when the reference is to a git tag or something derived from one (action ref, comparison URL, commit message). This aligns with PEP 440, PyPI, and semver.
 
 **Rules:**
@@ -247,6 +318,8 @@ The version string is always bare (`1.2.3`). The `v` prefix is a **tag namespace
 4. **Development versions** follow PEP 440: `1.2.3.dev0` with optional `+{short_sha}` local identifier.
 
 ### Commit messages
+
+<!-- audience: all -->
 
 **Default to a subject line and nothing else, when there is no context to link.** Measured across this repository's history, 93% of hand-written commits are subject-only, and of the few carrying a body, 77% hold it to one paragraph. A commit message is a log entry, not a design document.
 
@@ -259,9 +332,13 @@ Never narrate the work in sequence or enumerate the files touched: `git log --st
 
 ### GitHub cross-references in commit messages and PRs
 
+<!-- audience: all -->
+
 Never write `#N` (a literal `#` followed by a number) in commit messages, PR titles, or PR bodies unless N is an actual issue/PR number in the target repo. GitHub auto-links every `#N`, so positional refs like `test #1` render as misleading cross-references. Use plain numbers (`test 1`, `tests 14 and 15`), backtick-quote a slot identifier (`` test `1` ``), or rephrase (`the first test`).
 
 ### Linking to external repositories in Markdown
+
+<!-- audience: all -->
 
 In Markdown (changelog, `readme.md`, `docs/`, issue and PR bodies), link to another repository using GitHub's reference slug as the link text, not the raw URL:
 
@@ -272,6 +349,8 @@ In Markdown (changelog, `readme.md`, `docs/`, issue and PR bodies), link to anot
 GitHub autolinks the bare `owner/repo#N` form only inside conversations (issues, PRs, commit messages), never in committed files, so the explicit link is what renders the compact slug in a Markdown file. Same-repo references drop the slug: `[#N](…/issues/N)`.
 
 ### Comments and docstrings
+
+<!-- audience: all -->
 
 - All comments in Python files must end with a period.
 - Docstrings use MyST markdown (single-backtick inline code, `[text](url)` links, `` {role}`target` `` cross-references, ```` ```{directive} ```` admonitions); `click_extra.sphinx.myst_docstrings` converts to reST at build time. For Sphinx operational detail (fence style, `click-extra convert-to-myst`, page rosters, `conf.py` hygiene), see `.claude/agents/sphinx-docs.md`.
@@ -285,9 +364,13 @@ GitHub autolinks the bare `owner/repo#N` form only inside conversations (issues,
 
 ### `__init__.py` files
 
+<!-- audience: all -->
+
 Keep `__init__.py` minimal (easy to overlook): no logic, constants, or re-exports. Acceptable: license headers, package docstrings, `from __future__ import annotations`, `__version__`. Anything else belongs in a named module.
 
 ### Imports
+
+<!-- audience: all -->
 
 - Import from the root package (`from {package} import cli`), not submodules, when possible.
 - Imports go at the top of the file unless avoiding circular imports. **Never use local imports inside functions**: they hide dependencies and bypass ruff's import sorting.
@@ -295,21 +378,31 @@ Keep `__init__.py` minimal (easy to overlook): no logic, constants, or re-export
 
 ### `TYPE_CHECKING` block
 
+<!-- audience: all -->
+
 Place a module-level `TYPE_CHECKING` block after all imports (including version-dependent ones). Use `TYPE_CHECKING = False` (not `from typing import TYPE_CHECKING`) to avoid importing `typing` at runtime. **Only add it when there is a corresponding `if TYPE_CHECKING:` block**: a bare assignment with no consumer is dead code, so if all type-checking imports are removed, remove the assignment too.
 
 ### Modern `typing` practices
+
+<!-- audience: all -->
 
 Use `collections.abc` and built-in types instead of `typing` imports; `X | Y` not `Union`, `X | None` not `Optional`. New modules include `from __future__ import annotations` ([PEP 563](https://peps.python.org/pep-0563/)).
 
 ### Minimal inline type annotations
 
+<!-- audience: all -->
+
 Omit annotations on locals, loop variables, and assignments when mypy can infer from the right-hand side. Add one only when mypy errors (empty collections needing an element type like `items: list[Package] = []`, ambiguous `None` init, unions mypy can't narrow). Always annotate function parameters and return types.
 
 ### Python 3.10 compatibility
 
+<!-- audience: all -->
+
 Project supports Python 3.10+. Unavailable syntax: multi-line f-string expressions (3.12+; split into concatenated strings), exception groups / `except*` (3.11+), `Self` type hint (3.11+; use `from typing_extensions import Self`).
 
 ### YAML workflows
+
+<!-- audience: all -->
 
 Single-line commands: plain inline `run:`. Multi-line: the folded block scalar (`>`), which joins lines with spaces (no backslash continuations); use the literal scalar (`|`) only when preserved newlines are required (multi-statement scripts, heredocs).
 
@@ -318,6 +411,8 @@ YAML lines may run to 120 characters (`yamllint.yaml` sets `line-length: max: 12
 Jobs run on a test-matrix runner (`ubuntu-26.04` for the x86 default), and downstream workflows inherit it. Never reach for a `-latest` alias: GitHub repoints those without a commit to review, and `lint-repo` rejects them.
 
 ### Naming conventions for automated operations
+
+<!-- audience: all -->
 
 CLI commands, workflow job IDs, PR branch names, and PR body template names must share the same verb prefix, keeping the conventions learnable and grepable.
 
@@ -344,9 +439,13 @@ CLI commands, workflow job IDs, PR branch names, and PR body template names must
 
 ### Automated operation contracts
 
+<!-- audience: all -->
+
 Every automated operation follows the [naming conventions](#naming-conventions-for-automated-operations) and is [idempotent](#idempotency-by-default). For the detailed checklists of required properties, invariants, and optional elements for each operation type (sync, update, format/fix, lint, pack, scan, PR body templates), see [`docs/operation-contracts.md`](https://kdeldycke.github.io/repomatic/operation-contracts.html).
 
 ### Ordering conventions
+
+<!-- audience: all -->
 
 Keep definitions sorted for readability and to minimize merge conflicts:
 
@@ -357,15 +456,21 @@ Keep definitions sorted for readability and to minimize merge conflicts:
 
 ### Named constants
 
+<!-- audience: all -->
+
 Do not inline named constants during refactors: a named, documented constant exists for readability and grep-ability. When moving code between modules, carry the constant with it, don't replace it with a literal.
 
 ### Single source of truth for defaults
+
+<!-- audience: all -->
 
 Every configurable default lives in exactly one place: the canonical config dataclass field default (the `Config` dataclass in `repomatic/config.py`). All code derives it from the source (class-level default for static contexts, instance value at runtime) rather than repeating the literal across registry entries, CLI option fallbacks, parameter defaults, or module-level paths. When adding a default, grep for the literal and point any other occurrence at the source.
 
 A config field also surfaces in serialized command output (a non-string default needs format-safe encoding) and in test fixtures enumerating the config surface: run the full test suite after adding or removing a field, not just the module's own tests.
 
 ## Release checklist (upstream maintainers)
+
+<!-- audience: upstream -->
 
 ```{note}
 Applies only when releasing the `kdeldycke/repomatic` package itself. Repos that use `repomatic` follow their own release process.
@@ -374,6 +479,8 @@ Applies only when releasing the `kdeldycke/repomatic` package itself. Repos that
 When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Release checklist](https://kdeldycke.github.io/repomatic/upstream-development.html#release-checklist) for the complete list and links to the workflow design rationale.
 
 ## Testing guidelines
+
+<!-- audience: all -->
 
 - Use `@pytest.mark.parametrize` for the same logic over multiple inputs, rather than copy-pasted test functions differing only in data.
 - Keep test logic simple with straightforward asserts.
@@ -389,6 +496,8 @@ When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Rel
 
 ### Choosing test-matrix targets
 
+<!-- audience: all -->
+
 `repomatic metadata` builds the full and PR test matrices from `[tool.repomatic.test-matrix.*]`. For the config reference, a runner-speed inventory, and a worked example, see [`docs/test-matrix.md`](https://kdeldycke.github.io/repomatic/test-matrix.html). The selection conventions:
 
 - **Cover the shipped config broadly; probe unreleased axes narrowly; smoke-test released flavors.** Released dependencies on stable Python get the full cross-platform spread. Unreleased dependency branches and prerelease Python run on one runner as `continue-on-error` probes (`test-matrix.unstable`), never across platforms. A released free-threaded build (`3.14t`) runs **stable** on a single runner (a `python-version` variation pinned with `exclude`, left out of `unstable`), not as an `unstable` probe.
@@ -400,15 +509,21 @@ When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Rel
 
 ## Agent conventions
 
+<!-- audience: all -->
+
 This repository uses three Claude Code agents in `.claude/agents/`. Definitions stay lean: if a rule belongs in `CLAUDE.md`, put it there and reference it. Do not duplicate.
 
 **Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init agents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline or reference `claude.md` sections, not upstream `docs/` URLs or upstream-only paths. When mining session history, default to local `claude.md` updates; file an upstream proposal only when the pattern is generic across repos.
 
 ### Source of truth hierarchy
 
+<!-- audience: all -->
+
 `CLAUDE.md` defines the rules; the codebase and GitHub (issues, PRs, CI logs) are what you measure against them. When they disagree, fix the code to match; if the rules are wrong, fix `CLAUDE.md`.
 
 ### Common maintenance pitfalls
+
+<!-- audience: all -->
 
 Patterns that recur across sessions, to watch for proactively:
 
@@ -427,6 +542,8 @@ Patterns that recur across sessions, to watch for proactively:
 
 ### Agent behavior policy
 
+<!-- audience: all -->
+
 - **Never post to the web without explicit approval.** Do not create or comment on GitHub issues, PRs, or discussions, or post to any external service, without the user's explicit go-ahead. If approval is blocking, draft the content in a temporary markdown file for review.
 - Agents make fixes in the working tree only: never commit, push, or create PRs. Exception: skills that run autonomously (`/babysit-ci`, `/repomatic-ship`) may commit and push, and include a `Co-Authored-By` trailer by default; a maintainer's explicit standing rule against AI attribution overrides that default, since the trailer lands in their repository's permanent history. Follow the skill's instructions when they override this rule.
 - **Land an upstream proposal as working-tree edits in the sibling checkout, not as prose.** When work in a downstream repo surfaces a bug or rough edge that belongs to `repomatic`, and a sibling checkout exists at `../repomatic`, implement the change there directly: edit the code, update the tests it breaks, and verify it. Then stop, leaving every change uncommitted and unpushed. A described fix costs the maintainer the whole implementation; a diff sitting in the tree costs them a review, which is the step they were always going to do themselves. This does not relax the rule above: no commit, no push, no PR, no issue. Confine the edits to what the finding justifies, and say plainly which files were touched and what verification was run.
@@ -436,6 +553,8 @@ Patterns that recur across sessions, to watch for proactively:
 - qa-engineer is the gatekeeper for agent definition changes.
 
 ### Skills
+
+<!-- audience: all -->
 
 Skills in `.claude/skills/` follow agent conventions: lean, no duplication with `CLAUDE.md`, reference sections instead of restating rules. Run `repomatic list-skills` to list them.
 
@@ -449,11 +568,17 @@ Skills in `.claude/skills/` follow agent conventions: lean, no duplication with 
 
 ### Mechanical vs analytical work
 
+<!-- audience: all -->
+
 The `repomatic` ecosystem has a **mechanical layer** (CLI commands and CI workflows that deterministically sync, lint, format, and fix files on every push to `main`) and an **analytical layer** (judgment-based tasks needing context comparison and trade-offs). Skills focus on the analytical gaps (custom job content analysis, cross-repo pattern comparison, judgment on intentional vs stale divergence); don't duplicate what CI handles mechanically: see [§ Automated operation contracts](#automated-operation-contracts).
 
 ## Design principles
 
+<!-- audience: all -->
+
 ### Philosophy
+
+<!-- audience: all -->
 
 1. Create something that works (to provide business value).
 2. Create something that's beautiful (to lower maintenance costs).
@@ -461,9 +586,13 @@ The `repomatic` ecosystem has a **mechanical layer** (CLI commands and CI workfl
 
 ### CLI and configuration as primary abstractions
 
+<!-- audience: upstream -->
+
 The `repomatic` CLI and its `[tool.repomatic]` configuration are the project's primary interfaces; everything else (workflows, templates, labels) is a delivery mechanism. Implement features in the CLI first; workflows call the CLI, not the reverse. Documentation leads with the CLI and its configuration.
 
 ### Labeller rules are precision-first conveniences
+
+<!-- audience: all -->
 
 The issue and PR labeller (content keyword rules, file glob rules) pre-labels a freshly filed issue or PR to save the maintainer a first pass. It never replaces their review and classification, and nothing downstream treats its labels as complete or authoritative. Tune it for **precision, not recall**: a missing label costs one manual click; a wrong label is noise on every item that trips it. Encode a rule only when the signal is unambiguous, and none when it is not.
 
@@ -473,6 +602,8 @@ The issue and PR labeller (content keyword rules, file glob rules) pre-labels a 
 Both rule families match in-process (`repomatic/labels.py`) rather than through the retired `github/issue-labeler` and `actions/labeler` actions, and a label's pattern list is **OR-joined**: any one pattern matching earns the label. A bare content pattern is a keyword, matched case-insensitively and anchored on each edge that is itself a word character, so `fix` does not fire inside `prefix`. Wrap a pattern in slashes (`/body/flags`) to pass a regex through verbatim instead, case-sensitive unless a flag says otherwise. A label's file globs are evaluated as one set, so a `!`-negated entry subtracts from its siblings the way a `.gitignore` line would (`["docs/**", "!docs/generated/**"]`), with no separate exclude rule to write.
 
 ### Retiring a label is a migration, not a deletion
+
+<!-- audience: all -->
 
 `sync-labels` only creates and updates. Dropping a label from the configuration never removes it from the repository, it just stops managing it, so the label stays live on every issue and pull request still carrying it. A downstream that reorganizes its taxonomy (folding per-item labels into an ecosystem group, renaming a family) therefore silently accumulates orphans that no longer appear in any config and that only a maintainer can clear.
 
@@ -487,13 +618,19 @@ Check what is actually attached before planning any of this (`gh issue list --la
 
 ### Linting and formatting
 
+<!-- audience: all -->
+
 [Linting](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-lint-yaml-jobs) and [formatting](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-autofix-yaml-jobs) are automated via GitHub workflows. Developers needn't run them manually; pushing triggers the workflows, which catch issues and handle the nitpicking.
 
 ### Registry types own their query logic
 
+<!-- audience: all -->
+
 Enums and dataclasses that carry metadata should also carry the methods that interpret it. When callers decide based on a field (scope, format, config key), the logic belongs on the type, not scattered across call sites (`RepoScope.matches(...)`, `NativeFormat.serialize(...)`, `Component.is_enabled(config)`). When adding a field, ask: will callers branch on this value? If yes, add a method. When fixing duplicated conditionals that interpret the same field, the fix is a method, not a helper elsewhere.
 
 ### Scope exclusions are defaults, not absolutes
+
+<!-- audience: upstream -->
 
 `RepoScope` restrictions and `[tool.repomatic] exclude` entries apply only during bare `repomatic init` (no CLI arguments): naming a component on the CLI, or listing it in `[tool.repomatic] include`, bypasses both, letting workflows materialize out-of-scope configs and users opt into scope-restricted items. Config key exclusions (`config_key` fields) always apply: the user's `[tool.repomatic]` config is authoritative for feature flags.
 
@@ -503,9 +640,13 @@ Pick between the two Python scopes by asking what the entry needs to be useful. 
 
 ### Keep logic in Python, not workflow YAML
 
+<!-- audience: all -->
+
 Push anything beyond trivial wiring out of workflow YAML into the CLI/library. Rather than duplicating `if:` conditions across steps, compute them once in `repomatic metadata` and reference the result. Rather than hand-maintaining workflow content, generate it in Python (see `repomatic.github.workflow_sync` for the rationale and the `publish-pypi` example): a tested generator that fails loudly beats a static artifact that can silently drift.
 
 ### Defensive workflow design
+
+<!-- audience: all -->
 
 GitHub Actions workflows face race conditions, eventual consistency, and partial failures. Prefer **belt-and-suspenders**: multiple independent correctness mechanisms over a single guarantee. If a job depends on external state (tags, published packages, API availability), add a fallback or graceful default and make operations [idempotent](#idempotency-by-default) so re-runs are safe.
 
@@ -519,15 +660,21 @@ Release-specific design rationale for `kdeldycke/repomatic` (the `workflow_run` 
 
 ### Idempotency by default
 
+<!-- audience: all -->
+
 Workflows and CLI commands must be safe to re-run: the same command twice with the same inputs produces the same result, with no errant side effects (duplicate tags or PR comments, redundant file writes). Use `--skip-existing` or equivalent guards when creating resources; check for existing state before writing (skip an admonition already present, skip a PR that already exists for the branch); prefer upsert over create-only; make file-modifying operations convergent (re-applying is a no-op).
 
 **When idempotency is not achievable**, document in a comment or docstring what side effects occur on re-runs and why they are acceptable.
 
 ### Skip and move forward, don't rewrite history
 
+<!-- audience: all; scope: package -->
+
 When a release goes wrong (squash merge, broken artifact, bad metadata), prefer **skipping the version and releasing the next one** over reverting, force-pushing, or rewriting `main`: a burned version number is cheap, a botched automated recovery is not (this mirrors PyPI's [yank](https://peps.python.org/pep-0592/) model). When designing new safeguards, default to **detection + notification** over **detection + automated fix**: the blast radius of a missed notification is zero; that of a bad automated fix can be catastrophic.
 
 ### A published release freezes what is missing from it
+
+<!-- audience: all; scope: package -->
 
 Publishing flips [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) on, locking the asset list along with the tag. A binary the matrix never produced is then not a gap to fill later: it is a permanent property of that version. `v6.30.0` shipped without `windows-arm64`, `v7.5.0` without either Windows build, and `v7.7.0` without any binary at all. None of the three can be repaired, only superseded.
 
@@ -545,17 +692,25 @@ Upstream only: the release PR is rebase-merged, so its freeze and unfreeze commi
 
 ### click_extra is both a dependency and a release consumer
 
+<!-- audience: upstream -->
+
 click_extra is both a runtime dependency and the framework whose release pipeline runs the *pinned* repomatic, so a click_extra change to a symbol repomatic imports can break the pinned repomatic from inside click_extra's own release. Two rules: (1) import only click_extra's public API, never an underscore-prefixed name (enforced by `tests/test_imports.py`, whose docstring carries the full rationale); (2) when such a change touches an API repomatic uses, release the fixed repomatic and bump click_extra's pin *before* releasing click_extra, since both run the pinned tag.
 
 ### Command-line options
+
+<!-- audience: all -->
 
 Always prefer long-form options over short-form for readability in workflow files and scripts (`--output` not `-o`, `--verbose` not `-v`). The same rule applies to every argv the program builds at runtime (subprocess invocations included): long forms make logged command disclosures self-documenting.
 
 ### CLI commands that accept a `--lockfile` or similar path
 
+<!-- audience: all -->
+
 A CLI command taking a project-file path (`--lockfile path/to/uv.lock`) must run any context-needing subprocess (`uv lock`, `uv audit`) with `cwd=path.parent`, else it resolves against the caller's directory, not the target project.
 
 ### CLI output conventions
+
+<!-- audience: all -->
 
 CLI commands that produce structured output should separate terminal display from file output:
 
@@ -565,9 +720,13 @@ CLI commands that produce structured output should separate terminal display fro
 
 ### Prefer `uv` over `pip` in documentation
 
+<!-- audience: all -->
+
 Documentation and install pages must use `uv` as the default installer (`uv tool install` for CLI tools, `uv pip install` for libraries/extras). Other installers may appear as secondary options, but `uv` must be primary.
 
 ### uv flags in CI workflows
+
+<!-- audience: all -->
 
 When invoking `uv` and `uvx` commands in GitHub Actions workflows:
 
@@ -579,6 +738,8 @@ When invoking `uv` and `uvx` commands in GitHub Actions workflows:
 - **Per-group `requires-python` in `[tool.uv]`:** a group needing newer Python can be restricted with `dependency-groups.docs = { requires-python = ">= 3.14" }`, so uv won't install incompatible dependencies on older Python.
 
 ### Pin uv with `required-version`
+
+<!-- audience: all -->
 
 Downstream Python repos floor uv in `[tool.uv]` with a lower-bound `required-version` (like `required-version = ">=0.11.15"`), not an upper-capped range, so contributors and downstream repos are never capped and local development moves forward without a manual ceiling bump each minor.
 
