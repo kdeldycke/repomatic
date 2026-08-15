@@ -1863,7 +1863,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.16.1",
+        version="0.16.2",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
