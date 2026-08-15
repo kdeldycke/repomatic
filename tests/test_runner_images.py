@@ -160,9 +160,13 @@ def test_rows_put_affected_announcements_first_then_newest() -> None:
         created_at="2026-02-01T00:00:00Z",
         body="",
     )
+    # An explicit empty catalog keeps the call offline. These fixtures name
+    # their labels in the impact section, which resolves without a catalog:
+    # only the checkbox source needs one.
     table = render_announcement_rows(
         (recent_miss, older_miss, stale_hit),
         {"ubuntu-22.04"},
+        catalog=[],
     )
     rows = [line for line in table.splitlines() if line.startswith("| 20")]
     # The older announcement naming an image in use outranks both newer misses,

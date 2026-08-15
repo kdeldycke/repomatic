@@ -226,6 +226,18 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic init"
 
 [[cases]]
+cli_parameters = "sync-runner-images --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic sync-runner-images"
+
+[[cases]]
+cli_parameters = "job-timings --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic job-timings"
+
+[[cases]]
 cli_parameters = "lint-changelog --help"
 # XXX This command's help fails on Windows: it contains characters outside
 # the console's cp1252 codepage, raising UnicodeEncodeError.

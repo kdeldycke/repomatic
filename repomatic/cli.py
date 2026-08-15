@@ -91,6 +91,7 @@ from .config import (
     Config,
     config_reference,
     escape_type_for_gfm_table,
+    load_repomatic_config,
 )
 from .dep_graph import (
     SubgraphKind,
@@ -142,6 +143,13 @@ from .github.issue import (
     LOCK_THREADS_HEADER_DEFS,
     add_labels,
     lock_stale_threads,
+)
+from .github.job_timings import (
+    JOB_TIMINGS_HEADER_DEFS,
+    fetch_job_timings,
+    format_duration,
+    render_markdown,
+    summarize,
 )
 from .github.pr import close_open_prs_on_branch, list_changed_files, upsert_pr
 from .github.pr_body import (
@@ -225,7 +233,14 @@ from .registry import (
     skill_catalog,
     valid_file_ids,
 )
-from .runner_images import manage_runner_images_issue
+from .runner_catalog import fetch_catalog
+from .runner_images import (
+    apply_arrival,
+    apply_retirement,
+    fetch_announcements,
+    manage_runner_images_issue,
+    plan_runner_changes,
+)
 from .setup_guide import manage_setup_guide
 from .sync_ops import (
     OPERATIONS_BY_NAME,
@@ -823,6 +838,157 @@ def ci_status(
         echo("… some jobs have not settled yet.")
 
     ctx.exit(1 if status.blocking and fatal else 0)
+
+
+@repomatic.command(
+    name="sync-runner-images",
+    short_help="Propose the runner image moves GitHub's announcements justify",
+    section=_section_github,
+)
+@option(
+    "--dry-run/--no-dry-run",
+    default=False,
+    help="Report the changes without writing them.",
+)
+@pass_context
+def sync_runner_images(ctx: Context, dry_run: bool) -> None:
+    """Move retiring runner images forward, and probe arriving ones.
+
+    Two shapes, deliberately asymmetric. A **retirement** rewrites every
+    literal `runs-on:` naming the dying label onto the successor GitHub's own
+    available-images table offers, because those jobs carry a deadline. An
+    **arrival** adds the new image to the full test matrix as a
+    `continue-on-error` probe rather than migrating onto it: nothing is bet on
+    an image still rolling out, but the suite starts exercising it at once,
+    which is what surfaces a dependency breaking there while there is runway to
+    report it upstream.
+
+    Merging is the decision; the CI run this triggers is the evidence for it.
+    To decline a proposal for good, name the label in
+    `[tool.repomatic.sync-runner-images] ignore`: closing the pull request
+    alone brings it back on the next push.
+
+    \b
+    Examples:
+        # What would change, without touching the tree
+        repomatic sync-runner-images --dry-run
+    """
+    config = load_repomatic_config()
+    announcements = fetch_announcements()
+    if announcements is None:
+        echo("Could not read the announcements: proposing nothing.")
+        ctx.exit(0)
+
+    literal = literal_runners()
+    changes = plan_runner_changes(
+        literal,
+        set(KNOWN_RUNNERS) | set(literal),
+        announcements,
+        fetch_catalog(),
+        config.sync_runner_images.ignore,
+    )
+    if not changes:
+        echo("No runner image change to propose.")
+        ctx.exit(0)
+
+    for change in changes:
+        echo(f"{change.kind}: {change.summary}")
+        if change.target_date:
+            echo(f"  deadline: {change.target_date}")
+        echo(f"  {change.announcement_url}")
+        if dry_run:
+            continue
+        if change.kind == "retirement":
+            for path in apply_retirement(change, WORKFLOW_DIR):
+                echo(f"  rewrote {path.name}")
+        elif apply_arrival(change, Path("pyproject.toml")):
+            echo("  added a continue-on-error probe to pyproject.toml")
+
+
+_job_timings_sort = SortByOption(*JOB_TIMINGS_HEADER_DEFS, default="median")
+
+
+@repomatic.command(
+    name="job-timings",
+    short_help="Measure how long each runner image takes, from finished runs",
+    section=_section_github,
+    params=[_job_timings_sort],
+)
+@option(
+    "--workflow",
+    default="tests.yaml",
+    show_default=True,
+    help="Workflow file whose runs to sample.",
+)
+@option(
+    "--branch",
+    default="main",
+    show_default=True,
+    help="Branch whose runs to sample.",
+)
+@option(
+    "--limit",
+    default=5,
+    show_default=True,
+    type=int,
+    help="How many recent successful runs to sample.",
+)
+@option(
+    "--output",
+    type=file_path(writable=True, resolve_path=True),
+    help="Write the report as a Markdown table to this file, for documentation.",
+)
+@pass_context
+def job_timings(
+    ctx: Context, workflow: str, branch: str, limit: int, output: Path | None
+) -> None:
+    """Report median whole-job wall-clock per runner image.
+
+    Runner choice is supposed to rest on measurement, and the measurement that
+    matters is whole-job: this repository once kept a lean image for years on a
+    benchmark that timed only the tool pass, where it looked near-parity, while
+    end to end it was 20-56% slower. The jobs API reports start and end
+    timestamps, so what this reads is whole-job by construction.
+
+    Only successful runs are sampled, because a failed run's jobs stop early
+    and time where the failure landed rather than what the image costs. The
+    figure is a median across several runs, which is what turns a queue stall
+    into noise instead of a verdict.
+
+    \b
+    Examples:
+        # Which image is holding the matrix up
+        repomatic job-timings
+
+        # A wider sample, written out for documentation
+        repomatic job-timings --limit 10 --output timings.md
+    """
+    timings = fetch_job_timings(workflow, branch, limit)
+    if not timings:
+        echo(
+            f"No finished job found in the last {limit} successful "
+            f"{workflow!r} run(s) on {branch!r}."
+        )
+        ctx.exit(0)
+
+    reports = summarize(timings)
+    ctx.print_table(
+        [
+            (
+                report.runner,
+                str(report.job_count),
+                format_duration(report.median_seconds),
+                report.slowest_job,
+                format_duration(report.slowest_seconds),
+            )
+            for report in reports
+        ],
+        JOB_TIMINGS_HEADER_DEFS,
+    )
+
+    if output:
+        output.write_text(render_markdown(reports, workflow, limit), encoding="UTF-8")
+        echo(f"Wrote {output}")
 
 
 @repomatic.command(

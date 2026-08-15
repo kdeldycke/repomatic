@@ -465,6 +465,31 @@ class LintDepsConfig:
 
 
 @dataclass
+class SyncRunnerImagesConfig:
+    """Nested schema for `[tool.repomatic.sync-runner-images]`."""
+
+    ignore: list[str] = field(default_factory=list)
+    """Runner labels never to propose, whatever GitHub announces about them.
+
+    A `sync-*` job regenerates on every push, so a proposal declined by closing
+    its pull request comes back on the next one. Without somewhere to record
+    the decision, the only way to stop a proposal already considered and
+    rejected is to disable the whole operation. Naming the label here is the
+    one-line commit that makes a "no" stick:
+
+    ```toml
+    [tool.repomatic.sync-runner-images]
+    # 26.04 stays out until its capacity settles: queue time matters more here
+    # than the compute it wins.
+    ignore = [ "ubuntu-26.04", "ubuntu-26.04-arm" ]
+    ```
+
+    Applies to both shapes: an ignored label is neither probed when it arrives
+    nor proposed as a successor when something retires onto it.
+    """
+
+
+@dataclass
 class TestMatrixConfig:
     """Nested schema for `[tool.repomatic.test-matrix]`.
 
@@ -861,6 +886,12 @@ class Config:
     )
     """Repository label sync configuration."""
 
+    sync_runner_images: SyncRunnerImagesConfig = field(
+        default_factory=SyncRunnerImagesConfig,
+        metadata={CONFIG_PATH_METADATA_KEY: "sync-runner-images"},
+    )
+    """Runner image pull request configuration."""
+
     lint_deps: LintDepsConfig = field(
         default_factory=LintDepsConfig,
         metadata={CONFIG_PATH_METADATA_KEY: "lint-deps"},
@@ -1206,6 +1237,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "settings_location",
     "setup_guide",
     "skills_location",
+    "sync_runner_images",
     "test_matrix",
     "tool_versions_sync",
     "uv_lock_sync",

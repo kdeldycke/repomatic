@@ -60,14 +60,21 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+import tomlrt
 
 from .github.gh import gh_api_json
 from .github.issue import BOT_ISSUE_LABEL, manage_issue_lifecycle
 from .github.pr_body import render_template, sanitize_markdown_mentions
+from .runner_catalog import by_display_name, by_label, fetch_catalog, successor_for
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
+    from typing import Any
+
+    from .runner_catalog import RunnerImage
 
 ANNOUNCEMENTS_REPO = "actions/runner-images"
 """Repository publishing the runner image announcements."""
@@ -126,6 +133,35 @@ nothing is flagged, which fails toward a missing warning rather than a wrong
 one, the safer direction per this project's precision-first labelling rule.
 """
 
+TARGET_DATE_SECTION_RE = re.compile(
+    r"^#+[ \t]*Target date[ \t]*$(?P<body>.*?)(?=^#+[ \t]|\Z)",
+    re.MULTILINE | re.DOTALL | re.IGNORECASE,
+)
+"""The `### Target date` section, carrying an announcement's deadline."""
+
+TITLE_PLATFORM_RE = re.compile(r"^\[(?P<platform>[^\]]+)\]")
+"""The `[Ubuntu]`/`[macOS]`/`[Windows]` prefix every announcement title carries."""
+
+AFFECTED_SECTION_RE = re.compile(
+    r"^#+[ \t]*Runner images affected[ \t]*$(?P<body>.*?)(?=^#+[ \t]|\Z)",
+    re.MULTILINE | re.DOTALL | re.IGNORECASE,
+)
+"""The `### Runner images affected` checklist of an announcement body.
+
+The one section an *arrival* fills in: a new-image notice ticks the image it
+introduces here while naming no label anywhere in its prose. Scoped like
+{data}`IMPACT_SECTION_RE`, so a checklist elsewhere in the body is never read.
+"""
+
+CHECKED_BOX_RE = re.compile(
+    r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]*(?P<name>.+?)[ \t]*$", re.MULTILINE
+)
+"""A ticked checklist entry, capturing the display name it names.
+
+Ticked only. See {meth}`Announcement.checked_images` for why an unticked box is
+not evidence of anything.
+"""
+
 BACKTICKED_TOKEN_RE = re.compile(r"`([A-Za-z][A-Za-z0-9.\-]*)`")
 """A backticked identifier in an announcement's markdown.
 
@@ -161,6 +197,34 @@ class Announcement:
         return self.created_at[:10]
 
     @property
+    def target_date(self) -> str:
+        """The `### Target date` section, collapsed to one line.
+
+        Free text rather than a parsed date, and deliberately so: the section
+        carries a single day for an arrival ("Thursday, June 11, 2026") and a
+        pair for a retirement ("Deprecation: September 17th, 2026 / Retirement:
+        April 17th, 2027"). Parsing either into a `date` would throw away the
+        distinction that matters, and both are read by a human off a pull
+        request body.
+        """
+        section = TARGET_DATE_SECTION_RE.search(self.body)
+        if not section:
+            return ""
+        lines = [line.strip() for line in section.group("body").splitlines()]
+        return " / ".join(line for line in lines if line)
+
+    @property
+    def platform(self) -> str:
+        """Operating system family, from the title's `[Ubuntu]`-style prefix.
+
+        The one identifier every announcement carries, whatever it is about and
+        however its author filled the rest of the template. It is what makes a
+        row scannable when the label columns come up empty.
+        """
+        match = TITLE_PLATFORM_RE.match(self.title)
+        return match.group("platform") if match else "—"
+
+    @property
     def is_deprecation(self) -> bool:
         """Whether this announces a retirement rather than an arrival.
 
@@ -181,11 +245,62 @@ class Announcement:
         :return: The intersection, empty when the announcement names no impact
             section or touches no image this project runs on.
         """
-        section = IMPACT_SECTION_RE.search(self.body)
+        return frozenset(self.concerned_labels() & set(known_runners))
+
+    def checked_images(self) -> frozenset[str]:
+        """Display names ticked under `Runner images affected`.
+
+        Only *checked* boxes are read. An unchecked one carries no information:
+        announcement 14225 announced a Windows image under a list holding six
+        Ubuntu entries and no tick at all, the template left exactly as it
+        shipped. Reading unchecked entries as "not affected" would take that
+        untouched form as a statement.
+        """
+        section = AFFECTED_SECTION_RE.search(self.body)
         if not section:
             return frozenset()
-        mentioned = set(BACKTICKED_TOKEN_RE.findall(section.group("body")))
-        return frozenset(mentioned & set(known_runners))
+        return frozenset(CHECKED_BOX_RE.findall(section.group("body")))
+
+    def concerned_labels(
+        self, catalog: Sequence[RunnerImage] | None = None
+    ) -> set[str]:
+        """Every runner label this announcement is about, whoever runs it.
+
+        Two sources, unioned, because neither covers both announcement kinds:
+
+        - **Backticked labels in `Possible impact`.** Precise, and what a
+          retirement spells out ("Workflows using the `ubuntu-22.04`,
+          `ubuntu-22.04-arm` image labels will be terminated").
+        - **Ticked `Runner images affected` boxes**, resolved to labels through
+          {mod}`repomatic.runner_catalog`. This is the only source an *arrival*
+          has: a new-image notice names no label in its impact prose, so before
+          this it produced nothing and a new image could never be reported.
+
+        :param catalog: Parsed available-images table, fetched when omitted.
+            Pass one when resolving several announcements, so the table is read
+            once rather than per announcement.
+        :return: Labels, empty when neither source yields any.
+        """
+        labels: set[str] = set()
+        section = IMPACT_SECTION_RE.search(self.body)
+        if section:
+            labels.update(BACKTICKED_TOKEN_RE.findall(section.group("body")))
+
+        ticked = self.checked_images()
+        if ticked:
+            images = by_display_name(
+                fetch_catalog() if catalog is None else list(catalog)
+            )
+            for display_name in ticked:
+                image = images.get(display_name)
+                if image:
+                    labels.update(image.labels)
+                else:
+                    # A name the table does not carry is a renamed row or a
+                    # restyled table. Skipped rather than guessed at: the
+                    # catalog docstring's fail-closed rule applies here too.
+                    logging.debug(f"No catalog row for {display_name!r}.")
+        return labels
 
 
 def fetch_announcements(repo: str = ANNOUNCEMENTS_REPO) -> list[Announcement] | None:
@@ -230,6 +345,7 @@ def fetch_announcements(repo: str = ANNOUNCEMENTS_REPO) -> list[Announcement] | 
 def render_announcement_rows(
     announcements: Sequence[Announcement],
     known_runners: Iterable[str],
+    catalog: Sequence[RunnerImage] | None = None,
 ) -> str:
     """Render the announcements as a markdown table, most relevant first.
 
@@ -243,21 +359,35 @@ def render_announcement_rows(
     :return: A GitHub-flavored markdown table.
     """
     known = frozenset(known_runners)
+    # Read the table once for the whole batch rather than per announcement, and
+    # take the caller's copy when it already has one: `manage_runner_images_issue`
+    # needs the same catalog to decide whether to open the issue at all.
+    if catalog is None:
+        catalog = fetch_catalog()
+    concerned = {item.number: item.concerned_labels(catalog) for item in announcements}
+
     # Newest first, then a stable re-sort floating the ones naming an image in
     # use to the top, so each group stays in date order.
     by_date = sorted(announcements, key=lambda a: a.created_at, reverse=True)
-    ordered = sorted(by_date, key=lambda a: not a.affected_runners(known))
+    ordered = sorted(by_date, key=lambda a: not (concerned[a.number] & known))
 
     rows = []
     for item in ordered:
-        affected = item.affected_runners(known)
+        labels = concerned[item.number]
+        affected = labels & known
         kind = "🔴 retirement" if item.is_deprecation else "🆕 new"
-        affects = ", ".join(f"`{label}`" for label in sorted(affected)) or "—"
-        title = sanitize_markdown_mentions(item.title)
-        rows.append(f"| {item.date} | {kind} | {affects} | [{title}]({item.url}) |")
+        cells = (
+            item.date,
+            item.platform,
+            kind,
+            ", ".join(f"`{label}`" for label in sorted(labels)) or "—",
+            ", ".join(f"`{label}`" for label in sorted(affected)) or "—",
+            f"[{sanitize_markdown_mentions(item.title)}]({item.url})",
+        )
+        rows.append(f"| {' | '.join(cells)} |")
     header = (
-        "| Announced | Kind | Affects | Announcement |\n"
-        "| :-------- | :--- | :------ | :----------- |"
+        "| Announced | Platform | Kind | Labels | Affects | Announcement |\n"
+        "| :-------- | :------- | :--- | :----- | :------ | :----------- |"
     )
     return "\n".join([header, *rows])
 
@@ -277,7 +407,8 @@ def manage_runner_images_issue(known_runners: Iterable[str]) -> None:
         return
 
     known = frozenset(known_runners)
-    in_use = [a for a in announcements if a.affected_runners(known)]
+    catalog = fetch_catalog()
+    in_use = [a for a in announcements if a.concerned_labels(catalog) & known]
     logging.info(
         f"{len(announcements)} open announcements, "
         f"{len(in_use)} naming an image in use."
@@ -285,14 +416,273 @@ def manage_runner_images_issue(known_runners: Iterable[str]) -> None:
 
     body = render_template(
         "runner-images-issue",
-        announcement_table=render_announcement_rows(announcements, known),
+        announcement_table=render_announcement_rows(announcements, known, catalog),
         tracked_runners=", ".join(f"`{label}`" for label in sorted(known)),
     )
 
+    # Gated on exposure, not on upstream activity. `actions/runner-images`
+    # always has something in flight, so opening on `announcements` left every
+    # repository holding a permanently-open issue about other people's images:
+    # kdeldycke/plumage#542 listed six rows, every one of them irrelevant to it.
+    # Gating here also turns the issue into the notification the module
+    # docstring says it cannot be, because a *new* issue does notify where an
+    # edited body does not: it now appears exactly when exposure is acquired.
     manage_issue_lifecycle(
-        has_issues=bool(announcements),
+        has_issues=bool(in_use),
         body=body,
         labels=[BOT_ISSUE_LABEL],
         title=ISSUE_TITLE,
-        no_issues_comment="No open runner image announcements.",
+        no_issues_comment="No open announcement names a runner image in use here.",
     )
+
+
+@dataclass(frozen=True)
+class RunnerChange:
+    """One runner-image edit an announcement justifies.
+
+    Carries the evidence as well as the edit, because the edit is the trivial
+    half: what a reviewer needs is the deadline, the announcement, and which
+    jobs move.
+    """
+
+    kind: str
+    """`retirement` or `arrival`."""
+
+    label: str
+    """Label retiring, or arriving."""
+
+    successor: str
+    """Label to move onto. Empty for an arrival, which adds rather than moves."""
+
+    locations: tuple[str, ...]
+    """`file.yaml:job-id` entries naming {attr}`label`, for a retirement."""
+
+    announcement_url: str
+    """The announcement justifying this change."""
+
+    announcement_title: str
+    """The announcement's title, for a pull request body."""
+
+    target_date: str
+    """Deadline text, as {attr}`Announcement.target_date` collapses it."""
+
+    @property
+    def summary(self) -> str:
+        """One line naming the change, for a commit subject or a table row."""
+        if self.kind == "arrival":
+            return f"probe `{self.label}`"
+        return f"`{self.label}` → `{self.successor}`"
+
+
+def plan_runner_changes(
+    literal: Mapping[str, Sequence[str]],
+    tracked: Iterable[str],
+    announcements: Sequence[Announcement],
+    catalog: Sequence[RunnerImage],
+    ignore: Iterable[str] = (),
+) -> list[RunnerChange]:
+    """Work out which runner-image edits the open announcements justify.
+
+    Two shapes, deliberately asymmetric:
+
+    - **Retirement.** An image named in a literal `runs-on:` is retiring, so
+      the jobs on it move to the successor
+      {func}`~repomatic.runner_catalog.successor_for` picks. Only literals are
+      reachable: a value built from an expression draws on a matrix axis, which
+      is the axis owner's to move.
+    - **Arrival.** A newly available image joins the test matrix as a
+      `continue-on-error` probe rather than replacing anything. Nothing is
+      migrated onto an image GitHub is still rolling out, but the suite starts
+      exercising it immediately, which is what surfaces a dependency that
+      breaks there while there is still runway to report it upstream.
+
+    :param literal: Labels named outright in workflows, mapped to their
+        locations, as {func}`~repomatic.lint_repo.literal_runners` reports them.
+    :param tracked: Every image this repository has a stake in.
+    :param announcements: Open announcements.
+    :param catalog: Parsed available-images table.
+    :param ignore: Labels the repository has declined. A `sync-*` job
+        regenerates on every push, so without this a closed pull request
+        reopens forever and the proposal becomes a nuisance rather than a
+        service.
+    :return: The changes to propose, retirements first.
+    """
+    if not catalog:
+        # Fail closed: an unreadable table means no successor can be trusted.
+        logging.info("Runner catalog unavailable: proposing no change.")
+        return []
+
+    declined = frozenset(ignore)
+    known = frozenset(tracked)
+    catalog_by_label = by_label(catalog)
+    changes: list[RunnerChange] = []
+
+    for item in announcements:
+        labels = item.concerned_labels(catalog)
+        for label in sorted(labels - declined):
+            if item.is_deprecation and label in literal:
+                successor = successor_for(label, catalog)
+                if not successor:
+                    # Nothing released to move onto. The issue reports it; a
+                    # pull request has nothing to propose.
+                    logging.info(f"No released successor for {label!r}.")
+                    continue
+                changes.append(
+                    RunnerChange(
+                        kind="retirement",
+                        label=label,
+                        successor=successor.preferred_label,
+                        locations=tuple(literal[label]),
+                        announcement_url=item.url,
+                        announcement_title=item.title,
+                        target_date=item.target_date,
+                    )
+                )
+            elif not item.is_deprecation and label not in known:
+                image = catalog_by_label.get(label)
+                # Three conditions, each dropping a different false positive:
+                #
+                # - **Still in preview.** "Not deprecation" is not the same as
+                #   "arrival": the Xcode-default-change notice concerns the GA
+                #   macOS rows and would otherwise propose probing an image
+                #   that has been generally available for months. A genuinely
+                #   new image is the one GitHub is still rolling out.
+                # - **The row's plain label.** A size variant is a paid larger
+                #   runner, never something to adopt by default.
+                # - **A family already in use.** A repository running no macOS
+                #   job has no use for a macOS probe, and every probe cell costs
+                #   runner minutes on a capped pool.
+                if (
+                    not image
+                    or not image.preview
+                    or image.preferred_label != label
+                    or not _family_in_use(image, known, catalog_by_label)
+                ):
+                    continue
+                changes.append(
+                    RunnerChange(
+                        kind="arrival",
+                        label=label,
+                        successor="",
+                        locations=(),
+                        announcement_url=item.url,
+                        announcement_title=item.title,
+                        target_date=item.target_date,
+                    )
+                )
+
+    # Retirements first: one carries a deadline, the other an opportunity.
+    changes.sort(key=lambda change: (change.kind != "retirement", change.label))
+    return changes
+
+
+def _family_in_use(
+    image: RunnerImage,
+    known: frozenset[str],
+    catalog_by_label: Mapping[str, RunnerImage],
+) -> bool:
+    """Whether this repository already runs something in *image*'s family.
+
+    Bounds the arrival case to platforms already carried. A repository running
+    no macOS job has no use for a probe on a new macOS image, and every probe
+    cell costs runner minutes on a capped pool.
+    """
+    return any(
+        (other := catalog_by_label.get(label)) and other.family == image.family
+        for label in known
+    )
+
+
+RUNS_ON_RE_TEMPLATE = (
+    r"(?P<prefix>^[ \t]*runs-on:[ \t]*)(?P<quote>['\"]?){label}(?P=quote)[ \t]*$"
+)
+"""A literal `runs-on:` naming one label, anchored to its own line.
+
+Rewritten as raw text rather than through a YAML round-trip, for the reason
+{func}`~repomatic.github.workflow_sync._extract_raw_job` gives: a round-trip
+reformats the whole file, and a runner bump should read as a one-line diff.
+The optional quote group is carried through so a quoted value stays quoted.
+"""
+
+
+def apply_retirement(change: RunnerChange, workflow_dir: Path) -> list[Path]:
+    """Rewrite every literal `runs-on:` naming a retiring label.
+
+    Idempotent: a file already on the successor matches nothing and is left
+    untouched, so a re-run after a merge is a no-op rather than a second edit.
+
+    :param change: A `retirement` change from {func}`plan_runner_changes`.
+    :param workflow_dir: Directory holding the workflow files.
+    :return: The files actually rewritten.
+    """
+    pattern = re.compile(
+        RUNS_ON_RE_TEMPLATE.format(label=re.escape(change.label)), re.MULTILINE
+    )
+    touched = []
+    for name in sorted({location.split(":")[0] for location in change.locations}):
+        path = workflow_dir / name
+        if not path.is_file():
+            continue
+        before = path.read_text(encoding="UTF-8")
+        after = pattern.sub(
+            lambda match: (
+                f"{match.group('prefix')}{match.group('quote')}"
+                f"{change.successor}{match.group('quote')}"
+            ),
+            before,
+        )
+        if after != before:
+            path.write_text(after, encoding="UTF-8")
+            touched.append(path)
+    return touched
+
+
+def apply_arrival(change: RunnerChange, pyproject_path: Path) -> bool:
+    """Add an arriving image to the full test matrix as a failing-allowed probe.
+
+    Writes two keys under `[tool.repomatic.test-matrix]`: the label joins the
+    `os` axis through `variations`, and an `unstable` entry marks every cell
+    carrying it `continue-on-error`. Both are needed and neither alone is
+    useful: the variation without the unstable entry gates the build on an
+    image nobody has vetted, and the unstable entry without the variation
+    matches nothing.
+
+    Idempotent: an image already probed is detected in both keys and nothing is
+    written.
+
+    :param change: An `arrival` change from {func}`plan_runner_changes`.
+    :param pyproject_path: The project file to edit.
+    :return: Whether the file was modified.
+    """
+    if not pyproject_path.is_file():
+        return False
+    doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+    # Seeded through `Table` rather than a bare dict: `setdefault` with a dict
+    # writes an inline table, which `format-pyproject` then expands back into
+    # sections. The two would rewrite each other on every push, which is the
+    # generator/formatter ping-pong `claude.md` § Common maintenance pitfalls
+    # warns about.
+    node: Any = doc
+    for key in ("tool", "repomatic", "test-matrix"):
+        if key not in node:
+            node[key] = tomlrt.Table()
+        node = node[key]
+    matrix = node
+
+    if "variations" not in matrix:
+        matrix["variations"] = tomlrt.Table()
+    variations = matrix["variations"]
+    axis = variations.setdefault("os", [])
+    unstable = matrix.setdefault("unstable", [])
+
+    changed = False
+    if change.label not in list(axis):
+        axis.append(change.label)
+        changed = True
+    if not any(dict(entry).get("os") == change.label for entry in unstable):
+        unstable.append({"os": change.label})
+        changed = True
+
+    if changed:
+        pyproject_path.write_text(tomlrt.dumps(doc), encoding="UTF-8")
+    return changed

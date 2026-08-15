@@ -35,13 +35,27 @@ Add any mid-range release a shim works around, too. That version is the one that
 
 ### Select runners by measured speed and workload, not architecture
 
-Read your own CI timings rather than reasoning from the chip. The parallel `pytest --numprocesses=auto` suite favours `ubuntu-26.04-arm`, which is why that is the test PR Linux slot.
+Measure, do not reason from the chip:
+
+```shell-session
+$ repomatic job-timings --workflow tests.yaml --limit 5
+```
+
+That reports median whole-job wall-clock per runner image from recent successful runs. Read it before proposing any runner change: the parallel `pytest --numprocesses=auto` suite favours `ubuntu-26.04-arm`, which is why that is the test PR Linux slot, but the ratio is workload-dependent and yours may differ.
 
 Where one fast runner suffices, `ubuntu-26.04-arm` is the default: fastest and cheapest tier, against hosted macOS billing roughly ten times Linux. Reserve `macos-26` and Windows for the OS coverage only they add, and drop the slower twin of an OS pair with `test-matrix.remove.os`.
 
 ### Time whole jobs, not the tool pass
 
 A measurement that times only tool execution misses checkout and install, which is where most of the difference between runner images lives. The lean `ubuntu-slim` image survived for a long time on exactly that mistake: measured end to end, the full image ran 27-32% *faster*.
+
+`job-timings` reads the jobs API's start and end timestamps, so what it reports is whole-job by construction and this mistake is not expressible through it.
+
+### Watch what is arriving and retiring
+
+You are not the first to know an image is changing. `repomatic runner-images` maintains an issue listing the open `actions/runner-images` announcements that name an image this repository runs on, with the labels each one concerns and the deadline a retirement carries. It opens only when something here is exposed, so its existence is the signal.
+
+`repomatic sync-runner-images` then proposes the mechanical half as a pull request: moving a retiring label to its successor, or adding a newly available image as a `continue-on-error` probe. Deciding whether to merge is this skill's job, and the CI run that pull request triggers is the evidence for it.
 
 ### An image is stable once validated here, not once GitHub relabels it
 
@@ -51,7 +65,7 @@ Never introduce a `-latest` alias to sidestep the question: GitHub repoints thos
 
 ### Every job runs on a test axis
 
-`KNOWN_RUNNERS` is exactly `TEST_RUNNERS_FULL | TEST_RUNNERS_PR` (`matrix_axes.py`), and `lint-repo` rejects any other `runs-on:`. That keeps "where is the suite exercised" and "what may a job run on" a single question, because each extra image is one more to track, pin and migrate.
+The images a job may run on are exactly those the test matrices use, and `lint-repo` rejects any other `runs-on:`. Read the effective set from `repomatic metadata` rather than from the package source, which a repository consuming repomatic does not have checked out. That keeps "where is the suite exercised" and "what may a job run on" a single question, because each extra image is one more to track, pin and migrate.
 
 A job that genuinely needs something else widens the axes rather than naming a one-off image. This covers the Linux Nuitka hosts (a published binary is built on the image the suite is validated against, and its toolchain comes from a digest-pinned manylinux container regardless) and the light mechanical jobs.
 
