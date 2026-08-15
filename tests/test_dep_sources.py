@@ -25,7 +25,9 @@ import pytest
 from repomatic import dep_sources
 from repomatic.config import Config
 from repomatic.dep_sources import (
+    BLOCKER_SECTION_NOTE,
     RELEASE_READY_SENTENCE,
+    UNSHIPPABLE_BANNER_LEAD,
     ReleaseSwap,
     SourceKind,
     apply_release_swaps,
@@ -674,13 +676,32 @@ def test_release_readiness_flips_the_pr_opening(tmp_path: Path) -> None:
     )
     banner = build_release_readiness(pyproject, lock, "1 week")
     assert banner.startswith("> [!CAUTION]")
-    assert "Do not merge yet" in banner
-    assert "cherry" in banner
-    # Every line of the table is quoted, or GitHub renders half of it outside
-    # the admonition.
-    assert all(
-        line.startswith(">") for line in banner.strip().splitlines() if line.strip()
+    assert UNSHIPPABLE_BANNER_LEAD in banner
+    # A verdict, not a report: the alert marker and one line naming the
+    # package, with none of the prose or the table `lint-deps` renders.
+    lines = [line for line in banner.strip().splitlines() if line.strip()]
+    assert len(lines) == 2
+    assert BLOCKER_SECTION_NOTE not in banner
+    assert "| Package |" not in banner
+    # Both lines stay quoted, or GitHub renders half of it outside the
+    # admonition.
+    assert all(line.startswith(">") for line in lines)
+
+    # The package points at the line declaring it, linked when the caller
+    # supplies a commit to hang the blob URL off, plain text otherwise.
+    declared_line = next(
+        number
+        for number, line in enumerate(
+            pyproject.read_text(encoding="UTF-8").splitlines(), start=1
+        )
+        if line.startswith("cherry =")
     )
+    declaration = f"pyproject.toml#L{declared_line}"
+    assert f"`cherry` ({declaration})" in banner
+    linked = build_release_readiness(
+        pyproject, lock, "1 week", source_url="https://x/repo/blob/deadbeef"
+    )
+    assert f"[`cherry`](https://x/repo/blob/deadbeef/{declaration})" in linked
 
 
 def test_project_ships_only_released_dependencies() -> None:

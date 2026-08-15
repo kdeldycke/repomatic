@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- The release PR's unshippable-dependency warning is now a single line naming each package, each linked to the line declaring it, instead of a paragraph and a four-column table.
 - The bundled `[tool.typos]` config now accepts `PNGs`, which typos otherwise splits and rewrites to `ONGs`.
 
 ## [`7.12.1` (2026-08-15)](https://github.com/kdeldycke/repomatic/compare/v7.12.0...v7.12.1)

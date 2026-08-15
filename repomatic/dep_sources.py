@@ -136,6 +136,14 @@ rewrite `>=2.1.0.dev0` into `>=2.1.0` in place, leaving extras, markers, and
 every other clause byte-for-byte untouched.
 """
 
+TOML_TABLE_HEADER = re.compile(r"\s*\[{1,2}\s*(?P<path>[^]]+?)\s*\]{1,2}\s*$")
+"""A `[table]` or `[[array of tables]]` header, capturing its dotted path.
+
+Enough TOML parsing for {func}`declaration_anchor` to tell which table a line
+sits in. The parsed document cannot answer that: `tomllib` and `tomlkit` both
+return values, and a line number is what a link needs.
+"""
+
 
 @dataclass(frozen=True)
 class ReleaseSwap:
@@ -1107,14 +1115,16 @@ def format_blocker_section(
     findings: list[DepFinding],
     *,
     heading: str = "🚧 Unshippable dependencies",
-    name_urls: dict[str, str] | None = None,
 ) -> str:
     """Format blocking findings as a markdown section.
 
+    The long form, for the `lint-deps` report: a reader who opened that report
+    came for the diagnosis, so it carries the note and the full table. The
+    release PR gets {func}`build_release_readiness` instead, which is the same
+    findings at banner length.
+
     :param findings: Findings from {func}`scan_project`.
-    :param heading: Section heading, emoji included. Pass an empty string to
-        emit the note and table alone, for a caller supplying its own title.
-    :param name_urls: Optional mapping of names to a URL the name links to.
+    :param heading: Section heading, emoji included.
     :return: A markdown string, or an empty string when nothing blocks.
     """
     blocking = [finding for finding in findings if finding.blocking]
@@ -1126,7 +1136,7 @@ def format_blocker_section(
         ("Package", "Source", "Declared in", "Why it cannot ship"),
         [
             (
-                link_name(finding.package, name_urls),
+                f"`{finding.package}`",
                 f"`{finding.kind}`",
                 f"`{finding.location}`",
                 f"{finding.consequence} {finding.remedy}",
@@ -1134,6 +1144,67 @@ def format_blocker_section(
             for finding in blocking
         ],
     )
+
+
+def declaration_anchor(
+    finding: DepFinding,
+    pyproject_path: Path,
+    lock_path: Path,
+) -> str:
+    """Locate the declaration behind a finding, as a repository-relative link.
+
+    Only two files can hold one: `uv.lock` for a source the resolver picked,
+    `pyproject.toml` for everything the project wrote itself, dependency
+    floors included.
+
+    :param finding: The finding to locate.
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param lock_path: Path to the `uv.lock` file.
+    :return: The file name, suffixed with `#L{n}` once the declaring line is
+        found. A line that cannot be found degrades to the bare file rather
+        than to a guess: an anchor pointing at the wrong line costs the reader
+        more than no anchor at all.
+    """
+    in_lock = finding.location == "uv.lock"
+    path = lock_path if in_lock else pyproject_path
+    # A canonical name separates its parts with "-", where the declaration may
+    # spell any of "-", "_" or "." and pick its own case.
+    stem = "[-_.]+".join(re.escape(part) for part in finding.package.split("-"))
+    # `uv.lock` names a package on the `name` key of its `[[package]]` block;
+    # `pyproject.toml` writes it inside a requirement string or as a table key,
+    # so match it as a bare token there.
+    pattern = re.compile(
+        rf'name = "{stem}"' if in_lock else rf"(?<![\w.-]){stem}(?![\w-])",
+        re.IGNORECASE,
+    )
+    try:
+        lines = path.read_text(encoding="UTF-8").splitlines()
+    except OSError:
+        return path.name
+
+    first = 0
+    best = 0
+    best_depth = -1
+    table = ""
+    for number, line in enumerate(lines, start=1):
+        header = TOML_TABLE_HEADER.match(line)
+        if header:
+            table = header["path"]
+        if not pattern.search(line):
+            continue
+        if not first:
+            first = number
+        # A package is named wherever it is required, so a plain first-match
+        # search lands on the requirement rather than on the source override
+        # that made it unshippable. Prefer the deepest table the finding's own
+        # location sits under: that is the declaration to edit, where the
+        # others merely mention the package.
+        in_scope = finding.location == table or finding.location.startswith(f"{table}.")
+        if table and in_scope and len(table) > best_depth:
+            best, best_depth = number, len(table)
+
+    number = best or first
+    return f"{path.name}#L{number}" if number else path.name
 
 
 RELEASE_READY_SENTENCE = "This PR is ready to be merged. "
@@ -1144,11 +1215,25 @@ follows it with, where the blocked form is a standalone blockquote instead.
 """
 
 
+UNSHIPPABLE_BANNER_LEAD = (
+    "Do not merge yet: this release would ship dependencies its users cannot install:"
+)
+"""Opening of the blocked form of the release PR's verdict.
+
+The banner is a verdict, not a report: it says what is wrong and names what to
+open. Everything else the finding carries (why the source is unshippable, what
+to do about it, the general rule) reads as chatter in a pull request whose
+body is otherwise a five-step checklist, and it is one click away in the
+`lint-deps` report {func}`format_blocker_section` renders.
+"""
+
+
 def build_release_readiness(
     pyproject_path: Path,
     lock_path: Path,
     window: str,
     allow: dict[str, str] | None = None,
+    source_url: str | None = None,
 ) -> str:
     """Build the release PR's opening verdict.
 
@@ -1177,20 +1262,34 @@ def build_release_readiness(
     :param lock_path: Path to the `uv.lock` file.
     :param window: Cooldown window, from `[tool.repomatic] minimum-release-age`.
     :param allow: Package name to its `lint-deps.allow` reason.
-    :return: {data}`RELEASE_READY_SENTENCE`, or a GitHub-flavored markdown
-        `[!CAUTION]` blockquote listing what blocks the release.
+    :param source_url: Blob URL the declarations hang off, without a trailing
+        slash (like ``{repo_url}/blob/{sha}``). Each package links into it. A
+        caller with no commit to point at passes nothing, and the packages
+        render with their file and line as plain text instead.
+    :return: {data}`RELEASE_READY_SENTENCE`, or a one-line GitHub-flavored
+        markdown `[!CAUTION]` blockquote naming what blocks the release.
     """
-    section = format_blocker_section(
-        scan_project(pyproject_path, lock_path, window, allow=allow),
-        heading="",
-    )
-    if not section:
+    blocking = [
+        finding
+        for finding in scan_project(pyproject_path, lock_path, window, allow=allow)
+        if finding.blocking
+    ]
+    if not blocking:
         return RELEASE_READY_SENTENCE
-    quoted = "\n".join(f"> {line}".rstrip() for line in section.splitlines())
-    return (
-        "> [!CAUTION]\n"
-        "> **Do not merge yet: this release would ship dependencies its users"
-        " cannot install.**\n"
-        ">\n"
-        f"{quoted}\n\n"
+    # One link per package: a floor and a source override on the same package
+    # send the reader to the same file, and a name repeated in a one-line
+    # banner reads as two separate problems. Findings arrive sorted by package
+    # then location, so the first one kept is the one nearest to an edit.
+    anchors: dict[str, str] = {}
+    for finding in blocking:
+        if finding.package not in anchors:
+            anchors[finding.package] = declaration_anchor(
+                finding, pyproject_path, lock_path
+            )
+    links = ", ".join(
+        f"[`{package}`]({source_url}/{anchor})"
+        if source_url
+        else f"`{package}` ({anchor})"
+        for package, anchor in anchors.items()
     )
+    return f"> [!CAUTION]\n> **{UNSHIPPABLE_BANNER_LEAD}** {links}\n\n"

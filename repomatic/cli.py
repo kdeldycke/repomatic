@@ -1170,11 +1170,16 @@ def _render_pr_content(
     # override built-in flag-driven sources so callers can pass any name.
     def _release_readiness() -> str:
         config = get_tool_config()
+        # Pinned to the commit the body was rendered from, so the line the
+        # banner points at is the line that was read. A branch ref would drift
+        # onto whatever `main` holds when the maintainer clicks it.
+        blob_url = f"{md.repo_url}/blob/{md.sha}" if md.repo_url and md.sha else None
         return build_release_readiness(
             Path("pyproject.toml"),
             Path("uv.lock"),
             config.minimum_release_age,
             allow=config.lint_deps.allow,
+            source_url=blob_url,
         )
 
     arg_sources: dict[str, str | None | Callable[[], str | None]] = {
