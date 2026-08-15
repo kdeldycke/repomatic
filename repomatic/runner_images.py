@@ -727,11 +727,17 @@ def apply_arrival(change: RunnerChange, pyproject_path: Path) -> bool:
     if not pyproject_path.is_file():
         return False
     doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
-    # Seeded through `Table` rather than a bare dict: `setdefault` with a dict
-    # writes an inline table, which `format-pyproject` then expands back into
-    # sections. The two would rewrite each other on every push, which is the
-    # generator/formatter ping-pong `claude.md` § Common maintenance pitfalls
-    # warns about.
+    # Seeded through `Table` rather than a bare dict, which `setdefault` would
+    # turn into an inline table.
+    #
+    # Either way `format-pyproject` normalizes what lands here into dotted keys
+    # under `[tool.repomatic]` (`test-matrix.variations.os = [ … ]`), and tomlrt
+    # cannot emit that form: assigning a dotted string produces a *quoted* key
+    # holding dots, which is a different key. So the formatter gets the last
+    # word on layout, and the invariant that matters is not the shape written
+    # but that re-reading the formatter's shape finds the label already there.
+    # It does, so the two converge instead of ping-ponging, per `claude.md`
+    # § Common maintenance pitfalls. `tests/test_runner_sync.py` pins that.
     node: Any = doc
     for key in ("tool", "repomatic", "test-matrix"):
         if key not in node:

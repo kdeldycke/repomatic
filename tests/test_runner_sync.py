@@ -183,6 +183,36 @@ def test_apply_arrival_writes_sections_not_inline_tables(tmp_path) -> None:
     assert not apply_arrival(change, pyproject), "second run should be a no-op"
 
 
+def test_apply_arrival_is_idempotent_against_the_formatter_shape(tmp_path) -> None:
+    """Re-reading what `format-pyproject` leaves behind finds the probe present.
+
+    The applier writes sections; the formatter normalizes them into dotted keys
+    under `[tool.repomatic]`, and tomlrt cannot emit that form itself. So the
+    formatter gets the last word on layout, and what stops the two rewriting
+    each other on every push is this: the dotted shape reads back as the same
+    nested value, so a second apply finds the label already there and writes
+    nothing.
+
+    The fixture is the formatter's real output, captured from running
+    `pyproject-fmt` over a freshly written probe.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "demo"\n\n'
+        "[tool.repomatic]\n"
+        'test-matrix.unstable = [ { os = "ubuntu-26.04" } ]\n'
+        'test-matrix.variations.os = [ "ubuntu-26.04" ]\n',
+        encoding="UTF-8",
+    )
+    (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, [ARRIVAL], CATALOG)
+
+    assert not apply_arrival(change, pyproject), (
+        "the probe is already declared in the formatter's dotted-key shape, so "
+        "re-applying must write nothing: otherwise sync-runner-images and "
+        "format-pyproject each undo the other, forever"
+    )
+
+
 def test_apply_axes_retirement_moves_the_curated_tuple(tmp_path) -> None:
     """The axes move as text, keeping their comments and their ordering."""
     axes = tmp_path / "matrix_axes.py"
