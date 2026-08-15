@@ -19,7 +19,13 @@
 `claude.md` § Section audience tags puts an `<!-- audience: ... -->` comment
 under every heading upstream. This module reads those tags and writes the
 sections a given repository is entitled to into that repository's own
-`claude.md`, leaving everything it authored for itself untouched.
+instructions file, leaving everything it authored for itself untouched.
+
+Upstream's copy is `claude.md` because Claude Code is what reads it here, but
+the destination is whatever `[tool.repomatic] agent.location` resolves to,
+defaulting through `[tool.repomatic.flavor] agent` to that agent's own filename.
+`AGENTS.md` is the same document under the cross-agent convention, and a
+repository keeping it outside the root is the case the key exists for.
 
 The merge is the *overlay* half of the pair `init_project` already runs against
 `pyproject.toml`: there the bundled template is the base and local keys graft on
@@ -59,12 +65,16 @@ from pathlib import Path
 from .bundle import get_data_content
 from .registry import RepoScope
 
-BUNDLED_CLAUDE_MD = "claude.md"
+BUNDLED_INSTRUCTIONS = "claude.md"
 """The reference document, bundled under `repomatic/data/` as a symlink.
 
-Kept a symlink back to the repository root rather than a copy, the way the agent
-definitions are, so the file this module ships is the one the conformance tests
-in `tests/test_claude_md.py` check.
+Kept a symlink back to the repository root rather than a copy, the way the
+subagent definitions are, so the file this module ships is the one the
+conformance tests in `tests/test_agent_md.py` check.
+
+The name is upstream's own, not the destination's: what a consumer ends up
+writing is `[tool.repomatic] agent.location`, which every function here takes as
+a parameter rather than reading from this constant.
 """
 
 AUDIENCES = ("all", "upstream", "downstream")
@@ -79,7 +89,7 @@ DOWNSTREAM_AUDIENCES = frozenset({"all", "downstream"})
 """Audiences a repository consuming repomatic receives.
 
 `upstream` is the complement and never leaves `kdeldycke/repomatic`, which is
-why {func}`merge_claude_md` is skipped there outright rather than filtered: the
+why {func}`merge_agent_md` is skipped there outright rather than filtered: the
 source repository would otherwise receive the `downstream` sections written for
 its consumers.
 """
@@ -119,7 +129,7 @@ may contain the `;` and `:` that would otherwise delimit it.
 
 @dataclass(frozen=True)
 class Section:
-    """One heading of a `claude.md`, with its tag and body as written."""
+    """One heading of an instructions file, with its tag and body as written."""
 
     level: int
     """Heading depth, from 2 (the document title is not a section)."""
@@ -158,7 +168,7 @@ class Section:
         :return: Whether the section is both downstream-bound and in scope.
         :raises KeyError: If the tag carries a scope this module does not know.
             Upstream tags are held to {data}`TAG_SCOPES` by
-            `tests/test_claude_md.py`, so this signals a bundled document from a
+            `tests/test_agent_md.py`, so this signals a bundled document from a
             newer repomatic than the code reading it.
         """
         if self.audience not in DOWNSTREAM_AUDIENCES:
@@ -167,13 +177,13 @@ class Section:
 
 
 def parse_sections(content: str) -> tuple[str, list[Section]]:
-    """Split a `claude.md` into its preamble and its sections.
+    """Split an instructions file into its preamble and its sections.
 
     The preamble is everything above the first section heading: the document
     title, and whatever one-paragraph description a repository put under it.
     Both belong to the repository and survive every sync.
 
-    :param content: Full text of a `claude.md`.
+    :param content: Full text of an instructions file.
     :return: The preamble, and one {class}`Section` per heading below level 1.
     """
     lines = content.splitlines()
@@ -225,7 +235,7 @@ def parse_sections(content: str) -> tuple[str, list[Section]]:
     return "\n".join(lines[: heads[0][0]]).strip("\n"), sections
 
 
-def render_claude_md(
+def render_agent_md(
     existing: str,
     *,
     is_awesome: bool = False,
@@ -238,15 +248,15 @@ def render_claude_md(
     is what lets `repomatic init` report it as untouched and keeps the unattended
     `sync-repomatic` job from opening a pull request every run.
 
-    :param existing: Current `claude.md` of the target repository, empty when it
-        has none yet.
+    :param existing: Current instructions file of the target repository, empty
+        when it has none yet.
     :param is_awesome: `True` for `awesome-*` repositories.
     :param is_python: `True` when a PEP 621 `[project].name` is present.
     :param is_package: `True` when the project also builds a distributable.
     :return: The merged document, always newline-terminated.
     """
     upstream_preamble, upstream_sections = parse_sections(
-        get_data_content(BUNDLED_CLAUDE_MD)
+        get_data_content(BUNDLED_INSTRUCTIONS)
     )
     managed = [
         section
@@ -272,7 +282,7 @@ def render_claude_md(
     return "\n\n".join(block for block in blocks if block) + "\n"
 
 
-def merge_claude_md(
+def merge_agent_md(
     target: Path,
     *,
     is_awesome: bool = False,
@@ -281,14 +291,15 @@ def merge_claude_md(
 ) -> bool:
     """Write the entitled sections into *target*, creating the file if absent.
 
-    :param target: Path to the repository's `claude.md`.
+    :param target: Path to the repository's instructions file, from
+        `[tool.repomatic] agent.location`.
     :param is_awesome: `True` for `awesome-*` repositories.
     :param is_python: `True` when a PEP 621 `[project].name` is present.
     :param is_package: `True` when the project also builds a distributable.
     :return: Whether the file was created or modified.
     """
     existing = target.read_text(encoding="UTF-8") if target.is_file() else ""
-    merged = render_claude_md(
+    merged = render_agent_md(
         existing,
         is_awesome=is_awesome,
         is_python=is_python,

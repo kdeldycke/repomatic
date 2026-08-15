@@ -20,6 +20,15 @@
 
 ## Submodules
 
+## `repomatic.agent_md` module
+
+```{eval-rst}
+.. automodule:: repomatic.agent_md
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.attestation` module
 
 ```{eval-rst}
@@ -96,15 +105,6 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.checksums
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.claude_md` module
-
-```{eval-rst}
-.. automodule:: repomatic.claude_md
    :members:
    :show-inheritance:
    :undoc-members:

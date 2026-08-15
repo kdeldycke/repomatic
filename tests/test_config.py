@@ -101,7 +101,8 @@ def test_flavor_rejects_unsupported_ecosystem(field, value):
 
 CURSOR_LAYOUT = AgentLayout(
     skills="./.cursor/skills/",
-    agents="./.cursor/agents/",
+    subagents="./.cursor/agents/",
+    instructions="./.cursor/rules.md",
     settings="./.cursor/settings.json",
 )
 """Stand-in layout for an agent repomatic does not target, used to prove the
@@ -114,7 +115,8 @@ def test_default_locations_come_from_the_agent_layout():
     config = Config()
     layout = AGENT_LAYOUTS[DEFAULT_AGENT]
     assert config.skills_location == layout.skills
-    assert config.agents_location == layout.agents
+    assert config.subagents_location == layout.subagents
+    assert config.agent_location == layout.instructions
     assert config.settings_location == layout.settings
 
 
@@ -123,7 +125,8 @@ def test_locations_follow_the_agent_flavor(monkeypatch):
     monkeypatch.setitem(config_mod.AGENT_LAYOUTS, "cursor", CURSOR_LAYOUT)
     config = Config(flavor=FlavorConfig(agent="cursor"))
     assert config.skills_location == "./.cursor/skills/"
-    assert config.agents_location == "./.cursor/agents/"
+    assert config.subagents_location == "./.cursor/agents/"
+    assert config.agent_location == "./.cursor/rules.md"
     assert config.settings_location == "./.cursor/settings.json"
 
 
@@ -134,25 +137,38 @@ def test_locations_follow_the_agent_flavor(monkeypatch):
             {"skills_location": "./custom/skills/"},
             {
                 "skills_location": "./custom/skills/",
-                "agents_location": "./.cursor/agents/",
+                "subagents_location": "./.cursor/agents/",
+                "agent_location": "./.cursor/rules.md",
                 "settings_location": "./.cursor/settings.json",
             },
             id="skills",
         ),
         pytest.param(
-            {"agents_location": "./custom/agents/"},
+            {"subagents_location": "./custom/agents/"},
             {
                 "skills_location": "./.cursor/skills/",
-                "agents_location": "./custom/agents/",
+                "subagents_location": "./custom/agents/",
+                "agent_location": "./.cursor/rules.md",
                 "settings_location": "./.cursor/settings.json",
             },
-            id="agents",
+            id="subagents",
+        ),
+        pytest.param(
+            {"agent_location": "./dotfiles/.agents/AGENTS.md"},
+            {
+                "skills_location": "./.cursor/skills/",
+                "subagents_location": "./.cursor/agents/",
+                "agent_location": "./dotfiles/.agents/AGENTS.md",
+                "settings_location": "./.cursor/settings.json",
+            },
+            id="agent",
         ),
         pytest.param(
             {"settings_location": "./custom/settings.json"},
             {
                 "skills_location": "./.cursor/skills/",
-                "agents_location": "./.cursor/agents/",
+                "subagents_location": "./.cursor/agents/",
+                "agent_location": "./.cursor/rules.md",
                 "settings_location": "./custom/settings.json",
             },
             id="settings",

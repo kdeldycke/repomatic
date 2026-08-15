@@ -282,14 +282,15 @@ class Component:
 
     location_field: str = ""
     """{class}`~repomatic.config.Config` field holding this component's
-    destination directory, when the user can move it.
+    destination, when the user can move it.
 
-    Set for the two components whose destination is configurable (`agents` and
-    `skills`): their {attr}`FileEntry.target` values are built against the
-    *default* location, so a repo that overrode it needs each target rebased onto
-    the configured one. {meth}`resolve_target` performs that rebase, and leaving
-    this empty means the targets are fixed (`.github/workflows/` is GitHub's, not
-    ours to move).
+    Set for every component whose destination is configurable: the directories
+    `subagents` and `skills` write into, and the single files `plugin` and
+    `agent` merge into. Declared targets are built against the *default*
+    location, so a repo that overrode it needs each target rebased onto the
+    configured one. {meth}`resolve_target` performs that rebase, and leaving
+    this empty means the targets are fixed (`.github/workflows/` is GitHub's,
+    not ours to move).
     """
 
     def is_enabled(self, config: object) -> bool:
@@ -305,8 +306,14 @@ class Component:
         """Rebase a declared target path onto this component's configured location.
 
         A no-op unless {attr}`location_field` is set and the resolved config
-        actually moves the directory, so every caller can route every target
+        actually moves the destination, so every caller can route every target
         through this method instead of testing the component name first.
+
+        Handles both shapes a location may take. A directory location rebases
+        the path under it; a file location (`plugin`, `agent`) *is* the path, so
+        it is replaced outright. Matching only the directory shape would leave a
+        moved file reported at its default path, and stale-file detection would
+        then hunt for an orphan the repository never wrote there.
 
         :param target: A path as declared on a {class}`FileEntry` (or a
             {class}`RemovedAsset` tombstone), relative to the repository root and
@@ -319,10 +326,12 @@ class Component:
             return target
         # The Config default carries a "./" prefix the registry targets omit.
         default = getattr(Config, self.location_field).removeprefix("./").rstrip("/")
-        if not target.startswith(f"{default}/"):
-            return target
         custom = getattr(config, self.location_field).removeprefix("./").rstrip("/")
         if custom == default:
+            return target
+        if target == default:
+            return custom
+        if not target.startswith(f"{default}/"):
             return target
         return f"{custom}/{target[len(default) + 1 :]}"
 
@@ -493,10 +502,10 @@ class RemovedAsset:
     (like `.claude/skills/repomatic-release/SKILL.md` or
     `.github/workflows/label-sponsors.yaml`).
 
-    Build skill and agent targets with `_skill_target` / `_agent_target` so
-    they match the live registry: the `skills.location` and `agents.location`
-    overrides are re-applied at detection time. Workflow targets are literal
-    (`.github/workflows/` is fixed by GitHub)."""
+    Build skill and subagent targets with `_skill_target` / `_subagent_target`
+    so they match the live registry: the `skills.location` and
+    `subagents.location` overrides are re-applied at detection time. Workflow
+    targets are literal (`.github/workflows/` is fixed by GitHub)."""
 
     removed_in: str
     """Bare package version that first stopped shipping the asset
@@ -536,20 +545,20 @@ which verifies the release they name actually carries the files.
 """
 
 
-def _agent_target(agent_id: str) -> str:
-    """Build the default target path for an agent file from the Config default."""
-    prefix = Config.agents_location.removeprefix("./").rstrip("/")
+def _subagent_target(agent_id: str) -> str:
+    """Build the default target path for a subagent file from the Config default."""
+    prefix = Config.subagents_location.removeprefix("./").rstrip("/")
     return f"{prefix}/{agent_id}.md"
 
 
-def _agent_entry(agent_id: str) -> FileEntry:
-    """Declare the {class}`FileEntry` of one bundled agent definition.
+def _subagent_entry(agent_id: str) -> FileEntry:
+    """Declare the {class}`FileEntry` of one bundled subagent definition.
 
-    Every agent follows the same shape (`agent-{id}.md` in the bundle, one
-    Markdown file under the agents directory, `{id}` as its selector), so the
+    Every subagent follows the same shape (`agent-{id}.md` in the bundle, one
+    Markdown file under the subagents directory, `{id}` as its selector), so the
     registry names the id once and derives the rest.
     """
-    return FileEntry(f"agent-{agent_id}.md", _agent_target(agent_id), agent_id)
+    return FileEntry(f"agent-{agent_id}.md", _subagent_target(agent_id), agent_id)
 
 
 SKILL_FILENAME = "SKILL.md"
@@ -662,18 +671,18 @@ COMPONENTS: tuple[Component, ...] = (
         ),
     ),
     BundledComponent(
-        name="agents",
-        description="Claude Code agent definitions (.claude/agents/)",
+        name="subagents",
+        description="Agent subagent definitions (.claude/agents/)",
         init_default=InitDefault.EXCLUDE,
-        # Agents are user-facing documents that Claude Code auto-invokes by
-        # description. Keep them on disk even when unmodified so the runtime
-        # can always discover them.
+        # Subagents are user-facing documents the runtime auto-invokes by
+        # description. Keep them on disk even when unmodified so it can always
+        # discover them.
         keep_unmodified=True,
-        location_field="agents_location",
+        location_field="subagents_location",
         files=(
-            _agent_entry("grunt-qa"),
-            _agent_entry("qa-engineer"),
-            _agent_entry("sphinx-docs"),
+            _subagent_entry("grunt-qa"),
+            _subagent_entry("qa-engineer"),
+            _subagent_entry("sphinx-docs"),
         ),
     ),
     BundledComponent(
@@ -747,7 +756,7 @@ COMPONENTS: tuple[Component, ...] = (
     GeneratedComponent(
         name="plugin",
         description="Claude Code plugin marketplace wiring (.claude/settings.json)",
-        # Opt-in like its `skills` and `agents` siblings, and for a stronger
+        # Opt-in like its `skills` and `subagents` siblings, and for a stronger
         # reason: this one asks every collaborator to install something. A bare
         # `repomatic init` never touches it.
         init_default=InitDefault.EXCLUDE,
@@ -758,21 +767,24 @@ COMPONENTS: tuple[Component, ...] = (
         target=Config.settings_location.removeprefix("./"),
     ),
     GeneratedComponent(
-        name="claude",
-        description="Audience-tagged sections of claude.md",
+        name="agent",
+        description="Audience-tagged sections of the agent instructions file",
         # Opt-in, for the reason `plugin` above is: this one rewrites a document
         # the repository already maintains, and its first run moves that
-        # document's own sections below the managed block. Handing `claude.md`
-        # over to the sync is a decision a maintainer makes once, in a reviewable
-        # diff, rather than something a bare `repomatic init` does to them.
+        # document's own sections below the managed block. Handing the
+        # instructions file over to the sync is a decision a maintainer makes
+        # once, in a reviewable diff, rather than something a bare
+        # `repomatic init` does to them.
         init_default=InitDefault.EXCLUDE,
         # Sections are merged into a file the repository owns, so a document
         # matching upstream is the steady state, not a stale copy to clean up.
         keep_unmodified=True,
-        # Root-level and not configurable: an agent runtime looks for its
-        # instruction file at a fixed path, and `AgentLayout` has no field for
-        # one. Give it a home there before making this movable.
-        target="claude.md",
+        # Follows `[tool.repomatic.flavor] agent` through `AgentLayout`, with
+        # `agent.location` overriding it: the filename an agent runtime reads
+        # is per-runtime (`claude.md`, `AGENTS.md`), and a repository may keep
+        # it outside the root entirely.
+        location_field="agent_location",
+        target=Config.agent_location.removeprefix("./"),
     ),
     # --- Tool config components (merged into pyproject.toml) ---
     ToolConfigComponent(

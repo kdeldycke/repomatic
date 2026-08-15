@@ -180,7 +180,7 @@ SKILLS_DIR = "skills"
 def _plugin_assets(repo_root: Path) -> Iterator[tuple[Path, Path]]:
     """Pair every asset the plugin ships with its path inside the archive.
 
-    Walks the `agents` and `skills` component registries rather than globbing
+    Walks the `subagents` and `skills` component registries rather than globbing
     `.claude/`, so a file the registry does not declare cannot ride along into a
     published archive. Skill entries are whole folders, which is what picks up a
     skill's optional `references/`, `scripts/` and `assets/` subdirectories once
@@ -195,10 +195,10 @@ def _plugin_assets(repo_root: Path) -> Iterator[tuple[Path, Path]]:
     :return: Iterator of `(source relative to repo_root, path inside the plugin)`.
     :raises FileNotFoundError: If a declared agent file or skill folder is absent.
     """
-    for entry in COMPONENTS_BY_NAME["agents"].files:
+    for entry in COMPONENTS_BY_NAME["subagents"].files:
         source = Path(entry.target)
         if not (repo_root / source).is_file():
-            msg = f"Agent file {entry.target} is missing."
+            msg = f"Subagent file {entry.target} is missing."
             raise FileNotFoundError(msg)
         yield source, Path(AGENTS_DIR) / source.name
 

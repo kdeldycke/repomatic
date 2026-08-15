@@ -11,7 +11,7 @@ This repository is the **canonical reference** for conventions. Repos using the 
 
 **Self-contained `claude.md`:** A section that reaches downstream must stand on its own, because neither a user-level `~/.claude/CLAUDE.md` nor any other external instruction file is guaranteed to exist in a contributor's checkout. Every rule Claude needs there must be inline. Which sections travel is declared per section: see [§ Section audience tags](#section-audience-tags).
 
-**The push is not mechanical yet.** No `claude` component exists in {data}`~repomatic.registry.COMPONENTS`, so downstream copies are hand-maintained and have drifted badly: of the sections nominally shared with this file, roughly four in five have diverged, and three of the six downstream repos carry almost none of them. Until `repomatic init` owns the tagged sections, treat a downstream `claude.md` as stale rather than as evidence of what a repo was told.
+**The push is mechanical.** The `agent` component in {data}`~repomatic.registry.COMPONENTS` owns every tagged section downstream, and `repomatic init agent` re-emits them into whatever `[tool.repomatic] agent.location` names. It is opt-in, so a repository that never ran it still carries hand-maintained copies: of the sections nominally shared with this file, roughly four in five had diverged before the component existed. Treat an untagged downstream document as stale rather than as evidence of what a repo was told, and check whether the repository has adopted the component before reading anything into its contents.
 
 ## Consuming repomatic
 
@@ -240,7 +240,7 @@ Every heading below carries an HTML comment declaring who the section is written
 
 A `; scope:` qualifier narrows an audience to a repository type, mirroring {class}`~repomatic.registry.RepoScope`. Only `package` is defined so far (`<!-- audience: all; scope: package -->`), covering the release lane: it skips a uv virtual project, which locks and tests like any Python repo but has nothing to publish, tag or write release notes for. A `python` scope is deliberately absent while every repo in the set is Python, since it would ship with no members distinct from the default.
 
-Two rules hold the tags together, both enforced by `tests/test_claude_md.py`:
+Two rules hold the tags together, both enforced by `tests/test_agent_md.py`:
 
 - **Every section is tagged.** An untagged heading has no declared reach, so a sync cannot place it and a reader cannot tell whether it binds them.
 - **A subsection never reaches wider than its parent.** An `all` section under an `upstream` heading would deploy with no heading above it, arriving as an orphan under whatever section precedes it.
@@ -591,7 +591,7 @@ A config field also surfaces in serialized command output (a non-string default 
 
 This repository uses three Claude Code agents in `.claude/agents/`. Definitions stay lean: if a rule belongs in `CLAUDE.md`, put it there and reference it. Do not duplicate.
 
-**Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init agents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline or reference `claude.md` sections, not upstream `docs/` URLs or upstream-only paths. When mining session history, default to local `claude.md` updates; file an upstream proposal only when the pattern is generic across repos.
+**Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init subagents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline or reference `claude.md` sections, not upstream `docs/` URLs or upstream-only paths. When mining session history, default to local `claude.md` updates; file an upstream proposal only when the pattern is generic across repos.
 
 ### Source of truth hierarchy
 

@@ -116,7 +116,7 @@ def bundled_assets() -> list[tuple[str, str]]:
     ]
     assets.extend(
         (entry.file_id, get_data_content(entry.source))
-        for entry in COMPONENTS_BY_NAME["agents"].files
+        for entry in COMPONENTS_BY_NAME["subagents"].files
     )
     return assets
 

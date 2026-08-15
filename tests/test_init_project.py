@@ -68,10 +68,10 @@ from repomatic.registry import (
     TemplateComponent,
     ToolConfigComponent,
     WorkflowComponent,
-    _agent_target,
     _skill_dir,
     _skill_source,
     _skill_target,
+    _subagent_target,
     parse_component_entries,
     valid_file_ids,
 )
@@ -349,8 +349,6 @@ def test_strip_header_comments_keeps_key_comments(comp: ToolConfigComponent) -> 
             assert line in stripped, (
                 f"{comp.source_file}: dropped key comment {line!r}"
             )
-
-
 
 
 # Keys intentionally different between template and repomatic's own pyproject.toml.
@@ -1532,7 +1530,7 @@ def test_init_creates_all_default_files(
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n'
         "[tool.repomatic]\n"
-        'include = ["agents", "skills"]\n',
+        'include = ["skills", "subagents"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -2635,7 +2633,7 @@ def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Agents, labels, plugin, and skills are excluded by default.
     assert "labels.toml" not in created_set
     for _, rel_path in (
-        (e.source, e.target) for e in COMPONENTS_BY_NAME["agents"].files
+        (e.source, e.target) for e in COMPONENTS_BY_NAME["subagents"].files
     ):
         assert rel_path not in created_set
     for _, rel_path in (
@@ -2646,7 +2644,7 @@ def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Other default components should still be created.
     assert "changelog.md" in created_set
 
-    assert result.excluded == ["agents", "claude", "labels", "plugin", "skills"]
+    assert result.excluded == ["agent", "labels", "plugin", "skills", "subagents"]
 
 
 def test_init_respects_exclude_components(
@@ -2675,7 +2673,7 @@ def test_init_respects_exclude_components(
     # Other default components should still be created.
     assert "changelog.md" in created_set
 
-    assert result.excluded == ["agents", "claude", "labels", "plugin", "skills"]
+    assert result.excluded == ["agent", "labels", "plugin", "skills", "subagents"]
 
 
 def test_init_respects_exclude_workflow_files(
@@ -3227,7 +3225,7 @@ def test_init_detects_auto_excluded_awesome_triage(
     ("component", "field", "default_dir", "leaf"),
     [
         pytest.param("skills", "skills_location", ".claude/skills", "papaya/SKILL.md"),
-        pytest.param("agents", "agents_location", ".claude/agents", "papaya.md"),
+        pytest.param("subagents", "subagents_location", ".claude/agents", "papaya.md"),
     ],
 )
 @pytest.mark.parametrize(
@@ -3259,15 +3257,15 @@ def test_resolve_target(component, field, default_dir, leaf, location, expected_
     )
 
 
-@pytest.mark.parametrize("component", ["skills", "agents"])
+@pytest.mark.parametrize("component", ["skills", "subagents"])
 def test_resolve_target_leaves_foreign_paths_alone(component):
     """A target outside the component's default location passes through."""
     comp = COMPONENTS_BY_NAME[component]
-    config = Config(skills_location="./custom/", agents_location="./custom/")
+    config = Config(skills_location="./custom/", subagents_location="./custom/")
     assert comp.resolve_target("other/path.md", config) == "other/path.md"
 
 
-@pytest.mark.parametrize("component", ["skills", "agents", "workflows"])
+@pytest.mark.parametrize("component", ["skills", "subagents", "workflows"])
 def test_resolve_target_without_config_is_noop(component):
     """With no config there is nothing to rebase onto."""
     comp = COMPONENTS_BY_NAME[component]
@@ -3282,7 +3280,7 @@ def test_resolve_target_ignores_components_with_fixed_location():
     `workflows` declares no `location_field` and its targets are literal.
     """
     comp = COMPONENTS_BY_NAME["workflows"]
-    config = Config(skills_location="./custom/", agents_location="./custom/")
+    config = Config(skills_location="./custom/", subagents_location="./custom/")
     assert comp.resolve_target(".github/workflows/autofix.yaml", config) == (
         ".github/workflows/autofix.yaml"
     )
@@ -3317,8 +3315,8 @@ def test_init_agents_custom_location(tmp_path: Path, monkeypatch: pytest.MonkeyP
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n'
         "[tool.repomatic]\n"
-        'include = ["agents"]\n'
-        'agents.location = "./custom/agents/"\n',
+        'include = ["subagents"]\n'
+        'subagents.location = "./custom/agents/"\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -3342,8 +3340,8 @@ def test_init_detects_excluded_agent_custom_location(
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n'
         "[tool.repomatic]\n"
-        'include = ["agents"]\n'
-        'agents.location = "./custom/agents/"\n',
+        'include = ["subagents"]\n'
+        'subagents.location = "./custom/agents/"\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -3356,9 +3354,9 @@ def test_init_detects_excluded_agent_custom_location(
     pyproject.write_text(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n'
         "[tool.repomatic]\n"
-        'include = ["agents"]\n'
-        'exclude = ["agents/grunt-qa"]\n'
-        'agents.location = "./custom/agents/"\n',
+        'include = ["subagents"]\n'
+        'exclude = ["subagents/grunt-qa"]\n'
+        'subagents.location = "./custom/agents/"\n',
         encoding="UTF-8",
     )
 
@@ -3921,7 +3919,7 @@ def test_removed_data_assets_are_tombstoned() -> None:
     # dropped bundled source actually orphans anything.
     shipped_targets = {
         f"{entry.target}/{SKILL_FILENAME}" if entry.tree else entry.target
-        for name in ("skills", "agents")
+        for name in ("skills", "subagents")
         for entry in COMPONENTS_BY_NAME[name].files
     }
 
@@ -3930,7 +3928,7 @@ def test_removed_data_assets_are_tombstoned() -> None:
         if source.startswith("skill-"):
             target = _skill_target(source[len("skill-") : -len(".md")])
         else:
-            target = _agent_target(source[len("agent-") : -len(".md")])
+            target = _subagent_target(source[len("agent-") : -len(".md")])
         # Relocating a bundled source (a skill moving to its folder layout)
         # leaves no orphan as long as the downstream path is unchanged.
         if target in shipped_targets:
@@ -4099,7 +4097,7 @@ def test_init_include_overrides_default_exclusions(
     """Verify include overrides default exclusions additively."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["agents"]\n',
+        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["subagents"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -4109,7 +4107,7 @@ def test_init_include_overrides_default_exclusions(
     created_set = set(result.created)
     # Agents included via include; labels, skills still excluded by default.
     for _, rel_path in (
-        (e.source, e.target) for e in COMPONENTS_BY_NAME["agents"].files
+        (e.source, e.target) for e in COMPONENTS_BY_NAME["subagents"].files
     ):
         assert rel_path in created_set
     for _, rel_path in (
@@ -4117,7 +4115,7 @@ def test_init_include_overrides_default_exclusions(
     ):
         assert rel_path not in created_set
     assert "labels.toml" not in created_set
-    assert result.excluded == ["claude", "labels", "plugin", "skills"]
+    assert result.excluded == ["agent", "labels", "plugin", "skills"]
 
 
 def test_init_include_cannot_materialize_ephemeral(

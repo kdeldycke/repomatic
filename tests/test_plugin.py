@@ -246,7 +246,7 @@ def test_pack_plugin_ships_every_registered_asset(tmp_path: Path) -> None:
     names = set(pack_plugin(PROJECT_ROOT, archive_path, ARCHIVE_VERSION))
 
     wanted = {f"{PLUGIN_NAME}/{MANIFEST_PATH}"}
-    for entry in COMPONENTS_BY_NAME["agents"].files:
+    for entry in COMPONENTS_BY_NAME["subagents"].files:
         name = Path(entry.target).name
         wanted.add(f"{PLUGIN_NAME}/{AGENTS_DIR}/{name}")
     for entry in COMPONENTS_BY_NAME["skills"].files:
@@ -294,7 +294,7 @@ def test_archive_skill_folders_keep_their_subdirectories(tmp_path: Path) -> None
     (repo / ".claude-plugin/plugin.json").write_text(
         json.dumps({"name": PLUGIN_NAME}), encoding="UTF-8"
     )
-    for entry in COMPONENTS_BY_NAME["agents"].files:
+    for entry in COMPONENTS_BY_NAME["subagents"].files:
         target = repo / entry.target
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("---\nname: x\n---\n", encoding="UTF-8")

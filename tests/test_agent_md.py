@@ -51,16 +51,16 @@ import re
 
 import pytest
 
-from repomatic.bundle import get_data_content
-from repomatic.claude_md import (
+from repomatic.agent_md import (
     AUDIENCES,
-    BUNDLED_CLAUDE_MD,
+    BUNDLED_INSTRUCTIONS,
     DOWNSTREAM_AUDIENCES,
     TAG_SCOPES,
     Section,
     parse_sections,
-    render_claude_md,
+    render_agent_md,
 )
+from repomatic.bundle import get_data_content
 from repomatic.registry import COMPONENTS_BY_NAME, SKILL_FILENAME, RepoScope
 from repomatic.tool_runner import verify_via_write_path
 from tests.conftest import skip_unless_tool_runs
@@ -82,10 +82,10 @@ of a section that has since been renamed: the reference is recognised, then
 fails to resolve. Keying only off known titles would silently skip it.
 """
 
-_PREAMBLE, UPSTREAM_SECTIONS = parse_sections(get_data_content(BUNDLED_CLAUDE_MD))
+_PREAMBLE, UPSTREAM_SECTIONS = parse_sections(get_data_content(BUNDLED_INSTRUCTIONS))
 """The reference document, read the way `repomatic init` reads it.
 
-Through {func}`~repomatic.claude_md.parse_sections` and the bundled path rather
+Through {func}`~repomatic.agent_md.parse_sections` and the bundled path rather
 than a second parser of its own, so a shape these tests accept is by
 construction a shape the merge understands.
 """
@@ -97,7 +97,7 @@ def parent_titles() -> dict[str, str]:
     """Map each section title to the title of the heading it sits under.
 
     Derived from heading depth here rather than carried on
-    {class}`~repomatic.claude_md.Section`, because the merge never needs it: it
+    {class}`~repomatic.agent_md.Section`, because the merge never needs it: it
     re-emits sections in upstream order, so the hierarchy comes along for free.
     """
     parents: dict[str, str] = {}
@@ -135,7 +135,7 @@ def deployed_assets() -> list[tuple[str, str, RepoScope]]:
     ]
     assets.extend(
         (entry.file_id, get_data_content(entry.source), entry.scope)
-        for entry in COMPONENTS_BY_NAME["agents"].files
+        for entry in COMPONENTS_BY_NAME["subagents"].files
     )
     return assets
 
@@ -255,8 +255,8 @@ def test_merge_is_idempotent_and_keeps_local_sections() -> None:
     never seen keeps everything it wrote for itself.
     """
     local = "# Guide\n\n## Something local\n\nRepo-specific prose.\n"
-    once = render_claude_md(local)
-    twice = render_claude_md(once)
+    once = render_agent_md(local)
+    twice = render_agent_md(once)
     assert once == twice, "Merging an already-merged document is not a no-op."
 
     _preamble, sections = parse_sections(once)
@@ -293,7 +293,7 @@ def test_merged_document_is_an_mdformat_fixed_point(tmp_path, monkeypatch) -> No
 
     target = tmp_path / "claude.md"
     target.write_text(
-        render_claude_md("# Guide\n\n## Local prose\n\nRepo-specific.\n"),
+        render_agent_md("# Guide\n\n## Local prose\n\nRepo-specific.\n"),
         encoding="UTF-8",
     )
 
@@ -312,7 +312,7 @@ def test_merge_emits_no_upstream_only_section() -> None:
     The complement of {func}`test_every_section_is_tagged`: tagging a section
     `upstream` has to actually keep it home, or the tag is decorative.
     """
-    _preamble, merged = parse_sections(render_claude_md(""))
+    _preamble, merged = parse_sections(render_agent_md(""))
     upstream_only = sorted(
         s.title
         for s in UPSTREAM_SECTIONS
@@ -330,8 +330,8 @@ def test_package_scope_is_withheld_from_a_virtual_project() -> None:
     A uv virtual project locks and tests like any Python repo but never ships a
     release, so the release-lane sections would be instructions it cannot act on.
     """
-    _preamble, full = parse_sections(render_claude_md("", is_package=True))
-    _preamble, virtual = parse_sections(render_claude_md("", is_package=False))
+    _preamble, full = parse_sections(render_agent_md("", is_package=True))
+    _preamble, virtual = parse_sections(render_agent_md("", is_package=False))
     withheld = {s.title for s in full} - {s.title for s in virtual}
     expected = {s.title for s in UPSTREAM_SECTIONS if s.scope == "package"}
     assert withheld == expected, (

@@ -48,8 +48,8 @@ import yaml
 from packaging.version import InvalidVersion, Version
 
 from . import __git_tag_sha__, __version__
+from .agent_md import merge_agent_md
 from .bundle import get_data_content
-from .claude_md import merge_claude_md
 from .config import Config, load_repomatic_config
 from .github.releases import resolve_tag_to_sha
 from .github.workflow_sync import (
@@ -123,7 +123,7 @@ RUNTIME_FRAGMENTS: tuple[str, ...] = (
 These files live in `repomatic/data/` so they ship in the wheel and are
 discoverable via {func}`get_data_content`, but `repomatic init` never copies them
 as-is. `claude.md` is the reference document
-{func}`~repomatic.claude_md.render_claude_md` reads to project its
+{func}`~repomatic.agent_md.render_agent_md` reads to project its
 audience-tagged sections into a downstream repository's own `claude.md`; what
 lands there is a filtered overlay, never this file entire.
 `release.yaml` is the canonical caller `repomatic.github.workflow_sync`
@@ -1288,13 +1288,14 @@ def run_init(
                 _init_changelog(output_dir, result, config=config)
             elif comp.name == "plugin":
                 _init_plugin_settings(output_dir, result, config=config)
-            elif comp.name == "claude" and not is_source:
-                _init_claude_md(
+            elif comp.name == "agent" and not is_source:
+                _init_agent_md(
                     output_dir,
                     result,
                     is_awesome=is_awesome,
                     is_python=is_python,
                     is_package=is_package,
+                    config=config,
                 )
 
         elif isinstance(comp, ToolConfigComponent):
@@ -1914,13 +1915,14 @@ def _init_plugin_settings(
         logging.info(f"Created: {rel}")
 
 
-def _init_claude_md(
+def _init_agent_md(
     output_dir: Path,
     result: InitResult,
     *,
     is_awesome: bool,
     is_python: bool,
     is_package: bool,
+    config: Config | None = None,
 ) -> None:
     """Overlay the audience-tagged sections of `claude.md` onto the repository's.
 
@@ -1934,23 +1936,26 @@ def _init_claude_md(
     :param is_awesome: `True` for `awesome-*` repositories.
     :param is_python: `True` when a PEP 621 `[project].name` is present.
     :param is_package: `True` when the project also builds a distributable.
+    :param config: Project config supplying `agent.location`.
     """
-    target = output_dir / "claude.md"
+    location = (config or Config()).agent_location.removeprefix("./")
+    target = output_dir / location
+    rel = target.relative_to(output_dir).as_posix()
     existed = target.is_file()
-    if not merge_claude_md(
+    if not merge_agent_md(
         target,
         is_awesome=is_awesome,
         is_python=is_python,
         is_package=is_package,
     ):
-        logging.debug("Unchanged: claude.md")
+        logging.debug(f"Unchanged: {rel}")
         return
     if existed:
-        result.updated.append("claude.md")
-        logging.info("Updated: claude.md")
+        result.updated.append(rel)
+        logging.info(f"Updated: {rel}")
     else:
-        result.created.append("claude.md")
-        logging.info("Created: claude.md")
+        result.created.append(rel)
+        logging.info(f"Created: {rel}")
 
 
 def _fetch_extra_labels(

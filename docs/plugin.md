@@ -102,12 +102,12 @@ $ claude --plugin-dir /tmp/repomatic-claude-plugin.zip plugin details repomatic
 $ uvx -- repomatic init plugin
 ```
 
-It merges rather than overwrites: your own `permissions`, hooks, and any other marketplace you already registered are left alone, and re-running it is a no-op. Move the destination with `[tool.repomatic] settings.location` if `.claude/` is not at your repository root, the same way [`skills.location` and `agents.location`](configuration.md) work.
+It merges rather than overwrites: your own `permissions`, hooks, and any other marketplace you already registered are left alone, and re-running it is a no-op. Move the destination with `[tool.repomatic] settings.location` if `.claude/` is not at your repository root, the same way [`skills.location` and `subagents.location`](configuration.md) work.
 
-Like `skills` and `agents`, this component is **opt-in**: a bare `repomatic init` never touches your settings. Name it explicitly, or list it under `[tool.repomatic] include`.
+Like `skills` and `subagents`, this component is **opt-in**: a bare `repomatic init` never touches your settings. Name it explicitly, or list it under `[tool.repomatic] include`.
 
 ```{note}
-Claude Code only *prompts* each collaborator to install a plugin a project declares; it never installs one on their behalf. So declaring the plugin does not guarantee every collaborator has it, which is why `repomatic init skills` and `init agents` remain available and unchanged.
+Claude Code only *prompts* each collaborator to install a plugin a project declares; it never installs one on their behalf. So declaring the plugin does not guarantee every collaborator has it, which is why `repomatic init skills` and `init subagents` remain available and unchanged.
 ```
 
 ## Install in Claude Desktop

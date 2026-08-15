@@ -5,25 +5,29 @@ This repository includes [Claude Code subagents](https://code.claude.com/docs/en
 Downstream repositories can install them with:
 
 ```shell-session
-$ uvx -- repomatic init agents
+$ uvx -- repomatic init subagents
 ```
 
-To install a single agent:
+To install a single subagent:
 
 ```shell-session
-$ uvx -- repomatic init agents/grunt-qa
+$ uvx -- repomatic init subagents/grunt-qa
 ```
 
 Selectors use the same `component[/file]` syntax as the `exclude` config option in [`[tool.repomatic]`](configuration.md).
 
-These same agents are also published as a Claude Code plugin, which installs them without committing any copy to your repository: see [§ Claude Code plugin](plugin.md).
+```{note}
+The component is `subagents`, not `agents`, because `agent` is the neighbouring component writing the instructions file this page's siblings describe. The two used to differ by one character while doing entirely different things.
+```
 
-To deploy agents to a non-default directory (like a dotfiles repository where `.claude/` is not at the root), set `agents.location` in `[tool.repomatic]`:
+These same subagents are also published as a Claude Code plugin, which installs them without committing any copy to your repository: see [§ Claude Code plugin](plugin.md).
+
+To deploy them to a non-default directory (like a dotfiles repository where `.claude/` is not at the root), set `subagents.location` in `[tool.repomatic]`:
 
 ```toml
 [tool.repomatic]
-include = ["agents"]
-agents.location = "./dotfiles/.claude/agents/"
+include = ["subagents"]
+subagents.location = "./dotfiles/.claude/agents/"
 ```
 
 ## Available agents
