@@ -49,6 +49,7 @@ from packaging.version import InvalidVersion, Version
 
 from . import __git_tag_sha__, __version__
 from .bundle import get_data_content
+from .claude_md import merge_claude_md
 from .config import Config, load_repomatic_config
 from .github.releases import resolve_tag_to_sha
 from .github.workflow_sync import (
@@ -112,12 +113,20 @@ if TYPE_CHECKING:
         from importlib.abc import Traversable
 
 
-RUNTIME_FRAGMENTS: tuple[str, ...] = ("release.yaml", "vt-trend-chart.js")
+RUNTIME_FRAGMENTS: tuple[str, ...] = (
+    "claude.md",
+    "release.yaml",
+    "vt-trend-chart.js",
+)
 """Bundled files loaded by `repomatic` at runtime, not deployed verbatim.
 
 These files live in `repomatic/data/` so they ship in the wheel and are
 discoverable via {func}`get_data_content`, but `repomatic init` never copies them
-as-is. `release.yaml` is the canonical caller `repomatic.github.workflow_sync`
+as-is. `claude.md` is the reference document
+{func}`~repomatic.claude_md.render_claude_md` reads to project its
+audience-tagged sections into a downstream repository's own `claude.md`; what
+lands there is a filtered overlay, never this file entire.
+`release.yaml` is the canonical caller `repomatic.github.workflow_sync`
 reads to assemble each downstream `release.yaml`, copying its jobs and rewriting
 the local `uses:` refs (see `_generate_release_caller`); the deployed
 `release.yaml` is generated, not this bundled copy. `vt-trend-chart.js` is the
@@ -1258,6 +1267,14 @@ def run_init(
                 _init_changelog(output_dir, result, config=config)
             elif comp.name == "plugin":
                 _init_plugin_settings(output_dir, result, config=config)
+            elif comp.name == "claude" and not is_source:
+                _init_claude_md(
+                    output_dir,
+                    result,
+                    is_awesome=is_awesome,
+                    is_python=is_python,
+                    is_package=is_package,
+                )
 
         elif isinstance(comp, ToolConfigComponent):
             tool_configs_to_merge.append(comp.name)
@@ -1874,6 +1891,45 @@ def _init_plugin_settings(
     else:
         result.created.append(rel)
         logging.info(f"Created: {rel}")
+
+
+def _init_claude_md(
+    output_dir: Path,
+    result: InitResult,
+    *,
+    is_awesome: bool,
+    is_python: bool,
+    is_package: bool,
+) -> None:
+    """Overlay the audience-tagged sections of `claude.md` onto the repository's.
+
+    Skipped in the source repository by the caller, and not merely filtered
+    there: `kdeldycke/repomatic` consumes no repomatic but its own, so the
+    `downstream` sections written for its consumers do not describe it. The
+    document it would be merging into is also the one being merged *from*.
+
+    :param output_dir: Root of the repository being initialized.
+    :param result: Init result to record the created or updated path on.
+    :param is_awesome: `True` for `awesome-*` repositories.
+    :param is_python: `True` when a PEP 621 `[project].name` is present.
+    :param is_package: `True` when the project also builds a distributable.
+    """
+    target = output_dir / "claude.md"
+    existed = target.is_file()
+    if not merge_claude_md(
+        target,
+        is_awesome=is_awesome,
+        is_python=is_python,
+        is_package=is_package,
+    ):
+        logging.debug("Unchanged: claude.md")
+        return
+    if existed:
+        result.updated.append("claude.md")
+        logging.info("Updated: claude.md")
+    else:
+        result.created.append("claude.md")
+        logging.info("Created: claude.md")
 
 
 def _fetch_extra_labels(

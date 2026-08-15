@@ -101,6 +101,15 @@
    :undoc-members:
 ```
 
+## `repomatic.claude_md` module
+
+```{eval-rst}
+.. automodule:: repomatic.claude_md
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.cli` module
 
 ```{eval-rst}

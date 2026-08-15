@@ -116,22 +116,30 @@ Compare these files against the upstream reference. **Before flagging absence as
 - Check `[tool.repomatic] agents.location` and `skills.location` for a sub-directory (e.g., `dotfiles/.claude/`); if those are set, look for `{location_parent}/CLAUDE.md`.
 - Try common alternates: `claude.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, `dotfiles/.claude/CLAUDE.md`.
 
-Fetch the upstream `claude.md` and identify universally applicable sections that the local file is missing. Focus on:
+`repomatic init claude` only manages a root-level `claude.md`. When the file you find is somewhere else, the push direction below does not apply to it: audit the pull direction only, and note that the file sits outside what the sync can reach.
 
-- Terminology and spelling rules.
-- Version formatting conventions.
-- File naming conventions (long-form extensions, lowercase, GitHub exceptions table).
-- Modern typing practices.
-- YAML scalar style (`>` vs `|`).
-- Markdown heading anchor rules.
-- Python version compatibility caveats.
-- Testing guidelines (e.g., "no test classes" rule, `@pytest.mark.once`).
-- Common maintenance pitfalls (CI URL, root-cause tracing, doc drift, type-check divergence, angle-bracket placeholders, route-through-existing-infra).
-- Command-line option conventions.
+**Read the audience tags before judging anything.** Upstream marks every section with an HTML comment right under its heading, and that comment answers the question this audit used to answer by eye:
 
-Do **not** flag upstream sections that are project-specific (e.g., CLI abstractions, knowledge placement table, workflow design rationale, release checklists, agent conventions, MyST docstring rules, `__init__.py` discipline, `TYPE_CHECKING` block patterns).
+```markdown
+### Version formatting
 
-**Do not treat the local file as a downstream copy of upstream.** Many downstream `claude.md` files are personal-conventions documents with project-agnostic preferences (voice, commit policy, shell-command patterns, language preferences) that should not appear in upstream. Only flag missing content that is universally applicable.
+<!-- audience: all -->
+```
+
+`audience: all` and `audience: downstream` sections belong to upstream and are pushed down by `repomatic init claude`. `audience: upstream` never leaves `kdeldycke/repomatic`. A `; scope: package` qualifier narrows a section to repos that build a distributable, so a uv virtual project skipping one is correct, not missing. A section with **no tag at all** is the repository's own.
+
+That splits the work into two directions, and they are not symmetric:
+
+**Push (mechanical, do not hand-edit).** For each tagged local section, compare its body against upstream's. Any difference is stale, whichever side looks better: the fix is to run `repomatic init claude`, never to hand-patch the section or to propose the local wording upstream. Report the count and name the sections, but do not draft the diff. A tagged section upstream no longer sends here (retagged `upstream`, or scoped away) is an orphan the same command prunes.
+
+**Pull (analytical, this is your job).** Untagged local sections are where repo-specific knowledge lives and are correct by default. Read them for two things:
+
+1. **Content that generalizes.** A section describing something every repomatic consumer faces (how a workflow is regenerated, what a sync owns, how a pinned tool moves) is an upstream proposal. Say which audience it would carry, and check that no tagged section already covers it under a different title.
+2. **Content that upstream has since replaced.** A local section on a subject upstream now covers under a *different heading* is stale and will not be adopted, because the merge keys on the title. That is what upstream's `<!-- supersedes: {old title} -->` is for: propose adding one rather than asking the repo to delete its section.
+
+**Degrade gracefully when the file carries no tags at all.** The `claude` component is opt-in, so a repository may never have run it. Say so once, treat the whole file as untagged repo-owned content, and audit only the pull direction. Do not hand-classify the file section by section against upstream: recommending `repomatic init claude` is both the smaller message and the durable fix.
+
+**A downstream `claude.md` is not a copy of upstream, tags or no tags.** Personal or project conventions (voice, commit policy, shell patterns, language preferences) are deliberately absent upstream and must never be proposed for it, since upstream ships to repos with outside contributors where several such rules are wrong advice.
 
 ### 4. Upstream contribution opportunities (`upstream`)
 

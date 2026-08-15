@@ -9,6 +9,10 @@
 - The bundled `repomatic-ship` skill now reads a green CI run as stale when supersession cancelled every run between it and `HEAD`, and ships a release's own reflection findings in that same release.
 - Bundled guidance now requires a duration baseline and per-job timestamps before calling a CI run hung, and `repomatic-ship` no longer holds a green release waiting for a binary build.
 - Fix stale guidance in the bundled agents and skills: the `update-docs` job credited to the wrong workflow, Furo logo and OpenGraph settings contradicting a working configuration, and a `repomatic` invocation that fails outside the canonical repository.
+- New `repomatic init claude` component projecting the audience-tagged sections of the bundled `claude.md` into a repository, leaving every section that repository wrote for itself untouched.
+- Bundled guidance now declares which repositories each `claude.md` section applies to, and documents what a repository consuming repomatic owns: its workflow content, its pin, and its configuration.
+- The bundled `repomatic-audit` skill now reads those tags to tell a synced section from a repository's own, instead of classifying each one by hand.
+- Fix two stale claims in the bundled guidance: the workflow permissions contract is generated rather than hand-written, and PAT-gated `lint-repo` checks report as skipped rather than failing the job.
 
 ## [`7.12.0` (2026-08-14)](https://github.com/kdeldycke/repomatic/compare/v7.11.0...v7.12.0)
 

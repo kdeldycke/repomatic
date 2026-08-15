@@ -29,6 +29,7 @@ import tomlrt
 import yaml
 
 from repomatic.binary import NUITKA_BUILD_TARGETS
+from repomatic.claude_md import BUNDLED_CLAUDE_MD
 from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
@@ -1435,14 +1436,29 @@ def test_only_workflows_agents_and_actions_are_symlinks_in_data() -> None:
     workflows = {p.name for p in WORKFLOWS_DIR.glob("*.yaml")}
     agents = {p.name for p in DATA_DIR.iterdir() if p.name.startswith("agent-")}
     actions = {p.name for p in DATA_DIR.iterdir() if p.name.startswith("action-")}
-    expected = workflows | agents | actions
+    # The reference document is bundled the way the agents are, symlinked back
+    # to the repository root so the file `repomatic init` projects downstream is
+    # the very one `test_claude_md.py` holds to its own tags.
+    expected = workflows | agents | actions | {BUNDLED_CLAUDE_MD}
     symlinks = {p.name for p in DATA_DIR.iterdir() if p.is_symlink()}
 
     extra = symlinks - expected
     assert not extra, (
-        f"Unexpected symlinks in repomatic/data/: {sorted(extra)}. "
-        "Only workflow, agent, and composite-action files should be symlinked."
+        f"Unexpected symlinks in repomatic/data/: {sorted(extra)}. Only "
+        "workflow, agent, composite-action and claude.md files are symlinked."
     )
+
+
+def test_claude_md_symlink_resolves_to_the_repository_root() -> None:
+    """The bundled reference document is the repository's own, not a copy.
+
+    A copy would drift the moment either side was edited, and the one that
+    matters is the copy: `repomatic init` reads it, while every conformance
+    test reads the root file.
+    """
+    symlink = DATA_DIR / BUNDLED_CLAUDE_MD
+    assert symlink.is_symlink(), f"{BUNDLED_CLAUDE_MD} is a copy, not a symlink."
+    assert symlink.resolve() == (WORKFLOWS_DIR.parent.parent / "claude.md").resolve()
 
 
 def test_workflow_symlinks_resolve_correctly() -> None:
@@ -1451,6 +1467,8 @@ def test_workflow_symlinks_resolve_correctly() -> None:
         if not symlink.is_symlink():
             continue
         if symlink.name.startswith(("skill-", "agent-", "action-")):
+            continue
+        if symlink.name == BUNDLED_CLAUDE_MD:
             continue
         target = symlink.resolve()
         expected = (WORKFLOWS_DIR / symlink.name).resolve()

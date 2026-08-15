@@ -13,6 +13,78 @@ This repository is the **canonical reference** for conventions. Repos using the 
 
 **The push is not mechanical yet.** No `claude` component exists in {data}`~repomatic.registry.COMPONENTS`, so downstream copies are hand-maintained and have drifted badly: of the sections nominally shared with this file, roughly four in five have diverged, and three of the six downstream repos carry almost none of them. Until `repomatic init` owns the tagged sections, treat a downstream `claude.md` as stale rather than as evidence of what a repo was told.
 
+## Consuming repomatic
+
+<!-- audience: downstream -->
+
+### Upstream conventions
+
+<!-- audience: downstream -->
+
+This repository takes its reusable workflows and much of its `pyproject.toml` configuration from [`kdeldycke/repomatic`](https://github.com/kdeldycke/repomatic), and follows the conventions established there. Every tagged section in this file is pushed from upstream and is the canonical form of a shared rule: edit it there, not here, or the next sync overwrites the edit. A section this repository wrote for itself carries no tag and survives every sync untouched.
+
+**Contributing upstream:** propose a gap or improvement in the reusable workflows, the `repomatic` CLI, or a shared convention at [`kdeldycke/repomatic`](https://github.com/kdeldycke/repomatic/issues). Landing it upstream is what carries it to every other repository consuming it, instead of fixing it once here.
+
+### Managed versus downstream-owned workflow content
+
+<!-- audience: downstream -->
+
+A generated workflow file has two parts. The first job is the **managed thin caller**, delegating to a reusable upstream workflow through a SHA-pinned `uses:`. It is rebuilt from scratch on every sync, so a hand edit to it is lost. Everything declared *after* it is **downstream-owned**: the sync slices the file at the end of the managed job body and carries the remaining text through verbatim, comments and blank lines included.
+
+Position alone does not settle ownership: a multi-job caller declares canonical jobs after its first one, and those are regenerated too. Write a comment above your first downstream job saying so. The sync preserves it like any other extra content but never writes one itself, so its absence means the file has nothing in it that is yours to edit.
+
+A fragment that is only comments and blank lines is still carried over, and deliberately does not count as a downstream job for the rule below.
+
+### The permissions contract is generated, not hand-written
+
+<!-- audience: downstream -->
+
+<!-- supersedes: Known lint warning: top-level workflow permissions -->
+
+When a workflow file carries downstream-owned jobs, the sync emits a top-level `permissions: {}` **and** the scopes the reusable workflow needs on the managed caller job. Both halves ship together, and neither is written by hand: a top-level `{}` on its own starves the managed call, which GitHub aborts at startup the moment a nested job asks for a scope the caller never granted.
+
+So a `lint-repo` complaint about a missing top-level `permissions` key is a signal to re-run the sync, not to add the key yourself. Declare least privilege per job on the downstream-owned jobs instead, which is the half no sync rewrites.
+
+### Bumping the repomatic pin
+
+<!-- audience: downstream -->
+
+Regenerate rather than search-and-replace, so codegen changes (new job permissions, reshaped triggers) arrive with the version bump instead of a release behind it:
+
+```shell-session
+$ uvx --no-progress 'repomatic==X.Y.Z' init workflows/autofix.yaml workflows/lint.yaml
+```
+
+Name the components explicitly. A bare `repomatic init` also materializes whatever else is in scope for the repository (labels config, a changelog), and an unqualified `workflows` selector bypasses scope gating.
+
+Read the release notes for breaking changes needing a manual follow-up. A renamed autofix job is the recurring one: its old PR branch stays open, attached to a job that no longer exists.
+
+### Tools called from workflows are version-pinned
+
+<!-- audience: downstream -->
+
+Every external tool a workflow invokes carries an exact version literal, in one of the shapes `sync-workflow-pins` recognizes: an action `uses:` ref, `uvx '{pkg}=={X.Y.Z}'` and the `--with` form for PyPI, `npm install {pkg}@{X.Y.Z}` for npm, and the `version:` input on `astral-sh/setup-uv`. That job resolves each to the newest release past `minimum-release-age` and opens a pull request. A tool invoked unpinned floats to the newest release on every run, outside the window entirely: see [§ Live registries with no cooldown knob](#live-registries-with-no-cooldown-knob).
+
+A tool the runner image happens to provide is worse than an unpinned install, because it carries no version anywhere in the repository for anything to bump. Reach for a pinned dependency that already does the job instead of finding a way to pin the tool.
+
+### PAT-gated checks degrade, they do not fail
+
+<!-- audience: downstream -->
+
+<!-- supersedes: `REPOMATIC_PAT` needs `Administration: Read-only` -->
+
+Several `lint-repo` checks read GitHub API endpoints needing a scope on `REPOMATIC_PAT`. When the token lacks one, or the call fails for any other reason, the check returns an *indeterminate* result and is reported as skipped: it never fails the job. A missing scope costs coverage, not a red run, which is [§ Defensive workflow design](#defensive-workflow-design) applied to the audit lane.
+
+Do not read a skipped check as a passing one. The setup-guide issue carries the pre-filled link for regenerating the token with the scopes a repository's own checks want.
+
+### Configuration repomatic reads
+
+<!-- audience: downstream -->
+
+`[tool.repomatic]` in `pyproject.toml` belongs to the repository and is authoritative for every feature flag. The tool sections synced from repomatic's bundled templates are not: a local edit to a key the template owns is re-applied on the next sync, so put a deviation behind a `[tool.repomatic]` setting rather than editing the synced value and expecting it to hold.
+
+The sync grafts rather than overwrites. A key the template does not define survives verbatim, a table present in both is merged so local sub-keys are kept, and an array gains its local-only items after the template's. Only a scalar the template also defines is overwritten, which is the point of an ongoing sync. Comments on a grafted node carry over; a comment beside a key the template owns does not, so record why a local entry exists somewhere the merge cannot reach.
+
 ## Cooldown on every install
 
 <!-- audience: all -->
@@ -158,6 +230,18 @@ Two rules hold the tags together, both enforced by `tests/test_claude_md.py`:
 - **A subsection never reaches wider than its parent.** An `all` section under an `upstream` heading would deploy with no heading above it, arriving as an orphan under whatever section precedes it.
 
 A section a downstream repo wrote for itself carries no tag and is never touched: the sync owns the tagged sections and nothing else.
+
+**Renaming a managed section is a migration, not an edit.** The merge keys on the heading title, so a rename strands the old section downstream, where it sits beside its own replacement contradicting it. Declare the old title on the section that replaces it, one comment per title:
+
+```markdown
+### PAT-gated checks degrade, they do not fail
+
+<!-- audience: downstream -->
+
+<!-- supersedes: `REPOMATIC_PAT` needs `Administration: Read-only` -->
+```
+
+The same reasoning as [§ Retiring a label is a migration, not a deletion](#retiring-a-label-is-a-migration-not-a-deletion), and the same one-way direction: a superseded title is claimed and dropped wherever it is found, so it must not also name a section that is still live. Adding a `supersedes:` for a title that never shipped is harmless, and cheaper than discovering the orphan in six repositories a year later.
 
 ### Keeping `claude.md` lean
 
@@ -492,7 +576,8 @@ When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Rel
 - **Write conformance tests when fixing a class of bugs.** For a bug that is a *category* (not a one-off), add a generic test locking in the invariant: iterate over every member of the set (registry entries, generators, exported symbols, data files) and assert the property uniformly via `@pytest.mark.parametrize` or a loop. Applies when the bug stems from a shared convention checkable from the codebase alone (no fixtures or mocks). Model: `tests/test_readme.py::test_docs_generator_matches_in_tree_state`. Shape: enumerate the population, assert on each, fail naming the violator. **Then prove it fails on the pre-fix state**, by running it against the old content rather than assuming: a conformance test written from the corrected text often only matches the corrected phrasing, so it passes on the very bug that motivated it and locks in nothing. When the invariant is genuinely narrower than the bug class (a rule keyed on one phrasing among several that state the same claim), keep the test and say so plainly, since a narrow guard is still worth having: what must not happen is reporting it as retroactive coverage it does not provide.
 - **The suite is hermetic against the host's own `repomatic` configuration.** The default config search derives from `click.get_app_dir`, so any config file in the developer's app folder is discovered by every in-process `CliRunner().invoke(repomatic, ...)`: a local setting can fail a test CI cannot reproduce. The `_isolate_user_config` autouse fixture in `tests/conftest.py` (aliasing click-extra's `isolated_app_dir`) repoints discovery at an empty per-test directory; tests exercising config loading pass an explicit path instead.
 - **Pass `encoding="UTF-8"` to `subprocess.run(..., text=True)` when output may contain non-ASCII bytes** (emoji in workflow `name:`, accented names). `text=True` alone uses the platform default (`cp1252` on Windows), raising `UnicodeDecodeError` only in Windows CI. Test helpers shelling out to `git show`/`git cat-file` are the usual offenders; production `read_text`/`write_text` already set it.
-- **Pass `encoding="utf-8"` to every text-mode `open()`, `read_text()`, and `write_text()` in tests, same as production.** The same Windows cp1252 default applies to file I/O, and the failure hides until content grows a non-ASCII character. Ruff's `PLW1514` (in the shared config) flags `open()` and receivers its inference can type, but misses unannotated `Path` locals (`doc = tmp_path / "page.md"`); when a change touches file I/O, run the suite once with `PYTHONWARNDEFAULTENCODING=1` (PEP 597) to surface every bare call at runtime, on any platform.
+- **Pass `encoding="UTF-8"` to every text-mode `open()`, `read_text()`, and `write_text()` in tests, same as production.** The same Windows cp1252 default applies to file I/O, and the failure hides until content grows a non-ASCII character. Ruff's `PLW1514` (in the shared config) flags `open()` and receivers its inference can type, but misses unannotated `Path` locals (`doc = tmp_path / "page.md"`); when a change touches file I/O, run the suite once with `PYTHONWARNDEFAULTENCODING=1` (PEP 597) to surface every bare call at runtime, on any platform.
+- **Spell it `UTF-8`, never `utf-8`, in both of the above.** Python normalizes either, so the difference carries no meaning and a mixed codebase only makes a reader stop to work that out. `tests/test_suite_hygiene.py::test_encoding_argument_spelling_is_uniform` pins the suite to the one spelling; production holds it by convention, with no exception at present.
 
 ### Choosing test-matrix targets
 

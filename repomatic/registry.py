@@ -756,6 +756,23 @@ COMPONENTS: tuple[Component, ...] = (
         location_field="settings_location",
         target=Config.settings_location.removeprefix("./"),
     ),
+    GeneratedComponent(
+        name="claude",
+        description="Audience-tagged sections of claude.md",
+        # Opt-in, for the reason `plugin` above is: this one rewrites a document
+        # the repository already maintains, and its first run moves that
+        # document's own sections below the managed block. Handing `claude.md`
+        # over to the sync is a decision a maintainer makes once, in a reviewable
+        # diff, rather than something a bare `repomatic init` does to them.
+        init_default=InitDefault.EXCLUDE,
+        # Sections are merged into a file the repository owns, so a document
+        # matching upstream is the steady state, not a stale copy to clean up.
+        keep_unmodified=True,
+        # Root-level and not configurable: an agent runtime looks for its
+        # instruction file at a fixed path, and `AgentLayout` has no field for
+        # one. Give it a home there before making this movable.
+        target="claude.md",
+    ),
     # --- Tool config components (merged into pyproject.toml) ---
     ToolConfigComponent(
         name="uv",
