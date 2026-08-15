@@ -50,10 +50,24 @@ def test_match_runner(job_name: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("job", "expected"),
     [
+        # The form GitHub actually sends. `fromisoformat` only learned the
+        # trailing `Z` in Python 3.11, so on the 3.10 floor this returned `None`
+        # for every job and the command reported a fleet with no measurable
+        # work rather than failing.
         (
             {
                 "startedAt": "2026-08-15T10:00:00Z",
                 "completedAt": "2026-08-15T10:02:30Z",
+            },
+            150.0,
+        ),
+        # The explicit-offset form, which the `Z` normalisation must not touch:
+        # appending an offset unconditionally yields `+00:00+00:00`, which
+        # parses nowhere.
+        (
+            {
+                "startedAt": "2026-08-15T10:00:00+00:00",
+                "completedAt": "2026-08-15T10:02:30+00:00",
             },
             150.0,
         ),

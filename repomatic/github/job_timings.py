@@ -110,6 +110,23 @@ def match_runner(job_name: str) -> str:
     return UNATTRIBUTED
 
 
+def _parse_timestamp(value: str) -> datetime:
+    """Parse a GitHub timestamp on every supported Python.
+
+    `datetime.fromisoformat` only learned the trailing `Z` in 3.11, and GitHub
+    sends nothing else, so on 3.10 every timestamp raised `ValueError` and the
+    caller reported a runner with no measurable jobs rather than an error.
+    Normalising to the offset form parses identically on both.
+
+    :param value: An ISO 8601 timestamp as the jobs API writes it.
+    :return: The parsed timestamp.
+    :raises ValueError: If the value is not a timestamp at all.
+    """
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    return datetime.fromisoformat(value)
+
+
 def _duration(job: dict) -> float | None:
     """Whole-job wall-clock in seconds, or `None` when it cannot be read.
 
@@ -122,7 +139,7 @@ def _duration(job: dict) -> float | None:
     if not started or not completed:
         return None
     try:
-        delta = datetime.fromisoformat(completed) - datetime.fromisoformat(started)
+        delta = _parse_timestamp(completed) - _parse_timestamp(started)
     except ValueError:
         logging.warning("Unparsable job timestamps: %r, %r", started, completed)
         return None
