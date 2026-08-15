@@ -448,6 +448,21 @@ class LintDepsConfig:
     dependencies, which stay gated on their own.
     """
 
+    comment_word_threshold: int = 40
+    """Word count above which `lint-deps` warns about a floor comment.
+
+    A floor comment justifies the version in force: what breaks below it, and
+    where the project would notice. It is not a running log of every earlier
+    floor, which is what it turns into when each bump appends a paragraph and
+    deletes nothing. `lint-deps` emits a non-fatal warning for every comment
+    longer than this many words. Set to `0` to disable the check.
+
+    It starts at the same 40 words as `changelog.bullet-word-threshold`, and
+    stays an independent knob: both cap a paragraph written for a reader who
+    came looking for one fact, but a project that wants its floors terser than
+    its release notes says so here alone.
+    """
+
 
 @dataclass
 class TestMatrixConfig:

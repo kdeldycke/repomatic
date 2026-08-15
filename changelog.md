@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `lint-deps` now warns about a dependency floor comment running past `[tool.repomatic] lint-deps.comment-word-threshold` words, 40 by default.
 - The release PR's unshippable-dependency warning is now a single line naming each package, each linked to the line declaring it, instead of a paragraph and a four-column table.
 - The bundled `[tool.typos]` config now accepts `PNGs`, which typos otherwise splits and rewrites to `ONGs`.
 - New bundled `repomatic-test-matrix` skill deciding which Python versions, operating systems and runner images earn a test-matrix cell.

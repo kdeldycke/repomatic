@@ -45,6 +45,11 @@ The rules, and what each one costs the reader when broken:
   will never type-check.
 - A **floor with no comment** cannot be audited: the next reader has no way to
   tell a deliberate API minimum from a number a bot last touched.
+- A **floor comment that runs long** has stopped justifying the floor and
+  started narrating how it got there. Each bump appends a paragraph about a
+  version no longer in force, and the one claim that matters (what breaks
+  below the floor that is declared) ends up buried in superseded history the
+  git log already keeps.
 """
 
 from __future__ import annotations
@@ -169,15 +174,34 @@ def _entry_lines(text: str, table: str, key: str) -> list[tuple[int, str]] | Non
     return None
 
 
-def _has_comment_above(text: str, line_index: int) -> bool:
-    """Whether a comment line sits immediately above *line_index*.
+def _comment_above(text: str, line_index: int) -> list[str]:
+    """The contiguous run of comment lines sitting above *line_index*.
 
-    Only the adjacent line is read. A rationale spanning several comment
-    lines still passes on its last one, and a comment separated from the
-    entry by a blank line is not attached to it.
+    Read bottom-up from the adjacent line and stopping at the first line that
+    is not a comment, so a comment separated from the entry by a blank line is
+    not attached to it. Returned in reading order, each line stripped of its
+    `#` marker, which is what makes the run countable as prose.
+
+    :return: The comment lines, or an empty list when the entry carries none.
     """
     lines = text.splitlines()
-    return line_index > 0 and lines[line_index - 1].strip().startswith("#")
+    comment: list[str] = []
+    cursor = line_index - 1
+    while cursor >= 0 and lines[cursor].strip().startswith("#"):
+        comment.append(lines[cursor].strip().removeprefix("#").strip())
+        cursor -= 1
+    comment.reverse()
+    return comment
+
+
+def count_comment_words(comment: list[str]) -> int:
+    """Count the words of a comment run, ignoring the `#` markers.
+
+    Everything else counts as written, URLs and inline code included: a
+    rationale leaning on three links is still three links the reader walks
+    past on the way to the floor.
+    """
+    return len(" ".join(comment).split())
 
 
 def _requirements(raw: object) -> Iterator[str]:
@@ -251,6 +275,32 @@ def _check_specifier(
         )
 
 
+def _over_long(
+    package: str, location: str, detail: str, threshold: int
+) -> PolicyFinding:
+    """The finding for a floor comment that has outgrown its floor.
+
+    Shared by the per-entry comment and the block above the array, which fail
+    the same way and take the same remedy.
+    """
+    return PolicyFinding(
+        package=package,
+        location=location,
+        detail=detail,
+        consequence=(
+            "A floor comment answers one question: what breaks below the "
+            f"version declared here. Past {threshold} words it is narrating "
+            "how the floor got there instead, and the answer is buried in "
+            "versions no longer in force."
+        ),
+        remedy=(
+            "Cut it to the paragraph justifying the floor as it stands. "
+            "Superseded floors are in the git history, and belong in no "
+            "comment."
+        ),
+    )
+
+
 def _check_ordering(names: list[str], location: str) -> Iterator[PolicyFinding]:
     """Flag the first entry that breaks alphabetical order.
 
@@ -272,13 +322,18 @@ def _check_ordering(names: list[str], location: str) -> Iterator[PolicyFinding]:
             return
 
 
-def scan_policy(pyproject_path: Path) -> list[PolicyFinding]:
+def scan_policy(
+    pyproject_path: Path, comment_word_threshold: int = 0
+) -> list[PolicyFinding]:
     """Every declaration in *pyproject_path* that departs from version policy.
 
     Entirely offline, reading only `pyproject.toml`, so it costs nothing to
     run on every push.
 
     :param pyproject_path: Path to the `pyproject.toml` file.
+    :param comment_word_threshold: Word ceiling per floor comment. `0` (or
+        less) disables the check, which is what a caller with no configuration
+        to read gets.
     :return: Findings sorted by location, then by package.
     """
     if not pyproject_path.exists():
@@ -372,31 +427,68 @@ def scan_policy(pyproject_path: Path) -> list[PolicyFinding]:
             continue
         # The first tuple is the array's own opening line. A comment above it
         # documents the whole array, which is how a run of related entries
-        # (three `types-*` stubs, say) is usually justified in one block.
+        # (three `types-*` stubs, say) is usually justified in one block. It
+        # excuses a missing per-entry comment, and only that: an over-long
+        # comment is over-long wherever it sits, or a wall would escape the
+        # length check by moving up one line.
         (array_line, _marker), *entries = entry_lines
-        if _has_comment_above(text, array_line):
-            continue
+        block_comment = _comment_above(text, array_line)
+        # The first entry with nothing of its own, so the block above the array
+        # is what documents it. Absent one, that block justifies no floor at
+        # all: a project restating its version policy there is writing a
+        # preamble, and length is not its measure.
+        leans_on_block: tuple[str, str] | None = None
         for line_index, raw in entries:
             requirement = _parse(raw)
             if requirement is None or not str(requirement.specifier):
                 continue
-            if _has_comment_above(text, line_index):
-                continue
-            findings.append(
-                PolicyFinding(
-                    package=canonicalize_name(requirement.name),
-                    location=location,
-                    detail=f"`{raw}` at line {line_index + 1}",
-                    consequence=(
-                        "An uncommented floor cannot be audited: nothing "
-                        "distinguishes a deliberate API minimum from a number "
-                        "a bot last touched."
-                    ),
-                    remedy=(
-                        "Add a comment above it naming the feature or fix that "
-                        "version introduced."
-                    ),
+            comment = _comment_above(text, line_index)
+            if not comment:
+                if block_comment:
+                    if leans_on_block is None:
+                        leans_on_block = (canonicalize_name(requirement.name), raw)
+                    continue
+                findings.append(
+                    PolicyFinding(
+                        package=canonicalize_name(requirement.name),
+                        location=location,
+                        detail=f"`{raw}` at line {line_index + 1}",
+                        consequence=(
+                            "An uncommented floor cannot be audited: nothing "
+                            "distinguishes a deliberate API minimum from a "
+                            "number a bot last touched."
+                        ),
+                        remedy=(
+                            "Add a comment above it naming the feature or fix "
+                            "that version introduced."
+                        ),
+                    )
                 )
-            )
+                continue
+            if comment_word_threshold <= 0:
+                continue
+            words = count_comment_words(comment)
+            if words > comment_word_threshold:
+                findings.append(
+                    _over_long(
+                        canonicalize_name(requirement.name),
+                        location,
+                        f"`{raw}` documented in {words} words",
+                        comment_word_threshold,
+                    )
+                )
+
+        if comment_word_threshold > 0 and leans_on_block is not None:
+            words = count_comment_words(block_comment)
+            if words > comment_word_threshold:
+                name, raw = leans_on_block
+                findings.append(
+                    _over_long(
+                        name,
+                        location,
+                        f"`{raw}` documented in a {words}-word block above the array",
+                        comment_word_threshold,
+                    )
+                )
 
     return sorted(findings, key=lambda finding: (finding.location, finding.package))

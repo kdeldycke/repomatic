@@ -14,18 +14,19 @@ This page documents the version specifier conventions and dependency audit proce
    "wcmatch>=10",
    ```
    A good floor comment answers: "if someone installed an older version, what would break and where?"
-3. **Security fixes are a valid floor bump reason.** A CVE or advisory in an older version justifies raising the floor even when the API is unchanged:
+3. **The comment documents the floor as it stands, in one short paragraph.** Rewrite it on a bump rather than appending to it: see [§ Rewrite a floor comment, don't extend it](#rewrite-a-floor-comment-dont-extend-it).
+4. **Security fixes are a valid floor bump reason.** A CVE or advisory in an older version justifies raising the floor even when the API is unchanged:
    ```toml
    # requests 2.32.0 fixes CVE-2024-35195 (session credential leak on redirects).
    "requests>=2.32",
    ```
-4. **Python version support is not a valid reason to bump a floor.** The dependency resolver already picks the right version via `requires-python` metadata. If `boltons>=20` works and boltons 25 merely adds Python 3.13 support, keep `>=20`. **Exception:** when a dependency *drops* a Python version your project still supports (or your project drops one, aligning minimum `requires-python`), that alignment is a valid floor bump:
+5. **Python version support is not a valid reason to bump a floor.** The dependency resolver already picks the right version via `requires-python` metadata. If `boltons>=20` works and boltons 25 merely adds Python 3.13 support, keep `>=20`. **Exception:** when a dependency *drops* a Python version your project still supports (or your project drops one, aligning minimum `requires-python`), that alignment is a valid floor bump:
    ```toml
    # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
    "boltons>=25",
    ```
-5. **Use conditional markers for Python-version-gated deps.** Example: `"tomli>=2; python_version<'3.11'"`. When a dep has a version marker, the floor rationale must make sense for the Python versions where the dep is actually installed.
-6. **Alphabetical order** within the list.
+6. **Use conditional markers for Python-version-gated deps.** Example: `"tomli>=2; python_version<'3.11'"`. When a dep has a version marker, the floor rationale must make sense for the Python versions where the dep is actually installed.
+7. **Alphabetical order** within the list.
 
 ### Development dependencies (`[dependency-groups]`)
 
@@ -41,6 +42,33 @@ This page documents the version specifier conventions and dependency audit proce
 - **Extras syntax** is fine: `"coverage[toml]>=7.11"`.
 - **One dependency per line** for readable diffs. Short groups that fit on one line are acceptable: the `format-json` workflow normalizes layout automatically.
 
+### Rewrite a floor comment, don't extend it
+
+A floor comment documents **the floor as it stands**: what breaks below the version declared on that line, and where this project would notice. It is not a record of how the floor got there.
+
+Left alone, a comment drifts the other way on its own. Each bump appends a paragraph about the newly required version, nothing gets deleted, and after a few years the comment is a private changelog of the dependency: the declared version is in there somewhere, under the floors it replaced. `meta-package-manager`'s `click-extra` entry reached 676 words that way, walking back through eight superseded floors before reaching the dependency itself.
+
+When raising a floor, rewrite the comment around the new version:
+
+- **Keep** what the newly required version buys, concrete enough to verify: the API, the fix, the `requires-python` alignment, and the call site consuming it. A CVE or upstream issue identifier is part of that claim.
+- **Delete** the superseded floors. A version no longer declared cannot break anything for someone running the declared one, and `git log -- pyproject.toml` keeps that history for whoever wants it.
+- **Move out** what is not about this floor: how the package is used across the codebase belongs in the module using it, and a comparison against an alternative package belongs in an `XXX` pointer to the upstream ticket.
+
+```toml
+# Before: three floors deep, and the reader still has to work out what 8.8 does.
+# click-extra 8.8.0 is the floor: `format_size` and `prep_path` moved here.
+# Earlier floors remain in play: `replace_region` (8.7.1) splices the binaries
+# page; `OperationTrail` (8.6.0) renders the resolve trail; `click:config`
+# (8.3) backs configuration.md…
+"click-extra>=8.8",
+
+# After: the version in force, and what it buys.
+# click-extra 8.8 absorbed the utilities repomatic now delegates to instead of
+# carrying: `format_size` (image and cache reports), `prep_path`/`is_stdout`
+# (CLI `--output`), and `config_table_to_flags` (tool flag translation).
+"click-extra>=8.8",
+```
+
 ### What is checked automatically
 
 `repomatic lint-deps` reports the rules above that are decidable from `pyproject.toml` alone, and `lint.yaml` runs it on every push:
@@ -50,6 +78,7 @@ This page documents the version specifier conventions and dependency audit proce
 - A list that is not in alphabetical order. Only the first entry out of place is named, since one misplaced entry makes every later one look wrong too.
 - A `types-*` stub outside the `typing` group.
 - A floor with no comment above it. A comment above the array's opening line documents the whole array, which is how a run of related entries is usually justified.
+- A floor comment running past `[tool.repomatic] lint-deps.comment-word-threshold` words, 40 by default. Set it to `0` to disable the check. A comment above the array is measured too, but only when some entry has nothing of its own and is therefore documented by it: that closes the escape of moving a long comment up one line, while leaving a version-policy preamble alone, which documents no floor and is not what the rule is about.
 
 These are warnings and never affect the exit code: a release is not held for an uncommented floor. Pass `--no-policy` to skip them.
 

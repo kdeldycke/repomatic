@@ -543,7 +543,7 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 #### 🔗 Lint deps (`lint-deps`)
 
 - Runs `repomatic lint-deps` against the tree being released, refusing to publish a project whose dependencies do not all resolve from the index its users install from
-- Also reports version-policy warnings (upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors) alongside the shippability findings; these never affect the gate, see [§ What is checked automatically](dependencies.md#what-is-checked-automatically)
+- Also reports version-policy warnings (upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors, over-long floor comments) alongside the shippability findings; these never affect the gate, see [§ What is checked automatically](dependencies.md#what-is-checked-automatically)
 - Fatal only on a release commit; every other push reports and annotates without failing, so test-driving a git branch mid-cycle stays frictionless
 - `build-package` depends on it, which is what makes it a gate: a failure skips the wheel build, leaving `package_built` false so `publish-pypi` never fires, and fails the lane so the engine's tag, release and publish jobs are skipped with it
 - Checks out the release commit rather than the push head: a rebase-merged release PR delivers the freeze and the post-release bump together, so `main` HEAD already carries the next `.devN`

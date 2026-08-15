@@ -22,7 +22,8 @@ from textwrap import dedent
 
 import pytest
 
-from repomatic.dep_policy import scan_policy
+from repomatic.config import LintDepsConfig
+from repomatic.dep_policy import count_comment_words, scan_policy
 
 from .conftest import PROJECT_ROOT
 
@@ -280,11 +281,190 @@ def test_malformed_requirement_is_skipped(tmp_path):
     assert scan_policy(path) == []
 
 
+@pytest.mark.parametrize(
+    ("comment", "words"),
+    (
+        (["A floor comment."], 3),
+        (["Split over", "two lines."], 4),
+        # A URL is one word, and inline code counts as written.
+        (["See https://example.com/a/b and `humanize()`."], 4),
+        ([], 0),
+    ),
+)
+def test_comment_word_count_ignores_markers(comment, words):
+    """The `#` is stripped before counting; everything else counts."""
+    assert count_comment_words(comment) == words
+
+
+def test_over_long_floor_comment_is_flagged(tmp_path):
+    """A comment that narrates every past floor buries the current one."""
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        dependencies = [
+          # papaya 3.0 ships the peel() the harvest report calls. Earlier floors
+          # remain in play: 2.4 shipped slice(), which the crate packer used
+          # before the rewrite; 2.0 renamed the ripeness scale the orchard map
+          # reads; 1.7 fixed the stone counter that the yield estimate consumed
+          # until the seed table replaced it.
+          "papaya>=3",
+        ]
+        """,
+    )
+    (finding,) = scan_policy(path, comment_word_threshold=40)
+    assert finding.package == "papaya"
+    assert "documented in 50 words" in finding.detail
+    assert "Superseded floors" in finding.remedy
+
+
+def test_a_short_floor_comment_passes(tmp_path):
+    """The rule caps the narration, not the justification."""
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        dependencies = [
+          # papaya 3.0 ships the peel() the harvest report calls.
+          "papaya>=3",
+        ]
+        """,
+    )
+    assert scan_policy(path, comment_word_threshold=40) == []
+
+
+def test_comment_length_is_unchecked_by_default(tmp_path):
+    """A caller with no configuration to read gets the presence check alone."""
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        dependencies = [
+          # papaya 3.0 ships the peel() the harvest report calls, and this
+          # comment runs on well past any threshold a project would set, for
+          # the sake of counting more words than a reader would ever want to
+          # read about one single dependency floor in one single place.
+          "papaya>=3",
+        ]
+        """,
+    )
+    assert scan_policy(path) == []
+
+
+def test_a_blank_line_detaches_the_comment_above(tmp_path):
+    """An unattached comment leaves the floor undocumented."""
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        dependencies = [
+          # papaya 3.0 ships the peel() the harvest report calls.
+
+          "papaya>=3",
+        ]
+        """,
+    )
+    assert "Add a comment above it" in remedies(scan_policy(path))[0]
+
+
+def test_a_block_comment_excuses_absence_but_not_length(tmp_path):
+    """A preamble above the array would otherwise silence every entry.
+
+    The escape hatch exists so a run of related entries can be justified in
+    one block. Reading it as a blanket pass makes any project whose array
+    carries a policy preamble unscannable, which is how
+    `meta-package-manager` accumulated a 676-word floor comment.
+    """
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        # Every floor below is documented, and none is capped from above.
+        dependencies = [
+          "mango>=2",
+          # papaya 3.0 ships the peel() the harvest report calls. Earlier floors
+          # remain in play: 2.4 shipped slice(), which the crate packer used
+          # before the rewrite; 2.0 renamed the ripeness scale the orchard map
+          # reads; 1.7 fixed the stone counter that the yield estimate consumed
+          # until the seed table replaced it.
+          "papaya>=3",
+        ]
+        """,
+    )
+    (finding,) = scan_policy(path, comment_word_threshold=40)
+    assert finding.package == "papaya"
+    assert "documented in 50 words" in finding.detail
+
+
+def test_a_wall_moved_above_the_array_is_still_a_wall(tmp_path):
+    """Moving the comment up one line must not buy an exemption.
+
+    Reported once, against the first entry leaning on the block, rather than
+    once per entry: it is one comment to rewrite.
+    """
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        # papaya 3.0 ships the peel() the harvest report calls. Earlier floors
+        # remain in play: 2.4 shipped slice(), which the crate packer used
+        # before the rewrite; 2.0 renamed the ripeness scale the orchard map
+        # reads; 1.7 fixed the stone counter that the yield estimate consumed
+        # until the seed table replaced it.
+        dependencies = [
+          "mango>=2",
+          "papaya>=3",
+        ]
+        """,
+    )
+    (finding,) = scan_policy(path, comment_word_threshold=40)
+    assert finding.package == "mango"
+    assert "50-word block above the array" in finding.detail
+
+
+def test_an_array_preamble_documenting_no_floor_is_not_measured(tmp_path):
+    """A version-policy header justifies nothing, so length is not its measure.
+
+    Every entry below carries its own comment, so the block is a preamble.
+    Flagging it would report a rule about floor comments against a comment
+    that documents no floor.
+    """
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        # Floors use `>=`, never `~=`, so a packager can ship a security
+        # hotfix without waiting on this project. Every floor below names the
+        # API it needs, and none of them caps a version from above, since a
+        # cap here propagates to everyone installing this orchard.
+        dependencies = [
+          # mango 2.0 ships the ripen() the harvest report calls.
+          "mango>=2",
+          # papaya 3.0 ships the peel() the crate packer calls.
+          "papaya>=3",
+        ]
+        """,
+    )
+    assert scan_policy(path, comment_word_threshold=40) == []
+
+
 def test_this_repository_follows_its_own_policy():
     """The canonical reference has to pass the rules it ships.
 
     Downstream repos mirror this file's conventions, so a finding here is
-    either real drift or a rule too strict to be worth enforcing.
+    either real drift or a rule too strict to be worth enforcing. Run at the
+    configured default rather than at the disabled-by-default `0`, since the
+    threshold is exactly the rule most likely to drift back.
     """
-    findings = scan_policy(PROJECT_ROOT / "pyproject.toml")
+    findings = scan_policy(
+        PROJECT_ROOT / "pyproject.toml",
+        LintDepsConfig.comment_word_threshold,
+    )
     assert findings == [], "\n".join(finding.message for finding in findings)

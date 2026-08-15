@@ -81,30 +81,21 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  # arrow parses the RFC 3339 timestamps uv emits (nanosecond fractional seconds
-  # + a Z suffix, which Python 3.10's stdlib fromisoformat rejects) and renders the
-  # relative-time hints in sync-uv-lock tables and the unsubscribe report through
-  # its .humanize(). whenever was the prior parser but has no humanizer; switch back
-  # to it once one lands: https://github.com/ariebovenberg/whenever/discussions/277
+  # arrow parses the RFC 3339 timestamps uv emits, which Python 3.10's
+  # fromisoformat rejects, and 1.3 carries the .humanize() rendering relative
+  # times in sync-uv-lock tables and the unsubscribe report.
+  # XXX Switch back to whenever once it grows a humanizer:
+  # https://github.com/ariebovenberg/whenever/discussions/277
   "arrow>=1.3",
   # Provides enum.StrEnum for Python < 3.11; all versions expose the class.
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 8.8.0 is the floor: repomatic delegates to the utilities absorbed
-  # there — `format_size` (byte sizes in the image and cache reports), the
-  # `parse_friendly_duration`/`parse_iso8601_duration` pair (uv cooldown spans
-  # in `uv.py`/`version_sync.py`), `prep_path`/`is_stdout`/`STDOUT_SENTINEL`
-  # (CLI `--output` handling), and `config_table_to_flags` (tool flag
-  # translation). Earlier floors remain in play: `binaries_page` imports
-  # `click_extra.blocks` (`replace_region`, 8.7.1) to splice the binaries page
-  # chart region; `OperationTrail` and `resolve_jobs` (8.6.0) render the `sync-*`
-  # resolve trail; the `{matrix}` newest-first default (8.6.0) backs the committed
-  # Python-compatibility table in `docs/install.md`; the `python:render`
-  # `:mirror:` regions (8.5) drive the `update-docs` phase 4 refresh, and
-  # `click_extra.sphinx.myst_docstrings` (8.5, absorbed from
-  # `repomatic.myst_docstrings`) is loaded by `docs/conf.py`; `click:config`
-  # and `schema_field_infos()` (8.3) back `configuration.md` and `show-config`.
+  # click-extra 8.8 absorbed the utilities repomatic now delegates to instead of
+  # carrying: `format_size` (image and cache reports), the
+  # `parse_friendly_duration`/`parse_iso8601_duration` pair (uv cooldown spans),
+  # `prep_path`/`is_stdout`/`STDOUT_SENTINEL` (CLI `--output`), and
+  # `config_table_to_flags` (tool flag translation).
   "click-extra>=8.8",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
@@ -128,13 +119,10 @@ dependencies = [
   # PyYAML < 6.0.2 uses Cython extensions that fail to compile on Python 3.14, and
   # old releases lack requires-python metadata to prevent selection on 3.14.
   "pyyaml>=6.0.3",
-  # tomlrt is a format-preserving TOML reader/writer used for both reads
-  # (pyproject.toml, uv.lock) and comment-preserving writes (tool config
-  # translation, pyproject.toml merging). `>=1.7.6` floor: 1.7.6 fixed two
-  # bugs on the `_update_tool_config` path: standalone-comment + inline-array
-  # bracket-pad trivia loss on cross-doc table grafts (dimbleby/tomlrt#171),
-  # and AoT children relocating to the document tail on section overwrite
-  # (dimbleby/tomlrt#172). 1.7.5 still carried both.
+  # tomlrt is the format-preserving TOML reader/writer behind every
+  # comment-preserving write (tool config translation, pyproject.toml merging).
+  # 1.7.6 fixed the two trivia-loss bugs the `_update_tool_config` path hits:
+  # dimbleby/tomlrt#171 and dimbleby/tomlrt#172.
   "tomlrt>=1.7.6",
   # vt-py is the official VirusTotal Python client (uses aiohttp internally).
   # Used by the scan-virustotal CLI command to upload release binaries.

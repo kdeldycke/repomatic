@@ -2093,7 +2093,8 @@ _lint_deps_sort = SortByOption(*LINT_DEPS_HEADER_DEFS, default="package")
     help=(
         "Also report declarations departing from the project's version"
         " policy: upper bounds, missing floors, unsorted lists, misplaced"
-        " type stubs, uncommented floors. Never blocks a release."
+        " type stubs, uncommented and over-long floor comments. Never blocks"
+        " a release."
     ),
 )
 @option(
@@ -2127,7 +2128,8 @@ def lint_deps(
     it records the resolved origin of the whole tree.
 
     Reads lint-deps.allow from [tool.repomatic] for packages exempted by
-    name, each mapped to the reason it is safe.
+    name, each mapped to the reason it is safe, and
+    lint-deps.comment-word-threshold for the length a floor comment may run to.
 
     \b
     Output symbols:
@@ -2161,7 +2163,11 @@ def lint_deps(
         allow=config.lint_deps.allow,
     )
 
-    policy_findings = scan_policy(pyproject_path) if policy else []
+    policy_findings = (
+        scan_policy(pyproject_path, config.lint_deps.comment_word_threshold)
+        if policy
+        else []
+    )
 
     # The clean bill of health covers shippability alone, so it prints whenever
     # there is no source finding, style findings or not: a policy warning is
