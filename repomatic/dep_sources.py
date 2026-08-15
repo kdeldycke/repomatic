@@ -1216,7 +1216,7 @@ follows it with, where the blocked form is a standalone blockquote instead.
 
 
 UNSHIPPABLE_BANNER_LEAD = (
-    "Do not merge yet: this release would ship dependencies its users cannot install:"
+    "Do not merge yet. This release would ship dependencies its users cannot install:"
 )
 """Opening of the blocked form of the release PR's verdict.
 
