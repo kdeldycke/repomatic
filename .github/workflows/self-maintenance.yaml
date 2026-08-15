@@ -63,12 +63,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic sync-tool-versions --release-notes
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' sync-tool-versions --release-notes
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-tool-versions.outputs.diff_table_file }}
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1'
           pr-sync --template sync-tool-versions

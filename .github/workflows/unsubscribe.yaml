@@ -89,7 +89,7 @@ jobs:
         # stdout (the markdown report) is redirected to the step summary; --verbosity INFO
         # streams per-thread progress to the live job log via stderr.
         run: >
-          uv --no-progress run --frozen -- repomatic --verbosity INFO
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' --verbosity INFO
           unsubscribe-threads
           --months "$MONTHS"
           --batch-size "$BATCH_SIZE"
