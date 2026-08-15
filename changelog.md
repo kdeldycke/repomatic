@@ -21,6 +21,9 @@
 
 ## [`7.12.1` (2026-08-15)](https://github.com/kdeldycke/repomatic/compare/v7.12.0...v7.12.1)
 
+> [!NOTE]
+> `7.12.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.12.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.12.1).
+
 - New `[tool.repomatic] sphinx.builder` config choosing the Sphinx builder the Docs workflow deploys, so a project can publish extension-less URLs with `dirhtml`.
 - The bundled `repomatic-ship` skill now reads a green CI run as stale when supersession cancelled every run between it and `HEAD`, and ships a release's own reflection findings in that same release.
 - Bundled guidance now requires a duration baseline and per-job timestamps before calling a CI run hung, and `repomatic-ship` no longer holds a green release waiting for a binary build.
