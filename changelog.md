@@ -7,6 +7,8 @@
 
 - The release PR's unshippable-dependency warning is now a single line naming each package, each linked to the line declaring it, instead of a paragraph and a four-column table.
 - The bundled `[tool.typos]` config now accepts `PNGs`, which typos otherwise splits and rewrites to `ONGs`.
+- New bundled `repomatic-test-matrix` skill deciding which Python versions, operating systems and runner images earn a test-matrix cell.
+- Bundled guidance moves its release-repair, label-retirement and test-matrix procedures out of `claude.md` and into the skills that run them, leaving the always-loaded file carrying rules rather than checklists.
 
 ## [`7.12.1` (2026-08-15)](https://github.com/kdeldycke/repomatic/compare/v7.12.0...v7.12.1)
 

@@ -241,7 +241,7 @@ A section a downstream repo wrote for itself carries no tag and is never touched
 <!-- supersedes: `REPOMATIC_PAT` needs `Administration: Read-only` -->
 ```
 
-The same reasoning as [§ Retiring a label is a migration, not a deletion](#retiring-a-label-is-a-migration-not-a-deletion), and the same one-way direction: a superseded title is claimed and dropped wherever it is found, so it must not also name a section that is still live. Adding a `supersedes:` for a title that never shipped is harmless, and cheaper than discovering the orphan in six repositories a year later.
+The same reasoning that makes a label rename beat a delete-and-recreate, and the same one-way direction: a superseded title is claimed and dropped wherever it is found, so it must not also name a section that is still live. Adding a `supersedes:` for a title that never shipped is harmless, and cheaper than discovering the orphan in six repositories a year later.
 
 ### Keeping `claude.md` lean
 
@@ -552,16 +552,6 @@ Every configurable default lives in exactly one place: the canonical config data
 
 A config field also surfaces in serialized command output (a non-string default needs format-safe encoding) and in test fixtures enumerating the config surface: run the full test suite after adding or removing a field, not just the module's own tests.
 
-## Release checklist (upstream maintainers)
-
-<!-- audience: upstream -->
-
-```{note}
-Applies only when releasing the `kdeldycke/repomatic` package itself. Repos that use `repomatic` follow their own release process.
-```
-
-When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Release checklist](https://kdeldycke.github.io/repomatic/upstream-development.html#release-checklist) for the complete list and links to the workflow design rationale.
-
 ## Testing guidelines
 
 <!-- audience: all -->
@@ -578,19 +568,6 @@ When releasing `kdeldycke/repomatic`, see [`docs/upstream-development.md` § Rel
 - **Pass `encoding="UTF-8"` to `subprocess.run(..., text=True)` when output may contain non-ASCII bytes** (emoji in workflow `name:`, accented names). `text=True` alone uses the platform default (`cp1252` on Windows), raising `UnicodeDecodeError` only in Windows CI. Test helpers shelling out to `git show`/`git cat-file` are the usual offenders; production `read_text`/`write_text` already set it.
 - **Pass `encoding="UTF-8"` to every text-mode `open()`, `read_text()`, and `write_text()` in tests, same as production.** The same Windows cp1252 default applies to file I/O, and the failure hides until content grows a non-ASCII character. Ruff's `PLW1514` (in the shared config) flags `open()` and receivers its inference can type, but misses unannotated `Path` locals (`doc = tmp_path / "page.md"`); when a change touches file I/O, run the suite once with `PYTHONWARNDEFAULTENCODING=1` (PEP 597) to surface every bare call at runtime, on any platform.
 - **Spell it `UTF-8`, never `utf-8`, in both of the above.** Python normalizes either, so the difference carries no meaning and a mixed codebase only makes a reader stop to work that out. `tests/test_suite_hygiene.py::test_encoding_argument_spelling_is_uniform` pins the suite to the one spelling; production holds it by convention, with no exception at present.
-
-### Choosing test-matrix targets
-
-<!-- audience: all -->
-
-`repomatic metadata` builds the full and PR test matrices from `[tool.repomatic.test-matrix.*]`. For the config reference, a runner-speed inventory, and a worked example, see [`docs/test-matrix.md`](https://kdeldycke.github.io/repomatic/test-matrix.html). The selection conventions:
-
-- **Cover the shipped config broadly; probe unreleased axes narrowly; smoke-test released flavors.** Released dependencies on stable Python get the full cross-platform spread. Unreleased dependency branches and prerelease Python run on one runner as `continue-on-error` probes (`test-matrix.unstable`), never across platforms. A released free-threaded build (`3.14t`) runs **stable** on a single runner (a `python-version` variation pinned with `exclude`, left out of `unstable`), not as an `unstable` probe.
-- **Pin the dependency floor, and any release a workaround targets.** Add the floor of a supported range as an explicit matrix value, plus any mid-range release a shim works around: that is the version that catches the shim regressing.
-- **Select runners by measured speed and workload, not architecture** (read your own CI timings; the `docs/test-matrix.md` inventory has the numbers). The parallel `pytest --numprocesses=auto` suite favors `ubuntu-26.04-arm` (the test PR Linux slot). Where one fast runner suffices, `ubuntu-26.04-arm` is the default (fastest and cheapest tier; hosted macOS bills ~10x Linux), so `macos-26`/Windows are reserved for the OS coverage only they add. Drop the slower twin of an OS pair via `test-matrix.remove.os`.
-- **An image is stable once validated here, not once GitHub relabels it.** The Ubuntu 26.04 axes ship as stable cells while still marked *preview* upstream: that label chiefly gates `-latest` alias eligibility, and no workflow here uses a floating alias.
-- **Every job runs on a test axis.** `KNOWN_RUNNERS` is exactly `TEST_RUNNERS_FULL | TEST_RUNNERS_PR` (`matrix_axes.py`), and `lint-repo` rejects any other `runs-on:`, so "where is the suite exercised" and "what may a job run on" stay one question. Each extra image is one more to track, pin and migrate. A job that genuinely needs something else widens the axes rather than naming a one-off image. This includes the Linux Nuitka hosts (a published binary is built on the image the suite is validated against, and its toolchain comes from a digest-pinned manylinux container regardless), and the light mechanical jobs, which used to sit on the lean `ubuntu-slim` until measuring whole-job wall-clock showed the full image 27-32% *faster* rather than slower.
-- **Time whole jobs, not the tool pass, when choosing a runner.** The lean image survived for a long time on a measurement that timed only tool execution, where it looked near-parity. Most of the difference was in checkout and install, which that measurement could not see.
 
 ## Agent conventions
 
@@ -686,21 +663,6 @@ The issue and PR labeller (content keyword rules, file glob rules) pre-labels a 
 
 Both rule families match in-process (`repomatic/labels.py`) rather than through the retired `github/issue-labeler` and `actions/labeler` actions, and a label's pattern list is **OR-joined**: any one pattern matching earns the label. A bare content pattern is a keyword, matched case-insensitively and anchored on each edge that is itself a word character, so `fix` does not fire inside `prefix`. Wrap a pattern in slashes (`/body/flags`) to pass a regex through verbatim instead, case-sensitive unless a flag says otherwise. A label's file globs are evaluated as one set, so a `!`-negated entry subtracts from its siblings the way a `.gitignore` line would (`["docs/**", "!docs/generated/**"]`), with no separate exclude rule to write.
 
-### Retiring a label is a migration, not a deletion
-
-<!-- audience: all -->
-
-`sync-labels` only creates and updates. Dropping a label from the configuration never removes it from the repository, it just stops managing it, so the label stays live on every issue and pull request still carrying it. A downstream that reorganizes its taxonomy (folding per-item labels into an ecosystem group, renaming a family) therefore silently accumulates orphans that no longer appear in any config and that only a maintainer can clear.
-
-Prefer a rename to a create-and-delete, because GitHub keeps every issue and pull request attached across a rename while a deletion drops the association outright. `rename-from` is how that is declared, and it is strictly **one-to-one**: labelmaker renames only when the target does *not* exist and exactly one listed source does. Two live sources is an unconditional error, and a target that already exists falls to `on-rename-clash`, which `[defaults]` pins to `error` so the clash surfaces instead of passing silently.
-
-Two consequences worth knowing before writing the field:
-
-- **An N-to-1 merge cannot be automated.** Name the single source carrying the most history, let the rename move it wholesale, and hand-migrate the remainder. Listing every source instead errors and migrates nothing.
-- **Order matters against the sync.** Once a sync has created the new label, a rename into it can only clash. So declare `rename-from` in the same change that introduces the label, never after; a fold whose target is already live has missed the window and is left with a manual migration.
-
-Check what is actually attached before planning any of this (`gh issue list --label ... --state all`, and the same for `gh pr list`). An orphan with nothing on it is a plain deletion, and much of a taxonomy change usually turns out to be exactly that.
-
 ### Linting and formatting
 
 <!-- audience: all -->
@@ -765,15 +727,7 @@ Publishing flips [immutable releases](https://docs.github.com/en/code-security/c
 
 **Shipping short is the intended behavior, not a failure to prevent.** `publish-release` publishes through a partial matrix on purpose: a release carrying five platforms beats one held hostage by the sixth, and the recovery is the next release, exactly as [§ Skip and move forward](#skip-and-move-forward-dont-rewrite-history) prescribes for every other release mishap. A fast cycle makes a burned platform cheap. So never hold a release, or sit on a draft, waiting for a red build cell: fix the cause and let the next version carry it.
 
-What a short ship does leave behind is three artifacts still claiming binaries that are not there, each needing a hand:
-
-- The version's **changelog section**, which takes a `> [!WARNING]` naming the gap. Write it as a hand-written admonition (anything not starting with `` > `X.Y.Z` is ``), which lands in the editorial slot `fix-changelog` preserves rather than the availability slot it regenerates.
-- The **GitHub release body**, rebuilt from that section. Immutability locks the assets and the tag, not the notes, so this stays editable after publishing. `sync-github-releases` is the mechanism, but it skips drafts and caches the release list for 24h, so a same-day fix goes through `gh release edit --notes-file` with the body `build_expected_body` renders. Both converge on the same text, so a later CI sync is a no-op rather than a clobber.
-- **`docs/install.md`**, whose download URLs the freeze pins to the version being released, optimistically: the freeze commit is what triggers the build, so it cannot know whether the binaries will land. Re-point them at the last release that carries binaries via `PrepareRelease.freeze_install_download_urls`, and the next release's freeze ratchets them forward again. `lint-repo`'s `check_install_guide_downloads` reports the gap but never repairs it, since an automated rewrite driven by a single API read could downgrade a healthy install page on a flaky response.
-
-```{note}
-Upstream only: the release PR is rebase-merged, so its freeze and unfreeze commits arrive in a single push, and GitHub Actions reads workflow files from that push's head. `kdeldycke/repomatic`'s own release lane therefore always runs the **unfrozen** workflow content, whatever the freeze wrote into the release commit. A job that assumes the frozen `uvx 'repomatic==X.Y.Z'` form is what executes (and drops its checkout on that basis) dies on `Failed to spawn: repomatic`. Only downstream repos, which call the reusable workflow at its tag, ever run the frozen form.
-```
+A short ship does leave three artifacts still advertising binaries that are not there: the version's changelog section, the GitHub release body, and `docs/install.md`. Repairing them is a post-publication procedure rather than a rule, so it lives in the `repomatic-ship` skill (§ Repairing a short ship) with the rest of the release lane.
 
 ### click_extra is both a dependency and a release consumer
 

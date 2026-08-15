@@ -697,6 +697,7 @@ COMPONENTS: tuple[Component, ...] = (
             _skill_entry("repomatic-deps", "Development"),
             _skill_entry("repomatic-init", "Setup"),
             _skill_entry("repomatic-ship", "Release"),
+            _skill_entry("repomatic-test-matrix", "Quality"),
             _skill_entry("repomatic-topics", "Development"),
             _skill_entry("sphinx-docs-sync", "Maintenance"),
             _skill_entry("translation-sync", "Maintenance", RepoScope.AWESOME_ONLY),

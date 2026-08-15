@@ -549,7 +549,7 @@ Sync rules:
 
 - Re-check the Repology page on every release. New distros get a new tab; dropped distros get the tab removed.
 - The Python compatibility matrix is auto-generated; never hand-edit it.
-- Download URLs in `install.md` are generated, not hand-maintained, so a version number in one is expected rather than drift. The single manual intervention is the documented repair: when a release's binary lane failed, re-point the table at the last release that actually carries binaries, since the freeze pins the version optimistically before the binaries exist (`lint-repo` reports the gap but never repairs it; see `claude.md` § A published release freezes what is missing from it).
+- Download URLs in `install.md` are generated, not hand-maintained, so a version number in one is expected rather than drift. The single manual intervention is the documented repair: when a release's binary lane failed, re-point the table at the last release that actually carries binaries, since the freeze pins the version optimistically before the binaries exist (`lint-repo` reports the gap but never repairs it; see the `repomatic-ship` skill's § Repairing a short ship).
 - The Try it tab-set's `Specific version` tab does carry a pinned version as an example — that's intentional (it teaches the syntax). From repomatic `v7.4.0` on, the prepare-release freeze step bumps it automatically (`freeze_install_cli_version` rewrites `{package}@X.Y.Z` and `{package}==X.Y.Z` pins in `docs/install.md`); hand-bumping is only needed on repos pinned to older release engines.
 
 ### `packaging.md`: distribution and dependency reference

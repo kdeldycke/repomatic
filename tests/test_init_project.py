@@ -1676,13 +1676,15 @@ def test_init_only_labels(tmp_path: Path):
 def test_init_only_skills(tmp_path: Path):
     """Verify only skill files are created.
 
-    Scope exclusions are bypassed when components are explicitly requested,
-    so all 16 skills (including awesome-only ones) are created.
+    Scope exclusions are bypassed when components are explicitly requested, so
+    every skill is created, awesome-only ones included. The count is read off
+    the registry rather than written here: a literal makes adding a skill fail
+    a test that has nothing to say about it.
     """
     result = run_init(output_dir=tmp_path, components=("skills",))
 
     created_set = set(result.created)
-    assert len(created_set) == 16
+    assert len(created_set) == len(COMPONENTS_BY_NAME["skills"].files)
 
     # Verify all skill files are created, including awesome-only ones.
     for name in (
