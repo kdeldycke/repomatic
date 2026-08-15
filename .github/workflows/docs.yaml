@@ -61,7 +61,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' metadata
+          uv --no-progress run --frozen -- repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_python_project is_sphinx doc_files sphinx_builder
 
@@ -213,7 +213,7 @@ jobs:
           files=()
           while IFS= read -r -d '' f; do files+=("$f"); done \
             < <(echo "${DOC_FILES}" | xargs printf '%s\0')
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' run lychee -- \
+          uv --no-progress run --frozen -- repomatic run lychee -- \
             --format markdown --output ./lychee/out.md \
             --hidden --suggest --no-progress --include-fragments --exclude-all-private \
             "${files[@]}" \
@@ -224,5 +224,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           LYCHEE_EXIT_CODE: ${{ steps.lychee_run.outputs.exit_code }}
         run: |
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' broken-links \
+          uv --no-progress run --frozen -- repomatic broken-links \
             ${LYCHEE_EXIT_CODE:+--lychee-exit-code "${LYCHEE_EXIT_CODE}"}

@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.12.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.12.1` (2026-08-15)](https://github.com/kdeldycke/repomatic/compare/v7.12.0...v7.12.1)
 
 - New `[tool.repomatic] sphinx.builder` config choosing the Sphinx builder the Docs workflow deploys, so a project can publish extension-less URLs with `dirhtml`.
