@@ -44,4 +44,4 @@ jobs:
         # behind each, and why the exclusion exists at all.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic lock-threads --live
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' lock-threads --live

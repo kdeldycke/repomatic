@@ -83,7 +83,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic metadata
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_bot is_python_project python_files
           yaml_changed zsh_changed zsh_files
@@ -106,7 +106,7 @@ jobs:
           REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
           HAS_REPOMATIC_NOTIFICATIONS_PAT: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT && 'true' || '' }}
           HAS_VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
-        run: uv --no-progress run --frozen -- repomatic lint-repo
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' lint-repo
 
   lint-types:
     name: 🛡️ Lint types
@@ -132,7 +132,7 @@ jobs:
         # No file list: the tool runner resolves mypy's targets from the same
         # inventory this workflow's `python_files` comes from. See
         # `ToolSpec.default_paths` in repomatic/tool_registry.py.
-        run: uv --no-progress run --frozen -- repomatic run mypy
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' run mypy
 
   lint-yaml:
     name: 📄 Lint YAML
@@ -151,7 +151,7 @@ jobs:
         with:
           version: "0.12.3"
       - name: Run yamllint
-        run: uv --no-progress run --frozen -- repomatic run yamllint
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' run yamllint
 
   lint-zsh:
     name: 🐚 Lint Zsh
@@ -209,7 +209,7 @@ jobs:
             https://raw.githubusercontent.com/rhysd/actionlint/refs/tags/v1.7.12/.github/actionlint-matcher.json
           echo "::add-matcher::.github/actionlint-matcher.json"
       - name: Run actionlint
-        run: uv --no-progress run --frozen -- repomatic run actionlint
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' run actionlint
 
   lint-workflow-security:
     name: 🔒 Lint workflow security
@@ -227,7 +227,7 @@ jobs:
         with:
           version: "0.12.3"
       - name: Run zizmor
-        run: uv --no-progress run --frozen -- repomatic run zizmor
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' run zizmor
 
   lint-awesome:
     name: 🌟 Lint awesome
@@ -261,7 +261,7 @@ jobs:
           --no-update-notifier --no-fund --no-audit
           --min-release-age="$NPM_MIN_RELEASE_AGE"
       - name: Run awesome-lint
-        run: uv --no-progress run --frozen -- repomatic run awesome-lint
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' run awesome-lint
 
   lint-secrets:
     name: 🔐 Lint secrets
@@ -288,5 +288,5 @@ jobs:
             repomatic-${{ runner.os }}-${{ runner.arch }}-gitleaks-
       - name: Run gitleaks
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1'
           run gitleaks -- detect --source .

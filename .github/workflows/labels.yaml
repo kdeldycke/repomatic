@@ -66,7 +66,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic metadata
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_bot
 
@@ -94,7 +94,7 @@ jobs:
       - name: Sync labels
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic sync-labels
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' sync-labels
 
   apply-labels:
     name: 🏷️ Apply labels
@@ -119,7 +119,7 @@ jobs:
         # a diff, so the command adds them on pull requests by itself.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic apply-labels --live
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' apply-labels --live
 
   sponsor-label:
     name: 💝 Tag sponsors
@@ -141,4 +141,4 @@ jobs:
       - name: Add sponsor label
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic sponsor-label
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.12.1' sponsor-label
