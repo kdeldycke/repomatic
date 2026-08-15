@@ -165,13 +165,16 @@ def plan_runner_changes(
     for label in sorted(frozenset(tracked) - declined):
         current = indexed.get(label)
 
-        if current is None or current.deprecated:
-            successor = successor_for(label, catalog) if current else None
-            if current is None:
-                # Absent from the table: already withdrawn, and nothing here can
-                # name a replacement without knowing what it used to be.
-                logging.warning(f"{label!r} is no longer an available image.")
-                continue
+        if current is None:
+            # Absent from the table: withdrawn. Deliberately not reported here,
+            # because `actionlint` already fails the Lint workflow on an unknown
+            # label, and does it for a matrix axis as well as a literal
+            # `runs-on:`. Saying it again would duplicate a stronger check with
+            # a weaker one.
+            continue
+
+        if current.deprecated:
+            successor = successor_for(label, catalog)
             if successor is None:
                 # A dying image whose family offers nothing at all. Rare enough
                 # to be worth a loud log rather than a silent skip.

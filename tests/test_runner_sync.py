@@ -107,11 +107,13 @@ def test_an_unreadable_catalog_proposes_nothing() -> None:
     )
 
 
-def test_a_label_absent_from_the_table_is_reported_not_guessed() -> None:
-    """A withdrawn image has no successor to derive, so nothing is proposed.
+def test_a_withdrawn_label_is_left_to_actionlint() -> None:
+    """A label the table no longer carries is not reported here.
 
-    Naming a replacement would mean inventing one: the row is gone, so its
-    family and architecture are gone with it.
+    `actionlint` already fails the Lint workflow on an unknown runner label,
+    at the matrix axis as well as at a literal `runs-on:`, so a second report
+    would duplicate a stronger check. Nothing here can name a replacement
+    anyway: the row is gone, and its family and architecture with it.
     """
     assert not plan_runner_changes({}, {"ubuntu-18.04"}, CATALOG)
 
