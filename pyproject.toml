@@ -517,6 +517,12 @@ pypi-package-history = [ "gha-utils", "repokit" ]
 # from this asset, so a release missing it breaks `/plugin install`.
 release-assets = [ "repomatic-claude-plugin.zip" ]
 
+[tool.repomatic.test-matrix]
+unstable = [{ os = "windows-11-vs2026-arm" }]
+
+[tool.repomatic.test-matrix.variations]
+os = ["windows-11-vs2026-arm"]
+
 [tool.actionlint]
 # actionlint reads no pyproject section of its own: repomatic serializes this one
 # to a temporary YAML config and passes it via `--config-file`. `paths` keys are
