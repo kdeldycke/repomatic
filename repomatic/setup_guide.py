@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
 
@@ -199,6 +200,22 @@ class GuideContext:
     def cloudflare_secrets_ok(self) -> bool:
         """Whether both Cloudflare Pages credentials are configured."""
         return self.has_cloudflare_api_token and self.has_cloudflare_account_id
+
+    @property
+    def cloudflare_token_name(self) -> str:
+        """Suggested name for the deploy token, carrying the month it was made.
+
+        Cloudflare's token list shows what a token can do and never how old it
+        is, while the rotation procedure turns entirely on telling the
+        incumbent from its replacement. Stamping the month into the name is
+        what makes a token approaching its one-year expiry obvious at a
+        glance, and what lets the two coexist unambiguously during a handover.
+
+        Recomputed per run, so the name the guide suggests stays current while
+        the step is still open. It stops moving once the issue closes, which
+        is the point at which the body is no longer rewritten.
+        """
+        return f"{self.md.repo_name}-deploy-{datetime.now(timezone.utc):%Y-%m}"
 
     def deploys_to(self, target: str) -> bool:
         """Whether this repository publishes its site to *target*.
@@ -449,6 +466,7 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
             "repo_owner": ctx.md.repo_owner,
             "repo_slug": ctx.md.repo_slug,
             "repo_url": ctx.md.repo_url,
+            "token_name": ctx.cloudflare_token_name,
         },
     ),
     SetupStep(

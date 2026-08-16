@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 from contextlib import ExitStack, contextmanager
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -600,6 +601,22 @@ def test_setup_guide_asks_about_the_configured_host_only(
     assert result.exit_code == 0
     assert rendered in bodies[0]
     assert omitted not in bodies[0]
+
+
+def test_setup_guide_prefills_a_dated_token_name(tmp_path, monkeypatch):
+    """The token form arrives named and dated, with nothing left to type.
+
+    Cloudflare's token list shows what each token can do and never how old it
+    is, so the month has to be carried in the name or a one-year expiry has
+    nothing to be read against.
+    """
+    _site_project(tmp_path, monkeypatch, "cloudflare-pages")
+    with _offline_setup_guide() as (_lifecycle, bodies):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert result.exit_code == 0
+    stamped = f"papaya-deploy-{datetime.now(timezone.utc):%Y-%m}"
+    # Once in the pre-filled form's `name=`, once naming it in the prose.
+    assert bodies[0].count(stamped) == 2
 
 
 @pytest.mark.parametrize(

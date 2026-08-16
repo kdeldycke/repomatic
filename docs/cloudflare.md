@@ -20,6 +20,14 @@ Create it account-owned, with Cloudflare's [account token template URL](https://
 
 One trap is worth writing down because it looks exactly like a broken credential. `GET /user/tokens/verify` is user-scoped, so an account-owned token (the `cfat_` prefix) answers **HTTP 401 "Invalid API Token"** there while every project call succeeds. A verify step is therefore the wrong thing to gate a script on: prove the credential against the project it is meant to touch instead, which is what every mode of `repomatic cloudflare-pages` does implicitly.
 
+### The token cannot be scoped to one project
+
+It is the obvious next question, and the answer is no. `Cloudflare Pages` is an [account permission](https://developers.cloudflare.com/fundamentals/api/reference/permissions/), whose applicable scope is `com.cloudflare.api.account`, so the resource a token restricts to is an *account*. There is no per-project selector and no per-domain one: a deploy token for one site can edit **every** Pages project on the account, delete them, or replace what any of them serves.
+
+Two consequences worth acting on rather than filing away. The blast radius of a leaked deploy token is every site on the account, not the one repository holding it, which is what makes the one-year TTL and the rotation habit load-bearing rather than ceremonial. And the account is the only isolation boundary on offer, so sites that genuinely must not be able to touch each other need separate accounts; nothing inside a single account will separate them.
+
+The narrowest workable deploy credential is therefore exactly what the setup guide asks for: `Cloudflare Pages → Edit`, on one account, with an expiry. Adding `Account → Cloudflare Pages → Read` alongside it buys nothing, since Edit implies it, and adding anything else widens a credential that CI keeps for a year.
+
 The TTL bounds the damage of a leak, and on its own it would create a silent failure: a push-only deploy exercises the token whenever the next change happens to land, which for a quiet repository is never. Cloudflare sends no expiry warning for API tokens (the "expiring token" notification in its docs covers Access service tokens, a different product). The Docs workflow closes that gap twice over: its monthly run turns a lapsed token into a red run and an email, and the [drift check](#the-drift-check) starts warning a month before expiry.
 
 ### Rotating the token
