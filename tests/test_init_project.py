@@ -32,7 +32,7 @@ from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__, init_project as ip
 from repomatic.cli import init_project, repomatic
-from repomatic.config import Config, WorkflowConfig
+from repomatic.config import Config, WorkflowConfig, load_repomatic_config
 from repomatic.init_project import (
     EXPORTABLE_FILES,
     RUNTIME_FRAGMENTS,
@@ -1810,8 +1810,14 @@ def test_skills_consistency():
 
 
 def test_init_only_workflows(tmp_path: Path):
-    """Verify only workflow files are created."""
-    result = run_init(output_dir=tmp_path, components=("workflows",))
+    """Verify only workflow files are created.
+
+    Pinned to a default `Config` rather than the ambient one: config discovery
+    walks up from the working directory, so this repository's own
+    `[tool.repomatic]` would otherwise decide which opt-in workflows the
+    assertions below expect, and enabling one here would fail the test.
+    """
+    result = run_init(output_dir=tmp_path, components=("workflows",), config=Config())
 
     created_set = set(result.created)
     # Opt-in workflows are excluded by default.
@@ -4405,6 +4411,52 @@ def test_config_key_has_config_default() -> None:
         for entry in comp.files:
             if entry.config_key:
                 assert isinstance(entry.config_default, bool)
+
+
+def test_every_config_key_gate_actually_reaches_its_field() -> None:
+    """Every declared `config_key` must move its entry when the user flips it.
+
+    A gate naming a key `Config` cannot resolve does not fail: it silently
+    falls through to `config_default`, which reads as a feature switched off
+    rather than as a gate wired wrong. `stars.sync` shipped that way, because
+    the resolver flattened every dotted key to one attribute name and could
+    not reach a key living on a nested schema.
+
+    Written against the whole registry rather than against that one entry: the
+    fault is a property of how a gate is spelled, so any future entry naming a
+    nested key would repeat it.
+    """
+    gates = [
+        (f"{comp.name}", comp.config_key, comp.config_default)
+        for comp in COMPONENTS
+        if comp.config_key
+    ] + [
+        (f"{comp.name}/{entry.file_id}", entry.config_key, entry.config_default)
+        for comp in COMPONENTS
+        for entry in comp.files
+        if entry.config_key
+    ]
+    assert gates, "no config-gated entry left to check"
+
+    for label, key, default in gates:
+        # Build the `[tool.repomatic]` table the user would write, nesting the
+        # dotted key exactly as TOML would, and set it to the opposite of the
+        # entry's assumed default.
+        flipped = not default
+        table: dict = {}
+        node = table
+        parts = key.split(".")
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = flipped
+        config = load_repomatic_config({"tool": {"repomatic": table}})
+
+        entries = [e for c in COMPONENTS for e in c.files if e.config_key == key]
+        subject = entries[0] if entries else COMPONENTS_BY_NAME[label]
+        assert subject.is_enabled(config) is flipped, (
+            f"{label} declares config_key {key!r}, but setting it to {flipped} "
+            "left the gate unmoved: the key does not reach a Config field."
+        )
 
 
 def test_tools_with_bundled_defaults_not_init_components() -> None:

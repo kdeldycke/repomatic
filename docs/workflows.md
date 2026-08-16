@@ -752,6 +752,26 @@ This workflow maintains repomatic's own package source and is the one file in `.
 - **Skipped if**:
   - `tool-versions.sync = false` in `[tool.repomatic]`
 
+(github-workflows-stars-yaml-jobs)=
+
+### ⭐ [`.github/workflows/stars.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/stars.yaml)
+
+Opt-in: `repomatic init` only materializes this file for a repository that set `stars.sync = true`, since an accumulating history is a commitment rather than a default.
+
+#### ⭐ Sample forge metrics (`sample-stars`)
+
+- Snapshots the aggregate star count of every repository in `[tool.repomatic.stars] series` with [`repomatic sample-stars`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/stars.py), appends one point per repository per day, and redraws the configured SVG charts
+- Reconstructs an exact curve for every repository the token administers, from the per-star timestamps GitHub still serves an admin: those series are complete from their first star rather than from the day sampling started
+- Reads each project in `[tool.repomatic.projects] repos` with [`repomatic sample-projects`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/forge.py), across GitHub, GitLab and Forgejo, recording its stars, newest release or tag, and newest commit
+- Commits both stores straight to the default branch: the diff records what an API answered at a moment that has passed, so there is nothing a pull request could review (see [§ Sampling commits directly](operation-contracts.md#sampling-commits-directly))
+- Charts are stamped with the newest reading rather than the run date, so a week that moved no star rewrites nothing
+- **Runs on**: weekly schedule, manual dispatch, and `workflow_call` from downstream repositories. Never on push: sampling the same value twice in a day writes the same point
+- **Requires**:
+  - `REPOMATIC_PAT` secret with contents write permission, to push to a protected default branch and to read the per-star timestamps of the repositories it administers
+- **Skipped if**:
+  - `stars.sync = false` in `[tool.repomatic]` (the star half), or no series is declared
+  - `projects.sync = false` in `[tool.repomatic]` (the project half), or no project is declared
+
 (github-workflows-tests-yaml-jobs)=
 
 ### 🔬 [`.github/workflows/tests.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/tests.yaml)

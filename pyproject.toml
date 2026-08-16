@@ -516,6 +516,41 @@ pypi-package-history = [ "gha-utils", "repokit" ]
 # marketplace at .claude-plugin/marketplace.json installs the plugin straight
 # from this asset, so a release missing it breaks `/plugin install`.
 release-assets = [ "repomatic-claude-plugin.zip" ]
+projects.store = "./docs/assets/project-metrics.json"
+projects.sync = true
+# The alternatives the benchmark page tabulates, sampled weekly so its
+# maintenance claims rest on a dated reading rather than on whenever someone
+# last looked. Keyed by the name the benchmark's own columns use.
+projects.repos.all-repos = "https://github.com/asottile/all-repos"
+projects.repos.allstar = "https://github.com/ossf/allstar"
+projects.repos.cookiecutter = "https://github.com/cookiecutter/cookiecutter"
+projects.repos.copier = "https://github.com/copier-org/copier"
+projects.repos.cruft = "https://github.com/cruft/cruft"
+projects.repos.safe-settings = "https://github.com/github/safe-settings"
+projects.repos.semantic-release = "https://github.com/semantic-release/semantic-release"
+projects.repos.settings = "https://github.com/repository-settings/app"
+projects.repos.tf-github = "https://github.com/integrations/terraform-provider-github"
+stars.store = "./docs/assets/star-history.json"
+stars.sync = true
+stars.charts = [
+  { only = [ "repomatic" ], output = "./docs/assets/star-history.svg", title = "GitHub star history of repomatic" }
+]
+# Every benchmark alternative accrues here, so a comparison chart is a config
+# change rather than a wait once the peers have points of their own. Only
+# repomatic is plotted today: the nearest peer outweighs it by two orders of
+# magnitude and would flatten its curve onto the axis, and the peers hold a
+# single forward sample each, which a line would misreport as steady growth
+# from their creation date.
+stars.series.all-repos = "asottile/all-repos"
+stars.series.allstar = "ossf/allstar"
+stars.series.cookiecutter = "cookiecutter/cookiecutter"
+stars.series.copier = "copier-org/copier"
+stars.series.cruft = "cruft/cruft"
+stars.series.repomatic = "kdeldycke/repomatic"
+stars.series.safe-settings = "github/safe-settings"
+stars.series.semantic-release = "semantic-release/semantic-release"
+stars.series.settings = "repository-settings/app"
+stars.series.tf-github = "integrations/terraform-provider-github"
 
 [tool.actionlint]
 # actionlint reads no pyproject section of its own: repomatic serializes this one

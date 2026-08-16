@@ -66,11 +66,28 @@ def _config_enabled(config: object, config_key: str, config_default: bool) -> bo
     Returns `True` when *config_key* is empty (unconditionally enabled) or when
     the corresponding config field is truthy. Shared by
     {meth}`FileEntry.is_enabled` and {meth}`Component.is_enabled`.
+
+    A `[tool.repomatic]` key reaches its field one of two ways, and both are
+    tried because both are in use. `stars.sync` is a key *on a nested schema*
+    ({class}`~repomatic.config.StarsConfig`), reached by walking the dotted
+    path. `notification.unsubscribe` is a scalar whose dotted path is only
+    metadata, reached by flattening the whole key to one attribute name.
+    Walking first, since a nested schema is the more specific match: a gate
+    naming a nested key would otherwise flatten to an attribute nothing
+    defines and silently resolve to *config_default*, which reads as a feature
+    switched off rather than as a gate wired wrong.
     """
     if not config_key:
         return True
-    field = config_key.replace("-", "_").replace(".", "_")
-    return getattr(config, field, config_default)
+    parts = config_key.replace("-", "_").split(".")
+    node: object = config
+    for part in parts:
+        if not hasattr(node, part):
+            break
+        node = getattr(node, part)
+    else:
+        return bool(node)
+    return bool(getattr(config, "_".join(parts), config_default))
 
 
 class InitDefault(Enum):
@@ -742,6 +759,7 @@ COMPONENTS: tuple[Component, ...] = (
                 target="release.yaml",
                 scope=RepoScope.PACKAGE_ONLY,
             ),
+            _workflow_entry("stars.yaml", config_key="stars.sync"),
             _workflow_entry("tests.yaml", reusable=False),
             _workflow_entry("unsubscribe.yaml", config_key="notification.unsubscribe"),
         ),

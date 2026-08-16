@@ -736,6 +736,7 @@ def commit_and_push_files(
     remote: str = "origin",
     branch: str = "main",
     attempts: int = 3,
+    all_changes: bool = False,
 ) -> bool:
     """Commit the given files and push, rebasing and retrying on rejection.
 
@@ -750,18 +751,27 @@ def commit_and_push_files(
     remote tip. Works from a detached `HEAD`: the push targets
     ``HEAD:{branch}`` explicitly.
 
-    :param paths: Files to stage and commit.
+    :param paths: Files to stage and commit. Ignored when *all_changes* is set.
     :param message: Commit message.
     :param remote: Remote to push to.
     :param branch: Remote branch to push to.
     :param attempts: Maximum push attempts before giving up.
+    :param all_changes: Stage every change in the working tree instead of the
+        named files. For a job whose output paths come from configuration and
+        are therefore unknown to the workflow that runs it: the runner starts
+        from a pristine checkout and the preceding steps are the only writers,
+        so "everything that changed" is exactly the job's own output. Never
+        reach for it in a job that also runs a formatter or an installer.
     :return: `True` when a commit was pushed, `False` when there was nothing
         to commit.
     :raises RuntimeError: When the rebase hits a conflict (the local change
         overlaps a concurrent push) or every push attempt is rejected.
     :raises subprocess.CalledProcessError: When a git command fails outright.
     """
-    _git("add", "--", *(str(path) for path in paths))
+    if all_changes:
+        _git("add", "--all")
+    else:
+        _git("add", "--", *(str(path) for path in paths))
     if _git("diff", "--cached", "--quiet", check=False).returncode == 0:
         logging.info("No changes to commit.")
         return False

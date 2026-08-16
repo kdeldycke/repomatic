@@ -21,6 +21,10 @@
 - **Breaking:** the `runner-images` command, its workflow job and its `[tool.repomatic] runner-images` config key are gone, along with the issue they maintained. Runner images are now read from GitHub's available-images table and compared against the labels a repository actually runs, so an announcement about an image it does not use no longer opens anything. `sync-runner-images` closes the old issue on its first run.
 - New `sync-runner-images` command and weekly job opening a pull request that moves a deprecated runner image onto its successor, or adds a strictly newer version to the test matrix as a `continue-on-error` probe. A same-version variant carrying a different toolchain is not an upgrade and is never proposed as one. Decline a proposal for good with `[tool.repomatic.sync-runner-images] ignore`.
 - New `pr-body` and `pr-sync` option `--template-arg-file KEY=PATH`, reading a template value from a file for a value with no ceiling on its size.
+- New `sample-stars` command accumulating a star count per repository per day into a committed history, and rendering it as themeable SVG charts. Replaces the third-party star-history embeds GitHub's 2026 stargazer restriction left rendering an error card. A repository the token administers is reconstructed exactly from its per-star timestamps; the rest are sampled forward, backfilled from archived pages with `--backfill-wayback`, or imported from a star-history.com export with `--import-csv`.
+- New `sample-projects` command recording the stars, newest release or tag, and newest commit of each project in `[tool.repomatic.projects] repos`, across GitHub, GitLab and Forgejo instances.
+- New opt-in `stars.yaml` workflow running both samplers weekly and committing their stores. Enable with `[tool.repomatic] stars.sync = true`.
+- New `git-commit-push` option `--all-changes`, staging everything the working tree carries instead of a named path list, for a job whose output paths only its configuration knows.
 
 ## [`7.12.1` (2026-08-15)](https://github.com/kdeldycke/repomatic/compare/v7.12.0...v7.12.1)
 

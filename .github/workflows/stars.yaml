@@ -1,0 +1,92 @@
+# Accumulates the star history of the repositories a project tracks, and the
+# popularity and activity of the projects it watches, then redraws the charts.
+#
+# GitHub restricted its stargazer endpoints to a repository's own admins on
+# 2026-06-30 (REST) and 2026-07-17 (GraphQL), which killed every third-party
+# star chart on the web. The aggregate `stargazers_count` stayed public, so this
+# job snapshots it weekly and commits the result: a history that accrues in the
+# repository cannot be revoked upstream.
+#
+# Only the sampling needs the network. Whatever renders the data reads the
+# committed JSON and SVG, so a docs build stays hermetic.
+#
+# See repomatic/stars.py and repomatic/forge.py for the collection rationale,
+# and repomatic/star_chart.py for the rendering one.
+---
+name: "\U00002B50 Star history"
+"on":
+  workflow_call:
+    secrets:
+      REPOMATIC_PAT:
+        required: false
+  workflow_dispatch:
+  schedule:
+    # Weekly: the charts plot multi-year trends, so a finer cadence would only
+    # add commits without moving a curve. Deliberately never on push, following
+    # the schedule-only rule for anything sourced from a third party.
+    - cron: "41 5 * * 2"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Supply-chain cooldown: no package published within the window can be resolved by
+# any command in this workflow. Set here, not per command, so it also covers the
+# `metadata` bootstrap and any step added later; a workflow-level `env:` cannot
+# reference `needs`, so the window is a literal kept equal to `[tool.repomatic]
+# minimum-release-age`. repomatic's own test suite enforces that upstream; a
+# synced copy is kept in step by hand. Deliberate bypasses are per-package CLI
+# flags (`--exclude-newer-package`, `--min-release-age-exclude`).
+# See claude.md for the rationale.
+env:
+  NPM_CONFIG_MIN_RELEASE_AGE: 7
+  UV_EXCLUDE_NEWER: "1 week"
+
+jobs:
+
+  sample-stars:
+    name: "\U00002B50 Sample forge metrics"
+    runs-on: ubuntu-26.04
+    # Wider than the default: an exact reconstruction pages through every star a
+    # repository holds, one API call per hundred.
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A protected default branch refuses the default token, so the weekly
+          # commit takes the same route the autofix jobs take. Without the PAT
+          # the sampling still runs and the push is what fails, which is the
+          # loud half: a silent skip would look like a repository nobody stars.
+          token: ${{ secrets.REPOMATIC_PAT || github.token }}
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.3"
+
+      # `gh` inherits this token to read the aggregate counts, and the per-star
+      # timestamps of the repositories it administers, which only an admin
+      # token still sees.
+      - name: Sample star counts
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: uv --no-progress run --frozen -- repomatic --verbosity INFO sample-stars
+
+      - name: Sample tracked projects
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: uv --no-progress run --frozen -- repomatic --verbosity INFO sample-projects
+
+      # Nothing to commit is the common case between two stars, and
+      # `git-commit-push` is idempotent, so the guard is in the command rather
+      # than in an `if:` here. `--all-changes` rather than a path list: the
+      # store and the charts live wherever `[tool.repomatic.stars]` puts them,
+      # which this workflow cannot know, and the two steps above are the only
+      # writers in a pristine checkout.
+      - name: Commit the new samples
+        run: >
+          uv --no-progress run --frozen -- repomatic
+          git-commit-push --all-changes
+          --message "Sample forge popularity and activity"

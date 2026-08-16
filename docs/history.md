@@ -1,5 +1,9 @@
 # {octicon}`log` History
 
+![Star history of repomatic](assets/star-history.svg)
+
+Sampled weekly by [`repomatic sample-stars`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/stars.py) into [`star-history.json`](assets/star-history.json), after GitHub restricted its stargazer endpoints to a repository's own admins in June 2026 and left every third-party chart rendering an error card. This curve is reconstructed from the timestamp of every star the repository still holds, so it runs back to 2021 rather than starting where sampling did, and it dips wherever a follower was lost.
+
 The repository was [created on 9 December 2021](https://github.com/kdeldycke/repomatic/commit/5cbdbb95258f38e07d399a178378dece8b2a295c), two weeks after GitHub made [reusable workflows generally available](https://github.blog/changelog/2021-11-24-github-actions-reusable-workflows-are-generally-available/). The whole ambition fit in the first `readme.md`: "A central place where all my GitHub action workflows are defined." The first workflow linted YAML files, [the third commit](https://github.com/kdeldycke/repomatic/commit/46022625aa1f0ba031d03e08c75f574dc69e5682) added a Dependabot config, and `0.0.1` was tagged two days later.
 
 ## Everything was YAML

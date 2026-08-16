@@ -207,6 +207,15 @@
    :undoc-members:
 ```
 
+## `tests.test_forge` module
+
+```{eval-rst}
+.. automodule:: tests.test_forge
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_frontmatter` module
 
 ```{eval-rst}
@@ -508,6 +517,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_sphinx_crossrefs
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_stars` module
+
+```{eval-rst}
+.. automodule:: tests.test_stars
    :members:
    :show-inheritance:
    :undoc-members:

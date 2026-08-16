@@ -321,6 +321,27 @@ def gh_api_json(args: Sequence[str]) -> Any | None:
         return None
 
 
+def gh_graphql(query: str, **variables: str) -> Any:
+    """Run a one-shot GraphQL query through `gh`, and return its `data` envelope.
+
+    The paginated sibling of {func}`iter_graphql_nodes`, for the queries that
+    read a handful of fields off a single object rather than walking a
+    connection. The query travels as a raw field, since `--field` reads a value
+    looking like a number or a boolean as one, which would corrupt a query
+    string that happens to start with a digit.
+
+    :param query: The GraphQL query string.
+    :param variables: Query variables, all passed as strings.
+    :return: The response's `data` object, unwrapped.
+    :raises RuntimeError: When the `gh` invocation fails
+        (see {func}`run_gh_command`).
+    """
+    args = ["api", "graphql", "--raw-field", f"query={query}"]
+    for name, value in variables.items():
+        args.extend(["--field", f"{name}={value}"])
+    return json.loads(run_gh_command(args))["data"]
+
+
 def iter_graphql_nodes(
     query: str,
     connection_path: Sequence[str],

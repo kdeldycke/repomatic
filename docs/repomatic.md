@@ -191,6 +191,15 @@
    :undoc-members:
 ```
 
+## `repomatic.forge` module
+
+```{eval-rst}
+.. automodule:: repomatic.forge
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.frontmatter` module
 
 ```{eval-rst}
@@ -375,6 +384,24 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.setup_guide
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.star_chart` module
+
+```{eval-rst}
+.. automodule:: repomatic.star_chart
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.stars` module
+
+```{eval-rst}
+.. automodule:: repomatic.stars
    :members:
    :show-inheritance:
    :undoc-members:

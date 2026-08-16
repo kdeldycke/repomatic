@@ -106,6 +106,10 @@ from .dep_sources import (
     scan_project,
 )
 from .docs import update_docs as _update_docs
+from .forge import (
+    PROJECT_SAMPLE_HEADER_DEFS,
+    sample_projects as _sample_projects,
+)
 from .git_ops import commit_and_push_files, create_and_push_tag, current_branch
 from .github import token as _token_mod, unsubscribe as _unsub_mod
 from .github.actions import (
@@ -243,6 +247,18 @@ from .runner_images import (
     render_change_table,
 )
 from .setup_guide import manage_setup_guide
+from .star_chart import ChartSpec, write_chart
+from .stars import (
+    STAR_SAMPLE_HEADER_DEFS,
+    backfill_wayback as _backfill_wayback,
+    collected_repos,
+    import_star_history_csv,
+    load_star_records,
+    reconstruct_from_github,
+    sample_current,
+    save_star_records,
+    series as star_series,
+)
 from .sync_ops import (
     OPERATIONS_BY_NAME,
     ResolveContext,
@@ -499,6 +515,7 @@ def repomatic():
 _section_github = Section("GitHub issues & PRs")
 _section_lint = Section("Linting & checks")
 _section_release = Section("Release & versioning")
+_section_sample = Section("Forge sampling")
 _section_setup = Section("Project setup")
 _section_sync = Section("Sync")
 
@@ -2812,16 +2829,23 @@ def close_stale_bump_pr(part: str) -> None:
     show_default=True,
     help="Remote branch to push to.",
 )
+@option(
+    "--all-changes/--no-all-changes",
+    default=False,
+    help="Stage every change in the working tree instead of named files, for a "
+    "job whose output paths come from configuration.",
+)
 @argument(
     "paths",
     nargs=-1,
-    required=True,
+    required=False,
     type=file_path(exists=True, resolve_path=True),
 )
 def git_commit_push(
     message: str,
     remote: str,
     branch: str,
+    all_changes: bool,
     paths: tuple[Path, ...],
 ) -> None:
     """Commit the given files and push them to a remote branch.
@@ -2832,13 +2856,24 @@ def git_commit_push(
     publish generated files to the default branch without racing other
     pushes. Works from a detached HEAD.
 
+    With --all-changes, everything the working tree carries is staged rather
+    than a named list. Reserved for a job whose writers are the steps right
+    before it and whose output paths only its configuration knows.
+
     \b
     Examples:
         repomatic git-commit-push --message "Record v1.2.3 binaries" \\
             docs/binaries.md docs/assets/virustotal-scans.json
+
+    \b
+        repomatic git-commit-push --message "Sample star counts" --all-changes
     """
+    if bool(paths) == all_changes:
+        raise UsageError("Pass either PATHS or --all-changes, not both or neither.")
     try:
-        pushed = commit_and_push_files(paths, message, remote=remote, branch=branch)
+        pushed = commit_and_push_files(
+            paths, message, remote=remote, branch=branch, all_changes=all_changes
+        )
     except RuntimeError as e:
         raise ClickException(str(e))
     except subprocess.CalledProcessError as e:
@@ -3170,6 +3205,208 @@ def prepare_release(
             echo(f"  {path}")
     else:
         logging.warning(f"{action}: no files were modified.")
+
+
+@repomatic.command(
+    name="sample-projects",
+    short_help="Snapshot tracked projects' popularity and activity",
+    section=_section_sample,
+)
+@option(
+    "--store",
+    type=file_path(resolve_path=True),
+    default=None,
+    help="JSON readings file. Defaults to [tool.repomatic.projects] store.",
+)
+@pass_context
+def sample_projects(ctx: Context, store: Path | None) -> None:
+    """Read every tracked project's stars, newest release and newest commit.
+
+    Reads each project through whichever API its host speaks (GitHub, GitLab or
+    Forgejo) and records one row per project, rewritten only when a reading
+    moves. A project that fails to answer keeps its previous reading rather
+    than losing it, so one flaky instance blanks no column.
+
+    \b
+    Examples:
+        repomatic sample-projects
+
+    \b
+        repomatic sample-projects --store docs/assets/project-metrics.json
+    """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.projects.sync, "projects.sync")
+
+    if not config.projects.repos:
+        echo("No project declared in [tool.repomatic.projects] repos, nothing to read.")
+        return
+
+    readings = store or Path(config.projects.store)
+    try:
+        outcomes = _sample_projects(
+            readings, config.projects.repos, config.projects.forges
+        )
+    except ValueError as error:
+        raise ClickException(str(error))
+
+    rows = [
+        (
+            outcome.project_id,
+            str(outcome.metrics.stars) if outcome.metrics else "—",
+            (outcome.metrics.release or "—") if outcome.metrics else "—",
+            (outcome.metrics.commit or "—") if outcome.metrics else "—",
+            outcome.error or ("updated" if outcome.changed else "unchanged"),
+        )
+        for outcome in outcomes
+    ]
+    ctx.print_table(rows, PROJECT_SAMPLE_HEADER_DEFS)
+
+    moved = sum(1 for outcome in outcomes if outcome.changed)
+    if moved:
+        echo(f"Recorded {moved} reading(s) in {readings}.")
+    else:
+        echo(f"{readings} already up to date.")
+
+
+@repomatic.command(
+    name="sample-stars",
+    short_help="Accumulate the star history of tracked repositories",
+    section=_section_sample,
+)
+@option(
+    "--store",
+    type=file_path(resolve_path=True),
+    default=None,
+    help="JSON history file. Defaults to [tool.repomatic.stars] store.",
+)
+@option(
+    "--forward/--no-forward",
+    default=True,
+    help="Snapshot today's aggregate star count of every tracked repository.",
+)
+@option(
+    "--reconstruct/--no-reconstruct",
+    default=True,
+    help="Rebuild exact curves from per-star timestamps, for repositories the "
+    "token administers.",
+)
+@option(
+    "--backfill-wayback",
+    is_flag=True,
+    default=False,
+    help="Mine contemporaneous counts from archived GitHub pages. Slow, and a "
+    "one-off: the scheduled job never runs it.",
+)
+@option(
+    "--import-csv",
+    type=file_path(exists=True, resolve_path=True),
+    multiple=True,
+    help="Import a star-history.com calendar export. Repeatable.",
+)
+@option(
+    "--render/--no-render",
+    default=True,
+    help="Redraw the configured charts from the stored history.",
+)
+@pass_context
+def sample_stars(
+    ctx: Context,
+    store: Path | None,
+    forward: bool,
+    reconstruct: bool,
+    backfill_wayback: bool,
+    import_csv: tuple[Path, ...],
+    render: bool,
+) -> None:
+    """Accumulate the star history of every tracked repository, and chart it.
+
+    GitHub restricted its stargazer endpoints to a repository's own admins in
+    2026, which left every third-party star chart on the web rendering an error
+    card. The aggregate count stayed public, so this snapshots it on a schedule
+    and commits the result: a history that accrues locally cannot be revoked.
+
+    Each point records where it came from, since the curves are not all
+    measured the same way. A repository the token administers is reconstructed
+    exactly from the timestamp of every star it still holds; the rest are
+    sampled forward, and backfilled from archived pages or from a
+    star-history.com export.
+
+    \b
+    Examples:
+        repomatic sample-stars
+
+    \b
+        repomatic sample-stars --no-reconstruct --backfill-wayback
+
+    \b
+        repomatic sample-stars --import-csv star-history-export.csv
+    """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.stars.sync, "stars.sync")
+
+    if not config.stars.series:
+        echo("No repository declared in [tool.repomatic.stars] series, nothing to do.")
+        return
+
+    history = store or Path(config.stars.store)
+    try:
+        records = load_star_records(history)
+    except ValueError as error:
+        raise ClickException(str(error))
+    tracked = collected_repos(config.stars.series, config.stars.predecessors)
+
+    outcomes = []
+    if forward:
+        for name, repo in tracked.items():
+            outcomes.append(sample_current(records, name, repo))
+    if reconstruct:
+        for name, repo in tracked.items():
+            outcomes.append(reconstruct_from_github(records, name, repo))
+    for export in import_csv:
+        try:
+            outcomes.extend(import_star_history_csv(records, export, tracked.values()))
+        except (OSError, ValueError) as error:
+            raise ClickException(str(error))
+    if backfill_wayback:
+        for name, repo in tracked.items():
+            outcomes.append(_backfill_wayback(records, name, repo, history))
+
+    ctx.print_table(
+        [
+            (
+                outcome.name,
+                outcome.repo,
+                str(outcome.stars) if outcome.stars is not None else "—",
+                str(outcome.points),
+                outcome.note or "—",
+            )
+            for outcome in outcomes
+        ],
+        STAR_SAMPLE_HEADER_DEFS,
+    )
+
+    if save_star_records(history, records):
+        echo(f"Recorded {len(records)} point(s) in {history}.")
+    else:
+        echo(f"{history} already up to date.")
+
+    if not render:
+        return
+    if not records:
+        echo("No point recorded yet, so no chart to draw.")
+        return
+    # Stamped with the newest reading rather than with today, so re-rendering
+    # an unmoved history rewrites nothing. A caption naming the run date would
+    # churn the committed SVGs on every scheduled pass that found no new star.
+    stamp = max(record.day for record in records.values())
+    grouped = star_series(records, config.stars.series, config.stars.predecessors)
+    for entry in config.stars.charts:
+        try:
+            spec = ChartSpec.from_mapping(entry)
+            changed = write_chart(grouped, spec, config.stars.colors, stamp)
+        except ValueError as error:
+            raise ClickException(str(error))
+        echo(f"{'Redrew' if changed else 'Unchanged'} {spec.output}.")
 
 
 @repomatic.command(

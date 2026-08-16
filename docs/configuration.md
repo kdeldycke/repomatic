@@ -33,6 +33,12 @@ dependency-graph.no-groups = []
 dependency-graph.no-extras = []
 dependency-graph.level = 0
 
+projects.sync = true
+projects.store = "./docs/assets/project-metrics.json"
+
+stars.sync = true
+stars.store = "./docs/assets/star-history.json"
+
 gitignore.location = "./.gitignore"
 gitignore.extra-categories = ["terraform", "go"]
 gitignore.extra-content = '''
@@ -140,6 +146,64 @@ A content pattern is a plain keyword by default: matched case-insensitively and 
 Your entry for a label **replaces** the bundled default entry for that label, an empty list disables it (as `"🐛 bug" = []` above), and labels the defaults do not mention are added. Untouched defaults keep flowing from upstream releases. The default rule sets ship in {data}`repomatic.labels.DEFAULT_CONTENT_RULES` and {data}`repomatic.labels.DEFAULT_FILE_RULES`, and every rule must name a label the repository actually defines: see `labels.extra` above for declaring new ones.
 
 Tune rules for precision, not recall. The labeller pre-labels for the maintainer's first pass and never replaces it: a missing label costs one manual click, while a wrong one is noise on every thread that trips it. Never key a rule off a token the project prints in its own output, or a user pasting a trace sets every such label at once.
+
+### Forge sampling
+
+Two schedule-only operations record what forges say about a set of repositories, into stores committed here. Both are opt-in, and the `sync` key on each is also what decides whether `repomatic init` hands the repository the `stars.yaml` workflow at all.
+
+`sample-stars` accumulates a star count per repository per day and draws charts from it. Series are declared once and each chart names the subset it plots, so one history feeds as many views as a page needs:
+
+```toml
+[tool.repomatic.stars]
+store = "./docs/assets/star-history.json"
+sync = true
+
+[tool.repomatic.stars.series]
+apricot = "apricot-org/apricot"
+papaya = "papaya-dev/papaya"
+
+# A project that reopened under a new repository: its forerunner is drawn
+# dashed, in the successor's hue, and stops where the successor begins.
+[tool.repomatic.stars.predecessors]
+papaya = "old-owner/papaya"
+
+[[tool.repomatic.stars.charts]]
+output = "./docs/assets/star-history.svg"
+
+[[tool.repomatic.stars.charts]]
+mode = "relative"
+output = "./docs/assets/star-history-by-age.svg"
+
+[[tool.repomatic.stars.charts]]
+only = ["apricot"]
+output = "./docs/assets/star-history-apricot.svg"
+```
+
+`mode` is `absolute` (one shared calendar) or `relative` (every curve measured from its own origin, which compares trajectories rather than dates). Hues come from a twelve-slot palette assigned in draw order; pin one with `[tool.repomatic.stars.colors]` when it must survive a reordering.
+
+Only GitHub slugs belong in `series`: the history rests on the aggregate count GitHub kept public after restricting its stargazer endpoints in 2026. A repository the token administers is additionally reconstructed exactly from the timestamp of every star it still holds, so its curve is complete from day one rather than starting on the day sampling did.
+
+`sample-projects` answers a different question, and reads any forge:
+
+```toml
+[tool.repomatic.projects]
+store = "./docs/assets/project-metrics.json"
+sync = true
+
+[tool.repomatic.projects.repos]
+apricot = "https://github.com/apricot-org/apricot"
+papaya = "https://gitlab.com/papaya/papaya"
+
+# A self-hosted instance is never guessed from its name.
+[tool.repomatic.projects.forges]
+"gitlab.example.org" = "gitlab"
+
+# A mapping rather than a list: the reason is the point.
+[tool.repomatic.projects.skip]
+carrot = "Ships in a distribution package with no public repository."
+```
+
+It keeps one row per project rather than one per day, holding its stars, the date of its newest release or tag, and the date of its newest commit on the default branch. A row is rewritten only when a reading moves, so a quiet week stays out of the diff and a dead project's row keeps the date it actually stopped at.
 
 ### Flavors
 
