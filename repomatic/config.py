@@ -554,6 +554,12 @@ class ProjectsConfig:
 
     Opt-in: most repositories track no external project, and an enabled
     sampler with an empty `repos` table would only add a no-op job.
+
+    This gates the command, not the workflow that runs it: `stars.sync` is what
+    decides whether `repomatic init` writes `stars.yaml` at all, since the two
+    samplers share one job. A repository wanting project readings and no star
+    history therefore sets both, and leaves `[tool.repomatic.stars] series`
+    empty: the star half then exits cleanly with nothing to sample.
     """
 
 

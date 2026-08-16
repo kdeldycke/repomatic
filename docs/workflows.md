@@ -756,7 +756,7 @@ This workflow maintains repomatic's own package source and is the one file in `.
 
 ### ⭐ [`.github/workflows/stars.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/stars.yaml)
 
-Opt-in: `repomatic init` only materializes this file for a repository that set `stars.sync = true`, since an accumulating history is a commitment rather than a default.
+Opt-in: `repomatic init` only materializes this file for a repository that set `stars.sync = true`, since an accumulating history is a commitment rather than a default. That one key gates the file, and the two samplers share the job it holds, so a repository wanting project readings and no star history sets `stars.sync = true` as well and leaves `[tool.repomatic.stars] series` empty.
 
 #### ⭐ Sample forge metrics (`sample-stars`)
 
