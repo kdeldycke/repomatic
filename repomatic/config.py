@@ -223,15 +223,28 @@ DEFAULT_AGENT: Final[str] = "claude_code"
 DEFAULT_CI: Final[str] = "github_ci"
 """CI system assumed when `[tool.repomatic.flavor] ci` is unset."""
 
-SPHINX_DEPLOY_TARGETS: Final[frozenset[str]] = frozenset((
+CLOUDFLARE_PLACEMENT_MODES: Final[frozenset[str]] = frozenset((
+    "",
+    "off",
+    "smart",
+))
+"""Values `site.cloudflare-placement` accepts, empty meaning unmanaged.
+
+The vocabulary of the Pages project's `placement.mode` field, which is what
+`repomatic cloudflare-pages` writes the setting through. Anything else would
+be PATCHead to the live project verbatim and rejected there, far from the
+`pyproject.toml` line that caused it.
+"""
+
+SITE_DEPLOY_TARGETS: Final[frozenset[str]] = frozenset((
     "cloudflare-pages",
     "github-pages",
 ))
-"""Hosts the Docs workflow knows how to publish a built site to.
+"""Hosts a repository's built site can be published to.
 
-One job per target, each with the permissions its own host needs, so a value
-outside this set has no job at all behind it. `Config.__post_init__` rejects one
-rather than letting the workflow run green and publish nothing.
+One deploy job per target, each with the permissions its own host needs, so a
+value outside this set has no job at all behind it. `Config.__post_init__`
+rejects one rather than letting the workflow run green and publish nothing.
 """
 
 
@@ -1288,6 +1301,80 @@ class Config:
     enablement keys it owns into whatever the file already holds.
     """
 
+    site_cloudflare_compatibility_date: str = field(
+        default="",
+        metadata={CONFIG_PATH_METADATA_KEY: "site.cloudflare-compatibility-date"},
+    )
+    """Workers runtime date the Cloudflare Pages project is pinned to.
+
+    A `YYYY-MM-DD` date, compared and enforced by `repomatic cloudflare-pages`
+    against the live project's `deployment_configs`, on both the production and
+    preview environments. Inert while the project has no Pages Functions, which
+    is exactly how it drifts unnoticed: the value only starts mattering the
+    moment a Function is added, long after anyone last chose it. Empty (the
+    default) leaves the live value unmanaged.
+
+    This is server-side state, not the `wrangler.toml` key of the same name:
+    Cloudflare honours the project's own configuration, and the file only
+    matters to a build that a Direct Upload project never runs. `lint-repo`
+    warns when a committed `wrangler.toml` disagrees, so the repository states
+    one value rather than two.
+    """
+
+    site_cloudflare_placement: str = field(
+        default="",
+        metadata={CONFIG_PATH_METADATA_KEY: "site.cloudflare-placement"},
+    )
+    """Smart Placement mode declared for the Cloudflare Pages project.
+
+    `smart` or `off`, compared and enforced by `repomatic cloudflare-pages` on
+    both environments. For a static site it changes nothing measurable and
+    costs nothing; declaring it means the dashboard toggle stops looking like
+    an accident. Empty (the default) leaves the live value unmanaged.
+    """
+
+    site_cloudflare_project: str = field(
+        default="",
+        metadata={CONFIG_PATH_METADATA_KEY: "site.cloudflare-project"},
+    )
+    """Name of the Cloudflare Pages project the site deploys into.
+
+    Empty (the default) names the project after the repository, which is what
+    the deploy job falls back to. Set it when the project predates repomatic or
+    otherwise cannot carry the repository's name: renaming a live Pages project
+    would move the `<project>.pages.dev` hostname every custom domain CNAMEs
+    through.
+    """
+
+    site_deploy: str = field(
+        default="github-pages",
+        metadata={CONFIG_PATH_METADATA_KEY: "site.deploy"},
+    )
+    """Where this repository's built site is published.
+
+    `github-pages`, the default, has the Docs workflow upload the Sphinx tree
+    as a Pages artifact and deploy it with the repository's own OIDC identity:
+    no stored credential, and nothing to configure beyond enabling Pages.
+
+    `cloudflare-pages` uploads it to a Cloudflare Pages project instead, named
+    per `site.cloudflare-project`, through `wrangler pages deploy`. That path
+    needs two repository secrets, `CLOUDFLARE_API_TOKEN` and
+    `CLOUDFLARE_ACCOUNT_ID`, and it trades the OIDC deploy for a long-lived
+    token: the Docs workflow's monthly run is what surfaces its expiry, since
+    Cloudflare warns about neither an approaching lapse nor a passed one.
+
+    A property of the site rather than of Sphinx. A repository whose site is
+    built by its own workflow (a Pelican blog, a hand-rolled static tree)
+    declares the target here too: that is what turns on the credential checks,
+    the setup-guide step and the Cloudflare drift job for it, even though the
+    Docs workflow's own Sphinx build never runs.
+
+    Choose Cloudflare for what the edge can do rather than for speed. A custom
+    domain on Cloudflare Pages carries its own certificate, so the zone's apex
+    can be proxied, which is what a `_redirects` file, a real `404.html` and
+    any edge rule on the apex all depend on.
+    """
+
     sphinx_builder: str = field(
         default="html",
         metadata={CONFIG_PATH_METADATA_KEY: "sphinx.builder"},
@@ -1305,29 +1392,6 @@ class Config:
     has: the old paths stop existing, so the repository's own absolute
     self-links (readme, packaging specs) move in the same commit, and whatever
     fronts the site redirects the old ones.
-    """
-
-    sphinx_deploy: str = field(
-        default="github-pages",
-        metadata={CONFIG_PATH_METADATA_KEY: "sphinx.deploy"},
-    )
-    """Where the Docs workflow publishes the built documentation.
-
-    `github-pages`, the default, uploads the tree as a Pages artifact and
-    deploys it with the repository's own OIDC identity: no stored credential,
-    and nothing to configure beyond enabling Pages.
-
-    `cloudflare-pages` uploads it to a Cloudflare Pages project instead, named
-    after the repository, through `wrangler pages deploy`. That path needs two
-    repository secrets, `CLOUDFLARE_API_TOKEN` (scoped to `Account →
-    Cloudflare Pages → Edit`) and `CLOUDFLARE_ACCOUNT_ID`, and it trades the
-    OIDC deploy for a long-lived token: give it an expiry, and something that
-    fails loudly when it lapses, since Cloudflare warns about neither.
-
-    Choose it for what the edge can do rather than for speed. A custom domain on
-    Cloudflare Pages carries its own certificate, so the zone's apex can be
-    proxied, which is what a `_redirects` file, a real `404.html` and any edge
-    rule on the apex all depend on.
     """
 
     test_matrix: TestMatrixConfig = field(
@@ -1395,8 +1459,10 @@ class Config:
         Only a location still sitting at its default is derived, so an explicit
         `skills.location`, `subagents.location`, `agent.location` or
         `settings.location` always wins over the flavor. Also rejects a
-        `sphinx.deploy` target nothing implements, which would otherwise read as
-        a workflow that runs and publishes nowhere.
+        `site.deploy` target nothing implements, which would otherwise read as
+        a workflow that runs and publishes nowhere, and a
+        `site.cloudflare-placement` value the Pages API would bounce far from
+        the line that caused it.
         """
         default = AGENT_LAYOUTS[DEFAULT_AGENT]
         layout = self.flavor.layout
@@ -1408,9 +1474,20 @@ class Config:
             self.agent_location = layout.instructions
         if self.settings_location == default.settings:
             self.settings_location = layout.settings
-        if self.sphinx_deploy not in SPHINX_DEPLOY_TARGETS:
-            targets = ", ".join(sorted(SPHINX_DEPLOY_TARGETS))
-            msg = f"Unsupported sphinx.deploy {self.sphinx_deploy!r}. Pick one of: {targets}."
+        if self.site_deploy not in SITE_DEPLOY_TARGETS:
+            targets = ", ".join(sorted(SITE_DEPLOY_TARGETS))
+            msg = (
+                f"Unsupported site.deploy {self.site_deploy!r}. Pick one of: {targets}."
+            )
+            raise ValueError(msg)
+        if self.site_cloudflare_placement not in CLOUDFLARE_PLACEMENT_MODES:
+            modes = ", ".join(
+                sorted(mode for mode in CLOUDFLARE_PLACEMENT_MODES if mode)
+            )
+            msg = (
+                f"Unsupported site.cloudflare-placement"
+                f" {self.site_cloudflare_placement!r}. Pick one of: {modes}."
+            )
             raise ValueError(msg)
 
 
@@ -1443,6 +1520,8 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "pypi_package_history",
     "settings_location",
     "setup_guide",
+    "site_cloudflare_compatibility_date",
+    "site_cloudflare_placement",
     "skills_location",
     "subagents_location",
     "sync_runner_images",

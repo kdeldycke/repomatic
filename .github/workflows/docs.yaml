@@ -36,6 +36,15 @@ name: 📚 Docs
       - readme.md
       - uv.lock
       - "**/*.py"
+  # A monthly run, mirrored into every downstream caller. It is the heartbeat
+  # for two things a push-only trigger cannot surface on a quiet repository:
+  # a Cloudflare API token that lapsed (Cloudflare warns about neither an
+  # approaching expiry nor a passed one, so the first symptom must be a red
+  # run and its email rather than a deploy that never happens), and link rot
+  # accumulating between pushes, which check-broken-links only sees when it
+  # runs. Offset from the monthly tests.yaml run on the 1st.
+  schedule:
+    - cron: "43 6 15 * *"
 
 permissions: {}
 
@@ -74,6 +83,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_python_project is_sphinx doc_files sphinx_builder
+          site_deploy site_cloudflare_project
 
   deploy-docs:
     name: 📖 Deploy Sphinx doc
@@ -87,7 +97,7 @@ jobs:
     if: >-
       fromJSON(needs.metadata.outputs.metadata).is_python_project
       && fromJSON(needs.metadata.outputs.metadata).is_sphinx
-      && fromJSON(needs.metadata.outputs.metadata).sphinx_deploy == 'github-pages'
+      && fromJSON(needs.metadata.outputs.metadata).site_deploy == 'github-pages'
     runs-on: ubuntu-26.04
     # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
     timeout-minutes: 30
@@ -157,7 +167,7 @@ jobs:
     if: >-
       fromJSON(needs.metadata.outputs.metadata).is_python_project
       && fromJSON(needs.metadata.outputs.metadata).is_sphinx
-      && fromJSON(needs.metadata.outputs.metadata).sphinx_deploy == 'cloudflare-pages'
+      && fromJSON(needs.metadata.outputs.metadata).site_deploy == 'cloudflare-pages'
     runs-on: ubuntu-26.04
     # Same toolchain as the job above, so the same wider cap.
     timeout-minutes: 30
@@ -185,10 +195,20 @@ jobs:
           sphinx-build -b "$SPHINX_BUILDER"
           -d "${{ runner.temp }}/sphinx-doctrees"
           ./docs ./docs/_build
+      - name: Drop files over the Pages upload limit
+        # Direct Upload rejects any file over 25 MiB, and `wrangler` fails the
+        # whole deploy on the first one it meets. Dropping the stragglers
+        # publishes everything else instead of nothing, and `-print` names
+        # each dropped file in the log so the trim is never silent.
+        # See: https://developers.cloudflare.com/pages/get-started/direct-upload/#limits
+        run: >
+          find ./docs/_build -type f -size +25M -print -delete
       - name: Deploy to Cloudflare Pages
         # Direct Upload: the tree built above is what reaches the edge, so
         # Cloudflare never builds anything and needs no access to this
-        # repository. The project is named after it, and must already exist.
+        # repository. The project defaults to the repository's name, overridden
+        # by `[tool.repomatic] site.cloudflare-project` for a project that
+        # predates repomatic, and must already exist either way.
         # `wrangler` is pinned as an npm literal, which `sync-workflow-pins`
         # keeps current and the workflow-level cooldown holds to a release old
         # enough to have been withdrawn if it were broken.
@@ -198,7 +218,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PROJECT_NAME: ${{ github.event.repository.name }}
+          PROJECT_NAME: >-
+            ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
+            || github.event.repository.name }}
           REF_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
         run: >
@@ -206,6 +228,44 @@ jobs:
           --project-name "$PROJECT_NAME"
           --branch "$REF_NAME"
           --commit-hash "$COMMIT_SHA"
+
+  cloudflare-config-drift:
+    name: 🌩️ Check Cloudflare config drift
+    needs:
+      - metadata
+    # Cloudflare holds settings no committed file can express: the
+    # compatibility date, Smart Placement, the build image floor, whether a
+    # git source got attached behind the deploy's back. All are invisible
+    # until they misbehave, so this job fails loudly when the live project
+    # stops matching what `[tool.repomatic] site.*` declares. Deliberately a
+    # job of its own rather than a step of the deploy: drifted settings should
+    # be loud, but they must never hold up publishing. Runs for every
+    # Cloudflare-targeting repository, Sphinx or not, since the drift exists
+    # wherever the project does.
+    if: >-
+      fromJSON(needs.metadata.outputs.metadata).site_deploy == 'cloudflare-pages'
+    runs-on: ubuntu-26.04
+    # A couple of API calls and a TOML parse. Ten minutes covers an API that
+    # is answering slowly rather than not at all.
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.3"
+      - name: Compare live project against declared state
+        # Same project resolution as the deploy job above, spelled out so the
+        # two jobs visibly address one project.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SITE_PROJECT: >-
+            ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
+            || github.event.repository.name }}
+        run: >
+          uv --no-progress run --frozen -- repomatic cloudflare-pages
+          --project "$SITE_PROJECT" --check
 
   check-broken-links:
     name: 💔 Check broken links

@@ -538,17 +538,22 @@ CLOUDFLARE_STEP = "Configure the Cloudflare Pages credentials"
 """Title of the step only a Cloudflare Pages project is asked to perform."""
 
 
-def _sphinx_project(tmp_path, monkeypatch, target: str) -> None:
-    """Materialize a Sphinx project deploying to *target*, and enter it.
+def _site_project(tmp_path, monkeypatch, target: str, *, sphinx: bool = True) -> None:
+    """Materialize a project deploying its site to *target*, and enter it.
 
-    The `docs/conf.py` is what `Metadata.is_sphinx` looks for, and both deploy
-    steps are gated on it.
+    The `docs/conf.py` is what `Metadata.is_sphinx` looks for. The GitHub
+    Pages step is gated on it; the Cloudflare step follows the declared
+    target alone, so *sphinx* can be turned off to model a repository whose
+    site is built by its own workflow.
     """
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "conf.py").write_text("project = 'papaya'\n", encoding="UTF-8")
+    if sphinx:
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "conf.py").write_text(
+            "project = 'papaya'\n", encoding="UTF-8"
+        )
     (tmp_path / "pyproject.toml").write_text(
         "[project]\nname = 'papaya'\nversion = '1.0'\n\n"
-        f"[tool.repomatic]\nsphinx.deploy = '{target}'\n",
+        f"[tool.repomatic]\nsite.deploy = '{target}'\n",
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -566,13 +571,13 @@ def _sphinx_project(tmp_path, monkeypatch, target: str) -> None:
 def test_setup_guide_asks_about_the_configured_host_only(
     tmp_path, monkeypatch, target, rendered, omitted
 ):
-    """Exactly one deploy step renders, the one `sphinx.deploy` names.
+    """Exactly one deploy step renders, the one `site.deploy` names.
 
     The two hosts want different things set up and only one of them ever runs,
     so a guide showing both sends the maintainer to configure a deployment
     surface nothing publishes to.
     """
-    _sphinx_project(tmp_path, monkeypatch, target)
+    _site_project(tmp_path, monkeypatch, target)
     with _offline_setup_guide() as (_lifecycle, bodies):
         result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
     assert result.exit_code == 0
@@ -606,11 +611,31 @@ def test_setup_guide_holds_open_until_both_cloudflare_secrets_land(
     and a run configured with only one is as broken as one configured with
     neither.
     """
-    _sphinx_project(tmp_path, monkeypatch, "cloudflare-pages")
+    _site_project(tmp_path, monkeypatch, "cloudflare-pages")
     with _offline_setup_guide() as (lifecycle, _bodies):
         result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG], env=env)
     assert result.exit_code == 0
     assert lifecycle.call_args_list[0][1]["has_issues"] is expected_has_issues
+
+
+def test_setup_guide_asks_a_non_sphinx_site_for_its_cloudflare_credentials(
+    tmp_path, monkeypatch
+):
+    """Declaring the Cloudflare target is the opt-in, Sphinx or not.
+
+    A repository whose site is built by its own workflow (a Pelican blog, a
+    hand-rolled static tree) deploys with the same project and the same two
+    secrets, so the guide walks it through them. The GitHub Pages step stays
+    away: repomatic runs no publisher for that combination.
+    """
+    _site_project(tmp_path, monkeypatch, "cloudflare-pages", sphinx=False)
+    with _offline_setup_guide() as (lifecycle, bodies):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert result.exit_code == 0
+    assert CLOUDFLARE_STEP in bodies[0]
+    assert PAGES_STEP not in bodies[0]
+    # And the missing credentials hold the issue open, same as for Sphinx.
+    assert lifecycle.call_args_list[0][1]["has_issues"] is True
 
 
 def test_setup_guide_closes_with_github_pages_never_configured(tmp_path, monkeypatch):
@@ -622,7 +647,7 @@ def test_setup_guide_closes_with_github_pages_never_configured(tmp_path, monkeyp
     the guide open forever on a Cloudflare-hosted project, demanding a
     deployment source for a host nothing publishes to.
     """
-    _sphinx_project(tmp_path, monkeypatch, "cloudflare-pages")
+    _site_project(tmp_path, monkeypatch, "cloudflare-pages")
     unconfigured = CheckResult(None, "Pages deployment source check: skipped.")
     with _offline_setup_guide(pages_ok=unconfigured) as (lifecycle, _bodies):
         result = _invoke(

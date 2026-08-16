@@ -119,6 +119,15 @@
    :undoc-members:
 ```
 
+## `repomatic.cloudflare` module
+
+```{eval-rst}
+.. automodule:: repomatic.cloudflare
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.compat` module
 
 ```{eval-rst}
@@ -330,6 +339,15 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.npm
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.pages_redirects` module
+
+```{eval-rst}
+.. automodule:: repomatic.pages_redirects
    :members:
    :show-inheritance:
    :undoc-members:

@@ -23,7 +23,10 @@ labels.sync = false
 mailmap.sync = false
 setup-guide = false
 sphinx.builder = "dirhtml"
-sphinx.deploy = "cloudflare-pages"
+site.deploy = "cloudflare-pages"
+site.cloudflare-project = "my-legacy-project-name"
+site.cloudflare-compatibility-date = "2026-06-16"
+site.cloudflare-placement = "smart"
 uv-lock.sync = false
 
 dependency-graph.output = "./docs/assets/dependencies.mmd"

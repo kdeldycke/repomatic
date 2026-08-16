@@ -28,7 +28,7 @@ from repomatic.config import (
     AGENT_LAYOUTS,
     DEFAULT_AGENT,
     DEFAULT_CI,
-    SPHINX_DEPLOY_TARGETS,
+    SITE_DEPLOY_TARGETS,
     AgentLayout,
     Config,
     FlavorConfig,
@@ -243,27 +243,60 @@ def test_load_repomatic_config_with_preloaded_data():
     assert config.gitignore.location == "./.gitignore"
 
 
-@pytest.mark.parametrize("target", sorted(SPHINX_DEPLOY_TARGETS))
-def test_sphinx_deploy_accepts_every_implemented_target(target):
+@pytest.mark.parametrize("target", sorted(SITE_DEPLOY_TARGETS))
+def test_site_deploy_accepts_every_implemented_target(target):
     """Each target names a deploy job in `docs.yaml`, so each must load."""
     assert (
         load_repomatic_config({
-            "tool": {"repomatic": {"sphinx": {"deploy": target}}}
-        }).sphinx_deploy
+            "tool": {"repomatic": {"site": {"deploy": target}}}
+        }).site_deploy
         == target
     )
 
 
-def test_sphinx_deploy_rejects_a_target_with_no_job_behind_it():
+def test_site_deploy_rejects_a_target_with_no_job_behind_it():
     """An unimplemented target would publish nowhere, from a green workflow.
 
     The `docs.yaml` jobs gate on equality with a known value, so a typo or a
     host nobody wired up simply matches neither, and the run reports success
     having deployed nothing at all.
     """
-    with pytest.raises(ValueError, match="Unsupported sphinx.deploy 'netlify'"):
+    with pytest.raises(ValueError, match="Unsupported site.deploy 'netlify'"):
+        load_repomatic_config({"tool": {"repomatic": {"site": {"deploy": "netlify"}}}})
+
+
+def test_site_cloudflare_settings_load_from_their_table():
+    """The drift-check declarations ride the same `site.*` table."""
+    config = load_repomatic_config({
+        "tool": {
+            "repomatic": {
+                "site": {
+                    "deploy": "cloudflare-pages",
+                    "cloudflare-project": "papaya-site",
+                    "cloudflare-compatibility-date": "2026-06-16",
+                    "cloudflare-placement": "smart",
+                }
+            }
+        }
+    })
+    assert config.site_deploy == "cloudflare-pages"
+    assert config.site_cloudflare_project == "papaya-site"
+    assert config.site_cloudflare_compatibility_date == "2026-06-16"
+    assert config.site_cloudflare_placement == "smart"
+
+
+def test_site_cloudflare_placement_rejects_unknown_modes():
+    """A bad placement mode must die here, not in a Cloudflare PATCH response.
+
+    The value is written verbatim to the live project by `cloudflare-pages
+    --apply`, so the API rejection would surface far from the
+    `pyproject.toml` line that caused it.
+    """
+    with pytest.raises(
+        ValueError, match="Unsupported site.cloudflare-placement 'clever'"
+    ):
         load_repomatic_config({
-            "tool": {"repomatic": {"sphinx": {"deploy": "netlify"}}}
+            "tool": {"repomatic": {"site": {"cloudflare-placement": "clever"}}}
         })
 
 

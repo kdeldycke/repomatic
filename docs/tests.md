@@ -135,6 +135,15 @@
    :undoc-members:
 ```
 
+## `tests.test_cloudflare` module
+
+```{eval-rst}
+.. automodule:: tests.test_cloudflare
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_config` module
 
 ```{eval-rst}
@@ -387,6 +396,15 @@
    :undoc-members:
 ```
 
+## `tests.test_pages_redirects` module
+
+```{eval-rst}
+.. automodule:: tests.test_pages_redirects
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_platform_keys` module
 
 ```{eval-rst}
@@ -481,15 +499,6 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_runner_catalog
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `tests.test_runner_images` module
-
-```{eval-rst}
-.. automodule:: tests.test_runner_images
    :members:
    :show-inheritance:
    :undoc-members:

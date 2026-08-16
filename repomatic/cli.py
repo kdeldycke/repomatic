@@ -86,6 +86,7 @@ from .changelog import (
     resolved_changelog_path,
 )
 from .checksums import update_registry_checksums
+from .cloudflare import CloudflareError, run_cloudflare_pages
 from .config import (
     CONFIG_REFERENCE_HEADER_DEFS,
     Config,
@@ -2486,7 +2487,11 @@ def lint_repo(
       - REPOMATIC_NOTIFICATIONS_PAT secret missing when the unsubscribe
         workflow is enabled (warning).
       - CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID secret missing when
-        sphinx.deploy targets Cloudflare Pages (warning).
+        site.deploy targets Cloudflare Pages (warning).
+      - Committed _redirects files survive the Cloudflare Pages engine:
+        no dropped rules, no silent budget abort (error).
+      - wrangler.toml agrees with the declared Cloudflare project name and
+        compatibility date (warning).
 
     \b
     When a PAT is detected, additional capability checks are run:
@@ -2532,7 +2537,9 @@ def lint_repo(
         repo_name=repo_name,
         is_package=metadata.is_python_package,
         is_sphinx=is_sphinx,
-        sphinx_deploy=config.sphinx_deploy,
+        site_deploy=config.site_deploy,
+        site_cloudflare_project=config.site_cloudflare_project,
+        site_cloudflare_compatibility_date=config.site_cloudflare_compatibility_date,
         project_description=project_description,
         docs_url=docs_url,
         keywords=keywords,
@@ -2545,6 +2552,111 @@ def lint_repo(
         has_notifications_pat=has_notifications_pat,
         unsubscribe_active=config.notification_unsubscribe,
     )
+    ctx.exit(exit_code)
+
+
+@repomatic.command(
+    short_help="Reconcile the Cloudflare Pages project", section=_section_lint
+)
+@option(
+    "--project",
+    default=None,
+    help=(
+        "Cloudflare Pages project to reconcile. Defaults to [tool.repomatic]"
+        " site.cloudflare-project, then to the repository name."
+    ),
+)
+@option(
+    "--check",
+    is_flag=True,
+    help="Diff the live project against the declared state; exit 1 on drift.",
+)
+@option(
+    "--apply",
+    "apply_",
+    is_flag=True,
+    help="Write the declared values back to the live project.",
+)
+@option(
+    "--dump",
+    is_flag=True,
+    help="Print the live project state as JSON, secrets redacted.",
+)
+@option(
+    "--create",
+    is_flag=True,
+    help=(
+        "Create the Direct Upload project, then apply the declared values:"
+        " the rebuild-from-nothing verb."
+    ),
+)
+@pass_context
+def cloudflare_pages(
+    ctx: Context,
+    project: str | None,
+    check: bool,
+    apply_: bool,
+    dump: bool,
+    create: bool,
+) -> None:
+    """Reconcile the Cloudflare Pages project against the declared state.
+
+    A Direct Upload project's live settings (compatibility date, Smart
+    Placement, build image, attached source) exist only server-side, where
+    they drift with nothing watching. This command diffs them against the
+    `[tool.repomatic] site.*` declarations, enforces them, and warns when the
+    API token is within a month of its expiry, which Cloudflare itself never
+    signals.
+
+    Credentials come from CLOUDFLARE_API_TOKEN (and CLOUDFLARE_ACCOUNT_ID
+    when the token cannot enumerate accounts), falling back to the OAuth
+    token a local `wrangler login` stored.
+
+    \b
+    Examples:
+        # In CI: fail the job when the live project drifted
+        repomatic cloudflare-pages --check
+
+    \b
+        # Write the declared compatibility date and placement back
+        repomatic cloudflare-pages --apply
+
+    \b
+        # Rebuild from nothing: create the project, then configure it
+        repomatic cloudflare-pages --create --project my-site
+    """
+    modes = {
+        "--apply": apply_,
+        "--check": check,
+        "--create": create,
+        "--dump": dump,
+    }
+    selected = [flag for flag, active in modes.items() if active]
+    if len(selected) != 1:
+        msg = f"Pick exactly one of {', '.join(modes)}. Got: {selected or 'none'}."
+        raise UsageError(msg)
+
+    config = get_tool_config(ctx)
+    resolved = project or config.site_cloudflare_project or Metadata().repo_name
+    if not resolved:
+        msg = (
+            "No project name: pass --project or set [tool.repomatic]"
+            " site.cloudflare-project."
+        )
+        raise UsageError(msg)
+
+    try:
+        exit_code = run_cloudflare_pages(
+            resolved,
+            check=check,
+            apply=apply_,
+            dump=dump,
+            create=create,
+            compatibility_date=config.site_cloudflare_compatibility_date,
+            placement=config.site_cloudflare_placement,
+        )
+    except CloudflareError as error:
+        raise ClickException(str(error)) from error
     ctx.exit(exit_code)
 
 

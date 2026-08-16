@@ -14,6 +14,7 @@ configuration
 dependencies
 tool-runner
 workflows
+cloudflare
 test-matrix
 nuitka
 security

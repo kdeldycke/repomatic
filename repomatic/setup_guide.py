@@ -201,14 +201,24 @@ class GuideContext:
         return self.has_cloudflare_api_token and self.has_cloudflare_account_id
 
     def deploys_to(self, target: str) -> bool:
-        """Whether the Docs workflow publishes this project's site to *target*.
+        """Whether this repository publishes its site to *target*.
 
         One host's setup step is the other's noise, and the guide asks about
-        exactly the one `sphinx.deploy` names: a Cloudflare-hosted project has
+        exactly the one `site.deploy` names: a Cloudflare-hosted project has
         no GitHub Pages source to set, and the probe for it answers `404`
         forever.
+
+        The GitHub Pages half stays gated on Sphinx, because the Docs workflow
+        is the only publisher repomatic runs for that host and it only builds
+        Sphinx trees. The Cloudflare half follows the declaration alone: a
+        repository whose site is built by its own workflow still needs the
+        project and the two credentials this guide walks through.
         """
-        return bool(self.md.is_sphinx) and self.config.sphinx_deploy == target
+        if self.config.site_deploy != target:
+            return False
+        if target == "github-pages":
+            return bool(self.md.is_sphinx)
+        return True
 
     @property
     def dependabot_ok(self) -> bool:

@@ -30,6 +30,7 @@ from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
     REPO_CHECKS,
     CheckResult,
+    LintContext,
     check_branch_ruleset_on_default,
     check_description_matches,
     check_funding_file,
@@ -385,11 +386,14 @@ def test_notifications_pat_check(
 
 
 @pytest.mark.parametrize(
-    ("sphinx_deploy", "has_token", "has_account", "expected"),
+    ("site_deploy", "is_sphinx", "has_token", "has_account", "expected"),
     (
-        pytest.param("github-pages", False, False, None, id="other-target-silent"),
+        pytest.param(
+            "github-pages", True, False, False, None, id="other-target-silent"
+        ),
         pytest.param(
             "cloudflare-pages",
+            True,
             False,
             False,
             "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN not configured",
@@ -397,6 +401,18 @@ def test_notifications_pat_check(
         ),
         pytest.param(
             "cloudflare-pages",
+            # No Sphinx at all: a site built by the repository's own workflow
+            # (a Pelican blog, a hand-rolled tree) needs the same credentials,
+            # so declaring the target is the whole opt-in.
+            False,
+            False,
+            False,
+            "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN not configured",
+            id="non-sphinx-site-still-checked",
+        ),
+        pytest.param(
+            "cloudflare-pages",
+            True,
             True,
             False,
             "CLOUDFLARE_ACCOUNT_ID not configured",
@@ -404,6 +420,7 @@ def test_notifications_pat_check(
         ),
         pytest.param(
             "cloudflare-pages",
+            True,
             False,
             True,
             "CLOUDFLARE_API_TOKEN not configured",
@@ -413,13 +430,14 @@ def test_notifications_pat_check(
             "cloudflare-pages",
             True,
             True,
+            True,
             "✓ Cloudflare Pages credentials are configured.",
             id="both-secrets",
         ),
     ),
 )
 def test_cloudflare_secrets_check(
-    capsys, sphinx_deploy, has_token, has_account, expected
+    capsys, site_deploy, is_sphinx, has_token, has_account, expected
 ):
     """The Cloudflare check fires only on its target, and names what is missing.
 
@@ -427,8 +445,8 @@ def test_cloudflare_secrets_check(
     here, so the half already in place must not be reported as missing.
     """
     exit_code = run_repo_lint(
-        is_sphinx=True,
-        sphinx_deploy=sphinx_deploy,
+        is_sphinx=is_sphinx,
+        site_deploy=site_deploy,
         has_cloudflare_api_token=has_token,
         has_cloudflare_account_id=has_account,
     )
@@ -441,13 +459,13 @@ def test_cloudflare_secrets_check(
 
 
 @pytest.mark.parametrize(
-    ("sphinx_deploy", "probed"),
+    ("site_deploy", "probed"),
     (
         pytest.param("github-pages", True, id="github-pages-probes"),
         pytest.param("cloudflare-pages", False, id="cloudflare-pages-skips"),
     ),
 )
-def test_pages_deployment_source_follows_the_deploy_target(sphinx_deploy, probed):
+def test_pages_deployment_source_follows_the_deploy_target(site_deploy, probed):
     """The Pages source check is skipped for a project that deploys elsewhere.
 
     `GET /repos/{repo}/pages` answers `404` for a repository that never
@@ -463,10 +481,161 @@ def test_pages_deployment_source_follows_the_deploy_target(sphinx_deploy, probed
         probe.return_value = CheckResult(True, "Pages source is GitHub Actions.")
         run_repo_lint(
             is_sphinx=True,
-            sphinx_deploy=sphinx_deploy,
+            site_deploy=site_deploy,
             repo="orchard/papaya",
         )
     assert probe.called is probed
+
+
+def _lint_context_in(tmp_path, monkeypatch, **kwargs) -> LintContext:
+    """A `LintContext` whose filesystem lookups resolve inside *tmp_path*."""
+    monkeypatch.chdir(tmp_path)
+    return LintContext(**kwargs)
+
+
+def test_pages_redirects_clean_file_passes(tmp_path, monkeypatch):
+    """A file the engine keeps whole reports one green line."""
+    (tmp_path / "_redirects").write_text(
+        "/old /new 301\n/blog/* /articles/:splat 301\n",
+        encoding="UTF-8",
+    )
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    results = list(lint_repo._pages_redirects(ctx))
+    assert [result.passed for result in results] == [True]
+    assert "2 rules survive" in results[0].message
+
+
+def test_pages_redirects_reports_dropped_rules(tmp_path, monkeypatch):
+    """Every line the engine drops surfaces with its file position.
+
+    These are the failures `wrangler pages deploy` swallows: a duplicate
+    source, a bad status, an infinite loop. Each dropped line is a redirect
+    that looks committed and is dead in production.
+    """
+    (tmp_path / "_redirects").write_text(
+        "/a /b 301\n"
+        "/a /c 301\n"  # Duplicate source, first one wins silently.
+        "/d /e 418\n"  # Status the engine refuses.
+        "/f/ /f/index.html\n",  # Infinite loop through .html stripping.
+        encoding="UTF-8",
+    )
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    messages = [
+        result.message
+        for result in lint_repo._pages_redirects(ctx)
+        if result.passed is False
+    ]
+    assert len(messages) == 3
+    assert "duplicate rule" in messages[0]
+    assert "Valid status codes" in messages[1]
+    assert "Infinite loop" in messages[2]
+
+
+def test_pages_redirects_reports_budget_abort_and_misordering(tmp_path, monkeypatch):
+    """The silent kill switch: statics after a dynamic burn the 100 budget.
+
+    The file below opens with a dynamic rule, so every following static is
+    charged against the dynamic budget of 100. The 101st charged rule (line
+    101, however static it looks) aborts the parse, and everything below it
+    is discarded without a word from the deploy pipeline.
+    """
+    lines = ["/blog/* /articles/:splat 301"]
+    lines += [f"/old-{index} /new-{index} 301" for index in range(100)]
+    lines += ["/casualty /survivor 301"]
+    (tmp_path / "_redirects").write_text("\n".join(lines) + "\n", encoding="UTF-8")
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    failures = [
+        result.message
+        for result in lint_repo._pages_redirects(ctx)
+        if result.passed is False
+    ]
+    assert any("stops reading at line 101" in message for message in failures)
+    # Lines 2 to 100 survive as dynamically-charged statics; line 101 died on
+    # the budget and line 102 was never read.
+    assert any("99 exact rule(s) sit below" in message for message in failures)
+
+
+def test_pages_redirects_check_is_fatal_and_gated_on_the_file():
+    """The roster entry must fail the run: dropped rules are already broken."""
+    check = next(check for check in REPO_CHECKS if check.name == "pages-redirects")
+    assert check.fatal
+    context_with = LintContext()
+    context_with.__dict__["redirects_files"] = [Path("_redirects")]
+    context_without = LintContext()
+    context_without.__dict__["redirects_files"] = []
+    assert check.applies(context_with)
+    assert not check.applies(context_without)
+
+
+def test_pages_redirects_honours_gitignore(tmp_path, monkeypatch):
+    """A generated copy of the file must not be audited, only the source.
+
+    A static site build copies `_redirects` verbatim into its output tree, so
+    without the gitignore filter every finding would be reported twice, and a
+    stale build artifact could fail the lint after the source was fixed.
+    """
+    (tmp_path / "_redirects").write_text("/a /b 301\n", encoding="UTF-8")
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output" / "_redirects").write_text("/a /b 301\n", encoding="UTF-8")
+    (tmp_path / ".gitignore").write_text("output/\n", encoding="UTF-8")
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    assert ctx.redirects_files == [Path("_redirects")]
+
+
+@pytest.mark.parametrize(
+    ("wrangler_toml", "context_kwargs", "expected_failures"),
+    (
+        pytest.param(
+            'name = "papaya-site"\ncompatibility_date = "2026-06-16"\n',
+            {
+                "site_cloudflare_project": "papaya-site",
+                "site_cloudflare_compatibility_date": "2026-06-16",
+            },
+            [],
+            id="everything-agrees",
+        ),
+        pytest.param(
+            'name = "renamed-by-hand"\n',
+            {"site_cloudflare_project": "papaya-site"},
+            ["names project 'renamed-by-hand' while the deploy targets"],
+            id="project-name-diverges",
+        ),
+        pytest.param(
+            'name = "papaya"\ncompatibility_date = "2023-03-01"\n',
+            {
+                "repo_name": "papaya",
+                "site_cloudflare_compatibility_date": "2026-06-16",
+            },
+            ["says compatibility_date 2023-03-01"],
+            id="stale-compatibility-date",
+        ),
+        pytest.param(
+            "compatibility_date = [broken\n",
+            {},
+            ["does not parse"],
+            id="unparsable-file",
+        ),
+    ),
+)
+def test_wrangler_config_check(
+    tmp_path, monkeypatch, wrangler_toml, context_kwargs, expected_failures
+):
+    """`wrangler.toml` must agree with the declared project name and date.
+
+    The file only feeds local wrangler commands on a Direct Upload project,
+    which is exactly why nothing else ever catches it lying: one project's
+    compatibility date sat three years behind the live value this way.
+    """
+    (tmp_path / "wrangler.toml").write_text(wrangler_toml, encoding="UTF-8")
+    ctx = _lint_context_in(tmp_path, monkeypatch, **context_kwargs)
+    failures = [
+        result.message
+        for result in lint_repo._wrangler_config(ctx)
+        if result.passed is False
+    ]
+    assert len(failures) == len(expected_failures)
+    for message, expected in zip(failures, expected_failures, strict=True):
+        assert expected in message
 
 
 def test_minimal_run():

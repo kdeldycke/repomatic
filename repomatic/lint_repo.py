@@ -35,10 +35,12 @@ from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
+import tomlrt
 import yaml
 from click_extra import echo
 from packaging.version import Version
 
+from .file_inventory import FileInventory
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import gh_api_json, run_gh_command
@@ -55,6 +57,7 @@ from .metadata import (
     Metadata,
     all_metadata_keys,
 )
+from .pages_redirects import misordered_statics, parse_redirects
 from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
@@ -2236,14 +2239,27 @@ class LintContext:
     is_sphinx: bool = False
     """Whether the project uses Sphinx documentation."""
 
-    sphinx_deploy: str = "github-pages"
-    """Where the Docs workflow publishes the built site, per `sphinx.deploy`.
+    site_deploy: str = "github-pages"
+    """Where the repository's built site publishes, per `site.deploy`.
 
     Each host has its own prerequisite, and exactly one of them applies: the
     GitHub Pages source check reads a `404` forever on a Cloudflare-hosted
     project, and the Cloudflare credential check has nothing to say about a
-    project deploying with the repository's own OIDC identity.
+    project deploying with the repository's own OIDC identity. The credential
+    check follows the declared target alone, Sphinx or not: a site built by
+    the repository's own workflow needs the same secrets the Docs workflow
+    would.
     """
+
+    site_cloudflare_project: str = ""
+    """Cloudflare Pages project name override, per `site.cloudflare-project`.
+
+    Empty means the project is named after the repository, the deploy job's
+    own fallback.
+    """
+
+    site_cloudflare_compatibility_date: str = ""
+    """Declared Workers runtime date, per `site.cloudflare-compatibility-date`."""
 
     project_description: str | None = None
     """Description from `pyproject.toml`."""
@@ -2293,6 +2309,21 @@ class LintContext:
             "homepageUrl": None,
             "description": None,
         }
+
+    @cached_property
+    def redirects_files(self) -> list[Path]:
+        """Committed Cloudflare Pages `_redirects` files, `.gitignore` honoured.
+
+        The gitignore filter is what keeps a generated site tree (an `output/`
+        or `docs/_build/` copy of the same file) out of the audit: the engine
+        replica must read the source of truth, not a build artifact of it.
+        """
+        return FileInventory().glob_files("**/_redirects")
+
+    @cached_property
+    def has_wrangler_toml(self) -> bool:
+        """Whether the repository commits a root-level `wrangler.toml`."""
+        return Path("wrangler.toml").is_file()
 
 
 @dataclass(frozen=True)
@@ -2349,12 +2380,109 @@ def _cloudflare_secrets(ctx: LintContext) -> CheckResult:
         return CheckResult(True, "Cloudflare Pages credentials are configured.")
     return CheckResult(
         False,
-        f"{' and '.join(missing)} not configured, while sphinx.deploy is"
-        " 'cloudflare-pages': the documentation deploy job will fail."
-        " Create a token scoped to Account → Cloudflare Pages → Edit at"
-        " https://dash.cloudflare.com/profile/api-tokens and add both as"
-        " repository secrets.",
+        f"{' and '.join(missing)} not configured, while site.deploy is"
+        " 'cloudflare-pages': the Cloudflare Pages deploy will fail."
+        " Create an account-owned token scoped to Account → Cloudflare Pages →"
+        " Edit with the pre-filled form at"
+        " https://dash.cloudflare.com/?to=/:account/api-tokens"
+        "&permissionGroupKeys=%5B%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%5D"
+        " and add both as repository secrets.",
     )
+
+
+def _pages_redirects(ctx: LintContext) -> Iterator[CheckResult]:
+    """Audit every committed `_redirects` file the way the Pages engine reads it.
+
+    The engine's budget accounting is undocumented and its failures are silent:
+    `wrangler pages deploy` prints nothing when the parser drops a rule or
+    abandons the file, and a dead redirect looks exactly like a URL nobody
+    visits. One site carried 18 dead rules for years this way. The replica in
+    {mod}`repomatic.pages_redirects` reports here what production would do.
+    """
+    for path in ctx.redirects_files:
+        parsed = parse_redirects(path.read_text(encoding="UTF-8"))
+        problems = 0
+        for entry in parsed.invalid:
+            problems += 1
+            location = f":{entry.line_number}" if entry.line_number else ""
+            yield CheckResult(False, f"{path}{location}: {entry.message}")
+        if parsed.aborted_at_line:
+            problems += 1
+            yield CheckResult(
+                False,
+                f"{path}: the engine stops reading at line"
+                f" {parsed.aborted_at_line}, so every rule below it is dead in"
+                " production. Move all exact rules above the first `*` or"
+                " `:placeholder` source: only those ride the 2000-rule static"
+                " budget, and every rule after the first dynamic one burns the"
+                " dynamic budget of 100.",
+            )
+        misordered = misordered_statics(parsed.rules)
+        if misordered:
+            problems += 1
+            yield CheckResult(
+                False,
+                f"{path}: {len(misordered)} exact rule(s) sit below the first"
+                f" dynamic rule (line {misordered[0].line_number} on), each"
+                " burning a slot of the 100-rule dynamic budget instead of the"
+                " 2000-rule static one. Reordering exact rules first is"
+                " behaviour-preserving: the runtime probes exact sources ahead"
+                " of patterns wherever they sit in the file.",
+            )
+        if not problems:
+            yield CheckResult(
+                True,
+                f"{path}: {len(parsed.rules)} rules survive the Pages engine.",
+            )
+
+
+def _wrangler_config(ctx: LintContext) -> Iterator[CheckResult]:
+    """Check the committed `wrangler.toml` against the declared Cloudflare state.
+
+    The file only matters to local `wrangler` commands on a Direct Upload
+    project, but it can still contradict the repository's declared state in
+    two places Cloudflare will not reconcile for anyone: the project name the
+    CI deploy targets, and the compatibility date the live project honours
+    server-side. One value sat three years behind the live one this way,
+    because nothing read it.
+    """
+    path = Path("wrangler.toml")
+    try:
+        data = tomlrt.loads(path.read_text(encoding="UTF-8"))
+    except (tomlrt.TOMLParseError, OSError) as error:
+        yield CheckResult(False, f"{path} does not parse: {error}")
+        return
+
+    project = ctx.site_cloudflare_project or ctx.repo_name
+    file_name = data.get("name")
+    if project and file_name:
+        if file_name == project:
+            yield CheckResult(True, f"{path} names the deployed project {project!r}.")
+        else:
+            yield CheckResult(
+                False,
+                f"{path} names project {file_name!r} while the deploy targets"
+                f" {project!r}: local wrangler commands and CI would address"
+                " two different Pages projects.",
+            )
+
+    declared_date = ctx.site_cloudflare_compatibility_date
+    file_date = data.get("compatibility_date")
+    if declared_date and file_date is not None:
+        if str(file_date) == declared_date:
+            yield CheckResult(
+                True,
+                f"{path} compatibility date matches the declared {declared_date}.",
+            )
+        else:
+            yield CheckResult(
+                False,
+                f"{path} says compatibility_date {file_date!s} while"
+                f" site.cloudflare-compatibility-date declares {declared_date}:"
+                " Cloudflare honours the server-side value, so the file is the"
+                " one that lies. Keep both equal so the repository states one"
+                " value.",
+            )
 
 
 def _virustotal_secret(ctx: LintContext) -> CheckResult:
@@ -2418,16 +2546,33 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         "pages-deployment-source",
         lambda ctx: check_pages_deployment_source(ctx.repo or ""),
         applies=lambda ctx: bool(
-            ctx.is_sphinx and ctx.repo and ctx.sphinx_deploy == "github-pages"
+            ctx.is_sphinx and ctx.repo and ctx.site_deploy == "github-pages"
         ),
     ),
     RepoCheck(
         # Needs no repository: both answers come from the workflow environment,
-        # so a local run reports the same gap CI does.
+        # so a local run reports the same gap CI does. Gated on the declared
+        # target alone, not on Sphinx: a repository building its site with its
+        # own workflow needs the same two secrets.
         "cloudflare-pages-secrets",
         _cloudflare_secrets,
+        applies=lambda ctx: ctx.site_deploy == "cloudflare-pages",
+    ),
+    RepoCheck(
+        # Fatal: a rule the engine drops is already dead in production, not one
+        # that might age badly, and the deploy pipeline reports nothing about
+        # it. Gated on the file rather than on the deploy target, since a
+        # `_redirects` only means anything to Cloudflare Pages anyway.
+        "pages-redirects",
+        _pages_redirects,
+        applies=lambda ctx: bool(ctx.redirects_files),
+        fatal=True,
+    ),
+    RepoCheck(
+        "wrangler-toml",
+        _wrangler_config,
         applies=lambda ctx: bool(
-            ctx.is_sphinx and ctx.sphinx_deploy == "cloudflare-pages"
+            ctx.site_deploy == "cloudflare-pages" and ctx.has_wrangler_toml
         ),
     ),
     RepoCheck(
@@ -2567,7 +2712,9 @@ def run_repo_lint(
     repo_name: str | None = None,
     is_package: bool = False,
     is_sphinx: bool = False,
-    sphinx_deploy: str = "github-pages",
+    site_deploy: str = "github-pages",
+    site_cloudflare_project: str = "",
+    site_cloudflare_compatibility_date: str = "",
     project_description: str | None = None,
     docs_url: str | None = None,
     keywords: list[str] | None = None,
@@ -2591,7 +2738,9 @@ def run_repo_lint(
     :param repo_name: The repository name.
     :param is_package: Whether the project builds a distributable package.
     :param is_sphinx: Whether the project uses Sphinx documentation.
-    :param sphinx_deploy: Where the Docs workflow publishes the built site.
+    :param site_deploy: Where the repository's built site publishes.
+    :param site_cloudflare_project: Cloudflare Pages project name override.
+    :param site_cloudflare_compatibility_date: Declared Workers runtime date.
     :param project_description: Description from pyproject.toml.
     :param docs_url: Documentation URL declared in `[project.urls]`.
     :param keywords: Keywords list from pyproject.toml.
@@ -2614,7 +2763,9 @@ def run_repo_lint(
         repo_name=repo_name,
         is_package=is_package,
         is_sphinx=is_sphinx,
-        sphinx_deploy=sphinx_deploy,
+        site_deploy=site_deploy,
+        site_cloudflare_project=site_cloudflare_project,
+        site_cloudflare_compatibility_date=site_cloudflare_compatibility_date,
         project_description=project_description,
         docs_url=docs_url,
         keywords=keywords,

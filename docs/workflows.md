@@ -82,7 +82,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 - When the PAT is present, validates all required permissions (contents, issues, pull requests, Dependabot alerts, workflows) using the same checks as `lint-repo`
 - Keeps the issue open with a diagnostic table when the PAT exists but permissions are incomplete
 - For projects published to PyPI, probes the latest release's PEP 740 provenance and keeps the issue open until a successful OIDC-attested upload confirms the [Trusted Publisher entry](https://docs.pypi.org/trusted-publishers/adding-a-publisher/) is registered for this repo's own `release.yaml`
-- For Sphinx projects, includes the setup step of whichever host `sphinx.deploy` names, and only that one: the GitHub Pages deployment source, or the Cloudflare Pages project and its two credentials
+- Includes the setup step of whichever host `site.deploy` names, and only that one: the GitHub Pages deployment source (Sphinx projects, the only ones repomatic publishes there), or the Cloudflare Pages project and its two credentials (any repository declaring the target, since a site built by its own workflow needs the same secrets)
 - When Nuitka binary compilation is active, includes a VirusTotal API key setup step and keeps the issue open until the key is configured
 - When the unsubscribe workflow is enabled (`notification.unsubscribe = true`), includes a notifications token setup step and keeps the issue open until `REPOMATIC_NOTIFICATIONS_PAT` is configured
 - Automatically closes the issue once the secret is configured and all permissions are verified
@@ -352,6 +352,8 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 
 ### 📚 [`.github/workflows/docs.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/docs.yaml)
 
+Beside its push triggers, the workflow runs monthly, and the thin callers mirror that schedule downstream. The cron is the heartbeat for two things a push-only trigger cannot surface on a quiet repository: a lapsed Cloudflare API token (Cloudflare warns about neither an approaching expiry nor a passed one, so the first symptom must be a red run and its email), and the link rot `check-broken-links` only sees when it runs.
+
 These jobs require a `docs` [dependency group](https://docs.astral.sh/uv/concepts/projects/dependencies/#dependency-groups) in `pyproject.toml` so they can determine the right Sphinx version to install and its dependencies:
 
 ```toml
@@ -368,7 +370,7 @@ docs = [
 
 - Builds Sphinx-based documentation and publishes it to GitHub Pages using [`sphinx`](https://github.com/sphinx-doc/sphinx), [`upload-pages-artifact`](https://github.com/actions/upload-pages-artifact) and [`deploy-pages`](https://github.com/actions/deploy-pages)
 - Builder is `sphinx.builder` in `[tool.repomatic]`, defaulting to `html`; set it to `dirhtml` to publish extension-less URLs (`/page/` instead of `/page.html`)
-- Runs only when `sphinx.deploy` is `github-pages`, its default. The other target has its own job below, and exactly one of the two ever runs
+- Runs only when `site.deploy` is `github-pages`, its default. The other target has its own job below, and exactly one of the two ever runs
 - **Requires**:
   - Python package with a `pyproject.toml` file
   - `docs` dependency group
@@ -377,15 +379,24 @@ docs = [
 
 #### 📖 Deploy Sphinx doc to Cloudflare Pages (`deploy-docs-cloudflare`)
 
-- Same build as the job above, uploaded to a [Cloudflare Pages](https://developers.cloudflare.com/pages/) project with `wrangler pages deploy` instead of the Pages artifact pair. Cloudflare never builds anything and needs no access to the repository
-- Runs only when `sphinx.deploy` is `cloudflare-pages`. The job holds no `id-token`, no `pages` scope and no environment, since it authenticates against Cloudflare rather than the repository's own deployment surface
+- Same build as the job above, uploaded to a [Cloudflare Pages](https://developers.cloudflare.com/pages/) project with `wrangler pages deploy` instead of the Pages artifact pair. Cloudflare never builds anything and needs no access to the repository; see the [Cloudflare Pages guide](cloudflare.md) for how this hosting model works
+- Runs only when `site.deploy` is `cloudflare-pages`. The job holds no `id-token`, no `pages` scope and no environment, since it authenticates against Cloudflare rather than the repository's own deployment surface
+- Files over Direct Upload's 25 MiB per-file limit are dropped before the upload, each named in the log: `wrangler` would otherwise fail the whole deploy on the first one it meets, publishing nothing instead of everything else
 - Choose it for what the edge can do rather than for speed: a Cloudflare Pages custom domain carries its own certificate, so a zone's apex can be proxied, which is what a `_redirects` file, a real `404.html` and any apex edge rule all depend on
 - **Requires**:
   - Everything the GitHub Pages job requires, minus the Pages deployment source
-  - A Cloudflare Pages project named after the repository, created ahead of the first run: `wrangler` deploys into an existing project and will not create one non-interactively
-  - `CLOUDFLARE_API_TOKEN` repository secret, scoped to **Account → Cloudflare Pages → Edit**
+  - A Cloudflare Pages project named after the repository (or after `site.cloudflare-project`, for a project that predates repomatic), created ahead of the first run: `wrangler` deploys into an existing project and will not create one non-interactively, and `repomatic cloudflare-pages --create` scripts that step
+  - `CLOUDFLARE_API_TOKEN` repository secret, an account-owned token scoped to **Account → Cloudflare Pages → Edit**
   - `CLOUDFLARE_ACCOUNT_ID` repository secret
-- Both secrets are prerequisites, not enhancements: the job fails when either is missing, so `lint-repo` warns about the gap and the setup guide issue stays open until both are set. Give the token an expiry and a reminder that outlives it, since Cloudflare warns about neither an approaching expiry nor a lapsed one
+- Both secrets are prerequisites, not enhancements: the job fails when either is missing, so `lint-repo` warns about the gap and the setup guide issue stays open until both are set. Give the token a one-year TTL and let the machinery watch it: the workflow's monthly run turns a lapsed token into a red run and an email, and the drift job below starts warning a month ahead
+
+#### 🌩️ Check Cloudflare config drift (`cloudflare-config-drift`)
+
+- Runs [`repomatic cloudflare-pages --check`](cloudflare.md#the-drift-check) against the live Pages project, diffing it against the `[tool.repomatic] site.*` declarations: the compatibility date, Smart Placement, the build image floor, and the Direct Upload invariants (no attached git source, no build command)
+- Exists because those settings live only server-side, where they drift with nothing watching: they are invisible until they misbehave, and one project's compatibility date sat three years behind the live value that way
+- Also warns when the API token is within a month of its expiry, which Cloudflare itself never signals
+- Runs for every repository whose `site.deploy` is `cloudflare-pages`, Sphinx or not: a site built by the repository's own workflow drifts the same way
+- Deliberately a job of its own rather than a step of the deploy: drifted settings should be loud, but they must never hold up publishing
 
 #### 💔 Check broken links (`check-broken-links`)
 
@@ -438,7 +449,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 #### 🏠 Lint repository metadata (`lint-repo`)
 
-- Validates repository metadata (package name, Sphinx docs, project description) and Dependabot configuration using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py). Reads `pyproject.toml` directly. When `REPOMATIC_PAT` is configured, also validates PAT capabilities (contents, issues, pull requests, Dependabot alerts, workflows permissions). Warns when the fork PR workflow approval policy is weaker than `first_time_contributors`. Warns about missing `VIRUSTOTAL_API_KEY` when Nuitka binary compilation is active. Warns about missing `REPOMATIC_NOTIFICATIONS_PAT` when the unsubscribe workflow is enabled. Warns about a missing `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` when `sphinx.deploy` targets Cloudflare Pages, naming whichever half is absent.
+- Validates repository metadata (package name, Sphinx docs, project description) and Dependabot configuration using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py). Reads `pyproject.toml` directly. When `REPOMATIC_PAT` is configured, also validates PAT capabilities (contents, issues, pull requests, Dependabot alerts, workflows permissions). Warns when the fork PR workflow approval policy is weaker than `first_time_contributors`. Warns about missing `VIRUSTOTAL_API_KEY` when Nuitka binary compilation is active. Warns about missing `REPOMATIC_NOTIFICATIONS_PAT` when the unsubscribe workflow is enabled. Warns about a missing `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` when `site.deploy` targets Cloudflare Pages, naming whichever half is absent. Fails when a committed `_redirects` file would lose rules to the Cloudflare Pages engine's undocumented budget accounting, since a dropped rule is silently dead in production ([details](cloudflare.md#the-redirects-engine-as-it-actually-is)). Warns when a committed `wrangler.toml` contradicts the declared Cloudflare project name or compatibility date.
 - Warns when a Sphinx project's GitHub website field does not name the documentation URL it declares in `[project.urls]` (`Documentation`, then `Docs`). A trailing slash and the case of the scheme and host are ignored, since GitHub stores the website field with the slash a browser appends. Moving a documentation site to a new domain is what this catches: Sphinx renders `<link rel="canonical">` from `html_baseurl`, so every published page names the new origin while the repository sidebar keeps sending visitors to the old one. A project declaring no documentation URL keeps the presence-only check
 - Warns when a release download URL in `docs/install.md` names a file its release does not carry. The release freeze pins those URLs before the binaries exist, so a failed build lane leaves the guide advertising 404s until the next release moves past it: this is the check that surfaces the gap instead of leaving it for a user to hit. Versionless `releases/latest/download` URLs are checked against the latest published release too, and rot longer: nothing rewrites them at release time, so a renamed asset leaves one pointing at a 404 indefinitely
 - Fails when a workflow's inline upstream pin (like `uvx 'repomatic==X.Y.Z'`) resolves under a cooldown but carries no `--exclude-newer-package` exemption beside it, checked only in a workflow that sets `UV_EXCLUDE_NEWER` at all. `uvx` reads no project configuration, so the flag on the command line is the only place the bypass can live: without it, a pin naming a release younger than the window cannot resolve, and since the pin usually sits in the `metadata` job with every other job `needs: metadata`, the whole workflow fails at its first job while executing nothing. `sync-workflow-pins` backfills the flag on its next run, but a repository already pinned at the newest release never triggers that backfill on its own, which is what this check catches. The sharper of the two fatal pin checks, since the pin it guards takes every `needs: metadata` job down with it

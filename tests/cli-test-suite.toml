@@ -259,6 +259,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic lint-repo"
 
 [[cases]]
+cli_parameters = "cloudflare-pages --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic cloudflare-pages"
+
+[[cases]]
 cli_parameters = "apply-labels --help"
 exit_code = 0
 strip_ansi = true
