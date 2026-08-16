@@ -34,6 +34,7 @@ from repomatic.config import Config, load_repomatic_config
 from repomatic.forge import ForgeMetrics
 from repomatic.metric_chart import (
     CHART_MODES,
+    CHART_SCALES,
     SERIES_PALETTE,
     ChartSpec,
     assign_colors,
@@ -499,6 +500,44 @@ def test_backfill_wayback_skips_a_subject_off_github():
     assert "gitlab.com" in outcome.note
 
 
+def test_backfill_wayback_narrates_its_progress(monkeypatch):
+    """Check a watcher hears each page reached, and only the points that landed."""
+    monkeypatch.setattr("repomatic.metrics.time.sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        "repomatic.metrics.wayback_captures",
+        lambda path: ["20220101000000", "20230101000000"],
+    )
+    # The first capture serves its counter and the second is refused, which is
+    # the ratio the archive actually answers with: a refusal must still move the
+    # status along, and must not reach `on_row`.
+    pages = iter([WAYBACK_MARKUPS[0].encode(), None])
+    monkeypatch.setattr("repomatic.metrics.fetch", lambda url, **kwargs: next(pages))
+
+    statuses: list[str] = []
+    rows: list[str] = []
+    outcome = backfill_wayback(
+        {}, "papaya", PAPAYA, on_status=statuses.append, on_row=rows.append
+    )
+
+    assert outcome.rows == 1
+    assert rows == ["fruits/papaya 2022-01-01: 4,412 stars"]
+    assert "capture index" in statuses[0]
+    assert "(1/2, 0 recovered)" in statuses[1]
+    assert "(2/2, 1 recovered)" in statuses[2]
+
+
+def test_backfill_wayback_runs_unwatched(monkeypatch):
+    """Check the callbacks stay optional, since only an interactive run draws."""
+    monkeypatch.setattr("repomatic.metrics.time.sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        "repomatic.metrics.wayback_captures", lambda path: ["20220101000000"]
+    )
+    monkeypatch.setattr(
+        "repomatic.metrics.fetch", lambda url, **kwargs: WAYBACK_MARKUPS[0].encode()
+    )
+    assert backfill_wayback({}, "papaya", PAPAYA).rows == 1
+
+
 def test_fetch_names_why_it_gave_up(monkeypatch):
     """Check an exhausted retry budget reports what happened, not just failure."""
     monkeypatch.setattr("repomatic.metrics.time.sleep", lambda seconds: None)
@@ -689,8 +728,28 @@ def test_build_chart_data_is_loud_when_a_chart_plots_nothing():
 def test_chart_spec_rejects_an_unknown_mode():
     """Check a typo in `mode` raises instead of silently drawing a calendar."""
     with pytest.raises(ValueError, match="Unsupported chart mode"):
-        ChartSpec(output=Path("chart.svg"), mode="logarithmic")
+        ChartSpec(output=Path("chart.svg"), mode="sideways")
     assert set(CHART_MODES) == {"absolute", "relative"}
+    # The two axes are separate settings, so the vertical one is not reachable
+    # by naming it here: a `mode` that silently fell back would draw a chart
+    # misreading every series on it by orders of magnitude.
+    with pytest.raises(ValueError, match="Unsupported chart mode"):
+        ChartSpec(output=Path("chart.svg"), mode="logarithmic")
+
+
+def test_chart_spec_rejects_an_unknown_scale():
+    """Check a typo in `scale` raises instead of silently drawing a linear axis."""
+    with pytest.raises(ValueError, match="Unsupported chart scale"):
+        ChartSpec(output=Path("chart.svg"), scale="log10")
+    assert set(CHART_SCALES) == {"linear", "logarithmic"}
+
+
+def test_chart_spec_axes_are_independent():
+    """Check a comparison chart can slide the origins and compress the counts."""
+    spec = ChartSpec(output=Path("chart.svg"), mode="relative", scale="logarithmic")
+    assert spec.relative
+    assert spec.logarithmic
+    assert not ChartSpec(output=Path("chart.svg")).logarithmic
 
 
 def test_chart_spec_rejects_a_metric_with_no_history():
@@ -706,6 +765,7 @@ def test_chart_spec_from_mapping():
         "metric": "stars",
         "mode": "relative",
         "only": ["papaya"],
+        "scale": "logarithmic",
         "title": "Papaya stars",
     })
     assert spec == ChartSpec(
@@ -713,8 +773,10 @@ def test_chart_spec_from_mapping():
         metric="stars",
         mode="relative",
         only=("papaya",),
+        scale="logarithmic",
         title="Papaya stars",
     )
+    assert ChartSpec.from_mapping({"output": "c.svg"}).scale == "linear"
     assert ChartSpec.from_mapping({"output": "c.svg", "only": "papaya"}).only == (
         "papaya",
     )
@@ -786,6 +848,64 @@ def test_render_chart_relative_swaps_the_calendar_for_project_age(history):
     assert "years</text>" in svg
     years = {str(year) for year in range(2000, 2100)}
     assert not years.intersection(re.findall(r">([^<>]+)</text>", svg))
+
+
+# A pair three orders of magnitude apart, which is the gap the logarithmic
+# scale exists for: on a linear axis the smaller curve is drawn onto the floor.
+LOPSIDED = {
+    "apricot": [(date(2020, 1, 1), 0), (date(2026, 1, 1), 57)],
+    "papaya": [(date(2020, 1, 1), 0), (date(2026, 1, 1), 25057)],
+}
+
+
+def _final_y(svg: str, name: str) -> float:
+    """Read the last plotted vertical coordinate of one series out of the SVG."""
+    points = re.search(rf'<polyline class="s-{name}" points="([^"]+)"', svg)
+    assert points, f"no polyline drawn for {name}"
+    return float(points.group(1).split()[-1].split(",")[1])
+
+
+def test_render_chart_logarithmic_axis_is_labelled_in_decades():
+    """Check the gridlines are powers of ten, and the caption says so."""
+    data = build_chart_data(LOPSIDED, ChartSpec(output=Path("chart.svg")))
+    svg = render_chart(data, logarithmic=True, stamp="2026-08-16")
+    ticks = re.findall(r'<text class="tick"[^>]*>([^<]+)</text>', svg)
+    assert ["0", "1", "10", "100", "1,000", "10,000"] == [
+        tick for tick in ticks if not tick.isalpha() and "20" not in tick
+    ]
+    # Named in the accessible description too, not just the visible caption.
+    assert "logarithmic scale" in svg
+    assert 'aria-label="Stars history, logarithmic scale"' in svg
+
+
+def test_render_chart_logarithmic_lifts_a_series_off_the_axis():
+    """Check the smaller curve stays readable beside one 440 times its size."""
+    data = build_chart_data(LOPSIDED, ChartSpec(output=Path("chart.svg")))
+    linear = _final_y(render_chart(data, stamp="2026-08-16"), "apricot")
+    logarithmic = _final_y(
+        render_chart(data, logarithmic=True, stamp="2026-08-16"), "apricot"
+    )
+    # The plot floor is 414 and its ceiling 28, so a smaller y sits higher.
+    assert linear > 400, "a linear axis should pin the small series to the floor"
+    assert logarithmic < 300, "a logarithmic axis should lift it clear"
+    # The larger series still tops out at the ceiling, so the gap is compressed
+    # rather than the whole chart being slid upwards.
+    peak = _final_y(render_chart(data, logarithmic=True, stamp="2026-08-16"), "papaya")
+    assert peak == pytest.approx(28, abs=1)
+
+
+def test_render_chart_logarithmic_keeps_a_zero_on_the_floor():
+    """Check the created origin every series carries is drawn, not dropped.
+
+    A count of zero has no logarithm, so it is placed on the floor the band at
+    the bottom of the plot reserves. Dropping it instead would start each curve
+    at its first star, which is a different and unstated claim.
+    """
+    data = build_chart_data(LOPSIDED, ChartSpec(output=Path("chart.svg")))
+    svg = render_chart(data, logarithmic=True, stamp="2026-08-16")
+    first = re.search(r'<polyline class="s-apricot" points="([^"]+)"', svg)
+    assert first
+    assert float(first.group(1).split()[0].split(",")[1]) == pytest.approx(414, abs=1)
 
 
 def test_render_chart_escapes_a_series_name():

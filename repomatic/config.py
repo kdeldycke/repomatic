@@ -513,9 +513,11 @@ class MetricsConfig:
 
     Each entry carries an `output` path, an optional `metric` (`stars` by
     default, and only a metric the store accrues can be charted), an optional
-    `mode` (`absolute`, the default, or `relative`), an optional `only` list
-    naming the subjects to plot in draw order, and an optional `title` used as
-    the chart's accessible name:
+    `mode` (`absolute`, the default, or `relative`) measuring the horizontal
+    axis, an optional `scale` (`linear`, the default, or `logarithmic`)
+    measuring the vertical one, an optional `only` list naming the subjects to
+    plot in draw order, and an optional `title` used as the chart's accessible
+    name:
 
     ```toml
     [[tool.repomatic.metrics.charts]]
@@ -528,7 +530,16 @@ class MetricsConfig:
     [[tool.repomatic.metrics.charts]]
     only = [ "apricot" ]
     output = "./docs/assets/star-history-apricot.svg"
+
+    [[tool.repomatic.metrics.charts]]
+    scale = "logarithmic"
+    output = "./docs/assets/star-history-compared.svg"
     ```
+
+    The two axes are independent, and a chart comparing projects of different
+    sizes usually wants both: `mode = "relative"` slides every curve onto a
+    common origin, and `scale = "logarithmic"` keeps the smallest of them off
+    the axis.
 
     An entry omitting `only` plots every declared subject. Declaring none of
     these leaves the history accruing with nothing drawn from it, which is a

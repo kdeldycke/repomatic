@@ -531,17 +531,21 @@ release-assets = [ "repomatic-claude-plugin.zip" ]
 site.deploy = "cloudflare-pages"
 metrics.store = "./docs/assets/metrics.csv"
 metrics.sync = true
+# The comparison is logarithmic because the nearest peer outweighs repomatic by
+# two orders of magnitude, and a linear axis draws every project but the largest
+# two along the bottom edge. Most peers still hold a creation date and one
+# reading, so their curves are straight lines today: that is a statement about
+# how long this store has been accruing, not about how those projects grew, and
+# the benchmark page says so under the chart. It resolves on its own as the
+# weekly sampler and `--backfill-wayback` fill the years in.
 metrics.charts = [
   { only = [ "repomatic" ], output = "./docs/assets/star-history.svg", title = "GitHub star history of repomatic" },
+  { output = "./docs/assets/star-history-compared.svg", scale = "logarithmic", title = "GitHub star history of repomatic and its alternatives" },
 ]
 # The alternatives the benchmark page tabulates, plus repomatic itself. Sampled
 # weekly so the page's maintenance claims rest on a dated reading rather than on
 # whenever someone last looked. Keyed by the name the benchmark's own columns
-# use. Every subject accrues a star history too, so a comparison chart is a
-# config change rather than a wait: only repomatic is plotted today, because the
-# nearest peer outweighs it by two orders of magnitude and would flatten its
-# curve onto the axis, and the peers hold a single forward sample each, which a
-# line would misreport as steady growth from their creation date.
+# use.
 metrics.subjects.all-repos = "asottile/all-repos"
 metrics.subjects.allstar = "ossf/allstar"
 metrics.subjects.cookiecutter = "cookiecutter/cookiecutter"

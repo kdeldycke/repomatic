@@ -34,6 +34,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from html import escape
+from math import floor, log10
 from pathlib import Path
 
 from .metrics import CHARTABLE_METRICS, METRICS_BY_ID, PREDECESSOR_SUFFIX
@@ -49,6 +50,50 @@ CHART_MODES = ("absolute", "relative")
 gathered its following. `relative` starts each curve at its own repository's
 creation, which is the only origin they all share, so a project that took eight
 years to reach a figure another hit in two is read at a glance.
+
+Kept separate from {data}`CHART_SCALES`, which measures the vertical one: a
+comparison chart routinely wants both, and folding them into a single setting
+would make each pair of choices a new name.
+"""
+
+CHART_SCALES = ("linear", "logarithmic")
+"""Vertical axes a chart can measure against.
+
+`linear` reads a difference, and is right whenever the series are the same size.
+`logarithmic` reads a *rate*, and is what puts a project of 57 stars on one
+chart with a peer of 25,000 without flattening it onto the axis: equal slopes
+mean equal growth in percentage terms, whatever the counts.
+
+A count of zero has no logarithm, and every series carries one, since the day a
+repository was created is the only date its count is known exactly. So the
+bottom {data}`LOG_ZERO_BAND` of the plot is kept linear, spanning nothing but
+the step from zero to one. The curve then leaves the axis where the first star
+landed rather than beginning in mid-air or being silently dropped.
+"""
+
+LABEL_CHAR_WIDTH = 7.6
+"""Pixels a direct label's average character occupies, for margin arithmetic.
+
+Measured against the 13px semibold `system-ui` the labels are drawn in. An SVG
+carries no text metrics and this generator loads no font, so the width of a
+label can only be estimated: erring high costs a few pixels of plot, erring low
+clips the name off the edge of the chart.
+"""
+
+LOG_ZERO_BAND = 0.06
+"""Fraction of a logarithmic plot's height reserved for the zero-to-one step.
+
+Small enough to read as a baseline rather than as a decade of its own, and
+large enough that a curve sitting at zero for years is visibly on the floor
+instead of indistinguishable from one at a count of one.
+"""
+
+MIN_LABEL_MARGIN = 168
+"""Floor on the right margin, in pixels, whatever the labels measure.
+
+Holds the plot's proportions steady across the charts a project draws: a
+single-series chart would otherwise stretch nearly to the edge and read as a
+different shape from the comparison beside it.
 """
 
 SERIES_PALETTE: tuple[tuple[str, str], ...] = (
@@ -102,8 +147,16 @@ class ChartSpec:
     only: tuple[str, ...] = ()
     """Series to plot, in draw order. Every declared subject when empty."""
 
+    scale: str = "linear"
+    """Which of {data}`CHART_SCALES` measures the vertical axis."""
+
     title: str = ""
     """Accessible name for the chart, describing what it shows."""
+
+    @property
+    def logarithmic(self) -> bool:
+        """Whether the vertical axis measures by powers of ten."""
+        return self.scale == "logarithmic"
 
     @property
     def relative(self) -> bool:
@@ -153,15 +206,29 @@ class ChartSpec:
             metric=metric,
             mode=str(entry.get("mode") or "absolute"),
             only=only,
+            scale=str(entry.get("scale") or "linear"),
             title=str(entry.get("title") or ""),
         )
 
     def __post_init__(self) -> None:
-        """Reject a mode nothing implements, which would silently draw a calendar."""
+        """Reject an axis nothing implements, which would silently draw the default.
+
+        Both axes fail the same way and so are checked the same way: a
+        misspelled `logarithmic` that fell through to linear would draw a chart
+        that looks plausible, and misreads every series on it by orders of
+        magnitude.
+        """
         if self.mode not in CHART_MODES:
             modes = ", ".join(CHART_MODES)
             msg = (
                 f"Unsupported chart mode {self.mode!r} for {self.output}: pick {modes}."
+            )
+            raise ValueError(msg)
+        if self.scale not in CHART_SCALES:
+            scales = ", ".join(CHART_SCALES)
+            msg = (
+                f"Unsupported chart scale {self.scale!r} for {self.output}: "
+                f"pick {scales}."
             )
             raise ValueError(msg)
 
@@ -292,6 +359,7 @@ def render_chart(
     data: ChartData,
     *,
     relative: bool = False,
+    logarithmic: bool = False,
     title: str = "",
     label: str = "Stars",
     stamp: str | None = None,
@@ -301,6 +369,9 @@ def render_chart(
     :param data: The series to plot and their hues.
     :param relative: Measure the horizontal axis from each repository's own
         first point rather than from the calendar.
+    :param logarithmic: Measure the vertical axis by powers of ten, so series
+        orders of magnitude apart stay legible on one chart. See
+        {data}`CHART_SCALES` for how the zero every series carries is placed.
     :param title: Accessible name for the chart. Derived from the metric and
         the mode when empty.
     :param label: What the vertical axis counts, from the plotted metric's
@@ -314,7 +385,17 @@ def render_chart(
     grouped = data.points
 
     width, height = 960, 460
-    left, right, top, bottom = 58, 168, 28, 46
+    # The right margin carries the direct labels, so it is measured from the
+    # longest one rather than fixed. A constant wide enough for one project's
+    # own chart clips `semantic-release · 23,977` on a comparison of ten, and an
+    # SVG text node does not wrap: the overflow is simply cut by the viewBox.
+    captions = [
+        len(f"{name} · {points[-1][1]:,}")
+        for name, points in grouped.items()
+        if not name.endswith(PREDECESSOR_SUFFIX)
+    ]
+    left, top, bottom = 58, 28, 46
+    right = max(MIN_LABEL_MARGIN, round(max(captions, default=0) * LABEL_CHAR_WIDTH) + 20)
     plot_w, plot_h = width - left - right, height - top - bottom
 
     all_points = [point for points in grouped.values() for point in points]
@@ -341,16 +422,34 @@ def render_chart(
     step = step // 2 if peak / step < 2 else step
     ceiling: int = ((peak // step) + 1) * step
 
+    # A logarithmic axis stops at the peak itself rather than at the next whole
+    # decade above it: rounding a peak of 25,057 up to 100,000 would spend three
+    # quarters of the height on emptiness. Its gridlines are the decades falling
+    # below that, which stay nameable powers of ten wherever the top lands.
+    log_span = max(log10(peak), 1.0) if peak >= 1 else 1.0
+
     def x_of(offset: int) -> float:
         return left + offset / span * plot_w
 
     def y_of(stars: int) -> float:
-        return top + plot_h - (stars / ceiling) * plot_h
+        if not logarithmic:
+            return top + plot_h - (stars / ceiling) * plot_h
+        if stars < 1:
+            # The floor itself, which is what {data}`LOG_ZERO_BAND` reserves.
+            return top + plot_h
+        height = LOG_ZERO_BAND + (1 - LOG_ZERO_BAND) * log10(stars) / log_span
+        return top + plot_h - height * plot_h
 
     parts: list[str] = []
 
-    # Horizontal gridlines and their value labels.
-    for value in (round(ceiling * i / 4) for i in range(5)):
+    # Horizontal gridlines and their value labels: quarters of the ceiling on a
+    # linear axis, every decade plus the zero baseline on a logarithmic one.
+    gridlines: list[int] = (
+        [0, *(10**power for power in range(floor(log_span) + 1))]
+        if logarithmic
+        else [round(ceiling * i / 4) for i in range(5)]
+    )
+    for value in gridlines:
         y = y_of(value)
         parts.append(
             f'<line class="grid" x1="{left}" y1="{y:.1f}" '
@@ -436,12 +535,17 @@ def render_chart(
         if not name.endswith(PREDECESSOR_SUFFIX)
     )
 
+    # Named in the accessible description as well as the caption: a
+    # logarithmic chart read as a linear one is not slightly misread, it is
+    # misread by orders of magnitude, and a screen reader has only this to go on.
+    scale_note = ", logarithmic scale" if logarithmic else ""
     if relative:
         axis = f"{label} by age of the project, aligned on each series' origin"
-        described = title or f"{label} by project age"
+        described = title or f"{label} by project age{scale_note}"
     else:
         axis = f"{label}, {first_day} to {last_day}"
-        described = title or f"{label} history"
+        described = title or f"{label} history{scale_note}"
+    axis += scale_note
     body = "\n  ".join(parts)
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"
      width="{width}" height="{height}" font-family="system-ui, sans-serif"
@@ -490,6 +594,7 @@ def write_chart(
     content = render_chart(
         data,
         relative=spec.relative,
+        logarithmic=spec.logarithmic,
         title=spec.title,
         label=METRICS_BY_ID[spec.metric].label,
         stamp=stamp,
