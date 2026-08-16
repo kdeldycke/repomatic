@@ -651,23 +651,6 @@ def get_release_version_from_commits(max_count: int = 10) -> Version | None:
     return None
 
 
-def get_tag_date(tag: str) -> str | None:
-    """Get the date of a Git tag in `YYYY-MM-DD` format.
-
-    Uses `creatordate` which resolves to the tagger date for annotated
-    tags and the commit date for lightweight tags.
-
-    :param tag: The tag name to look up.
-    :return: Date string in `YYYY-MM-DD` format, or `None` if the
-        tag does not exist.
-    """
-    result = _git("tag", "-l", "--format=%(creatordate:short)", tag, check=False)
-    date = result.stdout.strip()
-    if not date:
-        return None
-    return date
-
-
 def get_all_version_tags() -> dict[str, str]:
     """Get all version tags and their dates.
 

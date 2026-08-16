@@ -289,7 +289,7 @@ def format_multiline_output(name: str, value: str) -> str:
     :param value: The multiline value.
     :return: Formatted string for `$GITHUB_OUTPUT`.
     """
-    size = len(value.encode("utf-8"))
+    size = _utf8_len(value)
     if size > MAX_STEP_OUTPUT_BYTES:
         logging.warning(
             f"Step output {name!r} is {size} bytes, over the "

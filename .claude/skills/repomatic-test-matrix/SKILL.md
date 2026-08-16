@@ -53,9 +53,11 @@ A measurement that times only tool execution misses checkout and install, which 
 
 ### Watch what is arriving and retiring
 
-You are not the first to know an image is changing. `repomatic runner-images` maintains an issue listing the open `actions/runner-images` announcements that name an image this repository runs on, with the labels each one concerns and the deadline a retirement carries. It opens only when something here is exposed, so its existence is the signal.
+You are not the first to know an image is changing. `repomatic sync-runner-images` runs weekly from the `autofix.yaml` workflow, looks up every label this repository runs in GitHub's *Available Images* table, and proposes the mechanical half as a pull request: rewriting a deprecated image's literal `runs-on:` onto its successor, or adding a strictly newer *version* of an image already in use to the full matrix as a `continue-on-error` probe. It opens one only when something here is exposed, so its existence is the signal.
 
-`repomatic sync-runner-images` then proposes the mechanical half as a pull request: moving a retiring label to its successor, or adding a newly available image as a `continue-on-error` probe. Deciding whether to merge is this skill's job, and the CI run that pull request triggers is the evidence for it.
+Deciding whether to merge is this skill's job, and the CI run that pull request triggers is the evidence for it. Closing the pull request alone brings the proposal back on the next run; declining one for good means naming the label in `[tool.repomatic.sync-runner-images] ignore`.
+
+That table is the only source read, and it badges an image `deprecated` when deprecation *begins* rather than when it is announced, so a retirement surfaces here months after an announcement feed would have shown it. The runway is still ample, since the badge lands well before the image stops working. What the table cannot show at all is a change to the *contents* of an image already in use, like a default toolchain moving: the suite is what catches those.
 
 ### An image is stable once validated here, not once GitHub relabels it
 

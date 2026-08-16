@@ -43,6 +43,7 @@ from functools import partial
 import arrow
 
 from ..dep_report import parse_iso_datetime
+from ..tabular import render_markdown_table
 from .actions import ReportAction
 from .gh import gh_api_json, iter_graphql_nodes, run_gh_command
 from .pr_body import render_template
@@ -385,21 +386,24 @@ def _render_detail_table(rows: list[DetailRow]) -> str:
     """
     if not rows:
         return ""
-    lines = [
-        "### \U0001f4dd Details",
-        "",
+    table = render_markdown_table(
         (
-            "| \U0001f4ac Title | \U0001f517 Link"
-            " | \U0001f550 Last activity | \u26a1 Action |"
+            "\U0001f4ac Title",
+            "\U0001f517 Link",
+            "\U0001f550 Last activity",
+            "\u26a1 Action",
         ),
-        "| --- | --- | --- | --- |",
-    ]
-    for row in rows:
-        ago = arrow.get(row.updated_at).humanize() if row.updated_at else "-"
-        lines.append(
-            f"| {row.title} | {_format_link(row)} | {ago} | {row.action.value} |"
-        )
-    return "\n".join(lines)
+        (
+            (
+                row.title,
+                _format_link(row),
+                arrow.get(row.updated_at).humanize() if row.updated_at else "-",
+                row.action.value,
+            )
+            for row in rows
+        ),
+    )
+    return f"### \U0001f4dd Details\n\n{table}"
 
 
 def render_report(result: UnsubscribeResult) -> str:
@@ -507,18 +511,17 @@ def render_report(result: UnsubscribeResult) -> str:
 
         # Phase 2 search details table.
         subscribed_count = p2.graphql_unsubscribed + p2.graphql_failed
-        p2_table = "\n".join([
-            "### \U0001f4ca Search details",
-            "",
-            "| Metric | Value |",
-            "| --- | --- |",
-            f"| \U0001f50e Search query | `{p2.search_query}` |",
-            f"| \U0001f514 Total results | {p2.graphql_total} |",
-            f"| \U0001f4e6 Batch size | {p2.batch_size} |",
-            f"| \u2705 Still subscribed | {subscribed_count} |",
-            f"| \u23ed\ufe0f Not subscribed | {p2.graphql_not_subscribed} |",
-            f"| \U0001f7e1 Active since cutoff | {p2.graphql_skipped_recent} |",
-        ])
+        p2_table = "### \U0001f4ca Search details\n\n" + render_markdown_table(
+            ("Metric", "Value"),
+            (
+                ("\U0001f50e Search query", f"`{p2.search_query}`"),
+                ("\U0001f514 Total results", p2.graphql_total),
+                ("\U0001f4e6 Batch size", p2.batch_size),
+                ("\u2705 Still subscribed", subscribed_count),
+                ("\u23ed\ufe0f Not subscribed", p2.graphql_not_subscribed),
+                ("\U0001f7e1 Active since cutoff", p2.graphql_skipped_recent),
+            ),
+        )
 
         p2_detail_table = _render_detail_table(p2.rows)
         p2_parts = [p2_summary, "", p2_table]

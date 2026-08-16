@@ -606,21 +606,17 @@ def test_lint_changelog_dates_pypi_mismatch(changelog_file, monkeypatch):
 def test_lint_changelog_dates_fallback_to_tags(changelog_file, monkeypatch):
     """Test that lint falls back to git tags when not on PyPI."""
     # PyPI returns empty dict (not published).
-    _patch_sources(monkeypatch)
-    monkeypatch.setattr(
-        "repomatic.changelog.get_tag_date",
-        lambda tag: {"v1.1.0": "2026-02-10", "v1.0.0": "2025-12-01"}.get(tag),
-    )
+    _patch_sources(monkeypatch, tags={"1.1.0": "2026-02-10", "1.0.0": "2025-12-01"})
 
     assert lint_changelog_dates(changelog_file) == 0
 
 
 def test_lint_changelog_dates_fallback_no_package(changelog_file, monkeypatch):
     """Test that lint falls back to git tags when no package name is detected."""
-    _patch_sources(monkeypatch, package=None)
-    monkeypatch.setattr(
-        "repomatic.changelog.get_tag_date",
-        lambda tag: {"v1.1.0": "2026-02-10", "v1.0.0": "2025-12-01"}.get(tag),
+    _patch_sources(
+        monkeypatch,
+        package=None,
+        tags={"1.1.0": "2026-02-10", "1.0.0": "2025-12-01"},
     )
 
     assert lint_changelog_dates(changelog_file) == 0

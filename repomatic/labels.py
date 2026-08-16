@@ -45,6 +45,7 @@ import os
 import re
 import subprocess
 import tempfile
+from functools import cache
 from pathlib import Path
 
 import tomlrt
@@ -273,8 +274,13 @@ def resolve_file_rules(config: Config | None = None) -> dict[str, tuple[str, ...
     return _resolve_rules(DEFAULT_FILE_RULES, overrides, "file")
 
 
+@cache
 def compile_content_pattern(pattern: str) -> re.Pattern[str] | None:
     r"""Compile one content pattern, as a keyword or a `/body/flags` regex.
+
+    Memoized: the rule tables hand the same patterns to every matching call,
+    so each spelling compiles once per process (and a malformed one is warned
+    about once instead of on every thread it is matched against).
 
     A bare pattern is a literal keyword: escaped, matched case-insensitively,
     and word-anchored on each edge that is itself a word character, so `fix`

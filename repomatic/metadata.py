@@ -143,14 +143,6 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 
-GITIGNORE_PATH = Path(".gitignore")
-"""The `.gitignore` whose rules filter every file-listing metadata key.
-
-Fixed at the repository root, unlike the configurable
-`[tool.repomatic.gitignore] location` that `sync-gitignore` writes: the glob
-filter has to match what git itself honors, and git only reads this path.
-"""
-
 HEREDOC_FIELDS: Final[frozenset[str]] = frozenset((
     "release_notes",
     "release_notes_with_admonition",

@@ -27,9 +27,9 @@ import pytest
 
 from repomatic.runner_catalog import RunnerImage
 from repomatic.runner_images import (
-    apply_arrival,
     apply_axes_retirement,
     apply_retirement,
+    apply_upgrade,
     plan_runner_changes,
     render_change_table,
 )
@@ -141,21 +141,21 @@ def test_apply_retirement_rewrites_literals_only(tmp_path) -> None:
     assert not apply_retirement(change, workflows), "second run should be a no-op"
 
 
-def test_apply_arrival_writes_sections_not_inline_tables(tmp_path) -> None:
+def test_apply_upgrade_writes_sections_not_inline_tables(tmp_path) -> None:
     """The probe lands as real sections and re-applies as a no-op."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[project]\nname = "demo"\n', encoding="UTF-8")
     (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, CATALOG)
 
-    assert apply_arrival(change, pyproject)
+    assert apply_upgrade(change, pyproject)
     written = pyproject.read_text(encoding="UTF-8")
     assert "[tool.repomatic.test-matrix]" in written
     assert "[tool.repomatic.test-matrix.variations]" in written
     assert 'os = ["ubuntu-26.04"]' in written
-    assert not apply_arrival(change, pyproject), "second run should be a no-op"
+    assert not apply_upgrade(change, pyproject), "second run should be a no-op"
 
 
-def test_apply_arrival_is_idempotent_against_the_formatter_shape(tmp_path) -> None:
+def test_apply_upgrade_is_idempotent_against_the_formatter_shape(tmp_path) -> None:
     """Re-reading what `format-pyproject` leaves behind finds the probe present.
 
     The applier writes sections; the formatter normalizes them into dotted keys
@@ -175,7 +175,7 @@ def test_apply_arrival_is_idempotent_against_the_formatter_shape(tmp_path) -> No
     )
     (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, CATALOG)
 
-    assert not apply_arrival(change, pyproject), (
+    assert not apply_upgrade(change, pyproject), (
         "the probe is already declared in the formatter's dotted-key shape, so "
         "re-applying must write nothing: otherwise sync-runner-images and "
         "format-pyproject each undo the other, forever"

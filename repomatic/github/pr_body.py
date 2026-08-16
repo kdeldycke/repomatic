@@ -45,6 +45,7 @@ from __future__ import annotations
 import re
 import tempfile
 from contextlib import contextmanager
+from functools import cache
 from importlib.resources import as_file, files
 from pathlib import Path
 from string import Template
@@ -278,19 +279,44 @@ def _parse_template(raw: str) -> tuple[dict[str, object], str]:
     return meta, _unescape_dollars(body)
 
 
+@cache
+def _load_bundled_template(name: str) -> tuple[dict[str, object], str]:
+    """Load and parse a packaged template, once per process.
+
+    Bundled resources are immutable for the life of the interpreter, and one
+    PR sync reads the same template up to six times (title, commit message,
+    labels, draft state, docs link, body), so the parse is memoized. Callers
+    treat the frontmatter mapping as read-only.
+
+    :param name: Template name without extension.
+    :return: A tuple of (frontmatter metadata dict, template body string).
+    :raises FileNotFoundError: If no such packaged resource exists.
+    """
+    template_files = files("repomatic.templates")
+    for ext in (".md.noformat", ".md"):
+        resource = template_files.joinpath(f"{name}{ext}")
+        if resource.is_file():
+            with as_file(resource) as path:
+                raw = path.read_text(encoding="UTF-8")
+            return _parse_template(raw)
+    msg = f"Template {name!r} not found in repomatic/templates/"
+    raise FileNotFoundError(msg)
+
+
 def load_template(name: str | Path) -> tuple[dict[str, object], str]:
     """Load a PR body template by name or filesystem path.
 
     Dispatch is type-based:
 
     - `str` (e.g. `"bump-version"`): looked up as a packaged resource under
-      `repomatic.templates`. Tries `{name}.md.noformat` first, then `{name}.md`.
-      The `.md.noformat` extension is used for templates whose
+      `repomatic.templates`, cached for the process (see
+      {func}`_load_bundled_template`). Tries `{name}.md.noformat` first, then
+      `{name}.md`. The `.md.noformat` extension is used for templates whose
       `string.Template` placeholders confuse mdformat (e.g. `$rerun_entry`
       prefixed to a list line is parsed as literal text, breaking the list
       structure). See `pr-metadata.md.noformat` for the canonical example.
-    - `Path`: read directly from the filesystem. Lets downstream repos ship
-      project-specific templates without forking repomatic.
+    - `Path`: read directly from the filesystem, never cached, so a downstream
+      repo iterating on a project-specific template sees each edit.
 
     :param name: Template name without extension, or a {class}`~pathlib.Path`
         pointing to a template file.
@@ -302,16 +328,7 @@ def load_template(name: str | Path) -> tuple[dict[str, object], str]:
             msg = f"Template file {str(name)!r} does not exist"
             raise FileNotFoundError(msg)
         return _parse_template(name.read_text(encoding="UTF-8"))
-
-    template_files = files("repomatic.templates")
-    for ext in (".md.noformat", ".md"):
-        resource = template_files.joinpath(f"{name}{ext}")
-        if resource.is_file():
-            with as_file(resource) as path:
-                raw = path.read_text(encoding="UTF-8")
-            return _parse_template(raw)
-    msg = f"Template {name!r} not found in repomatic/templates/"
-    raise FileNotFoundError(msg)
+    return _load_bundled_template(name)
 
 
 def _substitute(text: str, kwargs: dict[str, str | None]) -> str:

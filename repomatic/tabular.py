@@ -14,11 +14,14 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Read and write the committed CSV files that hold this project's own data.
+"""Render and persist the flat tables repomatic produces.
 
-Every dataset repomatic accrues in a repository is a flat table: a scan
-verdict, a binary in a release, a metric reading. CSV is what they are stored
-as, and this is the one place that decides how.
+Two surfaces, one module, because both are the same shape of data: the CSV
+files a repository commits (a scan verdict, a binary in a release, a metric
+reading) and the Markdown tables its reports embed (a PR body's diff table, a
+step summary's tally). {func}`render_markdown_table` is the one Markdown table
+renderer, so every report agrees on the cell and separator spelling; the CSV
+trio below decides how the committed datasets are stored.
 
 ```{note}
 CSV over JSON for these, on four counts a flat table makes decisive:
@@ -67,6 +70,44 @@ def render_csv(headers: Sequence[str], rows: Iterable[Sequence[object]]) -> str:
     for row in rows:
         writer.writerow(row)
     return buffer.getvalue()
+
+
+_ALIGN_MARKERS = {"": "---", "center": ":-:", "left": ":--", "right": "--:"}
+"""GFM delimiter-row cell per alignment name, empty for the parser default."""
+
+
+def render_markdown_table(
+    headers: Sequence[object],
+    rows: Iterable[Sequence[object]],
+    align: Sequence[str] = (),
+) -> str:
+    """Render a GitHub-flavored Markdown table.
+
+    Cells are used as given: a caller wanting a code span, a link or an emoji
+    renders it into the cell first. Nothing is escaped, matching what every
+    report renderer did by hand before this existed: none of them ever feeds a
+    cell carrying a `|`.
+
+    :param headers: Column titles, in order.
+    :param rows: One sequence of cells per row, in the same order.
+    :param align: Per-column alignment, `left`, `right` or `center`; an empty
+        entry (or a list shorter than *headers*) leaves that column on the
+        parser default. Alignment only changes how a *renderer* justifies the
+        column, so it is worth declaring where it carries meaning, like a
+        numeric column read against its neighbours.
+    :return: The table's lines joined with newlines, no trailing newline.
+    :raises KeyError: On an alignment name outside the vocabulary.
+    """
+    markers = [
+        _ALIGN_MARKERS[align[index] if index < len(align) else ""]
+        for index in range(len(headers))
+    ]
+    lines = [
+        "| " + " | ".join(str(header) for header in headers) + " |",
+        "| " + " | ".join(markers) + " |",
+    ]
+    lines.extend("| " + " | ".join(str(cell) for cell in row) + " |" for row in rows)
+    return "\n".join(lines)
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:

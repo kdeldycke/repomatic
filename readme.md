@@ -74,7 +74,7 @@ See the **[full documentation](https://repomatic.net/)** for:
 - [Installation methods and executables](https://repomatic.net/install)
 - [`[tool.repomatic]` configuration reference](https://repomatic.net/configuration)
 - [CLI parameters](https://repomatic.net/cli)
-- [Reusable workflow reference](https://repomatic.net/workflows) (all 14 workflows with job descriptions)
+- [Reusable workflow reference](https://repomatic.net/workflows) (all 15 workflows with job descriptions)
 - [Security practices and token setup](https://repomatic.net/security)
 - [Claude Code skills](https://repomatic.net/skills) and [agents](https://repomatic.net/agents), also installable as a [Claude Code plugin](https://repomatic.net/plugin)
 - [API reference](https://repomatic.net/repomatic)

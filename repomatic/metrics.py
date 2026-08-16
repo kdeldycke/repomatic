@@ -64,7 +64,6 @@ can always tell which question a point answers.
 
 from __future__ import annotations
 
-import csv
 import http.client
 import json
 import logging
@@ -925,28 +924,27 @@ def import_star_history_csv(
     imported: Counter[str] = Counter()
     seen: Counter[str] = Counter()
     rows = 0
-    with path.open(encoding="UTF-8", newline="") as handle:
-        for row in csv.DictReader(handle):
-            slug = (row.get("Repository") or "").strip()
-            if not slug:
-                continue
-            repo = canonical_url(slug)
-            if wanted is not None and repo not in wanted:
-                continue
-            rows += 1
-            day = parse_csv_day(row.get("Date") or "")
-            if day is None or day < GITHUB_EPOCH:
-                continue
-            try:
-                stars = int((row.get("Stars") or "").strip())
-            except ValueError:
-                continue
-            seen[repo] += 1
-            record = MetricRecord(
-                repo, "stars", day.isoformat(), str(stars), "star-history"
-            )
-            if upsert(records, record):
-                imported[repo] += 1
+    for row in read_csv(path):
+        slug = (row.get("Repository") or "").strip()
+        if not slug:
+            continue
+        repo = canonical_url(slug)
+        if wanted is not None and repo not in wanted:
+            continue
+        rows += 1
+        day = parse_csv_day(row.get("Date") or "")
+        if day is None or day < GITHUB_EPOCH:
+            continue
+        try:
+            stars = int((row.get("Stars") or "").strip())
+        except ValueError:
+            continue
+        seen[repo] += 1
+        record = MetricRecord(
+            repo, "stars", day.isoformat(), str(stars), "star-history"
+        )
+        if upsert(records, record):
+            imported[repo] += 1
     if rows and not seen:
         msg = (
             f"No usable row in {path}: every date predates GitHub. This is the "

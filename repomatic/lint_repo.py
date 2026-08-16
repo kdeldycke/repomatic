@@ -1023,6 +1023,9 @@ def check_pages_redirect_preserved(repo: str, docs_url: str | None) -> CheckResu
             " moves, every new release publishes metadata naming the old host.",
         )
 
+    owner, _, name = repo.partition("/")
+    legacy_urls = f"https://{owner}.github.io/{name}/…"
+
     data = gh_api_json(["api", f"repos/{repo}/pages"])
     if data is None:
         # Pages answers `404` both for a repository that disabled it and for
@@ -1037,10 +1040,9 @@ def check_pages_redirect_preserved(repo: str, docs_url: str | None) -> CheckResu
             return CheckResult(
                 False,
                 f"GitHub Pages is disabled, but this repository published"
-                f" there before: every https://{repo.split('/')[0]}.github.io/"
-                f"{repo.split('/')[-1]}/… URL now answers 404. Re-enable Pages"
-                f" and set its custom domain to {host}, which restores the"
-                " redirect without redeploying anything.",
+                f" there before: every {legacy_urls} URL now answers 404."
+                f" Re-enable Pages and set its custom domain to {host}, which"
+                " restores the redirect without redeploying anything.",
             )
         return CheckResult(
             None,
@@ -1052,8 +1054,7 @@ def check_pages_redirect_preserved(repo: str, docs_url: str | None) -> CheckResu
     if not cname:
         return CheckResult(
             False,
-            f"GitHub Pages carries no custom domain, so"
-            f" https://{repo.split('/')[0]}.github.io/{repo.split('/')[-1]}/…"
+            f"GitHub Pages carries no custom domain, so {legacy_urls}"
             f" still serves its own copy of the documentation instead of"
             f" redirecting to {host}. That copy stops being rebuilt once the"
             f" deploy job is gated off. Set it with: gh api --method PUT"
@@ -1192,7 +1193,9 @@ def check_stale_gh_pages_branch(repo: str) -> CheckResult:
     return CheckResult(False, msg)
 
 
-def check_workflow_permissions() -> list[CheckResult]:
+def check_workflow_permissions(
+    workflows: Mapping[Path, dict] | None = None,
+) -> list[CheckResult]:
     """Check workflow `permissions` declarations for least privilege.
 
     Two failure modes are flagged:
@@ -1215,6 +1218,7 @@ def check_workflow_permissions() -> list[CheckResult]:
     `permissions:` blocks then cap. The failure is specifically an empty
     top-level `permissions: {}` starving an unqualified reusable call.
 
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A list of `CheckResult`.
     """
     results: list[CheckResult] = []
@@ -1225,8 +1229,10 @@ def check_workflow_permissions() -> list[CheckResult]:
                 f"Workflow permissions check: skipped (no {WORKFLOW_DIR.as_posix()}/)",
             )
         ]
+    if workflows is None:
+        workflows = _load_workflows()
 
-    for wf_path, data in _load_workflows().items():
+    for wf_path, data in workflows.items():
         jobs = data["jobs"]
         has_custom_steps = any(
             "steps" in job for job in jobs.values() if isinstance(job, dict)
@@ -1350,17 +1356,17 @@ def _workflow_texts(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, str]:
     return texts
 
 
-def _load_workflows(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, dict]:
-    """Parse every workflow in *workflow_dir*, skipping the unreadable ones.
+def _parse_workflow_texts(texts: Mapping[Path, str]) -> dict[Path, dict]:
+    """Parse pre-read workflow texts, keeping the jobs-bearing documents.
 
     The parsed half of the workflow walk. Documents that declare no `jobs:`
     mapping are dropped, so every consumer can index `data["jobs"]` directly.
 
-    :param workflow_dir: Directory holding the workflow files.
+    :param texts: Raw file contents keyed by path, from {func}`_workflow_texts`.
     :return: A mapping of path to parsed document, for documents declaring jobs.
     """
     workflows: dict[Path, dict] = {}
-    for path, text in _workflow_texts(workflow_dir).items():
+    for path, text in texts.items():
         try:
             data = yaml.safe_load(text)
         except yaml.YAMLError as e:
@@ -1369,6 +1375,20 @@ def _load_workflows(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, dict]:
         if isinstance(data, dict) and isinstance(data.get("jobs"), dict):
             workflows[path] = data
     return workflows
+
+
+def _load_workflows(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, dict]:
+    """Read and parse every workflow in *workflow_dir*.
+
+    The from-disk convenience over {func}`_workflow_texts` and
+    {func}`_parse_workflow_texts`, for a check invoked on its own. A full
+    `lint-repo` run reads and parses once instead, through
+    {attr}`LintContext.workflows`, and hands the result to each check.
+
+    :param workflow_dir: Directory holding the workflow files.
+    :return: A mapping of path to parsed document, for documents declaring jobs.
+    """
+    return _parse_workflow_texts(_workflow_texts(workflow_dir))
 
 
 def _advertised_python_versions(metadata: Metadata) -> list[tuple[int, int]]:
@@ -1391,7 +1411,7 @@ def _advertised_python_versions(metadata: Metadata) -> list[tuple[int, int]]:
     return sorted(versions)
 
 
-def _literal_python_axes(workflows: dict[Path, dict]) -> dict[str, list[str]]:
+def _literal_python_axes(workflows: Mapping[Path, dict]) -> dict[str, list[str]]:
     """Test matrix `python-version` axes spelled out as a literal list.
 
     A matrix assembled at runtime, as repomatic's own
@@ -1416,7 +1436,9 @@ def _literal_python_axes(workflows: dict[Path, dict]) -> dict[str, list[str]]:
     return axes
 
 
-def check_python_version_consistency() -> list[CheckResult]:
+def check_python_version_consistency(
+    workflows: Mapping[Path, dict] | None = None,
+) -> list[CheckResult]:
     """Reconcile the Python versions a project requires, advertises and tests.
 
     The same fact is stated in up to three places, and nothing else holds them
@@ -1440,6 +1462,7 @@ def check_python_version_consistency() -> list[CheckResult]:
     released yet and so cannot be advertised. Build flavors carrying a suffix
     (the free-threaded `3.14t`) count as their base version.
 
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A list of `CheckResult`.
     """
     metadata = Metadata()
@@ -1489,7 +1512,7 @@ def check_python_version_consistency() -> list[CheckResult]:
                 )
             )
 
-    axes = _literal_python_axes(_load_workflows())
+    axes = _literal_python_axes(_load_workflows() if workflows is None else workflows)
     if not axes:
         results.append(
             CheckResult(None, "Python test matrix: skipped (no literal axis found).")
@@ -1533,7 +1556,10 @@ def check_python_version_consistency() -> list[CheckResult]:
     return results
 
 
-def literal_runners(workflow_dir: Path = WORKFLOW_DIR) -> dict[str, list[str]]:
+def literal_runners(
+    workflow_dir: Path = WORKFLOW_DIR,
+    workflows: Mapping[Path, dict] | None = None,
+) -> dict[str, list[str]]:
     """Every runner image this repository names outright, and where.
 
     Only literals: a value built from an expression (`${{ matrix.os }}`) names
@@ -1546,12 +1572,16 @@ def literal_runners(workflow_dir: Path = WORKFLOW_DIR) -> dict[str, list[str]]:
     the two diverge exactly when something has been left behind. Callers wanting
     "an image this repository has a stake in" need the union of both.
 
-    :param workflow_dir: Directory holding the workflow files.
+    :param workflow_dir: Directory holding the workflow files. Ignored when
+        *workflows* is supplied.
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A mapping of runner label to the `file.yaml:job-id` locations
         naming it, empty when no job names one literally.
     """
+    if workflows is None:
+        workflows = _load_workflows(workflow_dir)
     seen: dict[str, list[str]] = {}
-    for path, data in _load_workflows(workflow_dir).items():
+    for path, data in workflows.items():
         for job_id, job in data["jobs"].items():
             if not isinstance(job, dict) or "steps" not in job:
                 continue
@@ -1562,7 +1592,9 @@ def literal_runners(workflow_dir: Path = WORKFLOW_DIR) -> dict[str, list[str]]:
     return seen
 
 
-def check_runner_images() -> list[CheckResult]:
+def check_runner_images(
+    workflows: Mapping[Path, dict] | None = None,
+) -> list[CheckResult]:
     """Flag runner images that move on their own, or that no axis knows about.
 
     Neither Dependabot nor `sync-workflow-pins` touches a `runs-on:` value:
@@ -1583,14 +1615,16 @@ def check_runner_images() -> list[CheckResult]:
     Values built from an expression (`${{ matrix.os }}`) name no image here and
     are left alone: the axis they draw from is checked at its definition.
 
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A list of `CheckResult`.
     """
-    seen = literal_runners()
+    if workflows is None:
+        workflows = _load_workflows()
+    seen = literal_runners(workflows=workflows)
     if not seen:
-        # Only reached with nothing to report, so the second parse costs nothing
-        # in the common path. The two skips are worth telling apart: no workflows
-        # at all is a different repository from one whose jobs all delegate.
-        if not _load_workflows():
+        # The two skips are worth telling apart: no workflows at all is a
+        # different repository from one whose jobs all delegate.
+        if not workflows:
             return [CheckResult(None, "Runner images check: skipped (no workflows).")]
         return [
             CheckResult(None, "Runner images check: skipped (none named literally).")
@@ -1698,7 +1732,9 @@ than a project capability, so there is nothing in the tree to check it against.
 """
 
 
-def check_release_path() -> list[CheckResult]:
+def check_release_path(
+    workflows: Mapping[Path, dict] | None = None,
+) -> list[CheckResult]:
     """Resolve the release path against this project, on an ordinary push.
 
     Two arms, because the two failure modes live in different repositories.
@@ -1719,6 +1755,7 @@ def check_release_path() -> list[CheckResult]:
     built green until the release commit ran prebake against a module that was
     not there.
 
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A list of `CheckResult`.
     """
     metadata = Metadata()
@@ -1763,7 +1800,8 @@ def check_release_path() -> list[CheckResult]:
 
     # Second arm. Absent the reusable workflows there is nothing to read, which is
     # the normal downstream case rather than a failure.
-    workflows = _load_workflows()
+    if workflows is None:
+        workflows = _load_workflows()
     engine = {
         path.name: data
         for path, data in workflows.items()
@@ -1840,6 +1878,7 @@ def _conditions_for(workflow: dict, name: str) -> list[str]:
 def check_inline_pins_match_upstream(
     workflow_dir: Path = WORKFLOW_DIR,
     upstream_repo: str = DEFAULT_REPO,
+    texts: Mapping[Path, str] | None = None,
 ) -> CheckResult:
     """Check inline upstream pins match the workflow `uses:` ref version.
 
@@ -1852,9 +1891,11 @@ def check_inline_pins_match_upstream(
     publish to PyPI yet never tag (the toolkit chicken-and-egg). Flag the
     drift so the lint fails before a release does.
 
-    :param workflow_dir: Directory holding the workflow YAML files.
+    :param workflow_dir: Directory holding the workflow YAML files. Ignored
+        when *texts* is supplied.
     :param upstream_repo: Upstream `owner/repo`; its name is the inline
         package to match (like `repomatic`).
+    :param texts: Pre-read workflow texts, read from disk when `None`.
     :return: A `CheckResult`.
     """
     package = upstream_repo.rsplit("/", 1)[-1]
@@ -1862,12 +1903,14 @@ def check_inline_pins_match_upstream(
         return CheckResult(
             None, f"Inline {package} pin check: skipped (no {workflow_dir.as_posix()})."
         )
+    if texts is None:
+        texts = _workflow_texts(workflow_dir)
 
     pin_re = re.compile(rf"\b{re.escape(package)}==(?P<version>[0-9]+(?:\.[0-9]+)*)")
 
     upstream_versions: set[str] = set()
     pins_by_file: dict[str, set[str]] = {}
-    for wf, content in _workflow_texts(workflow_dir).items():
+    for wf, content in texts.items():
         upstream_versions.update(find_upstream_ref_versions(content, upstream_repo))
         found = {m["version"] for m in pin_re.finditer(content)}
         if found:
@@ -1896,6 +1939,7 @@ def check_inline_pins_match_upstream(
 def check_self_pin_cooldown_exemption(
     workflow_dir: Path = WORKFLOW_DIR,
     upstream_repo: str = DEFAULT_REPO,
+    texts: Mapping[Path, str] | None = None,
 ) -> CheckResult:
     """Check every inline upstream pin carries its cooldown exemption.
 
@@ -1918,9 +1962,11 @@ def check_self_pin_cooldown_exemption(
     Only flags a pin under a workflow that actually sets a cooldown: a repo
     without one has nothing to exempt.
 
-    :param workflow_dir: Directory holding the workflow YAML files.
+    :param workflow_dir: Directory holding the workflow YAML files. Ignored
+        when *texts* is supplied.
     :param upstream_repo: Upstream `owner/repo`; its name is the inline
         package to match (like `repomatic`).
+    :param texts: Pre-read workflow texts, read from disk when `None`.
     :return: A `CheckResult`.
     """
     package = upstream_repo.rsplit("/", 1)[-1]
@@ -1929,11 +1975,13 @@ def check_self_pin_cooldown_exemption(
             None,
             f"{package} cooldown exemption: skipped (no {workflow_dir.as_posix()}).",
         )
+    if texts is None:
+        texts = _workflow_texts(workflow_dir)
 
     exemption_re = self_pin_exemption_re(package)
     unexempt: list[str] = []
     pinned = 0
-    for wf, content in _workflow_texts(workflow_dir).items():
+    for wf, content in texts.items():
         # A workflow with no cooldown resolves the pin fine as-is.
         if "UV_EXCLUDE_NEWER" not in content:
             continue
@@ -1958,7 +2006,10 @@ def check_self_pin_cooldown_exemption(
     )
 
 
-def check_setup_uv_version_pin(workflow_dir: Path = WORKFLOW_DIR) -> CheckResult:
+def check_setup_uv_version_pin(
+    workflow_dir: Path = WORKFLOW_DIR,
+    workflows: Mapping[Path, dict] | None = None,
+) -> CheckResult:
     """Check every `astral-sh/setup-uv` step pins the uv version it installs.
 
     `[tool.uv] required-version` is a floor for everyone; what a runner
@@ -1978,10 +2029,13 @@ def check_setup_uv_version_pin(workflow_dir: Path = WORKFLOW_DIR) -> CheckResult
     body running past its own step lets one pinned step vouch for every
     unpinned one above it.
 
-    :param workflow_dir: Directory holding the workflow YAML files.
+    :param workflow_dir: Directory holding the workflow YAML files. Ignored
+        when *workflows* is supplied.
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A `CheckResult`.
     """
-    workflows = _load_workflows(workflow_dir)
+    if workflows is None:
+        workflows = _load_workflows(workflow_dir)
     if not workflows:
         return CheckResult(None, "setup-uv version pin: skipped (no workflows).")
 
@@ -2106,6 +2160,7 @@ def requested_metadata_keys(command: str, package: str) -> list[str]:
 def check_metadata_keys(
     workflow_dir: Path = WORKFLOW_DIR,
     upstream_repo: str = DEFAULT_REPO,
+    workflows: Mapping[Path, dict] | None = None,
 ) -> list[CheckResult]:
     """Check the metadata keys workflows request still exist.
 
@@ -2121,13 +2176,16 @@ def check_metadata_keys(
     integration and took a downstream test workflow down with it. Failing here
     instead moves the report to lint time, where it names the file and the job.
 
-    :param workflow_dir: Directory holding the workflow YAML files.
+    :param workflow_dir: Directory holding the workflow YAML files. Ignored
+        when *workflows* is supplied.
     :param upstream_repo: Upstream `owner/repo`; its name is the package whose
         `metadata` invocations are read (like `repomatic`).
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A list of `CheckResult`.
     """
     package = upstream_repo.rsplit("/", 1)[-1]
-    workflows = _load_workflows(workflow_dir)
+    if workflows is None:
+        workflows = _load_workflows(workflow_dir)
     if not workflows:
         return [CheckResult(None, "Metadata keys check: skipped (no workflows).")]
 
@@ -2182,6 +2240,7 @@ def check_metadata_keys(
 def check_pr_templates(
     workflow_dir: Path = WORKFLOW_DIR,
     template_dir: Path = PR_TEMPLATE_DIR,
+    texts: Mapping[Path, str] | None = None,
 ) -> list[CheckResult]:
     """Check a repository's own `pr-body --template-file` templates.
 
@@ -2199,8 +2258,10 @@ def check_pr_templates(
     A `docs` field is not required. It deep-links the hosted workflows
     reference, which documents upstream jobs only.
 
-    :param workflow_dir: Directory holding the workflow YAML files.
+    :param workflow_dir: Directory holding the workflow YAML files. Ignored
+        when *texts* is supplied.
     :param template_dir: Directory the templates are expected to live in.
+    :param texts: Pre-read workflow texts, read from disk when `None`.
     :return: A list of `CheckResult`.
     """
     if not workflow_dir.is_dir():
@@ -2209,6 +2270,8 @@ def check_pr_templates(
                 None, f"PR template check: skipped (no {workflow_dir.as_posix()})."
             )
         ]
+    if texts is None:
+        texts = _workflow_texts(workflow_dir)
 
     # Map each referenced path to the workflows naming it, so a misplaced
     # template is reported against the file someone has to edit. Keys stay
@@ -2216,7 +2279,7 @@ def check_pr_templates(
     # glob below must too, or on Windows one template lands in `candidates`
     # twice and the backslash spelling loses its referencing workflow.
     referenced: dict[str, set[str]] = {}
-    for wf, content in _workflow_texts(workflow_dir).items():
+    for wf, content in texts.items():
         for match in TEMPLATE_FILE_ARG_RE.finditer(content):
             arg_path = match["path"].strip("\"'")
             referenced.setdefault(arg_path, set()).add(wf.name)
@@ -2412,6 +2475,22 @@ class LintContext:
     def has_wrangler_toml(self) -> bool:
         """Whether the repository commits a root-level `wrangler.toml`."""
         return Path("wrangler.toml").is_file()
+
+    @cached_property
+    def workflow_texts(self) -> dict[Path, str]:
+        """Every workflow file's raw text, read once for the whole run.
+
+        Half the roster walks `.github/workflows/`: three checks match the
+        files as written and six parse them. Reading once here spares each
+        its own directory walk, the same way {attr}`repo_metadata` pools the
+        GitHub lookup.
+        """
+        return _workflow_texts()
+
+    @cached_property
+    def workflows(self) -> dict[Path, dict]:
+        """The parsed jobs-bearing workflows, from {attr}`workflow_texts`."""
+        return _parse_workflow_texts(self.workflow_texts)
 
 
 @dataclass(frozen=True)
@@ -2747,17 +2826,19 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         ),
         applies=lambda ctx: bool(ctx.repo and ctx.package_name and ctx.is_package),
     ),
-    RepoCheck("workflow-permissions", lambda ctx: check_workflow_permissions()),
+    RepoCheck(
+        "workflow-permissions", lambda ctx: check_workflow_permissions(ctx.workflows)
+    ),
     RepoCheck("test-matrix-excludes", lambda ctx: check_test_matrix_excludes()),
     RepoCheck(
         "python-version-consistency",
-        lambda ctx: check_python_version_consistency(),
+        lambda ctx: check_python_version_consistency(ctx.workflows),
     ),
-    RepoCheck("runner-images", lambda ctx: check_runner_images()),
-    RepoCheck("release-path", lambda ctx: check_release_path()),
+    RepoCheck("runner-images", lambda ctx: check_runner_images(ctx.workflows)),
+    RepoCheck("release-path", lambda ctx: check_release_path(ctx.workflows)),
     RepoCheck(
         "inline-pins-match-upstream",
-        lambda ctx: check_inline_pins_match_upstream(),
+        lambda ctx: check_inline_pins_match_upstream(texts=ctx.workflow_texts),
         fatal=True,
     ),
     # Fatal for the same reason as the pin check above: both describe a
@@ -2766,18 +2847,25 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     # every `needs: metadata` job down with it.
     RepoCheck(
         "self-pin-cooldown-exemption",
-        lambda ctx: check_self_pin_cooldown_exemption(),
+        lambda ctx: check_self_pin_cooldown_exemption(texts=ctx.workflow_texts),
         fatal=True,
     ),
     # The odd one out in this run of checks, and deliberately not fatal: an
     # unpinned or split `setup-uv` resolves and runs, it just resolves through
     # a uv nobody chose. That ages badly rather than being already broken,
     # which is the line the checks around it sit on the other side of.
-    RepoCheck("setup-uv-version-pin", lambda ctx: check_setup_uv_version_pin()),
+    RepoCheck(
+        "setup-uv-version-pin",
+        lambda ctx: check_setup_uv_version_pin(workflows=ctx.workflows),
+    ),
     # Fatal for the same reason again: a retired key fails the `metadata` job,
     # and every other job is `needs: metadata`.
-    RepoCheck("metadata-keys", lambda ctx: check_metadata_keys(), fatal=True),
-    RepoCheck("pr-templates", lambda ctx: check_pr_templates()),
+    RepoCheck(
+        "metadata-keys",
+        lambda ctx: check_metadata_keys(workflows=ctx.workflows),
+        fatal=True,
+    ),
+    RepoCheck("pr-templates", lambda ctx: check_pr_templates(texts=ctx.workflow_texts)),
     RepoCheck(
         "virustotal-secret",
         _virustotal_secret,

@@ -36,6 +36,7 @@ import logging
 import math
 import re
 from datetime import date, timedelta
+from functools import cache
 from typing import NamedTuple
 
 from click_extra import parse_friendly_duration
@@ -46,6 +47,7 @@ from .github.releases import (
     extract_version,
     get_release_tags,
 )
+from .humanize import SECONDS_PER_DAY
 from .npm import get_release_dates as npm_release_dates
 from .pypi import get_release_dates as pypi_release_dates
 
@@ -228,7 +230,7 @@ def min_release_age_days(value: str) -> int:
     :param value: The configured `minimum-release-age` string (e.g. `8 days`).
     :return: The cooldown as a whole number of days (`0` when disabled).
     """
-    return math.ceil(parse_min_age(value).total_seconds() / 86400)
+    return math.ceil(parse_min_age(value).total_seconds() / SECONDS_PER_DAY)
 
 
 def exclude_newer_cutoff(value: str, today: date) -> str | None:
@@ -624,8 +626,12 @@ def find_workflow_literals(content: str) -> list[WorkflowLiteral]:
     return literals
 
 
+@cache
 def self_pin_exemption_re(package: str) -> re.Pattern[str]:
-    """Match a `uvx` command pinning *package*, capturing the flags before it."""
+    """Match a `uvx` command pinning *package*, capturing the flags before it.
+
+    Memoized: the splice runs once per workflow file for the same package.
+    """
     return re.compile(
         r"(?P<prefix>uvx\s+)(?P<flags>[^'\n]*)"
         rf"(?P<pin>'{re.escape(package)}(?:\[[^\]]+\])?==[0-9][0-9.]*')"
@@ -739,6 +745,19 @@ def apply_workflow_literals(
     return content, changes
 
 
+@cache
+def _upstream_ref_re(upstream_repo: str) -> re.Pattern[str]:
+    """Compile the upstream `uses:` ref pattern, once per repo slug.
+
+    Memoized because {func}`find_upstream_ref_pins` runs once per workflow
+    file, in loops that always name the same upstream repository.
+    """
+    return re.compile(
+        rf"{re.escape(upstream_repo)}/\.github/(?:workflows|actions)/[^@\s]+"
+        r"@(?:(?P<sha>[0-9a-f]+)\s+#\s+)?v(?P<version>[0-9]+(?:\.[0-9]+)*)"
+    )
+
+
 def find_upstream_ref_pins(content: str, upstream_repo: str) -> list[UpstreamRefPin]:
     """Extract the `uses:` refs of the upstream repo's workflows, with their SHAs.
 
@@ -752,11 +771,8 @@ def find_upstream_ref_pins(content: str, upstream_repo: str) -> list[UpstreamRef
     ({func}`~repomatic.init_project._highest_upstream_pin`), so all three read
     the refs the same way.
     """
-    ref_re = re.compile(
-        rf"{re.escape(upstream_repo)}/\.github/(?:workflows|actions)/[^@\s]+"
-        r"@(?:(?P<sha>[0-9a-f]+)\s+#\s+)?v(?P<version>[0-9]+(?:\.[0-9]+)*)"
-    )
-    return [UpstreamRefPin(m["version"], m["sha"]) for m in ref_re.finditer(content)]
+    pattern = _upstream_ref_re(upstream_repo)
+    return [UpstreamRefPin(m["version"], m["sha"]) for m in pattern.finditer(content)]
 
 
 def find_upstream_ref_versions(content: str, upstream_repo: str) -> set[str]:

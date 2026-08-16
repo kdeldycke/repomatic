@@ -51,9 +51,10 @@ from __future__ import annotations
 import logging
 import statistics
 from dataclasses import dataclass
-from datetime import datetime
 
+from ..dep_report import parse_iso_datetime
 from ..lint_repo import KNOWN_RUNNERS
+from ..tabular import render_markdown_table
 from .gh import gh_api_json
 
 TYPE_CHECKING = False
@@ -110,40 +111,25 @@ def match_runner(job_name: str) -> str:
     return UNATTRIBUTED
 
 
-def _parse_timestamp(value: str) -> datetime:
-    """Parse a GitHub timestamp on every supported Python.
-
-    `datetime.fromisoformat` only learned the trailing `Z` in 3.11, and GitHub
-    sends nothing else, so on 3.10 every timestamp raised `ValueError` and the
-    caller reported a runner with no measurable jobs rather than an error.
-    Normalising to the offset form parses identically on both.
-
-    :param value: An ISO 8601 timestamp as the jobs API writes it.
-    :return: The parsed timestamp.
-    :raises ValueError: If the value is not a timestamp at all.
-    """
-    if value.endswith("Z"):
-        value = value[:-1] + "+00:00"
-    return datetime.fromisoformat(value)
-
-
 def _duration(job: dict) -> float | None:
     """Whole-job wall-clock in seconds, or `None` when it cannot be read.
 
     A job that never started (cancelled in the queue) carries no usable pair,
     and a still-running one has no end: both are skipped rather than counted
     as zero, which would drag a median toward a runner's queue behaviour
-    instead of its speed.
+    instead of its speed. Timestamps go through the package-wide
+    {func}`~repomatic.dep_report.parse_iso_datetime`, which reads the `Z`
+    suffix GitHub always writes on every supported Python.
     """
     started, completed = job.get("startedAt"), job.get("completedAt")
     if not started or not completed:
         return None
-    try:
-        delta = _parse_timestamp(completed) - _parse_timestamp(started)
-    except ValueError:
+    started_at = parse_iso_datetime(started)
+    completed_at = parse_iso_datetime(completed)
+    if started_at is None or completed_at is None:
         logging.warning("Unparsable job timestamps: %r, %r", started, completed)
         return None
-    seconds = delta.total_seconds()
+    seconds = (completed_at - started_at).total_seconds()
     return seconds if seconds > 0 else None
 
 
@@ -263,18 +249,25 @@ def render_markdown(reports: Sequence[RunnerReport], workflow: str, runs: int) -
     :param runs: How many runs were sampled.
     :return: A Markdown table, newline-terminated.
     """
+    table = render_markdown_table(
+        tuple(label for label, _key in JOB_TIMINGS_HEADER_DEFS),
+        (
+            (
+                f"`{report.runner}`",
+                report.job_count,
+                format_duration(report.median_seconds),
+                report.slowest_job,
+                format_duration(report.slowest_seconds),
+            )
+            for report in reports
+        ),
+        align=("left", "right", "right", "left", "right"),
+    )
     lines = [
         f"Median whole-job wall-clock across the {runs} most recent successful",
         f"`{workflow}` runs. Re-measure rather than trusting these: they are one",
         "project's, on a shared fleet, and they drift.",
         "",
-        "| Runner | Jobs | Median | Slowest job | Slowest |",
-        "| :----- | ---: | -----: | :---------- | ------: |",
+        table,
     ]
-    lines.extend(
-        f"| `{report.runner}` | {report.job_count} |"
-        f" {format_duration(report.median_seconds)} | {report.slowest_job} |"
-        f" {format_duration(report.slowest_seconds)} |"
-        for report in reports
-    )
     return "\n".join(lines) + "\n"

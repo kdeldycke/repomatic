@@ -28,6 +28,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from ..changelog import Changelog
+from ..tabular import render_markdown_table
 from .actions import ReportAction
 from .pr_body import render_template
 from .releases import (
@@ -255,19 +256,18 @@ def render_sync_report(result: SyncResult) -> str:
     drifted_rows = [row for row in result.rows if row.action != ReportAction.SKIPPED]
     details_section = ""
     if drifted_rows:
-        detail_lines = [
-            "### \U0001f4dd Details",
-            "",
-            "| Version | Release | Action |",
-            "| --- | --- | --- |",
-        ]
-        detail_lines.extend(
-            f"| `{row.version}`"
-            f" | [`v{row.version}`]({row.release_url})"
-            f" | {row.action.value} |"
-            for row in drifted_rows
+        table = render_markdown_table(
+            ("Version", "Release", "Action"),
+            (
+                (
+                    f"`{row.version}`",
+                    f"[`v{row.version}`]({row.release_url})",
+                    row.action.value,
+                )
+                for row in drifted_rows
+            ),
         )
-        details_section = "\n".join(detail_lines)
+        details_section = f"### \U0001f4dd Details\n\n{table}"
 
     return render_template(
         "release-sync-report",

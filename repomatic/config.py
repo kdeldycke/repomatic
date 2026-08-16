@@ -232,7 +232,7 @@ CLOUDFLARE_PLACEMENT_MODES: Final[frozenset[str]] = frozenset((
 
 The vocabulary of the Pages project's `placement.mode` field, which is what
 `repomatic cloudflare-pages` writes the setting through. Anything else would
-be PATCHead to the live project verbatim and rejected there, far from the
+be PATCHed to the live project verbatim and rejected there, far from the
 `pyproject.toml` line that caused it.
 """
 
@@ -246,6 +246,21 @@ One deploy job per target, each with the permissions its own host needs, so a
 value outside this set has no job at all behind it. `Config.__post_init__`
 rejects one rather than letting the workflow run green and publish nothing.
 """
+
+
+def location_path(location: str) -> str:
+    """Normalize a `*.location` config value into a bare repo-relative path.
+
+    The location defaults carry a `./` prefix (they read as paths in the
+    reference table) and a directory location a trailing slash; neither
+    belongs in a registry target or an `output_dir / path` join. One
+    normalizer keeps every consumer spelling the same value the same way.
+
+    :param location: A `Config` location field value, class default or
+        resolved instance value alike.
+    :return: The path with no `./` prefix and no trailing slash.
+    """
+    return location.removeprefix("./").rstrip("/")
 
 
 def _resolve_flavor(
@@ -1074,12 +1089,6 @@ class Config:
     )
     """Repository label sync configuration."""
 
-    sync_runner_images: SyncRunnerImagesConfig = field(
-        default_factory=SyncRunnerImagesConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "sync-runner-images"},
-    )
-    """Runner image pull request configuration."""
-
     lint_deps: LintDepsConfig = field(
         default_factory=LintDepsConfig,
         metadata={CONFIG_PATH_METADATA_KEY: "lint-deps"},
@@ -1264,41 +1273,6 @@ class Config:
     disable, which keeps the job silent.
     """
 
-    setup_guide: bool = True
-    """Whether the setup guide issue is enabled for this project.
-
-    Projects that do not need `REPOMATIC_PAT` or manage their
-    own PAT setup can set this to `false` to suppress the setup guide issue.
-    """
-
-    subagents_location: str = field(
-        default=AGENT_LAYOUTS[DEFAULT_AGENT].subagents,
-        metadata={CONFIG_PATH_METADATA_KEY: "subagents.location"},
-    )
-    """Directory prefix for subagent definitions, relative to the repository root.
-
-    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
-    explicitly overrides that.
-
-    Subagent files are written as `{subagents_location}/{agent-id}.md`.
-    Useful for repositories where `.claude/` is not at the root (like
-    dotfiles repos that store configs under a subdirectory).
-    """
-
-    skills_location: str = field(
-        default=AGENT_LAYOUTS[DEFAULT_AGENT].skills,
-        metadata={CONFIG_PATH_METADATA_KEY: "skills.location"},
-    )
-    """Directory prefix for skill folders, relative to the repository root.
-
-    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
-    explicitly overrides that.
-
-    Skill files are written as `{skills_location}/{skill-id}/SKILL.md`.
-    Useful for repositories where `.claude/` is not at the root (like
-    dotfiles repos that store configs under a subdirectory).
-    """
-
     settings_location: str = field(
         default=AGENT_LAYOUTS[DEFAULT_AGENT].settings,
         metadata={CONFIG_PATH_METADATA_KEY: "settings.location"},
@@ -1310,6 +1284,13 @@ class Config:
 
     Only the `plugin` component writes here, merging the marketplace and
     enablement keys it owns into whatever the file already holds.
+    """
+
+    setup_guide: bool = True
+    """Whether the setup guide issue is enabled for this project.
+
+    Projects that do not need `REPOMATIC_PAT` or manage their
+    own PAT setup can set this to `false` to suppress the setup guide issue.
     """
 
     site_cloudflare_compatibility_date: str = field(
@@ -1386,6 +1367,20 @@ class Config:
     any edge rule on the apex all depend on.
     """
 
+    skills_location: str = field(
+        default=AGENT_LAYOUTS[DEFAULT_AGENT].skills,
+        metadata={CONFIG_PATH_METADATA_KEY: "skills.location"},
+    )
+    """Directory prefix for skill folders, relative to the repository root.
+
+    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
+    explicitly overrides that.
+
+    Skill files are written as `{skills_location}/{skill-id}/SKILL.md`.
+    Useful for repositories where `.claude/` is not at the root (like
+    dotfiles repos that store configs under a subdirectory).
+    """
+
     sphinx_builder: str = field(
         default="html",
         metadata={CONFIG_PATH_METADATA_KEY: "sphinx.builder"},
@@ -1404,6 +1399,26 @@ class Config:
     self-links (readme, packaging specs) move in the same commit, and whatever
     fronts the site redirects the old ones.
     """
+
+    subagents_location: str = field(
+        default=AGENT_LAYOUTS[DEFAULT_AGENT].subagents,
+        metadata={CONFIG_PATH_METADATA_KEY: "subagents.location"},
+    )
+    """Directory prefix for subagent definitions, relative to the repository root.
+
+    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
+    explicitly overrides that.
+
+    Subagent files are written as `{subagents_location}/{agent-id}.md`.
+    Useful for repositories where `.claude/` is not at the root (like
+    dotfiles repos that store configs under a subdirectory).
+    """
+
+    sync_runner_images: SyncRunnerImagesConfig = field(
+        default_factory=SyncRunnerImagesConfig,
+        metadata={CONFIG_PATH_METADATA_KEY: "sync-runner-images"},
+    )
+    """Runner image pull request configuration."""
 
     test_matrix: TestMatrixConfig = field(
         default_factory=TestMatrixConfig,
@@ -1441,7 +1456,7 @@ class Config:
     """
 
     vulnerable_deps: VulnerableDepsConfig = field(
-        default_factory=lambda: VulnerableDepsConfig(),
+        default_factory=VulnerableDepsConfig,
         metadata={CONFIG_PATH_METADATA_KEY: "vulnerable-deps"},
     )
     """Vulnerable dependency detection and remediation configuration."""

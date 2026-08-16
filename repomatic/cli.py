@@ -249,9 +249,9 @@ from .registry import (
 )
 from .runner_catalog import fetch_catalog
 from .runner_images import (
-    apply_arrival,
     apply_axes_retirement,
     apply_retirement,
+    apply_upgrade,
     close_legacy_issue,
     plan_runner_changes,
     render_change_table,
@@ -299,6 +299,12 @@ from .vulnerable_deps import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from typing import Any
+
+    # Click's own context type, distinct from the click_extra subclass imported
+    # above: the `ParamType` overrides must accept any click context, or mypy
+    # flags the narrowing as a Liskov violation.
+    from click import Context as ClickContext, Parameter
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +512,7 @@ def log_output_target(subject: str, output: Path) -> None:
 # access goes exclusively through config_schema + get_tool_config().
 @group(config_schema=Config, schema_strict=False, included_params=())
 @jobs_option()
-def repomatic():
+def repomatic() -> None:
     pass
 
 
@@ -531,17 +537,21 @@ class ComponentSelector(ParamType):
 
     name = "selector"
 
-    def get_metavar(self, param, ctx=None):
+    def get_metavar(self, param: Parameter, ctx: ClickContext) -> str:
         return "[COMPONENT[/FILE]]"
 
-    def convert(self, value, param, ctx):
+    def convert(
+        self, value: Any, param: Parameter | None, ctx: ClickContext | None
+    ) -> str:
         try:
             parse_component_entries([value], context="selection")
         except ValueError as e:
             self.fail(str(e), param, ctx)
-        return value
+        return str(value)
 
-    def shell_complete(self, ctx, param, incomplete):
+    def shell_complete(
+        self, ctx: ClickContext, param: Parameter, incomplete: str
+    ) -> list[CompletionItem]:
         completions: list[CompletionItem] = [
             CompletionItem(name)
             for name in sorted(ALL_COMPONENTS)
@@ -964,7 +974,7 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
             axes = Path("repomatic/matrix_axes.py")
             if is_source_repo(Path.cwd()) and apply_axes_retirement(change, axes):
                 echo(f"  rewrote {axes.name} (every downstream matrix follows)")
-        elif apply_arrival(change, Path("pyproject.toml")):
+        elif apply_upgrade(change, Path("pyproject.toml")):
             echo("  added a continue-on-error probe to pyproject.toml")
 
     if output:
@@ -2056,7 +2066,7 @@ def audit(
 
 
 @repomatic.group(short_help="Manage the download cache", section=_section_lint)
-def cache():
+def cache() -> None:
     """Manage the local download cache.
 
     Binary tools and HTTP API responses are cached to avoid redundant
@@ -2070,7 +2080,7 @@ _cache_show_sort = SortByOption(*CACHE_LIST_HEADER_DEFS, default="name")
 
 @cache.command(short_help="List cached entries", params=[_cache_show_sort])
 @pass_context
-def show(ctx):
+def show(ctx: Context) -> None:
     """List all cached binaries and HTTP responses."""
     rows, total_size = cache_rows()
     if not rows:
@@ -2099,7 +2109,12 @@ def show(ctx):
     help="Only remove entries older than this many days.",
 )
 @pass_context
-def clean(ctx, tool, namespace, max_age):
+def clean(
+    ctx: Context,
+    tool: str | None,
+    namespace: str | None,
+    max_age: int | None,
+) -> None:
     """Remove cached binaries, tool configs and HTTP responses.
 
     Without options, removes everything. Use --tool to target a specific
@@ -2136,7 +2151,7 @@ def clean(ctx, tool, namespace, max_age):
 
 
 @cache.command(short_help="Print the cache directory path")
-def path():
+def path() -> None:
     """Print the absolute path to the cache directory.
 
     Useful for CI integration with actions/cache or similar tools.
@@ -2746,16 +2761,16 @@ _run_sort = SortByOption(*TOOL_LIST_HEADER_DEFS, default="tool")
 )
 @pass_context
 def run_cmd(
-    ctx,
-    tool_name,
-    extra_args,
-    list_tools,
-    verify,
-    tool_version,
-    checksum,
-    skip_checksum,
-    no_cache,
-):
+    ctx: Context,
+    tool_name: str | None,
+    extra_args: tuple[str, ...],
+    list_tools: bool,
+    verify: bool,
+    tool_version: str | None,
+    checksum: str | None,
+    skip_checksum: bool,
+    no_cache: bool,
+) -> None:
     """Run an external tool with managed configuration.
 
     Installs the tool at a pinned version, resolves config through a 4-level
@@ -2890,7 +2905,12 @@ def verify_binary(target: str, binary_path: Path, dist_dirs: tuple[Path, ...]) -
     default=STDOUT_SENTINEL,
 )
 @pass_context
-def changelog(ctx, source, default_branch, changelog_path):
+def changelog(
+    ctx: Context,
+    source: Path | None,
+    default_branch: str,
+    changelog_path: Path,
+) -> None:
     """Stamp the changelog with the current version's release header."""
     if source is None:
         source = resolved_changelog_path(get_tool_config(ctx))
@@ -3285,14 +3305,14 @@ def pack_plugin_cmd(output: Path) -> None:
 )
 @pass_context
 def prepare_release(
-    ctx,
-    changelog_path,
-    citation_path,
-    workflow_dir,
-    default_branch,
-    update_workflows,
-    post_release,
-):
+    ctx: Context,
+    changelog_path: Path | None,
+    citation_path: Path,
+    workflow_dir: Path,
+    default_branch: str,
+    update_workflows: bool | None,
+    post_release: bool,
+) -> None:
     """Prepare files for a release or post-release version bump.
 
     This command consolidates all release preparation steps:
@@ -4101,16 +4121,16 @@ def format_images_cmd(
     "locally (normally reported for manual review, never deleted).",
 )
 def init_project(
-    components,
-    version_pin,
-    cooldown,
-    repo,
-    output_dir,
-    delete_excluded,
-    delete_unmodified,
-    keep_removed,
-    delete_removed_modified,
-):
+    components: tuple[str, ...],
+    version_pin: str | None,
+    cooldown: bool,
+    repo: str,
+    output_dir: Path,
+    delete_excluded: bool,
+    delete_unmodified: bool,
+    keep_removed: bool,
+    delete_removed_modified: bool,
+) -> None:
     """Bootstrap a repository to use reusable workflows from kdeldycke/repomatic.
 
     With no arguments, generates thin-caller workflow files, exports
@@ -4377,7 +4397,14 @@ _metadata_sort = SortByOption(*METADATA_KEYS_HEADER_DEFS, default="key")
 )
 @argument("keys", nargs=-1)
 @pass_context
-def metadata(ctx, format, overwrite, output, list_keys, keys):
+def metadata(
+    ctx: Context,
+    format: Dialect,
+    overwrite: bool,
+    output: Path,
+    list_keys: bool,
+    keys: tuple[str, ...],
+) -> None:
     """Dump project metadata to a file.
 
     Prints all metadata keys to stdout by default. Use --output to write to
@@ -4455,7 +4482,7 @@ _show_config_sort = SortByOption(*CONFIG_REFERENCE_HEADER_DEFS, default="option"
     params=[_show_config_sort],
 )
 @pass_context
-def show_config(ctx):
+def show_config(ctx: Context) -> None:
     """Print the [tool.repomatic] configuration reference table.
 
     Renders a table of all available options, their types, defaults, and
@@ -4500,7 +4527,7 @@ means "allowed to fail".
     required=False,
 )
 @pass_context
-def show_test_matrix(ctx, emoji, matrix_name):
+def show_test_matrix(ctx: Context, emoji: bool, matrix_name: str) -> None:
     """Render the computed CI test matrix as a Python-version by OS grid.
 
     Each cell shows whether that combination runs as a stable or unstable
@@ -4594,7 +4621,7 @@ def update_docs(check: bool) -> None:
 @repomatic.group(
     short_help="Lint downstream workflow caller files", section=_section_setup
 )
-def workflow():
+def workflow() -> None:
     """Lint downstream workflow caller files.
 
     Check thin caller workflows that delegate to the canonical reusable
@@ -4622,7 +4649,7 @@ def workflow():
     help="Exit with code 1 if issues are found (default: warning only).",
 )
 @pass_context
-def lint(ctx, workflow_dir, repo, fatal):
+def lint(ctx: Context, workflow_dir: Path, repo: str, fatal: bool) -> None:
     """Lint workflow files for common issues.
 
     Checks all YAML files in the workflow directory for:
@@ -5191,7 +5218,12 @@ def sync_labels(ctx: Context, repo: str | None) -> None:
     default=None,
 )
 @pass_context
-def sync_mailmap(ctx, source, create_if_missing, destination_mailmap):
+def sync_mailmap(
+    ctx: Context,
+    source: Path,
+    create_if_missing: bool,
+    destination_mailmap: Path | None,
+) -> None:
     """Update .mailmap with missing contributors from Git history.
 
     Reads the existing .mailmap as a reference for grouped identities, then

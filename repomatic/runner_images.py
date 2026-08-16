@@ -66,6 +66,7 @@ from .runner_catalog import (
     newer_version_than,
     successor_for,
 )
+from .tabular import render_markdown_table
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -222,10 +223,7 @@ def render_change_table(changes: Sequence[RunnerChange]) -> str:
     :param changes: Changes from {func}`plan_runner_changes`.
     :return: A GitHub-flavored Markdown table, newline-terminated.
     """
-    rows = [
-        "| Change | What | Why | Passed over |",
-        "| :----- | :--- | :-- | :---------- |",
-    ]
+    rows = []
     for change in changes:
         if change.kind == "retirement":
             kind = "🔴 retirement"
@@ -239,8 +237,13 @@ def render_change_table(changes: Sequence[RunnerChange]) -> str:
                 f"beside `{change.label}`"
             )
         alternative = f"`{change.alternative}` (preview)" if change.alternative else "—"
-        rows.append(f"| {kind} | {where} | {change.reason} | {alternative} |")
-    return "\n".join(rows) + "\n"
+        rows.append((kind, where, change.reason, alternative))
+    table = render_markdown_table(
+        ("Change", "What", "Why", "Passed over"),
+        rows,
+        align=("left",) * 4,
+    )
+    return table + "\n"
 
 
 def close_legacy_issue() -> None:
@@ -348,8 +351,8 @@ def apply_axes_retirement(change: RunnerChange, axes_path: Path) -> bool:
     return True
 
 
-def apply_arrival(change: RunnerChange, pyproject_path: Path) -> bool:
-    """Add an arriving image to the full test matrix as a failing-allowed probe.
+def apply_upgrade(change: RunnerChange, pyproject_path: Path) -> bool:
+    """Add a superseding image to the full test matrix as a failing-allowed probe.
 
     Writes two keys under `[tool.repomatic.test-matrix]`: the label joins the
     `os` axis through `variations`, and an `unstable` entry marks every cell
@@ -361,7 +364,7 @@ def apply_arrival(change: RunnerChange, pyproject_path: Path) -> bool:
     Idempotent: an image already probed is detected in both keys and nothing is
     written.
 
-    :param change: An `arrival` change from {func}`plan_runner_changes`.
+    :param change: An `upgrade` change from {func}`plan_runner_changes`.
     :param pyproject_path: The project file to edit.
     :return: Whether the file was modified.
     """

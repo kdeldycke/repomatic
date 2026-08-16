@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 from .bundle import get_data_content
-from .config import Config
+from .config import Config, location_path
 from .frontmatter import split_frontmatter
 
 TYPE_CHECKING = False
@@ -344,12 +344,8 @@ class Component:
         # The Config default carries a "./" prefix the registry targets omit.
         # Annotated because `getattr` on a computed name answers `Any`, which
         # mypy then carries all the way out of this function's `str` return.
-        default: str = (
-            getattr(Config, self.location_field).removeprefix("./").rstrip("/")
-        )
-        custom: str = (
-            getattr(config, self.location_field).removeprefix("./").rstrip("/")
-        )
+        default: str = location_path(getattr(Config, self.location_field))
+        custom: str = location_path(getattr(config, self.location_field))
         if custom == default:
             return target
         if target == default:
@@ -570,8 +566,7 @@ which verifies the release they name actually carries the files.
 
 def _subagent_target(agent_id: str) -> str:
     """Build the default target path for a subagent file from the Config default."""
-    prefix = Config.subagents_location.removeprefix("./").rstrip("/")
-    return f"{prefix}/{agent_id}.md"
+    return f"{location_path(Config.subagents_location)}/{agent_id}.md"
 
 
 def _subagent_entry(agent_id: str) -> FileEntry:
@@ -593,8 +588,7 @@ SKILL_SOURCE_ROOT = "skills"
 
 def _skill_dir(skill_id: str) -> str:
     """Build the default target directory for a skill from the Config default."""
-    prefix = Config.skills_location.removeprefix("./").rstrip("/")
-    return f"{prefix}/{skill_id}"
+    return f"{location_path(Config.skills_location)}/{skill_id}"
 
 
 def _skill_target(skill_id: str) -> str:
@@ -775,7 +769,7 @@ COMPONENTS: tuple[Component, ...] = (
         name="changelog",
         description="Minimal changelog.md",
         scope=RepoScope.PACKAGE_ONLY,
-        target=Config.changelog_location.removeprefix("./"),
+        target=location_path(Config.changelog_location),
     ),
     GeneratedComponent(
         name="plugin",
@@ -788,7 +782,7 @@ COMPONENTS: tuple[Component, ...] = (
         # document is the steady state rather than a stale copy to clean up.
         keep_unmodified=True,
         location_field="settings_location",
-        target=Config.settings_location.removeprefix("./"),
+        target=location_path(Config.settings_location),
     ),
     GeneratedComponent(
         name="agent",
@@ -808,7 +802,7 @@ COMPONENTS: tuple[Component, ...] = (
         # is per-runtime (`claude.md`, `AGENTS.md`), and a repository may keep
         # it outside the root entirely.
         location_field="agent_location",
-        target=Config.agent_location.removeprefix("./"),
+        target=location_path(Config.agent_location),
     ),
     # --- Tool config components (merged into pyproject.toml) ---
     ToolConfigComponent(

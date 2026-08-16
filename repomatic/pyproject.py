@@ -37,8 +37,24 @@ if TYPE_CHECKING:
     from .config import Config
 
 
+_PARSE_CACHE: dict[Path, tuple[int, int, dict[str, Any]]] = {}
+"""Parsed `pyproject.toml` documents, keyed by absolute path.
+
+Each value pairs the parse with the `(st_mtime_ns, st_size)` identity of the
+bytes it came from, so an edited file (a test rewriting its fixture, a sync
+job upserting a key) re-parses while the dozens of reads a single invocation
+makes (every `load_repomatic_config()` call re-reads the file) hit the cache.
+Safe to share unguarded: no consumer mutates the returned mapping, and
+click-extra's schema callable copies its input before normalizing it.
+"""
+
+
 def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
     """Parse `pyproject.toml` from *project_root*.
+
+    Parses are cached per file identity (absolute path, mtime, size), since a
+    single CLI invocation reads the same document many times over: treat the
+    result as read-only.
 
     :param project_root: Directory holding `pyproject.toml`. Defaults to the
         current working directory.
@@ -47,18 +63,22 @@ def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
     """
     if project_root is None:
         project_root = Path()
-    pyproject_path = project_root / "pyproject.toml"
-    if not (pyproject_path.exists() and pyproject_path.is_file()):
-        return {}
+    pyproject_path = (project_root / "pyproject.toml").absolute()
+    # `OSError` from the stat or the read covers a file that is missing,
+    # unreadable, or gone between the two calls (the default *project_root* is
+    # relative, so the working directory itself can vanish mid-call). The
+    # missing-file outcome this promises is the same either way.
     try:
+        stat = pyproject_path.stat()
+        if not pyproject_path.is_file():
+            return {}
+        cached = _PARSE_CACHE.get(pyproject_path)
+        if cached is not None and cached[:2] == (stat.st_mtime_ns, stat.st_size):
+            return cached[2]
         data: dict[str, Any] = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
-    # `OSError` covers the window between the check above and this read: the
-    # default *project_root* is relative, so the file it names can be gone (or
-    # the working directory itself removed) by the time it is opened. The
-    # missing-file outcome this promises is the same either way, so the check
-    # stays as the cheap common path and this catches the race.
     except (tomlrt.TOMLParseError, OSError):
         return {}
+    _PARSE_CACHE[pyproject_path] = (stat.st_mtime_ns, stat.st_size, data)
     return data
 
 

@@ -67,6 +67,8 @@ from pathlib import Path
 import tomlrt
 from click_extra import echo
 
+from .dep_report import parse_iso_datetime
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any, Final
@@ -234,13 +236,11 @@ def desired_settings(
 def _parse_timestamp(value: object) -> datetime | None:
     """Read one of Cloudflare's or wrangler's timestamps, or `None` if unreadable.
 
-    Both spell UTC with a trailing `Z`, which `datetime.fromisoformat` only
-    learned to parse in Python 3.11, below this project's floor.
+    A thin coercing front on the package-wide
+    {func}`~repomatic.dep_report.parse_iso_datetime`, kept because both callers
+    hand over whatever a JSON or TOML lookup answered, `None` included.
     """
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
+    return parse_iso_datetime(str(value)) if value else None
 
 
 def _token() -> str:

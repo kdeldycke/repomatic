@@ -122,7 +122,7 @@ from typing import NamedTuple
 
 from packaging.version import Version
 
-from .git_ops import get_all_version_tags, get_tag_date
+from .git_ops import get_all_version_tags
 from .github.actions import AnnotationLevel, emit_annotation
 from .github.pr_body import render_template
 from .github.releases import (
@@ -1208,6 +1208,9 @@ def _check_release_dates(
     abandoned_hint = (
         "list under [tool.repomatic] abandoned-versions if intentionally unpublished"
     )
+    # One `git tag` call answers every version on the fallback path, instead
+    # of one subprocess per documented release.
+    tag_dates = {} if sources.use_pypi else get_all_version_tags()
 
     for version, changelog_date in releases:
         if sources.use_pypi:
@@ -1229,7 +1232,7 @@ def _check_release_dates(
             ref_date = release.date
             source = "PyPI"
         else:
-            tag_date = get_tag_date(f"v{version}")
+            tag_date = tag_dates.get(version)
             source = "tag"
             if tag_date is None:
                 if version in abandoned:
@@ -1601,7 +1604,7 @@ def lint_changelog_dates(
                 f"existing version section(s) reference a PyPI release. "
                 f"Likely a transient API failure. Re-run when PyPI is "
                 f"reachable. If the project genuinely no longer publishes to "
-                f"PyPI, run with an empty sources.package name (`--sources.package ''`) to "
+                f"PyPI, run with an empty package name (`--package ''`) to "
                 f"check dates against git tags instead."
             )
             logging.error(msg)

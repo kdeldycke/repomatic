@@ -43,6 +43,7 @@ from .pypi import (
     get_release_dates as get_pypi_release_dates,
     get_source_url as get_pypi_source_url,
 )
+from .tabular import render_markdown_table
 from .version_sync import safe_version
 
 RELEASE_NOTES_MAX_LENGTH = 2000
@@ -94,9 +95,7 @@ def markdown_section(
     lines = [f"## {heading}", ""] if heading else []
     if note:
         lines += [note, ""]
-    lines.append("| " + " | ".join(headers) + " |")
-    lines.append("| " + " | ".join([":--"] * len(headers)) + " |")
-    lines.extend("| " + " | ".join(cells) + " |" for cells in rows)
+    lines.append(render_markdown_table(headers, rows, align=("left",) * len(headers)))
     return "\n".join(lines)
 
 
@@ -107,6 +106,12 @@ def markdown_section(
 
 def parse_iso_datetime(value: str) -> datetime | None:
     """Parse an ISO 8601 / RFC 3339 timestamp into a timezone-aware datetime.
+
+    The package-wide parser for any timestamp an external service writes:
+    besides this module's own upload times, {mod}`repomatic.uv` reads lock
+    timestamps, {mod}`repomatic.cloudflare` token expiries and
+    {mod}`repomatic.github.job_timings` job clocks through it, so every
+    consumer tolerates the same shapes.
 
     Uses arrow, so a nanosecond fractional second and a `Z` suffix (both of
     which Python 3.10's stdlib `datetime.fromisoformat` rejects) parse cleanly;

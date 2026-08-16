@@ -29,7 +29,6 @@ import pytest
 
 from repomatic.runner_catalog import (
     RunnerImage,
-    by_display_name,
     newer_version_than,
     parse_catalog,
     successor_for,
@@ -58,6 +57,12 @@ README = """\
 @pytest.fixture
 def catalog() -> list[RunnerImage]:
     return parse_catalog(README)
+
+
+@pytest.fixture
+def by_name(catalog) -> dict[str, RunnerImage]:
+    """The catalog indexed by display name, for assertion lookups."""
+    return {image.display_name: image for image in catalog}
 
 
 def test_every_row_is_parsed(catalog) -> None:
@@ -99,18 +104,17 @@ def test_no_floating_alias_survives(catalog) -> None:
         ("Ubuntu 24.04", "ubuntu-24.04"),
     ],
 )
-def test_preferred_label(catalog, display_name: str, expected: str) -> None:
+def test_preferred_label(by_name, display_name: str, expected: str) -> None:
     """One label per row, picked without reaching for a larger runner."""
-    assert by_display_name(catalog)[display_name].preferred_label == expected
+    assert by_name[display_name].preferred_label == expected
 
 
-def test_badges_are_read_with_and_without_a_link(catalog) -> None:
+def test_badges_are_read_with_and_without_a_link(by_name) -> None:
     """A badge marks the state whether or not it is wrapped in a link."""
-    images = by_display_name(catalog)
-    assert images["Ubuntu 26.04"].preview
-    assert not images["Ubuntu 26.04"].announcement_url
-    assert images["macOS 14 Arm64"].deprecated
-    assert images["macOS 14 Arm64"].announcement_url.endswith("/issues/13518")
+    assert by_name["Ubuntu 26.04"].preview
+    assert not by_name["Ubuntu 26.04"].announcement_url
+    assert by_name["macOS 14 Arm64"].deprecated
+    assert by_name["macOS 14 Arm64"].announcement_url.endswith("/issues/13518")
 
 
 @pytest.mark.parametrize(

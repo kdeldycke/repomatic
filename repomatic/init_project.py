@@ -50,7 +50,7 @@ from packaging.version import InvalidVersion, Version
 from . import __git_tag_sha__, __version__
 from .agent_md import merge_agent_md
 from .bundle import get_data_content
-from .config import Config, load_repomatic_config
+from .config import Config, load_repomatic_config, location_path
 from .github.releases import resolve_tag_to_sha
 from .github.workflow_sync import (
     PathsSpec,
@@ -75,6 +75,7 @@ from .registry import (
     COMPONENTS_BY_NAME,
     DEFAULT_REPO,
     GITHUB_YAML_PATTERNS,
+    NON_REUSABLE_WORKFLOWS,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
     UPSTREAM_REPO_SLUGS,
@@ -148,7 +149,7 @@ EXPORTABLE_FILES: dict[str, str | None] = {
         if spec.default_config
     },
     # Internal-use fragments loaded by the package at runtime.
-    **{name: None for name in RUNTIME_FRAGMENTS},
+    **dict.fromkeys(RUNTIME_FRAGMENTS),
 }
 """Registry of all exportable files: maps filename to default output path.
 
@@ -1387,10 +1388,7 @@ def _init_workflows(
         _write_managed(target, content, result, output_dir, normalize=False)
 
     # Sync headers for non-reusable workflows that already exist on disk.
-    non_reusable = sorted(
-        f.file_id for f in COMPONENTS_BY_NAME["workflows"].files if not f.reusable
-    )
-    for filename in non_reusable:
+    for filename in sorted(NON_REUSABLE_WORKFLOWS):
         if include is not None and filename not in include:
             continue
         if exclude and filename in exclude:
@@ -1869,7 +1867,7 @@ def _init_changelog(
     An existing `changelog.md` is never overwritten — it contains real
     release history that would be destroyed by the stub template.
     """
-    location = (config or Config()).changelog_location.removeprefix("./")
+    location = location_path((config or Config()).changelog_location)
     changelog_path = output_dir / location
     # Guarded before writing rather than left to `_write_managed`: that helper
     # converges a file onto the given content, which for a changelog would
@@ -1900,7 +1898,7 @@ def _init_plugin_settings(
     only the marketplace and enablement keys the plugin owns are touched. That
     also makes a re-run a no-op, reported as unchanged.
     """
-    location = (config or Config()).settings_location.removeprefix("./")
+    location = location_path((config or Config()).settings_location)
     settings_path = output_dir / location
     rel = settings_path.relative_to(output_dir).as_posix()
     existed = settings_path.is_file()
@@ -1938,7 +1936,7 @@ def _init_agent_md(
     :param is_package: `True` when the project also builds a distributable.
     :param config: Project config supplying `agent.location`.
     """
-    location = (config or Config()).agent_location.removeprefix("./")
+    location = location_path((config or Config()).agent_location)
     target = output_dir / location
     rel = target.relative_to(output_dir).as_posix()
     existed = target.is_file()

@@ -95,8 +95,16 @@ from ..http import DEFAULT_TIMEOUT
 from .gh import api_headers, resolve_gh_token, run_gh_command
 from .status import status_annotation
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from types import ModuleType
+    from typing import Any
 
-def require_token(module, attr):
+
+def require_token(
+    module: ModuleType, attr: str
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that runs a token validator before the Click command body.
 
     Uses late-bound `getattr(module, attr)` so that
@@ -104,9 +112,9 @@ def require_token(module, attr):
     and the decorator sees the mock at call time.
     """
 
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 getattr(module, attr)()
             except RuntimeError as exc:

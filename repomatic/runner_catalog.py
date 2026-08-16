@@ -289,11 +289,6 @@ def by_label(catalog: Sequence[RunnerImage]) -> dict[str, RunnerImage]:
     return {label: image for image in catalog for label in image.labels}
 
 
-def by_display_name(catalog: Sequence[RunnerImage]) -> dict[str, RunnerImage]:
-    """Index a catalog by the display name announcements use."""
-    return {image.display_name: image for image in catalog}
-
-
 def live_siblings(
     current: RunnerImage, catalog: Sequence[RunnerImage]
 ) -> list[RunnerImage]:

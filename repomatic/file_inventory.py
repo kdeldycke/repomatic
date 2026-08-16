@@ -49,7 +49,12 @@ from wcmatch.glob import (
 )
 
 GITIGNORE_PATH = Path(".gitignore")
-"""Path of the `.gitignore` file whose rules filter every inventory lookup."""
+"""Path of the `.gitignore` file whose rules filter every inventory lookup.
+
+Fixed at the repository root, unlike the configurable
+`[tool.repomatic.gitignore] location` that `sync-gitignore` writes: the glob
+filter has to match what git itself honors, and git only reads this path.
+"""
 
 
 class FileInventory:

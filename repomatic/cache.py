@@ -55,12 +55,11 @@ from typing import ClassVar
 from extra_platforms import is_macos, is_windows
 
 from .config import load_repomatic_config
-from .humanize import format_age, format_file_size
+from .humanize import SECONDS_PER_DAY, format_age, format_file_size
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import Any
+    from collections.abc import Callable, Sequence
 
 CACHE_LIST_HEADER_DEFS: tuple[tuple[str, str], ...] = (
     ("Type", "type"),
@@ -145,7 +144,7 @@ class CachedFile:
         """
         if max_age_days is None:
             return False
-        return self.mtime >= time.time() - max_age_days * 86400
+        return self.mtime >= time.time() - max_age_days * SECONDS_PER_DAY
 
     def as_row(self) -> tuple[str, str, str, str, str]:
         """Render this entry as one `repomatic cache show` table row."""
@@ -386,6 +385,10 @@ def store_binary(
 def cache_info() -> list[CacheEntry]:
     """List all cached binaries.
 
+    The `bin/` layout is fixed at four levels
+    (``{tool}/{version}/{platform}/{executable}``), so one glob walks it and
+    the identity fields read straight off each path's ancestry.
+
     :return: List of {class}`CacheEntry` instances, sorted by tool name then
         version.
     """
@@ -394,33 +397,22 @@ def cache_info() -> list[CacheEntry]:
         return []
 
     entries: list[CacheEntry] = []
-    for tool_dir in sorted(bin_root.iterdir()):
-        if not tool_dir.is_dir():
+    for binary in sorted(bin_root.glob("*/*/*/*")):
+        # Skip stray directories and digest sidecar files.
+        if not binary.is_file() or binary.name.endswith(SIDECAR_SUFFIX):
             continue
-        for version_dir in sorted(tool_dir.iterdir()):
-            if not version_dir.is_dir():
-                continue
-            for platform_dir in sorted(version_dir.iterdir()):
-                if not platform_dir.is_dir():
-                    continue
-                for binary in sorted(platform_dir.iterdir()):
-                    if not binary.is_file():
-                        continue
-                    # Skip digest sidecar files.
-                    if binary.name.endswith(SIDECAR_SUFFIX):
-                        continue
-                    stat = binary.stat()
-                    entries.append(
-                        CacheEntry(
-                            tool=tool_dir.name,
-                            version=version_dir.name,
-                            platform=platform_dir.name,
-                            executable=binary.name,
-                            size=stat.st_size,
-                            path=binary,
-                            mtime=stat.st_mtime,
-                        )
-                    )
+        stat = binary.stat()
+        entries.append(
+            CacheEntry(
+                tool=binary.parents[2].name,
+                version=binary.parents[1].name,
+                platform=binary.parent.name,
+                executable=binary.name,
+                size=stat.st_size,
+                path=binary,
+                mtime=stat.st_mtime,
+            )
+        )
     return entries
 
 
@@ -667,12 +659,16 @@ def cache_rows() -> tuple[list[tuple[str, str, str, str, str]], int]:
     :return: `(rows, total_size)`, rows ordered binaries, then HTTP responses,
         then tool configs.
     """
-    entries: list[Any] = [*cache_info(), *http_cache_info(), *config_cache_info()]
+    entries: list[CachedFile] = [
+        *cache_info(),
+        *http_cache_info(),
+        *config_cache_info(),
+    ]
     return [entry.as_row() for entry in entries], sum(e.size for e in entries)
 
 
 def _clear_subtree(
-    entries: list[Any],
+    entries: Sequence[CachedFile],
     root: Path,
     *,
     scope: str | None,
@@ -707,10 +703,10 @@ def _clear_subtree(
 
 
 def _purge(
-    entries: list[Any],
+    entries: Sequence[CachedFile],
     root: Path,
     *,
-    keep: Callable[[Any], bool],
+    keep: Callable[[CachedFile], bool],
     sidecars: bool = False,
 ) -> tuple[int, int]:
     """Delete the cache *entries* not spared by the *keep* predicate.
@@ -789,15 +785,30 @@ def _max_age_days() -> int:
     return config.cache.max_age
 
 
+_PURGED_ROOTS: set[Path] = set()
+"""Cache roots already swept by {func}`auto_purge` in this process.
+
+Every {func}`store_response` triggers a purge, and a dependency sweep stores
+hundreds of responses per run: without the guard each store re-walks the whole
+binary and HTTP subtrees to re-delete nothing. One sweep per root per process
+is enough, since entries only age on the scale of days.
+"""
+
+
 def auto_purge() -> None:
     """Remove cached entries older than the configured TTL.
 
     Called automatically after {func}`store_binary` and
-    {func}`store_response`. Purges both binary and HTTP cache entries.
+    {func}`store_response`, and runs at most once per cache root per process
+    (see {data}`_PURGED_ROOTS`). Purges both binary and HTTP cache entries.
     Resolves the TTL from `REPOMATIC_CACHE_MAX_AGE` env var, then
     `cache.max-age` in `[tool.repomatic]`, then the
     `CacheConfig.max_age` field default. Set to `0` to disable.
     """
+    root = cache_dir()
+    if root in _PURGED_ROOTS:
+        return
+    _PURGED_ROOTS.add(root)
     days = _max_age_days()
     if days <= 0:
         return
