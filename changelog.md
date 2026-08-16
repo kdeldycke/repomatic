@@ -38,6 +38,7 @@
 - New opt-in `metrics.yaml` workflow running the sampler weekly and committing its store. Enable with `[tool.repomatic] metrics.sync = true` and declare the repositories to follow in `[tool.repomatic.metrics] subjects`.
 - **Breaking:** the VirusTotal scan history moves from `docs/assets/virustotal-scans.json` to `virustotal-scans.csv`. Half the size and a tenth the lines, so a release's append reads as a diff, and GitHub renders it through its searchable grid viewer. The first `scan-virustotal` run after upgrading reads the old JSON and writes the CSV, so no repository has to convert anything; delete the stale `.json` afterwards.
 - New `git-commit-push` option `--all-changes`, staging everything the working tree carries instead of a named path list, for a job whose output paths only its configuration knows.
+- `update-dep-graph` now reads the root's direct dependencies from `uv.lock`: uv's SBOM export promoted a dependency-group package to a primary dependency whenever an extra pulled it in transitively.
 
 ## [`7.12.1` (2026-08-15)](https://github.com/kdeldycke/repomatic/compare/v7.12.0...v7.12.1)
 

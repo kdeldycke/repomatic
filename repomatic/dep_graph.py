@@ -380,6 +380,54 @@ def build_dependency_graph(
     return root_name, set(ref_names.values()), edges
 
 
+def filter_root_edges(
+    root_name: str,
+    edges: list[tuple[str, str]],
+    main_deps: set[str] | None,
+    subgraphs: Sequence[Subgraph],
+) -> list[tuple[str, str]]:
+    """Drop root edges that no `pyproject.toml` declaration backs.
+
+    uv's CycloneDX export hangs a dependency-group package off the root as soon
+    as that package lands in the resolved component set, whether or not the
+    group was requested. Exporting click-extra with `--extra sphinx` and no
+    `--group` is enough for `requests` to come back as a direct dependency of
+    the project: Sphinx pulls it in, the `test` group happens to declare it too,
+    and the export conflates the two. Neither omitting `--group` nor passing
+    `--no-default-groups` suppresses it.
+
+    Left in place, such an edge lands the package in the primary dependencies
+    box, labelled with the specifier of a group nobody asked for, claiming the
+    project depends on something a plain install never installs. So the root's
+    direct dependencies are re-derived from `uv.lock`, which records what
+    `pyproject.toml` declares rather than what resolution happened to produce.
+
+    Edges into a box-owned package survive: {func}`render_mermaid` turns those
+    into the box's dashed arrow. Edges that do not start at the root are never
+    touched, so the dropped package keeps rendering as a transitive dependency
+    of whatever actually pulls it in.
+
+    :param root_name: The root package name.
+    :param edges: List of (from_name, to_name) edge tuples.
+    :param main_deps: Names the root declares as main dependencies, from
+        {attr}`~repomatic.uv.LockSpecifiers.by_main`. `None` when the lockfile
+        describes no such package, in which case every edge is kept: missing
+        data is not evidence that an edge is spurious.
+    :param subgraphs: Boxes whose owned packages legitimately hang off the root.
+    :return: The edge list, without the unbacked root edges.
+    """
+    if main_deps is None:
+        return edges
+    allowed = set(main_deps)
+    for subgraph in subgraphs:
+        allowed |= subgraph.owned
+    return [
+        (from_name, to_name)
+        for from_name, to_name in edges
+        if from_name != root_name or to_name in allowed
+    ]
+
+
 def filter_graph_to_package(
     packages: set[str],
     edges: list[tuple[str, str]],
@@ -901,6 +949,16 @@ def generate_dependency_graph(
         Subgraph(SubgraphKind.GROUP, group, owned[group], duplicates[group])
         for group in sorted(groups or ())
     ]
+
+    # Discard the root edges uv's export invents for dependency-group packages
+    # an extra happens to pull in. See {func}`filter_root_edges`.
+    root_main_deps = lock_specs.by_main.get(root_name)
+    edges = filter_root_edges(
+        root_name,
+        edges,
+        None if root_main_deps is None else set(root_main_deps),
+        subgraphs,
+    )
 
     # CycloneDX SBOMs carry no edge from root to the packages its extras
     # activate (they only appear as dependencies of the package whose extra

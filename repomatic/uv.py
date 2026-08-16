@@ -791,11 +791,21 @@ def load_lock_data(lock_path: Path | None = None) -> dict[str, Any]:
         return tomlrt.load(f)
 
 
+EXTRA_MARKER_RE = re.compile(r"\bextra\s*==\s*'([^']+)'")
+"""Match the extra a `requires-dist` marker gates its dependency behind.
+
+Searched rather than anchored: uv writes the bare `extra == 'x'` form most of
+the time, but combines it with a version guard (`python_full_version >= '3.11'
+and extra == 'x'`) when the declaration carries one. Anchoring would read those
+as unconditional dependencies.
+"""
+
+
 @dataclass
 class LockSpecifiers:
     """Dependency specifiers extracted from a `uv.lock` file.
 
-    Two views of the same data, built in a single pass over the lock packages:
+    Three views of the same data, built in a single pass over the lock packages:
 
     `by_package`
         `{package_name: {dep_name: specifier}}`. Every dependency declared by
@@ -805,10 +815,20 @@ class LockSpecifiers:
     `by_subgraph`
         `{subgraph_name: {dep_name: specifier}}`. Primary dependencies keyed
         by dev-group name or extra name. Used for node labels inside subgraphs.
+
+    `by_main`
+        `{package_name: {dep_name: specifier}}`. Only the dependencies a
+        package declares unconditionally, behind neither an extra nor a dev
+        group. This is the authoritative answer to "what does installing this
+        project pull in by default", which a CycloneDX SBOM does not reliably
+        give. See {func}`~repomatic.dep_graph.filter_root_edges`. A package
+        with no `metadata` table is absent from the mapping entirely, telling
+        "declares nothing unconditionally" apart from "not described here".
     """
 
     by_package: dict[str, dict[str, str]]
     by_subgraph: dict[str, dict[str, str]]
+    by_main: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 def parse_lock_specifiers(
@@ -833,6 +853,7 @@ def parse_lock_specifiers(
 
     by_package: dict[str, dict[str, str]] = {}
     by_subgraph: dict[str, dict[str, str]] = {}
+    by_main: dict[str, dict[str, str]] = {}
 
     for package in lock_data.get("package", []):
         pkg_name = package.get("name", "")
@@ -840,6 +861,7 @@ def parse_lock_specifiers(
             continue
 
         pkg_deps: dict[str, str] = {}
+        main_deps: dict[str, str] = {}
         metadata = package.get("metadata", {})
 
         # Parse requires-dist for main dependencies.
@@ -850,12 +872,17 @@ def parse_lock_specifiers(
             specifier = dep.get("specifier", "")
             if dep_name and specifier:
                 pkg_deps[dep_name] = specifier
-            # Also index by extra when a marker is present.
+            if not dep_name:
+                continue
+            # Index by extra when the marker gates the dependency behind one;
+            # everything else is declared unconditionally.
             marker = dep.get("marker", "")
-            match = re.match(r"extra\s*==\s*'([^']+)'", marker)
-            if match and dep_name:
+            match = EXTRA_MARKER_RE.search(marker)
+            if match:
                 extra_name = match.group(1)
                 by_subgraph.setdefault(extra_name, {})[dep_name] = specifier
+            else:
+                main_deps[dep_name] = specifier
 
         # Parse requires-dev for dev group dependencies.
         requires_dev = metadata.get("requires-dev", {})
@@ -874,8 +901,16 @@ def parse_lock_specifiers(
 
         if pkg_deps:
             by_package[pkg_name] = pkg_deps
+        # Only the workspace's own packages carry a `metadata` table, and those
+        # are the ones a dependency graph can be rooted on. Record the key even
+        # when nothing is declared unconditionally, so an empty mapping stays
+        # distinguishable from a package the lockfile does not describe.
+        if metadata:
+            by_main[pkg_name] = main_deps
 
-    return LockSpecifiers(by_package=by_package, by_subgraph=by_subgraph)
+    return LockSpecifiers(
+        by_package=by_package, by_subgraph=by_subgraph, by_main=by_main
+    )
 
 
 # ---------------------------------------------------------------------------

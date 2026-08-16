@@ -31,6 +31,7 @@ from repomatic.dep_graph import (
     attribute_subgraph_packages,
     build_dependency_graph,
     filter_graph_to_package,
+    filter_root_edges,
     normalize_package_name,
     render_mermaid,
     resolve_subgraph_selection,
@@ -153,6 +154,91 @@ def test_build_dependency_graph() -> None:
     assert ("requests", "urllib3") in edges
     assert ("requests", "certifi") in edges
     assert len(edges) == 4
+
+
+def test_filter_root_edges_drops_group_package_pulled_in_by_an_extra() -> None:
+    """A group package an extra drags in is not a main dependency.
+
+    uv's CycloneDX export hangs `requests` off the root because the `test`
+    group declares it, though only the `sphinx` extra pulls it in. Exporting
+    with no `--group` at all still produces that edge.
+    """
+    subgraphs = [Subgraph(SubgraphKind.EXTRA, "sphinx", {"sphinx"}, set())]
+    edges = [
+        ("my-project", "click"),
+        ("my-project", "sphinx"),
+        ("my-project", "requests"),
+        ("sphinx", "requests"),
+        ("requests", "urllib3"),
+    ]
+
+    filtered = filter_root_edges("my-project", edges, {"click"}, subgraphs)
+
+    assert ("my-project", "requests") not in filtered
+    # The package keeps hanging off whatever really pulls it in.
+    assert ("sphinx", "requests") in filtered
+    assert ("requests", "urllib3") in filtered
+    # Both kinds of backed root edge survive: declared main, and box-owned.
+    assert ("my-project", "click") in filtered
+    assert ("my-project", "sphinx") in filtered
+
+
+def test_filter_root_edges_without_lock_data() -> None:
+    """Missing lock data is not evidence that a root edge is spurious."""
+    edges = [("my-project", "click"), ("my-project", "requests")]
+    assert filter_root_edges("my-project", edges, None, []) == edges
+
+
+def test_filter_root_edges_with_no_main_dependencies() -> None:
+    """A project declaring nothing unconditionally keeps only box-owned edges.
+
+    An empty mapping states that much, where `None` states nothing at all.
+    """
+    subgraphs = [Subgraph(SubgraphKind.EXTRA, "xml", {"xmltodict"}, set())]
+    edges = [("my-project", "xmltodict"), ("my-project", "requests")]
+
+    filtered = filter_root_edges("my-project", edges, set(), subgraphs)
+
+    assert filtered == [("my-project", "xmltodict")]
+
+
+def test_render_mermaid_after_filtering_root_edges() -> None:
+    """The dropped package renders as a transitive oval, outside every box."""
+    subgraphs = [Subgraph(SubgraphKind.EXTRA, "sphinx", {"sphinx"}, set())]
+    edges = filter_root_edges(
+        "my-project",
+        [
+            ("my-project", "click"),
+            ("my-project", "sphinx"),
+            ("my-project", "requests"),
+            ("sphinx", "requests"),
+        ],
+        {"click"},
+        subgraphs,
+    )
+    # by_package still carries the test group's specifier, since a group box
+    # needs it to label its own edges. Nothing must pick it up here.
+    lock_specs = LockSpecifiers(
+        by_package={"my-project": {"click": ">=8.0", "requests": ">=2.34"}},
+        by_subgraph={},
+    )
+
+    output = render_mermaid(
+        "my-project",
+        {"my-project", "click", "sphinx", "requests"},
+        edges,
+        subgraphs,
+        lock_specs,
+    )
+
+    assert 'requests(["`requests`"])' in output
+    assert "sphinx --> requests" in output
+    # No thick root arrow, no primary hexagon, no group specifier leaking in.
+    assert "my_project ==> requests" not in output
+    assert ">=2.34" not in output
+    assert not any(
+        "requests" in line for line in _subgraph_block(output, "primary-deps")
+    )
 
 
 def test_filter_graph_to_package() -> None:

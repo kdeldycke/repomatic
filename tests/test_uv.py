@@ -39,6 +39,7 @@ from repomatic.uv import (
     compute_bypass_forecasts,
     compute_pruned_forecasts,
     freeze_exclude_newer_packages,
+    parse_lock_specifiers,
     project_exclude_newer,
     prune_stale_exclude_newer_packages,
 )
@@ -430,3 +431,57 @@ def test_compute_pruned_forecasts_snapshots_cleared_freezes(tmp_path):
     # The held upload (2026-01-01) plus the lock's P1W span, long past.
     assert records[0].expires.startswith("2026-01-08")
     assert compute_pruned_forecasts(set(), lock) == []
+
+
+def test_parse_lock_specifiers_isolates_unconditional_declarations() -> None:
+    """`by_main` holds only what a plain install of the project pulls in.
+
+    A version marker leaves a dependency unconditional; an extra marker moves
+    it to that extra's box wherever it sits in the expression; a dev group
+    never lands there at all.
+    """
+    lock_data = {
+        "package": [
+            {
+                "name": "my-project",
+                "metadata": {
+                    "requires-dist": [
+                        {"name": "click", "specifier": ">=8.0"},
+                        {
+                            "name": "tomli",
+                            "specifier": ">=2",
+                            "marker": "python_full_version < '3.11'",
+                        },
+                        {
+                            "name": "sphinx",
+                            "specifier": ">=8",
+                            "marker": "extra == 'sphinx'",
+                        },
+                        {
+                            "name": "rich",
+                            "specifier": ">=12.6",
+                            "marker": (
+                                "python_full_version >= '3.11' "
+                                "and extra == 'screenshot'"
+                            ),
+                        },
+                    ],
+                    "requires-dev": {
+                        "test": [{"name": "requests", "specifier": ">=2.34"}],
+                    },
+                },
+            },
+            {"name": "sphinx", "dependencies": [{"name": "requests"}]},
+        ],
+    }
+
+    specs = parse_lock_specifiers(lock_data=lock_data)
+
+    assert specs.by_main["my-project"] == {"click": ">=8.0", "tomli": ">=2"}
+    assert specs.by_subgraph["sphinx"] == {"sphinx": ">=8"}
+    assert specs.by_subgraph["screenshot"] == {"rich": ">=12.6"}
+    assert specs.by_subgraph["test"] == {"requests": ">=2.34"}
+    # Edge labels still need every declaration, dev groups included.
+    assert specs.by_package["my-project"]["requests"] == ">=2.34"
+    # A package the lockfile carries no metadata for is absent, not empty.
+    assert "sphinx" not in specs.by_main
