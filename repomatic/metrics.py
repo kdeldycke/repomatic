@@ -766,7 +766,7 @@ def wayback_captures(path: str) -> list[str] | None:
     try:
         return [row[0] for row in json.loads(payload)[1:]]
     except (json.JSONDecodeError, IndexError):
-        # Unparseable is a fault, not an absence: same reasoning as above.
+        # Unparsable is a fault, not an absence: same reasoning as above.
         return None
 
 
