@@ -29,6 +29,7 @@ from repomatic.cli import metadata as metadata_command
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
     REPO_CHECKS,
+    CheckResult,
     check_branch_ruleset_on_default,
     check_description_matches,
     check_funding_file,
@@ -381,6 +382,91 @@ def test_notifications_pat_check(
         assert "REPOMATIC_NOTIFICATIONS_PAT" not in captured.out
     else:
         assert expected in captured.out
+
+
+@pytest.mark.parametrize(
+    ("sphinx_deploy", "has_token", "has_account", "expected"),
+    (
+        pytest.param("github-pages", False, False, None, id="other-target-silent"),
+        pytest.param(
+            "cloudflare-pages",
+            False,
+            False,
+            "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN not configured",
+            id="neither-secret",
+        ),
+        pytest.param(
+            "cloudflare-pages",
+            True,
+            False,
+            "CLOUDFLARE_ACCOUNT_ID not configured",
+            id="account-id-missing",
+        ),
+        pytest.param(
+            "cloudflare-pages",
+            False,
+            True,
+            "CLOUDFLARE_API_TOKEN not configured",
+            id="token-missing",
+        ),
+        pytest.param(
+            "cloudflare-pages",
+            True,
+            True,
+            "✓ Cloudflare Pages credentials are configured.",
+            id="both-secrets",
+        ),
+    ),
+)
+def test_cloudflare_secrets_check(
+    capsys, sphinx_deploy, has_token, has_account, expected
+):
+    """The Cloudflare check fires only on its target, and names what is missing.
+
+    Setting one value and forgetting the other is the common way to arrive
+    here, so the half already in place must not be reported as missing.
+    """
+    exit_code = run_repo_lint(
+        is_sphinx=True,
+        sphinx_deploy=sphinx_deploy,
+        has_cloudflare_api_token=has_token,
+        has_cloudflare_account_id=has_account,
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    if expected is None:
+        assert "CLOUDFLARE" not in captured.out
+    else:
+        assert expected in captured.out
+
+
+@pytest.mark.parametrize(
+    ("sphinx_deploy", "probed"),
+    (
+        pytest.param("github-pages", True, id="github-pages-probes"),
+        pytest.param("cloudflare-pages", False, id="cloudflare-pages-skips"),
+    ),
+)
+def test_pages_deployment_source_follows_the_deploy_target(sphinx_deploy, probed):
+    """The Pages source check is skipped for a project that deploys elsewhere.
+
+    `GET /repos/{repo}/pages` answers `404` for a repository that never
+    enabled Pages, which the check reads as indeterminate. Reported against a
+    Cloudflare-hosted project that is a permanent skip line about a setting
+    nobody will ever change.
+    """
+    with (
+        patch("repomatic.lint_repo.get_repo_metadata") as mock_get,
+        patch("repomatic.lint_repo.check_pages_deployment_source") as probe,
+    ):
+        mock_get.return_value = {"homepageUrl": None, "description": None}
+        probe.return_value = CheckResult(True, "Pages source is GitHub Actions.")
+        run_repo_lint(
+            is_sphinx=True,
+            sphinx_deploy=sphinx_deploy,
+            repo="orchard/papaya",
+        )
+    assert probe.called is probed
 
 
 def test_minimal_run():

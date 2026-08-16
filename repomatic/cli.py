@@ -374,6 +374,20 @@ repo_name_option = option(
     default=None,
     help="Repository name. Defaults to $GITHUB_REPOSITORY name component.",
 )
+has_cloudflare_account_id_option = option(
+    "--has-cloudflare-account-id",
+    is_flag=True,
+    default=False,
+    envvar="HAS_CLOUDFLARE_ACCOUNT_ID",
+    help="Whether CLOUDFLARE_ACCOUNT_ID is configured.",
+)
+has_cloudflare_api_token_option = option(
+    "--has-cloudflare-api-token",
+    is_flag=True,
+    default=False,
+    envvar="HAS_CLOUDFLARE_API_TOKEN",
+    help="Whether CLOUDFLARE_API_TOKEN is configured.",
+)
 has_notifications_pat_option = option(
     "--has-notifications-pat",
     is_flag=True,
@@ -1660,6 +1674,8 @@ def pr_sync(
 @repomatic.command(
     short_help="Manage setup guide issue lifecycle", section=_section_github
 )
+@has_cloudflare_account_id_option
+@has_cloudflare_api_token_option
 @has_notifications_pat_option
 @has_pat_option
 @has_virustotal_key_option
@@ -1668,6 +1684,8 @@ def pr_sync(
 @pass_context
 def setup_guide(
     ctx: Context,
+    has_cloudflare_account_id: bool,
+    has_cloudflare_api_token: bool,
     has_notifications_pat: bool,
     has_pat: bool,
     has_virustotal_key: bool,
@@ -1705,6 +1723,8 @@ def setup_guide(
         has_pat=has_pat,
         has_notifications_pat=has_notifications_pat,
         has_virustotal_key=has_virustotal_key,
+        has_cloudflare_api_token=has_cloudflare_api_token,
+        has_cloudflare_account_id=has_cloudflare_account_id,
         repo=repo,
     )
 
@@ -2410,6 +2430,8 @@ def lint_deps(
 )
 @repo_name_option
 @repo_slug_option
+@has_cloudflare_account_id_option
+@has_cloudflare_api_token_option
 @has_notifications_pat_option
 @has_pat_option
 @has_virustotal_key_option
@@ -2418,6 +2440,8 @@ def lint_repo(
     ctx: Context,
     repo_name: str | None,
     repo: str | None,
+    has_cloudflare_account_id: bool,
+    has_cloudflare_api_token: bool,
     has_notifications_pat: bool,
     has_pat: bool,
     has_virustotal_key: bool,
@@ -2448,6 +2472,8 @@ def lint_repo(
       - VIRUSTOTAL_API_KEY secret missing when Nuitka is active (warning).
       - REPOMATIC_NOTIFICATIONS_PAT secret missing when the unsubscribe
         workflow is enabled (warning).
+      - CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID secret missing when
+        sphinx.deploy targets Cloudflare Pages (warning).
 
     \b
     When a PAT is detected, additional capability checks are run:
@@ -2493,12 +2519,15 @@ def lint_repo(
         repo_name=repo_name,
         is_package=metadata.is_python_package,
         is_sphinx=is_sphinx,
+        sphinx_deploy=config.sphinx_deploy,
         project_description=project_description,
         docs_url=docs_url,
         keywords=keywords,
         repo=repo if repo else None,
         has_pat=has_pat,
         has_virustotal_key=has_virustotal_key,
+        has_cloudflare_api_token=has_cloudflare_api_token,
+        has_cloudflare_account_id=has_cloudflare_account_id,
         nuitka_active=nuitka_active,
         has_notifications_pat=has_notifications_pat,
         unsubscribe_active=config.notification_unsubscribe,

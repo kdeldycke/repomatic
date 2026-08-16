@@ -2236,6 +2236,15 @@ class LintContext:
     is_sphinx: bool = False
     """Whether the project uses Sphinx documentation."""
 
+    sphinx_deploy: str = "github-pages"
+    """Where the Docs workflow publishes the built site, per `sphinx.deploy`.
+
+    Each host has its own prerequisite, and exactly one of them applies: the
+    GitHub Pages source check reads a `404` forever on a Cloudflare-hosted
+    project, and the Cloudflare credential check has nothing to say about a
+    project deploying with the repository's own OIDC identity.
+    """
+
     project_description: str | None = None
     """Description from `pyproject.toml`."""
 
@@ -2253,6 +2262,12 @@ class LintContext:
 
     has_virustotal_key: bool = False
     """Whether `VIRUSTOTAL_API_KEY` is configured."""
+
+    has_cloudflare_api_token: bool = False
+    """Whether `CLOUDFLARE_API_TOKEN` is configured."""
+
+    has_cloudflare_account_id: bool = False
+    """Whether `CLOUDFLARE_ACCOUNT_ID` is configured."""
 
     nuitka_active: bool = False
     """Whether this project compiles binaries with Nuitka."""
@@ -2315,6 +2330,33 @@ class RepoCheck:
         return tuple(produced)
 
 
+def _cloudflare_secrets(ctx: LintContext) -> CheckResult:
+    """Report whether the Cloudflare Pages deploy has both its credentials.
+
+    Names the missing half rather than the pair: setting the token and
+    forgetting the account ID is the common way to arrive here, and a message
+    listing both leaves the reader re-checking the one already in place.
+    """
+    missing = [
+        name
+        for name, present in (
+            ("CLOUDFLARE_ACCOUNT_ID", ctx.has_cloudflare_account_id),
+            ("CLOUDFLARE_API_TOKEN", ctx.has_cloudflare_api_token),
+        )
+        if not present
+    ]
+    if not missing:
+        return CheckResult(True, "Cloudflare Pages credentials are configured.")
+    return CheckResult(
+        False,
+        f"{' and '.join(missing)} not configured, while sphinx.deploy is"
+        " 'cloudflare-pages': the documentation deploy job will fail."
+        " Create a token scoped to Account → Cloudflare Pages → Edit at"
+        " https://dash.cloudflare.com/profile/api-tokens and add both as"
+        " repository secrets.",
+    )
+
+
 def _virustotal_secret(ctx: LintContext) -> CheckResult:
     """Report whether the VirusTotal API key is available to release builds."""
     if ctx.has_virustotal_key:
@@ -2375,7 +2417,18 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "pages-deployment-source",
         lambda ctx: check_pages_deployment_source(ctx.repo or ""),
-        applies=lambda ctx: bool(ctx.is_sphinx and ctx.repo),
+        applies=lambda ctx: bool(
+            ctx.is_sphinx and ctx.repo and ctx.sphinx_deploy == "github-pages"
+        ),
+    ),
+    RepoCheck(
+        # Needs no repository: both answers come from the workflow environment,
+        # so a local run reports the same gap CI does.
+        "cloudflare-pages-secrets",
+        _cloudflare_secrets,
+        applies=lambda ctx: bool(
+            ctx.is_sphinx and ctx.sphinx_deploy == "cloudflare-pages"
+        ),
     ),
     RepoCheck(
         "stale-gh-pages-branch",
@@ -2514,12 +2567,15 @@ def run_repo_lint(
     repo_name: str | None = None,
     is_package: bool = False,
     is_sphinx: bool = False,
+    sphinx_deploy: str = "github-pages",
     project_description: str | None = None,
     docs_url: str | None = None,
     keywords: list[str] | None = None,
     repo: str | None = None,
     has_pat: bool = False,
     has_virustotal_key: bool = False,
+    has_cloudflare_api_token: bool = False,
+    has_cloudflare_account_id: bool = False,
     nuitka_active: bool = False,
     has_notifications_pat: bool = False,
     unsubscribe_active: bool = False,
@@ -2535,12 +2591,17 @@ def run_repo_lint(
     :param repo_name: The repository name.
     :param is_package: Whether the project builds a distributable package.
     :param is_sphinx: Whether the project uses Sphinx documentation.
+    :param sphinx_deploy: Where the Docs workflow publishes the built site.
     :param project_description: Description from pyproject.toml.
     :param docs_url: Documentation URL declared in `[project.urls]`.
     :param keywords: Keywords list from pyproject.toml.
     :param repo: Repository in 'owner/repo' format.
     :param has_pat: Whether `GH_TOKEN` contains `REPOMATIC_PAT`.
     :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
+    :param has_cloudflare_api_token: Whether `CLOUDFLARE_API_TOKEN` is
+        configured.
+    :param has_cloudflare_account_id: Whether `CLOUDFLARE_ACCOUNT_ID` is
+        configured.
     :param nuitka_active: Whether Nuitka binary compilation is active.
     :param has_notifications_pat: Whether `REPOMATIC_NOTIFICATIONS_PAT` is
         configured.
@@ -2553,12 +2614,15 @@ def run_repo_lint(
         repo_name=repo_name,
         is_package=is_package,
         is_sphinx=is_sphinx,
+        sphinx_deploy=sphinx_deploy,
         project_description=project_description,
         docs_url=docs_url,
         keywords=keywords,
         repo=repo,
         has_pat=has_pat,
         has_virustotal_key=has_virustotal_key,
+        has_cloudflare_api_token=has_cloudflare_api_token,
+        has_cloudflare_account_id=has_cloudflare_account_id,
         nuitka_active=nuitka_active,
         has_notifications_pat=has_notifications_pat,
         unsubscribe_active=unsubscribe_active,

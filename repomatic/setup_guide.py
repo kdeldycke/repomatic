@@ -130,6 +130,12 @@ class GuideContext:
     has_virustotal_key: bool
     """Whether `VIRUSTOTAL_API_KEY` is configured."""
 
+    has_cloudflare_api_token: bool
+    """Whether `CLOUDFLARE_API_TOKEN` is configured."""
+
+    has_cloudflare_account_id: bool
+    """Whether `CLOUDFLARE_ACCOUNT_ID` is configured."""
+
     @cached_property
     def md(self) -> Metadata:
         """CI and project context, for the repository identity fields."""
@@ -188,6 +194,21 @@ class GuideContext:
     def token_ok(self) -> bool:
         """Whether a PAT is configured and every permission probe passed."""
         return self.has_pat and not self.missing_permissions_section
+
+    @property
+    def cloudflare_secrets_ok(self) -> bool:
+        """Whether both Cloudflare Pages credentials are configured."""
+        return self.has_cloudflare_api_token and self.has_cloudflare_account_id
+
+    def deploys_to(self, target: str) -> bool:
+        """Whether the Docs workflow publishes this project's site to *target*.
+
+        One host's setup step is the other's noise, and the guide asks about
+        exactly the one `sphinx.deploy` names: a Cloudflare-hosted project has
+        no GitHub Pages source to set, and the probe for it answers `404`
+        forever.
+        """
+        return bool(self.md.is_sphinx) and self.config.sphinx_deploy == target
 
     @property
     def dependabot_ok(self) -> bool:
@@ -399,11 +420,25 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         title="Set GitHub Pages deployment source to GitHub Actions",
         template="setup-guide-pages-source",
         probe=lambda ctx: (
-            check_pages_deployment_source(ctx.repo).passed
-            if ctx.md.is_sphinx and ctx.repo
-            else None
+            check_pages_deployment_source(ctx.repo).passed if ctx.repo else None
         ),
-        applies=lambda ctx: bool(ctx.md.is_sphinx),
+        applies=lambda ctx: ctx.deploys_to("github-pages"),
+    ),
+    SetupStep(
+        placeholder="step_cloudflare_pages",
+        title="Configure the Cloudflare Pages credentials",
+        template="setup-guide-cloudflare-pages",
+        # Unlike the VirusTotal key below, this is a prerequisite rather than
+        # an enhancement: `wrangler` cannot authenticate without both values,
+        # so the deploy job fails outright instead of skipping. The step holds
+        # the issue open until each one is set.
+        probe=lambda ctx: ctx.cloudflare_secrets_ok,
+        applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
+        args=lambda ctx: {
+            "repo_name": ctx.md.repo_name,
+            "repo_slug": ctx.md.repo_slug,
+            "repo_url": ctx.md.repo_url,
+        },
     ),
     SetupStep(
         placeholder="step_virustotal",
@@ -459,6 +494,8 @@ def manage_setup_guide(
     has_pat: bool,
     has_notifications_pat: bool,
     has_virustotal_key: bool,
+    has_cloudflare_api_token: bool = False,
+    has_cloudflare_account_id: bool = False,
     repo: str | None,
 ) -> None:
     """Render the setup guide issue body and drive the issue lifecycle.
@@ -472,6 +509,10 @@ def manage_setup_guide(
     :param has_notifications_pat: Whether `REPOMATIC_NOTIFICATIONS_PAT` is
         configured.
     :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
+    :param has_cloudflare_api_token: Whether `CLOUDFLARE_API_TOKEN` is
+        configured.
+    :param has_cloudflare_account_id: Whether `CLOUDFLARE_ACCOUNT_ID` is
+        configured.
     :param repo: Repository in `owner/repo` format; permission and settings
         checks are skipped when `None`.
     """
@@ -481,6 +522,8 @@ def manage_setup_guide(
         has_pat=has_pat,
         has_notifications_pat=has_notifications_pat,
         has_virustotal_key=has_virustotal_key,
+        has_cloudflare_api_token=has_cloudflare_api_token,
+        has_cloudflare_account_id=has_cloudflare_account_id,
     )
 
     sections: dict[str, str | None] = {

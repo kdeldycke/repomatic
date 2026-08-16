@@ -531,6 +531,111 @@ def test_setup_guide_vt_step_shown_when_nuitka_active():
     assert "VirusTotal" in content
 
 
+PAGES_STEP = "Set GitHub Pages deployment source to GitHub Actions"
+"""Title of the step only a GitHub Pages project is asked to perform."""
+
+CLOUDFLARE_STEP = "Configure the Cloudflare Pages credentials"
+"""Title of the step only a Cloudflare Pages project is asked to perform."""
+
+
+def _sphinx_project(tmp_path, monkeypatch, target: str) -> None:
+    """Materialize a Sphinx project deploying to *target*, and enter it.
+
+    The `docs/conf.py` is what `Metadata.is_sphinx` looks for, and both deploy
+    steps are gated on it.
+    """
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "conf.py").write_text("project = 'papaya'\n", encoding="UTF-8")
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = 'papaya'\nversion = '1.0'\n\n"
+        f"[tool.repomatic]\nsphinx.deploy = '{target}'\n",
+        encoding="UTF-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("target", "rendered", "omitted"),
+    (
+        pytest.param("github-pages", PAGES_STEP, CLOUDFLARE_STEP, id="github-pages"),
+        pytest.param(
+            "cloudflare-pages", CLOUDFLARE_STEP, PAGES_STEP, id="cloudflare-pages"
+        ),
+    ),
+)
+def test_setup_guide_asks_about_the_configured_host_only(
+    tmp_path, monkeypatch, target, rendered, omitted
+):
+    """Exactly one deploy step renders, the one `sphinx.deploy` names.
+
+    The two hosts want different things set up and only one of them ever runs,
+    so a guide showing both sends the maintainer to configure a deployment
+    surface nothing publishes to.
+    """
+    _sphinx_project(tmp_path, monkeypatch, target)
+    with _offline_setup_guide() as (_lifecycle, bodies):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert result.exit_code == 0
+    assert rendered in bodies[0]
+    assert omitted not in bodies[0]
+
+
+@pytest.mark.parametrize(
+    ("env", "expected_has_issues"),
+    (
+        pytest.param({}, True, id="neither-secret"),
+        pytest.param({"HAS_CLOUDFLARE_API_TOKEN": "true"}, True, id="token-only"),
+        pytest.param({"HAS_CLOUDFLARE_ACCOUNT_ID": "true"}, True, id="account-only"),
+        pytest.param(
+            {
+                "HAS_CLOUDFLARE_ACCOUNT_ID": "true",
+                "HAS_CLOUDFLARE_API_TOKEN": "true",
+            },
+            False,
+            id="both-secrets",
+        ),
+    ),
+)
+def test_setup_guide_holds_open_until_both_cloudflare_secrets_land(
+    tmp_path, monkeypatch, env, expected_has_issues
+):
+    """Half the credentials is not enough to close the issue.
+
+    Unlike the VirusTotal key, a missing Cloudflare value fails the deploy job
+    rather than skipping it, so the step gates closure. `wrangler` needs both,
+    and a run configured with only one is as broken as one configured with
+    neither.
+    """
+    _sphinx_project(tmp_path, monkeypatch, "cloudflare-pages")
+    with _offline_setup_guide() as (lifecycle, _bodies):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG], env=env)
+    assert result.exit_code == 0
+    assert lifecycle.call_args_list[0][1]["has_issues"] is expected_has_issues
+
+
+def test_setup_guide_closes_with_github_pages_never_configured(tmp_path, monkeypatch):
+    """A Cloudflare project closes its issue with no GitHub Pages source set.
+
+    `check_pages_deployment_source` answers `404` for a repository that never
+    enabled Pages, which the step reads as `None` and collapses to incomplete
+    because it tolerates no unknown. Gated on `is_sphinx` alone, that wedged
+    the guide open forever on a Cloudflare-hosted project, demanding a
+    deployment source for a host nothing publishes to.
+    """
+    _sphinx_project(tmp_path, monkeypatch, "cloudflare-pages")
+    unconfigured = CheckResult(None, "Pages deployment source check: skipped.")
+    with _offline_setup_guide(pages_ok=unconfigured) as (lifecycle, _bodies):
+        result = _invoke(
+            ["setup-guide", "--has-pat", "--repo", REPO_SLUG],
+            env={
+                "HAS_CLOUDFLARE_ACCOUNT_ID": "true",
+                "HAS_CLOUDFLARE_API_TOKEN": "true",
+            },
+        )
+    assert result.exit_code == 0
+    assert lifecycle.call_args_list[0][1]["has_issues"] is False
+
+
 def test_every_setup_step_feeds_the_close_gate():
     """Every rendered step decides the issue's fate, or is exempt on purpose.
 
