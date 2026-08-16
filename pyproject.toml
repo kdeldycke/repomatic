@@ -481,6 +481,11 @@ exclude = [
   "^https://star-history\\.com/.*$",
   # githubstatus.com returns 405 to HEAD requests from bots.
   "githubstatus\\.com",
+  # The Cloudflare dashboard answers 403 to anyone not signed in, which every
+  # crawler is. The setup guide and the Cloudflare page link it deliberately:
+  # a `?to=/:account/...` URL resolves against whichever account the reader is
+  # signed into, and pre-fills a token form no anonymous request can reach.
+  "^https://dash\\.cloudflare\\.com/.*$",
   # Local intra-docs heading fragments are Sphinx cross-references, validated
   # at doc build time via `myst_heading_anchors`. Lychee's GitHub-style slugger
   # strips dots (`cache.dir` → `cachedir`) and cannot see MyST `(target)=`
