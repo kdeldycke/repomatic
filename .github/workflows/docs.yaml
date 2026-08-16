@@ -192,15 +192,20 @@ jobs:
         # `wrangler` is pinned as an npm literal, which `sync-workflow-pins`
         # keeps current and the workflow-level cooldown holds to a release old
         # enough to have been withdrawn if it were broken.
+        # Every value reaches the command through `env:` rather than inline
+        # expansion: a branch name is attacker-controllable, and `${{ }}` in a
+        # `run:` body is substituted into the script before the shell sees it.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT_NAME: ${{ github.event.repository.name }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
         run: >
           npx --yes wrangler@4.120.0 pages deploy ./docs/_build
           --project-name "$PROJECT_NAME"
-          --branch "${{ github.ref_name }}"
-          --commit-hash "${{ github.sha }}"
+          --branch "$REF_NAME"
+          --commit-hash "$COMMIT_SHA"
 
   check-broken-links:
     name: 💔 Check broken links
