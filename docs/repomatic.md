@@ -308,6 +308,24 @@
    :undoc-members:
 ```
 
+## `repomatic.metric_chart` module
+
+```{eval-rst}
+.. automodule:: repomatic.metric_chart
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.metrics` module
+
+```{eval-rst}
+.. automodule:: repomatic.metrics
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.npm` module
 
 ```{eval-rst}
@@ -389,28 +407,19 @@
    :undoc-members:
 ```
 
-## `repomatic.star_chart` module
-
-```{eval-rst}
-.. automodule:: repomatic.star_chart
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.stars` module
-
-```{eval-rst}
-.. automodule:: repomatic.stars
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.sync_ops` module
 
 ```{eval-rst}
 .. automodule:: repomatic.sync_ops
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.tabular` module
+
+```{eval-rst}
+.. automodule:: repomatic.tabular
    :members:
    :show-inheritance:
    :undoc-members:

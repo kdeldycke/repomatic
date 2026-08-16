@@ -49,8 +49,6 @@ artifacts behind the link always are the current builds.
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import logging
 from pathlib import Path
@@ -60,6 +58,7 @@ from click_extra.blocks import replace_region
 from .binary import BINARY_ASSET_SUFFIXES, NUITKA_BUILD_TARGETS
 from .bundle import get_data_content
 from .github.releases import parse_release_version
+from .tabular import render_csv, write_csv
 from .virustotal import VIRUSTOTAL_GUI_URL
 
 TYPE_CHECKING = False
@@ -357,9 +356,7 @@ def render_binaries_csv(
     versioned.sort(key=lambda pair: pair[0], reverse=True)
 
     at_scan = _at_scan_records(records)
-    buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(CSV_HEADERS)
+    rows: list[tuple[str, ...]] = []
     for version, release in versioned:
         release_url = f"https://github.com/{repo_slug}/releases/tag/{release.tag}"
         for asset in _binary_assets(release):
@@ -387,7 +384,7 @@ def render_binaries_csv(
             # The octicon role comes from sphinx-design, same as the icons in
             # the docs page titles; the icons are part of the link text so
             # they stay clickable with their label.
-            writer.writerow((
+            rows.append((
                 f"[`{version}` {{octicon}}`link-external`]({release_url})",
                 (
                     f"[{{octicon}}`download` `{_platform_target(asset.name)}`]"
@@ -396,7 +393,7 @@ def render_binaries_csv(
                 release.date,
                 vt_cell,
             ))
-    return buffer.getvalue()
+    return render_csv(CSV_HEADERS, rows)
 
 
 def update_binaries_csv(csv_path: Path, content: str) -> bool:
@@ -406,11 +403,9 @@ def update_binaries_csv(csv_path: Path, content: str) -> bool:
     :param content: Rendered CSV from {func}`render_binaries_csv`.
     :return: `True` when the file was created or its content changed.
     """
-    if csv_path.exists() and csv_path.read_text(encoding="UTF-8") == content:
+    if not write_csv(csv_path, content):
         logging.info(f"Binaries CSV {csv_path} already up to date.")
         return False
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    csv_path.write_text(content, encoding="UTF-8")
     logging.info(f"Wrote binaries CSV {csv_path}.")
     return True
 

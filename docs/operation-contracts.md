@@ -138,22 +138,24 @@ The property that separates it from a `sync-*` is that it never converges. A syn
 **Required properties:**
 
 1. **CLI command.** A `repomatic sample-*` command that loads config, checks its toggle, and exits cleanly (`ctx.exit(0)`) when disabled or when nothing is configured to sample.
-2. **Config toggle, opt-in.** A `sync: bool = False` field on the operation's nested config (`[tool.repomatic.stars] sync`, `[tool.repomatic.projects] sync`). Opt-in rather than opt-out, unlike a `sync-*`: an accumulating store is a commitment a maintainer makes deliberately, and most repositories track nothing. The same key gates the workflow component, so a repository that never enables it is never handed the file.
+2. **Config toggle, opt-in.** A `sync: bool = False` field on the operation's nested config (`[tool.repomatic.metrics] sync`). Opt-in rather than opt-out, unlike a `sync-*`: an accumulating store is a commitment a maintainer makes deliberately, and most repositories track nothing. The same key gates the workflow component, so a repository that never enables it is never handed the file.
 3. **Workflow job.** A job in a schedule-only workflow, never triggered on push: sampling the same value twice in one day writes the same point, so a per-push run costs API calls and produces nothing. It commits directly (see below).
 4. **Documentation.** Config reference in `docs/configuration.md`. Job description with its "Skipped if" clause in `docs/workflows.md`. Changelog entry.
-5. **Tests.** A conformance test over the committed store: known provenances, no duplicate key, sorted, no date in the future. The store is written unattended by a scheduled job, so nothing else would catch a malformed append.
+5. **Store format.** One CSV, through {mod}`repomatic.tabular`, one row per reading. Never JSON: see `claude.md` § Naming conventions rule 8.
+6. **Tests.** A conformance test over the committed store: known provenances, no duplicate key, sorted, no date in the future, and no attribute holding two rows. The store is written unattended by a scheduled job, so nothing else would catch a malformed append.
 
 **Invariants:**
 
-- **Idempotent within a period, additive across periods.** Re-running on the same day overwrites that day's own point. Tomorrow's run adds one, and that is the operation working, not a defect in its idempotency.
-- **A weaker provenance never overwrites a stronger one.** A history mixing methodologies records which one each point came from, and a one-off backfill run against an already-populated store must degrade nothing (see {data}`repomatic.stars.SOURCE_RANK`).
+- **Retention is a property of the metric, not of the caller.** A counter accrues every dated reading; an attribute keeps one row, restamped only when its value moves. One registry entry decides which, and the store's writer is the only code that has to know.
+- **Idempotent within a period, additive across periods.** Re-running on the same day overwrites that day's own reading. Tomorrow's run adds one, and that is the operation working, not a defect in its idempotency.
+- **A weaker provenance never overwrites a stronger one.** A history mixing methodologies records which one each point came from, and a one-off backfill run against an already-populated store must degrade nothing (see {data}`repomatic.metrics.SOURCE_RANK`).
 - **A failed reading costs its own row, never the run.** One unreachable forge must not blank every metric collected beside it, and a stale figure carrying its own date beats a hole.
 - **Rendering is a pure function of the store.** Anything drawn from the history is stamped with the newest reading rather than with the run date, so a pass that found nothing new rewrites no committed file.
 
 ### Sampling commits directly
 
 ```{important}
-`sample-stars` and `sample-projects` commit their stores with a direct push to the default branch (via `repomatic git-commit-push`), not a pull request. Disable them with `[tool.repomatic] stars.sync = false` and `projects.sync = false`.
+`sample-metrics` commits its store with a direct push to the default branch (via `repomatic git-commit-push`), not a pull request. Disable it with `[tool.repomatic] metrics.sync = false`.
 ```
 
 The reasoning of [§ Release-lane direct commits](#release-lane-direct-commits) applies unchanged, and the first bullet applies with more force. The diff records what an external API answered at a moment that has passed: rejecting or editing it cannot change the reading, only make the history wrong or lose it. A weekly pull request appending machine-read counts would also be a weekly pull request nobody reads, and one left unmerged stalls the accrual silently, which is the failure mode the whole operation exists to prevent.

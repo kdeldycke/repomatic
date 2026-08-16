@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Draw an accumulated star history as a standalone, themeable SVG.
+"""Draw an accumulated metric history as a standalone, themeable SVG.
 
 Written by hand rather than through a plotting library: the output is
 committed, so a docs build never needs the dependency, and the file stays a few
@@ -36,7 +36,7 @@ from datetime import date, datetime, timezone
 from html import escape
 from pathlib import Path
 
-from .stars import PREDECESSOR_SUFFIX
+from .metrics import CHARTABLE_METRICS, METRICS_BY_ID, PREDECESSOR_SUFFIX
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ SERIES_PALETTE: tuple[tuple[str, str], ...] = (
 Assigned positionally and never cycled: a chart declaring more series than
 there are slots raises rather than reusing a hue, since a repeated colour on a
 chart whose curves are told apart by colour is a defect the reader cannot see.
-Override any of them by name through `[tool.repomatic.stars] colors`.
+Override any of them by name through `[tool.repomatic.metrics] colors`.
 
 A few light-mode steps sit below 3:1 against a white surface. The direct label
 drawn at the end of every line is what answers that: identity is never colour
@@ -88,11 +88,19 @@ class ChartSpec:
     output: Path
     """Where to write the rendered SVG."""
 
+    metric: str = "stars"
+    """Which accruing metric to plot, from {data}`~repomatic.metrics.METRICS`.
+
+    Defaults to the one that motivated the whole collector. Only a metric the
+    store accrues can be charted: an attribute holds a single current value,
+    which is a table cell rather than a curve.
+    """
+
     mode: str = "absolute"
     """Which of {data}`CHART_MODES` measures the horizontal axis."""
 
     only: tuple[str, ...] = ()
-    """Series to plot, in draw order. Every declared series when empty."""
+    """Series to plot, in draw order. Every declared subject when empty."""
 
     title: str = ""
     """Accessible name for the chart, describing what it shows."""
@@ -104,15 +112,27 @@ class ChartSpec:
 
     @classmethod
     def from_mapping(cls, entry: Mapping[str, object]) -> ChartSpec:
-        """Build a spec from one `[[tool.repomatic.stars.charts]]` entry.
+        """Build a spec from one `[[tool.repomatic.metrics.charts]]` entry.
 
         :param entry: The entry as configuration parsed it.
         :return: The corresponding spec.
-        :raises ValueError: When `output` is missing, or the mode is unknown.
+        :raises ValueError: When `output` is missing, the mode is unknown, or
+            the named metric has no history to chart.
         """
         output = entry.get("output")
         if not output or not isinstance(output, str):
-            msg = f"A [[tool.repomatic.stars.charts]] entry needs an output path: {entry!r}"
+            msg = (
+                "A [[tool.repomatic.metrics.charts]] entry needs an output path: "
+                f"{entry!r}"
+            )
+            raise ValueError(msg)
+        metric = str(entry.get("metric") or "stars")
+        if metric not in CHARTABLE_METRICS:
+            chartable = ", ".join(CHARTABLE_METRICS)
+            msg = (
+                f"Chart {output} plots metric {metric!r}, which the store keeps no "
+                f"history of. Pick one of: {chartable}."
+            )
             raise ValueError(msg)
         declared = entry.get("only") or ()
         # A bare string is the natural single-series shorthand, and accepting it
@@ -130,6 +150,7 @@ class ChartSpec:
             raise ValueError(msg)  # noqa: TRY004
         return cls(
             output=Path(output),
+            metric=metric,
             mode=str(entry.get("mode") or "absolute"),
             only=only,
             title=str(entry.get("title") or ""),
@@ -154,7 +175,7 @@ class ChartData:
     """
 
     points: dict[str, list[tuple[date, int]]] = field(default_factory=dict)
-    """One sorted list of `(day, stars)` per series, in draw order."""
+    """One sorted list of `(day, value)` per series, in draw order."""
 
     colors: dict[str, tuple[str, str]] = field(default_factory=dict)
     """Light and dark hex pair per series, keyed like {attr}`points`."""
@@ -192,7 +213,7 @@ def assign_colors(
         msg = (
             f"{len(unslotted)} series need a colour but the palette holds "
             f"{len(SERIES_PALETTE)}. Split the chart, or name the extra hues in "
-            "[tool.repomatic.stars] colors."
+            "[tool.repomatic.metrics] colors."
         )
         raise ValueError(msg)
     slots = iter(SERIES_PALETTE)
@@ -221,7 +242,7 @@ def build_chart_data(
     selected on its own, and borrows that series' hue instead of claiming a
     slot of its own.
 
-    :param grouped: Every recorded series, as {func}`repomatic.stars.series`
+    :param grouped: Every recorded series, as {func}`repomatic.metrics.series`
         returns them.
     :param spec: The chart to prepare.
     :param overrides: Per-name `[light, dark]` pairs from configuration.
@@ -272,6 +293,7 @@ def render_chart(
     *,
     relative: bool = False,
     title: str = "",
+    label: str = "Stars",
     stamp: str | None = None,
 ) -> str:
     """Draw the line chart as a standalone, themeable SVG.
@@ -279,8 +301,10 @@ def render_chart(
     :param data: The series to plot and their hues.
     :param relative: Measure the horizontal axis from each repository's own
         first point rather than from the calendar.
-    :param title: Accessible name for the chart. Derived from the mode when
-        empty.
+    :param title: Accessible name for the chart. Derived from the metric and
+        the mode when empty.
+    :param label: What the vertical axis counts, from the plotted metric's
+        {attr}`~repomatic.metrics.Metric.label`.
     :param stamp: Sampling date shown in the caption, in `YYYY-MM-DD` form.
         Today (UTC) when `None`.
     :return: The complete SVG document.
@@ -413,11 +437,11 @@ def render_chart(
     )
 
     if relative:
-        axis = "GitHub stars by age of the project, aligned on each series' origin"
-        described = title or "GitHub stars by project age"
+        axis = f"{label} by age of the project, aligned on each series' origin"
+        described = title or f"{label} by project age"
     else:
-        axis = f"GitHub stars, {first_day} to {last_day}"
-        described = title or "GitHub star history"
+        axis = f"{label}, {first_day} to {last_day}"
+        described = title or f"{label} history"
     body = "\n  ".join(parts)
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"
      width="{width}" height="{height}" font-family="system-ui, sans-serif"
@@ -453,7 +477,7 @@ def write_chart(
 ) -> bool:
     """Render one chart and write it, leaving an unchanged file alone.
 
-    :param grouped: Every recorded series, as {func}`repomatic.stars.series`
+    :param grouped: Every recorded series, as {func}`repomatic.metrics.series`
         returns them.
     :param spec: The chart to draw.
     :param overrides: Per-name `[light, dark]` pairs from configuration.
@@ -463,7 +487,13 @@ def write_chart(
         {func}`build_chart_data`).
     """
     data = build_chart_data(grouped, spec, overrides)
-    content = render_chart(data, relative=spec.relative, title=spec.title, stamp=stamp)
+    content = render_chart(
+        data,
+        relative=spec.relative,
+        title=spec.title,
+        label=METRICS_BY_ID[spec.metric].label,
+        stamp=stamp,
+    )
     if spec.output.exists() and spec.output.read_text(encoding="UTF-8") == content:
         return False
     spec.output.parent.mkdir(parents=True, exist_ok=True)

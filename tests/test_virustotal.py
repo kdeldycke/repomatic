@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from repomatic.virustotal import (
+    SCAN_HEADERS,
     DetectionStats,
     ScanRecord,
     ScanResult,
@@ -80,9 +81,9 @@ def test_detection_stats_flagged():
 
 
 def test_scan_record_roundtrip(sample_records):
-    """Records survive a to_dict / from_dict roundtrip."""
+    """Records survive the CSV row they are committed as."""
     for record in sample_records:
-        assert ScanRecord.from_dict(record.to_dict()) == record
+        assert ScanRecord.from_row(dict(zip(SCAN_HEADERS, record.as_row()))) == record
 
 
 def test_scan_record_key(sample_records):
@@ -189,41 +190,45 @@ def test_records_from_release_notes_plain_body():
 
 def test_load_scan_records_missing_file(tmp_path):
     """A missing history file loads as an empty list."""
-    assert load_scan_records(tmp_path / "missing.json") == []
+    assert load_scan_records(tmp_path / "missing.csv") == []
 
 
 def test_load_scan_records_malformed(tmp_path):
     """A corrupt history file raises instead of being silently clobbered."""
-    path = tmp_path / "scans.json"
-    path.write_text("not json", encoding="UTF-8")
+    path = tmp_path / "scans.csv"
+    path.write_text("", encoding="UTF-8")
     with pytest.raises(ValueError, match="Malformed scan records"):
         load_scan_records(path)
 
 
 def test_upsert_scan_records_creates_file(tmp_path, sample_records):
     """The history file and its parent directories are created on demand."""
-    path = tmp_path / "assets" / "scans.json"
+    path = tmp_path / "assets" / "scans.csv"
     assert upsert_scan_records(path, sample_records) is True
     assert load_scan_records(path) == sorted(sample_records, key=lambda r: r.tag)
 
 
 def test_upsert_scan_records_empty_creates_file(tmp_path):
-    """No new records still normalizes an empty history file into existence."""
-    path = tmp_path / "scans.json"
+    """No new records still normalizes an empty history file into existence.
+
+    A header-only CSV is what later pipeline steps can rely on the presence of,
+    and what `read_csv` distinguishes from a truncated file.
+    """
+    path = tmp_path / "scans.csv"
     assert upsert_scan_records(path, []) is True
-    assert path.read_text(encoding="UTF-8") == "[]\n"
+    assert path.read_text(encoding="UTF-8") == ",".join(SCAN_HEADERS) + "\n"
 
 
 def test_upsert_scan_records_idempotent(tmp_path, sample_records):
     """Re-upserting the same records reports no change."""
-    path = tmp_path / "scans.json"
+    path = tmp_path / "scans.csv"
     upsert_scan_records(path, sample_records)
     assert upsert_scan_records(path, sample_records) is False
 
 
 def test_upsert_scan_records_replaces_same_day(tmp_path, sample_records):
     """A record with the same (sha256, scanned) identity is replaced."""
-    path = tmp_path / "scans.json"
+    path = tmp_path / "scans.csv"
     upsert_scan_records(path, sample_records)
     rescan = ScanRecord(
         tag="v1.1.0",
@@ -238,14 +243,14 @@ def test_upsert_scan_records_replaces_same_day(tmp_path, sample_records):
     assert loaded[-1].stats.flagged == 1
 
 
-def test_upsert_scan_records_sorted_and_biome_stable(tmp_path):
-    """Records are version-sorted and serialized in Biome's JSON layout.
+def test_upsert_scan_records_sorted_by_release_version(tmp_path):
+    """Records are ordered by release version, one line each.
 
-    Tab indentation and sorted keys match what `repomatic run biome` produces,
-    so the `format-json` autofix job never rewrites the history file. Checked
-    against Biome 2.5.0 output.
+    Sorting on the parsed version rather than on the tag string is what keeps
+    `v9` before `v10`, and one line per record is what keeps a release's append
+    readable in a diff.
     """
-    path = tmp_path / "scans.json"
+    path = tmp_path / "scans.csv"
     upsert_scan_records(
         path,
         [
@@ -270,28 +275,9 @@ def test_upsert_scan_records_sorted_and_biome_stable(tmp_path):
         ],
     )
     expected = (
-        "[\n"
-        "\t{\n"
-        '\t\t"filename": "app.bin",\n'
-        '\t\t"harmless": 0,\n'
-        '\t\t"malicious": 0,\n'
-        '\t\t"scanned": "2026-07-01",\n'
-        f'\t\t"sha256": "{"a" * 64}",\n'
-        '\t\t"suspicious": 0,\n'
-        '\t\t"tag": "v1.9.0",\n'
-        '\t\t"undetected": 3\n'
-        "\t},\n"
-        "\t{\n"
-        '\t\t"filename": "app.bin",\n'
-        '\t\t"harmless": 0,\n'
-        '\t\t"malicious": 1,\n'
-        '\t\t"scanned": "2026-07-06",\n'
-        f'\t\t"sha256": "{"b" * 64}",\n'
-        '\t\t"suspicious": 0,\n'
-        '\t\t"tag": "v2.0.0",\n'
-        '\t\t"undetected": 2\n'
-        "\t}\n"
-        "]\n"
+        ",".join(SCAN_HEADERS) + "\n"
+        f"v1.9.0,app.bin,{'a' * 64},2026-07-01,0,0,3,0\n"
+        f"v2.0.0,app.bin,{'b' * 64},2026-07-06,1,0,2,0\n"
     )
     assert path.read_text(encoding="UTF-8") == expected
 

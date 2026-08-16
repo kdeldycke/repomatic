@@ -33,11 +33,8 @@ dependency-graph.no-groups = []
 dependency-graph.no-extras = []
 dependency-graph.level = 0
 
-projects.sync = true
-projects.store = "./docs/assets/project-metrics.json"
-
-stars.sync = true
-stars.store = "./docs/assets/star-history.json"
+metrics.sync = true
+metrics.store = "./docs/assets/metrics.csv"
 
 gitignore.location = "./.gitignore"
 gitignore.extra-categories = ["terraform", "go"]
@@ -149,61 +146,49 @@ Tune rules for precision, not recall. The labeller pre-labels for the maintainer
 
 ### Forge sampling
 
-Two schedule-only operations record what forges say about a set of repositories, into stores committed here. Both are opt-in, and the `sync` key on each is also what decides whether `repomatic init` hands the repository the `stars.yaml` workflow at all.
+`sample-metrics` records what forges say about a set of repositories, into one CSV committed here. It is opt-in, and `metrics.sync` is also what decides whether `repomatic init` hands the repository the `metrics.yaml` workflow at all.
 
-`sample-stars` accumulates a star count per repository per day and draws charts from it. Series are declared once and each chart names the subset it plots, so one history feeds as many views as a page needs:
+Every reading is one row: which repository, which metric, on which date, what it said, and where the figure came from. How long a row is kept is a property of the metric rather than of the caller. A **counter** like the star count accrues, so its curve can be charted. An **attribute** like the date of a project's newest commit keeps a single row, restamped only when the value moves, since nothing reads it chronologically and a hundred subjects sampled weekly would otherwise pile up thousands of rows a year.
 
 ```toml
-[tool.repomatic.stars]
-store = "./docs/assets/star-history.json"
+[tool.repomatic.metrics]
+store = "./docs/assets/metrics.csv"
 sync = true
 
-[tool.repomatic.stars.series]
+# A bare owner/name is GitHub; anything else is a full URL on whichever forge
+# hosts it.
+[tool.repomatic.metrics.subjects]
 apricot = "apricot-org/apricot"
-papaya = "papaya-dev/papaya"
+papaya = "https://gitlab.com/papaya/papaya"
 
 # A project that reopened under a new repository: its forerunner is drawn
 # dashed, in the successor's hue, and stops where the successor begins.
-[tool.repomatic.stars.predecessors]
+[tool.repomatic.metrics.predecessors]
 papaya = "old-owner/papaya"
 
-[[tool.repomatic.stars.charts]]
+# A self-hosted instance is never guessed from its name.
+[tool.repomatic.metrics.forges]
+"gitlab.example.org" = "gitlab"
+
+# A mapping rather than a list: the reason is the point.
+[tool.repomatic.metrics.skip]
+carrot = "Ships in a distribution package with no public repository."
+
+[[tool.repomatic.metrics.charts]]
 output = "./docs/assets/star-history.svg"
 
-[[tool.repomatic.stars.charts]]
+[[tool.repomatic.metrics.charts]]
 mode = "relative"
 output = "./docs/assets/star-history-by-age.svg"
 
-[[tool.repomatic.stars.charts]]
+[[tool.repomatic.metrics.charts]]
 only = ["apricot"]
 output = "./docs/assets/star-history-apricot.svg"
 ```
 
-`mode` is `absolute` (one shared calendar) or `relative` (every curve measured from its own origin, which compares trajectories rather than dates). Hues come from a twelve-slot palette assigned in draw order; pin one with `[tool.repomatic.stars.colors]` when it must survive a reordering.
+A chart plots one metric, `stars` unless `metric` names another, and only a metric the store accrues can be charted. `mode` is `absolute` (one shared calendar) or `relative` (every curve measured from its own origin, which compares trajectories rather than dates). Hues come from a twelve-slot palette assigned in draw order; pin one with `[tool.repomatic.metrics.colors]` when it must survive a reordering.
 
-Only GitHub slugs belong in `series`: the history rests on the aggregate count GitHub kept public after restricting its stargazer endpoints in 2026. A repository the token administers is additionally reconstructed exactly from the timestamp of every star it still holds, so its curve is complete from day one rather than starting on the day sampling did.
-
-`sample-projects` answers a different question, and reads any forge:
-
-```toml
-[tool.repomatic.projects]
-store = "./docs/assets/project-metrics.json"
-sync = true
-
-[tool.repomatic.projects.repos]
-apricot = "https://github.com/apricot-org/apricot"
-papaya = "https://gitlab.com/papaya/papaya"
-
-# A self-hosted instance is never guessed from its name.
-[tool.repomatic.projects.forges]
-"gitlab.example.org" = "gitlab"
-
-# A mapping rather than a list: the reason is the point.
-[tool.repomatic.projects.skip]
-carrot = "Ships in a distribution package with no public repository."
-```
-
-It keeps one row per project rather than one per day, holding its stars, the date of its newest release or tag, and the date of its newest commit on the default branch. A row is rewritten only when a reading moves, so a quiet week stays out of the diff and a dead project's row keeps the date it actually stopped at.
+Two collectors are GitHub-only and skip every other forge with a note. An **exact reconstruction** rebuilds a star curve from the timestamp of every star a repository still holds, which works wherever the token administers it, so that curve is complete from day one rather than starting on the day sampling did. An **archive backfill** (`--backfill-wayback`) mines contemporaneous counts from archived `github.com` pages, for a repository nobody administers. Both are one-offs the scheduled job never runs.
 
 ### Flavors
 

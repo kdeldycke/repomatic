@@ -1,19 +1,19 @@
-# Accumulates the star history of the repositories a project tracks, and the
-# popularity and activity of the projects it watches, then redraws the charts.
+# Accumulates what forges say about the repositories a project tracks: star
+# counts over time, and the release and commit dates behind an activity reading.
 #
 # GitHub restricted its stargazer endpoints to a repository's own admins on
 # 2026-06-30 (REST) and 2026-07-17 (GraphQL), which killed every third-party
-# star chart on the web. The aggregate `stargazers_count` stayed public, so this
-# job snapshots it weekly and commits the result: a history that accrues in the
+# star chart on the web. The aggregate count stayed public, so this job
+# snapshots it weekly and commits the result: a history that accrues in the
 # repository cannot be revoked upstream.
 #
 # Only the sampling needs the network. Whatever renders the data reads the
-# committed JSON and SVG, so a docs build stays hermetic.
+# committed CSV and SVG, so a docs build stays hermetic.
 #
-# See repomatic/stars.py and repomatic/forge.py for the collection rationale,
-# and repomatic/star_chart.py for the rendering one.
+# See repomatic/metrics.py for the collection rationale, repomatic/forge.py for
+# the per-forge readers, and repomatic/metric_chart.py for the rendering.
 ---
-name: "\U00002B50 Star history"
+name: "\U0001F4C8 Forge metrics"
 "on":
   workflow_call:
     secrets:
@@ -22,8 +22,8 @@ name: "\U00002B50 Star history"
   workflow_dispatch:
   schedule:
     # Weekly: the charts plot multi-year trends, so a finer cadence would only
-    # add commits without moving a curve. Deliberately never on push, following
-    # the schedule-only rule for anything sourced from a third party.
+    # add commits without moving a curve. Deliberately never on push, since
+    # sampling the same value twice in a day writes the same row.
     - cron: "41 5 * * 2"
 
 permissions: {}
@@ -46,11 +46,11 @@ env:
 
 jobs:
 
-  sample-stars:
-    name: "\U00002B50 Sample forge metrics"
+  sample-metrics:
+    name: "\U0001F4C8 Sample forge metrics"
     runs-on: ubuntu-26.04
-    # Wider than the default: an exact reconstruction pages through every star a
-    # repository holds, one API call per hundred.
+    # Wider than the default: an exact star reconstruction pages through every
+    # star a repository holds, one API call per hundred.
     timeout-minutes: 30
     permissions:
       contents: write
@@ -68,25 +68,20 @@ jobs:
 
       # `gh` inherits this token to read the aggregate counts, and the per-star
       # timestamps of the repositories it administers, which only an admin
-      # token still sees.
-      - name: Sample star counts
+      # token still sees. Every other forge is read anonymously.
+      - name: Sample forge metrics
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uv --no-progress run --frozen -- repomatic --verbosity INFO sample-stars
-
-      - name: Sample tracked projects
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uv --no-progress run --frozen -- repomatic --verbosity INFO sample-projects
+        run: uv --no-progress run --frozen -- repomatic --verbosity INFO sample-metrics
 
       # Nothing to commit is the common case between two stars, and
       # `git-commit-push` is idempotent, so the guard is in the command rather
       # than in an `if:` here. `--all-changes` rather than a path list: the
-      # store and the charts live wherever `[tool.repomatic.stars]` puts them,
-      # which this workflow cannot know, and the two steps above are the only
-      # writers in a pristine checkout.
-      - name: Commit the new samples
+      # store and the charts live wherever `[tool.repomatic.metrics]` puts them,
+      # which this workflow cannot know, and the step above is the only writer
+      # in a pristine checkout.
+      - name: Commit the new readings
         run: >
           uv --no-progress run --frozen -- repomatic
           git-commit-push --all-changes
-          --message "Sample forge popularity and activity"
+          --message "Sample forge metrics"

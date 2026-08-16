@@ -329,16 +329,10 @@ stdout_contains = "Usage: repomatic run"
 
 
 [[cases]]
-cli_parameters = "sample-projects --help"
+cli_parameters = "sample-metrics --help"
 exit_code = 0
 strip_ansi = true
-stdout_contains = "Usage: repomatic sample-projects"
-
-[[cases]]
-cli_parameters = "sample-stars --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic sample-stars"
+stdout_contains = "Usage: repomatic sample-metrics"
 
 [[cases]]
 cli_parameters = "scan-virustotal --help"

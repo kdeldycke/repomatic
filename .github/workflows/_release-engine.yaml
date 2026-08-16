@@ -901,7 +901,7 @@ jobs:
           --binaries-dir ./binaries
           --poll
           --poll-timeout 600
-          --records docs/assets/virustotal-scans.json
+          --records docs/assets/virustotal-scans.csv
       - name: Regenerate binaries page
         # See repomatic/binaries_page.py for the page design rationale.
         # Skipped when [tool.repomatic] binaries.sync is disabled.
@@ -912,7 +912,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic sync-binaries
           --repo "${{ github.repository }}"
           --page docs/binaries.md
-          --records docs/assets/virustotal-scans.json
+          --records docs/assets/virustotal-scans.csv
           --backfill-records
       - name: Commit and push scan records
         # Direct push to the default branch, not a PR: this step records facts
@@ -929,7 +929,7 @@ jobs:
           --branch "${DEFAULT_BRANCH}"
           docs/binaries.md
           docs/assets/binaries.csv
-          docs/assets/virustotal-scans.json
+          docs/assets/virustotal-scans.csv
 
   sync-dev-release:
     name: 🔄 Sync dev pre-release

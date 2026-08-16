@@ -14,29 +14,38 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Accumulate the star history of a set of repositories, one point per day.
+"""Accumulate what forges say about a set of repositories, one reading at a time.
 
-Replaces the third-party star-history charts a project used to embed. On
+Every reading is one row of one table: which repository, which metric, on which
+date, what it said, and where the figure came from. A new metric is a
+{class}`Metric` entry and one line in the forge reader, not a new file, a new
+schema or a new command.
+
+```{note}
+How long a reading is kept is a property of the metric, not of the caller.
+
+A **counter** accrues: its whole point is the curve, so every dated reading is
+kept and charted. A star count is the one that motivated all this.
+
+An **attribute** does not: the date of a project's newest commit is a fact
+about today, nothing reads it chronologically, and a hundred subjects sampled
+weekly would pile up thousands of rows a year that no page ever opens. Only the
+newest reading is kept, dated when the value last *moved*, so a quiet week
+leaves the file untouched rather than restamping every row.
+
+{class}`Retention` is where that choice lives, and {func}`upsert` is the only
+code that has to know about it.
+```
+
+```{note}
+The star history replaces the third-party charts a project used to embed. On
 2026-06-30 GitHub restricted the REST stargazer endpoints to a repository's own
 admins and collaborators, and closed the equivalent GraphQL field on
 2026-07-17, which left every such embed on the web rendering an error card.
 
-What survived is the aggregate `stargazers_count` on the repository object,
-which stays public for everyone. That single scalar is the whole basis of this
-module: sampled on a schedule it accumulates into a history nobody can revoke.
-
-```{note}
-Four collectors, because the past is not equally knowable for every repository.
-
-For a repository the token administers, the per-star `starred_at` timestamps
-are still served, so its curve is reconstructed exactly, back to its first
-star, in a handful of calls.
-
-For everything else only the aggregate is readable. Their history comes from
-periodic samples going forward, plus a one-time backfill: either mined from
-archived copies of their GitHub pages, each of which states the precise count
-on the day it was captured, or imported from a CSV a star-history.com user
-exported while that service still worked.
+What survived is the aggregate count on the repository object, which stays
+public for everyone. Sampled on a schedule it accumulates into a history nobody
+can revoke.
 ```
 
 ```{warning}
@@ -48,8 +57,8 @@ starred, so a reconstruction attributes today's surviving stars to the dates
 they were given: it understates every past date by the number of stars since
 withdrawn, converging on the true figure at the present day. Kept on purpose,
 since a curve that sags where a project shed followers carries a signal a
-monotonic one hides. Each record therefore names its {data}`SOURCES`, so a
-reader can always tell which question a point answers.
+monotonic one hides. Each row therefore names its {data}`SOURCES`, so a reader
+can always tell which question a point answers.
 ```
 """
 
@@ -68,15 +77,17 @@ import zlib
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from enum import Enum, auto
 from itertools import accumulate
 
-from .github.gh import gh_api_json, run_gh_command
+from .forge import GITHUB_HOST, canonical_url, repo_metrics, split_repo_url
+from .github.gh import run_gh_command
+from .tabular import read_csv, render_csv, write_csv
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from pathlib import Path
-    from typing import Any
 
 GITHUB_EPOCH = date(2008, 1, 1)
 """No star predates GitHub, so nothing earlier can be a real reading.
@@ -95,25 +106,34 @@ wrong trade against a service that fails most requests but recovers within
 seconds on the next one.
 """
 
-STAR_SAMPLE_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Series", "series"),
-    ("Repository", "repository"),
-    ("Stars", "stars"),
-    ("Points", "points"),
-    ("Note", "note"),
-)
-"""Column definitions for the `repomatic sample-stars` table.
+METRIC_HEADERS = ("repo", "metric", "date", "value", "source")
+"""Columns of the committed store, in file order.
 
-Lives beside the rows' domain model so the columns and the fields they render
-cannot drift apart; the CLI derives its `--sort-by` choices from it.
+The three key columns first, then the payload, so the file reads top to bottom
+as one repository at a time, one metric at a time, chronologically. That is
+also the sort order, which is what makes a scheduled commit an append per
+subject rather than a reshuffle.
 """
 
 PREDECESSOR_SUFFIX = ":prior"
-"""Marks a predecessor's series key, appended to the series it belongs to.
+"""Marks a predecessor's series key, appended to the subject it belongs to.
 
-Keeps the configured series list exactly the columns a chart plots, while still
-letting the collectors and the renderer address the extra curve through the
-same code paths.
+Keeps the configured subject list exactly the curves a chart plots, while still
+letting the collectors and the renderer address the extra one through the same
+code paths.
+"""
+
+SAMPLE_HEADER_DEFS: tuple[tuple[str, str], ...] = (
+    ("Subject", "subject"),
+    ("Repository", "repository"),
+    ("Stars", "stars"),
+    ("Rows", "rows"),
+    ("Note", "note"),
+)
+"""Column definitions for the `repomatic sample-metrics` table.
+
+Lives beside the rows' domain model so the columns and the fields they render
+cannot drift apart; the CLI derives its `--sort-by` choices from it.
 """
 
 SOURCE_RANK: dict[str, int] = {
@@ -135,11 +155,11 @@ degrading it.
 SOURCES: dict[str, str] = {
     "created": "Repository creation, the one date a star count is known to be 0.",
     "github": "Exact per-star timestamps, surviving stars only (admin token).",
-    "sample": "Aggregate `stargazers_count` snapshot, contemporaneous.",
+    "sample": "Read from the forge's own API, contemporaneous.",
     "star-history": "Count at a date, imported from a star-history.com export.",
     "wayback": "Contemporaneous count mined from an archived GitHub page.",
 }
-"""Provenance vocabulary, recorded per point.
+"""Provenance vocabulary, recorded per row.
 
 A chart may mix methodologies it cannot reconcile, so it records which one each
 point came from rather than presenting a uniform curve it cannot honestly
@@ -216,83 +236,192 @@ straight after a `None`, through {func}`last_fetch_failure`.
 """
 
 
+class Retention(Enum):
+    """How long the store keeps a metric's readings."""
+
+    HISTORY = auto()
+    """Every dated reading, forever. For a counter, whose curve is the point."""
+
+    LATEST = auto()
+    """Only the newest reading, dated when the value last moved.
+
+    For an attribute, which describes today rather than accruing. Nothing reads
+    it chronologically, and keeping every sample would bury the file in rows
+    restating what the previous one already said.
+    """
+
+
 @dataclass(frozen=True)
-class StarRecord:
-    """One repository's star count on one day, and where the figure came from."""
+class Metric:
+    """One thing a forge can be asked about a repository."""
+
+    id: str
+    """Value of the store's `metric` column, and the name a chart selects on."""
+
+    retention: Retention
+    """Which of {class}`Retention` governs this metric's rows."""
+
+    label: str
+    """Human-readable name, for a rendered table or a chart axis."""
+
+    description: str
+    """What the reading means, and what it deliberately does not."""
+
+    @property
+    def accrues(self) -> bool:
+        """Whether this metric's past readings are kept and can be charted."""
+        return self.retention is Retention.HISTORY
+
+
+METRICS: tuple[Metric, ...] = (
+    Metric(
+        "commit",
+        Retention.LATEST,
+        "Last commit",
+        "Date of the newest commit on the default branch, which stays true for "
+        "a rolling repository that never tags a release.",
+    ),
+    Metric(
+        "release",
+        Retention.LATEST,
+        "Last release",
+        "Date of the newest release or tag, whichever is more recent.",
+    ),
+    Metric(
+        "release_source",
+        Retention.LATEST,
+        "Release kind",
+        "Whether the release date came from a release the project announced, "
+        "or from the newest tag it merely labelled.",
+    ),
+    Metric(
+        "stars",
+        Retention.HISTORY,
+        "Stars",
+        "Accounts following the repository on its own forge.",
+    ),
+)
+"""Every metric the sampler collects, sorted by ID.
+
+The extension point: a new counter is one entry here plus one `yield` in
+{meth}`~repomatic.forge.ForgeMetrics.readings`. Nothing else changes, because
+the store, the retention rule and the chart all read this registry.
+"""
+
+METRICS_BY_ID: dict[str, Metric] = {metric.id: metric for metric in METRICS}
+"""Index for O(1) metric lookup by ID."""
+
+CHARTABLE_METRICS: tuple[str, ...] = tuple(m.id for m in METRICS if m.accrues)
+"""Metrics a chart can plot, since only an accruing one has a curve."""
+
+
+@dataclass(frozen=True)
+class MetricRecord:
+    """One reading: what a forge said about one repository on one date."""
 
     repo: str
-    """The repository's `owner/name` slug."""
+    """Canonical `https://host/owner/name` URL of the subject."""
+
+    metric: str
+    """Which {data}`METRICS` entry this reading is of."""
 
     day: str
-    """The reading's date, in `YYYY-MM-DD` form."""
+    """The reading's date, in `YYYY-MM-DD` form.
 
-    stars: int
-    """How many accounts had the repository starred."""
+    For an accruing metric, when the reading was taken. For an attribute, when
+    its value last changed.
+    """
+
+    value: str
+    """What the forge answered, as text.
+
+    CSV carries no types, so a consumer wanting a number coerces it. The store
+    keeps the forge's own answer rather than a parsed one, since a metric added
+    later may not be numeric at all.
+    """
 
     source: str
     """Which key of {data}`SOURCES` produced the figure."""
 
     @property
-    def key(self) -> tuple[str, str]:
-        """Deduplication identity: one reading per repository per day."""
-        return (self.repo, self.day)
+    def key(self) -> tuple[str, str, str]:
+        """Deduplication identity: one reading per subject, metric and day."""
+        return (self.repo, self.metric, self.day)
 
-    def to_dict(self) -> dict[str, int | str]:
-        """Flatten to a JSON-ready mapping, `day` spelled `date` on disk."""
-        return {
-            "date": self.day,
-            "repo": self.repo,
-            "source": self.source,
-            "stars": self.stars,
-        }
+    @property
+    def subject_key(self) -> tuple[str, str]:
+        """What an attribute keeps only one row of."""
+        return (self.repo, self.metric)
+
+    @property
+    def count(self) -> int:
+        """The reading as an integer, for a counter metric.
+
+        :raises ValueError: When the value is not a number, which means a chart
+            was pointed at an attribute.
+        """
+        return int(self.value)
+
+    def as_row(self) -> tuple[str, ...]:
+        """Flatten to one CSV row, in {data}`METRIC_HEADERS` order."""
+        return (self.repo, self.metric, self.day, self.value, self.source)
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> StarRecord:
-        """Rebuild a record from its flattened JSON mapping."""
+    def from_row(cls, row: Mapping[str, str]) -> MetricRecord:
+        """Rebuild a record from one parsed CSV row.
+
+        :param row: The row, keyed by column name.
+        :return: The corresponding record.
+        :raises KeyError: When a column is missing.
+        """
         return cls(
-            repo=data["repo"],
-            day=data["date"],
-            stars=int(data["stars"]),
-            source=data["source"],
+            repo=row["repo"],
+            metric=row["metric"],
+            day=row["date"],
+            value=row["value"],
+            source=row["source"],
         )
 
 
 @dataclass(frozen=True)
-class CollectOutcome:
-    """What one repository's collection produced, for the CLI to report."""
+class SampleOutcome:
+    """What one subject's sample produced, for the CLI to report."""
 
-    name: str
-    """Series name the repository is plotted under."""
+    subject: str
+    """Name the repository gives this subject."""
 
     repo: str
-    """The repository's `owner/name` slug."""
+    """Canonical URL it read from."""
 
     stars: int | None = None
     """Its current star count, when the collector read one."""
 
-    points: int = 0
-    """How many stored points this collector added or moved."""
+    rows: int = 0
+    """How many stored rows this collector added or moved."""
 
     note: str = ""
     """Why nothing was collected, empty when something was."""
 
 
-def collected_repos(
-    series_map: Mapping[str, str],
+def collected_subjects(
+    subjects: Mapping[str, str],
     predecessors: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    """Every repository a collector touches, keyed by its series name.
+    """Every repository a collector touches, keyed by its subject name.
 
-    :param series_map: Plotted series, mapping each name to an `owner/name` slug.
-    :param predecessors: Retired forerunners, mapping the name of the series
-        they belong to onto their own slug.
-    :return: The series, plus one entry per forerunner whose key carries
-        {data}`PREDECESSOR_SUFFIX` so a caller can tell the two apart.
+    :param subjects: Tracked subjects, mapping each name to a slug or URL.
+    :param predecessors: Retired forerunners, mapping the name of the subject
+        they belong to onto their own slug or URL.
+    :return: The subjects, plus one entry per forerunner whose key carries
+        {data}`PREDECESSOR_SUFFIX` so a caller can tell the two apart. Every
+        value is a canonical URL.
+    :raises ValueError: When a declared subject parses as neither a slug nor a
+        URL.
     """
-    repos = dict(series_map)
-    for name, slug in (predecessors or {}).items():
-        repos[name + PREDECESSOR_SUFFIX] = slug
-    return repos
+    collected = {name: canonical_url(target) for name, target in subjects.items()}
+    for name, target in (predecessors or {}).items():
+        collected[name + PREDECESSOR_SUFFIX] = canonical_url(target)
+    return collected
 
 
 def last_fetch_failure() -> str:
@@ -307,75 +436,107 @@ def last_fetch_failure() -> str:
     return tally or "no response"
 
 
-def load_star_records(path: Path) -> dict[tuple[str, str], StarRecord]:
-    """Read the committed star history, keyed by repository and date.
+def load_metrics(path: Path) -> dict[tuple[str, str, str], MetricRecord]:
+    """Read the committed store, keyed by subject, metric and date.
 
-    :param path: Path to the JSON history file.
+    :param path: Path to the CSV store.
     :return: The records, empty when the file does not exist.
     :raises ValueError: When the file exists but cannot be parsed. Loud on
-        purpose: a corrupt history must never be silently clobbered by the
-        next {func}`save_star_records` write.
+        purpose: a corrupt store must never be silently clobbered by the next
+        {func}`save_metrics` write.
     """
-    if not path.exists():
-        return {}
     try:
-        data = json.loads(path.read_text(encoding="UTF-8"))
-        records = [StarRecord.from_dict(entry) for entry in data]
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-        msg = f"Malformed star history file {path}: {error}"
+        rows = read_csv(path)
+        records = [MetricRecord.from_row(row) for row in rows]
+    except (KeyError, TypeError, ValueError) as error:
+        msg = f"Malformed metric store {path}: {error}"
         raise ValueError(msg) from error
     return {record.key: record for record in records}
 
 
-def save_star_records(
+def save_metrics(
     path: Path,
-    records: Mapping[tuple[str, str], StarRecord],
+    records: Mapping[tuple[str, str, str], MetricRecord],
 ) -> bool:
-    """Write the history back, sorted and tab-indented.
+    """Write the store back, sorted by subject, metric and date.
 
     Merges whatever is on disk under the caller's own records rather than
     overwriting the file wholesale. A slow backfill flushes after every point
     across a run lasting hours, so it holds a snapshot that goes stale the
-    moment anything else records a sample: without the merge its next flush
-    would silently drop those points. The history only ever grows, so
-    preferring the in-memory copy on a conflict resolves it correctly.
+    moment anything else records a reading: without the merge its next flush
+    would silently drop those rows.
 
-    Serialized with the layout Biome's JSON formatter produces, so the
-    `format-json` autofix job never rewrites it.
+    ```{caution}
+    The merge is additive, so it cannot express a *deletion*. An attribute
+    whose older rows {func}`upsert` just pruned would come back from disk. The
+    prune therefore happens against a store that was loaded from that same
+    file, which is what every collector here does; a caller assembling records
+    from nothing must write with a store it loaded first.
+    ```
 
-    :param path: Path to the JSON history file.
-    :param records: The records to write, keyed by repository and date.
+    :param path: Path to the CSV store.
+    :param records: The records to write.
     :return: `True` when the file content changed.
     """
-    merged = {**load_star_records(path), **records}
-    ordered = [merged[key].to_dict() for key in sorted(merged)]
-    content = json.dumps(ordered, indent="\t", sort_keys=True) + "\n"
-    if path.exists() and path.read_text(encoding="UTF-8") == content:
-        return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="UTF-8")
-    return True
+    merged = {**load_metrics(path), **records}
+    # An attribute keeps one row per subject: whatever came back from disk for
+    # a metric the caller just pruned is dropped again here, so the merge
+    # cannot resurrect a superseded reading.
+    for key, record in list(merged.items()):
+        metric = METRICS_BY_ID.get(record.metric)
+        if metric is None or metric.accrues:
+            continue
+        newest = max(
+            (r.day for r in merged.values() if r.subject_key == record.subject_key),
+            default=record.day,
+        )
+        if record.day != newest:
+            del merged[key]
+    rows = [merged[key].as_row() for key in sorted(merged)]
+    return write_csv(path, render_csv(METRIC_HEADERS, rows))
 
 
 def upsert(
-    records: dict[tuple[str, str], StarRecord],
-    record: StarRecord,
+    records: dict[tuple[str, str, str], MetricRecord],
+    record: MetricRecord,
 ) -> bool:
-    """Record one point, returning whether it changed anything.
+    """Record one reading, returning whether it changed anything.
 
-    A re-run on the same day overwrites rather than appends, which is what
-    keeps the scheduled job idempotent. A more authoritative source wins over a
-    weaker one for the same day, per {data}`SOURCE_RANK`.
+    Re-running on the same day overwrites rather than appends, which is what
+    keeps the scheduled job idempotent. Beyond that the metric's
+    {class}`Retention` decides:
+
+    - An accruing metric keeps every day, and a more authoritative source wins
+      over a weaker one for the same day, per {data}`SOURCE_RANK`.
+    - An attribute keeps one row. An unchanged value leaves the stored date
+      alone, so a quiet week rewrites nothing; a moved value replaces the row
+      and takes the new date, which is therefore when the value last changed
+      rather than when it was last confirmed.
 
     :param records: The in-memory store, mutated in place.
-    :param record: The point to store.
+    :param record: The reading to store.
     :return: `True` when the store moved.
+    :raises KeyError: When the metric is not in {data}`METRICS_BY_ID`.
     """
-    previous = records.get(record.key)
-    if previous == record:
-        return False
-    if previous and SOURCE_RANK[record.source] < SOURCE_RANK[previous.source]:
-        return False
+    metric = METRICS_BY_ID[record.metric]
+    if metric.accrues:
+        previous = records.get(record.key)
+        if previous == record:
+            return False
+        if previous and SOURCE_RANK[record.source] < SOURCE_RANK[previous.source]:
+            return False
+        records[record.key] = record
+        return True
+
+    existing = [
+        key for key, held in records.items() if held.subject_key == record.subject_key
+    ]
+    if existing:
+        newest = max(existing, key=lambda key: key[2])
+        if records[newest].value == record.value:
+            return False
+        for key in existing:
+            del records[key]
     records[record.key] = record
     return True
 
@@ -463,49 +624,65 @@ def fetch(
     return None
 
 
-def sample_current(
-    records: dict[tuple[str, str], StarRecord],
-    name: str,
+def sample_subject(
+    records: dict[tuple[str, str, str], MetricRecord],
+    subject: str,
     repo: str,
+    extra_forges: Mapping[str, str] | None = None,
     day: str | None = None,
-) -> CollectOutcome:
-    """Snapshot today's aggregate star count of one repository.
+) -> SampleOutcome:
+    """Read every metric of one subject, through whichever forge hosts it.
 
     The scheduled collector, and the only one that works for a repository the
-    token does not administer.
+    token does not administer, or that lives outside GitHub entirely.
 
     :param records: The in-memory store, mutated in place.
-    :param name: Series name the repository is plotted under.
-    :param repo: The repository's `owner/name` slug.
+    :param subject: Name the repository gives this subject.
+    :param repo: Its canonical URL.
+    :param extra_forges: Host-to-forge entries for self-hosted instances.
     :param day: Reading date in `YYYY-MM-DD` form. Today (UTC) when `None`.
     :return: What the sample produced.
     """
     if day is None:
         day = datetime.now(tz=timezone.utc).date().isoformat()
-    payload = gh_api_json(["api", f"repos/{repo}"])
-    if not payload:
-        # A single unreachable repository must not lose the other samples.
-        return CollectOutcome(name, repo, note="unreadable")
-    stars = int(payload["stargazers_count"])
-    points = int(upsert(records, StarRecord(repo, day, stars, "sample")))
-    # Immutable, and free to re-assert: the repository object carries it on
-    # every sample, so the origin is recorded without a second call.
-    created = str(payload["created_at"])[:10]
-    points += int(upsert(records, StarRecord(repo, created, 0, "created")))
-    return CollectOutcome(name, repo, stars=stars, points=points)
+    try:
+        metrics = repo_metrics(repo, extra_forges)
+    except (RuntimeError, ValueError, KeyError, IndexError, TypeError) as error:
+        # Caught wide and per subject: a repository gone private, a host
+        # answering a payload of a shape nobody anticipated, or a forge added
+        # without its API declared must cost one row, not every other reading
+        # the run collected.
+        return SampleOutcome(subject, repo, note=str(error)[:110])
+    if metrics is None:
+        return SampleOutcome(subject, repo, note="unreadable")
+
+    rows = 0
+    for metric_id, value in metrics.readings():
+        rows += int(
+            upsert(records, MetricRecord(repo, metric_id, day, value, "sample"))
+        )
+    if metrics.created:
+        # Immutable, and free to re-assert: the repository object carries it on
+        # every sample, so the origin is recorded without a second call.
+        rows += int(
+            upsert(
+                records, MetricRecord(repo, "stars", metrics.created, "0", "created")
+            )
+        )
+    return SampleOutcome(subject, repo, stars=metrics.stars, rows=rows)
 
 
 def reconstruct_from_github(
-    records: dict[tuple[str, str], StarRecord],
-    name: str,
+    records: dict[tuple[str, str, str], MetricRecord],
+    subject: str,
     repo: str,
-) -> CollectOutcome:
-    """Reconstruct one repository's curve from per-star timestamps.
+) -> SampleOutcome:
+    """Reconstruct one repository's star curve from per-star timestamps.
 
-    Only works where the token administers the repository; GitHub answers `404`
-    rather than `403` on the restricted endpoint for every other. Collapses to
-    one cumulative point per day on which the count moved, rather than one per
-    star.
+    Only works on GitHub, and only where the token administers the repository;
+    GitHub answers `404` rather than `403` on the restricted endpoint for every
+    other. Collapses to one cumulative reading per day on which the count
+    moved, rather than one per star.
 
     Pagination is all-or-nothing on purpose. A transient failure halfway
     through would otherwise write a truncated cumulative curve over a correct
@@ -513,31 +690,38 @@ def reconstruct_from_github(
 
     :param records: The in-memory store, mutated in place once the whole walk
         succeeded.
-    :param name: Series name the repository is plotted under.
-    :param repo: The repository's `owner/name` slug.
+    :param subject: Name the repository gives this subject.
+    :param repo: Its canonical URL.
     :return: What the reconstruction produced.
     """
+    host, path = split_repo_url(repo)
+    if host != GITHUB_HOST:
+        return SampleOutcome(
+            subject, repo, note=f"{host} serves no per-star timestamps"
+        )
+
     per_day: Counter[str] = Counter()
     page = 1
     while True:
         try:
-            output = run_gh_command([
-                "api",
-                f"repos/{repo}/stargazers?per_page=100&page={page}",
-                "--header",
-                "Accept: application/vnd.github.star+json",
-            ])
-            batch = json.loads(output)
+            batch = json.loads(
+                run_gh_command([
+                    "api",
+                    f"repos/{path}/stargazers?per_page=100&page={page}",
+                    "--header",
+                    "Accept: application/vnd.github.star+json",
+                ])
+            )
         except RuntimeError as error:
             detail = str(error).strip().splitlines()
             reason = detail[0][:80] if detail else "unknown error"
             if page == 1 and "Not Found" in str(error):
-                return CollectOutcome(name, repo, note="not an admin, not readable")
-            return CollectOutcome(
-                name, repo, note=f"abandoned on page {page}: {reason}"
+                return SampleOutcome(subject, repo, note="not an admin, not readable")
+            return SampleOutcome(
+                subject, repo, note=f"abandoned on page {page}: {reason}"
             )
         except json.JSONDecodeError:
-            return CollectOutcome(name, repo, note=f"unparsable page {page}")
+            return SampleOutcome(subject, repo, note=f"unparsable page {page}")
         if not batch:
             break
         for entry in batch:
@@ -545,19 +729,21 @@ def reconstruct_from_github(
         page += 1
 
     if not per_day:
-        return CollectOutcome(name, repo, note="the endpoint answered empty")
+        return SampleOutcome(subject, repo, note="the endpoint answered empty")
 
     days = sorted(per_day)
-    points = 0
+    rows = 0
     for day, total in zip(days, accumulate(per_day[each] for each in days)):
-        points += upsert(records, StarRecord(repo, day, total, "github"))
-    return CollectOutcome(name, repo, stars=per_day.total(), points=points)
+        rows += int(
+            upsert(records, MetricRecord(repo, "stars", day, str(total), "github"))
+        )
+    return SampleOutcome(subject, repo, stars=per_day.total(), rows=rows)
 
 
-def wayback_captures(repo: str) -> list[str] | None:
+def wayback_captures(path: str) -> list[str] | None:
     """List one archived capture per month of a repository's GitHub page.
 
-    :param repo: The repository's `owner/name` slug.
+    :param path: The repository's `owner/name` path.
     :return: The capture timestamps, or `None` when the index itself could not
         be read. That is not the same answer as an empty list and must not be
         reported as one: the archive fails this query as readily as any other,
@@ -565,7 +751,7 @@ def wayback_captures(repo: str) -> list[str] | None:
         silently and for good.
     """
     query = urllib.parse.urlencode({
-        "url": f"github.com/{repo}",
+        "url": f"github.com/{path}",
         "output": "json",
         "fl": "timestamp",
         "filter": "statuscode:200",
@@ -585,11 +771,11 @@ def wayback_captures(repo: str) -> list[str] | None:
 
 
 def backfill_wayback(
-    records: dict[tuple[str, str], StarRecord],
-    name: str,
+    records: dict[tuple[str, str, str], MetricRecord],
+    subject: str,
     repo: str,
     store: Path | None = None,
-) -> CollectOutcome:
+) -> SampleOutcome:
     """Mine contemporaneous star counts from archived copies of a GitHub page.
 
     The only route to the past of a repository the token cannot administer, and
@@ -597,54 +783,58 @@ def backfill_wayback(
     than what survives today.
 
     :param records: The in-memory store, mutated in place.
-    :param name: Series name the repository is plotted under.
-    :param repo: The repository's `owner/name` slug.
-    :param store: History file to flush to after every recovered point, since
-        a run spans many minutes of a flaky remote. Skipped when `None`.
+    :param subject: Name the repository gives this subject.
+    :param repo: Its canonical URL.
+    :param store: Store to flush to after every recovered point, since a run
+        spans many minutes of a flaky remote. Skipped when `None`.
     :return: What the backfill produced.
     """
+    host, path = split_repo_url(repo)
+    if host != GITHUB_HOST:
+        return SampleOutcome(subject, repo, note=f"{host} pages are not mined")
     if any(
-        record.repo == repo and record.source == "github" for record in records.values()
+        held.repo == repo and held.metric == "stars" and held.source == "github"
+        for held in records.values()
     ):
         # An exact reconstruction already covers this repository, and mining it
         # would only add a second, differently-measured curve over the same
         # dates. The archives are slow and rate-limited: spend them on the
         # repositories that have no other source of history.
-        return CollectOutcome(name, repo, note="already reconstructed exactly")
+        return SampleOutcome(subject, repo, note="already reconstructed exactly")
 
-    stamps = wayback_captures(repo)
+    stamps = wayback_captures(path)
     if stamps is None:
         # Loud, and distinct from "nothing was ever archived": this repository
         # still has a past to mine, so the next run must come back to it.
         note = f"capture index unreadable ({last_fetch_failure()}), retry later"
-        return CollectOutcome(name, repo, note=note)
+        return SampleOutcome(subject, repo, note=note)
 
-    points = 0
+    rows = 0
     for stamp in stamps:
         day = f"{stamp[0:4]}-{stamp[4:6]}-{stamp[6:8]}"
-        if (repo, day) in records:
+        if (repo, "stars", day) in records:
             continue
         # Paced deliberately. The archive answers 503 to every URL form once a
         # sustained crawl exhausts its budget, and it stays shut for a while: a
         # run racing through the captures finishes by collecting nothing.
         time.sleep(WAYBACK_REQUEST_DELAY)
         payload = fetch(
-            f"https://web.archive.org/web/{stamp}id_/https://github.com/{repo}",
+            f"https://web.archive.org/web/{stamp}id_/https://github.com/{path}",
             tries=WAYBACK_PAGE_TRIES,
         )
         if not payload:
-            logging.info(f"  {repo} {day}: unreachable ({last_fetch_failure()})")
+            logging.info(f"  {path} {day}: unreachable ({last_fetch_failure()})")
             continue
         stars = read_star_counter(payload.decode("utf-8", errors="replace"))
         if stars is None:
-            logging.info(f"  {repo} {day}: no counter found")
+            logging.info(f"  {path} {day}: no counter found")
             continue
-        if upsert(records, StarRecord(repo, day, stars, "wayback")):
-            points += 1
+        if upsert(records, MetricRecord(repo, "stars", day, str(stars), "wayback")):
+            rows += 1
             if store is not None:
-                save_star_records(store, records)
-        logging.info(f"  {repo} {day}: {stars} stars")
-    return CollectOutcome(name, repo, points=points, note=f"{len(stamps)} captures")
+                save_metrics(store, records)
+        logging.info(f"  {path} {day}: {stars} stars")
+    return SampleOutcome(subject, repo, rows=rows, note=f"{len(stamps)} captures")
 
 
 def read_star_counter(html: str) -> int | None:
@@ -679,10 +869,10 @@ def parse_csv_day(stamp: str) -> date | None:
 
 
 def import_star_history_csv(
-    records: dict[tuple[str, str], StarRecord],
+    records: dict[tuple[str, str, str], MetricRecord],
     path: Path,
-    slugs: Iterable[str] | None = None,
-) -> list[CollectOutcome]:
+    repos: Iterable[str] | None = None,
+) -> list[SampleOutcome]:
     """Import the calendar export a star-history.com user downloaded.
 
     That service reconstructed its curves from the same stargazer endpoint
@@ -696,20 +886,23 @@ def import_star_history_csv(
 
     :param records: The in-memory store, mutated in place.
     :param path: The exported CSV.
-    :param slugs: Only import rows whose repository is listed here. Every row
-        when `None`.
+    :param repos: Only import rows whose repository canonicalizes into this
+        set. Every row when `None`.
     :return: One outcome per repository the file covered.
     :raises ValueError: When the file carries no usable row, naming the by-age
         export as the likely cause.
     """
-    wanted = set(slugs) if slugs is not None else None
+    wanted = set(repos) if repos is not None else None
     imported: Counter[str] = Counter()
     seen: Counter[str] = Counter()
     rows = 0
     with path.open(encoding="UTF-8", newline="") as handle:
         for row in csv.DictReader(handle):
-            repo = (row.get("Repository") or "").strip()
-            if not repo or (wanted is not None and repo not in wanted):
+            slug = (row.get("Repository") or "").strip()
+            if not slug:
+                continue
+            repo = canonical_url(slug)
+            if wanted is not None and repo not in wanted:
                 continue
             rows += 1
             day = parse_csv_day(row.get("Date") or "")
@@ -720,7 +913,9 @@ def import_star_history_csv(
             except ValueError:
                 continue
             seen[repo] += 1
-            record = StarRecord(repo, day.isoformat(), stars, "star-history")
+            record = MetricRecord(
+                repo, "stars", day.isoformat(), str(stars), "star-history"
+            )
             if upsert(records, record):
                 imported[repo] += 1
     if rows and not seen:
@@ -731,30 +926,39 @@ def import_star_history_csv(
         )
         raise ValueError(msg)
     return [
-        CollectOutcome(repo, repo, points=imported[repo], note=f"{seen[repo]} rows")
+        SampleOutcome(repo, repo, rows=imported[repo], note=f"{seen[repo]} rows")
         for repo in sorted(seen)
     ]
 
 
 def series(
-    records: Mapping[tuple[str, str], StarRecord],
-    series_map: Mapping[str, str],
+    records: Mapping[tuple[str, str, str], MetricRecord],
+    subjects: Mapping[str, str],
+    metric: str = "stars",
     predecessors: Mapping[str, str] | None = None,
 ) -> dict[str, list[tuple[date, int]]]:
-    """Group the history into one chronological series per plotted name.
+    """Group one metric's readings into a chronological series per subject.
 
-    :param records: The store, keyed by repository and date.
-    :param series_map: Plotted series, mapping each name to an `owner/name` slug.
-    :param predecessors: Retired forerunners, keyed by the series they precede.
-    :return: One sorted list of `(day, stars)` per series that has any point,
-        forerunners under their {data}`PREDECESSOR_SUFFIX` key.
+    :param records: The store.
+    :param subjects: Tracked subjects, mapping each name to a slug or URL.
+    :param metric: Which accruing metric to plot.
+    :param predecessors: Retired forerunners, keyed by the subject they precede.
+    :return: One sorted list of `(day, value)` per subject that has any
+        reading, forerunners under their {data}`PREDECESSOR_SUFFIX` key.
+    :raises ValueError: When *metric* does not accrue, so has no curve to plot.
     """
+    known = METRICS_BY_ID.get(metric)
+    if known is None or not known.accrues:
+        chartable = ", ".join(CHARTABLE_METRICS)
+        msg = f"Metric {metric!r} has no history to chart. Pick one of: {chartable}."
+        raise ValueError(msg)
+
     grouped: dict[str, list[tuple[date, int]]] = {}
-    for name, repo in collected_repos(series_map, predecessors).items():
+    for name, repo in collected_subjects(subjects, predecessors).items():
         points = sorted(
-            (date.fromisoformat(record.day), record.stars)
-            for record in records.values()
-            if record.repo == repo
+            (date.fromisoformat(held.day), held.count)
+            for held in records.values()
+            if held.repo == repo and held.metric == metric
         )
         if points:
             grouped[name] = points
@@ -764,7 +968,7 @@ def series(
     # tail would run it the whole width of the chart alongside the successor,
     # reading as two projects living side by side. Cutting it at the handover
     # shows what actually happened: one audience stopped being counted here and
-    # started being counted there. The store keeps the discarded points, so the
+    # started being counted there. The store keeps the discarded rows, so the
     # record stays complete even though the chart does not draw them.
     for name in predecessors or {}:
         key = name + PREDECESSOR_SUFFIX

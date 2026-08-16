@@ -54,9 +54,11 @@ import vt
 from packaging.version import InvalidVersion, Version
 
 from .binary import compute_file_sha256
+from .tabular import read_csv, render_csv, write_csv
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from typing import Any
 
 FREE_TIER_RATE_LIMIT = 4
@@ -64,6 +66,24 @@ FREE_TIER_RATE_LIMIT = 4
 
 The single source for the upload and polling pace: the `scan-virustotal`
 CLI default and both client functions below derive from it.
+"""
+
+SCAN_HEADERS = (
+    "tag",
+    "filename",
+    "sha256",
+    "scanned",
+    "malicious",
+    "suspicious",
+    "undetected",
+    "harmless",
+)
+"""Columns of the committed scan history, in file order.
+
+The release and the file it identifies first, then the four verdict counts, so
+the table reads left to right from what was scanned to what came back. Rows are
+ordered by release version rather than alphabetically, which a plain sort of
+the tag strings would get wrong past `v9`.
 """
 
 VIRUSTOTAL_GUI_URL = "https://www.virustotal.com/gui/file/{sha256}"
@@ -166,22 +186,26 @@ class ScanRecord:
         """Deduplication identity: the same file scanned on the same day."""
         return (self.sha256, self.scanned)
 
-    def to_dict(self) -> dict[str, int | str]:
-        """Flatten to a JSON-ready mapping, detection stats inlined."""
-        return {
-            "filename": self.filename,
-            "harmless": self.stats.harmless,
-            "malicious": self.stats.malicious,
-            "scanned": self.scanned,
-            "sha256": self.sha256,
-            "suspicious": self.stats.suspicious,
-            "tag": self.tag,
-            "undetected": self.stats.undetected,
-        }
+    def as_row(self) -> tuple[str, ...]:
+        """Flatten to one CSV row, in {data}`SCAN_HEADERS` order."""
+        return (
+            self.tag,
+            self.filename,
+            self.sha256,
+            self.scanned,
+            str(self.stats.malicious),
+            str(self.stats.suspicious),
+            str(self.stats.undetected),
+            str(self.stats.harmless),
+        )
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ScanRecord:
-        """Rebuild a record from its flattened JSON mapping."""
+    def from_row(cls, data: Mapping[str, Any]) -> ScanRecord:
+        """Rebuild a record from one parsed CSV row, or a legacy JSON mapping.
+
+        Both shapes carry the same eight keys, so one reader covers a store
+        mid-migration as well as one already converted.
+        """
         return cls(
             tag=data["tag"],
             filename=data["filename"],
@@ -414,19 +438,30 @@ def _record_sort_key(record: ScanRecord) -> tuple[Version, str, str, str]:
 
 
 def load_scan_records(path: Path) -> list[ScanRecord]:
-    """Load scan records from a JSON history file.
+    """Load scan records from the CSV history file.
 
-    :param path: Path to the JSON file.
-    :return: The records, or an empty list when the file does not exist.
-    :raises ValueError: When the file exists but cannot be parsed. Loud on
+    ```{note}
+    A repository whose history predates the CSV store carries the same records
+    in a sibling `.json`, and is read from there when the CSV is absent. The
+    next {func}`upsert_scan_records` write lands as CSV, so a repository
+    migrates on its first release after upgrading without anyone converting
+    anything. The stale `.json` is then inert and can be deleted.
+    ```
+
+    :param path: Path to the CSV file.
+    :return: The records, or an empty list when neither file exists.
+    :raises ValueError: When a file exists but cannot be parsed. Loud on
         purpose: a corrupt history must never be silently clobbered by the
         next {func}`upsert_scan_records` write.
     """
-    if not path.exists():
-        return []
     try:
-        data = json.loads(path.read_text(encoding="UTF-8"))
-        return [ScanRecord.from_dict(entry) for entry in data]
+        rows: list[Mapping[str, Any]] = list(read_csv(path))
+        if not rows:
+            legacy = path.with_suffix(".json")
+            if legacy.exists():
+                logging.info(f"Reading legacy scan records from {legacy}.")
+                rows = json.loads(legacy.read_text(encoding="UTF-8"))
+        return [ScanRecord.from_row(row) for row in rows]
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"Malformed scan records file {path}: {exc}") from exc
 
@@ -449,18 +484,9 @@ def upsert_scan_records(path: Path, new_records: list[ScanRecord]) -> bool:
     for record in new_records:
         merged[record.key] = record
     ordered = sorted(merged.values(), key=_record_sort_key)
-    # Tab indentation matches Biome's JSON style, so `format-json` never
-    # rewrites the file.
-    content = (
-        json.dumps(
-            [record.to_dict() for record in ordered], indent="\t", sort_keys=True
-        )
-        + "\n"
-    )
-    if path.exists() and path.read_text(encoding="UTF-8") == content:
+    content = render_csv(SCAN_HEADERS, [record.as_row() for record in ordered])
+    if not write_csv(path, content):
         logging.info(f"Scan records in {path} already up to date.")
         return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="UTF-8")
     logging.info(f"Wrote {len(ordered)} scan record(s) to {path}.")
     return True

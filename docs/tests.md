@@ -369,6 +369,15 @@
    :undoc-members:
 ```
 
+## `tests.test_metrics` module
+
+```{eval-rst}
+.. automodule:: tests.test_metrics
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_npm` module
 
 ```{eval-rst}
@@ -522,15 +531,6 @@
    :undoc-members:
 ```
 
-## `tests.test_stars` module
-
-```{eval-rst}
-.. automodule:: tests.test_stars
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `tests.test_status` module
 
 ```{eval-rst}
@@ -553,6 +553,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_sync_ops
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_tabular` module
+
+```{eval-rst}
+.. automodule:: tests.test_tabular
    :members:
    :show-inheritance:
    :undoc-members:

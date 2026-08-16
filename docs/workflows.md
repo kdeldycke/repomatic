@@ -697,7 +697,7 @@ flowchart TD
 
 #### 🛡️ VirusTotal scan (`scan-virustotal`)
 
-- Uploads compiled binaries (`.bin` and `.exe`) to [VirusTotal](https://www.virustotal.com/) via `repomatic scan-virustotal`, polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.json`
+- Uploads compiled binaries (`.bin` and `.exe`) to [VirusTotal](https://www.virustotal.com/) via `repomatic scan-virustotal`, polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.csv`
 - Seeds AV vendor databases to reduce false positive detections for downstream distributors (Chocolatey, Scoop, etc.)
 - Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then commits the files directly to the default branch via `repomatic git-commit-push`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
 - **Requires**:
@@ -752,25 +752,24 @@ This workflow maintains repomatic's own package source and is the one file in `.
 - **Skipped if**:
   - `tool-versions.sync = false` in `[tool.repomatic]`
 
-(github-workflows-stars-yaml-jobs)=
+(github-workflows-metrics-yaml-jobs)=
 
-### ⭐ [`.github/workflows/stars.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/stars.yaml)
+### 📈 [`.github/workflows/metrics.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/metrics.yaml)
 
-Opt-in: `repomatic init` only materializes this file for a repository that set `stars.sync = true`, since an accumulating history is a commitment rather than a default. That one key gates the file, and the two samplers share the job it holds, so a repository wanting project readings and no star history sets `stars.sync = true` as well and leaves `[tool.repomatic.stars] series` empty.
+Opt-in: `repomatic init` only materializes this file for a repository that set `metrics.sync = true`, since an accumulating store is a commitment rather than a default.
 
-#### ⭐ Sample forge metrics (`sample-stars`)
+#### 📈 Sample forge metrics (`sample-metrics`)
 
-- Snapshots the aggregate star count of every repository in `[tool.repomatic.stars] series` with [`repomatic sample-stars`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/stars.py), appends one point per repository per day, and redraws the configured SVG charts
-- Reconstructs an exact curve for every repository the token administers, from the per-star timestamps GitHub still serves an admin: those series are complete from their first star rather than from the day sampling started
-- Reads each project in `[tool.repomatic.projects] repos` with [`repomatic sample-projects`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/forge.py), across GitHub, GitLab and Forgejo, recording its stars, newest release or tag, and newest commit
-- Commits both stores straight to the default branch: the diff records what an API answered at a moment that has passed, so there is nothing a pull request could review (see [§ Sampling commits directly](operation-contracts.md#sampling-commits-directly))
-- Charts are stamped with the newest reading rather than the run date, so a week that moved no star rewrites nothing
-- **Runs on**: weekly schedule, manual dispatch, and `workflow_call` from downstream repositories. Never on push: sampling the same value twice in a day writes the same point
+- Reads every repository in `[tool.repomatic.metrics] subjects` through whichever API its host speaks (GitHub, GitLab or Forgejo) with [`repomatic sample-metrics`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metrics.py), and appends one CSV row per subject, metric and date
+- A counter like the star count accrues, so its curve can be charted; an attribute like the date of the newest release or commit keeps a single row, restamped only when it moves, so a quiet week leaves the file untouched
+- Reconstructs an exact star curve for every GitHub repository the token administers, from the per-star timestamps GitHub still serves an admin: those curves are complete from their first star rather than from the day sampling started
+- Redraws the configured SVG charts, stamped with the newest reading of the metric they plot rather than the run date, so a week that moved nothing rewrites nothing
+- Commits the store straight to the default branch: the diff records what an API answered at a moment that has passed, so there is nothing a pull request could review (see [§ Sampling commits directly](operation-contracts.md#sampling-commits-directly))
+- **Runs on**: weekly schedule, manual dispatch, and `workflow_call` from downstream repositories. Never on push: sampling the same value twice in a day writes the same row
 - **Requires**:
   - `REPOMATIC_PAT` secret with contents write permission, to push to a protected default branch and to read the per-star timestamps of the repositories it administers
 - **Skipped if**:
-  - `stars.sync = false` in `[tool.repomatic]` (the star half), or no series is declared
-  - `projects.sync = false` in `[tool.repomatic]` (the project half), or no project is declared
+  - `metrics.sync = false` in `[tool.repomatic]`, or no subject is declared
 
 (github-workflows-tests-yaml-jobs)=
 

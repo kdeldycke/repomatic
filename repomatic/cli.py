@@ -106,10 +106,6 @@ from .dep_sources import (
     scan_project,
 )
 from .docs import update_docs as _update_docs
-from .forge import (
-    PROJECT_SAMPLE_HEADER_DEFS,
-    sample_projects as _sample_projects,
-)
 from .git_ops import commit_and_push_files, create_and_push_tag, current_branch
 from .github import token as _token_mod, unsubscribe as _unsub_mod
 from .github.actions import (
@@ -222,6 +218,18 @@ from .metadata import (
     is_version_bump_allowed,
     metadata_keys_reference,
 )
+from .metric_chart import ChartSpec, write_chart
+from .metrics import (
+    SAMPLE_HEADER_DEFS,
+    backfill_wayback as _backfill_wayback,
+    collected_subjects,
+    import_star_history_csv,
+    load_metrics,
+    reconstruct_from_github,
+    sample_subject,
+    save_metrics,
+    series as metric_series,
+)
 from .plugin import ARCHIVE_NAME, pack_plugin
 from .prepare_release import PrepareRelease
 from .pyproject import get_project_name
@@ -247,18 +255,6 @@ from .runner_images import (
     render_change_table,
 )
 from .setup_guide import manage_setup_guide
-from .star_chart import ChartSpec, write_chart
-from .stars import (
-    STAR_SAMPLE_HEADER_DEFS,
-    backfill_wayback as _backfill_wayback,
-    collected_repos,
-    import_star_history_csv,
-    load_star_records,
-    reconstruct_from_github,
-    sample_current,
-    save_star_records,
-    series as star_series,
-)
 from .sync_ops import (
     OPERATIONS_BY_NAME,
     ResolveContext,
@@ -2863,7 +2859,7 @@ def git_commit_push(
     \b
     Examples:
         repomatic git-commit-push --message "Record v1.2.3 binaries" \\
-            docs/binaries.md docs/assets/virustotal-scans.json
+            docs/binaries.md docs/assets/virustotal-scans.csv
 
     \b
         repomatic git-commit-push --message "Sample star counts" --all-changes
@@ -3208,94 +3204,33 @@ def prepare_release(
 
 
 @repomatic.command(
-    name="sample-projects",
-    short_help="Snapshot tracked projects' popularity and activity",
+    name="sample-metrics",
+    short_help="Record what forges say about the repositories this project tracks",
     section=_section_sample,
 )
 @option(
     "--store",
     type=file_path(resolve_path=True),
     default=None,
-    help="JSON readings file. Defaults to [tool.repomatic.projects] store.",
-)
-@pass_context
-def sample_projects(ctx: Context, store: Path | None) -> None:
-    """Read every tracked project's stars, newest release and newest commit.
-
-    Reads each project through whichever API its host speaks (GitHub, GitLab or
-    Forgejo) and records one row per project, rewritten only when a reading
-    moves. A project that fails to answer keeps its previous reading rather
-    than losing it, so one flaky instance blanks no column.
-
-    \b
-    Examples:
-        repomatic sample-projects
-
-    \b
-        repomatic sample-projects --store docs/assets/project-metrics.json
-    """
-    config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.projects.sync, "projects.sync")
-
-    if not config.projects.repos:
-        echo("No project declared in [tool.repomatic.projects] repos, nothing to read.")
-        return
-
-    readings = store or Path(config.projects.store)
-    try:
-        outcomes = _sample_projects(
-            readings, config.projects.repos, config.projects.forges
-        )
-    except ValueError as error:
-        raise ClickException(str(error))
-
-    rows = [
-        (
-            outcome.project_id,
-            str(outcome.metrics.stars) if outcome.metrics else "—",
-            (outcome.metrics.release or "—") if outcome.metrics else "—",
-            (outcome.metrics.commit or "—") if outcome.metrics else "—",
-            outcome.error or ("updated" if outcome.changed else "unchanged"),
-        )
-        for outcome in outcomes
-    ]
-    ctx.print_table(rows, PROJECT_SAMPLE_HEADER_DEFS)
-
-    moved = sum(1 for outcome in outcomes if outcome.changed)
-    if moved:
-        echo(f"Recorded {moved} reading(s) in {readings}.")
-    else:
-        echo(f"{readings} already up to date.")
-
-
-@repomatic.command(
-    name="sample-stars",
-    short_help="Accumulate the star history of tracked repositories",
-    section=_section_sample,
-)
-@option(
-    "--store",
-    type=file_path(resolve_path=True),
-    default=None,
-    help="JSON history file. Defaults to [tool.repomatic.stars] store.",
+    help="CSV store to accumulate into. Defaults to [tool.repomatic.metrics] store.",
 )
 @option(
     "--forward/--no-forward",
     default=True,
-    help="Snapshot today's aggregate star count of every tracked repository.",
+    help="Read every subject's current metrics from its own forge.",
 )
 @option(
     "--reconstruct/--no-reconstruct",
     default=True,
-    help="Rebuild exact curves from per-star timestamps, for repositories the "
-    "token administers.",
+    help="Rebuild exact star curves from per-star timestamps, for GitHub "
+    "repositories the token administers.",
 )
 @option(
     "--backfill-wayback",
     is_flag=True,
     default=False,
-    help="Mine contemporaneous counts from archived GitHub pages. Slow, and a "
-    "one-off: the scheduled job never runs it.",
+    help="Mine contemporaneous star counts from archived GitHub pages. Slow, "
+    "and a one-off: the scheduled job never runs it.",
 )
 @option(
     "--import-csv",
@@ -3309,7 +3244,7 @@ def sample_projects(ctx: Context, store: Path | None) -> None:
     help="Redraw the configured charts from the stored history.",
 )
 @pass_context
-def sample_stars(
+def sample_metrics(
     ctx: Context,
     store: Path | None,
     forward: bool,
@@ -3318,47 +3253,55 @@ def sample_stars(
     import_csv: tuple[Path, ...],
     render: bool,
 ) -> None:
-    """Accumulate the star history of every tracked repository, and chart it.
+    """Record what forges say about the repositories this project tracks.
+
+    Reads every subject through whichever API its host speaks (GitHub, GitLab
+    or Forgejo) and appends one row per subject, metric and date. A counter
+    like the star count accrues, so its curve can be charted; an attribute like
+    the date of the newest commit keeps a single row, restamped only when it
+    moves.
 
     GitHub restricted its stargazer endpoints to a repository's own admins in
     2026, which left every third-party star chart on the web rendering an error
     card. The aggregate count stayed public, so this snapshots it on a schedule
     and commits the result: a history that accrues locally cannot be revoked.
 
-    Each point records where it came from, since the curves are not all
-    measured the same way. A repository the token administers is reconstructed
-    exactly from the timestamp of every star it still holds; the rest are
-    sampled forward, and backfilled from archived pages or from a
+    Each reading records where it came from, since the curves are not all
+    measured the same way. A GitHub repository the token administers is
+    reconstructed exactly from the timestamp of every star it still holds; the
+    rest are sampled forward, and backfilled from archived pages or from a
     star-history.com export.
 
     \b
     Examples:
-        repomatic sample-stars
+        repomatic sample-metrics
 
     \b
-        repomatic sample-stars --no-reconstruct --backfill-wayback
+        repomatic sample-metrics --no-reconstruct --backfill-wayback
 
     \b
-        repomatic sample-stars --import-csv star-history-export.csv
+        repomatic sample-metrics --import-csv star-history-export.csv
     """
     config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.stars.sync, "stars.sync")
+    exit_if_disabled(ctx, config.metrics.sync, "metrics.sync")
 
-    if not config.stars.series:
-        echo("No repository declared in [tool.repomatic.stars] series, nothing to do.")
+    if not config.metrics.subjects:
+        echo("No repository in [tool.repomatic.metrics] subjects, nothing to sample.")
         return
 
-    history = store or Path(config.stars.store)
+    store_path = store or Path(config.metrics.store)
     try:
-        records = load_star_records(history)
+        records = load_metrics(store_path)
+        tracked = collected_subjects(
+            config.metrics.subjects, config.metrics.predecessors
+        )
     except ValueError as error:
         raise ClickException(str(error))
-    tracked = collected_repos(config.stars.series, config.stars.predecessors)
 
     outcomes = []
     if forward:
         for name, repo in tracked.items():
-            outcomes.append(sample_current(records, name, repo))
+            outcomes.append(sample_subject(records, name, repo, config.metrics.forges))
     if reconstruct:
         for name, repo in tracked.items():
             outcomes.append(reconstruct_from_github(records, name, repo))
@@ -3369,41 +3312,55 @@ def sample_stars(
             raise ClickException(str(error))
     if backfill_wayback:
         for name, repo in tracked.items():
-            outcomes.append(_backfill_wayback(records, name, repo, history))
+            outcomes.append(_backfill_wayback(records, name, repo, store_path))
 
     ctx.print_table(
         [
             (
-                outcome.name,
+                outcome.subject,
                 outcome.repo,
                 str(outcome.stars) if outcome.stars is not None else "—",
-                str(outcome.points),
+                str(outcome.rows),
                 outcome.note or "—",
             )
             for outcome in outcomes
         ],
-        STAR_SAMPLE_HEADER_DEFS,
+        SAMPLE_HEADER_DEFS,
     )
 
-    if save_star_records(history, records):
-        echo(f"Recorded {len(records)} point(s) in {history}.")
+    if save_metrics(store_path, records):
+        echo(f"Recorded {len(records)} reading(s) in {store_path}.")
     else:
-        echo(f"{history} already up to date.")
+        echo(f"{store_path} already up to date.")
 
     if not render:
         return
     if not records:
-        echo("No point recorded yet, so no chart to draw.")
+        echo("No reading recorded yet, so no chart to draw.")
         return
-    # Stamped with the newest reading rather than with today, so re-rendering
-    # an unmoved history rewrites nothing. A caption naming the run date would
-    # churn the committed SVGs on every scheduled pass that found no new star.
-    stamp = max(record.day for record in records.values())
-    grouped = star_series(records, config.stars.series, config.stars.predecessors)
-    for entry in config.stars.charts:
+    for entry in config.metrics.charts:
         try:
             spec = ChartSpec.from_mapping(entry)
-            changed = write_chart(grouped, spec, config.stars.colors, stamp)
+            grouped = metric_series(
+                records,
+                config.metrics.subjects,
+                spec.metric,
+                config.metrics.predecessors,
+            )
+            # Stamped with the newest reading of the plotted metric rather than
+            # with today, so re-rendering an unmoved history rewrites nothing. A
+            # caption naming the run date would churn the committed SVGs on
+            # every scheduled pass that found nothing new.
+            stamp = max(
+                (day for points in grouped.values() for day, _value in points),
+                default=None,
+            )
+            changed = write_chart(
+                grouped,
+                spec,
+                config.metrics.colors,
+                stamp.isoformat() if stamp else None,
+            )
         except ValueError as error:
             raise ClickException(str(error))
         echo(f"{'Redrew' if changed else 'Unchanged'} {spec.output}.")
@@ -3482,7 +3439,7 @@ def scan_virustotal(
 
     \b
         repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries \\
-            --poll --records docs/assets/virustotal-scans.json
+            --poll --records docs/assets/virustotal-scans.csv
     """
     if records and not poll:
         raise UsageError("--records requires --poll.")
@@ -3583,7 +3540,7 @@ def sync_binaries(
 
     \b
         repomatic sync-binaries --repo owner/repo \\
-            --records docs/assets/virustotal-scans.json --backfill-records
+            --records docs/assets/virustotal-scans.csv --backfill-records
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.binaries_sync, "binaries.sync")

@@ -14,37 +14,31 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Read a repository's popularity and activity from whichever forge hosts it.
+"""Read a repository's metrics from whichever forge hosts it.
 
 Answers one question for one repository: how many accounts follow it, when it
-last shipped, and when it was last touched. GitHub, GitLab (on any instance)
-and Forgejo or Gitea (likewise) each expose that through a different API, and
-{func}`repo_metrics` picks the right one from the URL's host.
+was created, when it last shipped, and when it was last touched. GitHub, GitLab
+(on any instance) and Forgejo or Gitea (likewise) each expose that through a
+different API, and {func}`repo_metrics` picks the right one from the URL's
+host.
 
-The readings accumulate in a committed JSON file, one record per tracked
-project, rewritten only when a reading moves. Its companion
-{mod}`repomatic.stars` keeps one record per repository *and* date instead: a
-hundred projects sampled weekly would otherwise pile up thousands of records a
-year that nothing ever reads chronologically. A record therefore carries the
-date its reading was taken, which keeps a quiet week out of the diff and dates
-a dead project's row honestly.
+One call per repository on every forge, which is what lets a single sampler
+collect every metric {mod}`repomatic.metrics` records rather than one call per
+metric family.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import urllib.parse
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from .github.gh import gh_graphql
 from .http import FetchError, get_json
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from pathlib import Path
+    from collections.abc import Iterator, Mapping
     from typing import Any
 
 FORGE_APIS: dict[str, str] = {
@@ -54,10 +48,10 @@ FORGE_APIS: dict[str, str] = {
 }
 """Forge software each known host runs, which is what selects the API to call.
 
-Never guessed from the host name: an unknown host raises instead, so a project
+Never guessed from the host name: an unknown host raises instead, so a subject
 landing on a fourth kind of forge has to declare how to read it rather than
 silently sampling nothing. Extend it through
-`[tool.repomatic.projects] forges`, which a repository uses to name the
+`[tool.repomatic.metrics] forges`, which a repository uses to name the
 self-hosted instances it tracks (`salsa.debian.org` runs GitLab,
 `gitlab.archlinux.org` too).
 """
@@ -68,26 +62,22 @@ FORGE_USER_AGENT = "repomatic forge metrics collector"
 Several self-hosted GitLab instances answer a browser user-agent with a page
 rather than a payload, returning kilobytes of HTML where the same URL fetched
 under a plain agent returns a small JSON document. Nothing errors, so the
-symptom is a project quietly missing from the readings rather than a failed
+symptom is a subject quietly missing from the readings rather than a failed
 run.
 """
 
-PROJECT_SAMPLE_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Project", "project"),
-    ("Stars", "stars"),
-    ("Release", "release"),
-    ("Commit", "commit"),
-    ("Status", "status"),
-)
-"""Column definitions for the `repomatic sample-projects` table.
+GITHUB_HOST = "github.com"
+"""The one host whose deep collectors exist.
 
-Lives beside the rows' domain model so the columns and the fields they render
-cannot drift apart; the CLI derives its `--sort-by` choices from it.
+An exact star reconstruction reads per-star timestamps, and an archive backfill
+mines `github.com` pages: both are GitHub-only, so a subject elsewhere is
+skipped by them rather than failed.
 """
 
 GITHUB_METRICS_QUERY = """
 query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
+    createdAt
     stargazerCount
     latestRelease { publishedAt }
     defaultBranchRef { target { ... on Commit { committedDate } } }
@@ -103,11 +93,11 @@ query($owner: String!, $name: String!) {
   }
 }
 """
-"""Reads a repository's stars, newest release, newest tag and last commit.
+"""Reads a repository's whole metric set in one call.
 
-One call where REST needs three, and correct where REST is not: `/tags`
-answers in an order nobody should assume, so a fallback trusting it can date a
-live project a decade into the past. Ordering on `TAG_COMMIT_DATE` states the
+One call where REST needs four, and correct where REST is not: `/tags` answers
+in an order nobody should assume, so a fallback trusting it can date a live
+project a decade into the past. Ordering on `TAG_COMMIT_DATE` states the
 question instead of hoping the default matches it.
 
 The commit date is read off the default branch rather than from the
@@ -117,10 +107,17 @@ repository's `pushedAt`, which any push to any branch bumps.
 
 @dataclass(frozen=True)
 class ForgeMetrics:
-    """One repository's popularity and activity, as any forge reports them."""
+    """One repository's metrics, as any forge reports them."""
 
     stars: int
     """Count of accounts following the repository on its own forge."""
+
+    created: str | None = None
+    """ISO date the repository was opened.
+
+    The one date a star count is known to be zero, which is what gives a
+    history an origin and a by-age chart something to align on.
+    """
 
     release: str | None = None
     """ISO date of the newest release or tag, `None` when a project has neither."""
@@ -136,92 +133,30 @@ class ForgeMetrics:
     commit: str | None = None
     """ISO date of the newest commit on the default branch.
 
-    The second half of the activity reading, and the half that stays true for a
-    rolling repository. A widely used package archive can go a decade without
-    tagging a release while being committed to several times a day: a release
-    date alone would report it as long dead.
+    The half of the activity reading that stays true for a rolling repository.
+    A widely used package archive can go a decade without tagging a release
+    while being committed to several times a day: a release date alone would
+    report it as long dead.
     """
 
+    def readings(self) -> Iterator[tuple[str, str]]:
+        """Yield each metric this reading carries, as `(metric id, value)`.
 
-@dataclass(frozen=True)
-class ProjectRecord:
-    """One tracked project's reading, and the day it was taken."""
+        The bridge between a typed forge answer and the metric store, which
+        holds every value as text. A metric the forge did not answer yields
+        nothing rather than an empty string, so a project with no release adds
+        no row instead of a blank one.
 
-    project_id: str
-    """Name the repository gives this project, and the record's identity."""
-
-    repo: str
-    """URL of the project's source repository."""
-
-    sampled: str
-    """Date the reading was taken, in `YYYY-MM-DD` form."""
-
-    metrics: ForgeMetrics
-    """What the forge answered on that date."""
-
-    @property
-    def reading(self) -> tuple[Any, ...]:
-        """Everything but the date, for detecting a reading that moved.
-
-        A week where nothing changed must leave the file untouched rather than
-        restamping every unchanged row with today's date.
+        {attr}`created` is deliberately absent: it is not a metric but the
+        origin of one, recorded by the sampler as a `stars` reading of zero on
+        that date.
         """
-        return (self.project_id, self.repo, self.metrics)
-
-    def to_dict(self) -> dict[str, int | str]:
-        """Flatten to a JSON-ready mapping, metrics inlined.
-
-        The `id` and `date` keys spell what the attributes call `project_id`
-        and `sampled`; the optional three are omitted rather than written as
-        `null`, so a project with no release adds no key.
-        """
-        data: dict[str, int | str] = {
-            "date": self.sampled,
-            "id": self.project_id,
-            "repo": self.repo,
-            "stars": self.metrics.stars,
-        }
-        if self.metrics.commit:
-            data["commit"] = self.metrics.commit
-        if self.metrics.release:
-            data["release"] = self.metrics.release
-            data["release_source"] = self.metrics.release_source or "release"
-        return data
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> ProjectRecord:
-        """Rebuild a record from its flattened JSON mapping."""
-        return cls(
-            project_id=data["id"],
-            repo=data["repo"],
-            sampled=data["date"],
-            metrics=ForgeMetrics(
-                stars=int(data["stars"]),
-                release=data.get("release"),
-                release_source=data.get("release_source"),
-                commit=data.get("commit"),
-            ),
-        )
-
-
-@dataclass(frozen=True)
-class SampleOutcome:
-    """What one project's sample produced, for the CLI to report."""
-
-    project_id: str
-    """The project the sampler was reading."""
-
-    repo: str
-    """URL it read from."""
-
-    metrics: ForgeMetrics | None = None
-    """The reading, or `None` when the forge could not be read."""
-
-    error: str = ""
-    """Why the reading failed, empty when it did not."""
-
-    changed: bool = False
-    """Whether this sample moved the stored record."""
+        yield "stars", str(self.stars)
+        if self.commit:
+            yield "commit", self.commit
+        if self.release:
+            yield "release", self.release
+            yield "release_source", self.release_source or "release"
 
 
 def split_repo_url(url: str) -> tuple[str, str]:
@@ -240,6 +175,24 @@ def split_repo_url(url: str) -> tuple[str, str]:
     return host, path
 
 
+def canonical_url(subject: str) -> str:
+    """Normalize a configured subject into the URL the store keys on.
+
+    A bare `owner/name` is GitHub, which is what a repository declaring a
+    handful of peers writes. Anything else is already a URL and only needs its
+    trailing decoration removed. One spelling in the store keeps a subject
+    addressable whichever way its configuration named it.
+
+    :param subject: An `owner/name` slug or a full repository URL.
+    :return: The canonical `https://host/owner/name` URL.
+    :raises ValueError: When neither shape parses.
+    """
+    if "://" not in subject:
+        subject = f"https://{GITHUB_HOST}/{subject.strip('/')}"
+    host, path = split_repo_url(subject)
+    return f"https://{host}/{path}"
+
+
 def forge_of(url: str, extra_forges: Mapping[str, str] | None = None) -> str:
     """Name the forge software running the host of *url*.
 
@@ -248,7 +201,7 @@ def forge_of(url: str, extra_forges: Mapping[str, str] | None = None) -> str:
         self-hosted instances it tracks, merged over {data}`FORGE_APIS`.
     :return: One of `forgejo`, `github` or `gitlab`.
     :raises ValueError: When the host is not declared anywhere, which is
-        deliberate: a silently unsampled project is worse than a loud one.
+        deliberate: a silently unsampled subject is worse than a loud one.
     """
     host, _path = split_repo_url(url)
     forges = {**FORGE_APIS, **(extra_forges or {})}
@@ -257,7 +210,7 @@ def forge_of(url: str, extra_forges: Mapping[str, str] | None = None) -> str:
         known = ", ".join(sorted(forges))
         msg = (
             f"Unknown forge host {host!r}. Declare it in "
-            f"[tool.repomatic.projects] forges. Known hosts: {known}."
+            f"[tool.repomatic.metrics] forges. Known hosts: {known}."
         )
         raise ValueError(msg)
     if forge not in {"forgejo", "github", "gitlab"}:
@@ -314,7 +267,7 @@ def github_metrics(path: str) -> ForgeMetrics:
     """Read a GitHub repository through {data}`GITHUB_METRICS_QUERY`.
 
     :param path: The repository's `owner/name` path.
-    :return: The repository's popularity and activity.
+    :return: The repository's metrics.
     :raises RuntimeError: When the `gh` call fails.
     """
     owner, _, name = path.partition("/")
@@ -333,6 +286,7 @@ def github_metrics(path: str) -> ForgeMetrics:
     branch = repo["defaultBranchRef"]
     return ForgeMetrics(
         stars=repo["stargazerCount"],
+        created=str(repo["createdAt"])[:10],
         release=dated,
         release_source=source,
         commit=branch["target"]["committedDate"][:10] if branch else None,
@@ -344,7 +298,7 @@ def gitlab_metrics(host: str, path: str) -> ForgeMetrics | None:
 
     :param host: The instance's hostname.
     :param path: The project's namespace path.
-    :return: The project's popularity and activity, or `None` when unreadable.
+    :return: The project's metrics, or `None` when unreadable.
     """
     project = f"https://{host}/api/v4/projects/{urllib.parse.quote(path, safe='')}"
     payload = forge_json(project)
@@ -363,6 +317,7 @@ def gitlab_metrics(host: str, path: str) -> ForgeMetrics | None:
     )
     return ForgeMetrics(
         stars=payload["star_count"],
+        created=str(payload["created_at"])[:10] if payload.get("created_at") else None,
         release=dated,
         release_source=source,
         commit=commits[0]["committed_date"][:10] if commits else None,
@@ -374,7 +329,7 @@ def forgejo_metrics(host: str, path: str) -> ForgeMetrics | None:
 
     :param host: The instance's hostname.
     :param path: The repository's `owner/name` path.
-    :return: The repository's popularity and activity, or `None` when unreadable.
+    :return: The repository's metrics, or `None` when unreadable.
     """
     repo = f"https://{host}/api/v1/repos/{path}"
     payload = forge_json(repo)
@@ -389,6 +344,7 @@ def forgejo_metrics(host: str, path: str) -> ForgeMetrics | None:
     )
     return ForgeMetrics(
         stars=payload["stars_count"],
+        created=str(payload["created_at"])[:10] if payload.get("created_at") else None,
         release=dated,
         release_source=source,
         commit=commits[0]["commit"]["committer"]["date"][:10] if commits else None,
@@ -403,8 +359,8 @@ def repo_metrics(
 
     :param url: An `https://host/owner/name` repository URL.
     :param extra_forges: Host-to-forge entries for self-hosted instances.
-    :return: The repository's popularity and activity, or `None` when the
-        forge could not be read.
+    :return: The repository's metrics, or `None` when the forge could not be
+        read.
     :raises ValueError: When the host declares no forge.
     :raises RuntimeError: When a GitHub call fails.
     """
@@ -415,99 +371,3 @@ def repo_metrics(
     if forge == "gitlab":
         return gitlab_metrics(host, path)
     return forgejo_metrics(host, path)
-
-
-def load_project_records(path: Path) -> dict[str, ProjectRecord]:
-    """Read the committed project readings, keyed by project ID.
-
-    :param path: Path to the JSON readings file.
-    :return: The records, empty when the file does not exist.
-    :raises ValueError: When the file exists but cannot be parsed. Loud on
-        purpose: a corrupt file must never be silently clobbered by the next
-        {func}`save_project_records` write.
-    """
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="UTF-8"))
-        return {entry["id"]: ProjectRecord.from_dict(entry) for entry in data}
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-        msg = f"Malformed project readings file {path}: {error}"
-        raise ValueError(msg) from error
-
-
-def save_project_records(path: Path, records: Mapping[str, ProjectRecord]) -> bool:
-    """Write the readings back, sorted by project ID and tab-indented.
-
-    Serialized with the layout Biome's JSON formatter produces, so the
-    `format-json` autofix job never rewrites it.
-
-    :param path: Path to the JSON readings file.
-    :param records: The records to write, keyed by project ID.
-    :return: `True` when the file content changed.
-    """
-    ordered = [records[key].to_dict() for key in sorted(records)]
-    content = json.dumps(ordered, indent="\t", sort_keys=True) + "\n"
-    if path.exists() and path.read_text(encoding="UTF-8") == content:
-        return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="UTF-8")
-    return True
-
-
-def sample_projects(
-    path: Path,
-    repos: Mapping[str, str],
-    extra_forges: Mapping[str, str] | None = None,
-    sampled: str | None = None,
-) -> list[SampleOutcome]:
-    """Snapshot the popularity and activity of every tracked project.
-
-    A repository that fails to answer keeps its previous reading rather than
-    losing it: one flaky instance must not blank a column of whatever page
-    renders these, and a stale figure carrying its own date is more useful
-    than a hole. A project that left *repos* takes its reading with it.
-
-    :param path: Path to the JSON readings file, created when missing.
-    :param repos: Tracked projects, mapping each ID to its repository URL.
-    :param extra_forges: Host-to-forge entries for self-hosted instances.
-    :param sampled: Reading date in `YYYY-MM-DD` form. Today (UTC) when `None`.
-    :return: One outcome per project, in ID order, plus one per dropped
-        project carrying no metrics.
-    """
-    if sampled is None:
-        sampled = datetime.now(tz=timezone.utc).date().isoformat()
-    records = load_project_records(path)
-    outcomes: list[SampleOutcome] = []
-
-    for stale in sorted(set(records) - set(repos)):
-        dropped = records.pop(stale)
-        outcomes.append(
-            SampleOutcome(
-                stale, dropped.repo, error="dropped, no longer tracked", changed=True
-            )
-        )
-
-    for project_id, url in sorted(repos.items()):
-        try:
-            metrics = repo_metrics(url, extra_forges)
-        except (RuntimeError, ValueError, KeyError, IndexError, TypeError) as error:
-            # Caught wide and per project: a repository gone private, a host
-            # answering a payload of a shape nobody anticipated, or a forge
-            # added without its API declared must cost one row, not every
-            # other reading the run collected.
-            outcomes.append(SampleOutcome(project_id, url, error=str(error)[:120]))
-            continue
-        if metrics is None:
-            outcomes.append(SampleOutcome(project_id, url, error="unreadable"))
-            continue
-        record = ProjectRecord(project_id, url, sampled, metrics)
-        previous = records.get(project_id)
-        changed = previous is None or previous.reading != record.reading
-        if changed:
-            records[project_id] = record
-        outcomes.append(SampleOutcome(project_id, url, metrics, changed=changed))
-
-    if any(outcome.changed for outcome in outcomes):
-        save_project_records(path, records)
-    return outcomes

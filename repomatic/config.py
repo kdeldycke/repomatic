@@ -492,8 +492,49 @@ class LintDepsConfig:
 
 
 @dataclass
-class ProjectsConfig:
-    """Nested schema for `[tool.repomatic.projects]`."""
+class MetricsConfig:
+    """Nested schema for `[tool.repomatic.metrics]`."""
+
+    charts: list[dict[str, str | list[str]]] = field(default_factory=list)
+    """Charts to draw from the accumulated history, one array-of-tables entry each.
+
+    Each entry carries an `output` path, an optional `metric` (`stars` by
+    default, and only a metric the store accrues can be charted), an optional
+    `mode` (`absolute`, the default, or `relative`), an optional `only` list
+    naming the subjects to plot in draw order, and an optional `title` used as
+    the chart's accessible name:
+
+    ```toml
+    [[tool.repomatic.metrics.charts]]
+    output = "./docs/assets/star-history.svg"
+
+    [[tool.repomatic.metrics.charts]]
+    mode = "relative"
+    output = "./docs/assets/star-history-by-age.svg"
+
+    [[tool.repomatic.metrics.charts]]
+    only = [ "apricot" ]
+    output = "./docs/assets/star-history-apricot.svg"
+    ```
+
+    An entry omitting `only` plots every declared subject. Declaring none of
+    these leaves the history accruing with nothing drawn from it, which is a
+    valid way to collect first and decide later.
+    """
+
+    colors: dict[str, list[str]] = field(default_factory=dict)
+    """Per-subject `[light, dark]` hex pairs overriding the positional palette.
+
+    Hues are assigned from {data}`repomatic.metric_chart.SERIES_PALETTE` in
+    draw order, so a subject keeps its colour as long as the order holds. Pin
+    one here when it must survive a reordering, or when a chart plots more
+    curves than the palette holds:
+
+    ```toml
+    [tool.repomatic.metrics.colors]
+    apricot = [ "#2a78d6", "#3987e5" ]
+    ```
+    """
 
     forges: dict[str, str] = field(default_factory=dict)
     """Self-hosted forge instances, mapping each host to the software it runs.
@@ -503,7 +544,7 @@ class ProjectsConfig:
     undeclared host raises rather than sampling nothing:
 
     ```toml
-    [tool.repomatic.projects.forges]
+    [tool.repomatic.metrics.forges]
     "gitlab.example.org" = "gitlab"
     "codeberg.example.org" = "forgejo"
     ```
@@ -512,109 +553,15 @@ class ProjectsConfig:
     `forgejo`, whose API they share.
     """
 
-    repos: dict[str, str] = field(default_factory=dict)
-    """Projects to sample, mapping each ID to its repository URL.
-
-    The ID names the project in the readings file and in whatever page renders
-    it, so it stays stable across a repository move:
-
-    ```toml
-    [tool.repomatic.projects.repos]
-    apricot = "https://github.com/apricot-org/apricot"
-    papaya = "https://gitlab.com/papaya/papaya"
-    ```
-
-    Curated by hand, since a project declares a home page and nothing else, and
-    a home page is a website far more often than a repository. Prefer the
-    canonical repository over a better-known mirror: a mirror's activity is not
-    the project's.
-    """
-
-    skip: dict[str, str] = field(default_factory=dict)
-    """Projects deliberately left unmeasured, mapped to the reason why.
-
-    A mapping rather than a list, following `lint-deps.allow`: the reason is
-    the point. A project absent from both tables is an oversight a conformance
-    test can report, while one listed here is a decision:
-
-    ```toml
-    [tool.repomatic.projects.skip]
-    papaya = "Ships in a distribution package with no public repository."
-    ```
-
-    Nothing is sampled for them, and whatever renders the readings leaves
-    their cells empty.
-    """
-
-    store: str = "./docs/assets/project-metrics.json"
-    """Where the readings accumulate, one record per project."""
-
-    sync: bool = False
-    """Whether `sample-projects` records project readings for this repository.
-
-    Opt-in: most repositories track no external project, and an enabled
-    sampler with an empty `repos` table would only add a no-op job.
-
-    This gates the command, not the workflow that runs it: `stars.sync` is what
-    decides whether `repomatic init` writes `stars.yaml` at all, since the two
-    samplers share one job. A repository wanting project readings and no star
-    history therefore sets both, and leaves `[tool.repomatic.stars] series`
-    empty: the star half then exits cleanly with nothing to sample.
-    """
-
-
-@dataclass
-class StarsConfig:
-    """Nested schema for `[tool.repomatic.stars]`."""
-
-    charts: list[dict[str, str | list[str]]] = field(default_factory=list)
-    """Charts to draw from the accumulated history, one array-of-tables entry each.
-
-    Each entry carries an `output` path, an optional `mode` (`absolute`, the
-    default, or `relative`), an optional `only` list naming the series to plot
-    in draw order, and an optional `title` used as the chart's accessible name:
-
-    ```toml
-    [[tool.repomatic.stars.charts]]
-    output = "./docs/assets/star-history.svg"
-
-    [[tool.repomatic.stars.charts]]
-    output = "./docs/assets/star-history-relative.svg"
-    mode = "relative"
-
-    [[tool.repomatic.stars.charts]]
-    output = "./docs/assets/star-history-solo.svg"
-    only = [ "apricot" ]
-    ```
-
-    An entry omitting `only` plots every declared series. Declaring none of
-    these leaves the history accruing with nothing drawn from it, which is a
-    valid way to collect first and decide later.
-    """
-
-    colors: dict[str, list[str]] = field(default_factory=dict)
-    """Per-series `[light, dark]` hex pairs overriding the positional palette.
-
-    Hues are assigned from {data}`repomatic.star_chart.SERIES_PALETTE` in draw
-    order, so a series keeps its colour as long as the order holds. Pin one
-    here when it must survive a reordering, or when a chart plots more series
-    than the palette holds:
-
-    ```toml
-    [tool.repomatic.stars.colors]
-    apricot = [ "#2a78d6", "#3987e5" ]
-    ```
-    """
-
     predecessors: dict[str, str] = field(default_factory=dict)
-    """Retired forerunners, mapping the series they precede to their own slug.
+    """Retired forerunners, mapping the subject they precede to their own repository.
 
     A project that reopened under a new repository carries an audience it
     inherited rather than one it gathered, which a by-age chart would otherwise
     misreport as the fastest start in the field:
 
     ```toml
-    [tool.repomatic.stars.predecessors]
+    [tool.repomatic.metrics.predecessors]
     papaya = "old-owner/papaya"
     ```
 
@@ -625,31 +572,49 @@ class StarsConfig:
     begins.
     """
 
-    series: dict[str, str] = field(default_factory=dict)
-    """Repositories to track, mapping each series name to its `owner/name` slug.
+    skip: dict[str, str] = field(default_factory=dict)
+    """Subjects deliberately left unmeasured, mapped to the reason why.
 
-    The name labels the curve and keys its colour, so it is what a reader sees:
+    A mapping rather than a list, following `lint-deps.allow`: the reason is
+    the point. A project absent from both tables is an oversight a conformance
+    test can report, while one listed here is a decision:
 
     ```toml
-    [tool.repomatic.stars.series]
-    apricot = "apricot-org/apricot"
-    papaya = "papaya-dev/papaya"
+    [tool.repomatic.metrics.skip]
+    papaya = "Ships in a distribution package with no public repository."
     ```
 
-    Only GitHub slugs: the history rests on the aggregate `stargazers_count`
-    that stayed public when GitHub restricted its stargazer endpoints, and no
-    other forge is read here. Use `[tool.repomatic.projects]` for the
-    current-state reading of a project hosted elsewhere.
+    Nothing is sampled for them, and whatever renders the readings leaves their
+    cells empty.
     """
 
-    store: str = "./docs/assets/star-history.json"
-    """Where the history accumulates, one record per repository and date."""
+    store: str = "./docs/assets/metrics.csv"
+    """Where the readings accumulate, one row per subject, metric and date."""
+
+    subjects: dict[str, str] = field(default_factory=dict)
+    """Repositories to track, mapping each subject name to its repository.
+
+    The name labels the curve and keys its colour, so it is what a reader sees.
+    A bare `owner/name` is GitHub; anything else is a full URL on whichever
+    forge hosts it:
+
+    ```toml
+    [tool.repomatic.metrics.subjects]
+    apricot = "apricot-org/apricot"
+    papaya = "https://gitlab.com/papaya/papaya"
+    ```
+
+    Every subject is read for every metric its forge answers. The two deep
+    collectors are GitHub-only and skip the rest with a note: an exact star
+    reconstruction reads per-star timestamps, and the archive backfill mines
+    `github.com` pages.
+    """
 
     sync: bool = False
-    """Whether `sample-stars` records star history for this repository.
+    """Whether `sample-metrics` records readings for this repository.
 
-    Opt-in, and the gate on the `stars.yaml` workflow: a repository that plots
-    no chart should not carry a weekly job, and the accumulating store is a
+    Opt-in, and the gate on the `metrics.yaml` workflow: a repository tracking
+    nothing should not carry a weekly job, and an accumulating store is a
     commitment a maintainer makes deliberately.
     """
 
@@ -947,7 +912,7 @@ class Config:
 
     When enabled, the `scan-virustotal` release job regenerates the binaries
     catalog (`docs/binaries.md` and `docs/assets/binaries.csv`) and pushes it,
-    along with the scan history (`docs/assets/virustotal-scans.json`), straight
+    along with the scan history (`docs/assets/virustotal-scans.csv`), straight
     to the default branch without a pull request: the release-lane exception
     documented in
     [`docs/operation-contracts.md`](https://kdeldycke.github.io/repomatic/operation-contracts.html#scan-job-contract).
@@ -1131,6 +1096,12 @@ class Config:
     module name. Leave empty to disable release-attached man pages.
     """
 
+    metrics: MetricsConfig = field(
+        default_factory=MetricsConfig,
+        metadata={CONFIG_PATH_METADATA_KEY: "metrics"},
+    )
+    """What forges say about the repositories this project tracks, over time."""
+
     minimum_release_age: str = field(
         default="1 week",
         metadata={CONFIG_PATH_METADATA_KEY: "minimum-release-age"},
@@ -1240,12 +1211,6 @@ class Config:
     unstable. Jobs for these targets will be allowed to fail without preventing the
     release workflow from succeeding.
     """
-
-    projects: ProjectsConfig = field(
-        default_factory=ProjectsConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "projects"},
-    )
-    """Popularity and activity readings of the projects this repository tracks."""
 
     pypi_package_history: list[str] = field(default_factory=list)
     """Former PyPI package names for projects that were renamed.
@@ -1365,12 +1330,6 @@ class Config:
     rule on the apex all depend on.
     """
 
-    stars: StarsConfig = field(
-        default_factory=StarsConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "stars"},
-    )
-    """Accumulated star history, and the charts drawn from it."""
-
     test_matrix: TestMatrixConfig = field(
         default_factory=TestMatrixConfig,
         metadata={
@@ -1476,16 +1435,15 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "labels",
     "lint_deps",
     "mailmap_sync",
+    "metrics",
     "minimum_release_age",
     "notification_unsubscribe",
     "nuitka_enabled",
     "nuitka_nofollow_imports",
-    "projects",
     "pypi_package_history",
     "settings_location",
     "setup_guide",
     "skills_location",
-    "stars",
     "subagents_location",
     "sync_runner_images",
     "test_matrix",

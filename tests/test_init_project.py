@@ -4418,7 +4418,7 @@ def test_every_config_key_gate_actually_reaches_its_field() -> None:
 
     A gate naming a key `Config` cannot resolve does not fail: it silently
     falls through to `config_default`, which reads as a feature switched off
-    rather than as a gate wired wrong. `stars.sync` shipped that way, because
+    rather than as a gate wired wrong. `metrics.sync` shipped that way, because
     the resolver flattened every dotted key to one attribute name and could
     not reach a key living on a nested schema.
 
