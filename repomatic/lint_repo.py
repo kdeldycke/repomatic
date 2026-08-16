@@ -984,6 +984,94 @@ def check_pages_deployment_source(repo: str) -> CheckResult:
     )
 
 
+def check_pages_redirect_preserved(repo: str, docs_url: str | None) -> CheckResult:
+    """Check that the old `github.io` URLs still redirect to the live site.
+
+    A repository whose site moved to Cloudflare Pages keeps its
+    `<owner>.github.io/<repo>/…` URLs answering through a single field: the
+    GitHub Pages custom domain. Set it, and GitHub redirects that whole space
+    with a path-preserving `301`, for free, covering paths the site never even
+    had. What it rescues is precisely the set of URLs nobody can rewrite:
+    search indexes, other projects' readmes, and the `[project.urls]` metadata
+    frozen into every release already published.
+
+    Two ways to lose it, both invisible from inside the repository. Disabling
+    Pages deletes the redirect along with the site, and every historical link
+    starts answering `404` with nothing to show a maintainer why. Leaving the
+    custom domain unset is quieter still: the old host keeps serving a *copy*
+    of the documentation, which stops being rebuilt the moment the deploy job
+    is gated off, so the two hosts disagree more with every release.
+
+    :param repo: Repository in 'owner/repo' format.
+    :param docs_url: Documentation URL declared in `[project.urls]`, whose
+        host is what the custom domain must name.
+    :return: A `CheckResult`. `passed` is `None` when the repository has no
+        legacy Pages URLs to preserve, or the declared URL is unreadable.
+    """
+    host = urlsplit(docs_url or "").netloc.lower()
+    if not host:
+        return CheckResult(
+            None,
+            "Pages redirect check: skipped (no documentation URL declared in"
+            " [project.urls]).",
+        )
+    if host.endswith(".github.io"):
+        return CheckResult(
+            False,
+            f"[project.urls] still documents {host}, the host this project"
+            " deploys away from. Point it at the site's own domain: until it"
+            " moves, every new release publishes metadata naming the old host.",
+        )
+
+    data = gh_api_json(["api", f"repos/{repo}/pages"])
+    if data is None:
+        # Pages answers `404` both for a repository that disabled it and for
+        # one that never had it, and only the first is a problem. The
+        # deployment history tells them apart: a `github-pages` environment
+        # deployment means the old URLs were published and are now dead.
+        history = gh_api_json([
+            "api",
+            f"repos/{repo}/deployments?environment=github-pages&per_page=1",
+        ])
+        if history:
+            return CheckResult(
+                False,
+                f"GitHub Pages is disabled, but this repository published"
+                f" there before: every https://{repo.split('/')[0]}.github.io/"
+                f"{repo.split('/')[-1]}/… URL now answers 404. Re-enable Pages"
+                f" and set its custom domain to {host}, which restores the"
+                " redirect without redeploying anything.",
+            )
+        return CheckResult(
+            None,
+            "Pages redirect check: skipped (this repository never published to"
+            " GitHub Pages, so it has no legacy URLs to preserve).",
+        )
+
+    cname = (data.get("cname") or "").lower()
+    if not cname:
+        return CheckResult(
+            False,
+            f"GitHub Pages carries no custom domain, so"
+            f" https://{repo.split('/')[0]}.github.io/{repo.split('/')[-1]}/…"
+            f" still serves its own copy of the documentation instead of"
+            f" redirecting to {host}. That copy stops being rebuilt once the"
+            f" deploy job is gated off. Set it with: gh api --method PUT"
+            f" repos/{repo}/pages --field cname={host}",
+        )
+    if cname != host:
+        return CheckResult(
+            False,
+            f"GitHub Pages redirects to {cname} while the documentation is"
+            f" published at {host}. One of the two is stale, and the old URLs"
+            f" follow whichever the custom domain names.",
+        )
+    return CheckResult(
+        True,
+        f"Legacy GitHub Pages URLs redirect to {host}.",
+    )
+
+
 def check_pypi_trusted_publisher(
     repo: str,
     package_name: str | None,
@@ -2557,6 +2645,14 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         "cloudflare-pages-secrets",
         _cloudflare_secrets,
         applies=lambda ctx: ctx.site_deploy == "cloudflare-pages",
+    ),
+    RepoCheck(
+        # The mirror image of `pages-deployment-source` above: that one asks
+        # the GitHub Pages host to publish, this one asks it to redirect. Only
+        # a repository that moved away needs the second question answered.
+        "pages-redirect-preserved",
+        lambda ctx: check_pages_redirect_preserved(ctx.repo or "", ctx.docs_url),
+        applies=lambda ctx: bool(ctx.repo and ctx.site_deploy == "cloudflare-pages"),
     ),
     RepoCheck(
         # Fatal: a rule the engine drops is already dead in production, not one

@@ -2488,6 +2488,8 @@ def lint_repo(
         workflow is enabled (warning).
       - CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID secret missing when
         site.deploy targets Cloudflare Pages (warning).
+      - Legacy github.io URLs still redirect, for a project that moved its
+        site to Cloudflare Pages (warning).
       - Committed _redirects files survive the Cloudflare Pages engine:
         no dropped rules, no silent budget abort (error).
       - wrangler.toml agrees with the declared Cloudflare project name and

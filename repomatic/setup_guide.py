@@ -446,6 +446,7 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
         args=lambda ctx: {
             "repo_name": ctx.md.repo_name,
+            "repo_owner": ctx.md.repo_owner,
             "repo_slug": ctx.md.repo_slug,
             "repo_url": ctx.md.repo_url,
         },

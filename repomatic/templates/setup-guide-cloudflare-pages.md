@@ -1,5 +1,5 @@
 ---
-args: [repo_name, repo_slug, repo_url]
+args: [repo_name, repo_owner, repo_slug, repo_url]
 footer: 'false'
 ---
 
@@ -22,6 +22,9 @@ Or add them manually: **this repo → [Settings → Secrets → Actions]($repo_u
 
 > [!NOTE]
 > The TTL bounds the damage of a leak, and nothing more is needed to survive it: Cloudflare warns about neither an approaching expiry nor a lapsed one, but the Docs workflow's monthly run turns a dead token into a red run and an email, and its drift check starts warning a month ahead. When the warning fires, follow the [rotation runbook](https://kdeldycke.github.io/repomatic/cloudflare.html#rotating-the-token): create the replacement first, verify it with a real deploy, only then revoke the incumbent.
+
+> [!NOTE]
+> If this project ever published to `$repo_owner.github.io/$repo_name`, leave GitHub Pages **enabled** and set its custom domain to the new one: GitHub then redirects every old URL to it with a path-preserving `301`, at no cost and with no files to maintain. Disabling Pages instead deletes that redirect and every historical link with it. `lint-repo` checks this, and the [migration guide](https://kdeldycke.github.io/repomatic/cloudflare.html#leaving-github-pages-behind-urls-intact) explains it.
 
 > [!NOTE]
 > To go back to GitHub Pages, drop `site.deploy` from `[tool.repomatic]` or set it to `github-pages`. Both secrets then go unread, and this step disappears.

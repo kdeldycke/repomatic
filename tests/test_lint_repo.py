@@ -39,6 +39,7 @@ from repomatic.lint_repo import (
     check_install_guide_downloads,
     check_metadata_keys,
     check_package_name_vs_repo,
+    check_pages_redirect_preserved,
     check_pat_stale_statuses_permission,
     check_pr_templates,
     check_pypi_trusted_publisher,
@@ -485,6 +486,106 @@ def test_pages_deployment_source_follows_the_deploy_target(site_deploy, probed):
             repo="orchard/papaya",
         )
     assert probe.called is probed
+
+
+@pytest.mark.parametrize(
+    ("pages", "history", "docs_url", "passed", "fragment"),
+    (
+        pytest.param(
+            {"cname": "repomatic.net"},
+            None,
+            "https://repomatic.net",
+            True,
+            "redirect to repomatic.net",
+            id="custom-domain-matches",
+        ),
+        pytest.param(
+            {"cname": "REPOMATIC.NET"},
+            None,
+            "https://repomatic.net/",
+            True,
+            "redirect to repomatic.net",
+            id="case-insensitive",
+        ),
+        pytest.param(
+            {"cname": None},
+            None,
+            "https://repomatic.net",
+            False,
+            "carries no custom domain",
+            id="no-custom-domain-serves-a-stale-copy",
+        ),
+        pytest.param(
+            {"cname": "old.example.com"},
+            None,
+            "https://repomatic.net",
+            False,
+            "redirects to old.example.com while",
+            id="custom-domain-points-elsewhere",
+        ),
+        pytest.param(
+            None,
+            [{"id": 1}],
+            "https://repomatic.net",
+            False,
+            "now answers 404",
+            id="pages-disabled-after-publishing",
+        ),
+        pytest.param(
+            None,
+            [],
+            "https://repomatic.net",
+            None,
+            "never published to GitHub Pages",
+            id="pages-never-enabled",
+        ),
+        pytest.param(
+            {"cname": "repomatic.net"},
+            None,
+            "https://kdeldycke.github.io/repomatic",
+            False,
+            "still documents kdeldycke.github.io",
+            id="declared-url-not-moved-yet",
+        ),
+        pytest.param(
+            None,
+            None,
+            None,
+            None,
+            "no documentation URL declared",
+            id="nothing-declared",
+        ),
+    ),
+)
+def test_pages_redirect_preserved(pages, history, docs_url, passed, fragment):
+    """The old `github.io` space must keep redirecting after a move.
+
+    Disabling Pages is the unrecoverable mistake: it deletes the redirect and
+    every historical link with it, silently, because nothing inside the
+    repository changes. Leaving the custom domain unset is the quieter one,
+    where the old host serves a copy that stops being rebuilt the moment the
+    deploy job is gated off.
+    """
+    with patch("repomatic.lint_repo.gh_api_json") as api:
+        api.side_effect = [pages, history]
+        result = check_pages_redirect_preserved("kdeldycke/repomatic", docs_url)
+    assert result.passed is passed
+    assert fragment in result.message
+
+
+def test_pages_redirect_check_follows_the_deploy_target():
+    """Only a repository that moved away is asked to keep redirecting."""
+    check = next(
+        check for check in REPO_CHECKS if check.name == "pages-redirect-preserved"
+    )
+    assert check.applies(
+        LintContext(repo="kdeldycke/repomatic", site_deploy="cloudflare-pages")
+    )
+    assert not check.applies(
+        LintContext(repo="kdeldycke/repomatic", site_deploy="github-pages")
+    )
+    # Without a repository there is no Pages API to ask.
+    assert not check.applies(LintContext(site_deploy="cloudflare-pages"))
 
 
 def _lint_context_in(tmp_path, monkeypatch, **kwargs) -> LintContext:

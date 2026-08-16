@@ -13,10 +13,11 @@
 - New `cloudflare-config-drift` job in the Docs workflow running that check for every Cloudflare-targeting repository, apart from the deploy so drift is loud without holding up publishing.
 - `lint-repo` now fails a committed `_redirects` file that would lose rules to the Cloudflare Pages engine's silent budget accounting, replicated in the new `repomatic.pages_redirects` module.
 - `lint-repo` now warns when `wrangler.toml` contradicts the declared Cloudflare Pages project name or compatibility date.
+- `lint-repo` now checks that a project which moved its site to Cloudflare Pages keeps its GitHub Pages custom domain pointing at the new host, which is what keeps every published `github.io` URL redirecting.
 - The setup guide issue and `lint-repo` ask about whichever host `site.deploy` names, Sphinx or not, and the Cloudflare step now hands out a pre-filled account-owned token form instead of pointing at user-owned profile tokens.
 - The Docs workflow now runs monthly, mirrored into downstream callers: a lapsed Cloudflare token becomes a red run instead of a deploy that never happens, and link rot surfaces between pushes.
 - The Cloudflare deploy job now drops files over Direct Upload's 25 MiB per-file limit, naming each in the log, instead of failing the whole upload on the first one.
-- New Cloudflare Pages documentation page covering Direct Upload, token scoping and rotation, the drift check, the redirects engine's undocumented accounting, and keeping old `github.io` URLs alive after the move.
+- New Cloudflare Pages documentation page covering Direct Upload, token scoping and rotation, the drift check, the redirects engine's undocumented accounting, and how a GitHub Pages custom domain keeps old `github.io` URLs redirecting after the move.
 - The Docs workflow no longer publishes Sphinx's parse cache. `-d` sends the doctrees to the runner's temp directory, where they used to default into `<outdir>/.doctrees` and ride the Pages upload: 118 MB of a 182 MB artifact on an autodoc-heavy project.
 - The binaries catalog now leaves the VirusTotal cell empty unless a scan record backs it, instead of linking every binary to an analysis page that was never created.
 - `lint-deps` now warns about a dependency floor comment running past `[tool.repomatic] lint-deps.comment-word-threshold` words, 40 by default.
