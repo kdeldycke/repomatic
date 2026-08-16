@@ -157,6 +157,20 @@ def _offline_setup_guide(
         yield lifecycle, bodies
 
 
+FULLY_CONFIGURED = {
+    "HAS_CLOUDFLARE_ACCOUNT_ID": "true",
+    "HAS_CLOUDFLARE_API_TOKEN": "true",
+}
+"""Secrets a fully-configured repository holds, beyond what `_invoke` sets.
+
+These tests run against this repository's own `pyproject.toml`, which declares
+`site.deploy = "cloudflare-pages"` while it dogfoods that lane, so the step
+asking for the Cloudflare credentials applies to them. A test asserting that
+everything passes has to supply them, or it asserts the state of this
+repository's secrets rather than the behaviour it means to cover.
+"""
+
+
 def _invoke(args: list[str], env: dict[str, str] | None = None):
     """Invoke the setup-guide CLI with GITHUB_REPOSITORY and no ambient PAT.
 
@@ -254,7 +268,7 @@ def test_setup_guide_lifecycle_reflects_check_outcomes(
     if has_vt_key:
         args.append("--has-virustotal-key")
     with _offline_setup_guide(branch_ok=branch_ok) as (lifecycle, _bodies):
-        result = _invoke(args)
+        result = _invoke(args, env=FULLY_CONFIGURED)
     assert result.exit_code == 0
     assert lifecycle.call_args_list[0][1]["has_issues"] is expected_has_issues
 
@@ -365,13 +379,16 @@ def test_setup_guide_unverifiable_step_does_not_block_closing():
         lifecycle,
         _bodies,
     ):
-        _invoke([
-            "setup-guide",
-            "--has-pat",
-            "--repo",
-            REPO_SLUG,
-            "--has-virustotal-key",
-        ])
+        _invoke(
+            [
+                "setup-guide",
+                "--has-pat",
+                "--repo",
+                REPO_SLUG,
+                "--has-virustotal-key",
+            ],
+            env=FULLY_CONFIGURED,
+        )
     assert lifecycle.call_args_list[0][1]["has_issues"] is False
 
 

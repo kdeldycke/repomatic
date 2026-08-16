@@ -516,6 +516,14 @@ pypi-package-history = [ "gha-utils", "repokit" ]
 # marketplace at .claude-plugin/marketplace.json installs the plugin straight
 # from this asset, so a release missing it breaks `/plugin install`.
 release-assets = [ "repomatic-claude-plugin.zip" ]
+# Migration in progress: this repository dogfoods its own Cloudflare Pages lane
+# on repomatic.net, so the feature reaches a release proven rather than
+# theoretical. Until the Pages project and its two secrets exist, the Docs
+# workflow's Cloudflare deploy and drift jobs fail and nothing publishes: that
+# is the intended state, and the setup guide issue is what says so, closing on
+# its own once both secrets land. `site.cloudflare-project` stays unset on
+# purpose, exercising the default that names the project after the repository.
+site.deploy = "cloudflare-pages"
 metrics.store = "./docs/assets/metrics.csv"
 metrics.sync = true
 metrics.charts = [

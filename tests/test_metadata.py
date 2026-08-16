@@ -847,10 +847,11 @@ expected: dict[str, Any] = {
     "npm_min_release_age_days": 7,
     # This repository publishes `.html` pages, the `sphinx.builder` default.
     "sphinx_builder": "html",
-    # And publishes them to GitHub Pages, the `site.deploy` default, into a
+    # This repository dogfoods its own Cloudflare Pages lane on repomatic.net,
+    # so it declares that target rather than the `github-pages` default, into a
     # project named after the repository (the empty override).
     "site_cloudflare_project": "",
-    "site_deploy": "github-pages",
+    "site_deploy": "cloudflare-pages",
 }
 
 
