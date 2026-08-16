@@ -325,8 +325,14 @@ class Component:
         if not self.location_field or config is None:
             return target
         # The Config default carries a "./" prefix the registry targets omit.
-        default = getattr(Config, self.location_field).removeprefix("./").rstrip("/")
-        custom = getattr(config, self.location_field).removeprefix("./").rstrip("/")
+        # Annotated because `getattr` on a computed name answers `Any`, which
+        # mypy then carries all the way out of this function's `str` return.
+        default: str = (
+            getattr(Config, self.location_field).removeprefix("./").rstrip("/")
+        )
+        custom: str = (
+            getattr(config, self.location_field).removeprefix("./").rstrip("/")
+        )
         if custom == default:
             return target
         if target == default:
