@@ -452,6 +452,115 @@ def test_account_id_prints_the_bare_value_and_touches_no_project(credentials, ca
     assert not calls
 
 
+def _domain_api(attached, records, zones=None, calls=None, dns_write_fails=False):
+    """A `_call` stand-in for the attach-domain paths, recording writes."""
+    zones = [{"id": "zone-id", "name": "example.com"}] if zones is None else zones
+
+    def call(path, token, method="GET", body=None):
+        if calls is not None:
+            calls.append((method, path, body))
+        if "/domains" in path:
+            if method == "POST":
+                attached.append({"name": body["name"], "status": "pending"})
+                return attached[-1]
+            return attached
+        if path.startswith("/zones?"):
+            wanted = path.split("name=")[1]
+            return [zone for zone in zones if zone["name"] == wanted]
+        if "/dns_records" in path:
+            if method == "POST":
+                if dns_write_fails:
+                    raise CloudflareError("POST failed: HTTP 403")
+                records.append({
+                    "type": "CNAME",
+                    "name": body["name"],
+                    "content": body["content"],
+                })
+                return records[-1]
+            return records
+        return {}
+
+    return call
+
+
+def test_attach_domain_registers_the_hostname_and_its_dns(credentials, capsys):
+    """The two halves the dashboard does together and the API does not."""
+    attached: list = []
+    records: list = []
+    calls: list = []
+    with patch.object(
+        cloudflare, "_call", side_effect=_domain_api(attached, records, calls=calls)
+    ):
+        exit_code = run_cloudflare_pages(PROJECT, attach_domain="example.com")
+    assert exit_code == 0
+    assert [entry["name"] for entry in attached] == ["example.com"]
+    created = [call for call in calls if call[0] == "POST" and "dns_records" in call[1]]
+    assert created[0][2] == {
+        "type": "CNAME",
+        "name": "example.com",
+        "content": f"{PROJECT}.pages.dev",
+        "proxied": True,
+        "ttl": 1,
+        "comment": "Cloudflare Pages custom domain.",
+    }
+    output = capsys.readouterr().out
+    assert "attached example.com" in output
+    assert "created CNAME" in output
+
+
+def test_attach_domain_is_idempotent(credentials, capsys):
+    """Re-running after fixing one half must not disturb the other."""
+    attached = [{"name": "example.com", "status": "active"}]
+    records = [{"type": "CNAME", "name": "example.com", "content": "x.pages.dev"}]
+    calls: list = []
+    with patch.object(
+        cloudflare, "_call", side_effect=_domain_api(attached, records, calls=calls)
+    ):
+        exit_code = run_cloudflare_pages(PROJECT, attach_domain="example.com")
+    assert exit_code == 0
+    assert not [call for call in calls if call[0] == "POST"]
+    output = capsys.readouterr().out
+    assert "already attached" in output
+    assert "already resolves" in output
+
+
+def test_attach_domain_reports_dns_it_cannot_write(credentials, capsys):
+    """A Pages-only token attaches the hostname and cannot finish the job.
+
+    Exits non-zero: a domain resolving to nothing never leaves `pending`, so
+    reporting success would describe a site that does not load.
+    """
+    with patch.object(
+        cloudflare,
+        "_call",
+        side_effect=_domain_api([], [], calls=None, dns_write_fails=True),
+    ):
+        exit_code = run_cloudflare_pages(PROJECT, attach_domain="example.com")
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "cannot write DNS" in output
+    assert "proxied CNAME named example.com" in output
+
+
+def test_attach_domain_finds_the_zone_above_a_subdomain(credentials, capsys):
+    """`docs.example.com` lives in `example.com`, so labels get stripped."""
+    records: list = []
+    with patch.object(cloudflare, "_call", side_effect=_domain_api([], records)):
+        exit_code = run_cloudflare_pages(PROJECT, attach_domain="docs.example.com")
+    assert exit_code == 0
+    assert records[0]["name"] == "docs.example.com"
+
+
+def test_attach_domain_survives_a_credential_that_cannot_read_zones(
+    credentials, capsys
+):
+    """A deploy token scoped to Pages alone carries no `Zone → Read`."""
+    with patch.object(cloudflare, "_call", side_effect=_domain_api([], [], zones=[])):
+        exit_code = run_cloudflare_pages(PROJECT, attach_domain="example.com")
+    assert exit_code == 1
+    assert "could not read the zone" in capsys.readouterr().out
+
+
 def test_dump_redacts_and_exits_zero(credentials, capsys):
     leaky = {**CLEAN_PROJECT, "oauth_token": "leaked"}
     with patch.object(cloudflare, "_call", side_effect=_api(leaky)):

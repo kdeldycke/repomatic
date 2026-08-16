@@ -368,6 +368,80 @@ def _token_expiry_warning(token: str, account: str) -> str | None:
     return None
 
 
+def _zone_for(domain: str, token: str) -> dict[str, Any] | None:
+    """Find the zone hosting *domain*, or `None` if the credential sees none.
+
+    The zone is rarely the domain itself: `docs.example.com` lives in
+    `example.com`. Labels are stripped from the left until a zone answers,
+    stopping at two, which is as far as a registrable name goes for the
+    ordinary suffixes. Reading zones needs `Zone → Read`, which a deploy token
+    scoped to Pages alone does not carry, so this answers `None` rather than
+    raising: the DNS half of attaching a domain is optional work that a
+    narrower credential simply cannot do.
+    """
+    labels = domain.split(".")
+    for start in range(len(labels) - 1):
+        candidate = ".".join(labels[start:])
+        try:
+            zones = _call(f"/zones?name={candidate}", token)
+        except CloudflareError:
+            return None
+        if zones:
+            return dict(zones[0])
+    return None
+
+
+def _ensure_dns_record(domain: str, target: str, token: str) -> bool:
+    """Point *domain* at *target* with a proxied `CNAME`, if it has no address.
+
+    Cloudflare flattens a `CNAME` sitting at a zone apex into addresses at
+    query time, so the same record shape serves an apex and a subdomain alike.
+    Proxying is not decoration: it is what puts the request through the edge
+    that holds the certificate Pages issued for this hostname.
+
+    :return: Whether the domain now has an address record.
+    """
+    zone = _zone_for(domain, token)
+    if zone is None:
+        echo(
+            f"note  could not read the zone for {domain}, so its DNS is left "
+            f"alone. Create it by hand: a proxied CNAME named {domain} "
+            f"pointing at {target}."
+        )
+        return False
+
+    records = _call(f"/zones/{zone['id']}/dns_records?name={domain}", token)
+    addressed = [r for r in records if r["type"] in {"A", "AAAA", "CNAME"}]
+    if addressed:
+        held = ", ".join(f"{r['type']} -> {r['content']}" for r in addressed)
+        echo(f"ok    {domain} already resolves ({held}), left alone.")
+        return True
+
+    try:
+        created = _call(
+            f"/zones/{zone['id']}/dns_records",
+            token,
+            method="POST",
+            body={
+                "type": "CNAME",
+                "name": domain,
+                "content": target,
+                "proxied": True,
+                "ttl": 1,
+                "comment": "Cloudflare Pages custom domain.",
+            },
+        )
+    except CloudflareError as error:
+        echo(
+            f"note  the credential cannot write DNS ({str(error).splitlines()[0]})."
+            f" Create it by hand: a proxied CNAME named {domain} pointing at"
+            f" {target}."
+        )
+        return False
+    echo(f"ok    created {created['type']} {created['name']} -> {created['content']}")
+    return True
+
+
 def _dig(node: Any, path: tuple[str, ...]) -> Any:
     for key in path:
         if not isinstance(node, dict) or key not in node:
@@ -444,6 +518,48 @@ def _describe(setting: Setting) -> str:
     return f"{dotted}  [{scope}, stock default {setting.default!r}: {stock}]"
 
 
+def _attach_domain(project: str, domain: str, token: str, endpoint: str) -> int:
+    """Serve *project* at *domain*, DNS included.
+
+    Two operations that the dashboard performs together and the API does not.
+    `POST`ing to the project's `domains` collection registers the hostname,
+    and that is all it does: no DNS record appears, nothing says one is
+    missing, and the domain then reports `verification: active` (Cloudflare
+    can see the zone is yours) beside a `status` and a certificate that stay
+    `pending` forever, because nothing resolves to the project yet. Doing both
+    here is what makes the API path match what the dashboard would have done.
+
+    Idempotent in both halves: an already-attached domain and an already
+    addressed hostname are reported and left alone, so a re-run after fixing
+    whichever half failed does no harm.
+
+    :return: `0` when the domain is attached and resolving, `1` when the DNS
+        half needs a hand, since a domain that resolves to nothing never
+        finishes provisioning.
+    """
+    collection = f"{endpoint}/domains"
+    attached = _call(collection, token)
+    if any(entry["name"] == domain for entry in attached):
+        echo(f"ok    {domain} is already attached to {project}.")
+    else:
+        _call(collection, token, method="POST", body={"name": domain})
+        echo(f"ok    attached {domain} to {project}.")
+
+    resolving = _ensure_dns_record(domain, f"{project}.pages.dev", token)
+
+    for entry in _call(collection, token):
+        if entry["name"] != domain:
+            continue
+        certificate = (entry.get("validation_data") or {}).get("status", "unknown")
+        echo(f"      status={entry.get('status')} certificate={certificate}")
+        if entry.get("status") != "active":
+            echo(
+                "      Provisioning takes a few minutes once the hostname "
+                "resolves. Re-run to see it settle."
+            )
+    return 0 if resolving else 1
+
+
 def run_cloudflare_pages(
     project: str,
     *,
@@ -452,6 +568,7 @@ def run_cloudflare_pages(
     dump: bool = False,
     create: bool = False,
     account_id: bool = False,
+    attach_domain: str = "",
     compatibility_date: str = "",
     placement: str = "",
 ) -> int:
@@ -470,6 +587,8 @@ def run_cloudflare_pages(
     :param account_id: Print the resolved account identifier and stop. Emits
         the bare value with nothing around it, so it pipes straight into
         whatever needs to store it, and needs no project to exist yet.
+    :param attach_domain: Serve the project at this hostname, creating the DNS
+        record it needs when the credential can. See {func}`_attach_domain`.
     :param compatibility_date: Declared Workers runtime date, empty for
         unmanaged.
     :param placement: Declared Smart Placement mode, empty for unmanaged.
@@ -486,6 +605,9 @@ def run_cloudflare_pages(
         return 0
 
     endpoint = f"/accounts/{account}/pages/projects/{project}"
+
+    if attach_domain:
+        return _attach_domain(project, attach_domain, token, endpoint)
 
     if create:
         _call(

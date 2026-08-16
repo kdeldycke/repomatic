@@ -38,6 +38,7 @@ from click_extra import (
     ParamType,
     Section,
     SortByOption,
+    Spinner,
     UsageError,
     argument,
     dir_path,
@@ -2600,6 +2601,16 @@ def lint_repo(
         " into whatever stores it, and needs no project to exist yet."
     ),
 )
+@option(
+    "--attach-domain",
+    metavar="DOMAIN",
+    default=None,
+    help=(
+        "Serve the project at DOMAIN, creating the proxied CNAME it needs."
+        " The API attaches a hostname without any DNS, unlike the dashboard,"
+        " leaving the domain pending forever; this does both."
+    ),
+)
 @pass_context
 def cloudflare_pages(
     ctx: Context,
@@ -2609,6 +2620,7 @@ def cloudflare_pages(
     dump: bool,
     create: bool,
     account_id: bool,
+    attach_domain: str | None,
 ) -> None:
     """Reconcile the Cloudflare Pages project against the declared state.
 
@@ -2637,6 +2649,10 @@ def cloudflare_pages(
         repomatic cloudflare-pages --create --project my-site
 
     \b
+        # Serve the project at a custom domain, DNS record included
+        repomatic cloudflare-pages --attach-domain example.com
+
+    \b
         # Store the account ID as a repository secret, without reading it
         repomatic cloudflare-pages --account-id \\
           | gh secret set CLOUDFLARE_ACCOUNT_ID --repo owner/repo
@@ -2644,6 +2660,7 @@ def cloudflare_pages(
     modes = {
         "--account-id": account_id,
         "--apply": apply_,
+        "--attach-domain": bool(attach_domain),
         "--check": check,
         "--create": create,
         "--dump": dump,
@@ -2672,6 +2689,7 @@ def cloudflare_pages(
             dump=dump,
             create=create,
             account_id=account_id,
+            attach_domain=attach_domain or "",
             compatibility_date=config.site_cloudflare_compatibility_date,
             placement=config.site_cloudflare_placement,
         )
@@ -3443,8 +3461,27 @@ def sample_metrics(
         except (OSError, ValueError) as error:
             raise ClickException(str(error))
     if backfill_wayback:
-        for name, repo in tracked.items():
-            outcomes.append(_backfill_wayback(records, name, repo, store_path))
+        # Animated from its own thread, so the line keeps moving while a single
+        # archived page blocks through its retries, and silent off an
+        # interactive stream, which leaves a piped or scheduled run's log clean.
+        # The backfill is the one command here whose subject is unreachable and
+        # slow enough that a watcher cannot tell work from a hang.
+        with Spinner("Mining the archives", timer=True) as progress:
+
+            def announce(status: str) -> None:
+                progress.label = status
+
+            for name, repo in tracked.items():
+                outcomes.append(
+                    _backfill_wayback(
+                        records,
+                        name,
+                        repo,
+                        store_path,
+                        on_status=announce,
+                        on_row=progress.echo,
+                    )
+                )
 
     ctx.print_table(
         [

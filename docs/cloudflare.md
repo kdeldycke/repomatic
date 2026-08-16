@@ -6,7 +6,7 @@ Everything here was learned by operating real Pages projects, the expensive way 
 
 ## From a domain name to a published site
 
-The whole migration, given nothing but a domain in a Cloudflare account and a repository currently publishing to GitHub Pages. Each step is one command, and the order matters: the site has to serve before anything is pointed at it.
+The whole migration, given nothing but a domain in a Cloudflare account and a repository currently publishing to GitHub Pages. Seven steps, each one command, and the order matters: the site has to serve before anything is pointed at it.
 
 1. **Create the Pages project**, named after the repository, which nothing else does for you:
 
@@ -27,19 +27,23 @@ The whole migration, given nothing but a domain in a Cloudflare account and a re
    site.deploy = "cloudflare-pages"
    ```
 
-4. **Attach the custom domain** once that deploy is green and `{project}.pages.dev` serves the site. In the dashboard this is **Workers & Pages → the project → Custom domains**; over the API it is a `POST` to the project's `domains` collection.
+4. **Attach the custom domain**, once that deploy is green and `{project}.pages.dev` serves the site. This registers the hostname *and* creates the proxied `CNAME` it needs, which the raw API leaves undone:
 
-5. **Create the DNS record**, which the API path does *not* do for you. A proxied `CNAME` at the apex, pointing at `{project}.pages.dev`; Cloudflare flattens it to addresses at query time, and proxying is what lets the edge terminate TLS for the certificate Pages issues. The domain sits `pending` until this exists, then goes `active` within a few minutes once the certificate is issued.
+   ```shell
+   repomatic cloudflare-pages --attach-domain {domain}
+   ```
 
-6. **Tell Sphinx where it now lives**, so every page carries a canonical URL naming the new host:
+   Writing DNS needs `Zone → DNS → Edit`, which a deploy token scoped to Pages does not carry, so run it with a credential that has both or let it tell you the one record to add by hand. It is idempotent, and re-running reports how far provisioning has got. The equivalent by hand is **Workers & Pages → the project → Custom domains** in the dashboard, which creates the record for you the same way.
+
+5. **Tell Sphinx where it now lives**, so every page carries a canonical URL naming the new host:
 
    ```python
    html_baseurl = "https://{domain}"
    ```
 
-7. **Move the repository's own references**: `[project.urls]`, the GitHub homepage field, badges, and every absolute self-link in the docs and in any templates that render into other repositories. Write them extensionless, per [the URL shape below](#the-url-shape-changes-underneath-you). `lint-repo` catches a half-finished job by comparing the homepage field against the declared documentation URL.
+6. **Move the repository's own references**: `[project.urls]`, the GitHub homepage field, badges, and every absolute self-link in the docs and in any templates that render into other repositories. Write them extensionless, per [the URL shape below](#the-url-shape-changes-underneath-you). `lint-repo` catches a half-finished job by comparing the homepage field against the declared documentation URL.
 
-8. **Keep the old URLs alive**, the step with no visible symptom if skipped, since the old host goes on serving a frozen copy rather than failing:
+7. **Keep the old URLs alive**, the step with no visible symptom if skipped, since the old host goes on serving a frozen copy rather than failing:
 
    ```shell
    gh api --method PUT repos/{owner}/{repo}/pages --field cname={domain}
