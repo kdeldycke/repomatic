@@ -232,7 +232,7 @@ CLOUDFLARE_PLACEMENT_MODES: Final[frozenset[str]] = frozenset((
 
 The vocabulary of the Pages project's `placement.mode` field, which is what
 `repomatic cloudflare-pages` writes the setting through. Anything else would
-be PATCHed to the live project verbatim and rejected there, far from the
+be PATCHead to the live project verbatim and rejected there, far from the
 `pyproject.toml` line that caused it.
 """
 
