@@ -186,6 +186,36 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
 **When an orchestrator spawned this loop (like `/repomatic-ship`), do not early-exit — drive every monitored workflow to terminal green before returning.** The orchestrator spawned you precisely to own the slow tail it would otherwise poll itself; returning at "fast platforms green" just hands the macOS cells and the `release.yaml` binary matrix back to a caller that must then detect your stall and re-drive them, and an idle sub-agent is indistinguishable from a dead one. Keep polling — with the step-3 `sleep` cadence, never a busy-wait — until macOS and the full `release.yaml` matrix have finished and every stable (✅) job is green, fixing and re-pushing on any stable failure (steps 4-7). Then send the orchestrator a final `SendMessage` naming each monitored workflow's conclusion. A harness idle/available signal is not that report: end the turn only with that explicit message, or on a blocker you cannot resolve (say which).
 
+### When supersession never lets a run conclude
+
+A busy default branch can cancel the same workflow indefinitely. Every push shares the `${{ github.workflow }}-${{ github.ref }}` concurrency group, so an unrelated commit landing mid-matrix cancels yours, and the next one cancels its replacement. Three consecutive heads leaving `tests.yaml` cancelled is an ordinary afternoon, not a fault. Dispatching a fresh run does not escape it: a `workflow_dispatch` run joins the same group and is cancelled by the next push like any other.
+
+**A cancelled run is neither a failure nor a pass, and the run-level conclusion hides which.** Read the jobs:
+
+```shell-session
+$ gh run view {run-id} --json jobs \
+    --jq '[.jobs[] | .conclusion] | group_by(.) | map({(.[0] // "running"): length}) | add'
+{"cancelled":2,"success":25}
+```
+
+Twenty-five green and zero failures is a strong signal that the tree is fine; it is not a green run, and must never be reported as one.
+
+**Establish coverage by union, then close the residue locally.** List the cells that never reached `success` on any head containing your change, across every cancelled run:
+
+```shell-session
+$ gh run view {run-id} --json jobs --jq '.jobs[] | select(.conclusion != "success") | "\(.conclusion): \(.name)"'
+```
+
+The residue is almost always macOS, which is the slowest tier and therefore last standing whenever a run is cut short. Discount any `⁉️` cell (it gates nothing) and run whatever stable cells remain on the matching interpreter locally:
+
+```shell-session
+$ uv --no-progress run --python 3.10 --all-extras --group test --frozen -- pytest -m "not once"
+```
+
+`--group test` is required: without it uv resolves an environment with no pytest in it and fails with `Failed to spawn: pytest`, which reads as a broken command rather than a missing dependency group. A cell whose OS differs from the machine you are on cannot be closed this way — name it as unverified instead of implying otherwise.
+
+Report the union explicitly: which cells passed in CI, which you closed locally, and which remain open and why. "CI was cancelled" on its own tells the caller nothing they can act on.
+
 ## Stable vs. unstable
 
 - **Stable jobs** (✅): must pass. So does every job carrying no stability glyph at all (`🛡️ Lint types`, `1️⃣ Run-once tests`, `📦 Package install`): the test is the *absence* of `⁉️` anywhere in the name, never the presence of a `✅` prefix.
