@@ -8,6 +8,8 @@ Everything here was learned by operating real Pages projects, the expensive way 
 
 The site is never built by Cloudflare. CI renders the tree and uploads the finished files with `wrangler pages deploy`, so Cloudflare needs no access to the repository and runs no build of its own. In the API, those deployments carry `deployment_trigger.type = "ad_hoc"`, and the one currently serving is the project's `canonical_deployment`. A deployment only activates once its upload completes, so an interrupted run leaves the previous one serving: cancelling a superseded deploy is always safe.
 
+The project has to exist before the first deploy: `wrangler pages deploy` uploads into a project and never creates one, so CI's first run against a missing project fails rather than provisioning it. `repomatic cloudflare-pages --create` covers that, and `--account-id` prints the account identifier the deploy needs stored beside its token, bare enough to pipe straight into `gh secret set`.
+
 The project's `source` must read `null`, and must stay that way. Attaching a git repository reintroduces a second, competing publisher for the same project, one with no build configuration capable of producing a usable site. The [drift check](#the-drift-check) fails when a source block appears, which is the guard against it coming back through a well-meaning dashboard visit.
 
 Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets, so the deploy job drops oversized files first and names each one in the log: everything else publishes instead of nothing. And each project keeps its `<project>.pages.dev` hostname for life; see [below](#the-pagesdev-hostname) for why that is fine.

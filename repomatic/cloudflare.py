@@ -390,6 +390,20 @@ def _redact(node: Any) -> Any:
     return node
 
 
+def _is_unset(value: Any) -> bool:
+    """Whether *value* is one of the ways Cloudflare spells "nothing here".
+
+    A field with no value reads back as a null, as an empty string, or as a
+    key that is simply absent, and which one arrives depends on the field and
+    on how old the project is. A project created seconds ago carries no
+    `build_config` object at all, which is the strongest possible statement
+    that it has no build command: without this equivalence it reads as drift
+    against the empty string declaring exactly that, and `--create` closes by
+    reporting a fault in the project it just made correctly.
+    """
+    return value is KeyError or value is None or value == ""
+
+
 def _diff(
     project: dict[str, Any], settings: tuple[Setting, ...]
 ) -> tuple[list[Setting], list[tuple[Setting, Any]]]:
@@ -398,12 +412,10 @@ def _diff(
     drifted: list[tuple[Setting, Any]] = []
     for setting in settings:
         live = _dig(project, setting.path)
-        # Cloudflare reports "this is unset" as either a null value or a
-        # missing key depending on the field, and both mean the same thing to
-        # a setting wanted gone. Without this, whichever form it is not
-        # currently using reads as drift.
-        if setting.desired is None and live is KeyError:
-            live = None
+        # A setting asking for "nothing" is satisfied by every spelling of it,
+        # so the one the API happens to use today cannot read as drift.
+        if _is_unset(setting.desired) and _is_unset(live):
+            live = setting.desired
         if live == setting.desired:
             matched.append(setting)
         else:
@@ -425,6 +437,7 @@ def run_cloudflare_pages(
     apply: bool = False,
     dump: bool = False,
     create: bool = False,
+    account_id: bool = False,
     compatibility_date: str = "",
     placement: str = "",
 ) -> int:
@@ -440,6 +453,9 @@ def run_cloudflare_pages(
     :param dump: Print the live project state as JSON, secrets redacted.
     :param create: Create the Pages project (Direct Upload, `main` as its
         production branch), then apply the declared settings to it.
+    :param account_id: Print the resolved account identifier and stop. Emits
+        the bare value with nothing around it, so it pipes straight into
+        whatever needs to store it, and needs no project to exist yet.
     :param compatibility_date: Declared Workers runtime date, empty for
         unmanaged.
     :param placement: Declared Smart Placement mode, empty for unmanaged.
@@ -448,6 +464,13 @@ def run_cloudflare_pages(
     """
     token = _token()
     account = _account(token)
+
+    if account_id:
+        # Bare, so it pipes into whatever stores it. Everything explanatory
+        # would have to be stripped back off by the caller.
+        echo(account)
+        return 0
+
     endpoint = f"/accounts/{account}/pages/projects/{project}"
 
     if create:

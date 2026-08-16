@@ -2592,6 +2592,14 @@ def lint_repo(
         " the rebuild-from-nothing verb."
     ),
 )
+@option(
+    "--account-id",
+    is_flag=True,
+    help=(
+        "Print the resolved Cloudflare account ID and exit. Bare, so it pipes"
+        " into whatever stores it, and needs no project to exist yet."
+    ),
+)
 @pass_context
 def cloudflare_pages(
     ctx: Context,
@@ -2600,6 +2608,7 @@ def cloudflare_pages(
     apply_: bool,
     dump: bool,
     create: bool,
+    account_id: bool,
 ) -> None:
     """Reconcile the Cloudflare Pages project against the declared state.
 
@@ -2626,8 +2635,14 @@ def cloudflare_pages(
     \b
         # Rebuild from nothing: create the project, then configure it
         repomatic cloudflare-pages --create --project my-site
+
+    \b
+        # Store the account ID as a repository secret, without reading it
+        repomatic cloudflare-pages --account-id \\
+          | gh secret set CLOUDFLARE_ACCOUNT_ID --repo owner/repo
     """
     modes = {
+        "--account-id": account_id,
         "--apply": apply_,
         "--check": check,
         "--create": create,
@@ -2640,7 +2655,9 @@ def cloudflare_pages(
 
     config = get_tool_config(ctx)
     resolved = project or config.site_cloudflare_project or Metadata().repo_name
-    if not resolved:
+    # `--account-id` answers about the account, not about a project, and it is
+    # what someone runs *before* the project exists.
+    if not resolved and not account_id:
         msg = (
             "No project name: pass --project or set [tool.repomatic]"
             " site.cloudflare-project."
@@ -2649,11 +2666,12 @@ def cloudflare_pages(
 
     try:
         exit_code = run_cloudflare_pages(
-            resolved,
+            resolved or "",
             check=check,
             apply=apply_,
             dump=dump,
             create=create,
+            account_id=account_id,
             compatibility_date=config.site_cloudflare_compatibility_date,
             placement=config.site_cloudflare_placement,
         )

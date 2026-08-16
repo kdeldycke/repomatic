@@ -3,19 +3,19 @@ args: [repo_url, repo_slug]
 footer: 'false'
 ---
 
-The [unsubscribe workflow]($repo_url/actions/workflows/unsubscribe.yaml) cleans up notification threads of closed issues and PRs. It needs its own token: the GitHub notifications API only accepts **classic** personal access tokens with the `notifications` scope (fine-grained tokens are rejected), so the fine-grained `REPOMATIC_PAT` cannot be reused.
+The [unsubscribe workflow]($repo_url/actions/workflows/unsubscribe.yaml) needs its own **classic** token: the notifications API rejects fine-grained ones, so `REPOMATIC_PAT` cannot be reused. It skips silently until this is set.
 
-1. Open the [**pre-filled classic token form**](https://github.com/settings/tokens/new?description=REPOMATIC_NOTIFICATIONS_PAT&scopes=notifications) (or go to **GitHub → Settings → Developer Settings → [Tokens (classic)](https://github.com/settings/tokens)** and click **Generate new token (classic)**).
+1. Open the [**pre-filled classic token form**](https://github.com/settings/tokens/new?description=REPOMATIC_NOTIFICATIONS_PAT&scopes=notifications), which arrives with only the `notifications` scope selected.
 
-2. Check that only the `notifications` scope is selected, set an expiration, and click **Generate token**.
+2. Set an expiration, then click **Generate token**.
 
 3. Add it as a repository secret:
 
-```shell
-gh secret set REPOMATIC_NOTIFICATIONS_PAT --repo $repo_slug
-```
+   ```shell
+   gh secret set REPOMATIC_NOTIFICATIONS_PAT --repo $repo_slug
+   ```
 
-Or add it manually: **this repo → [Settings → Secrets → Actions]($repo_url/settings/secrets/actions)** → **New repository secret** → name it `REPOMATIC_NOTIFICATIONS_PAT` → paste the token.
+   Or by hand: **[Settings → Secrets → Actions]($repo_url/settings/secrets/actions)** → **New repository secret** → `REPOMATIC_NOTIFICATIONS_PAT`.
 
 > [!NOTE]
-> The weekly unsubscribe run skips silently until the secret is configured. Notifications are account-wide, so one repository with the secret cleans the whole inbox: there is no need to configure it in every repo that enables the workflow.
+> Notifications are account-wide, so one repository holding this secret cleans the whole inbox. There is no need to repeat it everywhere the workflow is enabled.

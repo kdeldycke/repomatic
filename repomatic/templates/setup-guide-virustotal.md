@@ -3,22 +3,19 @@ args: [repo_url, repo_slug]
 footer: 'false'
 ---
 
-Release binaries compiled with [Nuitka](https://nuitka.net/) often trigger false positives on VirusTotal. Submitting binaries proactively on each release seeds AV vendor databases and reduces detection counts for downstream distributors (Chocolatey, Scoop, etc.).
+Optional. Submitting release binaries to VirusTotal seeds AV vendor databases and reduces false positives for downstream distributors. Without the key, releases skip the scan.
 
-1. Go to [**VirusTotal**](https://www.virustotal.com/gui/my-apikey) and sign in (a free account is sufficient).
+1. Sign in to [**VirusTotal**](https://www.virustotal.com/gui/my-apikey), where a free account is enough.
 
-2. Copy your **API key** from the account page.
+2. Copy the **API key** from the account page.
 
 3. Add it as a repository secret:
 
-```shell
-gh secret set VIRUSTOTAL_API_KEY --repo $repo_slug
-```
+   ```shell
+   gh secret set VIRUSTOTAL_API_KEY --repo $repo_slug
+   ```
 
-Or add it manually: **this repo → [Settings → Secrets → Actions]($repo_url/settings/secrets/actions)** → **New repository secret** → name it `VIRUSTOTAL_API_KEY` → paste the key.
-
-> [!NOTE]
-> This step is optional. Without the key, release workflows skip the VirusTotal scan. The free-tier API allows 4 requests per minute, which is sufficient for typical release binaries.
+   Or by hand: **[Settings → Secrets → Actions]($repo_url/settings/secrets/actions)** → **New repository secret** → `VIRUSTOTAL_API_KEY`.
 
 > [!IMPORTANT]
-> With the key configured, each release also records its scan results and the refreshed binaries catalog (`docs/binaries.md`) with a commit pushed directly to the default branch (no pull request): see the [rationale](https://kdeldycke.github.io/repomatic/operation-contracts.html#release-lane-direct-commits). To keep the scan but skip that commit, set `binaries.sync = false` in `[tool.repomatic]`.
+> With the key set, each release also commits its scan results and the refreshed `docs/binaries.md` straight to the default branch, no pull request: see the [rationale](https://kdeldycke.github.io/repomatic/operation-contracts.html#release-lane-direct-commits). Keep the scan without the commit by setting `binaries.sync = false` in `[tool.repomatic]`.

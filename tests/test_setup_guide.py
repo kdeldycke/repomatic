@@ -205,12 +205,17 @@ def test_setup_guide_pat_without_repo_keeps_issue_open():
 
 
 def test_setup_guide_body_contains_template():
-    """The setup body file contains the setup guide template content."""
+    """The setup body carries the token step's own content, not just its title.
+
+    Anchored on the secret name and on a row of the permission table, the two
+    things that step exists to convey. It used to assert on a sentence of
+    navigation prose, which made trimming the step read as a regression.
+    """
     with _offline_setup_guide() as (_lifecycle, bodies):
         _invoke(["setup-guide"])
     content = bodies[0]
     assert "REPOMATIC_PAT" in content
-    assert "Fine-grained tokens" in content
+    assert "Dependabot alerts" in content
 
 
 @patch("repomatic.github.token.validate_gh_token_env")

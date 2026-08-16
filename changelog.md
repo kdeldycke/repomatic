@@ -14,6 +14,9 @@
 - `lint-repo` now fails a committed `_redirects` file that would lose rules to the Cloudflare Pages engine's silent budget accounting, replicated in the new `repomatic.pages_redirects` module.
 - `lint-repo` now warns when `wrangler.toml` contradicts the declared Cloudflare Pages project name or compatibility date.
 - `lint-repo` now checks that a project which moved its site to Cloudflare Pages keeps its GitHub Pages custom domain pointing at the new host, which is what keeps every published `github.io` URL redirecting.
+- New `cloudflare-pages --account-id` printing the resolved account identifier, bare enough to pipe straight into `gh secret set`.
+- `cloudflare-pages` no longer reports a freshly created project as drifted: a project carrying no `build_config` at all states the same thing as an empty build command.
+- Every setup guide step is rewritten to the actions it asks for, with the reasoning moved to the documentation it links, and continuation blocks now stay attached to their numbered step.
 - The setup guide issue and `lint-repo` ask about whichever host `site.deploy` names, Sphinx or not, and the Cloudflare step now hands out a pre-filled account-owned token form instead of pointing at user-owned profile tokens.
 - The Docs workflow now runs monthly, mirrored into downstream callers: a lapsed Cloudflare token becomes a red run instead of a deploy that never happens, and link rot surfaces between pushes.
 - The Cloudflare deploy job now drops files over Direct Upload's 25 MiB per-file limit, naming each in the log, instead of failing the whole upload on the first one.

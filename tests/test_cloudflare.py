@@ -130,6 +130,64 @@ def test_diff_reads_a_missing_key_as_the_null_it_wants():
     assert not drifted
 
 
+def test_diff_accepts_a_freshly_created_project_as_clean():
+    """A project created seconds ago carries no `build_config` object at all.
+
+    That absence is the strongest possible statement that nothing builds it,
+    so it must not read as drift against the empty string saying the same.
+    Reported as drift, `--create` closed by declaring a fault in the project
+    it had just made correctly, and pointed at a dashboard field that does
+    not exist yet.
+    """
+    fresh = {
+        "name": PROJECT,
+        "deployment_configs": {
+            "production": {"build_image_major_version": 3},
+            "preview": {"build_image_major_version": 3},
+        },
+    }
+    _matched, drifted = _diff(fresh, desired_settings())
+    assert not drifted
+
+
+@pytest.mark.parametrize(
+    "live",
+    (
+        pytest.param({}, id="absent"),
+        pytest.param({"build_config": {}}, id="empty-parent"),
+        pytest.param({"build_config": {"build_command": None}}, id="null"),
+        pytest.param({"build_config": {"build_command": ""}}, id="empty-string"),
+    ),
+)
+def test_diff_treats_every_spelling_of_unset_alike(live):
+    """Which form arrives depends on the field and the project's age."""
+    wants_empty = Setting(
+        path=("build_config", "build_command"),
+        desired="",
+        default="",
+        why="",
+        managed=False,
+    )
+    matched, drifted = _diff(live, (wants_empty,))
+    assert matched == [wants_empty]
+    assert not drifted
+
+
+def test_diff_still_catches_a_real_build_command():
+    """The equivalence must not swallow a project someone reconnected."""
+    wants_empty = Setting(
+        path=("build_config", "build_command"),
+        desired="",
+        default="",
+        why="",
+        managed=False,
+    )
+    _matched, drifted = _diff(
+        {"build_config": {"build_command": "npm run build"}}, (wants_empty,)
+    )
+    assert drifted == [(wants_empty, "npm run build")]
+
+
 def test_diff_reports_live_value_next_to_wanted_one():
     setting = Setting(
         path=("deployment_configs", "production", "compatibility_date"),
@@ -332,6 +390,20 @@ def test_apply_patches_only_the_managed_drift(credentials, capsys):
         }
     }
     assert "Applied 2 setting(s)." in capsys.readouterr().out
+
+
+def test_account_id_prints_the_bare_value_and_touches_no_project(credentials, capsys):
+    """It pipes into `gh secret set`, so nothing may surround the value.
+
+    It also has to answer before any project exists, since storing the account
+    ID is a prerequisite of the very first deploy.
+    """
+    calls: list = []
+    with patch.object(cloudflare, "_call", side_effect=_api(CLEAN_PROJECT, calls)):
+        exit_code = run_cloudflare_pages("", account_id=True)
+    assert exit_code == 0
+    assert capsys.readouterr().out == "account-under-test\n"
+    assert not calls
 
 
 def test_dump_redacts_and_exits_zero(credentials, capsys):
