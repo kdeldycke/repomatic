@@ -94,7 +94,7 @@ All submission text blocks must derive project details from `pyproject.toml` and
 
 #### Vendor definitions
 
-User-facing documentation of vendor portals, submission priority, and common issues is in [`docs/security.md` § AV false-positive submissions](https://kdeldycke.github.io/repomatic/security.html#av-false-positive-submissions).
+User-facing documentation of vendor portals, submission priority, and common issues is in [`docs/security.md` § AV false-positive submissions](https://repomatic.net/security#av-false-positive-submissions).
 
 ##### Microsoft (engines: `Microsoft`)
 

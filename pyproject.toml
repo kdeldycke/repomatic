@@ -132,7 +132,7 @@ dependencies = [
   "wcmatch>=10",
 ]
 urls.Changelog = "https://github.com/kdeldycke/repomatic/blob/main/changelog.md"
-urls.Documentation = "https://kdeldycke.github.io/repomatic"
+urls.Documentation = "https://repomatic.net"
 urls.Download = "https://github.com/kdeldycke/repomatic/releases/tag/v7.13.0.dev0"
 urls.Funding = "https://github.com/sponsors/kdeldycke"
 urls.Homepage = "https://github.com/kdeldycke/repomatic"

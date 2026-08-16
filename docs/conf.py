@@ -218,6 +218,18 @@ intersphinx_mapping = {
 # `path/to/file:heading` instead of just `heading`.
 autosectionlabel_prefix_document = True
 
+# Where these pages are published, which is what makes Sphinx emit a
+# `<link rel="canonical">` on each one. Without it there is no canonical tag at
+# all, and a site reachable from more than one hostname has nothing telling a
+# crawler which is the real one: the old `github.io` address answers every
+# request with a redirect here, but a page served from a preview deployment or
+# mirrored elsewhere would otherwise compete with its own original.
+#
+# No trailing `.html` anywhere in the emitted URLs is not something to fix
+# here: Cloudflare Pages strips the extension itself and redirects `page.html`
+# to `page`, so `html_baseurl` names the origin and the host settles the shape.
+html_baseurl = "https://repomatic.net"
+
 # Theme config.
 html_theme = "furo"
 html_title = project

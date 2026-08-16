@@ -1106,7 +1106,7 @@ BLOCKER_SECTION_NOTE = (
     " gets the code this release was tested against. These do not clear that"
     " bar, so the release lane refuses to build a package while they stand."
     " See [Dependency management § Shippable"
-    " sources](https://kdeldycke.github.io/repomatic/dependencies.html#shippable-sources)."
+    " sources](https://repomatic.net/dependencies#shippable-sources)."
 )
 """Intro paragraph for the `lint-deps` blocker section."""
 

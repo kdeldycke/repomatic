@@ -871,7 +871,7 @@ PROGRAMMATIC_TEMPLATES = frozenset({
 """Templates rendered from Python code, not via the ``--template`` CLI flag."""
 
 
-WORKFLOWS_DOCS_URL = "https://kdeldycke.github.io/repomatic/workflows.html"
+WORKFLOWS_DOCS_URL = "https://repomatic.net/workflows"
 """Hosted workflows reference that template ``docs:`` fields deep-link into."""
 
 

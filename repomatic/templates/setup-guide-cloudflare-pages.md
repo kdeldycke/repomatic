@@ -24,7 +24,7 @@ footer: 'false'
    That is the only secret needed: the account resolves from the token itself. Add `CLOUDFLARE_ACCOUNT_ID` only if the credential reaches several accounts, taking its value from `repomatic cloudflare-pages --account-id`.
 
 > [!NOTE]
-> Two things worth knowing, both covered in the [Cloudflare Pages guide](https://kdeldycke.github.io/repomatic/cloudflare.html): the token reaches **every** Pages project on the account, since `Cloudflare Pages` is an account permission that cannot be narrowed to one project or domain; and if this project ever published to `$repo_owner.github.io/$repo_name`, leaving GitHub Pages enabled with its custom domain set to the new one is what keeps those URLs redirecting.
+> Two things worth knowing, both covered in the [Cloudflare Pages guide](https://repomatic.net/cloudflare): the token reaches **every** Pages project on the account, since `Cloudflare Pages` is an account permission that cannot be narrowed to one project or domain; and if this project ever published to `$repo_owner.github.io/$repo_name`, leaving GitHub Pages enabled with its custom domain set to the new one is what keeps those URLs redirecting.
 
 > [!NOTE]
 > To go back, set `site.deploy = "github-pages"`. Both secrets go unread and this step disappears.

@@ -1,7 +1,7 @@
 ---
 args: [pr_ref]
 title: 🚨 Squash merge detected — release skipped
-docs: https://kdeldycke.github.io/repomatic/workflows.html#detect-squash-merge-detect-squash-merge
+docs: https://repomatic.net/workflows#detect-squash-merge-detect-squash-merge
 footer: false
 ---
 

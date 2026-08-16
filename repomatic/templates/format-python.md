@@ -1,6 +1,6 @@
 ---
 title: Format Python
-docs: https://kdeldycke.github.io/repomatic/workflows.html#format-python-format-python
+docs: https://repomatic.net/workflows#format-python-format-python
 footer: false
 labels: [🤖 ci]
 ---

@@ -1,15 +1,15 @@
 ---
 title: Fix changelog
-docs: https://kdeldycke.github.io/repomatic/workflows.html#fix-changelog-fix-changelog
+docs: https://repomatic.net/workflows#fix-changelog-fix-changelog
 footer: false
 labels: [🆙 changelog]
 ---
 
 ## ⚙️ Configuration
 
-Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
+Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
-- [`abandoned-versions`](https://kdeldycke.github.io/repomatic/configuration.html#abandoned-versions)
-- [`changelog.archive-location`](https://kdeldycke.github.io/repomatic/configuration.html#changelog-archive-location)
-- [`changelog.location`](https://kdeldycke.github.io/repomatic/configuration.html#changelog-location)
-- [`pypi-package-history`](https://kdeldycke.github.io/repomatic/configuration.html#pypi-package-history)
+- [`abandoned-versions`](https://repomatic.net/configuration#abandoned-versions)
+- [`changelog.archive-location`](https://repomatic.net/configuration#changelog-archive-location)
+- [`changelog.location`](https://repomatic.net/configuration#changelog-location)
+- [`pypi-package-history`](https://repomatic.net/configuration#pypi-package-history)

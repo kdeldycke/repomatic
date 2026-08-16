@@ -32,19 +32,19 @@ A Python CLI and `pyproject.toml` configuration that let you **release Python pa
 
 repomatic does for the release process what ruff did for linting and uv did for packaging: replace a stack of single-purpose tools with one.
 
-- [23 third-party GitHub Actions replaced](https://kdeldycke.github.io/repomatic/security.html#third-party-action-minimization) by internal CLI commands and SHA-256-verified binary downloads, keeping the supply chain attack surface minimal
-- [10 Python linters and formatters](https://kdeldycke.github.io/repomatic/security.html#ruff-consolidation) (pylint, pydocstyle, pycln, pyupgrade, isort, black, docformatter, mdformat-black, blacken-docs, mdformat-ruff) consolidated into ruff
-- [5 packaging and install tools](https://kdeldycke.github.io/repomatic/security.html#uv-consolidation) (poetry, build, twine, check-wheel-contents, pip-audit) consolidated into uv
-- All `uses:` references [pinned to full commit SHAs](https://kdeldycke.github.io/repomatic/security.html#supply-chain-security) with stabilization windows before adopting new versions, managed entirely by self-hosted sync jobs
-- [SLSA provenance attestations](https://kdeldycke.github.io/repomatic/security.html#supply-chain-security) on every release artifact (wheels and compiled binaries)
-- [VirusTotal scanning](https://kdeldycke.github.io/repomatic/security.html#av-false-positive-submissions) of compiled binaries to seed AV vendor databases and reduce false positives
-- [Trusted Publishing](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-release-yaml-jobs) for PyPI uploads: no long-lived tokens stored as secrets
-- [Immutable releases](https://kdeldycke.github.io/repomatic/security.html#supply-chain-security) enforced via GitHub's tag protection and release locking
-- Workflow security linting with [`zizmor`](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-lint-yaml-jobs) on every push to catch dangerous triggers and excessive permissions
-- Credential scanning with [`gitleaks`](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-lint-yaml-jobs) to prevent secret leakage
-- Single [`pyproject.toml` configuration](https://kdeldycke.github.io/repomatic/configuration.html): no extra dotfiles, no JSON configs, no YAML presets to maintain
-- The CLI itself [ships as standalone binaries](https://kdeldycke.github.io/repomatic/install.html#executables) (Linux / macOS / Windows, x86_64 / arm64): no Python environment needed to run it
-- [15+ code quality tools](https://kdeldycke.github.io/repomatic/tool-runner.html) (ruff, mypy, biome, typos, mdformat, shfmt, yamllint, actionlint, lychee, oxipng, pyproject-fmt, labelmaker, gitleaks, zizmor) managed through one `repomatic run <tool>` interface with automatic installation and platform-specific binary caching
+- [23 third-party GitHub Actions replaced](https://repomatic.net/security#third-party-action-minimization) by internal CLI commands and SHA-256-verified binary downloads, keeping the supply chain attack surface minimal
+- [10 Python linters and formatters](https://repomatic.net/security#ruff-consolidation) (pylint, pydocstyle, pycln, pyupgrade, isort, black, docformatter, mdformat-black, blacken-docs, mdformat-ruff) consolidated into ruff
+- [5 packaging and install tools](https://repomatic.net/security#uv-consolidation) (poetry, build, twine, check-wheel-contents, pip-audit) consolidated into uv
+- All `uses:` references [pinned to full commit SHAs](https://repomatic.net/security#supply-chain-security) with stabilization windows before adopting new versions, managed entirely by self-hosted sync jobs
+- [SLSA provenance attestations](https://repomatic.net/security#supply-chain-security) on every release artifact (wheels and compiled binaries)
+- [VirusTotal scanning](https://repomatic.net/security#av-false-positive-submissions) of compiled binaries to seed AV vendor databases and reduce false positives
+- [Trusted Publishing](https://repomatic.net/workflows#github-workflows-release-yaml-jobs) for PyPI uploads: no long-lived tokens stored as secrets
+- [Immutable releases](https://repomatic.net/security#supply-chain-security) enforced via GitHub's tag protection and release locking
+- Workflow security linting with [`zizmor`](https://repomatic.net/workflows#github-workflows-lint-yaml-jobs) on every push to catch dangerous triggers and excessive permissions
+- Credential scanning with [`gitleaks`](https://repomatic.net/workflows#github-workflows-lint-yaml-jobs) to prevent secret leakage
+- Single [`pyproject.toml` configuration](https://repomatic.net/configuration): no extra dotfiles, no JSON configs, no YAML presets to maintain
+- The CLI itself [ships as standalone binaries](https://repomatic.net/install#executables) (Linux / macOS / Windows, x86_64 / arm64): no Python environment needed to run it
+- [15+ code quality tools](https://repomatic.net/tool-runner) (ruff, mypy, biome, typos, mdformat, shfmt, yamllint, actionlint, lychee, oxipng, pyproject-fmt, labelmaker, gitleaks, zizmor) managed through one `repomatic run <tool>` interface with automatic installation and platform-specific binary caching
 
 ## Quick start
 
@@ -69,16 +69,16 @@ See `repomatic init --help` for available components and options.
 
 ## Documentation
 
-See the **[full documentation](https://kdeldycke.github.io/repomatic/)** for:
+See the **[full documentation](https://repomatic.net/)** for:
 
-- [Installation methods and executables](https://kdeldycke.github.io/repomatic/install.html)
-- [`[tool.repomatic]` configuration reference](https://kdeldycke.github.io/repomatic/configuration.html)
-- [CLI parameters](https://kdeldycke.github.io/repomatic/cli.html)
-- [Reusable workflow reference](https://kdeldycke.github.io/repomatic/workflows.html) (all 14 workflows with job descriptions)
-- [Security practices and token setup](https://kdeldycke.github.io/repomatic/security.html)
-- [Claude Code skills](https://kdeldycke.github.io/repomatic/skills.html) and [agents](https://kdeldycke.github.io/repomatic/agents.html), also installable as a [Claude Code plugin](https://kdeldycke.github.io/repomatic/plugin.html)
-- [API reference](https://kdeldycke.github.io/repomatic/repomatic.html)
-- [Project history](https://kdeldycke.github.io/repomatic/history.html)
+- [Installation methods and executables](https://repomatic.net/install)
+- [`[tool.repomatic]` configuration reference](https://repomatic.net/configuration)
+- [CLI parameters](https://repomatic.net/cli)
+- [Reusable workflow reference](https://repomatic.net/workflows) (all 14 workflows with job descriptions)
+- [Security practices and token setup](https://repomatic.net/security)
+- [Claude Code skills](https://repomatic.net/skills) and [agents](https://repomatic.net/agents), also installable as a [Claude Code plugin](https://repomatic.net/plugin)
+- [API reference](https://repomatic.net/repomatic)
+- [Project history](https://repomatic.net/history)
 
 ## Used in
 

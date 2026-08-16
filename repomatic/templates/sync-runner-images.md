@@ -1,7 +1,7 @@
 ---
 args: [proposal]
 title: Sync runner images
-docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-runner-images-sync-runner-images
+docs: https://repomatic.net/workflows#sync-runner-images-sync-runner-images
 labels: [🤖 ci]
 ---
 

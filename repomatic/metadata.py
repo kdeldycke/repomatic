@@ -50,7 +50,7 @@ for the encoding, and {class}`Dialect` for the other output formats.
 
 The full key inventory is generated from this module rather than listed here, so
 it cannot go stale: run `repomatic metadata --list-keys`, or read the rendered
-table in [the workflows documentation](https://kdeldycke.github.io/repomatic/workflows.html).
+table in [the workflows documentation](https://repomatic.net/workflows).
 """
 
 from __future__ import annotations

@@ -1,13 +1,13 @@
 ---
 args: [changes_review, dev_release_review, release_readiness, version]
 title: Release `v$version`
-docs: https://kdeldycke.github.io/repomatic/workflows.html#prepare-release-prepare-release
+docs: https://repomatic.net/workflows#prepare-release-prepare-release
 footer: false
 labels: [🆙 changelog]
 draft: true
 ---
 
-${release_readiness}See the [`prepare-release` job documentation](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-changelog-yaml-jobs) for details. The [merge event will trigger](https://kdeldycke.github.io/repomatic/workflows.html#github-workflows-release-yaml-jobs) the:
+${release_readiness}See the [`prepare-release` job documentation](https://repomatic.net/workflows#github-workflows-changelog-yaml-jobs) for details. The [merge event will trigger](https://repomatic.net/workflows#github-workflows-release-yaml-jobs) the:
 
 1. Creation of a `v$version` tag on `main` branch
 2. Build and release of the Python package to [PyPI](https://pypi.org)

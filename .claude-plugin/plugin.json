@@ -7,7 +7,7 @@
 	},
 	"description": "Skills and agents to automate repository maintenance, releases, and CI/CD workflows",
 	"displayName": "Repomatic",
-	"homepage": "https://kdeldycke.github.io/repomatic/",
+	"homepage": "https://repomatic.net/",
 	"keywords": [
 		"changelog",
 		"ci-cd",

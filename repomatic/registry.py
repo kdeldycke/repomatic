@@ -50,7 +50,7 @@ GITHUB_YAML_PATTERNS: tuple[str, ...] = (
 Rooted at the repository root rather than at `.github/`, so the same patterns
 work against the current directory and against an arbitrary target tree. Both
 `.yml` and `.yaml` are listed because GitHub accepts either, whatever this
-project's own [long-extension convention](https://kdeldycke.github.io/repomatic)
+project's own [long-extension convention](https://repomatic.net)
 prefers: a downstream repository is free to have picked the short one.
 
 Shared by `sync_ops._workflow_and_action_files`, which reads the pins to bump,

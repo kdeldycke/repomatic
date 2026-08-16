@@ -146,7 +146,7 @@ orphan: true
 
 All standalone executables published by this repository, one row per binary, newest release first. The version links to its GitHub release, the platform to the direct binary download, and the VirusTotal cell to the file's public analysis.
 
-Each target's minimum OS requirement (glibc floor on Linux, deployment target on macOS) and the distributions it opens execution to are documented in the [repomatic binaries page](https://kdeldycke.github.io/repomatic/binaries.html#minimum-os-requirements).
+Each target's minimum OS requirement (glibc floor on Linux, deployment target on macOS) and the distributions it opens execution to are documented in the [repomatic binaries page](https://repomatic.net/binaries#minimum-os-requirements).
 
 Compiled Python binaries are regularly flagged by heuristic antivirus engines, so every release is submitted to [VirusTotal](https://www.virustotal.com/): this seeds vendor databases with the new signatures and keeps false positives in check. The VirusTotal cell tracks those false positives: a green check marks binaries no engine flags, and flagged binaries show the share of engine verdicts flagging them, snapshotted minutes after publication and before false-positive reports get processed. The live analysis behind the link supersedes it. An empty cell means the binary was never submitted, so VirusTotal holds no analysis to link to: this covers every release predating the scan pipeline.
 

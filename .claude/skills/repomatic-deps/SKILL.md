@@ -70,7 +70,7 @@ What is left is the part no parser settles, and it is the reason this mode exist
 
 ### Version specifier policy
 
-These conventions are derived from the `pyproject.toml` files across all `kdeldycke/*` repositories. User-facing documentation of the same content is in [`docs/dependencies.md`](https://kdeldycke.github.io/repomatic/dependencies.html).
+These conventions are derived from the `pyproject.toml` files across all `kdeldycke/*` repositories. User-facing documentation of the same content is in [`docs/dependencies.md`](https://repomatic.net/dependencies).
 
 #### Runtime dependencies (`[project].dependencies`)
 

@@ -1,6 +1,6 @@
 ---
 title: Format JSON
-docs: https://kdeldycke.github.io/repomatic/workflows.html#format-json-format-json
+docs: https://repomatic.net/workflows#format-json-format-json
 footer: false
 labels: [🤖 ci]
 ---

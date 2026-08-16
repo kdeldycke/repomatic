@@ -324,7 +324,8 @@ def test_update_binaries_page_creates_from_template(tmp_path):
     assert text.startswith("---\norphan: true\n---\n")
     assert "# Binaries" in text
     assert f"https://github.com/{REPO}/actions/workflows/release.yaml" in text
-    assert "binaries.html#minimum-os-requirements" in text
+    # Extensionless: Cloudflare Pages serves the docs and strips `.html`.
+    assert "binaries#minimum-os-requirements" in text
     assert "GitHub account is required" in text
     assert "```{csv-table}\n:file: assets/binaries.csv" in text
     assert ":class: sphinx-datatable" in text

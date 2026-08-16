@@ -53,9 +53,7 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-MINIMUM_RELEASE_AGE_URL = (
-    "https://kdeldycke.github.io/repomatic/configuration.html#minimum-release-age"
-)
+MINIMUM_RELEASE_AGE_URL = "https://repomatic.net/configuration#minimum-release-age"
 """Docs anchor for the `minimum-release-age` cooldown, linked from PR bodies."""
 
 MIN_AGE_HELD_BACK_NOTE = (

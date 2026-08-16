@@ -1,7 +1,7 @@
 ---
 args: [diff_table]
 title: Sync dependency sources
-docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-dep-sources-updater
+docs: https://repomatic.net/workflows#sync-dep-sources-updater
 footer: false
 labels: [🔗 dependencies]
 ---
@@ -13,6 +13,6 @@ labels: [🔗 dependencies]
 
 ## ⚙️ Configuration
 
-Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
+Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
-- [`dep-sources.sync`](https://kdeldycke.github.io/repomatic/configuration.html#dep-sources-sync)
+- [`dep-sources.sync`](https://repomatic.net/configuration#dep-sources-sync)

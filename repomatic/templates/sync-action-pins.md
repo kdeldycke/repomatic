@@ -1,7 +1,7 @@
 ---
 args: [diff_table]
 title: Sync action pins
-docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-action-pins-updater
+docs: https://repomatic.net/workflows#sync-action-pins-updater
 footer: false
 labels: [🔗 dependencies]
 ---
@@ -10,7 +10,7 @@ labels: [🔗 dependencies]
 
 ## ⚙️ Configuration
 
-Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
+Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
-- [`action-pins.sync`](https://kdeldycke.github.io/repomatic/configuration.html#action-pins-sync)
-- [`minimum-release-age`](https://kdeldycke.github.io/repomatic/configuration.html#minimum-release-age)
+- [`action-pins.sync`](https://repomatic.net/configuration#action-pins-sync)
+- [`minimum-release-age`](https://repomatic.net/configuration#minimum-release-age)

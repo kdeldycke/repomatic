@@ -1,23 +1,23 @@
 ---
 title: Sync repomatic-managed files
-docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-repomatic-sync-repomatic
+docs: https://repomatic.net/workflows#sync-repomatic-sync-repomatic
 footer: false
 labels: [🤖 ci]
 ---
 
 ## ⚙️ Configuration
 
-Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
+Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
-- [`agent.location`](https://kdeldycke.github.io/repomatic/configuration.html#agent-location)
-- [`awesome-template.sync`](https://kdeldycke.github.io/repomatic/configuration.html#awesome-template-sync)
-- [`exclude`](https://kdeldycke.github.io/repomatic/configuration.html#exclude)
-- [`include`](https://kdeldycke.github.io/repomatic/configuration.html#include)
-- [`notification.unsubscribe`](https://kdeldycke.github.io/repomatic/configuration.html#notification-unsubscribe)
-- [`skills.location`](https://kdeldycke.github.io/repomatic/configuration.html#skills-location)
-- [`subagents.location`](https://kdeldycke.github.io/repomatic/configuration.html#subagents-location)
-- [`workflow.extra-paths`](https://kdeldycke.github.io/repomatic/configuration.html#workflow-extra-paths)
-- [`workflow.ignore-paths`](https://kdeldycke.github.io/repomatic/configuration.html#workflow-ignore-paths)
-- [`workflow.paths`](https://kdeldycke.github.io/repomatic/configuration.html#workflow-paths)
-- [`workflow.source-paths`](https://kdeldycke.github.io/repomatic/configuration.html#workflow-source-paths)
-- [`workflow.sync`](https://kdeldycke.github.io/repomatic/configuration.html#workflow-sync)
+- [`agent.location`](https://repomatic.net/configuration#agent-location)
+- [`awesome-template.sync`](https://repomatic.net/configuration#awesome-template-sync)
+- [`exclude`](https://repomatic.net/configuration#exclude)
+- [`include`](https://repomatic.net/configuration#include)
+- [`notification.unsubscribe`](https://repomatic.net/configuration#notification-unsubscribe)
+- [`skills.location`](https://repomatic.net/configuration#skills-location)
+- [`subagents.location`](https://repomatic.net/configuration#subagents-location)
+- [`workflow.extra-paths`](https://repomatic.net/configuration#workflow-extra-paths)
+- [`workflow.ignore-paths`](https://repomatic.net/configuration#workflow-ignore-paths)
+- [`workflow.paths`](https://repomatic.net/configuration#workflow-paths)
+- [`workflow.source-paths`](https://repomatic.net/configuration#workflow-source-paths)
+- [`workflow.sync`](https://repomatic.net/configuration#workflow-sync)

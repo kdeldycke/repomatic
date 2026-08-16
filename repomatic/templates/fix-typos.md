@@ -1,6 +1,6 @@
 ---
 title: Typo
-docs: https://kdeldycke.github.io/repomatic/workflows.html#fix-typos-fix-typos
+docs: https://repomatic.net/workflows#fix-typos-fix-typos
 footer: false
 labels: [📚 documentation]
 ---

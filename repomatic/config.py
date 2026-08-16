@@ -928,7 +928,7 @@ class Config:
     along with the scan history (`docs/assets/virustotal-scans.csv`), straight
     to the default branch without a pull request: the release-lane exception
     documented in
-    [`docs/operation-contracts.md`](https://kdeldycke.github.io/repomatic/operation-contracts.html#scan-job-contract).
+    [`docs/operation-contracts.md`](https://repomatic.net/operation-contracts#scan-job-contract).
     Set to `false` to keep the repository untouched: binaries are still
     scanned on VirusTotal (seeding AV vendor databases), but no catalog page,
     CSV, or scan record is committed.

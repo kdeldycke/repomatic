@@ -1,6 +1,6 @@
 ---
 title: Format images
-docs: https://kdeldycke.github.io/repomatic/workflows.html#format-images-format-images
+docs: https://repomatic.net/workflows#format-images-format-images
 footer: false
 labels: [📚 documentation]
 ---

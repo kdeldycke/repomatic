@@ -4,11 +4,62 @@ Setting `[tool.repomatic] site.deploy = "cloudflare-pages"` moves a repository's
 
 Everything here was learned by operating real Pages projects, the expensive way where noted. The negative results are kept on purpose: an endpoint that refuses a token type or a setting that looked alarming and was not are exactly the findings most likely to be rediscovered at full price.
 
+## From a domain name to a published site
+
+The whole migration, given nothing but a domain in a Cloudflare account and a repository currently publishing to GitHub Pages. Each step is one command, and the order matters: the site has to serve before anything is pointed at it.
+
+1. **Create the Pages project**, named after the repository, which nothing else does for you:
+
+   ```shell
+   repomatic cloudflare-pages --create
+   ```
+
+2. **Mint the deploy token** and store it. `Cloudflare Pages → Edit`, account-owned, with an expiry: see [the token](#the-token). One secret is enough, since the account resolves from it.
+
+   ```shell
+   gh secret set CLOUDFLARE_API_TOKEN --repo {owner}/{repo}
+   ```
+
+3. **Name the target** in `pyproject.toml`, and push. The Docs workflow's Cloudflare job takes over from the GitHub Pages one, which stops running:
+
+   ```toml
+   [tool.repomatic]
+   site.deploy = "cloudflare-pages"
+   ```
+
+4. **Attach the custom domain** once that deploy is green and `{project}.pages.dev` serves the site. In the dashboard this is **Workers & Pages → the project → Custom domains**; over the API it is a `POST` to the project's `domains` collection.
+
+5. **Create the DNS record**, which the API path does *not* do for you. A proxied `CNAME` at the apex, pointing at `{project}.pages.dev`; Cloudflare flattens it to addresses at query time, and proxying is what lets the edge terminate TLS for the certificate Pages issues. The domain sits `pending` until this exists, then goes `active` within a few minutes once the certificate is issued.
+
+6. **Tell Sphinx where it now lives**, so every page carries a canonical URL naming the new host:
+
+   ```python
+   html_baseurl = "https://{domain}"
+   ```
+
+7. **Move the repository's own references**: `[project.urls]`, the GitHub homepage field, badges, and every absolute self-link in the docs and in any templates that render into other repositories. Write them extensionless, per [the URL shape below](#the-url-shape-changes-underneath-you). `lint-repo` catches a half-finished job by comparing the homepage field against the declared documentation URL.
+
+8. **Keep the old URLs alive**, the step with no visible symptom if skipped, since the old host goes on serving a frozen copy rather than failing:
+
+   ```shell
+   gh api --method PUT repos/{owner}/{repo}/pages --field cname={domain}
+   ```
+
+   See [leaving GitHub Pages behind](#leaving-github-pages-behind-urls-intact) for what that buys and what must not be undone afterwards.
+
+## The URL shape changes underneath you
+
+Cloudflare Pages strips `.html`. A page built as `security.html` is served at `/security`, and a request for `/security.html` gets a `308` to it. This happens on the stock `html` builder, with no `_redirects` file and nothing configured: it is how the host serves assets.
+
+Two consequences. Every absolute self-link written against the old host has an extra hop in it now, so links are worth rewriting extensionless rather than merely re-hosted, and links written that way are one hop even from the old `github.io` address. And a `sphinx.builder` switch from `html` to `dirhtml` needs no redirect rules of its own, since Pages already resolves the old form to whatever the builder wrote.
+
 ## Direct Upload, and why nothing else
 
 The site is never built by Cloudflare. CI renders the tree and uploads the finished files with `wrangler pages deploy`, so Cloudflare needs no access to the repository and runs no build of its own. In the API, those deployments carry `deployment_trigger.type = "ad_hoc"`, and the one currently serving is the project's `canonical_deployment`. A deployment only activates once its upload completes, so an interrupted run leaves the previous one serving: cancelling a superseded deploy is always safe.
 
-The project has to exist before the first deploy: `wrangler pages deploy` uploads into a project and never creates one, so CI's first run against a missing project fails rather than provisioning it. `repomatic cloudflare-pages --create` covers that, and `--account-id` prints the account identifier the deploy needs stored beside its token, bare enough to pipe straight into `gh secret set`.
+The project has to exist before the first deploy: `wrangler pages deploy` uploads into a project and never creates one, so CI's first run against a missing project fails rather than provisioning it. `repomatic cloudflare-pages --create` covers that, and `--account-id` prints the account identifier, bare enough to pipe into `gh secret set`, for the [multi-account case](#the-token) that needs it.
+
+Attaching a custom domain has the same shape of gap, one step further along. The dashboard offers to create the DNS record for you; the API does not, and says nothing about it. A domain attached over the API reports `verification: active` (Cloudflare can see the zone is yours) while `status` and the certificate sit at `pending` indefinitely, because nothing resolves to the project yet. The missing piece is a proxied `CNAME` at the apex pointing to `{project}.pages.dev`, and once it exists the certificate issues within minutes.
 
 The project's `source` must read `null`, and must stay that way. Attaching a git repository reintroduces a second, competing publisher for the same project, one with no build configuration capable of producing a usable site. The [drift check](#the-drift-check) fails when a source block appears, which is the guard against it coming back through a well-meaning dashboard visit.
 
@@ -86,6 +137,8 @@ A repository moving from `site.deploy = "github-pages"` to `cloudflare-pages` le
 It does, for free, and the whole mechanism is one field. Set the repository's GitHub Pages **custom domain** to the new hostname, and GitHub answers `https://<owner>.github.io/<repo>/…` with a real `301` to `https://<domain>/…`, preserving the path. It applies to every path, including ones the site never had, so nothing needs enumerating: no stub files, no `sitemap.xml` to mine, no catch-all `404.html`, and nothing to keep in sync as the docs grow. Set it with `gh api --method PUT repos/{owner}/{repo}/pages --field cname=<domain>`, or in **Settings → Pages → Custom domain**.
 
 GitHub issues that redirect even though the domain resolves to Cloudflare rather than to GitHub, because the response comes from the `*.github.io` hostname and its certificate; the custom domain is only ever named in the `Location` header. The Pages settings screen may still complain that the domain does not resolve to GitHub, or fail to provision a certificate for it. Both are cosmetic here: neither is on the path of the redirect.
+
+That failed certificate has one visible consequence. GitHub cannot offer *Enforce HTTPS* for a domain it does not serve, so its `Location` names `http://`, and the browser is upgraded to HTTPS by Cloudflare on the next hop instead. A legacy link therefore lands in three redirects rather than one: `https://{owner}.github.io/{repo}/page.html` to `http://{domain}/page.html`, upgraded to HTTPS, then `308` to `/page` for the stripped extension. Every hop is permanent and cacheable, and it costs nothing on links written the current way, which is the argument for [rewriting them extensionless](#the-url-shape-changes-underneath-you) rather than leaving the redirect to absorb it.
 
 Three things keep it working:
 

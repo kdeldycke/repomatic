@@ -1,6 +1,6 @@
 ---
 title: Format Shell
-docs: https://kdeldycke.github.io/repomatic/workflows.html#format-shell-format-shell
+docs: https://repomatic.net/workflows#format-shell-format-shell
 footer: false
 labels: [🤖 ci]
 ---

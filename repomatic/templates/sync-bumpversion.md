@@ -1,12 +1,12 @@
 ---
 title: Sync `bump-my-version` config
-docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-bumpversion-config-sync-bumpversion
+docs: https://repomatic.net/workflows#sync-bumpversion-config-sync-bumpversion
 footer: false
 labels: [🤖 ci]
 ---
 
 ## ⚙️ Configuration
 
-Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
+Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
-- [`bumpversion.sync`](https://kdeldycke.github.io/repomatic/configuration.html#bumpversion-sync)
+- [`bumpversion.sync`](https://repomatic.net/configuration#bumpversion-sync)

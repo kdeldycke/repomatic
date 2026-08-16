@@ -876,7 +876,7 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
         "| [repomatic](https://pypi.org/project/repomatic/)"
         " | `6.31.0` → `7.0.0`"
         " | [⛓️ lockstep with `uses:` refs]"
-        "(https://kdeldycke.github.io/repomatic/workflows.html"
+        "(https://repomatic.net/workflows"
         "#sync-workflow-pins-updater) |"
     ) in body
 

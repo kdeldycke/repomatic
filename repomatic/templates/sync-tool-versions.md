@@ -1,7 +1,7 @@
 ---
 args: [diff_table]
 title: Sync tool versions
-docs: https://kdeldycke.github.io/repomatic/workflows.html#sync-tool-versions-sync-tool-versions
+docs: https://repomatic.net/workflows#sync-tool-versions-sync-tool-versions
 footer: false
 labels: [🔗 dependencies]
 ---
@@ -10,7 +10,7 @@ labels: [🔗 dependencies]
 
 ## ⚙️ Configuration
 
-Relevant [`[tool.repomatic]`](https://kdeldycke.github.io/repomatic/configuration.html) options:
+Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
-- [`minimum-release-age`](https://kdeldycke.github.io/repomatic/configuration.html#minimum-release-age)
-- [`tool-versions.sync`](https://kdeldycke.github.io/repomatic/configuration.html#tool-versions-sync)
+- [`minimum-release-age`](https://repomatic.net/configuration#minimum-release-age)
+- [`tool-versions.sync`](https://repomatic.net/configuration#tool-versions-sync)

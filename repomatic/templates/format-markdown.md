@@ -1,6 +1,6 @@
 ---
 title: Format Markdown
-docs: https://kdeldycke.github.io/repomatic/workflows.html#format-markdown-format-markdown
+docs: https://repomatic.net/workflows#format-markdown-format-markdown
 footer: false
 labels: [📚 documentation]
 ---
