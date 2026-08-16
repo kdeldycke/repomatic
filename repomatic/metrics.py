@@ -86,7 +86,7 @@ from .tabular import read_csv, render_csv, write_csv
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
     from pathlib import Path
 
 GITHUB_EPOCH = date(2008, 1, 1)
@@ -775,6 +775,8 @@ def backfill_wayback(
     subject: str,
     repo: str,
     store: Path | None = None,
+    on_status: Callable[[str], None] | None = None,
+    on_row: Callable[[str], None] | None = None,
 ) -> SampleOutcome:
     """Mine contemporaneous star counts from archived copies of a GitHub page.
 
@@ -787,6 +789,13 @@ def backfill_wayback(
     :param repo: Its canonical URL.
     :param store: Store to flush to after every recovered point, since a run
         spans many minutes of a flaky remote. Skipped when `None`.
+    :param on_status: Called with whatever the backfill is reaching for next, so
+        a caller can animate a live label. One subject is a single call spanning
+        minutes, and a watcher hears nothing at all without this.
+    :param on_row: Called with each recovered point, for a caller keeping a
+        persistent line per result. Misses stay on the `INFO` log instead: the
+        archive refuses far more captures than it serves, and a line each would
+        bury the handful that landed.
     :return: What the backfill produced.
     """
     host, path = split_repo_url(repo)
@@ -802,6 +811,8 @@ def backfill_wayback(
         # repositories that have no other source of history.
         return SampleOutcome(subject, repo, note="already reconstructed exactly")
 
+    if on_status:
+        on_status(f"{path}: reading the capture index")
     stamps = wayback_captures(path)
     if stamps is None:
         # Loud, and distinct from "nothing was ever archived": this repository
@@ -810,10 +821,15 @@ def backfill_wayback(
         return SampleOutcome(subject, repo, note=note)
 
     rows = 0
-    for stamp in stamps:
+    for index, stamp in enumerate(stamps, start=1):
         day = f"{stamp[0:4]}-{stamp[4:6]}-{stamp[6:8]}"
         if (repo, "stars", day) in records:
             continue
+        if on_status:
+            # Carries the tally as well as the position, since most captures
+            # yield nothing: without it a watcher sees the counter advance for
+            # minutes with no way to tell a working run from a refused one.
+            on_status(f"{path} {day} ({index}/{len(stamps)}, {rows} recovered)")
         # Paced deliberately. The archive answers 503 to every URL form once a
         # sustained crawl exhausts its budget, and it stays shut for a while: a
         # run racing through the captures finishes by collecting nothing.
@@ -833,6 +849,8 @@ def backfill_wayback(
             rows += 1
             if store is not None:
                 save_metrics(store, records)
+            if on_row:
+                on_row(f"{path} {day}: {stars:,} stars")
         logging.info(f"  {path} {day}: {stars} stars")
     return SampleOutcome(subject, repo, rows=rows, note=f"{len(stamps)} captures")
 
@@ -879,6 +897,17 @@ def import_star_history_csv(
     GitHub has since closed, so an export taken while it worked is the only
     surviving record of the past for a repository nobody administers and the
     archives never captured.
+
+    ```{caution}
+    A replacement export cannot be obtained today. The service now inherits the
+    restriction it reports: asked for a repository the visitor neither owns nor
+    collaborates on, it answers that star history is unavailable instead of
+    exporting anything. So a file reaching this function was either downloaded
+    before the endpoints closed, or covers a repository its downloader
+    administers, which {func}`reconstruct_from_github` already rebuilds exactly
+    and at finer resolution. For a competitor, {func}`backfill_wayback` and
+    forward sampling are what is left.
+    ```
 
     Its by-age export is refused rather than imported: that variant measures
     every curve from epoch zero, so its rows land in the 1970s and would enter
