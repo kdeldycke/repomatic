@@ -314,11 +314,21 @@ def _account(token: str) -> str:
     if account:
         return account
     accounts = _call("/accounts", token)
-    if len(accounts) != 1:
-        names = ", ".join(entry["name"] for entry in accounts) or "none"
+    if not accounts:
         msg = (
-            f"Set CLOUDFLARE_ACCOUNT_ID: the credential sees {len(accounts)} "
-            f"accounts ({names}), so the target is ambiguous."
+            "This credential sees no account at all, so there is nothing to "
+            "deploy into. Check the token was created under the account "
+            "owning the Pages project, then set CLOUDFLARE_ACCOUNT_ID to say "
+            "which one outright."
+        )
+        raise CloudflareError(msg)
+    if len(accounts) > 1:
+        names = ", ".join(entry["name"] for entry in accounts)
+        msg = (
+            f"Set CLOUDFLARE_ACCOUNT_ID: this credential sees {len(accounts)} "
+            f"accounts ({names}), so which one to deploy into has no single "
+            "answer. `repomatic cloudflare-pages --account-id` cannot help "
+            "here either, for the same reason."
         )
         raise CloudflareError(msg)
     return str(accounts[0]["id"])

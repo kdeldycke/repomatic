@@ -32,6 +32,7 @@ from repomatic import cloudflare
 from repomatic.cloudflare import (
     CloudflareError,
     Setting,
+    _account,
     _diff,
     _merge,
     _nest,
@@ -298,6 +299,51 @@ def test_token_absence_names_both_remedies(monkeypatch, tmp_path):
     )
     with pytest.raises(CloudflareError, match="wrangler login"):
         _token()
+
+
+def test_account_prefers_the_environment(credentials):
+    """An explicit account ID skips the lookup entirely."""
+    with patch.object(cloudflare, "_call") as call:
+        assert _account("token") == "account-under-test"
+    assert not call.called
+
+
+def test_account_resolves_a_lone_account_from_the_token(monkeypatch):
+    """The ordinary case: one account, so nothing needs configuring.
+
+    A token scoped to nothing but `Cloudflare Pages: Edit` still enumerates
+    the account it belongs to, which is what lets CI carry the token alone.
+    """
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+    with patch.object(cloudflare, "_call", return_value=[{"id": "solo", "name": "P"}]):
+        assert _account("token") == "solo"
+
+
+@pytest.mark.parametrize(
+    ("accounts", "fragment"),
+    (
+        pytest.param([], "sees no account at all", id="none-visible"),
+        pytest.param(
+            [{"id": "a", "name": "Personal"}, {"id": "b", "name": "Work"}],
+            r"sees 2 accounts \(Personal, Work\)",
+            id="ambiguous",
+        ),
+    ),
+)
+def test_account_refuses_to_guess(monkeypatch, accounts, fragment):
+    """Anything but one account fails loudly, naming what it saw.
+
+    Deploying into a guessed account is worse than not deploying, and the two
+    ways the guess can fail want different remedies: an empty answer points
+    at a token made under the wrong account, several point at a credential
+    that has to be told which.
+    """
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+    with (
+        patch.object(cloudflare, "_call", return_value=accounts),
+        pytest.raises(CloudflareError, match=fragment),
+    ):
+        _account("token")
 
 
 def test_check_clean_project_exits_zero(credentials, capsys):
