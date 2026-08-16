@@ -397,18 +397,18 @@ def test_notifications_pat_check(
             True,
             False,
             False,
-            "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN not configured",
-            id="neither-secret",
+            "CLOUDFLARE_API_TOKEN not configured",
+            id="no-token",
         ),
         pytest.param(
             "cloudflare-pages",
             # No Sphinx at all: a site built by the repository's own workflow
-            # (a Pelican blog, a hand-rolled tree) needs the same credentials,
+            # (a Pelican blog, a hand-rolled tree) needs the same credential,
             # so declaring the target is the whole opt-in.
             False,
             False,
             False,
-            "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN not configured",
+            "CLOUDFLARE_API_TOKEN not configured",
             id="non-sphinx-site-still-checked",
         ),
         pytest.param(
@@ -416,8 +416,8 @@ def test_notifications_pat_check(
             True,
             True,
             False,
-            "CLOUDFLARE_ACCOUNT_ID not configured",
-            id="account-id-missing",
+            "✓ CLOUDFLARE_API_TOKEN is configured, and the account resolves",
+            id="token-alone-is-enough",
         ),
         pytest.param(
             "cloudflare-pages",
@@ -425,25 +425,26 @@ def test_notifications_pat_check(
             False,
             True,
             "CLOUDFLARE_API_TOKEN not configured",
-            id="token-missing",
+            id="account-id-without-a-token",
         ),
         pytest.param(
             "cloudflare-pages",
             True,
             True,
             True,
-            "✓ Cloudflare Pages credentials are configured.",
-            id="both-secrets",
+            "✓ Cloudflare Pages credentials are configured, with the account",
+            id="account-pinned-explicitly",
         ),
     ),
 )
 def test_cloudflare_secrets_check(
     capsys, site_deploy, is_sphinx, has_token, has_account, expected
 ):
-    """The Cloudflare check fires only on its target, and names what is missing.
+    """Only the token is required, since the account resolves from it.
 
-    Setting one value and forgetting the other is the common way to arrive
-    here, so the half already in place must not be reported as missing.
+    A token scoped to nothing but `Cloudflare Pages: Edit` still enumerates
+    the account it belongs to, so demanding `CLOUDFLARE_ACCOUNT_ID` as well
+    would report a gap that is not one.
     """
     exit_code = run_repo_lint(
         is_sphinx=is_sphinx,

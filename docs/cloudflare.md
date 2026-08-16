@@ -16,7 +16,11 @@ Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB
 
 ## The token
 
-`CLOUDFLARE_ACCOUNT_ID` is not a credential: it is a stable identifier visible in every dashboard URL, it never expires, and it never needs rotating. `CLOUDFLARE_API_TOKEN` is the credential, and it needs exactly one permission: **Account → Cloudflare Pages → Edit**. Nothing else.
+One secret, `CLOUDFLARE_API_TOKEN`, holding exactly one permission: **Account → Cloudflare Pages → Edit**. Nothing else.
+
+`CLOUDFLARE_ACCOUNT_ID` is not needed alongside it, and is not a credential either: a stable identifier visible in every dashboard URL, which never expires and never rotates. It can be left unset because the account is readable *from the token*, verified on 2026-08-16 against a `cfat_` token scoped to Pages Edit and nothing else, which enumerated its own account through `GET /accounts` without complaint. Both `wrangler` and `repomatic cloudflare-pages` resolve it that way when the variable is absent or empty, so a repository holding only the token deploys normally.
+
+Set it as a second secret in exactly one case: a credential reaching more than one account, where the lookup has no single answer and both tools stop rather than guess. `repomatic cloudflare-pages --account-id` prints the value, bare enough to pipe into `gh secret set`. Keeping it out of the repository's own configuration is deliberate, incidentally: an account identifier belongs to the account rather than to the project, and resolving it at run time from the credential keeps it out of a public tree without costing anything.
 
 Create it account-owned, with Cloudflare's [account token template URL](https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/): the [pre-filled form](https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%5D) arrives with the permission already selected. Two things the URL cannot carry stay manual: a name that says what the token is and when it was made (like `my-project-deploy-2026-08`), and a one-year TTL. Avoid the tokens under **My Profile → API Tokens**: those are user-owned, die with the user, and their manual creation form defaults its permission dropdown to *User*, where Cloudflare Pages does not even appear.
 

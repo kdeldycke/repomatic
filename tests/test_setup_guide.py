@@ -627,9 +627,13 @@ def test_setup_guide_prefills_a_dated_token_name(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("env", "expected_has_issues"),
     (
-        pytest.param({}, True, id="neither-secret"),
-        pytest.param({"HAS_CLOUDFLARE_API_TOKEN": "true"}, True, id="token-only"),
-        pytest.param({"HAS_CLOUDFLARE_ACCOUNT_ID": "true"}, True, id="account-only"),
+        pytest.param({}, True, id="no-secret"),
+        pytest.param(
+            {"HAS_CLOUDFLARE_ACCOUNT_ID": "true"}, True, id="account-id-alone"
+        ),
+        pytest.param(
+            {"HAS_CLOUDFLARE_API_TOKEN": "true"}, False, id="token-alone-closes"
+        ),
         pytest.param(
             {
                 "HAS_CLOUDFLARE_ACCOUNT_ID": "true",
@@ -640,15 +644,15 @@ def test_setup_guide_prefills_a_dated_token_name(tmp_path, monkeypatch):
         ),
     ),
 )
-def test_setup_guide_holds_open_until_both_cloudflare_secrets_land(
+def test_setup_guide_holds_open_until_the_cloudflare_token_lands(
     tmp_path, monkeypatch, env, expected_has_issues
 ):
-    """Half the credentials is not enough to close the issue.
+    """The token closes the step; the account ID is not asked for.
 
-    Unlike the VirusTotal key, a missing Cloudflare value fails the deploy job
-    rather than skipping it, so the step gates closure. `wrangler` needs both,
-    and a run configured with only one is as broken as one configured with
-    neither.
+    Unlike the VirusTotal key, a missing token fails the deploy rather than
+    skipping it, so it gates closure. The account ID does not: it resolves
+    from the token, so demanding it would hold the issue open on something
+    nobody needs to do.
     """
     _site_project(tmp_path, monkeypatch, "cloudflare-pages")
     with _offline_setup_guide() as (lifecycle, _bodies):

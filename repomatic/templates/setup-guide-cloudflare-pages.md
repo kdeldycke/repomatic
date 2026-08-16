@@ -15,14 +15,13 @@ footer: 'false'
 
 2. Create the API token from the **[pre-filled form](https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%5D&name=$token_name)**: account-owned, named `$token_name`, carrying **Account → Cloudflare Pages → Edit**. Add a **one-year TTL** by hand, the one thing the URL cannot carry.
 
-3. Store both as repository secrets. The account ID needs no copying:
+3. Store the token as a repository secret:
 
    ```shell
    gh secret set CLOUDFLARE_API_TOKEN --repo $repo_slug
-   repomatic cloudflare-pages --account-id | gh secret set CLOUDFLARE_ACCOUNT_ID --repo $repo_slug
    ```
 
-   Paste each value into the secret that names it. `gh secret set` prompts blind, so a token stored as the account ID is an easy slip, and it fails as a `404` naming neither.
+   That is the only secret needed: the account resolves from the token itself. Add `CLOUDFLARE_ACCOUNT_ID` only if the credential reaches several accounts, taking its value from `repomatic cloudflare-pages --account-id`.
 
 > [!NOTE]
 > Two things worth knowing, both covered in the [Cloudflare Pages guide](https://kdeldycke.github.io/repomatic/cloudflare.html): the token reaches **every** Pages project on the account, since `Cloudflare Pages` is an account permission that cannot be narrowed to one project or domain; and if this project ever published to `$repo_owner.github.io/$repo_name`, leaving GitHub Pages enabled with its custom domain set to the new one is what keeps those URLs redirecting.

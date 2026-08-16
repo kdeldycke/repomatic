@@ -198,8 +198,16 @@ class GuideContext:
 
     @property
     def cloudflare_secrets_ok(self) -> bool:
-        """Whether both Cloudflare Pages credentials are configured."""
-        return self.has_cloudflare_api_token and self.has_cloudflare_account_id
+        """Whether the Cloudflare Pages deploy can authenticate.
+
+        The token alone settles it: the account it belongs to is readable
+        with the token itself, even scoped to nothing but `Cloudflare Pages:
+        Edit`. `CLOUDFLARE_ACCOUNT_ID` stays available as an override for a
+        credential spanning several accounts, and is never asked for here,
+        since a step that cannot be satisfied by anything the reader does
+        would hold the issue open forever.
+        """
+        return self.has_cloudflare_api_token
 
     @property
     def cloudflare_token_name(self) -> str:

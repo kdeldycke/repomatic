@@ -2450,31 +2450,36 @@ class RepoCheck:
 
 
 def _cloudflare_secrets(ctx: LintContext) -> CheckResult:
-    """Report whether the Cloudflare Pages deploy has both its credentials.
+    """Report whether the Cloudflare Pages deploy has the credential it needs.
 
-    Names the missing half rather than the pair: setting the token and
-    forgetting the account ID is the common way to arrive here, and a message
-    listing both leaves the reader re-checking the one already in place.
+    One secret, not two. The account identifier is derivable from the token:
+    an account-owned token holding `Cloudflare Pages: Edit` and nothing else
+    still enumerates the account it belongs to, measured on 2026-08-16
+    against a `cfat_` token with exactly that scope. `CLOUDFLARE_ACCOUNT_ID`
+    is therefore an override rather than a requirement, worth setting only
+    where a credential reaches several accounts and the lookup has no single
+    answer.
     """
-    missing = [
-        name
-        for name, present in (
-            ("CLOUDFLARE_ACCOUNT_ID", ctx.has_cloudflare_account_id),
-            ("CLOUDFLARE_API_TOKEN", ctx.has_cloudflare_api_token),
+    if not ctx.has_cloudflare_api_token:
+        return CheckResult(
+            False,
+            "CLOUDFLARE_API_TOKEN not configured, while site.deploy is"
+            " 'cloudflare-pages': the deploy will fail. Create an"
+            " account-owned token scoped to Account → Cloudflare Pages → Edit"
+            " with the pre-filled form at"
+            " https://dash.cloudflare.com/?to=/:account/api-tokens"
+            "&permissionGroupKeys=%5B%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%5D"
+            " and store it as a repository secret.",
         )
-        if not present
-    ]
-    if not missing:
-        return CheckResult(True, "Cloudflare Pages credentials are configured.")
+    if ctx.has_cloudflare_account_id:
+        return CheckResult(
+            True,
+            "Cloudflare Pages credentials are configured, with the account"
+            " pinned explicitly.",
+        )
     return CheckResult(
-        False,
-        f"{' and '.join(missing)} not configured, while site.deploy is"
-        " 'cloudflare-pages': the Cloudflare Pages deploy will fail."
-        " Create an account-owned token scoped to Account → Cloudflare Pages →"
-        " Edit with the pre-filled form at"
-        " https://dash.cloudflare.com/?to=/:account/api-tokens"
-        "&permissionGroupKeys=%5B%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%5D"
-        " and add both as repository secrets.",
+        True,
+        "CLOUDFLARE_API_TOKEN is configured, and the account resolves from it.",
     )
 
 

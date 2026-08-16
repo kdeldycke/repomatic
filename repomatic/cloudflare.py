@@ -38,9 +38,12 @@ laptop without a token ever landing on a command line:
 2. The OAuth token `wrangler login` stores locally.
 
 The account comes from `CLOUDFLARE_ACCOUNT_ID` when set, otherwise from
-`GET /accounts` when the credential can see exactly one. No identifier is ever
-hardcoded: repositories using this are public, and account IDs do not belong
-in them.
+`GET /accounts` when the credential can see exactly one, which is the usual
+case: a token scoped to nothing but `Cloudflare Pages: Edit` still enumerates
+the account it belongs to. So CI normally carries the token alone, and the
+variable is an override for a credential spanning several accounts. No
+identifier is ever hardcoded either: repositories using this are public, and
+account IDs do not belong in them.
 
 ```{caution}
 Never gate anything on `GET /user/tokens/verify`: that endpoint is
@@ -288,11 +291,12 @@ def _call(
         detail = error.read().decode(errors="replace")[:400]
         if error.code == 403 and path == "/accounts":
             detail += (
-                "\n\nA minimum-scope Pages token cannot enumerate accounts, "
-                "and neither can an expired credential of any kind. This call "
-                "is only attempted to guess the target when "
-                "CLOUDFLARE_ACCOUNT_ID is unset. Set CLOUDFLARE_ACCOUNT_ID "
-                "and it goes away."
+                "\n\nScope is an unlikely cause: a token holding nothing but "
+                "Cloudflare Pages: Edit enumerates its own account fine. An "
+                "expired credential answers 403 here too, and is worth ruling "
+                "out first. This call is only attempted to resolve the target "
+                "when CLOUDFLARE_ACCOUNT_ID is unset, so setting it also "
+                "sidesteps the question."
             )
         msg = f"{method} {path} failed: HTTP {error.code}\n{detail}"
         raise CloudflareError(msg) from error
