@@ -187,6 +187,52 @@ def test_token_falls_back_to_wrangler_login(monkeypatch, tmp_path):
     assert _token() == "from-wrangler"
 
 
+def test_token_refuses_an_expired_wrangler_session(monkeypatch, tmp_path):
+    """A stale local login must name itself, not 403 somewhere downstream.
+
+    wrangler refreshes its own token transparently and nothing here does, so
+    a session left overnight hands Cloudflare a dead credential. Left to the
+    API, that arrives as a bare `403` on whichever call runs first, which
+    reads as a scope problem and sends the reader auditing permissions that
+    were never wrong.
+    """
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    stale = (datetime.now(timezone.utc) - timedelta(hours=15)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ"
+    )
+    config = tmp_path / "default.toml"
+    config.write_text(
+        f'oauth_token = "stale"\nexpiration_time = "{stale}"\n', encoding="UTF-8"
+    )
+    monkeypatch.setattr(cloudflare, "WRANGLER_CONFIG_PATHS", (config,))
+    with pytest.raises(CloudflareError, match="expired on"):
+        _token()
+
+
+def test_token_accepts_a_live_wrangler_session(monkeypatch, tmp_path):
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    fresh = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ"
+    )
+    config = tmp_path / "default.toml"
+    config.write_text(
+        f'oauth_token = "live"\nexpiration_time = "{fresh}"\n', encoding="UTF-8"
+    )
+    monkeypatch.setattr(cloudflare, "WRANGLER_CONFIG_PATHS", (config,))
+    assert _token() == "live"
+
+
+def test_token_tolerates_a_session_with_no_recorded_expiry(monkeypatch, tmp_path):
+    """An unreadable or absent expiry must not block a working credential."""
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    config = tmp_path / "default.toml"
+    config.write_text(
+        'oauth_token = "undated"\nexpiration_time = "whenever"\n', encoding="UTF-8"
+    )
+    monkeypatch.setattr(cloudflare, "WRANGLER_CONFIG_PATHS", (config,))
+    assert _token() == "undated"
+
+
 def test_token_absence_names_both_remedies(monkeypatch, tmp_path):
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     monkeypatch.setattr(

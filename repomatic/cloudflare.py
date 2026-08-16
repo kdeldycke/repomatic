@@ -228,17 +228,43 @@ def desired_settings(
     return (*managed, *observed)
 
 
+def _parse_timestamp(value: object) -> datetime | None:
+    """Read one of Cloudflare's or wrangler's timestamps, or `None` if unreadable.
+
+    Both spell UTC with a trailing `Z`, which `datetime.fromisoformat` only
+    learned to parse in Python 3.11, below this project's floor.
+    """
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def _token() -> str:
     token = os.environ.get("CLOUDFLARE_API_TOKEN")
     if token:
         return token
     for config_path in WRANGLER_CONFIG_PATHS:
-        if config_path.is_file():
-            stored = tomlrt.loads(config_path.read_text(encoding="UTF-8")).get(
-                "oauth_token"
+        if not config_path.is_file():
+            continue
+        stored = tomlrt.loads(config_path.read_text(encoding="UTF-8"))
+        oauth_token = stored.get("oauth_token")
+        if not oauth_token:
+            continue
+        # wrangler refreshes this token transparently with the `refresh_token`
+        # it stores beside it; nothing here does, so a session left overnight
+        # hands the API a dead credential. Cloudflare answers that with a bare
+        # `403` on whichever call comes first, which reads as a scope problem
+        # and sends the reader auditing permissions that were never wrong.
+        expiry = _parse_timestamp(stored.get("expiration_time"))
+        if expiry and expiry <= datetime.now(timezone.utc):
+            msg = (
+                f"The `wrangler login` session in {config_path} expired on "
+                f"{expiry:%Y-%m-%d %H:%M} UTC. Run `wrangler login` to refresh "
+                "it, or set CLOUDFLARE_API_TOKEN."
             )
-            if stored:
-                return str(stored)
+            raise CloudflareError(msg)
+        return str(oauth_token)
     msg = "No credential. Set CLOUDFLARE_API_TOKEN, or run `wrangler login` locally."
     raise CloudflareError(msg)
 
@@ -263,9 +289,10 @@ def _call(
         if error.code == 403 and path == "/accounts":
             detail += (
                 "\n\nA minimum-scope Pages token cannot enumerate accounts, "
-                "which is only attempted to guess the target when "
+                "and neither can an expired credential of any kind. This call "
+                "is only attempted to guess the target when "
                 "CLOUDFLARE_ACCOUNT_ID is unset. Set CLOUDFLARE_ACCOUNT_ID "
-                "and this call goes away."
+                "and it goes away."
             )
         msg = f"{method} {path} failed: HTTP {error.code}\n{detail}"
         raise CloudflareError(msg) from error
@@ -312,9 +339,8 @@ def _token_expiry_warning(token: str, account: str) -> str | None:
             # Verified, but no expiry recorded: an eternal token. Nothing to
             # count down to, so nothing to warn about here.
             return None
-        try:
-            expiry = datetime.fromisoformat(str(expires_on).replace("Z", "+00:00"))
-        except ValueError:
+        expiry = _parse_timestamp(expires_on)
+        if expiry is None:
             return None
         remaining = expiry - datetime.now(timezone.utc)
         if remaining.days < EXPIRY_WARNING_DAYS:
