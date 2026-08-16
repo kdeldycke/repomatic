@@ -395,7 +395,9 @@ def render_chart(
         if not name.endswith(PREDECESSOR_SUFFIX)
     ]
     left, top, bottom = 58, 28, 46
-    right = max(MIN_LABEL_MARGIN, round(max(captions, default=0) * LABEL_CHAR_WIDTH) + 20)
+    right = max(
+        MIN_LABEL_MARGIN, round(max(captions, default=0) * LABEL_CHAR_WIDTH) + 20
+    )
     plot_w, plot_h = width - left - right, height - top - bottom
 
     all_points = [point for points in grouped.values() for point in points]
