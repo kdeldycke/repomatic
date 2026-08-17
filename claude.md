@@ -460,7 +460,7 @@ GitHub autolinks the bare `owner/repo#N` form only inside conversations (issues,
 - Documentation in `./docs/` uses MyST markdown where possible.
 - Keep Python lines within 88 characters (ruff default). Markdown has no line-length limit: do not hard-wrap prose.
 - Titles in markdown use sentence case.
-- **Heading anchors:** use the natural auto-generated anchor for cross-references; add explicit MyST anchors (`(my-anchor)=`) only when the natural one is unavailable (duplicate headings, non-heading targets).
+- **Heading anchors:** use the natural auto-generated anchor for cross-references; add explicit MyST anchors (`(my-anchor)=`) only when the natural one is unavailable (duplicate headings, non-heading targets). That syntax works only where MyST parses the file. In plain GitHub-flavored Markdown (a readme, an issue or PR body, any repository with no Sphinx build) `(my-anchor)=` renders as literal text on the page, so reach for `<a id="my-anchor"></a>` there instead.
 
 ### `__init__.py` files
 
