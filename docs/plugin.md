@@ -63,7 +63,7 @@ $ gh attestation verify repomatic-claude-plugin.zip \
     --repo kdeldycke/repomatic --signer-repo kdeldycke/repomatic
 ```
 
-The version Claude Code compares against your installed copy is stamped into the archive's manifest at pack time, so it always matches the release the archive came from.
+The version Claude Code compares against your installed copy is stamped into the archive's manifest at pack time, so it always matches the release the archive came from. Keep the version out of the archive's filename as well: the app-side upload path derives the plugin name from the uploaded filename, so a versioned name like `repomatic-claude-plugin-v7.13.0.zip` installs as a duplicate plugin instead of updating the existing one (reported for Cowork in [anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697)). The release asset is version-free for this reason, with the version only in the URL's tag path and in the manifest.
 
 ## Install without a marketplace
 
