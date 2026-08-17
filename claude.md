@@ -59,6 +59,18 @@ Name the components explicitly. A bare `repomatic init` also materializes whatev
 
 Read the release notes for breaking changes needing a manual follow-up. A renamed autofix job is the recurring one: its old PR branch stays open, attached to a job that no longer exists.
 
+### Trying an unreleased fix from downstream
+
+<!-- audience: downstream -->
+
+A fix landed on upstream `main` reaches a repository running a released `repomatic` only at the next release. To validate it ahead of that, run the CLI from the git pin, carrying the cooldown on the dependency tree `uvx` resolves beside it, and from the downstream checkout so `[tool.repomatic]` and repository-name discovery see the right project:
+
+```shell-session
+$ uvx --no-progress --exclude-newer '{minimum-release-age}' --from 'git+https://github.com/kdeldycke/repomatic@{commit-sha}' repomatic {command}
+```
+
+The pin is a testing tool, not a deployment: workflow `uses:` refs and `uvx 'repomatic==X.Y.Z'` pins move only through a release, per [§ Bumping the repomatic pin](#bumping-the-repomatic-pin).
+
 ### Tools called from workflows are version-pinned
 
 <!-- audience: downstream -->
@@ -734,6 +746,8 @@ Release-specific design rationale for `kdeldycke/repomatic` (the `workflow_run` 
 <!-- audience: all -->
 
 Workflows and CLI commands must be safe to re-run: the same command twice with the same inputs produces the same result, with no errant side effects (duplicate tags or PR comments, redundant file writes). Use `--skip-existing` or equivalent guards when creating resources; check for existing state before writing (skip an admonition already present, skip a PR that already exists for the branch); prefer upsert over create-only; make file-modifying operations convergent (re-applying is a no-op).
+
+A create verb against an external API that refuses duplicates with a conflict status rather than converging must probe first: create only on a `404`, and let any other refusal surface as-is rather than dying on the conflict after a blind `POST` (Cloudflare answers `409` on an existing Pages project).
 
 **When idempotency is not achievable**, document in a comment or docstring what side effects occur on re-runs and why they are acceptable.
 
