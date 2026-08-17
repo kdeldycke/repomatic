@@ -31,6 +31,7 @@ import pytest
 from repomatic import cloudflare
 from repomatic.cloudflare import (
     CloudflareError,
+    CloudflareHTTPError,
     Setting,
     _account,
     _diff,
@@ -601,9 +602,26 @@ def test_dump_redacts_and_exits_zero(credentials, capsys):
     assert "leaked" not in output
 
 
-def test_create_posts_the_project_then_applies(credentials, capsys):
+def test_create_posts_the_project_when_missing(credentials, capsys):
     calls: list = []
-    with patch.object(cloudflare, "_call", side_effect=_api(CLEAN_PROJECT, calls)):
+    created = {"done": False}
+
+    def call(path, token, method="GET", body=None):
+        calls.append((method, path, body))
+        if path == "/accounts":
+            return SOLO_ACCOUNT
+        if method == "POST":
+            created["done"] = True
+            return {"name": PROJECT}
+        if path.endswith(f"/pages/projects/{PROJECT}"):
+            if not created["done"]:
+                raise CloudflareHTTPError(f"GET {path} failed: HTTP 404", 404)
+            return CLEAN_PROJECT
+        if path.endswith("/tokens/verify"):
+            return {"id": "token-id", "status": "active"}
+        raise AssertionError(f"unexpected call: {path}")
+
+    with patch.object(cloudflare, "_call", side_effect=call):
         exit_code = run_cloudflare_pages(PROJECT, create=True)
     assert exit_code == 0
     posts = [call for call in calls if call[0] == "POST"]
@@ -613,6 +631,40 @@ def test_create_posts_the_project_then_applies(credentials, capsys):
         {"name": PROJECT, "production_branch": "main"},
     )
     assert f"Created Direct Upload project {PROJECT!r}." in capsys.readouterr().out
+
+
+def test_create_reuses_an_existing_project(credentials, capsys):
+    """The API answers 409 on a duplicate name, so a re-run must converge.
+
+    Probing first turns an existing project into the same reconcile path a
+    fresh one takes, instead of an error.
+    """
+    calls: list = []
+    with patch.object(cloudflare, "_call", side_effect=_api(CLEAN_PROJECT, calls)):
+        exit_code = run_cloudflare_pages(PROJECT, create=True)
+    assert exit_code == 0
+    assert not [call for call in calls if call[0] == "POST"]
+    output = capsys.readouterr().out
+    assert "already exists" in output
+    assert "No drift" in output
+
+
+def test_create_still_fails_on_a_non_404_refusal(credentials, capsys):
+    """A 403 is not 'missing': it must surface, not trigger a POST."""
+    calls: list = []
+
+    def call(path, token, method="GET", body=None):
+        calls.append((method, path, body))
+        if path == "/accounts":
+            return SOLO_ACCOUNT
+        raise CloudflareHTTPError(f"GET {path} failed: HTTP 403", 403)
+
+    with (
+        patch.object(cloudflare, "_call", side_effect=call),
+        pytest.raises(CloudflareHTTPError, match="HTTP 403"),
+    ):
+        run_cloudflare_pages(PROJECT, create=True)
+    assert not [call for call in calls if call[0] == "POST"]
 
 
 @pytest.mark.parametrize(

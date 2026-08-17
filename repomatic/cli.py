@@ -2664,8 +2664,9 @@ def lint_repo(
     "--create",
     is_flag=True,
     help=(
-        "Create the Direct Upload project, then apply the declared values:"
-        " the rebuild-from-nothing verb."
+        "Create the Direct Upload project when missing, then apply the"
+        " declared values: the rebuild-from-nothing verb. An existing"
+        " project is reused and reconciled, so re-running is safe."
     ),
 )
 @option(
@@ -2711,7 +2712,8 @@ def cloudflare_pages(
         repomatic cloudflare-pages --apply
 
     \b
-        # Rebuild from nothing: create the project, then configure it
+        # Rebuild from nothing: create the project if missing, then configure
+        # it. An existing project is reconciled, not re-created.
         repomatic cloudflare-pages --create --project my-site
 
     \b

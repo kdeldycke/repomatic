@@ -28,8 +28,9 @@ makes that state explicit, diffable and re-applicable, from the
 
 Backs the `cloudflare-pages` command, in four modes: `--check` diffs live
 against declared and exits non-zero on drift, `--apply` writes the declared
-values back, `--create` creates the Pages project then applies, and `--dump`
-prints the live state with secrets redacted.
+values back, `--create` creates the Pages project when missing (reusing an
+existing one) then applies, and `--dump` prints the live state with secrets
+redacted.
 
 Credentials resolve in this order, so the same command works in CI and on a
 laptop without a token ever landing on a command line:
@@ -102,6 +103,19 @@ WRANGLER_CONFIG_PATHS: Final = (
 
 class CloudflareError(RuntimeError):
     """Raised when the Cloudflare API refuses or a credential cannot be found."""
+
+
+class CloudflareHTTPError(CloudflareError):
+    """An HTTP-level refusal from the Cloudflare API, carrying its status.
+
+    Lets a caller act on *which* refusal arrived (a `404` meaning "create
+    it" is a different instruction than a `403` meaning "stop") without
+    parsing the message string it was raised with.
+    """
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -298,7 +312,7 @@ def _call(
                 "out first."
             )
         msg = f"{method} {path} failed: HTTP {error.code}\n{detail}"
-        raise CloudflareError(msg) from error
+        raise CloudflareHTTPError(msg, error.code) from error
     except urllib.error.URLError as error:
         msg = f"{method} {path} failed: {error.reason}"
         raise CloudflareError(msg) from error
@@ -604,7 +618,10 @@ def run_cloudflare_pages(
         value. Read-only drift is reported and keeps the exit code non-zero.
     :param dump: Print the live project state as JSON, secrets redacted.
     :param create: Create the Pages project (Direct Upload, `main` as its
-        production branch), then apply the declared settings to it.
+        production branch) when it does not exist yet, then apply the
+        declared settings to it. An existing project is reused, so a re-run
+        converges on the declared state instead of failing on the API's
+        `409`.
     :param attach_domain: Serve the project at this hostname, creating the DNS
         record it needs when the credential can. See {func}`_attach_domain`.
     :param compatibility_date: Declared Workers runtime date, empty for
@@ -622,13 +639,24 @@ def run_cloudflare_pages(
         return _attach_domain(project, attach_domain, token, endpoint)
 
     if create:
-        _call(
-            f"/accounts/{account}/pages/projects",
-            token,
-            method="POST",
-            body={"name": project, "production_branch": "main"},
-        )
-        echo(f"Created Direct Upload project {project!r}.")
+        try:
+            _call(endpoint, token)
+        except CloudflareHTTPError as error:
+            if error.status != 404:
+                raise
+            _call(
+                f"/accounts/{account}/pages/projects",
+                token,
+                method="POST",
+                body={"name": project, "production_branch": "main"},
+            )
+            echo(f"Created Direct Upload project {project!r}.")
+        else:
+            # The API answers 409 on a duplicate name rather than converging,
+            # so probing first is what makes a re-run a no-op that still
+            # reconciles: the existing project falls through to the same diff
+            # and apply path a fresh one would.
+            echo(f"ok    project {project!r} already exists; reconciling it.")
 
     live = _call(endpoint, token)
 

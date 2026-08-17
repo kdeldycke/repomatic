@@ -111,7 +111,7 @@ Everything that actually shapes the live project (the compatibility date, Smart 
 repomatic cloudflare-pages --check    # diff live against declared, exit 1 on drift
 repomatic cloudflare-pages --apply    # write the declared values back
 repomatic cloudflare-pages --dump     # full live state, secrets redacted
-repomatic cloudflare-pages --create   # create the project, then configure it
+repomatic cloudflare-pages --create   # create the project if missing, then configure it
 ```
 
 The declarations live beside the target in `[tool.repomatic]`: `site.cloudflare-compatibility-date` and `site.cloudflare-placement`, each unmanaged while unset. Two invariants are always checked but never written, because getting them wrong breaks publishing rather than aging it: the `source` block must stay `null` and the build command must stay empty, both consequences of Direct Upload. The build image major version is asserted at `3`, the terminal version Cloudflare auto-migrates old projects onto.
@@ -120,7 +120,7 @@ The diff is honest about its own confidence. Each stock default is tagged `docum
 
 `wrangler.toml` is not part of the server-side state, and that is precisely its hazard: Cloudflare honours the project's own configuration, while the file only matters to local `wrangler` commands on a project that is never built remotely. It can therefore lie for years. `lint-repo` compares its `name` and `compatibility_date` against the declared values, so the repository states each fact once.
 
-`--create` covers the rebuild-from-nothing case: the Pages API creates the Direct Upload project (something `wrangler pages deploy` refuses to do non-interactively), then the declared settings are applied to it. With the token restored and a push to the default branch, the whole hosting side reconstructs from what is committed.
+`--create` covers the rebuild-from-nothing case: the Pages API creates the Direct Upload project (something `wrangler pages deploy` refuses to do non-interactively), then the declared settings are applied to it. It is idempotent: an existing project is reused and reconciled through the same path, because the API answers `409` on a duplicate name rather than converging, so a re-run validates the live state instead of failing on it. With the token restored and a push to the default branch, the whole hosting side reconstructs from what is committed.
 
 ## The redirects engine, as it actually is
 

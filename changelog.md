@@ -11,6 +11,7 @@
 - Fix `lint-deps` asking an aggregate extra selecting the project's own extras for a version floor, which a project can never declare on itself.
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.
 - Fix `format-images` dropping its optimization summary table from the PR body, lost in `7.11.0` when its two PR-publishing steps collapsed into one.
+- `cloudflare-pages --create` is now idempotent: an existing Pages project is reused and reconciled against the declared settings, instead of failing on the API's `409` duplicate-name refusal.
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 
