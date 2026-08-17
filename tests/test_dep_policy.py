@@ -153,6 +153,34 @@ def test_extra_of_an_already_floored_package_is_not_bare(tmp_path):
     assert scan_policy(path) == []
 
 
+def test_aggregate_extra_selecting_the_project_itself_is_not_bare(tmp_path):
+    """An `all` extra rolling up the project's own extras can carry no floor.
+
+    A project never declares itself with a specifier in its own file, so the
+    "floored somewhere else" gate can never catch it, and the resolver picks
+    the version being installed: there is no other release to exclude.
+    """
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        optional-dependencies.toml = [
+          # tomlkit.dumps() renders the harvest tables.
+          "tomlkit>=0.13",
+        ]
+        optional-dependencies.xml = [
+          # xmltodict.unparse() renders the harvest tables.
+          "xmltodict>=1",
+        ]
+        optional-dependencies.all = [
+          "orchard[toml,xml]",
+        ]
+        """,
+    )
+    assert scan_policy(path) == []
+
+
 def test_unsorted_list_names_only_the_first_offender(tmp_path):
     """One misplaced entry makes every later one look wrong too."""
     path = write_pyproject(

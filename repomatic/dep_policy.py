@@ -227,10 +227,11 @@ def _check_specifier(
     """Flag a missing specifier, and an upper bound on a runtime dependency.
 
     :param floored: Canonical names carrying a specifier somewhere else in the
-        same file. A second mention needs no floor of its own: a `docs` group
-        pulling `click-extra[sphinx]` is selecting an extra of a package the
-        runtime list already constrains, and repeating the floor there would
-        just be a second number to keep in step.
+        same file, plus the project's own name. A second mention needs no floor
+        of its own: a `docs` group pulling `click-extra[sphinx]` is selecting an
+        extra of a package the runtime list already constrains, and repeating
+        the floor there would just be a second number to keep in step. A
+        self-reference needs none either, and can carry none.
     """
     if not str(requirement.specifier):
         if canonicalize_name(requirement.name) in floored:
@@ -368,13 +369,18 @@ def scan_policy(
         ))
 
     # Every name floored anywhere in the file, so a second mention selecting an
-    # extra is not read as an unconstrained dependency.
+    # extra is not read as an unconstrained dependency. The project's own name
+    # joins them: an aggregate extra selecting the project's other extras
+    # (`orchard[toml,xml]` inside orchard) resolves to the very version being
+    # installed, so no other release exists for a floor to exclude, and a
+    # project can never floor itself in its own file anyway.
+    own_name = data.get("project", {}).get("name")
     floored = frozenset(
         canonicalize_name(requirement.name)
         for _location, _table, _key, raw_entries, _runtime in arrays
         for requirement in map(_parse, _requirements(raw_entries))
         if requirement is not None and str(requirement.specifier)
-    )
+    ) | ({canonicalize_name(own_name)} if own_name else set())
 
     for location, table, key, raw_entries, runtime in arrays:
         raws = list(_requirements(raw_entries))
