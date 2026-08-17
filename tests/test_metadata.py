@@ -40,6 +40,7 @@ from repomatic.matrix_axes import (
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
     UNSTABLE_PYTHON_VERSIONS,
+    python_version_sort_key,
 )
 from repomatic.metadata import (
     _METADATA_KEY_DESCRIPTIONS,
@@ -1089,6 +1090,20 @@ def test_metadata_command_renders_under_captured_runner():
     assert "test_matrix" in data
 
 
+@pytest.mark.parametrize(
+    ("versions", "expected"),
+    [
+        (["3.15", "3.10"], ["3.10", "3.15"]),
+        (["3.14t", "3.14"], ["3.14", "3.14t"]),
+        (["3.15", "3.14t", "3.10", "3.14"], ["3.10", "3.14", "3.14t", "3.15"]),
+        (["3.10.2", "3.10"], ["3.10", "3.10.2"]),
+    ],
+)
+def test_python_version_sort_key_orders_by_release(versions, expected):
+    """Versions sort numerically, a flavor right after its base version."""
+    assert sorted(versions, key=python_version_sort_key) == expected
+
+
 def test_show_test_matrix_renders_full_grid():
     """`repomatic show-test-matrix` renders the full matrix as a labelled grid."""
     result = CliRunner().invoke(repomatic, ["show-test-matrix"])
@@ -1097,6 +1112,16 @@ def test_show_test_matrix_renders_full_grid():
     assert "ubuntu-26.04-arm" in result.output
     # The matrix always carries stable jobs, decorated with an emoji by default.
     assert "✅ stable" in result.output
+
+
+def test_show_test_matrix_rows_sorted_by_release():
+    """Grid rows order Python versions by release, flavors after their base."""
+    result = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix", "full"]
+    )
+    assert result.exit_code == 0, result.output
+    versions = [row["Python"] for row in json.loads(result.output)]
+    assert versions == sorted(versions, key=python_version_sort_key)
 
 
 def test_show_test_matrix_pr_is_reduced():

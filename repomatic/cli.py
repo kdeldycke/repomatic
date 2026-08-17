@@ -212,6 +212,7 @@ from .lint_repo import (
     run_repo_lint,
 )
 from .mailmap import Mailmap, remove_header
+from .matrix_axes import python_version_sort_key
 from .metadata import (
     METADATA_KEYS_HEADER_DEFS,
     Dialect,
@@ -4609,6 +4610,9 @@ def show_test_matrix(ctx: Context, emoji: bool, matrix_name: str) -> None:
     meta = Metadata()
     matrix = meta.test_matrix if matrix_name == "full" else meta.test_matrix_pr
     col_values, rows = matrix.pivot()
+    # Pivot keeps first-seen job order, which appends single-runner build
+    # flavors (like 3.14t) after every base version: re-sort rows by release.
+    rows = tuple(sorted(rows, key=lambda row: python_version_sort_key(row[0])))
     headers = ("Python", *col_values)
     if emoji:
         rows = tuple(

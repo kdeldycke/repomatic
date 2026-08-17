@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `show-test-matrix` sorts its Python rows by release instead of job order, placing a free-threaded build (`3.14t`) right after its base version.
+
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 
 - **Breaking:** the `agents` component is renamed `subagents`, its config key `agents.location` becoming `subagents.location`. Naming the old component in `[tool.repomatic] include` or `exclude` fails the init; the old config key is ignored with a warning.

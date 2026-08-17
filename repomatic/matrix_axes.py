@@ -163,3 +163,22 @@ the default single-runner pick: the fastest measured on compute-bound parallel
 work and the cheapest tier, and free-threading targets server workloads where
 Linux/ARM is the norm (see {doc}`/test-matrix`).
 """
+
+
+def python_version_sort_key(version: str) -> tuple[tuple[int, ...], int]:
+    """Sort key ordering `python-version` axis values by release.
+
+    Compares on the numeric release components, then places a build flavor (the
+    free-threaded `t` suffix of {data}`SINGLE_RUNNER_PYTHON_VERSIONS`) directly
+    after its base version rather than after every later release: `3.14` sorts
+    before `3.14t`, which sorts before `3.15`. Non-numeric components are
+    dropped, so an axis value like `pypy3.10` falls back to the digits it
+    carries.
+
+    :param version: A `python-version` axis value, like `3.14` or `3.14t`.
+    :return: A key tuple suitable for {func}`sorted`.
+    """
+    flavor = int(version.endswith("t"))
+    base = version[:-1] if flavor else version
+    parts = tuple(int(chunk) for chunk in base.split(".") if chunk.isdigit())
+    return parts, flavor
