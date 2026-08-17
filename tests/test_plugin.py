@@ -426,7 +426,7 @@ def test_settings_wiring_is_format_json_shaped() -> None:
         pytest.param(
             {"biome.json": "{ // a comment no JSON parser accepts\n}"},
             "\t",
-            id="unparseable-falls-back",
+            id="unparsable-falls-back",
         ),
         pytest.param(
             {
