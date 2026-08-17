@@ -19,29 +19,29 @@
 #      bug: they still work via the / menu).
 #
 #   2. Claude Desktop chat (claude.ai / Desktop app chat mode)
-#      Runs in a server-side container. Skills are mounted at /mnt/skills/.
-#      User skills go to /mnt/skills/user/ but the mount is unreliable:
-#      metadata is registered in the system prompt, yet SKILL.md files are
-#      often not mounted on disk (see #26254). The only upload path is the
-#      Customize > Skills panel: one ZIP per skill, no batch import, no API.
+#      Runs in a server-side container. The primary route is now the plugin
+#      archive: Customize > Plugins accepts one upload that carries every
+#      skill and agent (verified 2026-08-09; see docs/plugin.md). This
+#      script's per-skill ZIPs remain for the older Customize > Skills
+#      panel, where the mount is unreliable: metadata is registered in the
+#      system prompt, yet SKILL.md files are often not mounted on disk
+#      (#26254), and uploads sometimes return internal server errors
+#      (#26310).
 #
 #   3. Cowork
-#      Another container. Reads project-level .claude/skills/ from the
-#      session mount, but ignores ~/.claude/skills/ (personal skills).
-#      Opening a project that contains .claude/skills/ exposes those skills
-#      to Cowork. Skills may appear in Customize but fail to load in chat
-#      due to context budget limits (see #40774).
+#      Another container. Plugins install and their skills work in chat
+#      (hooks and sub-agents run only in Cowork and appear greyed out in
+#      chat). It also reads project-level .claude/skills/ from the session
+#      mount, but ignores ~/.claude/skills/ (personal skills). Opening a
+#      project that contains .claude/skills/ exposes those skills to
+#      Cowork.
 #
-# This script packages each skill as a ZIP for manual upload to surface 2.
-# It cannot automate the upload: the Desktop app sends ZIPs to Anthropic's
-# servers via its Electron bridge, and there is no public API or local
-# storage to write to.
-#
-# As of April 2026, even the manual upload is unreliable: uploaded skills
-# have their metadata registered in the system prompt, but SKILL.md files
-# are often not mounted on the container filesystem (#26254), and uploads
-# sometimes return internal server errors (#26310). Keep this script for
-# when the server-side mount is fixed.
+# This script packages each skill as a ZIP for manual upload to the
+# Customize > Skills panel of surface 2. It cannot automate the upload: the
+# Desktop app sends ZIPs to Anthropic's servers via its Electron bridge, and
+# there is no public API or local storage to write to. The plugin archive
+# supersedes it for the bulk case (one upload, agents included): keep this
+# script for the surfaces and accounts where a plugin is not an option.
 #
 # --- Workaround for Cowork ---
 #
