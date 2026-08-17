@@ -10,6 +10,9 @@
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 
+> [!NOTE]
+> `7.13.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.13.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.13.0).
+
 - **Breaking:** the `agents` component is renamed `subagents`, its config key `agents.location` becoming `subagents.location`. Naming the old component in `[tool.repomatic] include` or `exclude` fails the init; the old config key is ignored with a warning.
 - **Breaking:** `repomatic init claude` is renamed `repomatic init agent`, and its destination follows `[tool.repomatic] agent.location` (defaulting per `[tool.repomatic.flavor] agent`) rather than a fixed root-level `claude.md`, reaching instructions kept as `AGENTS.md` or outside the root.
 - **Breaking:** the `runner-images` command, its workflow job and its `[tool.repomatic] runner-images` config key are gone, along with the issue they maintained; `sync-runner-images` closes that issue on its first run.
