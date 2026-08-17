@@ -2003,6 +2003,39 @@ def test_setup_uv_pins_agree() -> None:
     assert len(versions) == 1, f"setup-uv pins disagree: {sorted(versions)}"
 
 
+def test_report_step_outputs_are_consumed() -> None:
+    """A report emitted to a step output must be read back somewhere.
+
+    `--output-format github-actions` is the hand-off shape: the command
+    spills a report to a file and names it as a `<key>_file` step output,
+    for a later step to feed into a pull request body
+    (`REPOMATIC_DIFF_TABLE_FILE`, `--template-arg-file`). `format-images`
+    lost its summary table to exactly that gap in `7.11.0`: the step
+    emitting `markdown_file` survived the collapse of the PR-publishing
+    steps, but its consumer did not, and a body-less template rendered as
+    if the report never existed. An output nobody references is that
+    orphan shape by construction, whatever the key.
+    """
+    for path in WORKFLOWS_DIR.glob("*.yaml"):
+        text = path.read_text(encoding="UTF-8")
+        doc = yaml.safe_load(text)
+        for job_name, job in (doc.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                run = step.get("run") or ""
+                if "--output-format github-actions" not in run:
+                    continue
+                step_id = step.get("id")
+                assert step_id, (
+                    f"{path.name} job {job_name!r} emits step outputs "
+                    "without a step id, so nothing can consume them"
+                )
+                assert f"steps.{step_id}.outputs" in text, (
+                    f"{path.name} job {job_name!r} step {step_id!r} emits "
+                    "step outputs no other step or job reads back: the "
+                    "report it hands over is orphaned"
+                )
+
+
 # ---------------------------------------------------------------------------
 # Extra release assets
 # ---------------------------------------------------------------------------

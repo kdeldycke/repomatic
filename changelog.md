@@ -10,6 +10,7 @@
 - Fix the `plugin` component writing tab-indented settings into a repository whose `[tool.biome.formatter]` asks for spaces, which had `sync-repomatic` and `format-json` reindenting the file past each other on every run. The indent now follows the repository's own Biome config, native `biome.json` included.
 - Fix `lint-deps` asking an aggregate extra selecting the project's own extras for a version floor, which a project can never declare on itself.
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.
+- Fix `format-images` dropping its optimization summary table from the PR body, lost in `7.11.0` when its two PR-publishing steps collapsed into one.
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 

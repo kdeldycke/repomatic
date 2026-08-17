@@ -479,17 +479,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends jpegoptim
+      # The summary table feeds the pull request body and is not repository
+      # content, so it is written outside the work tree rather than written in
+      # and then excluded from the commit by a pathspec.
       - name: Format images
-        id: format
+        env:
+          SUMMARY: ${{ runner.temp }}/format-images-summary.md
         run: >
           uv --no-progress run --frozen -- repomatic format-images
-          --output "$GITHUB_OUTPUT" --output-format github-actions
+          --output "$SUMMARY"
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+          SUMMARY: ${{ runner.temp }}/format-images-summary.md
         run: >
           uv --no-progress run --frozen -- repomatic
           pr-sync --template format-images
+          --template-arg-file summary="$SUMMARY"
   # --- Syncers: regenerate files from external sources or project state. ---
 
   sync-gitignore:
