@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.13.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 
 - **Breaking:** the `agents` component is renamed `subagents`, its config key `agents.location` becoming `subagents.location`. Naming the old component in `[tool.repomatic] include` or `exclude` fails the init; the old config key is ignored with a warning.
