@@ -31,6 +31,7 @@
 - New `git-commit-push` option `--all-changes`, staging everything the working tree carries instead of a named path list.
 - New bundled `repomatic-test-matrix` skill deciding which Python versions, operating systems and runner images earn a test-matrix cell.
 - Bundled guidance moves its release-repair, label-retirement and test-matrix procedures out of `claude.md` and into the skills that run them, leaving the always-loaded file carrying rules rather than checklists.
+- The bundled `repomatic-ship` skill now names all three shapes an unanswered hardware-key signing prompt produces, treating a silent hang as a missed prompt rather than a slow command.
 - The release PR's unshippable-dependency warning is now a single line naming each package, each linked to the line declaring it, instead of a paragraph and a four-column table.
 - The binaries catalog now leaves the VirusTotal cell empty unless a scan record backs it, instead of linking every binary to an analysis page that was never created.
 - The bundled `[tool.typos]` config now accepts `PNGs` and `PATCHed`, which typos otherwise splits and rewrites to `ONGs` and `PATCHead`.
