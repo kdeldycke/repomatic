@@ -39,6 +39,8 @@ from repomatic.matrix_axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
+    TEST_RUNNERS_FULL,
+    TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
     python_version_sort_key,
 )
@@ -1122,6 +1124,24 @@ def test_show_test_matrix_rows_sorted_by_release():
     assert result.exit_code == 0, result.output
     versions = [row["Python"] for row in json.loads(result.output)]
     assert versions == sorted(versions, key=python_version_sort_key)
+
+
+@pytest.mark.parametrize(
+    ("matrix_name", "canonical"),
+    [("full", TEST_RUNNERS_FULL), ("pr", TEST_RUNNERS_PR)],
+)
+def test_show_test_matrix_columns_follow_canonical_order(matrix_name, canonical):
+    """OS columns follow the runner order of the axis constants."""
+    result = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix", matrix_name]
+    )
+    assert result.exit_code == 0, result.output
+    columns = [key for key in json.loads(result.output)[0] if key != "Python"]
+    # Canonical runners keep their declared order; any runner the config added
+    # trails them in first-seen order.
+    expected = [runner for runner in canonical if runner in columns]
+    expected += [col for col in columns if col not in canonical]
+    assert columns == expected
 
 
 def test_show_test_matrix_pr_is_reduced():

@@ -212,7 +212,11 @@ from .lint_repo import (
     run_repo_lint,
 )
 from .mailmap import Mailmap, remove_header
-from .matrix_axes import python_version_sort_key
+from .matrix_axes import (
+    TEST_RUNNERS_FULL,
+    TEST_RUNNERS_PR,
+    python_version_sort_key,
+)
 from .metadata import (
     METADATA_KEYS_HEADER_DEFS,
     Dialect,
@@ -4613,6 +4617,18 @@ def show_test_matrix(ctx: Context, emoji: bool, matrix_name: str) -> None:
     # Pivot keeps first-seen job order, which appends single-runner build
     # flavors (like 3.14t) after every base version: re-sort rows by release.
     rows = tuple(sorted(rows, key=lambda row: python_version_sort_key(row[0])))
+    # Align columns with the canonical runner order of the axis constants: an
+    # include directive or a full-include flattening can perturb first-seen
+    # order. Runners outside the canonical tuple keep their first-seen order
+    # after it.
+    canonical = TEST_RUNNERS_FULL if matrix_name == "full" else TEST_RUNNERS_PR
+    rank = {runner: index for index, runner in enumerate(canonical)}
+    permutation = sorted(
+        range(len(col_values)),
+        key=lambda index: rank.get(col_values[index], len(canonical)),
+    )
+    col_values = tuple(col_values[index] for index in permutation)
+    rows = tuple((row[0], *(row[1 + index] for index in permutation)) for row in rows)
     headers = ("Python", *col_values)
     if emoji:
         rows = tuple(
