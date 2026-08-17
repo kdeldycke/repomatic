@@ -2450,9 +2450,6 @@ class LintContext:
     has_cloudflare_api_token: bool = False
     """Whether `CLOUDFLARE_API_TOKEN` is configured."""
 
-    has_cloudflare_account_id: bool = False
-    """Whether `CLOUDFLARE_ACCOUNT_ID` is configured."""
-
     nuitka_active: bool = False
     """Whether this project compiles binaries with Nuitka."""
 
@@ -2564,13 +2561,11 @@ class RepoCheck:
 def _cloudflare_secrets(ctx: LintContext) -> CheckResult:
     """Report whether the Cloudflare Pages deploy has the credential it needs.
 
-    One secret, not two. The account identifier is derivable from the token:
-    an account-owned token holding `Cloudflare Pages: Edit` and nothing else
-    still enumerates the account it belongs to, measured on 2026-08-16
-    against a `cfat_` token with exactly that scope. `CLOUDFLARE_ACCOUNT_ID`
-    is therefore an override rather than a requirement, worth setting only
-    where a credential reaches several accounts and the lookup has no single
-    answer.
+    One secret, and no identifier beside it: the account is derived from the
+    token at run time, since an account-owned token holding `Cloudflare
+    Pages: Edit` and nothing else still enumerates the account it belongs
+    to, measured on 2026-08-16 against a `cfat_` token with exactly that
+    scope. The token is the whole of the authentication surface.
     """
     if not ctx.has_cloudflare_api_token:
         return CheckResult(
@@ -2582,12 +2577,6 @@ def _cloudflare_secrets(ctx: LintContext) -> CheckResult:
             " https://dash.cloudflare.com/?to=/:account/api-tokens"
             "&permissionGroupKeys=%5B%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%5D"
             " and store it as a repository secret.",
-        )
-    if ctx.has_cloudflare_account_id:
-        return CheckResult(
-            True,
-            "Cloudflare Pages credentials are configured, with the account"
-            " pinned explicitly.",
         )
     return CheckResult(
         True,
@@ -2981,7 +2970,6 @@ def run_repo_lint(
     has_pat: bool = False,
     has_virustotal_key: bool = False,
     has_cloudflare_api_token: bool = False,
-    has_cloudflare_account_id: bool = False,
     nuitka_active: bool = False,
     has_notifications_pat: bool = False,
     unsubscribe_active: bool = False,
@@ -3008,8 +2996,6 @@ def run_repo_lint(
     :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
     :param has_cloudflare_api_token: Whether `CLOUDFLARE_API_TOKEN` is
         configured.
-    :param has_cloudflare_account_id: Whether `CLOUDFLARE_ACCOUNT_ID` is
-        configured.
     :param nuitka_active: Whether Nuitka binary compilation is active.
     :param has_notifications_pat: Whether `REPOMATIC_NOTIFICATIONS_PAT` is
         configured.
@@ -3032,7 +3018,6 @@ def run_repo_lint(
         has_pat=has_pat,
         has_virustotal_key=has_virustotal_key,
         has_cloudflare_api_token=has_cloudflare_api_token,
-        has_cloudflare_account_id=has_cloudflare_account_id,
         nuitka_active=nuitka_active,
         has_notifications_pat=has_notifications_pat,
         unsubscribe_active=unsubscribe_active,

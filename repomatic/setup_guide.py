@@ -197,12 +197,10 @@ class GuideContext:
     def cloudflare_secrets_ok(self) -> bool:
         """Whether the Cloudflare Pages deploy can authenticate.
 
-        The token alone settles it: the account it belongs to is readable
-        with the token itself, even scoped to nothing but `Cloudflare Pages:
-        Edit`. `CLOUDFLARE_ACCOUNT_ID` stays available as an override for a
-        credential spanning several accounts, and is never asked for here,
-        since a step that cannot be satisfied by anything the reader does
-        would hold the issue open forever.
+        The token alone settles it: the account it belongs to is derived
+        from it at run time, even when it is scoped to nothing but
+        `Cloudflare Pages: Edit`, so there is no second identifier to
+        configure and nothing else to ask for here.
         """
         return self.has_cloudflare_api_token
 

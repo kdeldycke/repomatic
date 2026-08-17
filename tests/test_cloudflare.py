@@ -68,7 +68,11 @@ CLEAN_PROJECT = {
 def credentials(monkeypatch):
     """Environment credentials, so no code path goes looking for wrangler's."""
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "token-under-test")
-    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "account-under-test")
+
+
+SOLO_ACCOUNT = [{"id": "account-under-test", "name": "Test"}]
+"""What `/accounts` answers in the stand-ins: one account, so the
+credential resolves its target without any project probing."""
 
 
 def _api(project_state, calls=None):
@@ -81,6 +85,8 @@ def _api(project_state, calls=None):
     def call(path, token, method="GET", body=None):
         if calls is not None:
             calls.append((method, path, body))
+        if path == "/accounts":
+            return SOLO_ACCOUNT
         if path.endswith("/tokens/verify"):
             return {"id": "token-id", "status": "active"}
         if method == "POST":
@@ -301,49 +307,85 @@ def test_token_absence_names_both_remedies(monkeypatch, tmp_path):
         _token()
 
 
-def test_account_prefers_the_environment(credentials):
-    """An explicit account ID skips the lookup entirely."""
-    with patch.object(cloudflare, "_call") as call:
-        assert _account("token") == "account-under-test"
-    assert not call.called
-
-
-def test_account_resolves_a_lone_account_from_the_token(monkeypatch):
+def test_account_resolves_a_lone_account_from_the_token():
     """The ordinary case: one account, so nothing needs configuring.
 
     A token scoped to nothing but `Cloudflare Pages: Edit` still enumerates
     the account it belongs to, which is what lets CI carry the token alone.
     """
-    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     with patch.object(cloudflare, "_call", return_value=[{"id": "solo", "name": "P"}]):
-        assert _account("token") == "solo"
+        assert _account("token", PROJECT) == "solo"
+
+
+def _multi_account_api(owners):
+    """Serve two accounts, letting only *owners* hold the project."""
+
+    def call(path, token, method="GET", body=None):
+        if path == "/accounts":
+            return [
+                {"id": "personal", "name": "Personal"},
+                {"id": "work", "name": "Work"},
+            ]
+        if path.endswith(f"/pages/projects/{PROJECT}"):
+            if path.split("/")[2] in owners:
+                return CLEAN_PROJECT
+            raise CloudflareError(f"GET {path} failed: HTTP 404")
+        raise AssertionError(f"unexpected call: {path}")
+
+    return call
+
+
+def test_account_picks_the_one_owner_among_several_accounts():
+    """A multi-account credential resolves by project ownership.
+
+    The project name is always known to the caller, so asking which account
+    holds it settles what an identifier used to be stored for.
+    """
+    with patch.object(cloudflare, "_call", side_effect=_multi_account_api({"work"})):
+        assert _account("token", PROJECT) == "work"
+
+
+def test_account_lookup_skips_no_probing_for_a_lone_account():
+    """The common path costs one call: no project probing when unneeded."""
+    calls: list = []
+
+    def call(path, token, method="GET", body=None):
+        calls.append(path)
+        return SOLO_ACCOUNT
+
+    with patch.object(cloudflare, "_call", side_effect=call):
+        assert _account("token", PROJECT) == "account-under-test"
+    assert calls == ["/accounts"]
+
+
+def test_account_refuses_when_no_account_is_visible():
+    """An empty answer points at a token made under the wrong account."""
+    with (
+        patch.object(cloudflare, "_call", return_value=[]),
+        pytest.raises(CloudflareError, match="sees no account at all"),
+    ):
+        _account("token", PROJECT)
 
 
 @pytest.mark.parametrize(
-    ("accounts", "fragment"),
+    ("owners", "fragment"),
     (
-        pytest.param([], "sees no account at all", id="none-visible"),
-        pytest.param(
-            [{"id": "a", "name": "Personal"}, {"id": "b", "name": "Work"}],
-            r"sees 2 accounts \(Personal, Work\)",
-            id="ambiguous",
-        ),
+        pytest.param(set(), r"none of them holds a Pages project", id="no-owner"),
+        pytest.param({"personal", "work"}, "has no single answer", id="two-owners"),
     ),
 )
-def test_account_refuses_to_guess(monkeypatch, accounts, fragment):
-    """Anything but one account fails loudly, naming what it saw.
+def test_account_refuses_to_guess_among_several_accounts(owners, fragment):
+    """Ownership that has no single answer fails loudly rather than guessing.
 
-    Deploying into a guessed account is worse than not deploying, and the two
-    ways the guess can fail want different remedies: an empty answer points
-    at a token made under the wrong account, several point at a credential
-    that has to be told which.
+    Deploying into a guessed account is worse than not deploying, and the
+    remedy for both shapes is the same: a token created under the account
+    the project belongs to.
     """
-    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     with (
-        patch.object(cloudflare, "_call", return_value=accounts),
+        patch.object(cloudflare, "_call", side_effect=_multi_account_api(owners)),
         pytest.raises(CloudflareError, match=fragment),
     ):
-        _account("token")
+        _account("token", PROJECT)
 
 
 def test_check_clean_project_exits_zero(credentials, capsys):
@@ -438,20 +480,6 @@ def test_apply_patches_only_the_managed_drift(credentials, capsys):
     assert "Applied 2 setting(s)." in capsys.readouterr().out
 
 
-def test_account_id_prints_the_bare_value_and_touches_no_project(credentials, capsys):
-    """It pipes into `gh secret set`, so nothing may surround the value.
-
-    It also has to answer before any project exists, since storing the account
-    ID is a prerequisite of the very first deploy.
-    """
-    calls: list = []
-    with patch.object(cloudflare, "_call", side_effect=_api(CLEAN_PROJECT, calls)):
-        exit_code = run_cloudflare_pages("", account_id=True)
-    assert exit_code == 0
-    assert capsys.readouterr().out == "account-under-test\n"
-    assert not calls
-
-
 def _domain_api(attached, records, zones=None, calls=None, dns_write_fails=False):
     """A `_call` stand-in for the attach-domain paths, recording writes."""
     zones = [{"id": "zone-id", "name": "example.com"}] if zones is None else zones
@@ -459,6 +487,8 @@ def _domain_api(attached, records, zones=None, calls=None, dns_write_fails=False
     def call(path, token, method="GET", body=None):
         if calls is not None:
             calls.append((method, path, body))
+        if path == "/accounts":
+            return SOLO_ACCOUNT
         if "/domains" in path:
             if method == "POST":
                 attached.append({"name": body["name"], "status": "pending"})
@@ -576,7 +606,8 @@ def test_create_posts_the_project_then_applies(credentials, capsys):
     with patch.object(cloudflare, "_call", side_effect=_api(CLEAN_PROJECT, calls)):
         exit_code = run_cloudflare_pages(PROJECT, create=True)
     assert exit_code == 0
-    assert calls[0] == (
+    posts = [call for call in calls if call[0] == "POST"]
+    assert posts[0] == (
         "POST",
         "/accounts/account-under-test/pages/projects",
         {"name": PROJECT, "production_branch": "main"},

@@ -37,13 +37,14 @@ laptop without a token ever landing on a command line:
 1. `CLOUDFLARE_API_TOKEN` from the environment (what CI uses).
 2. The OAuth token `wrangler login` stores locally.
 
-The account comes from `CLOUDFLARE_ACCOUNT_ID` when set, otherwise from
-`GET /accounts` when the credential can see exactly one, which is the usual
-case: a token scoped to nothing but `Cloudflare Pages: Edit` still enumerates
-the account it belongs to. So CI normally carries the token alone, and the
-variable is an override for a credential spanning several accounts. No
-identifier is ever hardcoded either: repositories using this are public, and
-account IDs do not belong in them.
+The account is never declared; the credential settles it. `GET /accounts`
+answers what the token sees, and one scoped to nothing but `Cloudflare Pages:
+Edit` still enumerates the account it belongs to, so CI carries the token
+alone. A credential seeing several accounts resolves the ambiguity by asking
+which one owns the project being reconciled, and fails rather than guesses
+when that question has no single answer. No identifier is ever hardcoded
+either: repositories using this are public, and account IDs do not belong in
+them.
 
 ```{caution}
 Never gate anything on `GET /user/tokens/verify`: that endpoint is
@@ -294,9 +295,7 @@ def _call(
                 "\n\nScope is an unlikely cause: a token holding nothing but "
                 "Cloudflare Pages: Edit enumerates its own account fine. An "
                 "expired credential answers 403 here too, and is worth ruling "
-                "out first. This call is only attempted to resolve the target "
-                "when CLOUDFLARE_ACCOUNT_ID is unset, so setting it also "
-                "sidesteps the question."
+                "out first."
             )
         msg = f"{method} {path} failed: HTTP {error.code}\n{detail}"
         raise CloudflareError(msg) from error
@@ -309,29 +308,52 @@ def _call(
     return payload["result"]
 
 
-def _account(token: str) -> str:
-    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
-    if account:
-        return account
+def _account(token: str, project: str) -> str:
+    """The account to act on, derived from the credential alone.
+
+    The token settles the usual case on its own: it enumerates its own
+    account through `GET /accounts` even when scoped to nothing but
+    `Cloudflare Pages: Edit`. A credential seeing several accounts falls
+    back to asking where *project* lives, probing each account's copy of
+    it: exactly one owner is an answer, anything else fails rather than
+    guesses, since deploying into a guessed account is worse than not
+    deploying.
+    """
     accounts = _call("/accounts", token)
     if not accounts:
         msg = (
             "This credential sees no account at all, so there is nothing to "
             "deploy into. Check the token was created under the account "
-            "owning the Pages project, then set CLOUDFLARE_ACCOUNT_ID to say "
-            "which one outright."
+            "owning the Pages project."
         )
         raise CloudflareError(msg)
-    if len(accounts) > 1:
-        names = ", ".join(entry["name"] for entry in accounts)
+    if len(accounts) == 1:
+        return str(accounts[0]["id"])
+    owners = []
+    for entry in accounts:
+        try:
+            _call(f"/accounts/{entry['id']}/pages/projects/{project}", token)
+        except CloudflareError:
+            continue
+        owners.append(entry)
+    if len(owners) == 1:
+        return str(owners[0]["id"])
+    visible = ", ".join(entry["name"] for entry in accounts)
+    if not owners:
         msg = (
-            f"Set CLOUDFLARE_ACCOUNT_ID: this credential sees {len(accounts)} "
-            f"accounts ({names}), so which one to deploy into has no single "
-            "answer. `repomatic cloudflare-pages --account-id` cannot help "
-            "here either, for the same reason."
+            f"This credential sees {len(accounts)} accounts ({visible}) and "
+            f"none of them holds a Pages project named {project!r}. Create "
+            "the token under the account you want to deploy into: that is "
+            "the only thing left that says where the project belongs."
         )
         raise CloudflareError(msg)
-    return str(accounts[0]["id"])
+    holding = ", ".join(entry["name"] for entry in owners)
+    msg = (
+        f"This credential sees several accounts holding a Pages project "
+        f"named {project!r} ({holding}), so which one to act on has no "
+        "single answer. Create a token under the account you mean."
+    )
+    raise CloudflareError(msg)
 
 
 def _token_expiry_warning(token: str, account: str) -> str | None:
@@ -567,7 +589,6 @@ def run_cloudflare_pages(
     apply: bool = False,
     dump: bool = False,
     create: bool = False,
-    account_id: bool = False,
     attach_domain: str = "",
     compatibility_date: str = "",
     placement: str = "",
@@ -584,9 +605,6 @@ def run_cloudflare_pages(
     :param dump: Print the live project state as JSON, secrets redacted.
     :param create: Create the Pages project (Direct Upload, `main` as its
         production branch), then apply the declared settings to it.
-    :param account_id: Print the resolved account identifier and stop. Emits
-        the bare value with nothing around it, so it pipes straight into
-        whatever needs to store it, and needs no project to exist yet.
     :param attach_domain: Serve the project at this hostname, creating the DNS
         record it needs when the credential can. See {func}`_attach_domain`.
     :param compatibility_date: Declared Workers runtime date, empty for
@@ -596,13 +614,7 @@ def run_cloudflare_pages(
         read-only settings `--apply` cannot write).
     """
     token = _token()
-    account = _account(token)
-
-    if account_id:
-        # Bare, so it pipes into whatever stores it. Everything explanatory
-        # would have to be stripped back off by the caller.
-        echo(account)
-        return 0
+    account = _account(token, project)
 
     endpoint = f"/accounts/{account}/pages/projects/{project}"
 

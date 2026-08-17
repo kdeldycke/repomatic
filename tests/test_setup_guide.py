@@ -159,7 +159,6 @@ def _offline_setup_guide(
 
 
 FULLY_CONFIGURED = {
-    "HAS_CLOUDFLARE_ACCOUNT_ID": "true",
     "HAS_CLOUDFLARE_API_TOKEN": "true",
 }
 """Secrets a fully-configured repository holds, beyond what `_invoke` sets.
@@ -629,30 +628,19 @@ def test_setup_guide_prefills_a_dated_token_name(tmp_path, monkeypatch):
     (
         pytest.param({}, True, id="no-secret"),
         pytest.param(
-            {"HAS_CLOUDFLARE_ACCOUNT_ID": "true"}, True, id="account-id-alone"
-        ),
-        pytest.param(
             {"HAS_CLOUDFLARE_API_TOKEN": "true"}, False, id="token-alone-closes"
-        ),
-        pytest.param(
-            {
-                "HAS_CLOUDFLARE_ACCOUNT_ID": "true",
-                "HAS_CLOUDFLARE_API_TOKEN": "true",
-            },
-            False,
-            id="both-secrets",
         ),
     ),
 )
 def test_setup_guide_holds_open_until_the_cloudflare_token_lands(
     tmp_path, monkeypatch, env, expected_has_issues
 ):
-    """The token closes the step; the account ID is not asked for.
+    """The token alone closes the step.
 
     Unlike the VirusTotal key, a missing token fails the deploy rather than
-    skipping it, so it gates closure. The account ID does not: it resolves
-    from the token, so demanding it would hold the issue open on something
-    nobody needs to do.
+    skipping it, so it gates closure. Nothing else does: the account is
+    derived from the token at run time, so there is no second identifier to
+    demand.
     """
     _site_project(tmp_path, monkeypatch, "cloudflare-pages")
     with _offline_setup_guide() as (lifecycle, _bodies):
@@ -667,8 +655,8 @@ def test_setup_guide_asks_a_non_sphinx_site_for_its_cloudflare_credentials(
     """Declaring the Cloudflare target is the opt-in, Sphinx or not.
 
     A repository whose site is built by its own workflow (a Pelican blog, a
-    hand-rolled static tree) deploys with the same project and the same two
-    secrets, so the guide walks it through them. The GitHub Pages step stays
+    hand-rolled static tree) deploys with the same project and the same
+    token, so the guide walks it through them. The GitHub Pages step stays
     away: repomatic runs no publisher for that combination.
     """
     _site_project(tmp_path, monkeypatch, "cloudflare-pages", sphinx=False)
@@ -695,10 +683,7 @@ def test_setup_guide_closes_with_github_pages_never_configured(tmp_path, monkeyp
     with _offline_setup_guide(pages_ok=unconfigured) as (lifecycle, _bodies):
         result = _invoke(
             ["setup-guide", "--has-pat", "--repo", REPO_SLUG],
-            env={
-                "HAS_CLOUDFLARE_ACCOUNT_ID": "true",
-                "HAS_CLOUDFLARE_API_TOKEN": "true",
-            },
+            env={"HAS_CLOUDFLARE_API_TOKEN": "true"},
         )
     assert result.exit_code == 0
     assert lifecycle.call_args_list[0][1]["has_issues"] is False

@@ -1156,7 +1156,6 @@ ALL_RELEASE_SECRETS = (
             "lint",
             "lint.yaml",
             "    secrets:\n"
-            "      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}\n"
             "      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n"
             "      REPOMATIC_NOTIFICATIONS_PAT:"
             " ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}\n"

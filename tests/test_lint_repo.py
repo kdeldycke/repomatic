@@ -387,15 +387,12 @@ def test_notifications_pat_check(
 
 
 @pytest.mark.parametrize(
-    ("site_deploy", "is_sphinx", "has_token", "has_account", "expected"),
+    ("site_deploy", "is_sphinx", "has_token", "expected"),
     (
-        pytest.param(
-            "github-pages", True, False, False, None, id="other-target-silent"
-        ),
+        pytest.param("github-pages", True, False, None, id="other-target-silent"),
         pytest.param(
             "cloudflare-pages",
             True,
-            False,
             False,
             "CLOUDFLARE_API_TOKEN not configured",
             id="no-token",
@@ -407,7 +404,6 @@ def test_notifications_pat_check(
             # so declaring the target is the whole opt-in.
             False,
             False,
-            False,
             "CLOUDFLARE_API_TOKEN not configured",
             id="non-sphinx-site-still-checked",
         ),
@@ -415,42 +411,22 @@ def test_notifications_pat_check(
             "cloudflare-pages",
             True,
             True,
-            False,
             "✓ CLOUDFLARE_API_TOKEN is configured, and the account resolves",
             id="token-alone-is-enough",
         ),
-        pytest.param(
-            "cloudflare-pages",
-            True,
-            False,
-            True,
-            "CLOUDFLARE_API_TOKEN not configured",
-            id="account-id-without-a-token",
-        ),
-        pytest.param(
-            "cloudflare-pages",
-            True,
-            True,
-            True,
-            "✓ Cloudflare Pages credentials are configured, with the account",
-            id="account-pinned-explicitly",
-        ),
     ),
 )
-def test_cloudflare_secrets_check(
-    capsys, site_deploy, is_sphinx, has_token, has_account, expected
-):
-    """Only the token is required, since the account resolves from it.
+def test_cloudflare_secrets_check(capsys, site_deploy, is_sphinx, has_token, expected):
+    """The token is the whole of the credential.
 
-    A token scoped to nothing but `Cloudflare Pages: Edit` still enumerates
-    the account it belongs to, so demanding `CLOUDFLARE_ACCOUNT_ID` as well
-    would report a gap that is not one.
+    The account is derived from it at run time: a token scoped to nothing
+    but `Cloudflare Pages: Edit` still enumerates the account it belongs
+    to, so no second identifier is asked for or reported on.
     """
     exit_code = run_repo_lint(
         is_sphinx=is_sphinx,
         site_deploy=site_deploy,
         has_cloudflare_api_token=has_token,
-        has_cloudflare_account_id=has_account,
     )
     assert exit_code == 0
     captured = capsys.readouterr()

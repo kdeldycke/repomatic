@@ -404,13 +404,6 @@ repo_name_option = option(
     default=None,
     help="Repository name. Defaults to $GITHUB_REPOSITORY name component.",
 )
-has_cloudflare_account_id_option = option(
-    "--has-cloudflare-account-id",
-    is_flag=True,
-    default=False,
-    envvar="HAS_CLOUDFLARE_ACCOUNT_ID",
-    help="Whether CLOUDFLARE_ACCOUNT_ID is configured.",
-)
 has_cloudflare_api_token_option = option(
     "--has-cloudflare-api-token",
     is_flag=True,
@@ -2530,7 +2523,6 @@ def lint_deps(
 )
 @repo_name_option
 @repo_slug_option
-@has_cloudflare_account_id_option
 @has_cloudflare_api_token_option
 @has_notifications_pat_option
 @has_pat_option
@@ -2540,7 +2532,6 @@ def lint_repo(
     ctx: Context,
     repo_name: str | None,
     repo: str | None,
-    has_cloudflare_account_id: bool,
     has_cloudflare_api_token: bool,
     has_notifications_pat: bool,
     has_pat: bool,
@@ -2635,7 +2626,6 @@ def lint_repo(
         has_pat=has_pat,
         has_virustotal_key=has_virustotal_key,
         has_cloudflare_api_token=has_cloudflare_api_token,
-        has_cloudflare_account_id=has_cloudflare_account_id,
         nuitka_active=nuitka_active,
         has_notifications_pat=has_notifications_pat,
         unsubscribe_active=config.notification_unsubscribe,
@@ -2679,14 +2669,6 @@ def lint_repo(
     ),
 )
 @option(
-    "--account-id",
-    is_flag=True,
-    help=(
-        "Print the resolved Cloudflare account ID and exit. Bare, so it pipes"
-        " into whatever stores it, and needs no project to exist yet."
-    ),
-)
-@option(
     "--attach-domain",
     metavar="DOMAIN",
     default=None,
@@ -2704,7 +2686,6 @@ def cloudflare_pages(
     apply_: bool,
     dump: bool,
     create: bool,
-    account_id: bool,
     attach_domain: str | None,
 ) -> None:
     """Reconcile the Cloudflare Pages project against the declared state.
@@ -2716,9 +2697,9 @@ def cloudflare_pages(
     API token is within a month of its expiry, which Cloudflare itself never
     signals.
 
-    Credentials come from CLOUDFLARE_API_TOKEN (and CLOUDFLARE_ACCOUNT_ID
-    when the token cannot enumerate accounts), falling back to the OAuth
-    token a local `wrangler login` stored.
+    Credentials come from CLOUDFLARE_API_TOKEN, falling back to the OAuth
+    token a local `wrangler login` stored. The account is derived from the
+    credential at run time, never declared beside it.
 
     \b
     Examples:
@@ -2736,14 +2717,8 @@ def cloudflare_pages(
     \b
         # Serve the project at a custom domain, DNS record included
         repomatic cloudflare-pages --attach-domain example.com
-
-    \b
-        # Store the account ID as a repository secret, without reading it
-        repomatic cloudflare-pages --account-id \\
-          | gh secret set CLOUDFLARE_ACCOUNT_ID --repo owner/repo
     """
     modes = {
-        "--account-id": account_id,
         "--apply": apply_,
         "--attach-domain": bool(attach_domain),
         "--check": check,
@@ -2757,9 +2732,7 @@ def cloudflare_pages(
 
     config = get_tool_config(ctx)
     resolved = project or config.site_cloudflare_project or Metadata().repo_name
-    # `--account-id` answers about the account, not about a project, and it is
-    # what someone runs *before* the project exists.
-    if not resolved and not account_id:
+    if not resolved:
         msg = (
             "No project name: pass --project or set [tool.repomatic]"
             " site.cloudflare-project."
@@ -2773,7 +2746,6 @@ def cloudflare_pages(
             apply=apply_,
             dump=dump,
             create=create,
-            account_id=account_id,
             attach_domain=attach_domain or "",
             compatibility_date=config.site_cloudflare_compatibility_date,
             placement=config.site_cloudflare_placement,

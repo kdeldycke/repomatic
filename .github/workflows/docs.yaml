@@ -2,15 +2,12 @@
 name: 📚 Docs
 "on":
   workflow_call:
-    # Only the Cloudflare deploy target reads these, and only a repository that
-    # selected it will have them set: an unset optional secret arrives empty and
+    # Only the Cloudflare deploy target reads this, and only a repository that
+    # selected it will have it set: an unset optional secret arrives empty and
     # the job that would use it never runs. Declared rather than inherited, so a
-    # caller forwards these two by name instead of handing over everything it
-    # holds.
+    # caller forwards it by name instead of handing over everything it holds.
     secrets:
       CLOUDFLARE_API_TOKEN:
-        required: false
-      CLOUDFLARE_ACCOUNT_ID:
         required: false
   workflow_dispatch:
   push:
@@ -232,7 +229,6 @@ jobs:
         # `run:` body is substituted into the script before the shell sees it.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT_NAME: >-
             ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
             || github.event.repository.name }}
@@ -274,7 +270,6 @@ jobs:
         # two jobs visibly address one project.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SITE_PROJECT: >-
             ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
             || github.event.repository.name }}

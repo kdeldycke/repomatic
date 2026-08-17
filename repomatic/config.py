@@ -1357,10 +1357,10 @@ class Config:
 
     `cloudflare-pages` uploads it to a Cloudflare Pages project instead, named
     per `site.cloudflare-project`, through `wrangler pages deploy`. That path
-    needs two repository secrets, `CLOUDFLARE_API_TOKEN` and
-    `CLOUDFLARE_ACCOUNT_ID`, and it trades the OIDC deploy for a long-lived
-    token: the Docs workflow's monthly run is what surfaces its expiry, since
-    Cloudflare warns about neither an approaching lapse nor a passed one.
+    needs one repository secret, `CLOUDFLARE_API_TOKEN`, and it trades the
+    OIDC deploy for a long-lived token: the Docs workflow's monthly run is
+    what surfaces its expiry, since Cloudflare warns about neither an
+    approaching lapse nor a passed one.
 
     A property of the site rather than of Sphinx. A repository whose site is
     built by its own workflow (a Pelican blog, a hand-rolled static tree)
