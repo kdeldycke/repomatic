@@ -140,9 +140,14 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    `gh run view --log-failed` writes its log cache under `~/.cache/gh`, which the harness sandbox denies: the resulting `failed to get run log: creating cache entry ... operation not permitted` masquerades as a `gh` bug. Disable the sandbox for that read, exactly like the signing calls in step 7.
 
-   **Job logs are gated on the parent *run* reaching a terminal state, not the job.** A cell that failed twenty minutes ago stays unreadable while its slowest sibling still builds: `gh run view --log-failed` answers `run <id> is still in progress; logs will be available when it is complete`, and `gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs` is no way around it — it returns `200` with a `Content-Length` but writes no body, because `gh` does not follow the redirect into blob storage, and following it by hand fails `401` (the blob rejects the `Authorization` header the API needed). So the diagnosis you want can be an hour away while the run drains.
+   **A completed job's log is readable while the rest of the run drains, but only with `--allow-escape-sequences`.** The run-scoped reads *are* gated on the whole run going terminal (`gh run view --log-failed` answers `run <id> is still in progress; logs will be available when it is complete`), while the job-scoped `gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs` answers a failed cell immediately, twenty minutes into its slowest sibling's build. What makes it look otherwise is a `gh` guard rather than the API: CI logs carry ANSI colour, so `gh` refuses to emit them and prints `the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway` — one line where a log was expected, indistinguishable from an empty body if the output went to a file. Pass the flag and strip the codes:
 
-   Do not wait it out. **Make the run terminal**: push the fix you already have, which supersedes and cancels it, or cancel it outright. Logs survive cancellation, so every already-completed failed cell becomes readable at once. This is the same reasoning as the batch-and-push rule above, applied to reading rather than fixing: the stale run has no verification value left, and its only remaining use is its logs.
+   ```shell-session
+   $ gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs --allow-escape-sequences \
+       | sed 's/\x1b\[[0-9;]*m//g' > job.log
+   ```
+
+   So the diagnosis is minutes away, not an hour: harvest every failed cell as it lands and keep the run alive for the cells still to report. Cancelling to read logs is never the reason — logs survive cancellation, but they never needed it. **Make the run terminal only when you have a fix**, per the batch-and-push rule above: the stale run has no verification value left once superseded.
 
 5. **Fix the root cause** using the combined picture from CI logs and local results. Fix the codebase, not the tests, unless the tests are genuinely wrong. Address mypy and ruff failures together (see [§ mypy/ruff fix oscillation](#mypy-ruff-fix-oscillation)).
 
