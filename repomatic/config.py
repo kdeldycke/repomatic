@@ -367,6 +367,7 @@ class GitignoreConfig:
             # Claude Code local files.
             .claude/scheduled_tasks.lock
             .claude/settings.local.json
+            **/.claude/.cc-writes/
 
             # Sphinx linkcheck output.
             docs/_linkcheck/
@@ -383,6 +384,12 @@ class GitignoreConfig:
     one this repository never materialized, so copy the default and extend it
     rather than writing only the new lines. Reach for {attr}`extra_categories`
     instead when adding whole gitignore.io templates: that one is additive.
+
+    The `.cc-writes` entry is the one carrying a `**/` prefix, because it is the
+    one Claude Code does not place at the repository root: the directory is
+    staged beside whichever working directory the session tracks, so a single
+    `cd` into a subtree leaves one there instead. Anchoring it would miss every
+    copy but the root's.
     """
 
     location: str = "./.gitignore"

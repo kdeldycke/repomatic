@@ -109,8 +109,13 @@ gitignore.extra-content = '''
 
 # Sphinx linkcheck output.
 docs/_linkcheck/
+
+# Downloaded weather readings, re-fetched on demand.
+weather-samples/
 '''
 ```
+
+Everything above the last entry there is the shipped default, quoted back verbatim; only `weather-samples/` is this repository's own. Drop one of the repeated lines and the pattern it carried stops being emitted.
 
 When no knob covers the change, reach for `exclude` only if you understand what it means, because it is not an opt-out from syncing: it declares that the repository has no such file. The `sync-repomatic` job runs `repomatic init --delete-unmodified --delete-excluded`, so the first sync after the entry lands opens a pull request **deleting** the file rather than leaving the local version alone. Excluding a workflow to protect your edits to it removes your CI instead.
 
