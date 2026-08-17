@@ -88,15 +88,15 @@ the monthly Docs run carrying this check is the only calendar the token has.
 A month of warnings is enough to rotate without ever reaching the red run.
 """
 
+SECRET_KEYS = frozenset({"api_token", "oauth_token", "refresh_token", "secret"})
+"""Response keys whose values must never be printed."""
+
 WRANGLER_CONFIG_PATHS: Final = (
     Path.home() / "Library/Preferences/.wrangler/config/default.toml",
     Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
     / ".wrangler/config/default.toml",
 )
 """Where `wrangler login` stores its OAuth token, macOS first then XDG."""
-
-SECRET_KEYS = frozenset({"api_token", "oauth_token", "refresh_token", "secret"})
-"""Response keys whose values must never be printed."""
 
 
 class CloudflareError(RuntimeError):

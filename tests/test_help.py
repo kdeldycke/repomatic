@@ -14,17 +14,22 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Keeps the CLI test suite's per-command `--help` roster in sync.
+"""Conformance of every command's `--help`: that it is exercised, and readable.
 
 The `--help` invocations themselves live as `[[cases]]` entries in
 `tests/cli-test-suite.toml`, executed by `click-extra test-suite` in CI and
 against the compiled binaries during releases. A static roster drifts as
-commands are added or removed, so this conformance test compares it against
-the live command tree and fails naming the missing or orphaned entries.
+commands are added or removed, so the first test compares it against the live
+command tree and fails naming the missing or orphaned entries.
+
+Exercising a command's help says nothing about how it reads, which the second
+test covers: it walks the same tree and rejects a docstring whose example
+blocks Click will rewrap into prose.
 """
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import click
@@ -33,23 +38,33 @@ import tomlrt
 
 from repomatic.cli import repomatic
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 SUITE_PATH = Path(__file__).parent / "cli-test-suite.toml"
+
+NO_REWRAP = "\b"
+"""Click's escape suppressing the rewrapping of one paragraph.
+
+It only holds for the paragraph it opens, and only when it is that paragraph's
+*first* line: `click.formatting.wrap_text` tests `buf[0]` and nothing else.
+"""
 
 
 def _collect_commands(
     group: click.Group | click.Command,
     prefix: tuple[str, ...] = (),
-) -> list[tuple[str, ...]]:
-    """Recursively collect all command paths from a Click group."""
-    paths: list[tuple[str, ...]] = [prefix] if prefix else [()]
+) -> list[tuple[tuple[str, ...], click.Command]]:
+    """Recursively collect every command path from a Click group, with its command."""
+    found: list[tuple[tuple[str, ...], click.Command]] = [(prefix, group)]
     if isinstance(group, click.Group):
         for name in sorted(group.list_commands(click.Context(group))):
             cmd = group.get_command(click.Context(group), name)
             if cmd is None:
                 continue
-            child = (*prefix, name)
-            paths.extend(_collect_commands(cmd, child))
-    return paths
+            found.extend(_collect_commands(cmd, (*prefix, name)))
+    return found
 
 
 def _suite_help_paths() -> set[tuple[str, ...]]:
@@ -72,7 +87,7 @@ def _suite_help_paths() -> set[tuple[str, ...]]:
 @pytest.mark.once
 def test_suite_covers_all_commands() -> None:
     """Every command and subcommand must have a `--help` case in the suite."""
-    tree = set(_collect_commands(repomatic))
+    tree = {path for path, _cmd in _collect_commands(repomatic)}
     suite_paths = _suite_help_paths()
     missing = sorted(tree - suite_paths)
     orphans = sorted(suite_paths - tree)
@@ -83,4 +98,55 @@ def test_suite_covers_all_commands() -> None:
     assert not orphans, (
         "--help cases in tests/cli-test-suite.toml without a live command: "
         + ", ".join(" ".join(path) for path in orphans)
+    )
+
+
+def _paragraphs(text: str) -> Iterator[list[str]]:
+    """Split a docstring into its blank-line-separated blocks of lines."""
+    block: list[str] = []
+    for line in text.splitlines():
+        if line.strip():
+            block.append(line)
+        elif block:
+            yield block
+            block = []
+    if block:
+        yield block
+
+
+def _rewrapped_blocks(help_text: str) -> list[str]:
+    """Indented paragraphs Click will rewrap, for want of their own marker.
+
+    An indented block is there to be read as written: an example invocation,
+    a sample of output. Rewrapping folds it into prose, so a second block
+    under one `NO_REWRAP` marker loses its line breaks and its command lands
+    appended to the comment above it.
+
+    :param help_text: A command's raw help text.
+    :return: The first line of each unguarded block, for the failure message.
+    """
+    return [
+        body[0].strip()
+        for block in _paragraphs(inspect.cleandoc(help_text))
+        if block[0].strip() != NO_REWRAP
+        and (body := [line for line in block if line.strip() != NO_REWRAP])
+        and all(line.startswith("    ") for line in body)
+    ]
+
+
+@pytest.mark.once
+def test_every_preformatted_block_carries_its_own_marker() -> None:
+    """Every indented block in a `--help` text must open with its own marker.
+
+    Writing one marker above a run of example blocks reads as if it covered
+    them all, and renders the first correctly, which is what lets the rest
+    ship collapsed. Both offenders this caught had exactly that shape.
+    """
+    offenders = {
+        " ".join(path) or "(root)": blocks
+        for path, cmd in _collect_commands(repomatic)
+        if (blocks := _rewrapped_blocks(cmd.help or ""))
+    }
+    assert not offenders, "Indented --help blocks Click will rewrap: " + "; ".join(
+        f"{name} ({', '.join(blocks)})" for name, blocks in sorted(offenders.items())
     )

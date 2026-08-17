@@ -845,6 +845,7 @@ def ci_status(
         # What is red on main right now
         repomatic ci-status
 
+    \b
         # One workflow, without failing the shell
         repomatic ci-status --workflow tests.yaml --no-fatal
     """
@@ -1037,6 +1038,7 @@ def job_timings(
         # Which image is holding the matrix up
         repomatic job-timings
 
+    \b
         # A wider sample, written out for documentation
         repomatic job-timings --limit 10 --output timings.md
     """
@@ -1699,7 +1701,6 @@ def pr_sync(
 @repomatic.command(
     short_help="Manage setup guide issue lifecycle", section=_section_github
 )
-@has_cloudflare_account_id_option
 @has_cloudflare_api_token_option
 @has_notifications_pat_option
 @has_pat_option
@@ -1709,7 +1710,6 @@ def pr_sync(
 @pass_context
 def setup_guide(
     ctx: Context,
-    has_cloudflare_account_id: bool,
     has_cloudflare_api_token: bool,
     has_notifications_pat: bool,
     has_pat: bool,
@@ -1749,7 +1749,6 @@ def setup_guide(
         has_notifications_pat=has_notifications_pat,
         has_virustotal_key=has_virustotal_key,
         has_cloudflare_api_token=has_cloudflare_api_token,
-        has_cloudflare_account_id=has_cloudflare_account_id,
         repo=repo,
     )
 
@@ -2502,8 +2501,8 @@ def lint_repo(
       - VIRUSTOTAL_API_KEY secret missing when Nuitka is active (warning).
       - REPOMATIC_NOTIFICATIONS_PAT secret missing when the unsubscribe
         workflow is enabled (warning).
-      - CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID secret missing when
-        site.deploy targets Cloudflare Pages (warning).
+      - CLOUDFLARE_API_TOKEN secret missing when site.deploy targets
+        Cloudflare Pages (warning).
       - Legacy github.io URLs still redirect, for a project that moved its
         site to Cloudflare Pages (warning).
       - Committed _redirects files survive the Cloudflare Pages engine:

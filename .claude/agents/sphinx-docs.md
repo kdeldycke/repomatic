@@ -574,11 +574,12 @@ Primary toctree (user-facing), in this order:
 04. `dependencies` — Dependency policy page (version-specifier rules, floor-comment conventions, audit procedures). The project's own dependency graph is not a page of its own: it renders in `packaging.md`'s `## Dependencies` section (see § Recipes › `packaging.md`).
 05. `tool-runner` — Only when the project ships a `repomatic run`-style tool runner.
 06. `workflows` — Only when the project publishes reusable workflows.
-07. `test-matrix` — Only when the project documents its CI test-matrix composition.
-08. `nuitka` — Only for projects compiling standalone executables through the release engine: the canonical home for build targets, fleet cadence, compile caching and measured build times (the `binaries` page below stays the per-release catalog).
-09. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
-10. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
-11. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
+07. `cloudflare` — Only when the project sets `[tool.repomatic] site.deploy = "cloudflare-pages"`: the operating manual for that hosting model (deploy mechanics, token scope and rotation, the drift check, the `_redirects` engine).
+08. `test-matrix` — Only when the project documents its CI test-matrix composition.
+09. `nuitka` — Only for projects compiling standalone executables through the release engine: the canonical home for build targets, fleet cadence, compile caching and measured build times (the `binaries` page below stays the per-release catalog).
+10. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
+11. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
+12. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
 
 Development toctree, in this order:
 

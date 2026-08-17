@@ -1,6 +1,6 @@
 # {octicon}`history` Changelog archive
 
-Older releases (`5.14.1` and earlier). For the current `6.x` releases, see the [changelog](https://kdeldycke.github.io/repomatic/changelog.html).
+Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog](changelog.md).
 
 ## [`5.14.1` (2026-02-24)](https://github.com/kdeldycke/repomatic/compare/v5.14.0...v5.14.1)
 

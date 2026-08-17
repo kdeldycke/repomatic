@@ -323,7 +323,9 @@ ogp_image = (
     f"{project_id}/main/docs/assets/banner-social-light.png"
 )
 # Absolute base URL for OpenGraph (used for og:url and other page-level tags).
-ogp_site_url = f"https://{github_user}.github.io/{project_id}/"
+# Derived from html_baseurl so the og:url a crawler reads can never name a
+# different host than the canonical link beside it.
+ogp_site_url = f"{html_baseurl}/"
 
 # Footer content.
 html_last_updated_fmt = "%Y-%m-%d"

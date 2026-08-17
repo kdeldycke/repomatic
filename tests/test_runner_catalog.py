@@ -112,9 +112,7 @@ def test_preferred_label(by_name, display_name: str, expected: str) -> None:
 def test_badges_are_read_with_and_without_a_link(by_name) -> None:
     """A badge marks the state whether or not it is wrapped in a link."""
     assert by_name["Ubuntu 26.04"].preview
-    assert not by_name["Ubuntu 26.04"].announcement_url
     assert by_name["macOS 14 Arm64"].deprecated
-    assert by_name["macOS 14 Arm64"].announcement_url.endswith("/issues/13518")
 
 
 @pytest.mark.parametrize(
@@ -148,7 +146,7 @@ def test_successor_accepts_a_same_version_sibling(catalog) -> None:
     an image with an end date is worse than moving sideways to one without.
     """
     deprecated_arm = RunnerImage(
-        "Windows 11 Arm64", "arm64", ("windows-11-arm",), False, True, ""
+        "Windows 11 Arm64", "arm64", ("windows-11-arm",), False, True
     )
     sibling = RunnerImage(
         "Windows 11 Arm64 with Visual Studio 2026",
@@ -156,7 +154,6 @@ def test_successor_accepts_a_same_version_sibling(catalog) -> None:
         ("windows-11-vs2026-arm",),
         True,
         False,
-        "",
     )
     successor = successor_for("windows-11-arm", [deprecated_arm, sibling])
     assert successor is not None

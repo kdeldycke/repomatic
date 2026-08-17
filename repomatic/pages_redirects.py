@@ -39,9 +39,9 @@ The three rules of the engine that the documentation does not state:
    first source containing ``*`` or ``:placeholder``. Every later rule, however
    static it looks, is charged against the dynamic budget.
 2. **The dynamic budget is 100, and blowing it aborts the file.** Rule 101 of
-   that mixed stream does not get skipped: the parser ``break``s, discarding
-   every remaining line. Order is therefore not a style choice, it decides
-   which rules exist.
+   that mixed stream does not get skipped: the parser breaks out of the loop,
+   discarding every remaining line. Order is therefore not a style choice, it
+   decides which rules exist.
 3. **Matching is anchored and literal about trailing slashes.** A placeholder
    compiles to ``[^/]+`` (at least one character, never a slash, never empty),
    a splat to ``.*`` (may be empty), and the whole source to ``^...$``.

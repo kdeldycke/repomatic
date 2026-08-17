@@ -67,7 +67,7 @@ Attaching a custom domain has the same shape of gap, one step further along. The
 
 The project's `source` must read `null`, and must stay that way. Attaching a git repository reintroduces a second, competing publisher for the same project, one with no build configuration capable of producing a usable site. The [drift check](#the-drift-check) fails when a source block appears, which is the guard against it coming back through a well-meaning dashboard visit.
 
-Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets, so the deploy job drops oversized files first and names each one in the log: everything else publishes instead of nothing. And each project keeps its `<project>.pages.dev` hostname for life; see [below](#the-pagesdev-hostname) for why that is fine.
+Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets, so the deploy job drops oversized files first and names each one in the log: everything else publishes instead of nothing. And each project keeps its `<project>.pages.dev` hostname for life; see [below](#the-pages-dev-hostname) for why that is fine.
 
 ## The token
 
@@ -120,7 +120,7 @@ The diff is honest about its own confidence. Each stock default is tagged `docum
 
 `wrangler.toml` is not part of the server-side state, and that is precisely its hazard: Cloudflare honours the project's own configuration, while the file only matters to local `wrangler` commands on a project that is never built remotely. It can therefore lie for years. `lint-repo` compares its `name` and `compatibility_date` against the declared values, so the repository states each fact once.
 
-`--create` covers the rebuild-from-nothing case: the Pages API creates the Direct Upload project (something `wrangler pages deploy` refuses to do non-interactively), then the declared settings are applied to it. With the two secrets restored and a push to the default branch, the whole hosting side reconstructs from what is committed.
+`--create` covers the rebuild-from-nothing case: the Pages API creates the Direct Upload project (something `wrangler pages deploy` refuses to do non-interactively), then the declared settings are applied to it. With the token restored and a push to the default branch, the whole hosting side reconstructs from what is committed.
 
 ## The redirects engine, as it actually is
 

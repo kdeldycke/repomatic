@@ -30,6 +30,7 @@ import yaml
 
 from repomatic.agent_md import BUNDLED_INSTRUCTIONS
 from repomatic.binary import NUITKA_BUILD_TARGETS
+from repomatic.config import SITE_DEPLOY_TARGETS
 from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
@@ -517,6 +518,60 @@ def test_reusable_callers_carry_no_forbidden_keys() -> None:
     # Verify no overlap between exempt and concurrency categories.
     overlap = set(WORKFLOWS_WITH_CONCURRENCY) & WORKFLOWS_WITHOUT_CONCURRENCY
     assert not overlap, f"Workflows in both categories: {overlap}"
+
+
+SITE_DEPLOY_COMPARISON_RE = re.compile(r"site_deploy\s*==\s*'([^']*)'")
+"""A deploy-target literal a workflow gate compares `site_deploy` against."""
+
+
+def _site_deploy_gates() -> list[tuple[str, str, str]]:
+    """Every deploy target a workflow gate names, job- and step-level alike.
+
+    :return: One `(workflow, job_id, target)` per comparison found.
+    """
+    found = []
+    for workflow, job_id, job in _iter_jobs():
+        conditions = [job.get("if")]
+        conditions.extend(step.get("if") for step in job.get("steps") or ())
+        for condition in conditions:
+            if not isinstance(condition, str):
+                continue
+            for target in SITE_DEPLOY_COMPARISON_RE.findall(condition):
+                found.append((workflow, job_id, target))
+    return found
+
+
+def test_deploy_gates_name_a_declared_target() -> None:
+    """Each `site.deploy` target has exactly the jobs it needs, and no more.
+
+    {data}`~repomatic.config.SITE_DEPLOY_TARGETS` promises one deploy job per
+    target, so the two halves must agree in both directions and neither is
+    checkable from the other side. A gate naming a target the frozenset does
+    not carry can never fire, and a workflow whose only deploy job is gated
+    that way publishes nothing while running green: `Config.__post_init__`
+    rejects the unknown *value*, but nothing reads the *gate*. A target
+    declared with no gate behind it is the same failure approached from the
+    other end, and is what a repository would hit the day it opted into it.
+    """
+    gates = _site_deploy_gates()
+    assert gates, (
+        "No workflow gate compares site_deploy against anything: either the "
+        "deploy jobs lost their gates, or this test stopped matching them."
+    )
+    unknown = sorted(
+        f"{workflow}:{job_id} -> {target!r}"
+        for workflow, job_id, target in gates
+        if target not in SITE_DEPLOY_TARGETS
+    )
+    assert not unknown, (
+        f"Workflow gates naming a target outside SITE_DEPLOY_TARGETS: {unknown}."
+        f" Known targets: {sorted(SITE_DEPLOY_TARGETS)}."
+    )
+    ungated = SITE_DEPLOY_TARGETS - {target for _wf, _job, target in gates}
+    assert not ungated, (
+        f"Declared site.deploy targets no workflow job runs for: {sorted(ungated)}."
+        " A repository selecting one would publish nothing, with every job green."
+    )
 
 
 @pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_IGNORING_VERSION_BUMPS))

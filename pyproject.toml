@@ -296,11 +296,13 @@ lint.future-annotations = true
 output-prefer-rule-codes = true
 
 [tool.typos]
-# Correct capitalization for proper nouns referenced in claude.md, plus "PNGs":
-# typos splits an all-caps run before its trailing lowercase "s", so "PNGs" is
-# checked as "PN" + "Gs" and rewritten to "ONGs". Only an identifier accept
-# suppresses it, since the word the checker sees is "PN", never "PNGs".
-default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "JavaScript", MacOS = "macOS", PNGs = "PNGs", PyPi = "PyPI", Typescript = "TypeScript" }
+# Correct capitalization for proper nouns referenced in claude.md, plus "PATCHed"
+# and "PNGs": typos cuts an all-caps run before its trailing lowercase letters,
+# so "PNGs" is checked as "PN" + "Gs" and rewritten to "ONGs", and "PATCHed" as
+# "PATC" + "Hed" and rewritten to "PATCHead". Only an identifier accept
+# suppresses either, since the checker never sees the whole word. Any acronym
+# carrying a lowercase suffix needs its own entry here.
+default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "JavaScript", MacOS = "macOS", PATCHed = "PATCHed", PNGs = "PNGs", PyPi = "PyPI", Typescript = "TypeScript" }
 # False positives: "astroid" is a Python AST library (not "asteroid"); "oject" appears when "pyproject.toml" is split across line breaks in CLI help output; "sur" is macOS 11 Big Sur and Homebrew's big_sur bottle tag (not "sure").
 default.extend-words = { astroid = "astroid", oject = "oject", sur = "sur", Contribuer = "Contribuer", quater = "quater" }
 # Skip content between <!-- typos:off --> and <!-- typos:on --> markers.
@@ -515,22 +517,6 @@ exclude = [ "workflows" ]
 # mirrors `click_extra_manpages` in `docs/conf.py`, so the release tarball and
 # the HTML docs site stay in lockstep.
 manpages.script = "repomatic.cli:repomatic"
-pypi-package-history = [ "gha-utils", "repokit" ]
-# Claude Code plugin archive packed by release.yaml's pack-plugin job and
-# attached to every GitHub release by the engine's extra-assets job. The
-# marketplace at .claude-plugin/marketplace.json installs the plugin straight
-# from this asset, so a release missing it breaks `/plugin install`.
-release-assets = [ "repomatic-claude-plugin.zip" ]
-# Migration in progress: this repository dogfoods its own Cloudflare Pages lane
-# on repomatic.net, so the feature reaches a release proven rather than
-# theoretical. Until the Pages project and its two secrets exist, the Docs
-# workflow's Cloudflare deploy and drift jobs fail and nothing publishes: that
-# is the intended state, and the setup guide issue is what says so, closing on
-# its own once both secrets land. `site.cloudflare-project` stays unset on
-# purpose, exercising the default that names the project after the repository.
-site.deploy = "cloudflare-pages"
-metrics.store = "./docs/assets/metrics.csv"
-metrics.sync = true
 # The comparison is logarithmic because the nearest peer outweighs repomatic by
 # two orders of magnitude, and a linear axis draws every project but the largest
 # two along the bottom edge. Most peers still hold a creation date and one
@@ -542,6 +528,7 @@ metrics.charts = [
   { only = [ "repomatic" ], output = "./docs/assets/star-history.svg", title = "GitHub star history of repomatic" },
   { output = "./docs/assets/star-history-compared.svg", scale = "logarithmic", title = "GitHub star history of repomatic and its alternatives" },
 ]
+metrics.store = "./docs/assets/metrics.csv"
 # The alternatives the benchmark page tabulates, plus repomatic itself. Sampled
 # weekly so the page's maintenance claims rest on a dated reading rather than on
 # whenever someone last looked. Keyed by the name the benchmark's own columns
@@ -556,6 +543,21 @@ metrics.subjects.safe-settings = "github/safe-settings"
 metrics.subjects.semantic-release = "semantic-release/semantic-release"
 metrics.subjects.settings = "repository-settings/app"
 metrics.subjects.tf-github = "integrations/terraform-provider-github"
+metrics.sync = true
+pypi-package-history = [ "gha-utils", "repokit" ]
+# Claude Code plugin archive packed by release.yaml's pack-plugin job and
+# attached to every GitHub release by the engine's extra-assets job. The
+# marketplace at .claude-plugin/marketplace.json installs the plugin straight
+# from this asset, so a release missing it breaks `/plugin install`.
+release-assets = [ "repomatic-claude-plugin.zip" ]
+# Migration in progress: this repository dogfoods its own Cloudflare Pages lane
+# on repomatic.net, so the feature reaches a release proven rather than
+# theoretical. Until the Pages project and its API token exist, the Docs
+# workflow's Cloudflare deploy and drift jobs fail and nothing publishes: that
+# is the intended state, and the setup guide issue is what says so, closing on
+# its own once the token lands. `site.cloudflare-project` stays unset on
+# purpose, exercising the default that names the project after the repository.
+site.deploy = "cloudflare-pages"
 
 [tool.actionlint]
 # actionlint reads no pyproject section of its own: repomatic serializes this one

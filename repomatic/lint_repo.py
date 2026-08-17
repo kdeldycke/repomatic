@@ -40,6 +40,7 @@ import yaml
 from click_extra import echo
 from packaging.version import Version
 
+from .config import Config
 from .file_inventory import FileInventory
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
@@ -2390,7 +2391,7 @@ class LintContext:
     is_sphinx: bool = False
     """Whether the project uses Sphinx documentation."""
 
-    site_deploy: str = "github-pages"
+    site_deploy: str = Config.site_deploy
     """Where the repository's built site publishes, per `site.deploy`.
 
     Each host has its own prerequisite, and exactly one of them applies: the
@@ -2491,6 +2492,22 @@ class LintContext:
     def workflows(self) -> dict[Path, dict]:
         """The parsed jobs-bearing workflows, from {attr}`workflow_texts`."""
         return _parse_workflow_texts(self.workflow_texts)
+
+    def deploys_to(self, target: str) -> bool:
+        """Whether this repository publishes its site to *target*.
+
+        Mirrors {meth}`repomatic.setup_guide.GuideContext.deploys_to`, so the
+        audit and the guide agree on which host a repository is on. The
+        GitHub Pages half stays gated on Sphinx, the only tree the Docs
+        workflow knows how to publish there; the Cloudflare half follows the
+        declaration alone, since a site built by the repository's own
+        workflow still needs the project and the credential.
+        """
+        if self.site_deploy != target:
+            return False
+        if target == "github-pages":
+            return self.is_sphinx
+        return True
 
 
 @dataclass(frozen=True)
@@ -2717,18 +2734,16 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "pages-deployment-source",
         lambda ctx: check_pages_deployment_source(ctx.repo or ""),
-        applies=lambda ctx: bool(
-            ctx.is_sphinx and ctx.repo and ctx.site_deploy == "github-pages"
-        ),
+        applies=lambda ctx: bool(ctx.repo and ctx.deploys_to("github-pages")),
     ),
     RepoCheck(
         # Needs no repository: both answers come from the workflow environment,
         # so a local run reports the same gap CI does. Gated on the declared
         # target alone, not on Sphinx: a repository building its site with its
-        # own workflow needs the same two secrets.
+        # own workflow needs the same credential.
         "cloudflare-pages-secrets",
         _cloudflare_secrets,
-        applies=lambda ctx: ctx.site_deploy == "cloudflare-pages",
+        applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
     ),
     RepoCheck(
         # The mirror image of `pages-deployment-source` above: that one asks
@@ -2736,7 +2751,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         # a repository that moved away needs the second question answered.
         "pages-redirect-preserved",
         lambda ctx: check_pages_redirect_preserved(ctx.repo or "", ctx.docs_url),
-        applies=lambda ctx: bool(ctx.repo and ctx.site_deploy == "cloudflare-pages"),
+        applies=lambda ctx: bool(ctx.repo and ctx.deploys_to("cloudflare-pages")),
     ),
     RepoCheck(
         # Fatal: a rule the engine drops is already dead in production, not one
@@ -2752,7 +2767,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         "wrangler-toml",
         _wrangler_config,
         applies=lambda ctx: bool(
-            ctx.site_deploy == "cloudflare-pages" and ctx.has_wrangler_toml
+            ctx.deploys_to("cloudflare-pages") and ctx.has_wrangler_toml
         ),
     ),
     RepoCheck(
@@ -2901,7 +2916,7 @@ def run_repo_lint(
     repo_name: str | None = None,
     is_package: bool = False,
     is_sphinx: bool = False,
-    site_deploy: str = "github-pages",
+    site_deploy: str = Config.site_deploy,
     site_cloudflare_project: str = "",
     site_cloudflare_compatibility_date: str = "",
     project_description: str | None = None,

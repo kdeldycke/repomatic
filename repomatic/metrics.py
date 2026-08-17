@@ -180,10 +180,10 @@ WAYBACK_PAGE_TRIES = 8
 """Attempts per archived page.
 
 Sized against a measurement rather than a guess: 25 requests for one capture
-known to exist returned 23 plain `503`s and 2 truncated bodies, and no clean
-response at all. Since a truncated body still carries the counter, the per-try
-success rate that matters was 2 in 25, and eight tries is the point past which
-more attempts cost more than the captures they recover.
+known to exist returned 23 plain `503` responses and 2 truncated bodies, and no
+clean response at all. Since a truncated body still carries the counter, the
+per-try success rate that matters was 2 in 25, and eight tries is the point
+past which more attempts cost more than the captures they recover.
 """
 
 WAYBACK_REQUEST_DELAY = 3.0

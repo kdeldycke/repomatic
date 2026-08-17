@@ -37,13 +37,25 @@ from __future__ import annotations
 
 import re
 from importlib.resources import files
+from pathlib import Path
 
 import pytest
 
 from repomatic.bundle import get_data_content
 from repomatic.frontmatter import split_frontmatter
 from repomatic.init_project import _copy_template_tree
-from repomatic.registry import COMPONENTS_BY_NAME, SKILL_FILENAME, _skill_dir
+from repomatic.registry import (
+    COMPONENTS_BY_NAME,
+    SKILL_FILENAME,
+    _skill_dir,
+    skill_catalog,
+)
+
+SKILLS_PAGE = Path(__file__).parent.parent / "docs" / "skills.md"
+"""The hand-maintained page whose table must mirror the skill registry."""
+
+SKILL_TABLE_ROW_RE = re.compile(r"^\|[^|]*\|\s*\[`/([a-z0-9-]+)`\]", re.MULTILINE)
+"""The skill name out of a table row, read from the linked `/name` cell."""
 
 SPEC_FIELDS = frozenset({
     "allowed-tools",
@@ -296,3 +308,24 @@ def test_local_files_beside_a_skill_survive(exported_skill):
 
     assert _copy_template_tree(source, dest) == ([], [])
     assert local.read_text(encoding="UTF-8") == "Papaya yields, local notes.\n"
+
+
+def test_docs_table_lists_every_bundled_skill():
+    """`docs/skills.md` tabulates the registry, and nothing else.
+
+    The page renders `list-skills` live right above the table, so a skill
+    added to the registry shows up in the rendered output while the
+    hand-maintained table below it keeps the old roster. Adding
+    `repomatic-test-matrix` left exactly that gap, and only a reader
+    comparing the two halves of one page would have caught it. Names only:
+    the column padding belongs to `mdformat`.
+    """
+    documented = set(
+        SKILL_TABLE_ROW_RE.findall(SKILLS_PAGE.read_text(encoding="UTF-8"))
+    )
+    bundled = {name for _phase, name, _description in skill_catalog()}
+    assert documented == bundled, (
+        f"docs/skills.md table drifted from the registry. "
+        f"Missing rows: {sorted(bundled - documented) or 'none'}. "
+        f"Rows with no bundled skill: {sorted(documented - bundled) or 'none'}."
+    )

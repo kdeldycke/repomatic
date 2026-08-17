@@ -179,7 +179,7 @@ class ChartSpec:
                 f"{entry!r}"
             )
             raise ValueError(msg)
-        metric = str(entry.get("metric") or "stars")
+        metric = str(entry.get("metric") or cls.metric)
         if metric not in CHARTABLE_METRICS:
             chartable = ", ".join(CHARTABLE_METRICS)
             msg = (
@@ -204,10 +204,10 @@ class ChartSpec:
         return cls(
             output=Path(output),
             metric=metric,
-            mode=str(entry.get("mode") or "absolute"),
+            mode=str(entry.get("mode") or cls.mode),
             only=only,
-            scale=str(entry.get("scale") or "linear"),
-            title=str(entry.get("title") or ""),
+            scale=str(entry.get("scale") or cls.scale),
+            title=str(entry.get("title") or cls.title),
         )
 
     def __post_init__(self) -> None:
@@ -331,9 +331,10 @@ def build_chart_data(
             points[prior] = grouped[prior]
     if not points:
         plotted = ", ".join(wanted) or "nothing"
+        label = METRICS_BY_ID[spec.metric].label.lower()
         msg = (
-            f"No star history recorded for {spec.output.name} ({plotted}). "
-            "Run a sample or a backfill first."
+            f"Chart {spec.output.name} has no {label} history to plot "
+            f"({plotted}). Run a sample or a backfill first."
         )
         raise ValueError(msg)
 

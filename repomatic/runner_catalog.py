@@ -21,23 +21,17 @@ one row per image, carrying the display name, the architecture, the `runs-on:`
 labels that reach it, and inline `preview` / `deprecated` badges. That table is
 the canonical dictionary for two questions nothing else answers cleanly:
 
-- **What label does a display name mean.** Announcements identify images by
-  display name in their `Runner images affected` checkboxes ("macOS 14 Arm64"),
-  never by label. Deriving one from the other by pattern fails on macOS, where
-  the generations disagree: `macos-14` is the *Arm64* image while its x64 twin
-  is `macos-14-large`, and `macos-26-intel` breaks the pattern again. The table
-  states the mapping instead of implying it.
+- **Which generation a label belongs to.** Deriving one from the other by
+  pattern fails on macOS, where the generations disagree: `macos-14` is the
+  *Arm64* image while its x64 twin is `macos-14-large`, and `macos-26-intel`
+  breaks the pattern again. The display name states the family and the version
+  that the labels only imply, so a successor search stays inside one operating
+  system and orders its generations correctly.
 - **Which images are current.** The badges mark preview and deprecated images,
-  and a deprecation badge links the announcement that explains it, so the join
-  between this table and the feed is written down rather than inferred.
+  which is what makes a retirement visible before a build starts failing.
 
-```{note} Why this does not replace the announcement feed
-The table is a snapshot of the present, so it carries no dates and no notion of
-change: knowing a retirement *starts* on a given day, or that brownouts land
-before it, needs {mod}`repomatic.runner_images` reading the announcement body.
-Deriving change from the table alone would mean checking in a copy and diffing
-it. The two are complementary, and the deprecation badge's link is the seam.
-```
+This table is the only source read. {mod}`repomatic.runner_images` carries why
+it replaced the announcement feed, and what that trade costs.
 
 ```{caution}
 Every parse here fails **closed**. A restyled table yields no rows, which makes
@@ -81,16 +75,6 @@ The URL carries a colour and a style that GitHub restyles freely; the alt text
 is the word a reader sees and has stayed put across restyles.
 """
 
-BADGE_LINK_RE = re.compile(
-    r"\[!\[(?:preview|deprecated)\][^\]]*\]\((?P<url>https://github\.com/[^)]+)\)"
-)
-"""The announcement a badge links to, when it is wrapped in one.
-
-Only some badges are linked: `Ubuntu 26.04 ![preview](…)` carries no link while
-`macOS 14 [![deprecated](…)](…/issues/13518)` does. An unlinked badge still
-marks the state, so the URL is optional rather than required for a match.
-"""
-
 LABEL_RE = re.compile(r"`([a-z][a-z0-9.\-]*)`")
 """A `runs-on:` label, backticked inside the *YAML Label* cell.
 
@@ -125,11 +109,10 @@ class RunnerImage:
     """One row of the *Available Images* table."""
 
     display_name: str
-    """Name as the table and the announcement checkboxes both write it.
+    """Name as the table writes it, badges and endpoint markup stripped.
 
-    The join key between this catalog and
-    {meth}`~repomatic.runner_images.Announcement.affected_runners`, which reads
-    the same strings out of a `Runner images affected` list.
+    The only place the operating system and the generation are spelled out, so
+    {attr}`family` and {attr}`version` both read it rather than the labels.
     """
 
     architecture: str
@@ -143,9 +126,6 @@ class RunnerImage:
 
     deprecated: bool
     """Whether the row is badged as deprecated."""
-
-    announcement_url: str
-    """Announcement the badge links to, or empty when it links to none."""
 
     @property
     def family(self) -> str:
@@ -238,9 +218,8 @@ def parse_catalog(readme: str) -> list[RunnerImage]:
         if not labels:
             continue
         states = set(BADGE_RE.findall(raw_name))
-        link = BADGE_LINK_RE.search(raw_name)
-        # Everything before the first badge or line break is the bare name the
-        # announcement checkboxes use; the rest is badge and endpoint markup.
+        # Everything before the first badge or line break is the bare name; the
+        # rest is badge and endpoint markup.
         display_name = re.split(r"\s*(?:\[?!\[|<br>)", raw_name)[0].strip()
         images.append(
             RunnerImage(
@@ -249,7 +228,6 @@ def parse_catalog(readme: str) -> list[RunnerImage]:
                 labels=labels,
                 preview="preview" in states,
                 deprecated="deprecated" in states,
-                announcement_url=link.group("url") if link else "",
             )
         )
 

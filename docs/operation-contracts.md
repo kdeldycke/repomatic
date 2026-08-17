@@ -171,7 +171,7 @@ PR body templates in `repomatic/templates/` are the downstream user's primary wi
 1. **`title`.** The PR title, and the commit-message fallback.
 2. **`docs`.** A deep link to the job's section of the hosted workflows reference. The rendered body surfaces it as the leading `Documentation` entry of the collapsible `Workflow metadata` block, so the body carries no standalone description section.
 3. **`footer: false`.** The metadata block already appends the attribution footer once; every template opts out of a second copy.
-4. **`args`.** The placeholder names the title and body interpolate (like `$diff_table`), each supplied at the call site by `--template-arg` or by a dedicated flag such as `--version` and `--part`.
+4. **`args`.** The placeholder names the title and body interpolate (like `$diff_table`), each supplied at the call site by `--template-arg` or by a dedicated flag such as `--version` and `--part`. A value with no ceiling on its size travels as a path instead, through `--template-arg-file KEY=PATH`: `sync-runner-images` hands its proposal over that way, since a generated table cannot be relied on to fit in a command line.
 5. **`labels`.** The labels `pr-sync` puts on the pull request it opens.
 6. **`draft`.** Opens the pull request as a draft. Omitted means ready for review.
 

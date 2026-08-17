@@ -134,9 +134,6 @@ class GuideContext:
     has_cloudflare_api_token: bool
     """Whether `CLOUDFLARE_API_TOKEN` is configured."""
 
-    has_cloudflare_account_id: bool
-    """Whether `CLOUDFLARE_ACCOUNT_ID` is configured."""
-
     @cached_property
     def md(self) -> Metadata:
         """CI and project context, for the repository identity fields."""
@@ -532,7 +529,6 @@ def manage_setup_guide(
     has_notifications_pat: bool,
     has_virustotal_key: bool,
     has_cloudflare_api_token: bool = False,
-    has_cloudflare_account_id: bool = False,
     repo: str | None,
 ) -> None:
     """Render the setup guide issue body and drive the issue lifecycle.
@@ -548,8 +544,6 @@ def manage_setup_guide(
     :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
     :param has_cloudflare_api_token: Whether `CLOUDFLARE_API_TOKEN` is
         configured.
-    :param has_cloudflare_account_id: Whether `CLOUDFLARE_ACCOUNT_ID` is
-        configured.
     :param repo: Repository in `owner/repo` format; permission and settings
         checks are skipped when `None`.
     """
@@ -560,7 +554,6 @@ def manage_setup_guide(
         has_notifications_pat=has_notifications_pat,
         has_virustotal_key=has_virustotal_key,
         has_cloudflare_api_token=has_cloudflare_api_token,
-        has_cloudflare_account_id=has_cloudflare_account_id,
     )
 
     sections: dict[str, str | None] = {

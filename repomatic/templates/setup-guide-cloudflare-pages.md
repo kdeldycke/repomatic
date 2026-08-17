@@ -3,7 +3,7 @@ args: [repo_name, repo_owner, repo_slug, repo_url, token_name]
 footer: 'false'
 ---
 
-`[tool.repomatic] site.deploy` is `cloudflare-pages`, so the site ships with `wrangler pages deploy`. Both values below are required: without either, the deploy fails rather than skips.
+`[tool.repomatic] site.deploy` is `cloudflare-pages`, so the site ships with `wrangler pages deploy`. The project and the token below are both required: without either, the deploy fails rather than skips.
 
 1. Create the Pages project, named `$repo_name`. Nothing else creates it, since `wrangler pages deploy` only uploads into a project that exists:
 
@@ -27,4 +27,4 @@ footer: 'false'
 > Two things worth knowing, both covered in the [Cloudflare Pages guide](https://repomatic.net/cloudflare): the token reaches **every** Pages project on the account, since `Cloudflare Pages` is an account permission that cannot be narrowed to one project or domain; and if this project ever published to `$repo_owner.github.io/$repo_name`, leaving GitHub Pages enabled with its custom domain set to the new one is what keeps those URLs redirecting.
 
 > [!NOTE]
-> To go back, set `site.deploy = "github-pages"`. Both secrets go unread and this step disappears.
+> To go back, set `site.deploy = "github-pages"`. The Cloudflare secrets go unread and this step disappears.

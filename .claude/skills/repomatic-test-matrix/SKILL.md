@@ -16,7 +16,7 @@ argument-hint: '[review|add <axis>|drop <axis>]'
 `repomatic metadata` builds the full and PR test matrices from `[tool.repomatic.test-matrix.*]`. Read the effective matrices before proposing anything:
 
 ```shell-session
-$ repomatic metadata --output-format json | jq '.test_matrix, .test_matrix_pr'
+$ repomatic metadata --format json test_matrix test_matrix_pr
 ```
 
 A matrix cell costs a runner on every push, so each one has to earn its place. These are the selection conventions.

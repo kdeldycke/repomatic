@@ -35,20 +35,19 @@ from repomatic.runner_images import (
 )
 
 CATALOG = [
-    RunnerImage("Ubuntu 26.04", "x64", ("ubuntu-26.04",), True, False, ""),
-    RunnerImage("Ubuntu 24.04", "x64", ("ubuntu-24.04",), False, False, ""),
-    RunnerImage("Ubuntu 22.04", "x64", ("ubuntu-22.04",), False, True, ""),
-    RunnerImage("macOS 26", "x64", ("macos-26-intel",), False, False, ""),
+    RunnerImage("Ubuntu 26.04", "x64", ("ubuntu-26.04",), True, False),
+    RunnerImage("Ubuntu 24.04", "x64", ("ubuntu-24.04",), False, False),
+    RunnerImage("Ubuntu 22.04", "x64", ("ubuntu-22.04",), False, True),
+    RunnerImage("macOS 26", "x64", ("macos-26-intel",), False, False),
     # Same version as its sibling below, different toolchain: a flavour, not an
     # upgrade. This pair is why the rule keys on version rather than novelty.
-    RunnerImage("Windows 11 Arm64", "arm64", ("windows-11-arm",), False, False, ""),
+    RunnerImage("Windows 11 Arm64", "arm64", ("windows-11-arm",), False, False),
     RunnerImage(
         "Windows 11 Arm64 with Visual Studio 2026",
         "arm64",
         ("windows-11-vs2026-arm",),
         True,
         False,
-        "",
     ),
 ]
 

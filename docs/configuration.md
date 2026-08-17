@@ -187,11 +187,17 @@ output = "./docs/assets/star-history-by-age.svg"
 [[tool.repomatic.metrics.charts]]
 only = ["apricot"]
 output = "./docs/assets/star-history-apricot.svg"
+
+[[tool.repomatic.metrics.charts]]
+scale = "logarithmic"
+output = "./docs/assets/star-history-compared.svg"
 ```
 
-A chart plots one metric, `stars` unless `metric` names another, and only a metric the store accrues can be charted. `mode` is `absolute` (one shared calendar) or `relative` (every curve measured from its own origin, which compares trajectories rather than dates). Hues come from a twelve-slot palette assigned in draw order; pin one with `[tool.repomatic.metrics.colors]` when it must survive a reordering.
+A chart plots one metric, `stars` unless `metric` names another, and only a metric the store accrues can be charted. The two axes are set independently: `mode` measures the horizontal one as `absolute` (one shared calendar) or `relative` (every curve measured from its own origin, which compares trajectories rather than dates), and `scale` measures the vertical one as `linear` or `logarithmic`. A chart comparing projects of different sizes usually wants both, since a shared origin still leaves the smallest curve flat against the axis. `title` names the chart for a screen reader. Hues come from a twelve-slot palette assigned in draw order; pin one with `[tool.repomatic.metrics.colors]` when it must survive a reordering.
 
 Two collectors are GitHub-only and skip every other forge with a note. An **exact reconstruction** rebuilds a star curve from the timestamp of every star a repository still holds, which works wherever the token administers it, so that curve is complete from day one rather than starting on the day sampling did. An **archive backfill** (`--backfill-wayback`) mines contemporaneous counts from archived `github.com` pages, for a repository nobody administers. Both are one-offs the scheduled job never runs.
+
+`--import-csv` loads a star-history.com calendar export, for a repository the archives never captured either. That service read the same stargazer endpoint GitHub has since closed, so an export taken while it worked is the only surviving record of that repository's past: a replacement cannot be downloaded today.
 
 ### Flavors
 

@@ -62,7 +62,6 @@ from pathlib import Path
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-from .github.actions import AnnotationLevel
 from .pyproject import read_pyproject_toml
 
 TYPE_CHECKING = False
@@ -124,9 +123,6 @@ class PolicyFinding:
 
     remedy: str
     """The next action."""
-
-    level: AnnotationLevel = AnnotationLevel.WARNING
-    """Severity. Always a warning: nothing here blocks a release."""
 
     @property
     def message(self) -> str:

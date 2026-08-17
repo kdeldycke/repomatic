@@ -124,7 +124,9 @@ Follow this template structure:
 
 ## Popularity
 
-![Star history](assets/star-history.svg)
+![Star history of `this-project` and its alternatives](assets/star-history-compared.svg)
+
+<a sentence on the axis, when the chart is logarithmic, and one on how far back the store reaches>
 
 | Metrics | `this-project` | `competitor-1`[^1] | ... |
 (Stars, SourceRank, Dependent repos)
