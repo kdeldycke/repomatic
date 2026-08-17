@@ -29,9 +29,12 @@ import pytest
 from repomatic.pages_redirects import (
     MAX_DYNAMIC_RULES,
     apply_rule,
+    discarded_rules,
     evaluate,
     misordered_statics,
     parse_redirects,
+    rule_pattern,
+    sample_path,
 )
 
 
@@ -158,3 +161,71 @@ def test_exact_rules_probe_before_patterns_wherever_they_sit():
 def test_budget_constant_matches_the_reference():
     """The number the whole accounting hangs on, pinned against typos."""
     assert MAX_DYNAMIC_RULES == 100
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # An exact source is already the URL that stops working.
+        ("/handbook", "/handbook"),
+        ("/fruit/papaya/", "/fruit/papaya/"),
+        # A placeholder stands in for itself, a splat for one segment.
+        ("/fruit/:variety", "/fruit/variety"),
+        ("/harvest/*", "/harvest/sample"),
+        ("/:season/fruit/:variety", "/season/fruit/variety"),
+    ],
+)
+def test_sample_path_concretizes_a_source(source: str, expected: str):
+    """Every sampled path must match the rule it was derived from."""
+    assert sample_path(source) == expected
+    assert rule_pattern(source).match(sample_path(source))
+
+
+def test_discarded_rules_recovers_the_abandoned_tail():
+    """What the engine never read, named with its real line numbers.
+
+    `parse_redirects` reports only that it stopped, because that is all
+    production does. Recovering the tail is what lets the lint say which
+    URLs went dead rather than how many rules did.
+    """
+    lines = [f"/p{index}/:x /new{index} 301" for index in range(101)]
+    lines += ["/handbook /guide 301", "/faq /help 301"]
+    text = "\n".join(lines)
+
+    parsed = parse_redirects(text)
+    assert parsed.aborted_at_line == 101
+
+    abandoned = discarded_rules(text, parsed)
+    assert [rule.source for rule in abandoned] == ["/p100/:x", "/handbook", "/faq"]
+    # Line numbers are shifted back onto the real file, not the parsed tail.
+    assert [rule.line_number for rule in abandoned] == [101, 102, 103]
+
+
+def test_discarded_rules_is_empty_for_a_file_read_to_the_end():
+    """No abort, nothing abandoned: the common case costs no second parse."""
+    text = "/handbook /guide 301\n/fruit/* /harvest/:splat 301\n"
+    parsed = parse_redirects(text)
+    assert parsed.aborted_at_line is None
+    assert discarded_rules(text, parsed) == []
+
+
+def test_an_abandoned_source_can_be_captured_by_a_surviving_pattern():
+    """The quiet failure: a lost exact rule whose URL now goes elsewhere.
+
+    Losing a redirect is visible to anyone who follows the URL. Having it
+    answered by a broader pattern that outlived it is not, since the request
+    still redirects, just never where its author wrote.
+    """
+    lines = [f"/p{index}/:x /new{index} 301" for index in range(99)]
+    lines += ["/fruit/* /harvest 301"]  # 100th dynamic rule, still parsed.
+    lines += ["/burst/:y /boom 301"]  # 101st: the budget dies here.
+    lines += ["/fruit/papaya /papaya-harvest 301"]  # Abandoned below the line.
+    text = "\n".join(lines)
+
+    parsed = parse_redirects(text)
+    abandoned = discarded_rules(text, parsed)
+    assert "/fruit/papaya" in [rule.source for rule in abandoned]
+
+    landing = evaluate(parsed.rules, "/fruit/papaya")
+    assert landing is not None
+    assert landing[1] == "/harvest"

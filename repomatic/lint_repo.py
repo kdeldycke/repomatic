@@ -58,7 +58,13 @@ from .metadata import (
     Metadata,
     all_metadata_keys,
 )
-from .pages_redirects import misordered_statics, parse_redirects
+from .pages_redirects import (
+    discarded_rules,
+    evaluate,
+    misordered_statics,
+    parse_redirects,
+    sample_path,
+)
 from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
@@ -72,6 +78,8 @@ from .version_sync import find_upstream_ref_versions, self_pin_exemption_re
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
+
+    from .pages_redirects import ParseResult
 
 DOCS_URL_KEYS = ("documentation", "docs")
 """Keys in `[project.urls]` naming the published documentation site.
@@ -112,6 +120,14 @@ Matches any release download link, not only a binary one, so the install
 guide's whole download surface is verified with a single pattern. Both groups
 stop at a quote, whitespace or a closing parenthesis, covering an HTML `src`,
 a Markdown link target and a bare URL in prose alike.
+"""
+
+MAX_REPORTED_DEAD_URLS = 5
+"""How many abandoned redirect sources a failing `_redirects` check names.
+
+Enough to recognize which part of the file fell off the end, short of dumping
+a tail that can run to hundreds of rules into one lint message. The remainder
+is counted rather than listed, and the fix is the same reorder either way.
 """
 
 PR_TEMPLATE_DIR = Path(".github/pr-templates")
@@ -2579,6 +2595,43 @@ def _cloudflare_secrets(ctx: LintContext) -> CheckResult:
     )
 
 
+def _dead_url_report(text: str, parsed: ParseResult) -> str:
+    """Say what the abandoned rules cost, one URL at a time.
+
+    A count of dropped rules says a file is broken; this says which requests
+    changed answer, which is the part a reader can check against their own
+    traffic. Each abandoned source is run back through the rules that *did*
+    survive, and the two outcomes differ in kind: a request that now matches
+    nothing falls through to whatever the site serves, while one picked up by
+    a surviving pattern is quietly redirected somewhere its author never
+    chose. The second is the worse failure and the one nothing else surfaces.
+
+    :param text: The full `_redirects` source.
+    :param parsed: What {func}`~repomatic.pages_redirects.parse_redirects`
+        made of it.
+    :return: A sentence to append to the failure, empty when nothing was
+        abandoned.
+    """
+    abandoned = discarded_rules(text, parsed)
+    if not abandoned:
+        return ""
+    verdicts = []
+    for rule in abandoned[:MAX_REPORTED_DEAD_URLS]:
+        request = sample_path(rule.source)
+        landing = evaluate(parsed.rules, request)
+        if landing is None:
+            verdicts.append(f"{request} no longer redirects")
+        else:
+            _matched, destination = landing
+            verdicts.append(
+                f"{request} now redirects to {destination} instead of"
+                f" {rule.destination}"
+            )
+    remainder = len(abandoned) - len(verdicts)
+    tail = f", and {remainder} more rule(s) below them" if remainder > 0 else ""
+    return f" Lost from line {abandoned[0].line_number}: {'; '.join(verdicts)}{tail}."
+
+
 def _pages_redirects(ctx: LintContext) -> Iterator[CheckResult]:
     """Audit every committed `_redirects` file the way the Pages engine reads it.
 
@@ -2589,7 +2642,8 @@ def _pages_redirects(ctx: LintContext) -> Iterator[CheckResult]:
     {mod}`repomatic.pages_redirects` reports here what production would do.
     """
     for path in ctx.redirects_files:
-        parsed = parse_redirects(path.read_text(encoding="UTF-8"))
+        text = path.read_text(encoding="UTF-8")
+        parsed = parse_redirects(text)
         problems = 0
         for entry in parsed.invalid:
             problems += 1
@@ -2604,7 +2658,8 @@ def _pages_redirects(ctx: LintContext) -> Iterator[CheckResult]:
                 " production. Move all exact rules above the first `*` or"
                 " `:placeholder` source: only those ride the 2000-rule static"
                 " budget, and every rule after the first dynamic one burns the"
-                " dynamic budget of 100.",
+                " dynamic budget of 100."
+                f"{_dead_url_report(text, parsed)}",
             )
         misordered = misordered_statics(parsed.rules)
         if misordered:

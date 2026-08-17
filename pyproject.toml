@@ -488,11 +488,14 @@ exclude = [
   # a `?to=/:account/...` URL resolves against whichever account the reader is
   # signed into, and pre-fills a token form no anonymous request can reach.
   "^https://dash\\.cloudflare\\.com/.*$",
-  # Local intra-docs heading fragments are Sphinx cross-references, validated
-  # at doc build time via `myst_heading_anchors`. Lychee's GitHub-style slugger
-  # strips dots (`cache.dir` → `cachedir`) and cannot see MyST `(target)=`
-  # anchors, so it would false-positive links that resolve fine in the rendered
-  # docs. Anchored to `file://` so external `.../docs/*.md#` URLs stay checked.
+  # Local intra-docs heading fragments, which lychee cannot judge: its
+  # GitHub-style slugger strips dots (`cache.dir` → `cachedir`) and cannot see
+  # MyST `(target)=` anchors, so it false-positives links that resolve fine in
+  # the rendered docs. `myst_heading_anchors` does not cover the gap either: it
+  # *generates* anchors and validates nothing, so a literal `](#fragment)` is
+  # copied into the HTML unresolved and survives a green build. `lint-anchors`
+  # is what checks these, against the built page rather than a guessed slug.
+  # Anchored to `file://` so external `.../docs/*.md#` URLs stay checked.
   "^file://.*/docs/[\\w.-]+\\.md#",
 ]
 exclude_path = [

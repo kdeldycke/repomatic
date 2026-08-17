@@ -257,6 +257,11 @@ from .runner_images import (
     render_change_table,
 )
 from .setup_guide import manage_setup_guide
+from .site_anchors import (
+    DEFAULT_BUILD_DIR,
+    DEFAULT_DOCS_DIR,
+    check_anchors,
+)
 from .sync_ops import (
     OPERATIONS_BY_NAME,
     ResolveContext,
@@ -2189,6 +2194,67 @@ def fix_awesome_toc_cmd() -> None:
 
     for readme, removed in report.items():
         echo(f"{readme}: removed {', '.join(removed)}")
+
+
+@repomatic.command(
+    short_help="Check same-page doc links against the built site",
+    section=_section_lint,
+)
+@option(
+    "--docs-dir",
+    type=dir_path(exists=True, readable=True, resolve_path=True),
+    default=str(DEFAULT_DOCS_DIR),
+    show_default=True,
+    help="Root of the documentation sources to read links from.",
+)
+@option(
+    "--build-dir",
+    type=dir_path(exists=True, readable=True, resolve_path=True),
+    default=str(DEFAULT_BUILD_DIR),
+    show_default=True,
+    help="Root of the rendered site to resolve those links against.",
+)
+@pass_context
+def lint_anchors(ctx: Context, docs_dir: Path, build_dir: Path) -> None:
+    """Check every same-page link resolves to an anchor the build produced.
+
+    A literal (#fragment) link is copied into the HTML untouched, so a
+    fragment naming a slug that was never generated ships as a link that
+    looks fine and lands nowhere. Sphinx cannot catch it, having nothing to
+    resolve, and a Markdown link checker has to guess the slug rather than
+    read it, which is a different answer often enough to be useless.
+
+    Only fragments written in the Markdown sources are checked, so a theme's
+    own footnote backrefs and header permalinks are never mistaken for
+    something an author asked for.
+
+    Run it against a site that has just been built: an out-of-date build
+    directory answers for the pages it was made from.
+
+    \b
+    Examples:
+        # Defaults, straight after a Sphinx build
+        repomatic lint-anchors
+
+    \b
+        # A tree built elsewhere
+        repomatic lint-anchors --docs-dir ./docs --build-dir /tmp/site
+    """
+    report = check_anchors(docs_dir, build_dir)
+
+    for source in report.unbuilt:
+        echo(f"ℹ {source}: no built page found, skipped.")
+    for finding in report.missing:
+        emit_annotation(AnnotationLevel.ERROR, finding.message)
+        echo(f"✗ {finding.message}")
+
+    if report.missing:
+        echo(
+            f"{len(report.missing)} of {report.checked} same-page link(s) resolve"
+            " to nothing."
+        )
+        ctx.exit(1)
+    echo(f"✓ {report.checked} same-page link(s) resolve against {build_dir}.")
 
 
 @repomatic.command(

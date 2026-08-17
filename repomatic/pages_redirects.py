@@ -52,7 +52,7 @@ The three rules of the engine that the documentation does not state:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
 MAX_LINE_LENGTH = 2000
@@ -328,6 +328,51 @@ def apply_rule(rule: Rule, path: str) -> str | None:
     for name, value in match.groupdict().items():
         destination = destination.replace(f":{name}", value or "")
     return destination
+
+
+def sample_path(source: str) -> str:
+    """A concrete request path a rule source would have matched.
+
+    An exact source is already one, and is returned untouched, which is the
+    case that matters: a dropped exact rule names the very URL that stops
+    working. A pattern has no single answer, so each `:name` stands in for
+    itself and each `*` for one segment, yielding an illustration rather than
+    a promise about live traffic.
+
+    :param source: Rule source, exact or patterned.
+    :return: A path that {func}`rule_pattern` would match.
+    """
+    concrete = PLACEHOLDER_REGEX.sub(lambda match: match.group()[1:], source)
+    return concrete.replace("*", "sample")
+
+
+def discarded_rules(text: str, parsed: ParseResult) -> list[Rule]:
+    """The rules the engine abandoned, recovered from the tail it never read.
+
+    {func}`parse_redirects` reports *that* it stopped and drops everything
+    below, because that is what production does. Naming what was lost needs
+    the tail parsed on its own, which is what this does, with the line numbers
+    shifted back to where they sit in the real file.
+
+    ```{caution}
+    The tail is parsed with fresh budgets, so one long enough to exhaust them
+    again reports only its first batch. Reading this as an illustration of
+    what broke rather than an exhaustive inventory is the intent either way:
+    the fix is the same reorder however many rules are below the line.
+    ```
+
+    :param text: The full `_redirects` source.
+    :param parsed: What {func}`parse_redirects` made of it.
+    :return: The abandoned rules, empty when the parser read the whole file.
+    """
+    if parsed.aborted_at_line is None:
+        return []
+    offset = parsed.aborted_at_line - 1
+    tail = "\n".join(text.split("\n")[offset:])
+    return [
+        replace(rule, line_number=rule.line_number + offset)
+        for rule in parse_redirects(tail).rules
+    ]
 
 
 def evaluate(rules: list[Rule], path: str) -> tuple[Rule, str] | None:

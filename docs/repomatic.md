@@ -425,6 +425,15 @@
    :undoc-members:
 ```
 
+## `repomatic.site_anchors` module
+
+```{eval-rst}
+.. automodule:: repomatic.site_anchors
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.sync_ops` module
 
 ```{eval-rst}

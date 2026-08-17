@@ -133,15 +133,21 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return [dict(row) for row in reader]
 
 
-def write_csv(path: Path, content: str) -> bool:
-    """Write *content* to *path*, leaving an unchanged file alone.
+def write_if_changed(path: Path, content: str) -> bool:
+    """Write *content* to *path*, leaving an already-matching file alone.
 
     Creates the parent directories when missing. Comparing before writing is
-    what keeps a scheduled regeneration a no-op rather than a commit.
+    what every generator in the package leans on: one that rewrote its output
+    unconditionally would turn each scheduled run into a commit, and a sync
+    job that opens a pull request would open one forever.
 
-    :param path: Path to the CSV file.
-    :param content: Rendered CSV, from {func}`render_csv`.
-    :return: `True` when the file content changed.
+    Format-neutral despite sitting beside the CSV helpers, because what it
+    encodes is the write rather than the bytes. The SVG charts in
+    {mod}`repomatic.metric_chart` route through it too.
+
+    :param path: File to write.
+    :param content: The full text the file should hold.
+    :return: `True` when the file was created or its content changed.
     """
     if path.exists() and path.read_text(encoding="UTF-8") == content:
         logging.debug(f"{path} already up to date.")
@@ -149,3 +155,13 @@ def write_csv(path: Path, content: str) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="UTF-8")
     return True
+
+
+def write_csv(path: Path, content: str) -> bool:
+    """Write rendered CSV to *path*, leaving an unchanged file alone.
+
+    :param path: Path to the CSV file.
+    :param content: Rendered CSV, from {func}`render_csv`.
+    :return: `True` when the file content changed.
+    """
+    return write_if_changed(path, content)

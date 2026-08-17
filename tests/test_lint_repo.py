@@ -655,6 +655,50 @@ def test_pages_redirects_reports_budget_abort_and_misordering(tmp_path, monkeypa
     # Lines 2 to 100 survive as dynamically-charged statics; line 101 died on
     # the budget and line 102 was never read.
     assert any("99 exact rule(s) sit below" in message for message in failures)
+    # The count alone does not say which URL broke, so the abort names them.
+    assert any("/casualty no longer redirects" in message for message in failures)
+
+
+def test_pages_redirects_names_a_url_a_surviving_pattern_captured(
+    tmp_path, monkeypatch
+):
+    """An abandoned exact rule whose URL a broader pattern now answers.
+
+    The reader can find a dead redirect by following it. One that still
+    redirects, to somewhere its author never wrote, looks healthy from the
+    outside, so naming the new destination is the only way it surfaces.
+    """
+    lines = [f"/p{index}/:x /new{index} 301" for index in range(99)]
+    lines += ["/fruit/* /harvest 301"]  # 100th dynamic rule, still parsed.
+    lines += ["/burst/:y /boom 301"]  # 101st: the budget dies here.
+    lines += ["/fruit/papaya /papaya-harvest 301"]  # Abandoned below the line.
+    (tmp_path / "_redirects").write_text("\n".join(lines) + "\n", encoding="UTF-8")
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    failures = [
+        result.message
+        for result in lint_repo._pages_redirects(ctx)
+        if result.passed is False
+    ]
+    assert any(
+        "/fruit/papaya now redirects to /harvest instead of /papaya-harvest" in message
+        for message in failures
+    )
+
+
+def test_pages_redirects_caps_the_urls_it_names(tmp_path, monkeypatch):
+    """A tail of hundreds is summarized, not dumped into one lint message."""
+    lines = [f"/p{index}/:x /new{index} 301" for index in range(101)]
+    lines += [f"/lost-{index} /found-{index} 301" for index in range(20)]
+    (tmp_path / "_redirects").write_text("\n".join(lines) + "\n", encoding="UTF-8")
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    abort = next(
+        result.message
+        for result in lint_repo._pages_redirects(ctx)
+        if result.passed is False and "stops reading" in result.message
+    )
+    assert abort.count("no longer redirects") == lint_repo.MAX_REPORTED_DEAD_URLS
+    # 101st dynamic rule plus 20 abandoned exact rules, minus the 5 named.
+    assert "and 16 more rule(s) below them" in abort
 
 
 def test_pages_redirects_check_is_fatal_and_gated_on_the_file():

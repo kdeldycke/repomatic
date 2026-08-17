@@ -152,6 +152,15 @@ jobs:
           sphinx-build -b "$SPHINX_BUILDER"
           -d "${{ runner.temp }}/sphinx-doctrees"
           ./docs ./docs/_build
+      - name: Check same-page doc links
+        # A literal `](#fragment)` is the one cross-reference nothing resolves:
+        # Sphinx copies it through untouched, and the link checker has to guess
+        # the slug instead of reading it. Runs against the tree just built, so
+        # the anchors it checks are the ones about to publish.
+        # See repomatic/site_anchors.py for the rationale.
+        run: >
+          uv --no-progress run --frozen -- repomatic lint-anchors
+          --docs-dir ./docs --build-dir ./docs/_build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
@@ -195,6 +204,12 @@ jobs:
           sphinx-build -b "$SPHINX_BUILDER"
           -d "${{ runner.temp }}/sphinx-doctrees"
           ./docs ./docs/_build
+      - name: Check same-page doc links
+        # Same check as the GitHub Pages job above, and for the same reason.
+        # Ahead of the size trim below, so it reads the tree as Sphinx wrote it.
+        run: >
+          uv --no-progress run --frozen -- repomatic lint-anchors
+          --docs-dir ./docs --build-dir ./docs/_build
       - name: Drop files over the Pages upload limit
         # Direct Upload rejects any file over 25 MiB, and `wrangler` fails the
         # whole deploy on the first one it meets. Dropping the stragglers

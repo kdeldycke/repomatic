@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.tabular import read_csv, render_csv, write_csv
+from repomatic.tabular import read_csv, render_csv, write_csv, write_if_changed
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -94,6 +94,20 @@ def test_write_csv_is_convergent(tmp_path):
     assert write_csv(path, content) is True
     assert write_csv(path, content) is False
     assert write_csv(path, render_csv(("fruit",), [("apricot",)])) is True
+
+
+def test_write_if_changed_carries_any_format(tmp_path):
+    """The convergent write is about the write, not about CSV.
+
+    `write_csv` is a thin alias over it, and the SVG charts use it directly,
+    so the primitive is checked here on content no CSV reader would accept.
+    """
+    path = tmp_path / "deep" / "nest" / "harvest.svg"
+    content = '<svg viewBox="0 0 1 1"><title>Papaya yield</title></svg>'
+    assert write_if_changed(path, content) is True
+    assert path.read_text(encoding="UTF-8") == content
+    assert write_if_changed(path, content) is False
+    assert write_if_changed(path, content.replace("Papaya", "Apricot")) is True
 
 
 @pytest.mark.parametrize("relative", COMMITTED_STORES)

@@ -14,7 +14,7 @@
 - New `cloudflare-pages` command reconciling the live Pages project against the declared `site.*` state: `--check`, `--apply`, `--dump`, and `--create` for rebuilding from nothing. Warns a month before the API token expires, which Cloudflare never signals.
 - New `cloudflare-pages --attach-domain` serving a project at a custom domain, creating the proxied `CNAME` record the bare API leaves missing.
 - New `cloudflare-config-drift` job in the Docs workflow running that check apart from the deploy, so drift is loud without holding up publishing.
-- `lint-repo` now fails a committed `_redirects` file that would lose rules to the Cloudflare Pages engine's silent budget accounting.
+- `lint-repo` now fails a committed `_redirects` file that would lose rules to the Cloudflare Pages engine's silent budget accounting, naming each URL a dropped rule leaves dead or silently mis-redirected.
 - `lint-repo` now warns when `wrangler.toml` contradicts the declared Cloudflare Pages project name or compatibility date, and checks a migrated site keeps its GitHub Pages custom domain pointing at the new host so published `github.io` URLs keep redirecting.
 - The Cloudflare deploy job now drops files over Direct Upload's 25 MiB per-file limit, naming each in the log, instead of failing the whole upload on the first one.
 - The Docs workflow now runs monthly, mirrored into downstream callers: a lapsed Cloudflare token becomes a red run, and link rot surfaces between pushes.
@@ -27,11 +27,13 @@
 - New `sync-runner-images` command and weekly job opening a pull request that moves a deprecated runner image onto its successor, or probes a strictly newer one as `continue-on-error`. Decline a proposal for good with `[tool.repomatic.sync-runner-images] ignore`.
 - New `job-timings` command reporting median whole-job wall-clock per runner image, read from recent successful runs.
 - `lint-deps` now warns about a dependency floor comment running past `[tool.repomatic] lint-deps.comment-word-threshold` words, 40 by default.
+- New `lint-anchors` command checking every authored same-page fragment link against the anchors the built site actually carries, run by the Docs workflow before each deploy.
 - New `pr-body` and `pr-sync` option `--template-arg-file KEY=PATH`, reading a template value from a file for a value with no ceiling on its size.
 - New `git-commit-push` option `--all-changes`, staging everything the working tree carries instead of a named path list.
 - New bundled `repomatic-test-matrix` skill deciding which Python versions, operating systems and runner images earn a test-matrix cell.
 - Bundled guidance moves its release-repair, label-retirement and test-matrix procedures out of `claude.md` and into the skills that run them, leaving the always-loaded file carrying rules rather than checklists.
 - The bundled `repomatic-ship` skill now names all three shapes an unanswered hardware-key signing prompt produces, treating a silent hang as a missed prompt rather than a slow command.
+- The bundled `sphinx-docs` agent's page roster gains the `plugin`, `commit-messages` and `history` pages.
 - The release PR's unshippable-dependency warning is now a single line naming each package, each linked to the line declaring it, instead of a paragraph and a four-column table.
 - The binaries catalog now leaves the VirusTotal cell empty unless a scan record backs it, instead of linking every binary to an analysis page that was never created.
 - The bundled `[tool.typos]` config now accepts `PNGs` and `PATCHed`, which typos otherwise splits and rewrites to `ONGs` and `PATCHead`.

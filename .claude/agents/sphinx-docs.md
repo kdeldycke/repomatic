@@ -579,23 +579,26 @@ Primary toctree (user-facing), in this order:
 09. `nuitka` — Only for projects compiling standalone executables through the release engine: the canonical home for build targets, fleet cadence, compile caching and measured build times (the `binaries` page below stays the per-release catalog).
 10. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
 11. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
-12. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
+12. `plugin` — Only when those skills and agents are also published as an installable Claude Code plugin. Both distribution paths coexist, so the page covers the marketplace install, what the archive ships, and how to wire it into a repository.
+13. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
 
 Development toctree, in this order:
 
 01. `contributing` — Setup, dev loop, code-style pointers (or `{include} ../contributing.md` if the root file already exists).
-02. `upstream-development` — Project-internal release process. Mark `(upstream maintainers only)` in the page heading so readers know this is not for consumers.
-03. `operation-contracts` — Optional, for projects with formal automated-operation contracts.
-04. `API <{package}>`, `tests` — Autodoc API pages: the `API <...>` entry aliases the package's root autodoc page, `tests` covers the test-suite package. Both keep plain octicon-free headings (see Title octicons below).
-05. `packaging` — Distribution and dependency reference (see § Recipes › `packaging.md`). Every project renders its dependency graph here; projects distributed through package managers add their per-channel build instructions alongside it. Maintainer/packager-facing, so it sits in Development.
-06. `binaries` — Standalone-executables catalog written by the repomatic binaries pipeline. Only for projects compiling Nuitka binaries; a maintainer-facing reference, so it belongs here rather than in the primary toctree (end users reach the same downloads through `install.md`'s `## Executables` section).
-07. `genindex`, `modindex` — Sphinx-generated index and module index.
-08. `changelog` — Reference the root changelog via `{include} ../changelog.md` so the file stays single-sourced.
-09. `changelog-archive` — Only when `[tool.repomatic] changelog.archive-location` points into `docs/`.
-10. `todolist` — `sphinx.ext.todo` output. Drop this entry when the project has no TODOs.
-11. `code-of-conduct`, `license` — `{include}` from root files; never duplicate the text.
-12. `GitHub repository <https://...>` — External link as the last entry.
-13. `Funding <https://github.com/sponsors/...>` — External link if the project accepts funding.
+02. `commit-messages` — Only when automation reads or writes the project's commit subjects, which makes the subject a shared namespace rather than free text: the reserved-prefix rules, who else parses a message, and how to write a subject and body.
+03. `upstream-development` — Project-internal release process. Mark `(upstream maintainers only)` in the page heading so readers know this is not for consumers.
+04. `operation-contracts` — Optional, for projects with formal automated-operation contracts.
+05. `API <{package}>`, `tests` — Autodoc API pages: the `API <...>` entry aliases the package's root autodoc page, `tests` covers the test-suite package. Both keep plain octicon-free headings (see Title octicons below).
+06. `packaging` — Distribution and dependency reference (see § Recipes › `packaging.md`). Every project renders its dependency graph here; projects distributed through package managers add their per-channel build instructions alongside it. Maintainer/packager-facing, so it sits in Development.
+07. `binaries` — Standalone-executables catalog written by the repomatic binaries pipeline. Only for projects compiling Nuitka binaries; a maintainer-facing reference, so it belongs here rather than in the primary toctree (end users reach the same downloads through `install.md`'s `## Executables` section).
+08. `genindex`, `modindex` — Sphinx-generated index and module index.
+09. `changelog` — Reference the root changelog via `{include} ../changelog.md` so the file stays single-sourced.
+10. `changelog-archive` — Only when `[tool.repomatic] changelog.archive-location` points into `docs/`.
+11. `history` — Optional narrative of how the project got to here, opening on its own star-history chart. Context for maintainers rather than instruction for users, so it sits in Development next to the changelog it complements.
+12. `todolist` — `sphinx.ext.todo` output. Drop this entry when the project has no TODOs.
+13. `code-of-conduct`, `license` — `{include}` from root files; never duplicate the text.
+14. `GitHub repository <https://...>` — External link as the last entry.
+15. `Funding <https://github.com/sponsors/...>` — External link if the project accepts funding.
 
 Page-shape rules that apply across the roster:
 

@@ -38,6 +38,7 @@ from math import floor, log10
 from pathlib import Path
 
 from .metrics import CHARTABLE_METRICS, METRICS_BY_ID, PREDECESSOR_SUFFIX
+from .tabular import write_if_changed
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -602,8 +603,4 @@ def write_chart(
         label=METRICS_BY_ID[spec.metric].label,
         stamp=stamp,
     )
-    if spec.output.exists() and spec.output.read_text(encoding="UTF-8") == content:
-        return False
-    spec.output.parent.mkdir(parents=True, exist_ok=True)
-    spec.output.write_text(content, encoding="UTF-8")
-    return True
+    return write_if_changed(spec.output, content)
