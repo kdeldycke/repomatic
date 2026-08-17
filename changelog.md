@@ -12,7 +12,7 @@
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 
 > [!NOTE]
-> `7.13.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.13.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.13.0).
+> `7.13.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.13.0/).
 
 - **Breaking:** the `agents` component is renamed `subagents`, its config key `agents.location` becoming `subagents.location`. Naming the old component in `[tool.repomatic] include` or `exclude` fails the init; the old config key is ignored with a warning.
 - **Breaking:** `repomatic init claude` is renamed `repomatic init agent`, and its destination follows `[tool.repomatic] agent.location` (defaulting per `[tool.repomatic.flavor] agent`) rather than a fixed root-level `claude.md`, reaching instructions kept as `AGENTS.md` or outside the root.
@@ -55,7 +55,7 @@
 ## [`7.12.1` (2026-08-15)](https://github.com/kdeldycke/repomatic/compare/v7.12.0...v7.12.1)
 
 > [!NOTE]
-> `7.12.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.12.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.12.1).
+> `7.12.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.12.1/).
 
 - New `[tool.repomatic] sphinx.builder` config choosing the Sphinx builder the Docs workflow deploys, so a project can publish extension-less URLs with `dirhtml`.
 - The bundled `repomatic-ship` skill now reads a green CI run as stale when supersession cancelled every run between it and `HEAD`, and ships a release's own reflection findings in that same release.
@@ -69,7 +69,7 @@
 ## [`7.12.0` (2026-08-14)](https://github.com/kdeldycke/repomatic/compare/v7.11.0...v7.12.0)
 
 > [!NOTE]
-> `7.12.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.12.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.12.0).
+> `7.12.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.12.0/).
 
 - New `ci-status` command reporting each workflow's latest run and which of its failing jobs gate a merge, read from jobs rather than run conclusions.
 - New `repomatic run <tool> --verify` reporting which files a formatter would rewrite, without touching the working tree.
@@ -101,7 +101,7 @@
 ## [`7.11.0` (2026-08-13)](https://github.com/kdeldycke/repomatic/compare/v7.10.0...v7.11.0)
 
 > [!NOTE]
-> `7.11.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.11.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.11.0).
+> `7.11.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.11.0/).
 
 - **Breaking:** `labels.content-rules` and `labels.file-rules` are now tables mapping each label to its patterns, like `"📚 docs" = ["docs/**"]`. The array-of-tables form and its `actions/labeler` v5 matcher schema are gone; an un-migrated config is ignored with a warning.
 - **Breaking:** the `file-labeller` and `content-labeller` jobs merged into a single `apply-labels` job. Update any required check or `needs:` edge naming them.
@@ -124,7 +124,7 @@
 ## [`7.10.0` (2026-08-12)](https://github.com/kdeldycke/repomatic/compare/v7.9.0...v7.10.0)
 
 > [!NOTE]
-> `7.10.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.10.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.10.0).
+> `7.10.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.10.0/).
 
 - **Breaking:** the `update-dep-graph` job moved from `autofix.yaml` into the release engine, its only firing moment being a release push. A required check or `needs:` edge naming it under Autofix must follow.
 - **Breaking:** manual version-bump commits now read `` [changelog] Bump minor version to `vX.Y.0` ``: every version-machinery commit carries the `[changelog] ` prefix, and anything matching the old unprefixed titles must follow.
@@ -149,7 +149,7 @@
 > The `windows-x64` binary shipped without its `.attestation.json` sidecar: a transient TLS failure on the runner skipped the upload, and immutable releases lock the asset list. The attestation itself is registered, so `gh attestation verify repomatic-7.9.0-windows-x64.exe --repo kdeldycke/repomatic` still verifies against GitHub's attestation service.
 
 > [!NOTE]
-> `7.9.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.9.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.9.0).
+> `7.9.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.9.0/).
 
 - **Breaking:** `REPOMATIC_PAT` now requires `Administration: Read-only`, and `lint-repo` fails without it. Regenerate the token with the setup guide's pre-filled link; steps that cannot be verified now say so instead of vanishing.
 - New `[tool.repomatic] nuitka.dev-targets` option: an ordinary push now compiles binaries only for a canary subset, `["linux-arm64"]` by default. Release commits, a new weekly schedule and manual dispatches build the full 6-target fleet.
@@ -171,7 +171,7 @@
 ## [`7.8.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.7.0...v7.8.0)
 
 > [!NOTE]
-> `7.8.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.8.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.8.0).
+> `7.8.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.8.0/).
 
 - **Breaking:** the Codecov integration is removed, along with the `codecov` component, its `.github/codecov.yaml`, and the `coverage_cells` metadata key. `repomatic init` prunes an untouched orphaned config; delete the `CODECOV_TOKEN` secret and coverage badge by hand.
 - **Breaking:** attestation bundles now carry the full filename of the asset they attest, so `repomatic-manpages.attestation.json` becomes `repomatic-manpages.tar.gz.attestation.json`. A repository declaring one extra asset gets `<filename>.attestation.json` in place of `<package-name>-extra-assets.attestation.json`.
@@ -187,7 +187,7 @@
 ## [`7.7.0` (2026-08-09)](https://github.com/kdeldycke/repomatic/compare/v7.6.0...v7.7.0)
 
 > [!NOTE]
-> `7.7.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.7.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.7.0).
+> `7.7.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.7.0/).
 
 - **Breaking:** drop the `check-version` command: nothing invoked it, and workflows read the `minor_bump_allowed` and `major_bump_allowed` metadata keys instead.
 - **Breaking:** drop the `clean-unmodified-configs` command, superseded by `repomatic init --delete-unmodified`.
@@ -238,7 +238,7 @@
 ## [`7.6.0` (2026-08-08)](https://github.com/kdeldycke/repomatic/compare/v7.5.0...v7.6.0)
 
 > [!NOTE]
-> `7.6.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.6.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.6.0).
+> `7.6.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.6.0/).
 
 - **Breaking:** the `labels` component is now ephemeral: `labels.toml` and the two labeller YAMLs are staged only when named explicitly (`repomatic init labels`). A repository that committed them sees them reported as excluded files on disk, removable with `init --delete-excluded`.
 - New `fix-awesome-toc` command deletes the table-of-contents entries awesome-lint forbids from `readme.md` and every `readme.{lang}.md` beside it, matching translated sections by position rather than by their English name.
@@ -260,7 +260,7 @@
 ## [`7.5.0` (2026-08-07)](https://github.com/kdeldycke/repomatic/compare/v7.4.1...v7.5.0)
 
 > [!NOTE]
-> `7.5.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.5.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.5.0).
+> `7.5.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.5.0/).
 
 - **Breaking:** bundled skills drop `model` and `disable-model-invocation`, so every skill is now model-invocable and runs on the session model. The recommended model moved to the spec's `compatibility` field.
 - **Breaking:** workflows now run the CLI from `uv.lock` with `uv run --frozen` instead of `uvx --from .`, so installs are hash-verified. The release freeze still pins downstream to `uvx 'repomatic==X.Y.Z'`.
@@ -313,7 +313,7 @@
 ## [`7.4.1` (2026-08-01)](https://github.com/kdeldycke/repomatic/compare/v7.4.0...v7.4.1)
 
 > [!NOTE]
-> `7.4.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.4.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.4.1).
+> `7.4.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.4.1/).
 
 - Add two review links to the release PR's `How-to release` checklist: the draft dev pre-release and the full changes against `main`.
 - Teach the `repomatic-ship` pre-push gate to read the latest conclusive ancestor CI run when HEAD's own runs are still in-flight, catching a pre-existing platform-gated failure before the first push.
@@ -323,7 +323,7 @@
 ## [`7.4.0` (2026-07-31)](https://github.com/kdeldycke/repomatic/compare/v7.3.1...v7.4.0)
 
 > [!NOTE]
-> `7.4.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.4.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.4.0).
+> `7.4.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.4.0/).
 
 - **Breaking:** Rename `update-deps-graph` to `update-dep-graph` across the CLI command, autofix job, PR branch, and body template, aligning with the `dependency-graph` config key. Close any open `update-deps-graph` pull request; the next run reopens it on the new branch.
 - **Breaking:** `repomatic init` component selectors are now case-sensitive, validated by the same code path as the `exclude` and `include` configuration entries.
@@ -361,7 +361,7 @@
 ## [`7.3.1` (2026-07-28)](https://github.com/kdeldycke/repomatic/compare/v7.3.0...v7.3.1)
 
 > [!NOTE]
-> `7.3.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.3.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.3.1).
+> `7.3.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.3.1/).
 
 - Refresh the bundled pytest defaults to the canonical configuration: `importlib` import mode, `tests/`-restricted collection, the `once` marker, parallel runs via `pytest-xdist`, and `--cov-report=xml` left to the test workflow's command line.
 - Mark the `validate-arch` job of `tests.yaml` as canonical-repository-only: downstream repos drop the job and its `build_targets` metadata field when adapting the workflow.
@@ -378,7 +378,7 @@
 ## [`7.3.0` (2026-07-23)](https://github.com/kdeldycke/repomatic/compare/v7.2.0...v7.3.0)
 
 > [!NOTE]
-> `7.3.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.3.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.3.0).
+> `7.3.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.3.0/).
 
 - **Breaking:** Move the MyST docstring toolchain upstream to click-extra, now floored at `8.5`: the `repomatic.myst_docstrings` Sphinx extension becomes `click_extra.sphinx.myst_docstrings` (point `conf.py` at the new module path), and the `convert-to-myst` command becomes `click-extra convert-to-myst`.
 - Warn on unknown `[tool.repomatic]` keys through click-extra's schema layer, covering nested tables too; the warning now names keys in snake_case.
@@ -399,7 +399,7 @@
 ## [`7.2.0` (2026-07-16)](https://github.com/kdeldycke/repomatic/compare/v7.1.0...v7.2.0)
 
 > [!NOTE]
-> `7.2.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.2.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.2.0).
+> `7.2.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.2.0/).
 
 - **Breaking:** the `release-prep` command is renamed `prepare-release`, matching the job, template, and PR branch it drives.
 - **Breaking:** the `version-check` command is renamed `check-version`.
@@ -431,7 +431,7 @@
 ## [`7.1.0` (2026-07-08)](https://github.com/kdeldycke/repomatic/compare/v7.0.0...v7.1.0)
 
 > [!NOTE]
-> `7.1.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.1.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.1.0).
+> `7.1.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.1.0/).
 
 - **Breaking:** `scan-virustotal` no longer writes scan tables into GitHub release notes; the `--update-release` and `--repo` options are removed, and `--binaries-dir` is now required.
 - Add `sync-binaries`: regenerates `docs/assets/binaries.csv` and its `docs/binaries.md` page, a catalog of every released binary with download links, VirusTotal analyses, and a detection trend chart.
@@ -469,7 +469,7 @@
 ## [`7.0.0` (2026-07-02)](https://github.com/kdeldycke/repomatic/compare/v6.31.0...v7.0.0)
 
 > [!NOTE]
-> `7.0.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.0.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.0.0).
+> `7.0.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.0.0/).
 
 - **Breaking:** Remove the Renovate integration: the `renovate.yaml` workflow, the bundled `renovate.json5`, the `check-renovate` command, and the Dependabot-to-Renovate migration are gone, replaced by self-hosted dependency updates (below). Downstream repos prune the orphaned files on their next `repomatic init`.
 - **Breaking:** `repomatic update-checksums` is now registry-only: the workflow-file argument and the `--registry` flag are removed, so it only refreshes the binary tool checksums.
@@ -493,7 +493,7 @@
 ## [`6.31.0` (2026-06-27)](https://github.com/kdeldycke/repomatic/compare/v6.30.0...v6.31.0)
 
 > [!NOTE]
-> `6.31.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.31.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.31.0).
+> `6.31.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.31.0/).
 
 - `sync-uv-lock` PRs now list newer releases held back by the `exclude-newer` cooldown, with the date each ages out of the window.
 - `sync-uv-lock` package tables now annotate each release date with a relative hint (`2 days ago`, `in 3 days`).
@@ -509,7 +509,7 @@
 ## [`6.30.0` (2026-06-24)](https://github.com/kdeldycke/repomatic/compare/v6.29.0...v6.30.0)
 
 > [!NOTE]
-> `6.30.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.30.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.30.0).
+> `6.30.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.30.0/).
 
 - **Breaking:** The test and release workflows now run `click-extra test-suite` (the `test-plan` engine renamed in click-extra `8.1`), reading the suite from `./tests/cli-test-suite.toml`. Requires `click-extra >= 8.1`.
 - `repomatic lint-repo` now fails when a workflow's inline `repomatic==X.Y.Z` pin lags the version of its `uses:` ref.
@@ -520,7 +520,7 @@
 ## [`6.29.0` (2026-06-22)](https://github.com/kdeldycke/repomatic/compare/v6.28.1...v6.29.0)
 
 > [!NOTE]
-> `6.29.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.29.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.29.0).
+> `6.29.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.29.0/).
 
 - **Breaking:** Remove the `repomatic test-plan` command and `[tool.repomatic] test-plan` config. The declarative test-plan engine moved upstream to [click-extra](https://kdeldycke.github.io/click-extra/test-suite.html); run `click-extra test-plan` instead, configured via `[tool.click-extra.test-plan]`.
 - Add `repomatic show-test-matrix` to render the CI test matrix as a Python-version by OS grid in any `--table-format`.
@@ -536,14 +536,14 @@
 ## [`6.28.1` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.28.0...v6.28.1)
 
 > [!NOTE]
-> `6.28.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.28.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.28.1).
+> `6.28.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.28.1/).
 
 - Fix `test-matrix.full-include` matrices emitting combinations that `exclude` should have removed; they now follow GitHub's documented include/exclude algorithm.
 
 ## [`6.28.0` (2026-06-19)](https://github.com/kdeldycke/repomatic/compare/v6.27.0...v6.28.0)
 
 > [!NOTE]
-> `6.28.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.28.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.28.0).
+> `6.28.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.28.0/).
 
 - `repomatic test-plan` runs its cases in parallel by default (one fewer than the CPU count); pass `--jobs 1` for sequential execution.
 - Add `[tool.repomatic] test-matrix.full-include` config: declare full-matrix-only job rows as explicit combinations (each merged onto the shipped-config defaults), a readable alternative to a long `test-matrix.exclude` list.
@@ -554,7 +554,7 @@
 ## [`6.27.0` (2026-06-18)](https://github.com/kdeldycke/repomatic/compare/v6.26.0...v6.27.0)
 
 > [!NOTE]
-> `6.27.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.27.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.27.0).
+> `6.27.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.27.0/).
 
 - **Breaking:** Replace `fix-vulnerable-deps` with `audit`. `repomatic audit` reports vulnerable dependencies read-only; `repomatic audit --fix` performs the previous upgrade behavior.
 - Stop forcing `pyproject-fmt` table expansion: `project.urls`, `project.scripts`, and similar sections now use its default compact (dotted-key) form.
@@ -570,7 +570,7 @@
 ## [`6.26.0` (2026-06-17)](https://github.com/kdeldycke/repomatic/compare/v6.25.1...v6.26.0)
 
 > [!NOTE]
-> `6.26.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.26.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.26.0).
+> `6.26.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.26.0/).
 
 - Add `[tool.repomatic] nuitka.extras` config to sync listed `[project.optional-dependencies]` extras into the venv before the Nuitka build, so optional features land in the binary.
 - Add `[tool.repomatic.labels]` `extra`, `file-rules`, and `content-rules` config for inline label definitions and labeller rules, replacing the silently-ignored `extra-file-rules` and `extra-content-rules` fields.
@@ -580,7 +580,7 @@
 ## [`6.25.1` (2026-06-13)](https://github.com/kdeldycke/repomatic/compare/v6.25.0...v6.25.1)
 
 > [!NOTE]
-> `6.25.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.25.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.25.1).
+> `6.25.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.25.1/).
 
 - Fix `uvx repomatic@X.Y.Z` failing for end users with `No solution found` by dropping the `bump-my-version` dependency and reading the current version natively from `.bumpversion.toml` or `[tool.bumpversion]`.
 - Remove the `uv-overrides.txt` file and all `UV_OVERRIDE` workflow env blocks.
@@ -589,7 +589,7 @@
 ## [`6.25.0` (2026-06-13)](https://github.com/kdeldycke/repomatic/compare/v6.24.0...v6.25.0)
 
 > [!NOTE]
-> `6.25.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.25.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.25.0).
+> `6.25.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.25.0/).
 
 - Add man page generation to the release and docs pipelines via a `manpages` job, activated by `[tool.repomatic.manpages]` config keys (`script`, `asset-name`); requires `click-extra>=7.19`.
 - Validate `[project.scripts]` entries when building the Nuitka matrix, rejecting path-shaped, empty, or malformed script names up front with a clear error.
@@ -603,14 +603,14 @@
 ## [`6.24.0` (2026-05-28)](https://github.com/kdeldycke/repomatic/compare/v6.23.0...v6.24.0)
 
 > [!NOTE]
-> `6.24.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.24.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.24.0).
+> `6.24.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.24.0/).
 
 - Publish to PyPI right after the wheel builds instead of waiting for the full release engine, by splitting the build into a `_release-build.yaml` lane that `release.yaml`'s `publish-pypi` job depends on.
 
 ## [`6.23.0` (2026-05-28)](https://github.com/kdeldycke/repomatic/compare/v6.22.0...v6.23.0)
 
 > [!NOTE]
-> `6.23.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.23.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.23.0).
+> `6.23.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.23.0/).
 
 - Split `release.yaml` into a thin entry workflow and a new reusable `_release-engine.yaml` engine; the entry keeps `publish-pypi` so PyPI Trusted Publisher OIDC resolves to each repo's own `release.yaml`.
 - Remove the `release-publish-pypi-job.yaml` data fragment; `release.yaml` is now the single source for the `publish-pypi` job.
@@ -622,7 +622,7 @@
 ## [`6.22.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.21.0...v6.22.0)
 
 > [!NOTE]
-> `6.22.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.22.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.22.0).
+> `6.22.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.22.0/).
 
 - `repomatic init` now prunes downstream orphans of renamed or removed skills, agents, and workflows; locally modified copies are reported for manual review, never deleted. Pass `--keep-removed` to report without deleting, or `--delete-removed-modified` to also delete modified ones.
 - `/repomatic-ship` now closes with a reflect step that reviews the session for friction and proposes fixes to the upstream `repomatic` source.
@@ -635,7 +635,7 @@
 ## [`6.21.0` (2026-05-25)](https://github.com/kdeldycke/repomatic/compare/v6.20.0...v6.21.0)
 
 > [!NOTE]
-> `6.21.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.21.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.21.0).
+> `6.21.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.21.0/).
 
 - Replace the `repomatic-release` skill with `repomatic-ship`, a release orchestrator that reconciles changelog, code, and docs, then commits, pushes, and babysits CI until the release PR is ready. Review-gated by default, fully autonomous under `--dangerously-skip-permissions`.
 - Add a `modernize` mode to the `repomatic-deps` skill that reads upgraded dependencies' changelogs and refactors code to adopt their new features, gating each change on the test suite.
@@ -649,7 +649,7 @@
 ## [`6.20.0` (2026-05-24)](https://github.com/kdeldycke/repomatic/compare/v6.19.0...v6.20.0)
 
 > [!NOTE]
-> `6.20.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.20.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.20.0).
+> `6.20.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.20.0/).
 
 - **Breaking:** remove `[tool.repomatic] nuitka.extra-args`. Configure Nuitka flags through `[tool.nuitka]` in `pyproject.toml` instead (`--include-data-files=SRC=DEST` becomes `include-data-files = ["SRC=DEST"]`).
 - `repomatic run nuitka` now installs the pinned Nuitka, reads `[tool.nuitka]` from `pyproject.toml`, and passes the section as CLI flags; Nuitka appears in `repomatic run --list`.
@@ -663,7 +663,7 @@
 ## [`6.19.0` (2026-05-21)](https://github.com/kdeldycke/repomatic/compare/v6.18.4...v6.19.0)
 
 > [!NOTE]
-> `6.19.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.19.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.19.0).
+> `6.19.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.19.0/).
 
 - Add `repomatic close-stale-bump-pr --part minor|major` to close orphan version-bump PRs left by races between the `changelog.yaml` schedule and a competing push.
 - Expand sponsor benefits in the awesome template's `contributing.md`: sponsors get a dedicated entry in the matching section and a waiver on the licensing-marker requirement.
@@ -676,7 +676,7 @@
 ## [`6.18.4` (2026-05-14)](https://github.com/kdeldycke/repomatic/compare/v6.18.3...v6.18.4)
 
 > [!NOTE]
-> `6.18.4` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.4/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.4).
+> `6.18.4` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.4/).
 
 - Replace `RepoScope.NON_AWESOME` with `PYTHON_ONLY`, gating Python-flavored components on a PEP 621 `[project].name` so dotfiles repos carrying `pyproject.toml` only for `[tool.*]` config skip them by default.
 - The bundled `release-publish-pypi-job.yaml` fragment now participates in the `@main` to `@vX.Y.Z` rewrite, so wheels built from a freeze commit ship with the pinned action ref.
@@ -686,7 +686,7 @@
 ## [`6.18.3` (2026-05-11)](https://github.com/kdeldycke/repomatic/compare/v6.18.2...v6.18.3)
 
 > [!NOTE]
-> `6.18.3` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.3/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.3).
+> `6.18.3` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.3/).
 
 - Fix `autofix.yaml`'s `setup-guide` job being skipped on `workflow_dispatch` re-runs.
 - Fix `release.yaml`'s `publish-pypi` job running against downstream callers and failing PyPI trusted publishing with a `job_workflow_ref` mismatch.
@@ -695,21 +695,18 @@
 ## [`6.18.2` (2026-05-08)](https://github.com/kdeldycke/repomatic/compare/v6.18.1...v6.18.2)
 
 > [!NOTE]
-> `6.18.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.2/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.2).
+> `6.18.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.2/).
 
 - Fix `release.yaml` uploading distributions to PyPI without PEP 740 attestations; the build job now signs each dist file and ships the `.publish.attestation` sidecars alongside it.
 
 ## [`6.18.1` (2026-05-08)](https://github.com/kdeldycke/repomatic/compare/v6.18.0...v6.18.1)
 
 > [!NOTE]
-> `6.18.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.1).
+> `6.18.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.18.1/).
 
 - Fix the `publish-pypi` composite action verifying build attestations on every workspace file instead of just the downloaded distribution artifacts.
 
 ## [`6.18.0` (2026-05-07)](https://github.com/kdeldycke/repomatic/compare/v6.17.0...v6.18.0)
-
-> [!NOTE]
-> `6.18.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.18.0).
 
 > [!WARNING]
 > `6.18.0` is **not available** on 🐍 PyPI.
@@ -724,7 +721,7 @@
 ## [`6.17.0` (2026-05-04)](https://github.com/kdeldycke/repomatic/compare/v6.16.0...v6.17.0)
 
 > [!NOTE]
-> `6.17.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.17.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.17.0).
+> `6.17.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.17.0/).
 
 - Add `--template-file <path>` and `--template-arg KEY=VALUE` flags to `repomatic pr-body` so downstream repos can render project-specific PR templates without forking. `--template` and `--template-file` are mutually exclusive.
 - Fix backslash-escaped brackets rendering literally in `docs/configuration.md` `**Type:**` lines (like `list\[dict[str, str]\]`).
@@ -734,7 +731,7 @@
 ## [`6.16.0` (2026-04-29)](https://github.com/kdeldycke/repomatic/compare/v6.15.0...v6.16.0)
 
 > [!NOTE]
-> `6.16.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.16.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.16.0).
+> `6.16.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.16.0/).
 
 - Add the `sphinx-docs` agent to the `agents` component, deployed by `repomatic init agents` or via `[tool.repomatic] include = ["agents"]`.
 - Add three `[tool.repomatic.workflow]` knobs for customizing `paths:` filters in generated thin callers: `extra-paths` appends repo-specific entries, `ignore-paths` strips canonical entries absent downstream, and `paths` replaces a filter wholesale per workflow.
@@ -752,7 +749,7 @@
 ## [`6.15.0` (2026-04-27)](https://github.com/kdeldycke/repomatic/compare/v6.14.0...v6.15.0)
 
 > [!NOTE]
-> `6.15.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.15.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.15.0).
+> `6.15.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.15.0/).
 
 - Decode percent-encoded non-ASCII characters in Markdown link destinations back to their original form, so non-ASCII anchors no longer get rewritten to `%XX` on every `format-markdown` run.
 - Add 💸/🆓 licensing markers to the awesome-list contributing guide, issue template, and PR template (English and Chinese mirrors): 💸 for a paid version atop an OSS core, 🆓 for fully open-source.
@@ -767,7 +764,7 @@
 ## [`6.14.0` (2026-04-20)](https://github.com/kdeldycke/repomatic/compare/v6.13.0...v6.14.0)
 
 > [!NOTE]
-> `6.14.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.14.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.14.0).
+> `6.14.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.14.0/).
 
 - Add a Sphinx documentation site (Furo theme, MyST-Parser) splitting the monolithic `readme.md` into focused pages: installation, configuration, CLI parameters, reusable workflows, security, skills, and a tool runner tutorial. Deployed via `docs.yaml`.
 - Add the `repomatic.myst_docstrings` Sphinx extension and `repomatic.myst_converter` utility, converting MyST markdown in docstrings to reST at build time so `sphinx.ext.autodoc` works unmodified. `convert-to-myst` rewrites source files in place.
@@ -781,7 +778,7 @@
 ## [`6.13.0` (2026-04-15)](https://github.com/kdeldycke/repomatic/compare/v6.12.0...v6.13.0)
 
 > [!NOTE]
-> `6.13.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.13.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.13.0).
+> `6.13.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.13.0/).
 
 - Add `nuitka.entry-points` config option to select which `[project.scripts]` entries produce Nuitka binaries; aliases pointing to the same callable are deduplicated by default.
 - Add two-phase VirusTotal scanning: an initial table with scan links, then a `--poll` pass that fills in a Detections column of `flagged / total` engine counts.
@@ -810,7 +807,7 @@
 ## [`6.12.0` (2026-04-13)](https://github.com/kdeldycke/repomatic/compare/v6.11.3...v6.12.0)
 
 > [!NOTE]
-> `6.12.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.12.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.12.0).
+> `6.12.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.12.0/).
 
 - **Breaking:** rename the `shell_files` metadata key to `shfmt_files`, and exclude Zsh files and `.sh` files with a Zsh shebang from `shfmt` processing.
 - Add `repomatic cache` subcommands (`show`, `clean`, `path`) and a global binary cache for downloaded tools; cached binaries are re-verified against their checksum and auto-purged after 30 days (configurable via `REPOMATIC_CACHE_MAX_AGE`). Add `--no-cache` to `repomatic run` to bypass it.
@@ -830,7 +827,7 @@
 ## [`6.11.3` (2026-04-09)](https://github.com/kdeldycke/repomatic/compare/v6.11.2...v6.11.3)
 
 > [!NOTE]
-> `6.11.3` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.3/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.11.3).
+> `6.11.3` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.3/).
 
 - Add a `lint-repo` check warning when the GitHub Actions fork PR approval policy is weaker than `first_time_contributors`, with a setup guide step to fix it.
 - Add a `readme.md` supply chain security section mapping Astral's security practices to concrete repomatic implementations.
@@ -841,7 +838,7 @@
 ## [`6.11.2` (2026-04-08)](https://github.com/kdeldycke/repomatic/compare/v6.11.1...v6.11.2)
 
 > [!NOTE]
-> `6.11.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.2/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.11.2).
+> `6.11.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.2/).
 
 - Add the `shfmt` shell formatter to the tool runner (`repomatic run shfmt`).
 - Add a `format-shell` autofix job to auto-format shell scripts with `shfmt`.
@@ -851,7 +848,7 @@
 ## [`6.11.1` (2026-04-08)](https://github.com/kdeldycke/repomatic/compare/v6.11.0...v6.11.1)
 
 > [!NOTE]
-> `6.11.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.11.1).
+> `6.11.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.1/).
 
 - Parallelize the release workflow: `compile-binaries` starts right after `metadata`, and `publish-pypi` runs concurrently with `create-tag` and `create-release`, with binary and attestation uploads deferred to `publish-release`.
 - Fall back to the PyPI `project_urls` changelog link when a package has no GitHub Release, so release notes render a `[Changelog]` link instead of omitting the package.
@@ -868,9 +865,6 @@
 > [!NOTE]
 > `6.11.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.11.0/).
 
-> [!WARNING]
-> `6.11.0` is **not available** on 🐙 GitHub.
-
 - Preserve extra downstream jobs when syncing thin-caller workflows; the managed job is regenerated in place while project-specific jobs, comments, and blank lines are kept.
 - Add a VirusTotal scanning job to the release workflow that uploads compiled binaries to seed AV databases. Requires the optional `VIRUSTOTAL_API_KEY` repository secret.
 - Verify each attestation in CI right after `actions/attest` with `gh attestation verify`.
@@ -882,7 +876,7 @@
 ## [`6.10.0` (2026-04-03)](https://github.com/kdeldycke/repomatic/compare/v6.9.0...v6.10.0)
 
 > [!NOTE]
-> `6.10.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.10.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.10.0).
+> `6.10.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.10.0/).
 
 - **Breaking:** Remove the `-o` short option from `pr-body` and `format-images`; use `--output`.
 - Add `brand-assets` skill to create and export project logo/banner SVG assets to light/dark PNG variants.
@@ -908,7 +902,7 @@
 ## [`6.9.0` (2026-03-31)](https://github.com/kdeldycke/repomatic/compare/v6.8.0...v6.9.0)
 
 > [!NOTE]
-> `6.9.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.9.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.9.0).
+> `6.9.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.9.0/).
 
 - **Breaking:** Rename the `config` subcommand to `show-config` (it now resolves typed `[tool.repomatic]` config via click-extra).
 - **Breaking:** Remove the `prebake-version` and `prebake-tag-sha` commands; use `click-extra prebake` instead.
@@ -928,7 +922,7 @@
 ## [`6.8.0` (2026-03-27)](https://github.com/kdeldycke/repomatic/compare/v6.7.0...v6.8.0)
 
 > [!NOTE]
-> `6.8.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.8.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.8.0).
+> `6.8.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.8.0/).
 
 - **Breaking:** Rename `repomatic init --delete-redundant` to `--delete-unmodified`, which now also removes config files identical to bundled defaults.
 - **Breaking:** Remove the deprecated `WORKFLOW_UPDATE_GITHUB_PAT` secret and its fallbacks; downstream repos must use `REPOMATIC_PAT`.
@@ -963,7 +957,7 @@
 ## [`6.7.0` (2026-03-24)](https://github.com/kdeldycke/repomatic/compare/v6.6.0...v6.7.0)
 
 > [!NOTE]
-> `6.7.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.7.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.7.0).
+> `6.7.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.7.0/).
 
 - **Breaking:** Remove the `sync-skills`, `workflow create`, and `workflow sync` commands; `repomatic init` handles all three.
 - Bundle awesome-template boilerplate files in `repomatic` instead of cloning `kdeldycke/awesome-template` at runtime.
@@ -979,7 +973,7 @@
 ## [`6.6.0` (2026-03-23)](https://github.com/kdeldycke/repomatic/compare/v6.5.0...v6.6.0)
 
 > [!NOTE]
-> `6.6.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.6.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.6.0).
+> `6.6.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.6.0/).
 
 - **Breaking:** downstream repos with `yamllint` or `zizmor` in their `[tool.repomatic] exclude` list must remove those entries.
 - Remove `yamllint` and `zizmor` init components; the tool runner falls back to bundled default configs at runtime. Default `exclude` is now `["labels", "skills"]`.
@@ -992,7 +986,7 @@
 ## [`6.5.0` (2026-03-23)](https://github.com/kdeldycke/repomatic/compare/v6.4.1...v6.5.0)
 
 > [!NOTE]
-> `6.5.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.5.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.5.0).
+> `6.5.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.5.0/).
 
 - **Breaking:** the old `init.exclude` and `workflow.sync-exclude` keys are no longer recognized and raise a hard error.
 - **Breaking:** remove legacy `[tool.gha-utils]` and `[tool.repokit]` config migration; rename old sections to `[tool.repomatic]` manually.
@@ -1006,7 +1000,7 @@
 ## [`6.4.1` (2026-03-11)](https://github.com/kdeldycke/repomatic/compare/v6.4.0...v6.4.1)
 
 > [!NOTE]
-> `6.4.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.4.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.4.1).
+> `6.4.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.4.1/).
 
 - Add a `github-json` output dialect to `repomatic metadata` that bundles all keys into a single `metadata` output, accessed via `fromJSON(needs.metadata.outputs.metadata).key_name`.
 - Add key filtering to `repomatic metadata`: pass key names as arguments to output only those values.
@@ -1023,7 +1017,7 @@
 ## [`6.4.0` (2026-03-10)](https://github.com/kdeldycke/repomatic/compare/v6.3.2...v6.4.0)
 
 > [!NOTE]
-> `6.4.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.4.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.4.0).
+> `6.4.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.4.0/).
 
 - Rename `optimize-images` to `format-images`, aligning it with the `format-*` naming convention, and add a matching PR body template.
 - Allow `--prefix` and `--template` to be combined in `repomatic pr-body`; the prefix is prepended before the rendered template.
@@ -1041,7 +1035,7 @@
 ## [`6.3.2` (2026-03-08)](https://github.com/kdeldycke/repomatic/compare/v6.3.1...v6.3.2)
 
 > [!NOTE]
-> `6.3.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.2/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.3.2).
+> `6.3.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.2/).
 
 - Add `--all-extras` to the `uv sync` step in `tests.yaml` to catch incompatibilities between optional dependency groups.
 - Add a `test-package-install` job to `tests.yaml` that verifies every `[project.scripts]` entry point installs and runs via `uvx`, `uv run --with`, module invocation, `uv tool install`, and `pipx run`, from PyPI and GitHub. Add a `cli_scripts` metadata output.
@@ -1053,14 +1047,14 @@
 ## [`6.3.1` (2026-03-07)](https://github.com/kdeldycke/repomatic/compare/v6.3.0...v6.3.1)
 
 > [!NOTE]
-> `6.3.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.3.1).
+> `6.3.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.1/).
 
 - Sync the `repomatic-audit` skill to downstream repos.
 
 ## [`6.3.0` (2026-03-06)](https://github.com/kdeldycke/repomatic/compare/v6.2.1...v6.3.0)
 
 > [!NOTE]
-> `6.3.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.3.0).
+> `6.3.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.3.0/).
 
 - `repomatic init` now always overwrites managed files (workflows, configs, skills) by default; remove the `--overwrite` flag. `changelog.md` is never overwritten once it exists.
 - `repomatic init` output now distinguishes created, updated, and skipped files, and warns about excluded files still on disk.
@@ -1072,7 +1066,7 @@
 ## [`6.2.1` (2026-03-06)](https://github.com/kdeldycke/repomatic/compare/v6.2.0...v6.2.1)
 
 > [!NOTE]
-> `6.2.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.2.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.2.1).
+> `6.2.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.2.1/).
 
 - Fix `actions/checkout` wiping downloaded Python package artifacts before `gh release create` could attach them, so release drafts now include the distribution files.
 - Fix `fix-changelog` marking releases as not available on GitHub while the release was still a draft.
@@ -1080,7 +1074,7 @@
 ## [`6.2.0` (2026-03-05)](https://github.com/kdeldycke/repomatic/compare/v6.1.0...v6.2.0)
 
 > [!NOTE]
-> `6.2.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.2.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.2.0).
+> `6.2.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.2.0/).
 
 - Add the `repomatic optimize-images` CLI command (lossless `oxipng` for PNG, `jpegoptim` for JPEG), replacing `calibreapp/image-actions`.
 - Add the `sync-dev-release` CLI command and workflow job to maintain a rolling dev pre-release on GitHub with the latest binaries and Python package.
@@ -1102,7 +1096,7 @@
 ## [`6.1.0` (2026-02-27)](https://github.com/kdeldycke/repomatic/compare/v6.0.1...v6.1.0)
 
 > [!NOTE]
-> `6.1.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.1.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.1.0).
+> `6.1.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.1.0/).
 
 - Add the `unsubscribe-threads` CLI command to unsubscribe from closed, inactive GitHub notification threads.
 - Add the `prebake-version` CLI command to inject the Git commit hash into `__version__` before Nuitka compilation, so binaries report the exact commit they were built from (e.g., `6.1.0.dev0+abc1234`).
@@ -1123,7 +1117,7 @@
 > First release under the [`repomatic`](https://pypi.org/project/repomatic/) name on PyPI, after `repokit` was rejected for typo-squatting ([see `6.0.0` below](#600-2026-02-24)). The GitHub repository is [`kdeldycke/repomatic`](https://github.com/kdeldycke/repomatic).
 
 > [!NOTE]
-> `6.0.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.0.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.0.1).
+> `6.0.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.0.1/).
 
 - Rename project from `repokit` to `repomatic`. Rename GitHub repository from `kdeldycke/repokit` to `kdeldycke/repomatic`.
 
@@ -1131,9 +1125,6 @@
 
 > [!CAUTION]
 > This release was deleted from PyPI. It was supposed to be published as `repokit`, but PyPI flagged the name as typo-squatting the pre-existing [`repo-kit`](https://pypi.org/project/repo-kit/) package.
-
-> [!NOTE]
-> `6.0.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.0.0).
 
 > [!WARNING]
 > `6.0.0` is **not available** on 🐍 PyPI.
