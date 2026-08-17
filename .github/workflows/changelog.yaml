@@ -88,7 +88,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic metadata
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0' metadata
           --format github-json --output "$GITHUB_OUTPUT"
           minor_bump_allowed major_bump_allowed release_commits_matrix
 
@@ -119,7 +119,7 @@ jobs:
       - name: Fix changelog dates and admonitions
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic lint-changelog --fix
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0' lint-changelog --fix
       - name: Sync pull request
         # This job checks out a detached HEAD at `github.sha`; pr-sync falls
         # back to the default branch from the event payload as its base.
@@ -128,7 +128,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           pr-sync --template fix-changelog
   bump-version:
     name: 🆙 Bump versions
@@ -166,7 +166,7 @@ jobs:
       - name: ${{ matrix.part }} version bump
         if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           run bump-my-version -- bump --verbose ${{ matrix.part }}
       - name: Sync uv.lock
         # Plain `uv lock` (not `--upgrade`, not `uv sync`) is deliberate: a version
@@ -195,7 +195,7 @@ jobs:
           PR_BRANCH: ${{ matrix.part }}-version-increment
           PR_PART: ${{ matrix.part }}
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           pr-sync
           --template bump-version --part "$PR_PART" --branch "$PR_BRANCH"
       - name: Close stale ${{ matrix.part }} bump PR
@@ -206,7 +206,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           close-stale-bump-pr --part ${{ matrix.part }}
 
   prepare-release:
@@ -239,19 +239,19 @@ jobs:
       - name: Strip dev suffix for release
         # Bump the "dev" part: .dev0 → release (omitted), producing a clean X.Y.Z version.
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           run bump-my-version -- bump --verbose dev
       - name: Extract version
         id: get_version
         run: >
           echo "current_version=$(
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           run bump-my-version -- show current_version
           )" | tee -a "$GITHUB_OUTPUT"
       - name: Prepare release
         # Updates changelog and citation dates, comparison URL, and removes warning.
         # Also hard-codes version in workflow URLs for kdeldycke/repomatic repository.
-        run: uv --no-progress run --frozen -- repomatic prepare-release
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0' prepare-release
       - name: Sync uv.lock
         # Plain `uv lock`, not `--upgrade`: see the bump-version job above. Every
         # other version bump in this file re-locks; skipping it here left the tag
@@ -276,12 +276,12 @@ jobs:
       - name: Re-target main branch in workflows
         # This step is only used in the original repository to automate remote URL tagging.
         if: github.repository == 'kdeldycke/repomatic'
-        run: uv --no-progress run --frozen -- repomatic prepare-release --post-release
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0' prepare-release --post-release
       - name: Add new changelog entry
-        run: uv --no-progress run --frozen -- repomatic changelog ./changelog.md
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0' changelog ./changelog.md
       - name: Version bump
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           run bump-my-version -- bump --verbose patch
       - name: Sync uv.lock
         # Plain `uv lock`, not `--upgrade`: see the bump-version job above. A
@@ -293,7 +293,7 @@ jobs:
           CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
         run: >
           git commit --all --message="[changelog] Post-release bump
-          v${CURRENT_VERSION} → v$(uv --no-progress run --frozen -- repomatic
+          v${CURRENT_VERSION} → v$(uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           run bump-my-version -- show current_version)"
       - name: Sync pull request
         # The freeze and unfreeze commits above are already committed, so this
@@ -312,5 +312,5 @@ jobs:
           CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.13.0'
           pr-sync --template prepare-release --version "$CURRENT_VERSION"

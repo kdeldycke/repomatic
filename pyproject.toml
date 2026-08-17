@@ -12,7 +12,7 @@ requires = [ "uv-build>=0.8" ]
 [project]
 # Docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 name = "repomatic"
-version = "7.13.0.dev0"
+version = "7.13.0"
 description = "🏭 Automate repository maintenance, releases, and CI/CD workflows"
 readme = "readme.md"
 keywords = [
@@ -133,7 +133,7 @@ dependencies = [
 ]
 urls.Changelog = "https://github.com/kdeldycke/repomatic/blob/main/changelog.md"
 urls.Documentation = "https://repomatic.net"
-urls.Download = "https://github.com/kdeldycke/repomatic/releases/tag/v7.13.0.dev0"
+urls.Download = "https://github.com/kdeldycke/repomatic/releases/tag/v7.13.0"
 urls.Funding = "https://github.com/sponsors/kdeldycke"
 urls.Homepage = "https://github.com/kdeldycke/repomatic"
 urls.Issues = "https://github.com/kdeldycke/repomatic/issues"
@@ -390,7 +390,7 @@ report.fail_under = 80
 report.precision = 2
 
 [tool.bumpversion]
-current_version = "7.13.0.dev0"
+current_version = "7.13.0"
 # Parse versions with an optional .devN suffix (PEP 440).
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)(\\.dev(?P<dev>\\d+))?"
 serialize = [
