@@ -93,14 +93,17 @@ from __future__ import annotations
 import json
 import logging
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 
 from . import __version__
+from .pyproject import read_pyproject_toml
 from .registry import COMPONENTS_BY_NAME
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from typing import Any, Final
 
 MANIFEST_PATH = ".claude-plugin/plugin.json"
 """Location of the plugin manifest.
@@ -132,6 +135,16 @@ every existing install.
 
 MARKETPLACE_REPO = "kdeldycke/repomatic"
 """Repository a consumer registers to reach {data}`MARKETPLACE_PATH`."""
+
+BIOME_DEFAULT_INDENT: Final[str] = "\t"
+"""Indent `format-json` writes when no Biome configuration overrides it.
+
+Biome's own default, so a repository declaring nothing gets a rendered document
+the formatter already agrees with.
+"""
+
+BIOME_DEFAULT_INDENT_WIDTH: Final[int] = 2
+"""Spaces per level Biome assumes when a config asks for spaces without a width."""
 
 ARCHIVE_NAME = "repomatic-claude-plugin.zip"
 """Filename of the release asset {func}`pack_plugin` produces.
@@ -298,17 +311,86 @@ def _plugin_settings() -> dict[str, dict[str, object]]:
     }
 
 
-def render_plugin_settings(existing: str = "") -> str:
+def _biome_formatter_tables(config: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
+    """Yield Biome's formatter tables from *config*, least specific first.
+
+    The global `formatter` table sets the baseline and the per-language
+    `json.formatter` one narrows it, so a caller folding them in this order
+    ends up with the settings Biome itself would apply to a `.json` file.
+
+    :param config: A parsed Biome configuration document.
+    :return: Iterator over the formatter tables actually present.
+    """
+    for path in (("formatter",), ("json", "formatter")):
+        table: Any = config
+        for key in path:
+            table = table.get(key) if isinstance(table, Mapping) else None
+        if isinstance(table, Mapping):
+            yield table
+
+
+def _biome_json_indent(root: Path) -> str:
+    """Derive the JSON indent `format-json` imposes on *root*'s files.
+
+    Mirrors {func}`~repomatic.tool_runner.resolve_config`'s precedence: a native
+    `biome.json` replaces `[tool.biome]` in `pyproject.toml` rather than layering
+    over it.
+
+    ```{caution}
+    Anything unreadable (a `biome.jsonc` whose comments no JSON parser accepts, a
+    malformed table) falls back to {data}`BIOME_DEFAULT_INDENT` instead of
+    raising. Guessing the style wrong costs one reformat that `format-json` then
+    corrects; raising would take down the whole `repomatic init`.
+    ```
+
+    :param root: Repository root holding the Biome configuration.
+    :return: The literal string one level of indentation is written with.
+    """
+    config: Mapping[str, Any] = {}
+    native = root / "biome.json"
+    if native.is_file():
+        try:
+            loaded = json.loads(native.read_text(encoding="UTF-8"))
+        except (OSError, ValueError):
+            logging.debug(f"Unreadable {native}, assuming Biome's default indent.")
+            return BIOME_DEFAULT_INDENT
+        if isinstance(loaded, Mapping):
+            config = loaded
+    else:
+        tool = read_pyproject_toml(root).get("tool", {})
+        if isinstance(tool, Mapping) and isinstance(tool.get("biome"), Mapping):
+            config = tool["biome"]
+
+    style: Any = None
+    width: Any = None
+    for table in _biome_formatter_tables(config):
+        style = table.get("indentStyle", style)
+        width = table.get("indentWidth", width)
+
+    if style != "space":
+        return BIOME_DEFAULT_INDENT
+    if not isinstance(width, int) or isinstance(width, bool) or width < 1:
+        width = BIOME_DEFAULT_INDENT_WIDTH
+    return " " * width
+
+
+def render_plugin_settings(
+    existing: str = "",
+    indent: str = BIOME_DEFAULT_INDENT,
+) -> str:
     """Merge the plugin wiring into an existing settings document.
 
     Only the two keys {func}`_plugin_settings` owns are touched, and within them
     only the entries this plugin and marketplace are named by: a repository's own
     permissions, hooks and any unrelated marketplace survive untouched.
 
-    Serialized the way `format-json` wants it (tab indent, sorted keys), so
-    writing the file never leaves drift for the formatter to raise a PR about.
+    Sorted keys, and *indent* whichever way `format-json` writes JSON in the
+    consuming repository, so writing the file leaves no drift for the formatter
+    to raise a pull request about. Biome preserves key order, which is why only
+    the indent has to be negotiated.
 
     :param existing: Current file content, or an empty string when absent.
+    :param indent: One level of indentation, from {func}`_biome_json_indent`.
     :return: The merged document, newline-terminated.
     :raises TypeError: If *existing* is not a JSON object.
     """
@@ -328,20 +410,28 @@ def render_plugin_settings(existing: str = "") -> str:
         merged.update(entries)
         document[key] = merged
 
-    return json.dumps(document, indent="\t", sort_keys=True) + "\n"
+    return json.dumps(document, indent=indent, sort_keys=True) + "\n"
 
 
-def merge_plugin_settings(target: Path) -> bool:
+def merge_plugin_settings(target: Path, root: Path | None = None) -> bool:
     """Write the plugin wiring into *target*, creating the file if absent.
 
     Idempotent: re-running against an already-wired document rewrites nothing
-    and returns `False`, so `repomatic init` reports it as unchanged.
+    and returns `False`, so `repomatic init` reports it as unchanged. That holds
+    only while the rendered indent matches the repository's own, which is why
+    *root* is read rather than assumed: a repository declaring spaces would
+    otherwise see this and `format-json` rewrite the file past each other on
+    every run, each opening a pull request undoing the other's.
 
     :param target: Path to the Claude Code settings file to update.
+    :param root: Repository root whose Biome config sets the indent. Defaults to
+        *target*'s own directory, which is right only for a root-level file.
     :return: Whether the file was created or modified.
     """
     existing = target.read_text(encoding="UTF-8") if target.is_file() else ""
-    merged = render_plugin_settings(existing)
+    merged = render_plugin_settings(
+        existing, _biome_json_indent(root if root is not None else target.parent)
+    )
     if merged == existing:
         return False
     target.parent.mkdir(parents=True, exist_ok=True)

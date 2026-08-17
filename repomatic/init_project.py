@@ -1902,7 +1902,7 @@ def _init_plugin_settings(
     settings_path = output_dir / location
     rel = settings_path.relative_to(output_dir).as_posix()
     existed = settings_path.is_file()
-    if not merge_plugin_settings(settings_path):
+    if not merge_plugin_settings(settings_path, output_dir):
         logging.debug(f"Unchanged: {rel}")
         return
     if existed:

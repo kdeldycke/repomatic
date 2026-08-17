@@ -45,12 +45,14 @@ from repomatic import __version__
 from repomatic.plugin import (
     AGENTS_DIR,
     ARCHIVE_NAME,
+    BIOME_DEFAULT_INDENT,
     MANIFEST_PATH,
     MARKETPLACE_NAME,
     MARKETPLACE_PATH,
     MARKETPLACE_REPO,
     PLUGIN_NAME,
     SKILLS_DIR,
+    _biome_json_indent,
     merge_plugin_settings,
     pack_plugin,
     render_plugin_settings,
@@ -378,6 +380,110 @@ def test_settings_wiring_is_format_json_shaped() -> None:
     assert '\n\t"enabledPlugins"' in rendered
     document = json.loads(rendered)
     assert list(document) == sorted(document)
+
+
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    (
+        pytest.param({}, "\t", id="nothing-declared"),
+        pytest.param(
+            {"pyproject.toml": '[tool.biome.formatter]\nindentStyle = "tab"\n'},
+            "\t",
+            id="pyproject-tab",
+        ),
+        pytest.param(
+            {
+                "pyproject.toml": (
+                    '[tool.biome.formatter]\nindentStyle = "space"\nindentWidth = 2\n'
+                )
+            },
+            "  ",
+            id="pyproject-two-spaces",
+        ),
+        pytest.param(
+            {"pyproject.toml": '[tool.biome.formatter]\nindentStyle = "space"\n'},
+            "  ",
+            id="pyproject-spaces-default-width",
+        ),
+        pytest.param(
+            {
+                "pyproject.toml": (
+                    '[tool.biome.formatter]\nindentStyle = "tab"\n'
+                    '[tool.biome.json.formatter]\nindentStyle = "space"\nindentWidth = 4\n'
+                )
+            },
+            "    ",
+            id="per-language-override-wins",
+        ),
+        pytest.param(
+            {
+                "biome.json": '{"formatter": {"indentStyle": "space", "indentWidth": 8}}',
+                "pyproject.toml": '[tool.biome.formatter]\nindentStyle = "tab"\n',
+            },
+            "        ",
+            id="native-file-replaces-pyproject",
+        ),
+        pytest.param(
+            {"biome.json": "{ // a comment no JSON parser accepts\n}"},
+            "\t",
+            id="unparseable-falls-back",
+        ),
+        pytest.param(
+            {
+                "pyproject.toml": (
+                    '[tool.biome.formatter]\nindentStyle = "space"\nindentWidth = 0\n'
+                )
+            },
+            "  ",
+            id="nonsense-width-falls-back",
+        ),
+    ),
+)
+def test_biome_json_indent_follows_the_declared_formatter(
+    tmp_path: Path, files: dict[str, str], expected: str
+) -> None:
+    """The indent is read from wherever `repomatic run biome` would read it."""
+    for name, content in files.items():
+        (tmp_path / name).write_text(content, encoding="UTF-8")
+    assert _biome_json_indent(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("declared", "indent"),
+    (
+        pytest.param("", BIOME_DEFAULT_INDENT, id="biome-default"),
+        pytest.param(
+            '[tool.biome.formatter]\nindentStyle = "space"\nindentWidth = 2\n',
+            "  ",
+            id="two-spaces",
+        ),
+    ),
+)
+def test_merge_plugin_settings_converges_under_the_declared_style(
+    tmp_path: Path, declared: str, indent: str
+) -> None:
+    """The write agrees with `format-json`, so the two cannot undo each other.
+
+    A repository declaring spaces used to get a tab-indented document back from
+    every run, which `format-json` reindented right back, leaving `sync-repomatic`
+    and the autofix lane opening pull requests against each other forever.
+    """
+    if declared:
+        (tmp_path / "pyproject.toml").write_text(declared, encoding="UTF-8")
+    target = tmp_path / "dotfiles" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        json.dumps({"permissions": {"allow": []}}, indent=indent, sort_keys=True)
+        + "\n",
+        encoding="UTF-8",
+    )
+
+    assert merge_plugin_settings(target, tmp_path) is True
+    written = target.read_text(encoding="UTF-8")
+    assert f'\n{indent}"enabledPlugins"' in written
+    # Re-running changes nothing, which is what keeps the two jobs from fighting.
+    assert merge_plugin_settings(target, tmp_path) is False
+    assert target.read_text(encoding="UTF-8") == written
 
 
 @pytest.mark.parametrize(
