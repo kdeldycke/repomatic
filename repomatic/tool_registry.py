@@ -1137,23 +1137,23 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "a69c9dbb110463746153bf9b56488a293747e1d90dc1f30d24af3d9615165b98",
+        ): "97d168c6c0d1dbcb36e7438eb489804748a2ba40d94fe21aa7dab7372e9efe9b",
         (
             LINUX,
             X86_64,
-        ): "5988392e88fc3d03f562f2d565e5c12a095223ae8bd983576f2aaff2fadf3738",
+        ): "b33f84c73d42cb592bea5d84c431030b1e97784817693380dfcec7d9575f871e",
         (
             MACOS,
             AARCH64,
-        ): "615a401629b5cc104bdc775ac962abd67ab2f3084f0b3b1ba9c51e9b76c3964f",
+        ): "9aad3927d095b6ade2aacb92b89ebaca442483c1f7cde5d7a2486b283c2ed5f9",
         (
             MACOS,
             X86_64,
-        ): "8f23d1bc9cd5b3f88e84f1cca77b461f6900aa20f2ecbf84f729cd12530c5a53",
+        ): "c45acf40a70cc02539c55555ac240bf5ef24544b7ea9959d22da19f606cec205",
         (
             WINDOWS,
             X86_64,
-        ): "0f57b33abb46c76258ac8e20be604a48208141d514bc2936b5200ed626976dd8",
+        ): "a5ad52c9c288dc99c2eae90dcad73dee64e39bf3f5aa5303c0fb55ac9c5f069b",
     },
     "shfmt": {
         (
@@ -1215,7 +1215,7 @@ VERSIONS: dict[str, str] = {
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
-    "oxipng": "10.1.1",
+    "oxipng": "10.2.0",
     "shfmt": "3.13.1",
     "typos": "1.49.0",
 }
@@ -1786,7 +1786,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "oxipng": ToolSpec(
         name="oxipng",
         display_name="Oxipng",
-        version="10.1.1",
+        version="10.2.0",
         source_url="https://github.com/shssoichiro/oxipng",
         cli_docs_url="https://github.com/shssoichiro/oxipng#usage",
         binary=BinarySpec(
