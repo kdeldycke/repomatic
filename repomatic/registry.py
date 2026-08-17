@@ -510,7 +510,9 @@ class RemovedAsset:
       {data}`UPSTREAM_REPO_SLUGS`) with no extra downstream jobs.
 
     Either way, a locally modified orphan is reported for manual review, never
-    deleted.
+    deleted. When {attr}`target` is already gone but the asset shipped as a
+    folder, an empty {attr}`owned_dir` left behind is pruned on its own: it
+    carries nothing anyone could lose.
     """
 
     component: str
@@ -541,6 +543,18 @@ class RemovedAsset:
 
     Empty for workflows, which are fingerprint-gated by their `uses:` line
     instead (see the class docstring)."""
+
+    owned_dir: str = ""
+    """Directory the asset had to itself, in default-location form (like
+    `.claude/skills/repomatic-release`), for an asset shipped as a folder.
+
+    A skill is a folder, so deleting its `SKILL.md` by any route other than
+    `init` (a hand `rm`, a repomatic old enough to unlink the file alone) leaves
+    the folder behind, empty. {attr}`target` no longer exists, so the tombstone
+    never fires again and the fossil outlives every later `init`. Declaring the
+    folder gives detection a second thing to look for. Empty for an asset that
+    shipped as a lone file in a shared directory (a subagent, a workflow), whose
+    parent must never be swept."""
 
     successor: str = ""
     """Optional human note describing what replaced the asset, shown in the
@@ -594,8 +608,10 @@ def _skill_dir(skill_id: str) -> str:
 def _skill_target(skill_id: str) -> str:
     """Build the default target path of a skill's `SKILL.md`.
 
-    Kept alongside {func}`_skill_dir` because {class}`RemovedAsset` tombstones
-    address individual files on a downstream repo's disk, not directories.
+    Kept alongside {func}`_skill_dir` because a {class}`RemovedAsset` tombstone
+    is gated on an individual file on a downstream repo's disk. It names the
+    folder too, through {attr}`RemovedAsset.owned_dir`, but only to catch what
+    an already-deleted file leaves behind.
     """
     return f"{_skill_dir(skill_id)}/{SKILL_FILENAME}"
 
@@ -923,10 +939,16 @@ def _removed_skill(
 
     Skills are content-gated: the *hashes* are the normalized contents the skill
     shipped across its released lifetime (see {attr}`RemovedAsset.hashes` for the
-    recipe that collects them).
+    recipe that collects them). A skill owns its whole folder, so the tombstone
+    carries that too (see {attr}`RemovedAsset.owned_dir`).
     """
     return RemovedAsset(
-        "skills", _skill_target(skill_id), removed_in, hashes, successor=successor
+        "skills",
+        _skill_target(skill_id),
+        removed_in,
+        hashes,
+        owned_dir=_skill_dir(skill_id),
+        successor=successor,
     )
 
 

@@ -82,6 +82,7 @@ from .registry import (
     BundledComponent,
     GeneratedComponent,
     InitDefault,
+    RemovedAsset,
     SyncMode,
     TemplateComponent,
     ToolConfigComponent,
@@ -1650,6 +1651,10 @@ def _detect_removed_assets(
     A file that is not recognizable as a repomatic-shipped orphan (a user's own
     workflow that merely shares a name) is left untouched.
 
+    A tombstoned file that is already gone is not the end of it: an asset that
+    shipped as a folder leaves that folder standing, and an empty one is
+    prunable on its own. See {func}`_empty_owned_dir`.
+
     :param output_dir: Root directory of the target repository.
     :param config: Repomatic config for `skills.location` / `agents.location`
         path overrides.
@@ -1662,6 +1667,9 @@ def _detect_removed_assets(
         rel = _resolve_target(asset.component, asset.target, config)
         path = output_dir / rel
         if not path.exists():
+            orphan_dir = _empty_owned_dir(asset, output_dir, config)
+            if orphan_dir:
+                prunable.append((orphan_dir, asset.successor))
             continue
         entry = (rel, asset.successor)
         if asset.component == "workflows":
@@ -1684,6 +1692,34 @@ def _detect_removed_assets(
     prunable.sort()
     review.sort()
     return prunable, review
+
+
+def _empty_owned_dir(
+    asset: RemovedAsset, output_dir: Path, config: Config | None
+) -> str:
+    """The folder a removed asset left behind empty, when there is one.
+
+    A tombstone addresses a file, so it stops firing the moment that file goes
+    by any route other than a full `init` prune: a hand `rm`, or a repomatic old
+    enough to unlink the file without sweeping its parent. An asset that shipped
+    as a folder then leaves that folder standing, empty, and invisible to every
+    later run of a check keyed on the file. Pruning it needs no content gate: an
+    empty directory holds nothing a repository could lose.
+
+    A folder that still holds files is left alone. Whatever is in it, repomatic
+    did not write it: its own entry point is the file already established as
+    missing.
+
+    :return: The folder's path relative to *output_dir*, or an empty string when
+        the asset owned no folder, the folder is gone too, or it is not empty.
+    """
+    if not asset.owned_dir:
+        return ""
+    rel = _resolve_target(asset.component, asset.owned_dir, config)
+    path = output_dir / rel
+    if not path.is_dir() or any(path.iterdir()):
+        return ""
+    return rel
 
 
 def _classify_removed_workflow(path: Path) -> str:

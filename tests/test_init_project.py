@@ -3558,6 +3558,16 @@ def test_removed_asset_metadata_valid(asset: RemovedAsset) -> None:
     assert asset.component in ALL_COMPONENTS or asset.target.startswith(".github/"), (
         f"{asset.component!r} is neither a live component nor a fixed .github/ path"
     )
+    # A skill ships as a folder, so its tombstone names that folder: without it
+    # the folder outlives its SKILL.md and no later init can see it again. Every
+    # other asset is a lone file in a directory it shares, which must never be
+    # swept.
+    if asset.component == "skills":
+        assert asset.owned_dir == asset.target.removesuffix(f"/{SKILL_FILENAME}"), (
+            f"{asset.target} does not declare the folder it owns"
+        )
+    else:
+        assert not asset.owned_dir, f"{asset.target} is not shipped as a folder"
 
 
 def test_detect_removed_assets_classifies_by_content(
@@ -3587,6 +3597,33 @@ def test_detect_removed_assets_classifies_by_content(
     # Real content change: review, never prunable.
     target.write_text(content + "local edit\n", encoding="UTF-8")
     assert _detect_removed_assets(tmp_path, None) == ([], [(rel, "moved on")])
+
+
+def test_detect_removed_assets_prunes_an_empty_owned_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A skill folder outliving its ``SKILL.md`` is an orphan nothing else sees."""
+    skill_dir = ".claude/skills/gone"
+    asset = RemovedAsset(
+        "skills",
+        f"{skill_dir}/{SKILL_FILENAME}",
+        "1.0.0",
+        ("0" * 64,),
+        owned_dir=skill_dir,
+        successor="moved on",
+    )
+    monkeypatch.setattr("repomatic.init_project.REMOVED_ASSETS", (asset,))
+
+    # Neither the file nor its folder: nothing to report.
+    assert _detect_removed_assets(tmp_path, None) == ([], [])
+
+    # The folder alone, empty: prunable, and reported as the folder.
+    (tmp_path / skill_dir).mkdir(parents=True)
+    assert _detect_removed_assets(tmp_path, None) == ([(skill_dir, "moved on")], [])
+
+    # Still carrying files: whatever they are, repomatic did not write them.
+    (tmp_path / skill_dir / "scripts").mkdir()
+    assert _detect_removed_assets(tmp_path, None) == ([], [])
 
 
 def _seed_orphan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str) -> Path:
