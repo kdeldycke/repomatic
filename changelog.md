@@ -14,7 +14,7 @@
 - New `cloudflare-pages` command reconciling the live Pages project against the declared `site.*` state: `--check`, `--apply`, `--dump`, and `--create` for rebuilding from nothing. Warns a month before the API token expires, which Cloudflare never signals.
 - New `cloudflare-pages --attach-domain` serving a project at a custom domain, creating the proxied `CNAME` record the bare API leaves missing.
 - New `cloudflare-config-drift` job in the Docs workflow running that check apart from the deploy, so drift is loud without holding up publishing.
-- `lint-repo` now fails a committed `_redirects` file that would lose rules to the Cloudflare Pages engine's silent budget accounting, naming each URL a dropped rule leaves dead or silently mis-redirected.
+- `lint-repo` now fails a committed `_redirects` file that would lose rules to the Cloudflare Pages engine's silent budget accounting, naming each URL a dropped rule leaves dead or silently misredirected.
 - `lint-repo` now warns when `wrangler.toml` contradicts the declared Cloudflare Pages project name or compatibility date, and checks a migrated site keeps its GitHub Pages custom domain pointing at the new host so published `github.io` URLs keep redirecting.
 - The Cloudflare deploy job now drops files over Direct Upload's 25 MiB per-file limit, naming each in the log, instead of failing the whole upload on the first one.
 - The Docs workflow now runs monthly, mirrored into downstream callers: a lapsed Cloudflare token becomes a red run, and link rot surfaces between pushes.
