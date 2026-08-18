@@ -125,6 +125,12 @@ def history():
     return records
 
 
+@pytest.fixture(autouse=True)
+def _reset_refusal_streak(monkeypatch):
+    """Reset the wayback refusal streak, run-scoped state held across calls."""
+    monkeypatch.setattr("repomatic.metrics._WAYBACK_REFUSAL_STREAK", 0)
+
+
 # ---------------------------------------------------------------------------
 # The registry.
 # ---------------------------------------------------------------------------
@@ -536,6 +542,79 @@ def test_backfill_wayback_runs_unwatched(monkeypatch):
         "repomatic.metrics.fetch", lambda url, **kwargs: WAYBACK_MARKUPS[0].encode()
     )
     assert backfill_wayback({}, "papaya", PAPAYA).rows == 1
+
+
+def test_backfill_wayback_abandons_on_a_refusal_streak(monkeypatch):
+    """Check a spent budget stops the run instead of paying every retry left."""
+    monkeypatch.setattr("repomatic.metrics.time.sleep", lambda seconds: None)
+    monkeypatch.setattr("repomatic.metrics.WAYBACK_REFUSAL_LIMIT", 2)
+    monkeypatch.setattr(
+        "repomatic.metrics.wayback_captures",
+        lambda path: [f"2022010{index}000000" for index in range(1, 6)],
+    )
+    calls: list[str] = []
+
+    def refused(url, **kwargs):
+        calls.append(url)
+
+    monkeypatch.setattr("repomatic.metrics.fetch", refused)
+    outcome = backfill_wayback({}, "papaya", PAPAYA)
+    assert outcome.rows == 0
+    assert "refused in a row" in outcome.note
+    assert "retry later" in outcome.note
+    # The run stopped at the limit, sparing the remaining captures' retries.
+    assert len(calls) == 2
+
+
+def test_backfill_wayback_streak_resets_on_a_served_page(monkeypatch):
+    """Check a served page proves the archive healthy and clears the streak."""
+    monkeypatch.setattr("repomatic.metrics.time.sleep", lambda seconds: None)
+    monkeypatch.setattr("repomatic.metrics.WAYBACK_REFUSAL_LIMIT", 2)
+    monkeypatch.setattr(
+        "repomatic.metrics.wayback_captures",
+        lambda path: [f"2022010{index}000000" for index in range(1, 5)],
+    )
+    # Refused, served, refused, served: the streak never reaches the limit.
+    pages = iter([
+        None,
+        WAYBACK_MARKUPS[0].encode(),
+        None,
+        WAYBACK_MARKUPS[0].encode(),
+    ])
+    monkeypatch.setattr("repomatic.metrics.fetch", lambda url, **kwargs: next(pages))
+    outcome = backfill_wayback({}, "papaya", PAPAYA)
+    assert outcome.rows == 2
+    assert outcome.note == "4 captures"
+
+
+def test_backfill_wayback_skips_subjects_once_the_budget_is_spent(monkeypatch):
+    """Check the streak outlives its subject: the budget is per IP, not repo."""
+    monkeypatch.setattr("repomatic.metrics._WAYBACK_REFUSAL_STREAK", 10)
+
+    def unspent_index(path):
+        raise AssertionError("the capture index must not be read")
+
+    monkeypatch.setattr("repomatic.metrics.wayback_captures", unspent_index)
+    outcome = backfill_wayback({}, "papaya", PAPAYA)
+    assert outcome.rows == 0
+    assert "skipped" in outcome.note
+
+
+def test_backfill_wayback_reports_a_recovered_point_once(monkeypatch):
+    """Check a watcher's line replaces the log's, not joins it."""
+    monkeypatch.setattr("repomatic.metrics.time.sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        "repomatic.metrics.wayback_captures", lambda path: ["20220101000000"]
+    )
+    monkeypatch.setattr(
+        "repomatic.metrics.fetch", lambda url, **kwargs: WAYBACK_MARKUPS[0].encode()
+    )
+    logged: list[str] = []
+    monkeypatch.setattr("repomatic.metrics.logging.info", logged.append)
+    rows: list[str] = []
+    backfill_wayback({}, "papaya", PAPAYA, on_row=rows.append)
+    assert rows == ["fruits/papaya 2022-01-01: 4,412 stars"]
+    assert logged == []
 
 
 def test_fetch_names_why_it_gave_up(monkeypatch):

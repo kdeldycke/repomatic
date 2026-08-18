@@ -187,6 +187,17 @@ per-try success rate that matters was 2 in 25, and eight tries is the point
 past which more attempts cost more than the captures they recover.
 """
 
+WAYBACK_REFUSAL_LIMIT = 10
+"""Consecutive refused captures tolerated before the run abandons the archive.
+
+A served page proves the archive healthy whatever it holds, so only refusals
+extend the streak, and any payload resets it. Sized against the healthy
+success rate {data}`WAYBACK_PAGE_TRIES` buys: with eight tries a capture
+lands about half the time, so ten misses in a row happens by luck roughly
+once in a thousand runs. Past it the per-IP budget is spent for a while, and
+every further capture only burns a full retry schedule proving it again.
+"""
+
 WAYBACK_REQUEST_DELAY = 3.0
 """Seconds to wait between two archived pages.
 
@@ -233,6 +244,15 @@ _LAST_FETCH_REASONS: Counter[str] = Counter()
 Module-level rather than returned, so the retry loop keeps its `bytes | None`
 signature while the caller can still report what went wrong. Only ever read
 straight after a `None`, through {func}`last_fetch_failure`.
+"""
+
+_WAYBACK_REFUSAL_STREAK = 0
+"""Captures refused in a row across the whole backfill, not just one subject.
+
+The archive's budget is per IP and shared by every subject a run mines, so
+the streak outlives the subject it started in: a backfill that trips
+{data}`WAYBACK_REFUSAL_LIMIT` on one repository must not spend the next
+one's retry schedule too.
 """
 
 
@@ -821,8 +841,12 @@ def backfill_wayback(
         persistent line per result. Misses stay on the `INFO` log instead: the
         archive refuses far more captures than it serves, and a line each would
         bury the handful that landed.
-    :return: What the backfill produced.
+    :return: What the backfill produced. When the archive refuses
+        {data}`WAYBACK_REFUSAL_LIMIT` captures in a row, the run is abandoned
+        with a retry-later note and every later subject is skipped: the budget
+        is per IP, so no following subject stands a better chance.
     """
+    global _WAYBACK_REFUSAL_STREAK
     host, path = split_repo_url(repo)
     if host != GITHUB_HOST:
         return SampleOutcome(
@@ -838,6 +862,16 @@ def backfill_wayback(
         # repositories that have no other source of history.
         return SampleOutcome(
             subject, repo, phase="wayback", note="already reconstructed exactly"
+        )
+    if _WAYBACK_REFUSAL_STREAK >= WAYBACK_REFUSAL_LIMIT:
+        # A streak this long means the per-IP budget is spent for a while, and
+        # the next subject shares it: skipping the index read spares one more
+        # request to an archive answering nothing but refusals.
+        return SampleOutcome(
+            subject,
+            repo,
+            phase="wayback",
+            note="skipped, the archive refused this run's earlier captures",
         )
 
     if on_status:
@@ -868,8 +902,19 @@ def backfill_wayback(
             tries=WAYBACK_PAGE_TRIES,
         )
         if not payload:
+            _WAYBACK_REFUSAL_STREAK += 1
             logging.info(f"  {path} {day}: unreachable ({last_fetch_failure()})")
+            if _WAYBACK_REFUSAL_STREAK >= WAYBACK_REFUSAL_LIMIT:
+                note = (
+                    f"{_WAYBACK_REFUSAL_STREAK} captures refused in a row "
+                    f"({last_fetch_failure()}), retry later"
+                )
+                return SampleOutcome(
+                    subject, repo, phase="wayback", rows=rows, note=note
+                )
             continue
+        # A served page proves the archive healthy whatever it holds.
+        _WAYBACK_REFUSAL_STREAK = 0
         stars = read_star_counter(payload.decode("utf-8", errors="replace"))
         if stars is None:
             logging.info(f"  {path} {day}: no counter found")
@@ -880,7 +925,8 @@ def backfill_wayback(
                 save_metrics(store, records)
             if on_row:
                 on_row(f"{path} {day}: {stars:,} stars")
-        logging.info(f"  {path} {day}: {stars} stars")
+            else:
+                logging.info(f"  {path} {day}: {stars} stars")
     return SampleOutcome(
         subject, repo, phase="wayback", rows=rows, note=f"{len(stamps)} captures"
     )
