@@ -124,6 +124,7 @@ code paths.
 
 SAMPLE_HEADER_DEFS: tuple[tuple[str, str], ...] = (
     ("Subject", "subject"),
+    ("Phase", "phase"),
     ("Repository", "repository"),
     ("Stars", "stars"),
     ("Rows", "rows"),
@@ -392,6 +393,14 @@ class SampleOutcome:
     repo: str
     """Canonical URL it read from."""
 
+    phase: str
+    """Sampling lane that produced this outcome.
+
+    One of `forward`, `reconstruct`, `import` or `wayback`. The CLI reports
+    one row per subject per lane, and the columns mean different things in
+    each, so the row names the lane whose semantics it carries.
+    """
+
     stars: int | None = None
     """Its current star count, when the collector read one."""
 
@@ -651,9 +660,9 @@ def sample_subject(
         # answering a payload of a shape nobody anticipated, or a forge added
         # without its API declared must cost one row, not every other reading
         # the run collected.
-        return SampleOutcome(subject, repo, note=str(error)[:110])
+        return SampleOutcome(subject, repo, phase="forward", note=str(error)[:110])
     if metrics is None:
-        return SampleOutcome(subject, repo, note="unreadable")
+        return SampleOutcome(subject, repo, phase="forward", note="unreadable")
 
     rows = 0
     for metric_id, value in metrics.readings():
@@ -668,7 +677,7 @@ def sample_subject(
                 records, MetricRecord(repo, "stars", metrics.created, "0", "created")
             )
         )
-    return SampleOutcome(subject, repo, stars=metrics.stars, rows=rows)
+    return SampleOutcome(subject, repo, phase="forward", stars=metrics.stars, rows=rows)
 
 
 def reconstruct_from_github(
@@ -696,7 +705,10 @@ def reconstruct_from_github(
     host, path = split_repo_url(repo)
     if host != GITHUB_HOST:
         return SampleOutcome(
-            subject, repo, note=f"{host} serves no per-star timestamps"
+            subject,
+            repo,
+            phase="reconstruct",
+            note=f"{host} serves no per-star timestamps",
         )
 
     per_day: Counter[str] = Counter()
@@ -715,12 +727,22 @@ def reconstruct_from_github(
             detail = str(error).strip().splitlines()
             reason = detail[0][:80] if detail else "unknown error"
             if page == 1 and "Not Found" in str(error):
-                return SampleOutcome(subject, repo, note="not an admin, not readable")
+                return SampleOutcome(
+                    subject,
+                    repo,
+                    phase="reconstruct",
+                    note="not an admin, not readable",
+                )
             return SampleOutcome(
-                subject, repo, note=f"abandoned on page {page}: {reason}"
+                subject,
+                repo,
+                phase="reconstruct",
+                note=f"abandoned on page {page}: {reason}",
             )
         except json.JSONDecodeError:
-            return SampleOutcome(subject, repo, note=f"unparsable page {page}")
+            return SampleOutcome(
+                subject, repo, phase="reconstruct", note=f"unparsable page {page}"
+            )
         if not batch:
             break
         for entry in batch:
@@ -728,7 +750,9 @@ def reconstruct_from_github(
         page += 1
 
     if not per_day:
-        return SampleOutcome(subject, repo, note="the endpoint answered empty")
+        return SampleOutcome(
+            subject, repo, phase="reconstruct", note="the endpoint answered empty"
+        )
 
     days = sorted(per_day)
     rows = 0
@@ -736,7 +760,9 @@ def reconstruct_from_github(
         rows += int(
             upsert(records, MetricRecord(repo, "stars", day, str(total), "github"))
         )
-    return SampleOutcome(subject, repo, stars=per_day.total(), rows=rows)
+    return SampleOutcome(
+        subject, repo, phase="reconstruct", stars=per_day.total(), rows=rows
+    )
 
 
 def wayback_captures(path: str) -> list[str] | None:
@@ -799,7 +825,9 @@ def backfill_wayback(
     """
     host, path = split_repo_url(repo)
     if host != GITHUB_HOST:
-        return SampleOutcome(subject, repo, note=f"{host} pages are not mined")
+        return SampleOutcome(
+            subject, repo, phase="wayback", note=f"{host} pages are not mined"
+        )
     if any(
         held.repo == repo and held.metric == "stars" and held.source == "github"
         for held in records.values()
@@ -808,7 +836,9 @@ def backfill_wayback(
         # would only add a second, differently-measured curve over the same
         # dates. The archives are slow and rate-limited: spend them on the
         # repositories that have no other source of history.
-        return SampleOutcome(subject, repo, note="already reconstructed exactly")
+        return SampleOutcome(
+            subject, repo, phase="wayback", note="already reconstructed exactly"
+        )
 
     if on_status:
         on_status(f"{path}: reading the capture index")
@@ -817,7 +847,7 @@ def backfill_wayback(
         # Loud, and distinct from "nothing was ever archived": this repository
         # still has a past to mine, so the next run must come back to it.
         note = f"capture index unreadable ({last_fetch_failure()}), retry later"
-        return SampleOutcome(subject, repo, note=note)
+        return SampleOutcome(subject, repo, phase="wayback", note=note)
 
     rows = 0
     for index, stamp in enumerate(stamps, start=1):
@@ -851,7 +881,9 @@ def backfill_wayback(
             if on_row:
                 on_row(f"{path} {day}: {stars:,} stars")
         logging.info(f"  {path} {day}: {stars} stars")
-    return SampleOutcome(subject, repo, rows=rows, note=f"{len(stamps)} captures")
+    return SampleOutcome(
+        subject, repo, phase="wayback", rows=rows, note=f"{len(stamps)} captures"
+    )
 
 
 def read_star_counter(html: str) -> int | None:
@@ -953,7 +985,13 @@ def import_star_history_csv(
         )
         raise ValueError(msg)
     return [
-        SampleOutcome(repo, repo, rows=imported[repo], note=f"{seen[repo]} rows")
+        SampleOutcome(
+            repo,
+            repo,
+            phase="import",
+            rows=imported[repo],
+            note=f"{seen[repo]} rows",
+        )
         for repo in sorted(seen)
     ]
 

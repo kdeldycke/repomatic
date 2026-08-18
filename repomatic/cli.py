@@ -3551,6 +3551,7 @@ def sample_metrics(
         [
             (
                 outcome.subject,
+                outcome.phase,
                 outcome.repo,
                 str(outcome.stars) if outcome.stars is not None else "—",
                 str(outcome.rows),

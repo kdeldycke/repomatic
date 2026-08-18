@@ -12,6 +12,8 @@
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.
 - Fix `format-images` dropping its optimization summary table from the PR body, lost in `7.11.0` when its two PR-publishing steps collapsed into one.
 - `cloudflare-pages --create` is now idempotent: an existing Pages project is reused and reconciled against the declared settings, instead of failing on the API's `409` duplicate-name refusal.
+- Fix `sample-metrics` abandoning the tail of a sampling pass to GitHub's secondary rate limit: the `gh` plumbing now retries a `No server is currently available` refusal with the same token on a bounded backoff, the way it already absorbs transient 401s. A burst of back-to-back reads of a hundred-odd repositories trips the limit, which then refuses every remaining call of the run; the refusal lifts on its own within the minute, which the retry spends sleeping.
+- `sample-metrics` names the phase (`forward`, `reconstruct`, `import` or `wayback`) in a new column of its report table, so a subject repeating once per lane that ran is readable as one outcome per phase rather than as duplicates.
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 

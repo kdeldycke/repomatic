@@ -60,6 +60,7 @@ def _no_transient_retry():
     """
     with (
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", ()),
+        patch("repomatic.github.gh._TRANSIENT_THROTTLE_BACKOFF_SECONDS", ()),
         patch("repomatic.github.gh.time.sleep"),
     ):
         yield
@@ -443,6 +444,67 @@ def test_non_401_skips_transient_retry():
             run_gh_command(["issue", "list"])
         assert mock_run.call_count == 1
         mock_sleep.assert_not_called()
+
+
+# -- Transient same-token retry on secondary rate limits ----------------------
+
+
+_THROTTLE_STDERR = (
+    "GraphQL: No server is currently available to service your request. "
+    "Sorry about that. Please try resubmitting your request later."
+)
+
+
+def test_secondary_limit_clears_on_same_token_retry():
+    """A throttled call that clears on the same token resolves without fallback."""
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_THROTTLE_BACKOFF_SECONDS", (15, 30)),
+        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch.dict(
+            "os.environ",
+            {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
+            clear=True,
+        ),
+    ):
+        mock_run.side_effect = [
+            _make_result(returncode=1, stderr=_THROTTLE_STDERR),
+            _make_result(stdout="retry ok\n"),
+        ]
+        assert run_gh_command(["api", "graphql"]) == "retry ok\n"
+        assert mock_run.call_count == 2
+        # Second attempt used the same token, after one sleep.
+        first_env = mock_run.call_args_list[0].kwargs["env"]
+        second_env = mock_run.call_args_list[1].kwargs["env"]
+        assert first_env["GH_TOKEN"] == second_env["GH_TOKEN"] == "pat-value"
+        mock_sleep.assert_called_once_with(15)
+
+
+def test_secondary_limit_retry_exhausts_then_raises():
+    """An exhausted throttle schedule raises, without the cross-token fallback.
+
+    A throttled token is not a wrong one: swapping credentials against an
+    abuse-detection refusal would only spread the burst across two
+    identities, so the fallback stays scoped to auth markers.
+    """
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_THROTTLE_BACKOFF_SECONDS", (15, 30)),
+        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch.dict(
+            "os.environ",
+            {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value", "GITHUB_TOKEN": "gha"},
+            clear=True,
+        ),
+    ):
+        mock_run.return_value = _make_result(returncode=1, stderr=_THROTTLE_STDERR)
+        with pytest.raises(RuntimeError, match="No server is currently available"):
+            run_gh_command(["api", "graphql"])
+        # 1 initial + 2 same-token retries, and no GITHUB_TOKEN attempt.
+        assert mock_run.call_count == 3
+        assert [c.args[0] for c in mock_sleep.call_args_list] == [15, 30]
+        for call in mock_run.call_args_list:
+            assert call.kwargs["env"]["GH_TOKEN"] == "pat-value"
 
 
 def test_bad_credentials_raises_without_waiting():

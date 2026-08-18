@@ -87,6 +87,30 @@ raise. Stays small on purpose: two retries (1s + 3s) cover the common
 GitHub auth-flap window without disguising a genuine credential
 problem behind seconds of idle wait."""
 
+_TRANSIENT_THROTTLE_MARKERS = (
+    "No server is currently available to service your request",
+)
+"""GitHub's secondary rate limit, as answered to a burst of API calls.
+
+Unlike the primary limit, which counts requests per hour, this one fires on
+the shape of the traffic: too many calls in too short a window. A
+`sample-metrics` forward pass reads a hundred-odd repositories back to back,
+and the star reconstruction pages through every stargazer a hundred at a
+time; either burst can trip it, which then refuses every remaining call of
+the run alike. The refusal lifts on its own within the minute, so the
+same-token retry spends its schedule sleeping rather than failing the tail
+of the run."""
+
+_TRANSIENT_THROTTLE_BACKOFF_SECONDS = (15, 30, 60)
+"""Sleep durations between bounded same-token retries on a secondary limit.
+
+Sized to the refusal's own timescale: it clears within the minute, so the
+first wait already lands past most of them, and the schedule's whole budget
+of 105 seconds stays cheaper than the re-run a failed sampling pass costs.
+Unlike the auth schedule this one never feeds the cross-token fallback: a
+throttled token is not a wrong one, and swapping credentials against an
+abuse-detection refusal would only spread the burst across two identities."""
+
 
 def _matched_marker(stderr: str, markers: tuple[str, ...]) -> str | None:
     """Return the first *markers* entry present in *stderr*.
@@ -97,8 +121,7 @@ def _matched_marker(stderr: str, markers: tuple[str, ...]) -> str | None:
     so a shared default would hide the distinction.
 
     :param stderr: The failed command's standard error.
-    :param markers: Either {data}`_TRANSIENT_AUTH_MARKERS` or
-        {data}`_AUTH_FALLBACK_MARKERS`.
+    :param markers: One of the marker families of this module.
     :return: The matched marker, or `None`.
     """
     return next((m for m in markers if m in stderr), None)
@@ -191,7 +214,10 @@ def run_gh_command(args: list[str]) -> str:
     bounded back-off (see `_TRANSIENT_AUTH_BACKOFF_SECONDS`), absorbing
     transient GitHub auth flaps that resolve on their own; a `Bad
     credentials` 401 skips straight past it, since a revoked or expired
-    token cannot clear on a retry.  If 401s persist, the command is
+    token cannot clear on a retry. A secondary rate-limit refusal gets the
+    same treatment on its own, longer schedule (see
+    `_TRANSIENT_THROTTLE_BACKOFF_SECONDS`), since it lifts on its own
+    within the minute. If 401s persist, the command is
     then retried with `GITHUB_TOKEN` if available and different, letting
     CI jobs degrade gracefully to the standard Actions token instead of
     failing outright on a stale PAT.  When every retry path is exhausted,
@@ -217,18 +243,26 @@ def run_gh_command(args: list[str]) -> str:
     process = run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
 
     # Bounded same-token retry, before the cross-token fallback. Catches
-    # transient GitHub auth flaps where a re-run with the same credential
-    # clears the failure. Scoped to _TRANSIENT_AUTH_MARKERS: a revoked token
-    # cannot clear, so it must not pay this wait.
-    for delay in _TRANSIENT_AUTH_BACKOFF_SECONDS:
-        if not process.returncode:
+    # transient GitHub failures a re-run with the same credential clears:
+    # auth flaps, within seconds, and secondary rate limits, within the
+    # minute, each paying its own schedule. Scoped to those two marker
+    # families: anything else must not pay the wait.
+    auth_delays = iter(_TRANSIENT_AUTH_BACKOFF_SECONDS)
+    throttle_delays = iter(_TRANSIENT_THROTTLE_BACKOFF_SECONDS)
+    while process.returncode:
+        if marker := _matched_marker(process.stderr, _TRANSIENT_AUTH_MARKERS):
+            delay = next(auth_delays, None)
+            failure = f"returned 401 ({marker})"
+        elif marker := _matched_marker(process.stderr, _TRANSIENT_THROTTLE_MARKERS):
+            delay = next(throttle_delays, None)
+            failure = f"hit a secondary rate limit ({marker})"
+        else:
             break
-        marker = _matched_marker(process.stderr, _TRANSIENT_AUTH_MARKERS)
-        if marker is None:
+        if delay is None:
             break
         logging.warning(
-            "gh command returned 401 (%s), retrying in %ds with the same token.",
-            marker,
+            "gh command %s, retrying in %ds with the same token.",
+            failure,
             delay,
         )
         time.sleep(delay)
