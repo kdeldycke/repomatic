@@ -9,7 +9,6 @@ labels: [🤖 ci]
 
 Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
-- [`agent.location`](https://repomatic.net/configuration#agent-location)
 - [`awesome-template.sync`](https://repomatic.net/configuration#awesome-template-sync)
 - [`exclude`](https://repomatic.net/configuration#exclude)
 - [`include`](https://repomatic.net/configuration#include)

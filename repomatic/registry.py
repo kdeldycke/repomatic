@@ -302,8 +302,8 @@ class Component:
     destination, when the user can move it.
 
     Set for every component whose destination is configurable: the directories
-    `subagents` and `skills` write into, and the single files `plugin` and
-    `agent` merge into. Declared targets are built against the *default*
+    `subagents` and `skills` write into, and the single file `plugin`
+    merges into. Declared targets are built against the *default*
     location, so a repo that overrode it needs each target rebased onto the
     configured one. {meth}`resolve_target` performs that rebase, and leaving
     this empty means the targets are fixed (`.github/workflows/` is GitHub's,
@@ -327,7 +327,7 @@ class Component:
         through this method instead of testing the component name first.
 
         Handles both shapes a location may take. A directory location rebases
-        the path under it; a file location (`plugin`, `agent`) *is* the path, so
+        the path under it; a file location (`plugin`) *is* the path, so
         it is replaced outright. Matching only the directory shape would leave a
         moved file reported at its default path, and stale-file detection would
         then hunt for an orphan the repository never wrote there.
@@ -799,26 +799,6 @@ COMPONENTS: tuple[Component, ...] = (
         keep_unmodified=True,
         location_field="settings_location",
         target=location_path(Config.settings_location),
-    ),
-    GeneratedComponent(
-        name="agent",
-        description="Audience-tagged sections of the agent instructions file",
-        # Opt-in, for the reason `plugin` above is: this one rewrites a document
-        # the repository already maintains, and its first run moves that
-        # document's own sections below the managed block. Handing the
-        # instructions file over to the sync is a decision a maintainer makes
-        # once, in a reviewable diff, rather than something a bare
-        # `repomatic init` does to them.
-        init_default=InitDefault.EXCLUDE,
-        # Sections are merged into a file the repository owns, so a document
-        # matching upstream is the steady state, not a stale copy to clean up.
-        keep_unmodified=True,
-        # Follows `[tool.repomatic.flavor] agent` through `AgentLayout`, with
-        # `agent.location` overriding it: the filename an agent runtime reads
-        # is per-runtime (`claude.md`, `AGENTS.md`), and a repository may keep
-        # it outside the root entirely.
-        location_field="agent_location",
-        target=location_path(Config.agent_location),
     ),
     # --- Tool config components (merged into pyproject.toml) ---
     ToolConfigComponent(

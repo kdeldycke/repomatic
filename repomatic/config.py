@@ -178,19 +178,7 @@ class AgentLayout:
     subagents: str
     """Directory holding subagent definitions.
 
-    Named for what it holds, not for the agent reading it: `agents` invited a
-    one-character confusion with {attr}`instructions`, whose component and
-    config key are `agent`, and the two write entirely different things.
-    """
-
-    instructions: str
-    """File holding the agent's own instructions, read on every session.
-
-    A file, like {attr}`settings`, and merged into rather than written whole:
-    repomatic owns the audience-tagged sections and the repository owns the
-    rest. The name each agent expects differs (`claude.md` for Claude Code,
-    `AGENTS.md` for the cross-agent convention), which is the whole reason this
-    is a layout field rather than the constant it started as.
+    Named for what it holds, not for the agent reading it.
     """
 
     settings: str
@@ -206,7 +194,6 @@ AGENT_LAYOUTS: Final[dict[str, AgentLayout]] = {
     "claude_code": AgentLayout(
         skills="./.claude/skills/",
         subagents="./.claude/agents/",
-        instructions="./claude.md",
         settings="./.claude/settings.json",
     ),
 }
@@ -917,29 +904,6 @@ class Config:
     pin actions by hand can set this to `false`.
     """
 
-    agent_location: str = field(
-        default=AGENT_LAYOUTS[DEFAULT_AGENT].instructions,
-        metadata={CONFIG_PATH_METADATA_KEY: "agent.location"},
-    )
-    """Path to the agent's instructions file, relative to the repository root.
-
-    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
-    explicitly overrides that.
-
-    Only the `agent` component writes here, merging the audience-tagged
-    sections it owns into whatever the file already holds. Point it at
-    `AGENTS.md` for the cross-agent convention, or anywhere else the file
-    actually lives: a repository keeping its instructions outside the root
-    (`./dotfiles/.agents/AGENTS.md`) is the case this exists for.
-
-    ```{caution}
-    One character from {attr}`subagents_location`, and they write different
-    things: this one an instructions document, that one a directory of subagent
-    definitions. The components are `agent` and `subagents` for the same
-    reason.
-    ```
-    """
-
     awesome_template_sync: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "awesome-template.sync"},
@@ -1503,8 +1467,6 @@ class Config:
             self.skills_location = layout.skills
         if self.subagents_location == default.subagents:
             self.subagents_location = layout.subagents
-        if self.agent_location == default.instructions:
-            self.agent_location = layout.instructions
         if self.settings_location == default.settings:
             self.settings_location = layout.settings
         if self.site_deploy not in SITE_DEPLOY_TARGETS:
@@ -1527,7 +1489,6 @@ class Config:
 SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "abandoned_versions",
     "action_pins_sync",
-    "agent_location",
     "awesome_template_sync",
     "bumpversion_sync",
     "cache",

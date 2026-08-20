@@ -27,15 +27,6 @@
    :undoc-members:
 ```
 
-## `tests.test_agent_md` module
-
-```{eval-rst}
-.. automodule:: tests.test_agent_md
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `tests.test_attestation` module
 
 ```{eval-rst}

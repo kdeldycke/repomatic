@@ -17,7 +17,7 @@ $ uvx -- repomatic init subagents/grunt-qa
 Selectors use the same `component[/file]` syntax as the `exclude` config option in [`[tool.repomatic]`](configuration.md).
 
 ```{note}
-The component is `subagents`, not `agents`, because `agent` is the neighbouring component writing the instructions file this page's siblings describe. The two used to differ by one character while doing entirely different things.
+The component is `subagents`, not `agents`: the name follows what it ships, one folder per subagent, and keeps it distinct from the agent runtime reading those definitions.
 ```
 
 These same subagents are also published as a Claude Code plugin, which installs them without committing any copy to your repository: see [§ Claude Code plugin](plugin.md).

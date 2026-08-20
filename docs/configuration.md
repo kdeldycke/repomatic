@@ -227,19 +227,7 @@ while a real ecosystem repomatic has not implemented says so plainly:
 Unsupported [tool.repomatic] flavor.ci = 'gitlab_ci'. repomatic targets: github_ci.
 ```
 
-`flavor.agent` drives where assets land: leave `skills.location`, `subagents.location`, `agent.location` and `settings.location` unset and each follows the agent's own layout, while setting one explicitly overrides it for that asset alone. Defaults are static and never auto-detected: deriving them from the running agent would make a repository's effective configuration depend on which tool last invoked repomatic, and `repomatic metadata` would stop being reproducible.
-
-`agent.location` is the one worth setting by hand, because the file it names is the only asset a repository is likely to already own under a name of its own choosing. It defaults to the selected agent's own filename (`./claude.md` for Claude Code), and pointing it at the cross-agent `AGENTS.md`, or anywhere outside the root, is what lets `repomatic init agent` sync a document that already exists rather than creating a second one beside it:
-
-```toml
-[tool.repomatic]
-include = ["agent"]
-agent.location = "./dotfiles/.agents/AGENTS.md"
-```
-
-```{caution}
-`agent.location` and `subagents.location` differ by one character and name different things: the first an instructions document, the second a directory of subagent definitions. Setting the wrong one is silent, since neither is validated against the other.
-```
+`flavor.agent` drives where assets land: leave `skills.location`, `subagents.location` and `settings.location` unset and each follows the agent's own layout, while setting one explicitly overrides it for that asset alone. Defaults are static and never auto-detected: deriving them from the running agent would make a repository's effective configuration depend on which tool last invoked repomatic, and `repomatic metadata` would stop being reproducible.
 
 ### Repository scope
 
