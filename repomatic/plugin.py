@@ -370,7 +370,7 @@ def _biome_json_indent(root: Path) -> str:
     if style != "space":
         return BIOME_DEFAULT_INDENT
     if not isinstance(width, int) or isinstance(width, bool) or width < 1:
-        width = BIOME_DEFAULT_INDENT_WIDTH
+        return " " * BIOME_DEFAULT_INDENT_WIDTH
     return " " * width
 
 
