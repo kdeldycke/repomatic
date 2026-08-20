@@ -286,6 +286,8 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 
 ### 🩺 [`.github/workflows/debug.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/debug.yaml)
 
+Opt-in: `repomatic init` only materializes this file for a repository that set `debug.sync = true`. Its output answers a question a maintainer asks while chasing a runner difference and nothing else reads, so a repository not asking it should not spend a monthly matrix of runners producing logs.
+
 #### 🩺 Dump context (`dump-context`)
 
 - Dumps the GitHub Actions contexts, the environment variables, and the runner's kernel, disk, CPU and memory across all build targets
@@ -296,6 +298,8 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
   - Monthly schedule
   - Manual dispatch
   - `workflow_call` from downstream repositories
+- **Skipped if**:
+  - `debug.sync = false` in `[tool.repomatic]` (the default; the thin caller workflow is not generated)
 
 (github-workflows-cancel-runs-yaml-jobs)=
 

@@ -983,6 +983,19 @@ class Config:
     )
     """File path of the changelog, relative to the root of the repository."""
 
+    debug_sync: bool = field(
+        default=False,
+        metadata={CONFIG_PATH_METADATA_KEY: "debug.sync"},
+    )
+    """Whether the `debug.yaml` workflow is deployed to this project.
+
+    Opt-in: the workflow dumps the GitHub contexts and the runner's host probes
+    across every build target, which answers a question a maintainer asks while
+    chasing a runner difference and nothing else reads. Left on by default it
+    spends a monthly matrix of runners, the scarce macOS and Windows ones
+    included, producing logs nobody opens.
+    """
+
     dep_sources_sync: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "dep-sources.sync"},
@@ -1023,7 +1036,7 @@ class Config:
     Additive to the default exclusions (`agents`, `labels`, `skills`). Bare
     names exclude an entire component (e.g., `"workflows"`). Qualified
     `component/identifier` entries exclude a specific file within a component
-    (e.g., `"workflows/debug.yaml"`, `"skills/repomatic-audit"`,
+    (e.g., `"workflows/autolock.yaml"`, `"skills/repomatic-audit"`,
     `"labels/labels.toml"`).
 
     Affects `repomatic init`, `workflow sync`, and `workflow create`.
@@ -1495,6 +1508,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "changelog_archive_location",
     "changelog_bullet_word_threshold",
     "changelog_location",
+    "debug_sync",
     "dep_sources_sync",
     "dependency_graph",
     "dev_release_sync",

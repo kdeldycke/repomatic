@@ -755,7 +755,11 @@ COMPONENTS: tuple[Component, ...] = (
             _workflow_entry("autolock.yaml"),
             _workflow_entry("cancel-runs.yaml"),
             _workflow_entry("changelog.yaml", scope=RepoScope.PACKAGE_ONLY),
-            _workflow_entry("debug.yaml", scope=RepoScope.PYTHON_ONLY),
+            _workflow_entry(
+                "debug.yaml",
+                scope=RepoScope.PYTHON_ONLY,
+                config_key="debug.sync",
+            ),
             _workflow_entry("docs.yaml"),
             _workflow_entry("labels.yaml"),
             _workflow_entry("lint.yaml"),
@@ -1458,7 +1462,7 @@ def parse_component_entries(
                 f"Unknown {context} {entry!r}. Use a component name"
                 f" ({', '.join(sorted(ALL_COMPONENTS))}) or a"
                 " qualified component/file entry"
-                " (e.g., 'workflows/debug.yaml')."
+                " (e.g., 'workflows/autolock.yaml')."
             )
             raise ValueError(msg)
 

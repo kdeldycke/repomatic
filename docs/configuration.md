@@ -16,6 +16,7 @@ awesome-template.sync = false
 binaries.sync = false
 bumpversion.sync = false
 cache.max-age = 14
+debug.sync = true
 dep-sources.sync = false
 dev-release.sync = false
 gitignore.sync = false
@@ -46,7 +47,7 @@ gitignore.extra-content = '''
 .claude/
 '''
 
-exclude = ["skills", "workflows/debug.yaml", "zizmor"]
+exclude = ["skills", "workflows/autolock.yaml", "zizmor"]
 
 flavor.agent = "claude_code"
 flavor.ci = "github_ci"
@@ -236,7 +237,7 @@ A bare `repomatic init` writes only what a repository can actually use. Three tr
 | Trait          | Detected from                                        | Gates                                                                   |
 | :------------- | :--------------------------------------------------- | :---------------------------------------------------------------------- |
 | Awesome list   | A repository name starting with `awesome-`           | `awesome-template`, the awesome-only skills, `lychee`                   |
-| Python project | A PEP 621 `[project]` table that validates           | `debug.yaml`, dependency locking, the test matrix                       |
+| Python project | A PEP 621 `[project]` table that validates           | Dependency locking, the test matrix, `debug.yaml`                       |
 | Distributable  | A Python project without `[tool.uv] package = false` | `changelog.md`, `changelog.yaml`, `release.yaml`, `publish-pypi-action` |
 
 The last two come apart for a **uv virtual project**: a repository that declares `[project]` purely to carry dependencies and opts out of being built with `[tool.uv] package = false`. Blogs, docs sites and dotfiles repositories managed with uv all look like this. They keep everything a Python project needs (a `uv.lock` to sync, coverage config, the test matrix) and skip the release lane, which has nothing to publish or tag.
@@ -248,6 +249,8 @@ Scope is a default, not a rule. Naming a component on the command line, or listi
 ```shell-session
 $ repomatic init changelog
 ```
+
+A feature flag is the opposite: it is authoritative. `metrics.yaml` and `debug.yaml` ship only where their `metrics.sync` and `debug.sync` keys say so, and no CLI argument overrides that, since the flag is the repository's own answer about whether it wants the feature at all. `repomatic init workflows/debug.yaml` on a repository that never set `debug.sync = true` therefore writes nothing: set the key first.
 
 ### Adopting a tool config
 

@@ -10,6 +10,7 @@ labels: [🤖 ci]
 Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
 - [`awesome-template.sync`](https://repomatic.net/configuration#awesome-template-sync)
+- [`debug.sync`](https://repomatic.net/configuration#debug-sync)
 - [`exclude`](https://repomatic.net/configuration#exclude)
 - [`include`](https://repomatic.net/configuration#include)
 - [`notification.unsubscribe`](https://repomatic.net/configuration#notification-unsubscribe)
