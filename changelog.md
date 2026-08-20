@@ -9,6 +9,8 @@
 - **Breaking:** `CLOUDFLARE_ACCOUNT_ID` is gone: the account derives from `CLOUDFLARE_API_TOKEN` alone, a multi-account credential resolving it by which account owns the project. `cloudflare-pages --account-id` and `lint-repo --has-cloudflare-account-id` are removed with it; creating a project no visible account claims now needs a token made under the intended account.
 - **Breaking:** the `debug.yaml` workflow is now opt-in, gated by a new `[tool.repomatic] debug.sync` key. A repository already carrying it keeps it by setting `debug.sync = true`; otherwise the next `sync-repomatic` pull request proposes its deletion.
 - `show-test-matrix` sorts its Python rows by release instead of job order, placing a free-threaded build (`3.14t`) right after its base version, and aligns its OS columns with the canonical runner order of the test-matrix constants.
+- Fix `show-test-matrix` leaving a cell bare when several jobs share it: every state of a `stable, unstable` cell now carries its own glyph.
+- Fix `show-test-matrix` column alignment in terminals giving the unstable glyph a single cell: the grid label drops its emoji variation selector.
 - Fix the `plugin` component writing tab-indented settings into a repository whose `[tool.biome.formatter]` asks for spaces, which had `sync-repomatic` and `format-json` reindenting the file past each other on every run. The indent now follows the repository's own Biome config, native `biome.json` included.
 - Fix `lint-deps` asking an aggregate extra selecting the project's own extras for a version floor, which a project can never declare on itself.
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.

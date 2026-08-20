@@ -31,6 +31,14 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 
+PIVOT_CELL_SEPARATOR = ", "
+"""Joins the distinct states {meth}`Matrix.pivot` finds at one intersection.
+
+Exposed so a caller rendering the grid can split a cell back into its states
+and decorate each one, instead of hard-coding the separator on its side and
+letting the two drift.
+"""
+
 RESERVED_MATRIX_KEYWORDS = ("include", "exclude")
 """Keys GitHub reserves inside a `strategy.matrix` block.
 
@@ -414,8 +422,9 @@ class Matrix:
 
         When several jobs share one (row, col) intersection (a matrix carrying
         extra axes, such as a `click-version` variation), their distinct
-        `cell_key` values are joined with `, `. A matrix with only the `os` and
-        `python-version` axes has exactly one job per cell.
+        `cell_key` values are joined with {data}`PIVOT_CELL_SEPARATOR`. A matrix
+        with only the `os` and `python-version` axes has exactly one job per
+        cell.
         ```
         """
         jobs = [job for job in self.solve() if row_axis in job and col_axis in job]
@@ -433,7 +442,9 @@ class Matrix:
             cells_in_row = []
             for col in col_values:
                 states = cells.get((row, col))
-                cells_in_row.append(", ".join(unique(states)) if states else missing)
+                cells_in_row.append(
+                    PIVOT_CELL_SEPARATOR.join(unique(states)) if states else missing
+                )
             rows.append((row, *cells_in_row))
 
         return col_values, tuple(rows)

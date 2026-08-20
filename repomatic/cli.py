@@ -153,6 +153,7 @@ from .github.job_timings import (
     render_markdown,
     summarize,
 )
+from .github.matrix import PIVOT_CELL_SEPARATOR
 from .github.pr import close_open_prs_on_branch, list_changed_files, upsert_pr
 from .github.pr_body import (
     build_pr_body,
@@ -4541,17 +4542,52 @@ def show_config(ctx: Context) -> None:
     ctx.print_table(rows, CONFIG_REFERENCE_HEADER_DEFS)
 
 
+EMOJI_PRESENTATION_SELECTOR = "\ufe0f"
+"""Unicode VARIATION SELECTOR-16, asking for the emoji form of the glyph it follows."""
+
+UNSTABLE_GRID_GLYPH = UNSTABLE_GLYPH.removesuffix(EMOJI_PRESENTATION_SELECTOR)
+"""The unstable glyph in text presentation, for column-aligned output.
+
+`wcwidth` measures an emoji-presentation sequence as two columns and the table
+renderer pads the grid to that count, but a terminal that allocates a single
+cell for it (Apple Terminal does, and paints the glyph over the space that
+follows) then draws the row a column short of its own separators: every rule
+right of an unstable cell lands early and the grid breaks. Dropping the
+selector puts both counts at one. The character itself stays the one
+{data}`~repomatic.github.ci_status.UNSTABLE_GLYPH` carries, so this is a
+presentation choice, not a second vocabulary.
+"""
+
 TEST_MATRIX_STATE_DISPLAY = {
     "stable": f"{STABLE_GLYPH} stable",
-    "unstable": f"{UNSTABLE_GLYPH} unstable",
+    "unstable": f"{UNSTABLE_GRID_GLYPH} unstable",
 }
-"""Emoji-decorated labels for job states in the `show-test-matrix` grid.
+"""Glyph-decorated labels for job states in the `show-test-matrix` grid.
 
-The same two glyphs the workflow templates stamp onto each matrix job's name,
+The same two marks the workflow templates stamp onto each matrix job's name,
 and that {meth}`repomatic.github.ci_status.JobStatus.required` reads back off
 it, so the grid and the CI verdict cannot come to disagree about which mark
-means "allowed to fail".
+means "allowed to fail". Only their presentation differs, for the width reason
+{data}`UNSTABLE_GRID_GLYPH` records.
 """
+
+
+def decorate_matrix_cell(cell: str) -> str:
+    """Prefix every state of a `show-test-matrix` cell with its glyph.
+
+    A cell holds more than one state when the matrix carries an axis beyond
+    `os` and `python-version` (a `click-version` variation, say): both jobs
+    land on the same intersection and
+    {meth}`~repomatic.github.matrix.Matrix.pivot` joins their states. Looking
+    the joined string up as a whole matches no entry and leaves that cell the
+    only bare one in its column, so each state is decorated on its own. A cell
+    holding something else, like the empty-intersection placeholder, passes
+    through untouched.
+    """
+    return PIVOT_CELL_SEPARATOR.join(
+        TEST_MATRIX_STATE_DISPLAY.get(state, state)
+        for state in cell.split(PIVOT_CELL_SEPARATOR)
+    )
 
 
 @repomatic.command(
@@ -4607,8 +4643,7 @@ def show_test_matrix(ctx: Context, emoji: bool, matrix_name: str) -> None:
     headers = ("Python", *col_values)
     if emoji:
         rows = tuple(
-            (row[0], *(TEST_MATRIX_STATE_DISPLAY.get(cell, cell) for cell in row[1:]))
-            for row in rows
+            (row[0], *(decorate_matrix_cell(cell) for cell in row[1:])) for row in rows
         )
     ctx.print_table(rows, headers)
 

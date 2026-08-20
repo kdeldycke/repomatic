@@ -30,11 +30,18 @@ from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 
 from repomatic.binary import NUITKA_BUILD_TARGETS
-from repomatic.cli import repomatic
+from repomatic.cli import (
+    EMOJI_PRESENTATION_SELECTOR,
+    TEST_MATRIX_STATE_DISPLAY,
+    decorate_matrix_cell,
+    repomatic,
+)
 from repomatic.config import (
     Config,
 )
 from repomatic.github.actions import NULL_SHA
+from repomatic.github.ci_status import UNSTABLE_GLYPH
+from repomatic.github.matrix import PIVOT_CELL_SEPARATOR
 from repomatic.matrix_axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
@@ -1169,18 +1176,39 @@ def test_show_test_matrix_no_emoji_uses_plain_words():
     fancy = CliRunner().invoke(repomatic, ["show-test-matrix"])
     assert plain.exit_code == 0, plain.output
     assert fancy.exit_code == 0, fancy.output
-    assert "✅" not in plain.output and "⁉️" not in plain.output
+    for state, label in TEST_MATRIX_STATE_DISPLAY.items():
+        assert label.removesuffix(f" {state}") not in plain.output
     states = {
         value
         for row in json.loads(plain.output)
         for key, value in row.items()
         if key != "Python"
     }
-    # Each plain state present gains its emoji prefix in the default rendering.
-    if "stable" in states:
-        assert "✅ stable" in fancy.output
-    if "unstable" in states:
-        assert "⁉️ unstable" in fancy.output
+    # Each plain state present gains its glyph prefix in the default rendering.
+    for state in states & set(TEST_MATRIX_STATE_DISPLAY):
+        assert TEST_MATRIX_STATE_DISPLAY[state] in fancy.output
+
+
+@pytest.mark.parametrize(("state", "label"), tuple(TEST_MATRIX_STATE_DISPLAY.items()))
+def test_show_test_matrix_labels_drop_the_emoji_selector(state, label):
+    """No grid label carries the selector terminals and `wcwidth` disagree on.
+
+    The glyph a job name carries does, which is what makes the labels a
+    separate question: a grid padded for two columns and drawn in one breaks
+    every rule to the right of that cell.
+    """
+    assert EMOJI_PRESENTATION_SELECTOR in UNSTABLE_GLYPH
+    assert EMOJI_PRESENTATION_SELECTOR not in label, f"{state}: {label!r}"
+
+
+def test_decorate_matrix_cell_decorates_every_state():
+    """Each state of a cell shared by several jobs gets its own glyph."""
+    joined = PIVOT_CELL_SEPARATOR.join(TEST_MATRIX_STATE_DISPLAY)
+    assert decorate_matrix_cell(joined) == PIVOT_CELL_SEPARATOR.join(
+        TEST_MATRIX_STATE_DISPLAY.values()
+    )
+    # The empty-intersection placeholder is not a state: it stays bare.
+    assert decorate_matrix_cell("—") == "—"
 
 
 def test_show_test_matrix_rejects_unknown_name():
