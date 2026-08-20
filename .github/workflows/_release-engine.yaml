@@ -60,7 +60,7 @@ jobs:
         run: git branch --all
       - name: List all commits
         run: git log --decorate=full --oneline
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: Run repomatic metadata
@@ -136,7 +136,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ matrix.commit }}
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       # Persist the Nuitka compile caches across runs: ccache objects on gcc
@@ -450,7 +450,7 @@ jobs:
           DOWNLOAD_PATH: ${{ steps.artifacts.outputs.download-path }}
           BIN_NAME: ${{ matrix.bin_name }}
         run: chmod +x "${DOWNLOAD_PATH}/${BIN_NAME}"
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: Run test suite for binary
@@ -497,7 +497,7 @@ jobs:
           # PAT required so tag pushes trigger downstream on.push.tags workflows.
           # See repomatic/git_ops.py module docstring.
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: Create and push tag
@@ -532,7 +532,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ matrix.commit }}
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           enable-cache: false
           version: "0.12.3"
@@ -610,7 +610,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ matrix.commit }}
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           enable-cache: false
           version: "0.12.3"
@@ -700,7 +700,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ matrix.commit }}
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: Download asset artifacts
@@ -807,7 +807,7 @@ jobs:
           pattern: "*-${{ matrix.short_sha }}"
           path: ./compile-assets
           merge-multiple: true
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         if: needs.compile-binaries.result != 'skipped'
         with:
           version: "0.12.3"
@@ -874,7 +874,7 @@ jobs:
           # available) lets the push trigger the docs deploy workflow.
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           enable-cache: false
           version: "0.12.3"
@@ -961,7 +961,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: Download all build artifacts
@@ -995,7 +995,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: Generate graph

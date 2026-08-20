@@ -82,7 +82,7 @@ jobs:
           # See repomatic/github/actions.py for rationale.
           ref: ${{ github.sha }}
           fetch-tags: true
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: Run repomatic metadata
@@ -113,7 +113,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-tags: true
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: Fix changelog dates and admonitions
@@ -160,7 +160,7 @@ jobs:
           # to "allow" and silently skips closing the orphan PR, leaving the
           # decision inconsistent with the metadata job (which fetches tags).
           fetch-tags: true
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       - name: ${{ matrix.part }} version bump
@@ -232,7 +232,7 @@ jobs:
           # credentials, not the `GH_TOKEN` env set below. See
           # repomatic/github/token.py module docstring.
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           version: "0.12.3"
       # --- Freeze commit: freeze everything to the release version. ---
