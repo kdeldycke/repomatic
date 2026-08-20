@@ -13,8 +13,8 @@
 - `show-test-matrix` sorts its Python rows by release instead of job order, placing a free-threaded build (`3.14t`) right after its base version, and aligns its OS columns with the canonical runner order of the test-matrix constants.
 - `show-test-matrix` gains `--row-axis` and `--col-axis`, laying the grid out on any job key the matrix carries instead of the fixed Python-by-OS view.
 - `show-test-matrix` states how many jobs a cell stands for (`✅ stable ×5`), so a cell collapsing an axis the grid cannot show no longer reads as a single job.
+- `show-test-matrix --flat` lists one row per job under a column per axis, showing every axis of a matrix that a two-axis grid has to collapse.
 - Fix `show-test-matrix` leaving a cell bare when several jobs share it: every state of a `stable, unstable` cell now carries its own glyph.
-- Fix `show-test-matrix` column alignment in terminals giving the unstable glyph a single cell: the grid label drops its emoji variation selector.
 - Fix the `plugin` component writing tab-indented settings into a repository whose `[tool.biome.formatter]` asks for spaces, which had `sync-repomatic` and `format-json` reindenting the file past each other on every run. The indent now follows the repository's own Biome config, native `biome.json` included.
 - Fix `lint-deps` asking an aggregate extra selecting the project's own extras for a version floor, which a project can never declare on itself.
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.

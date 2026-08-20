@@ -32,9 +32,9 @@ from extra_platforms import is_windows
 
 from repomatic.binary import NUITKA_BUILD_TARGETS
 from repomatic.cli import (
-    EMOJI_PRESENTATION_SELECTOR,
     JOB_COUNT_MARK,
     TEST_MATRIX_STATE_DISPLAY,
+    flat_matrix_table,
     format_matrix_cell,
     repomatic,
 )
@@ -42,7 +42,6 @@ from repomatic.config import (
     Config,
 )
 from repomatic.github.actions import NULL_SHA
-from repomatic.github.ci_status import UNSTABLE_GLYPH
 from repomatic.github.matrix import (
     OS_AXIS,
     PIVOT_CELL_SEPARATOR,
@@ -1195,18 +1194,6 @@ def test_show_test_matrix_no_emoji_uses_plain_words():
         assert TEST_MATRIX_STATE_DISPLAY[state] in fancy.output
 
 
-@pytest.mark.parametrize(("state", "label"), tuple(TEST_MATRIX_STATE_DISPLAY.items()))
-def test_show_test_matrix_labels_drop_the_emoji_selector(state, label):
-    """No grid label carries the selector terminals and `wcwidth` disagree on.
-
-    The glyph a job name carries does, which is what makes the labels a
-    separate question: a grid padded for two columns and drawn in one breaks
-    every rule to the right of that cell.
-    """
-    assert EMOJI_PRESENTATION_SELECTOR in UNSTABLE_GLYPH
-    assert EMOJI_PRESENTATION_SELECTOR not in label, f"{state}: {label!r}"
-
-
 def test_format_matrix_cell_labels_every_state():
     """Each state of a cell shared by several jobs gets its own glyph."""
     tally = Counter(dict.fromkeys(TEST_MATRIX_STATE_DISPLAY, 1))
@@ -1257,6 +1244,38 @@ def test_show_test_matrix_pivots_on_the_chosen_axes():
     assert next(iter(transposed_rows[0])) == "OS"
     assert {row["Python"] for row in default_rows} == set(transposed_rows[0]) - {"OS"}
     assert {row["OS"] for row in transposed_rows} == set(default_rows[0]) - {"Python"}
+
+
+def test_flat_matrix_table_columns_every_key_with_the_state_last():
+    """Every key any job carries becomes a column, the state landing last."""
+    jobs = (
+        {"fruit": "papaya", "state": "stable"},
+        {"fruit": "cherry", "city": "paris", "state": "unstable"},
+    )
+    headers, rows = flat_matrix_table(jobs, emoji=False)
+    assert headers == ("fruit", "city", "State")
+    # The job carrying no city renders empty there rather than shifting its row.
+    assert rows == (("papaya", "", "stable"), ("cherry", "paris", "unstable"))
+
+
+def test_flat_matrix_table_leads_with_the_keys_it_is_given():
+    """Leading keys column first, in order. One no job carries is skipped."""
+    jobs = ({"fruit": "papaya", "city": "paris", "state": "stable"},)
+    headers, _ = flat_matrix_table(jobs, ("city", "weather"), emoji=False)
+    assert headers == ("city", "fruit", "State")
+
+
+def test_show_test_matrix_flat_lists_every_job():
+    """--flat renders one row per solved job, collapsing nothing."""
+    result = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix", "--flat"]
+    )
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)
+    assert len(rows) == len(tuple(Metadata().test_matrix.solve()))
+    # The two axes the listing sorts on lead; the outcome trails.
+    assert tuple(rows[0])[:2] == ("Python", "OS")
+    assert tuple(rows[0])[-1] == "State"
 
 
 def test_show_test_matrix_rejects_an_unknown_axis():

@@ -154,6 +154,7 @@ from .github.job_timings import (
     summarize,
 )
 from .github.matrix import (
+    JOB_STATE_KEY,
     OS_AXIS,
     PIVOT_CELL_SEPARATOR,
     PYTHON_VERSION_AXIS,
@@ -314,7 +315,7 @@ from .vulnerable_deps import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections import Counter
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from typing import Any
 
     # Click's own context type, distinct from the click_extra subclass imported
@@ -4549,11 +4550,11 @@ def show_config(ctx: Context) -> None:
     ctx.print_table(rows, CONFIG_REFERENCE_HEADER_DEFS)
 
 
-AXIS_HEADER_LABELS = {"os": "OS", "python-version": "Python"}
-"""Display names for the axes the `show-test-matrix` corner header can carry.
+AXIS_HEADER_LABELS = {"os": "OS", "python-version": "Python", "state": "State"}
+"""Display names for the job keys `show-test-matrix` heads a row or column with.
 
-An axis absent from here heads its grid under the raw job key a matrix
-declares it as, which is also how a caller names it on the command line.
+A key absent from here heads its column under the raw name a matrix declares
+it as, which is also how a caller names it on the command line.
 """
 
 JOB_COUNT_MARK = "×"
@@ -4566,33 +4567,29 @@ ambiguous characters double-width misaligns both alike, and neither before the
 other.
 """
 
-EMOJI_PRESENTATION_SELECTOR = "\ufe0f"
-"""Unicode VARIATION SELECTOR-16, asking for the emoji form of the glyph it follows."""
-
-UNSTABLE_GRID_GLYPH = UNSTABLE_GLYPH.removesuffix(EMOJI_PRESENTATION_SELECTOR)
-"""The unstable glyph in text presentation, for column-aligned output.
-
-`wcwidth` measures an emoji-presentation sequence as two columns and the table
-renderer pads the grid to that count, but a terminal that allocates a single
-cell for it (Apple Terminal does, and paints the glyph over the space that
-follows) then draws the row a column short of its own separators: every rule
-right of an unstable cell lands early and the grid breaks. Dropping the
-selector puts both counts at one. The character itself stays the one
-{data}`~repomatic.github.ci_status.UNSTABLE_GLYPH` carries, so this is a
-presentation choice, not a second vocabulary.
-"""
-
 TEST_MATRIX_STATE_DISPLAY = {
     "stable": f"{STABLE_GLYPH} stable",
-    "unstable": f"{UNSTABLE_GRID_GLYPH} unstable",
+    "unstable": f"{UNSTABLE_GLYPH} unstable",
 }
-"""Glyph-decorated labels for job states in the `show-test-matrix` grid.
+"""Emoji-decorated labels for job states in the `show-test-matrix` grid.
 
-The same two marks the workflow templates stamp onto each matrix job's name,
+The same two glyphs the workflow templates stamp onto each matrix job's name,
 and that {meth}`repomatic.github.ci_status.JobStatus.required` reads back off
 it, so the grid and the CI verdict cannot come to disagree about which mark
-means "allowed to fail". Only their presentation differs, for the width reason
-{data}`UNSTABLE_GRID_GLYPH` records.
+means "allowed to fail".
+
+```{caution}
+{data}`~repomatic.github.ci_status.UNSTABLE_GLYPH` is an emoji-presentation
+sequence (U+2049 followed by the U+FE0F selector), and that is the one class
+of glyph terminals measure differently: `wcwidth` counts it as two columns and
+the table renderer pads to that, while a terminal allocating a single cell for
+it (Apple Terminal does, painting the glyph over the space that follows) draws
+the row a column short of its own separators. Carrying the mark CI stamps is
+worth that, by decision: do not "fix" the alignment by dropping the selector
+here, which would leave the grid and the job names spelling the mark
+differently. `--no-emoji` sidesteps the whole question for a reader who wants
+a square grid, and a terminal on Unicode 9 widths never sees it.
+```
 """
 
 
@@ -4617,6 +4614,58 @@ def matrix_axis_sort_key(axis: str, matrix_name: str) -> Callable[[str], Any] | 
         rank = {runner: index for index, runner in enumerate(canonical)}
         return lambda runner: rank.get(runner, len(canonical))
     return None
+
+
+def state_label(state: str, emoji: bool = True) -> str:
+    """Label one job state, glyph-decorated unless `emoji` says otherwise.
+
+    A state the matrix carries but this CLI has no label for renders as
+    itself, so a new one shows up in the grid rather than vanishing from it.
+    """
+    return TEST_MATRIX_STATE_DISPLAY.get(state, state) if emoji else state
+
+
+def flat_matrix_table(
+    jobs: Sequence[Mapping[str, str]],
+    leading: Sequence[str] = (),
+    emoji: bool = True,
+) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+    """Lay a solved job stream out as one row per job, one column per key.
+
+    A grid has two axes and collapses every other one into its cells, which is
+    what a matrix varying on a third loses. Here each key is a column instead,
+    so nothing collapses and the table is the job list CI will run.
+
+    Columns are collected across the whole stream, since a job may carry a key
+    its neighbour does not (the `python-label` only a prerelease needs), and
+    the state lands last as the outcome the other columns explain. A job
+    missing a key renders empty there rather than shifting its row.
+
+    :param jobs: The solved job stream, already in the order to render.
+    :param leading: Keys to column first, in this order, before the ones the
+        stream contributes. A listing sorted on an axis reads as unsorted with
+        that axis buried in the middle, so the caller leads with the axes it
+        ordered by. A key no job carries is skipped rather than columned empty.
+    :param emoji: Label the state with its glyph rather than its bare word.
+    :return: A `(headers, rows)` pair, in the order `print_table` takes them
+        the other way round.
+    """
+    present = list(dict.fromkeys(key for job in jobs for key in job))
+    keys = [key for key in dict.fromkeys(leading) if key in present]
+    keys += [key for key in present if key not in keys]
+    if JOB_STATE_KEY in keys:
+        keys.append(keys.pop(keys.index(JOB_STATE_KEY)))
+    headers = tuple(AXIS_HEADER_LABELS.get(key, key) for key in keys)
+    rows = tuple(
+        tuple(
+            state_label(job.get(key, ""), emoji)
+            if key == JOB_STATE_KEY
+            else job.get(key, "")
+            for key in keys
+        )
+        for job in jobs
+    )
+    return headers, rows
 
 
 def format_matrix_cell(
@@ -4645,7 +4694,7 @@ def format_matrix_cell(
         return cell
     labels = []
     for state, count in tally.items():
-        label = TEST_MATRIX_STATE_DISPLAY.get(state, state) if emoji else state
+        label = state_label(state, emoji)
         labels.append(f"{label} {JOB_COUNT_MARK}{count}" if count > 1 else label)
     return PIVOT_CELL_SEPARATOR.join(labels)
 
@@ -4670,6 +4719,11 @@ def format_matrix_cell(
     default=OS_AXIS,
     help="Job key whose values become the grid's columns.",
 )
+@option(
+    "--flat/--no-flat",
+    default=False,
+    help="List one row per job and one column per axis, collapsing nothing.",
+)
 @argument(
     "matrix_name",
     metavar="[full|pr]",
@@ -4679,15 +4733,21 @@ def format_matrix_cell(
 )
 @pass_context
 def show_test_matrix(
-    ctx: Context, emoji: bool, row_axis: str, col_axis: str, matrix_name: str
+    ctx: Context,
+    emoji: bool,
+    row_axis: str,
+    col_axis: str,
+    flat: bool,
+    matrix_name: str,
 ) -> None:
     """Render the computed CI test matrix as a two-axis grid.
 
     Each cell shows whether that combination runs as a stable or unstable
     (continue-on-error) job, or is absent from the matrix. A grid has two axes
     and a matrix may vary on more, so a cell standing for several jobs states
-    how many: pivot on the axis you care about with --row-axis or --col-axis
-    to break them apart. Pass "full" for the push and schedule matrix (the
+    how many: pivot on the axis you care about with --row-axis or --col-axis,
+    or drop the grid entirely with --flat, which lists every job under a
+    column per axis. Pass "full" for the push and schedule matrix (the
     default), or "pr" for the reduced pull-request matrix. Respects the global
     --table-format option.
 
@@ -4696,6 +4756,7 @@ def show_test_matrix(
         repomatic show-test-matrix
         repomatic show-test-matrix pr --no-emoji
         repomatic show-test-matrix --col-axis click-version
+        repomatic show-test-matrix --flat
         repomatic --table-format github show-test-matrix full
     """
     meta = Metadata()
@@ -4710,14 +4771,27 @@ def show_test_matrix(
                 f"Pass {hint} one of: {', '.join(sorted(job_keys))}."
             )
             raise UsageError(msg)
+    # Both layouts order on the same two axes, so the same matrix reads in one
+    # order either way. Neither keeps the order the solved job stream presents
+    # them in, which only matches the canonical one for a cross-product matrix.
+    row_key = matrix_axis_sort_key(row_axis, matrix_name)
+    col_key = matrix_axis_sort_key(col_axis, matrix_name)
+    if flat:
+        # Stable sorts compose: the secondary key first, the primary over it.
+        jobs = list(matrix.solve())
+        if col_key:
+            jobs.sort(key=lambda job: col_key(job.get(col_axis, "")))
+        if row_key:
+            jobs.sort(key=lambda job: row_key(job.get(row_axis, "")))
+        flat_headers, flat_rows = flat_matrix_table(
+            jobs, (row_axis, col_axis), emoji=emoji
+        )
+        ctx.print_table(flat_rows, flat_headers)
+        return
     col_values, rows = matrix.pivot(row_axis, col_axis)
     tallies = matrix.pivot_counts(row_axis, col_axis)
-    # Pivot keeps the order the solved job stream presents each axis in, which
-    # only matches the canonical one for a plain cross-product matrix.
-    row_key = matrix_axis_sort_key(row_axis, matrix_name)
     if row_key:
         rows = tuple(sorted(rows, key=lambda row: row_key(row[0])))
-    col_key = matrix_axis_sort_key(col_axis, matrix_name)
     if col_key:
         permutation = sorted(
             range(len(col_values)), key=lambda index: col_key(col_values[index])

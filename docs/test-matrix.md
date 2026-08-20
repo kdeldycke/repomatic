@@ -43,6 +43,12 @@ A grid has two axes and a matrix may vary on more: a repository testing several 
 invoke(repomatic, args=['show-test-matrix', '--row-axis', 'os', '--col-axis', 'python-version'])
 ```
 
+Or drop the grid entirely: `--flat` lists one row per job under a column per axis, collapsing nothing, which is the closest view to the job list CI schedules. Shown here on the smaller pull-request matrix:
+
+```{click:run}
+invoke(repomatic, args=['show-test-matrix', 'pr', '--flat'])
+```
+
 The grid honors the global `--table-format` option, so the same view renders as GitHub-flavored Markdown, CSV, JSON, and the rest. For the raw GitHub Actions matrix the [`metadata` job](workflows.md) hands to CI: the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them, request the `test_matrix` (or `test_matrix_pr`) key from [`repomatic metadata`](cli.md):
 
 ```{click:run}
