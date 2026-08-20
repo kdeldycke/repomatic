@@ -1755,6 +1755,13 @@ class Metadata:
         run `repomatic metadata nuitka_matrix` against a project to see the
         matrix it computes, or `repomatic show-test-matrix` for the test one.
         ```
+
+        ```{todo}
+        Drop the per-entry-point `--python-flag=-m` workaround computed below,
+        and compile a `__main__.py` entry point through Nuitka's own
+        `--main-entry-point`, once
+        [Nuitka#3879](https://github.com/Nuitka/Nuitka/issues/3879) ships.
+        ```
         """
         # Only produce a matrix if the project is providing CLI entry points.
         if not self.script_entries:
@@ -2159,6 +2166,11 @@ class Metadata:
         - `Iterable` of mixed strings and `Path` into a serialized space-separated
           string, where `Path` items are double-quoted
         - other `Iterable` into a JSON string
+
+        ```{todo}
+        Widen the JSON branch beyond an iterable of `dict[str, str]`, the only
+        shape it asserts on today, when a metadata key needs a richer one.
+        ```
         """
         # Structured metadata to be rendered as JSON.
         if isinstance(value, Matrix):
@@ -2189,7 +2201,6 @@ class Metadata:
                         (f'"{i}"' if isinstance(i, Path) else str(i)) for i in value
                     )
                     value = " ".join(items)
-                # XXX We only support iterables of dict[str, str] for now.
                 else:
                     assert all(
                         isinstance(i, dict)

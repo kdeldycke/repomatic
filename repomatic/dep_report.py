@@ -118,8 +118,13 @@ def parse_iso_datetime(value: str) -> datetime | None:
     sub-microsecond precision is truncated to fit `datetime`.
 
     arrow also supplies the `.humanize()` relative-time phrasing used in the
-    sync report. whenever was the prior parser but has no humanizer; switch
-    back once one lands: https://github.com/ariebovenberg/whenever/discussions/277
+    sync report.
+
+    ```{todo}
+    Switch this parser back to whenever, the prior implementation, once it
+    grows a humanizer:
+    [whenever#277](https://github.com/ariebovenberg/whenever/discussions/277).
+    ```
 
     :param value: An ISO 8601 / RFC 3339 instant, or empty.
     :return: A timezone-aware {class}`~datetime.datetime`, or `None` when

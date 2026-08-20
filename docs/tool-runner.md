@@ -10,8 +10,8 @@ Installing a tool and running `yamllint .` yourself is fine for one tool on one 
 - Installation is automatic: binaries come from GitHub Releases and are checksum-verified, PyPI tools run through `uvx`, tools that import your code (mypy, Nuitka) run inside the project virtualenv, and npm tools install from the npm registry (Node.js required).
 - Versions are pinned and re-verified on each use, so a check behaves the same on your laptop and in CI instead of drifting with whatever each machine happens to have installed.
 
-```{seealso}
-The tools repomatic bridges have standing upstream requests to read `[tool.X]` from `pyproject.toml` natively, all still unshipped:
+```{todo}
+Drop the `[tool.X]` translation layer for each tool that grows native `pyproject.toml` support, as lychee already has. The standing upstream requests, all still unshipped:
 [actionlint#623](https://github.com/rhysd/actionlint/issues/623),
 [biome#9239](https://github.com/biomejs/biome/discussions/9239),
 [gitleaks#2066](https://github.com/gitleaks/gitleaks/issues/2066),

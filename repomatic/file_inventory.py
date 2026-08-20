@@ -27,6 +27,12 @@ Split out of {class}`repomatic.metadata.Metadata`, which reaches CI context,
 git history and `pyproject.toml`: none of that is needed to answer "what is on
 disk here", and `Metadata` keeps the family reachable under its own names for
 every existing caller.
+
+```{todo}
+Drop the py-walk dependency and parse `.gitignore` with wcmatch, already
+imported here for globbing, once it reads gitignore files natively:
+[facelessuser/wcmatch#226](https://github.com/facelessuser/wcmatch/issues/226).
+```
 """
 
 from __future__ import annotations
@@ -237,10 +243,15 @@ class FileInventory:
 
         Zsh is excluded. `shfmt` added experimental Zsh support in v3.13.0
         but it fails on common constructs: `for var (list)` short-form loops
-        and `for ... { }` brace-delimited loops. See [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203) for upstream tracking.
+        and `for ... { }` brace-delimited loops.
 
         Files are excluded by extension (`.zsh`, `.zshrc`, etc.) and by
         shebang (any `.sh` file whose first line references `zsh`).
+
+        ```{todo}
+        Stop excluding Zsh once `shfmt` formats those constructs:
+        [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203).
+        ```
         """
         candidates = self.glob_files(
             "**/*.{bash,bats,ksh,mksh,sh}",

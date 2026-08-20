@@ -95,9 +95,14 @@ beside the pin instead of the workflows declaring it once.
 ```{note}
 A `uvx` resolution reads no project configuration at all, so moving the
 exemption into `[tool.uv]` or an adjacent `uv.toml` would not work either:
-both are ignored. See `claude.md` § Per-ecosystem knobs, and
-[uv#20995](https://github.com/astral-sh/uv/issues/20995) for the upstream
-request that would let a workflow declare this once.
+both are ignored. See `claude.md` § Per-ecosystem knobs.
+```
+
+```{todo}
+Declare the exemption once, instead of splicing it onto every frozen command
+line, as soon as uv grows a configuration or environment knob for
+`--exclude-newer-package`:
+[uv#20995](https://github.com/astral-sh/uv/issues/20995).
 ```
 
 Spelled as the ISO 8601 `P0D` rather than the `"0 day"` used in

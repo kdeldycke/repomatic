@@ -114,6 +114,10 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
   - Python files (`**/*.{py,pyi,pyw,pyx,ipynb}`) in the repository, or
   - documentation files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx,rst,tex}`)
 
+```{todo}
+Collapse the job's two Ruff steps, `check` then `format`, into one invocation once Ruff unifies linting and formatting behind a single command: [astral-sh/ruff#8232](https://github.com/astral-sh/ruff/issues/8232). The `autopep8` step goes the same way once Ruff wraps long comments: [astral-sh/ruff#7414](https://github.com/astral-sh/ruff/issues/7414).
+```
+
 #### 📐 Format `pyproject.toml` (`format-pyproject`)
 
 - Auto-formats `pyproject.toml` using [`pyproject-fmt`](https://github.com/tox-dev/pyproject-fmt)

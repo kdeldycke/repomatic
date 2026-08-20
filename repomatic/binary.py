@@ -159,8 +159,9 @@ Values are dictionaries with the following keys:
     Architecture IDs are [inspired from those specified for self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/supported-architectures-and-operating-systems-for-self-hosted-runners#supported-processor-architectures)
     ```
 
-    ```{note}
-    Maybe we should just adopt [target triple](https://mcyoung.xyz/2025/04/14/target-triples/).
+    ```{todo}
+    Evaluate replacing the `platform_id` / `arch` pair with a single
+    [target triple](https://mcyoung.xyz/2025/04/14/target-triples/).
     ```
 
 - `extension`: File extension of the compiled binary.

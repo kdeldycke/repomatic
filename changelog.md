@@ -23,6 +23,7 @@
 - Fix `sample-metrics` abandoning the tail of a sampling pass to GitHub's secondary rate limit: the `gh` plumbing now retries a `No server is currently available` refusal with the same token on a bounded backoff, the way it already absorbs transient 401s. A burst of back-to-back reads of a hundred-odd repositories trips the limit, which then refuses every remaining call of the run; the refusal lifts on its own within the minute, which the retry spends sleeping.
 - `sample-metrics` names the phase (`forward`, `reconstruct`, `import` or `wayback`) in a new column of its report table, so a subject repeating once per lane that ran is readable as one outcome per phase rather than as duplicates.
 - `sample-metrics --backfill-wayback` abandons the archive once ten captures are refused in a row and reports to retry later, instead of paying every remaining capture's retry schedule against a spent per-IP budget, and a recovered point prints once rather than twice under `--verbosity INFO`.
+- The Todo list documentation page now lists the project's pending work: each deferred change is written as a `todo` admonition beside the code or prose it acts on.
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 

@@ -94,6 +94,10 @@ Six Nuitka issues shape the integration; each workaround names its ticket and li
 - [Nuitka#3997](https://github.com/Nuitka/Nuitka/issues/3997): `getCachedDownload()` fetches and executes build tools (ccache, winlibs MinGW64, `depends.exe`, `appimagetool`, NSIS) with no integrity check, trusting TLS alone. repomatic's exposure is the macOS ccache auto-download; `--disable-ccache` (unconditional on macOS, see [supply-chain posture](#supply-chain-posture)) is what keeps that unverified binary out of the pipeline until Nuitka pins a digest at the call site.
 - [Nuitka#3998](https://github.com/Nuitka/Nuitka/issues/3998): `enableCcache()` overwrites a user- or CI-set `CCACHE_SLOPPINESS` unconditionally, unlike the neighboring `CCACHE_DIR` handling, which is guarded. The `sloppiness = time_macros` line the cache-prep step writes into `ccache.conf` is consequently dead, same as the job-level `CCACHE_SLOPPINESS` env var above it: both are kept because they cost nothing and start working the moment Nuitka mirrors its own `CCACHE_DIR` guard.
 
+```{todo}
+Retire each shim as its ticket ships: the `--python-flag=-m` computation on [Nuitka#3879](https://github.com/Nuitka/Nuitka/issues/3879), the `[tool.nuitka]` translation on [Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909), the symlink-free staging copy on [Nuitka#3994](https://github.com/Nuitka/Nuitka/issues/3994) (Nuitka 4.3 at the earliest), the `ccache.conf` `base_dir` write on [Nuitka#3996](https://github.com/Nuitka/Nuitka/issues/3996), and the unconditional macOS `--disable-ccache` on [Nuitka#3997](https://github.com/Nuitka/Nuitka/issues/3997). The `sloppiness` and `CCACHE_SLOPPINESS` settings need no edit on [Nuitka#3998](https://github.com/Nuitka/Nuitka/issues/3998): they start working on their own.
+```
+
 ## Troubleshooting
 
 - **A build fails outright**: the job uploads Nuitka's `nuitka-crash-report.xml` as a run artifact before the failure gate trips.

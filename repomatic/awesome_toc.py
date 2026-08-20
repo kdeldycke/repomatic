@@ -29,11 +29,14 @@ had removed.
 ```
 
 `mdformat-toc` lists every heading in range and offers no exclusion mechanism
-of its own, so the entries have to be deleted afterwards. Upstream tracks the
-feature in [hukkin/mdformat-toc#17](https://github.com/hukkin/mdformat-toc/issues/17)
-and [hukkin/mdformat-toc#20](https://github.com/hukkin/mdformat-toc/pull/20);
-this module can go once either lands and grows a way to express the exclusion
-in the ToC marker.
+of its own, so the entries have to be deleted afterwards.
+
+```{todo}
+Delete this module once `mdformat-toc` can express the exclusion in the ToC
+marker itself, through
+[hukkin/mdformat-toc#17](https://github.com/hukkin/mdformat-toc/issues/17) or
+[hukkin/mdformat-toc#20](https://github.com/hukkin/mdformat-toc/pull/20).
+```
 """
 
 from __future__ import annotations

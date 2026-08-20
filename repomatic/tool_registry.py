@@ -311,9 +311,12 @@ class BinarySpec:
     ```{hint}
     Structural integrity checks (key types, checksum format, URL
     placeholders, strip_components consistency) are enforced in
-    `test_tool_spec_integrity`. If the registry becomes
-    user-configurable in the future, move these checks to
-    `__post_init__`.
+    `test_tool_spec_integrity`.
+    ```
+
+    ```{todo}
+    Move those integrity checks to `__post_init__` if the registry ever becomes
+    user-configurable: a test only covers the specs shipped here.
     ```
     """
 
@@ -554,8 +557,12 @@ class ToolSpec:
     ```{hint}
     Structural integrity checks (name format, version format, flag
     conventions, field consistency) are enforced in
-    `test_tool_spec_integrity`. If the registry becomes user-configurable
-    in the future, move these checks to `__post_init__`.
+    `test_tool_spec_integrity`.
+    ```
+
+    ```{todo}
+    Move those integrity checks to `__post_init__` if the registry ever becomes
+    user-configurable: a test only covers the specs shipped here.
     ```
 
     ```{hint} CLI parser quirks for `config_after_subcommand`
@@ -743,7 +750,8 @@ class ToolSpec:
     """Callback invoked on `extra_args` after the tool exits successfully.
 
     Intended for temporary workarounds that fix known upstream formatting bugs
-    in-place. Remove the callback once upstream ships the fix.
+    in-place. Each callback carries its own todo admonition naming the upstream
+    release that retires it.
 
     ```{note}
     The callback runs only after a successful **write-mode** exit (return
@@ -913,8 +921,13 @@ _DIRECTIVE_YAML_OPTIONS_RE = re.compile(
 ```{note}
 Workaround for [executablebooks/mdformat-myst#21](https://github.com/executablebooks/mdformat-myst/issues/21) where
 `mdformat-myst` unconditionally converts `:key: value` directive
-options to YAML blocks (`---` / `key: value` / `---`). Remove when
-upstream merges [executablebooks/mdformat-myst#49](https://github.com/executablebooks/mdformat-myst/pull/49).
+options to YAML blocks (`---` / `key: value` / `---`).
+```
+
+```{todo}
+Remove this pattern and its post-process callback once
+[executablebooks/mdformat-myst#49](https://github.com/executablebooks/mdformat-myst/pull/49)
+merges upstream.
 ```
 """
 
@@ -942,7 +955,11 @@ Workaround for
 `mdformat-myst` does not treat ``:::{name}`` colon fences as directives, so
 `mdformat-deflist` escapes their leading colons and `mdformat-myst` escapes the
 opening brace, leaving an uneditable ``\:::\{name}`` / ``\:option:`` / ``\:::`` block.
-Remove when upstream ships colon-fence support, via either
+```
+
+```{todo}
+Remove this pattern and its post-process callback once `mdformat-myst` ships
+colon-fence support, via either
 [executablebooks/mdformat-myst#36](https://github.com/executablebooks/mdformat-myst/pull/36)
 or
 [executablebooks/mdformat-myst#48](https://github.com/executablebooks/mdformat-myst/pull/48).
@@ -1641,9 +1658,6 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             lychee checks links found in the given path. Since v0.24 it reads `[tool.lychee]` from `pyproject.toml` natively, so repomatic does not translate it.
             """),
     ),
-    # TODO: add config_flag="--config" once upstream adds --config support.
-    #   See https://github.com/hukkin/mdformat/issues/432
-    #   and https://github.com/hukkin/mdformat/issues/562
     "mdformat": ToolSpec(
         name="mdformat",
         default_paths="markdown_files",
@@ -2063,6 +2077,20 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             """),
     ),
 }
+"""Tool name to the specification driving its install, config and invocation.
+
+The single source of truth for `repomatic run`: every command, workflow job and
+documentation renderer reads the roster from here rather than hard-coding a tool
+name, a version or a flag.
+
+```{todo}
+Give the `mdformat` entry a `config_flag="--config"` once mdformat accepts an
+explicit config path, so it stops relying on discovery from the working
+directory:
+[hukkin/mdformat#432](https://github.com/hukkin/mdformat/issues/432) and
+[hukkin/mdformat#562](https://github.com/hukkin/mdformat/issues/562).
+```
+"""
 
 
 # ---------------------------------------------------------------------------
