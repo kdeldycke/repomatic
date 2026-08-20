@@ -153,7 +153,11 @@ from .github.job_timings import (
     render_markdown,
     summarize,
 )
-from .github.matrix import PIVOT_CELL_SEPARATOR
+from .github.matrix import (
+    OS_AXIS,
+    PIVOT_CELL_SEPARATOR,
+    PYTHON_VERSION_AXIS,
+)
 from .github.pr import close_open_prs_on_branch, list_changed_files, upsert_pr
 from .github.pr_body import (
     build_pr_body,
@@ -309,6 +313,7 @@ from .vulnerable_deps import (
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections import Counter
     from collections.abc import Callable, Sequence
     from typing import Any
 
@@ -4544,6 +4549,23 @@ def show_config(ctx: Context) -> None:
     ctx.print_table(rows, CONFIG_REFERENCE_HEADER_DEFS)
 
 
+AXIS_HEADER_LABELS = {"os": "OS", "python-version": "Python"}
+"""Display names for the axes the `show-test-matrix` corner header can carry.
+
+An axis absent from here heads its grid under the raw job key a matrix
+declares it as, which is also how a caller names it on the command line.
+"""
+
+JOB_COUNT_MARK = "×"
+"""Introduces the job count of a cell standing for more than one job.
+
+A cell collapses every job at its intersection, so a matrix varying on a third
+axis renders five jobs exactly like one. The mark is the East Asian Ambiguous
+U+00D7, like the `—` placeholder the grid already uses: a terminal drawing
+ambiguous characters double-width misaligns both alike, and neither before the
+other.
+"""
+
 EMOJI_PRESENTATION_SELECTOR = "\ufe0f"
 """Unicode VARIATION SELECTOR-16, asking for the emoji form of the glyph it follows."""
 
@@ -4574,22 +4596,58 @@ means "allowed to fail". Only their presentation differs, for the width reason
 """
 
 
-def decorate_matrix_cell(cell: str) -> str:
-    """Prefix every state of a `show-test-matrix` cell with its glyph.
+def matrix_axis_sort_key(axis: str, matrix_name: str) -> Callable[[str], Any] | None:
+    """Canonical ordering for one grid axis, or `None` to keep job order.
 
-    A cell holds more than one state when the matrix carries an axis beyond
-    `os` and `python-version` (a `click-version` variation, say): both jobs
-    land on the same intersection and
-    {meth}`~repomatic.github.matrix.Matrix.pivot` joins their states. Looking
-    the joined string up as a whole matches no entry and leaves that cell the
-    only bare one in its column, so each state is decorated on its own. A cell
-    holding something else, like the empty-intersection placeholder, passes
-    through untouched.
+    Keyed on which axis it is rather than on which side of the grid it landed:
+    a transposed grid earns the runner order its columns get by default, and
+    reads as arbitrarily shuffled without it. An axis the test matrix does not
+    define an order for (a `click-version`) keeps the order the job stream
+    presents it in, which is the matrix author's own.
     """
-    return PIVOT_CELL_SEPARATOR.join(
-        TEST_MATRIX_STATE_DISPLAY.get(state, state)
-        for state in cell.split(PIVOT_CELL_SEPARATOR)
-    )
+    if axis == PYTHON_VERSION_AXIS:
+        # Job order appends single-runner build flavors (like 3.14t) after
+        # every base version, rather than beside the version they build.
+        return python_version_sort_key
+    if axis == OS_AXIS:
+        # An include directive or a full-include flattening can perturb
+        # first-seen runner order. Runners outside the canonical tuple keep
+        # their first-seen order after it.
+        canonical = TEST_RUNNERS_FULL if matrix_name == "full" else TEST_RUNNERS_PR
+        rank = {runner: index for index, runner in enumerate(canonical)}
+        return lambda runner: rank.get(runner, len(canonical))
+    return None
+
+
+def format_matrix_cell(
+    cell: str, tally: Counter[str] | None, emoji: bool = True
+) -> str:
+    """Render one `show-test-matrix` cell from the jobs that landed in it.
+
+    Every state is labelled on its own. A cell holds more than one when the
+    matrix carries an axis beyond its two (a `click-version` variation, say):
+    both jobs land on the same intersection, and a label looked up for the
+    joined string would match nothing and leave that cell the only bare one in
+    its column.
+
+    A state carrying several jobs also states how many, since the grid gives a
+    reader no other way to tell five stable jobs from one.
+
+    :param cell: The cell {meth}`~repomatic.github.matrix.Matrix.pivot`
+        rendered, returned untouched when no job occupies the intersection:
+        the placeholder for an empty one is that method's to choose.
+    :param tally: That intersection's job count per state, or `None` where the
+        matrix puts no job at all.
+    :param emoji: Label each state with its glyph rather than its bare word. A
+        count is not decoration, and shows either way.
+    """
+    if tally is None:
+        return cell
+    labels = []
+    for state, count in tally.items():
+        label = TEST_MATRIX_STATE_DISPLAY.get(state, state) if emoji else state
+        labels.append(f"{label} {JOB_COUNT_MARK}{count}" if count > 1 else label)
+    return PIVOT_CELL_SEPARATOR.join(labels)
 
 
 @repomatic.command(
@@ -4602,6 +4660,16 @@ def decorate_matrix_cell(cell: str) -> str:
     default=True,
     help="Decorate cells with a status emoji. Use --no-emoji for plain words.",
 )
+@option(
+    "--row-axis",
+    default=PYTHON_VERSION_AXIS,
+    help="Job key whose values become the grid's rows.",
+)
+@option(
+    "--col-axis",
+    default=OS_AXIS,
+    help="Job key whose values become the grid's columns.",
+)
 @argument(
     "matrix_name",
     metavar="[full|pr]",
@@ -4610,43 +4678,65 @@ def decorate_matrix_cell(cell: str) -> str:
     required=False,
 )
 @pass_context
-def show_test_matrix(ctx: Context, emoji: bool, matrix_name: str) -> None:
-    """Render the computed CI test matrix as a Python-version by OS grid.
+def show_test_matrix(
+    ctx: Context, emoji: bool, row_axis: str, col_axis: str, matrix_name: str
+) -> None:
+    """Render the computed CI test matrix as a two-axis grid.
 
     Each cell shows whether that combination runs as a stable or unstable
-    (continue-on-error) job, or is absent from the matrix. Pass "full" for the
-    push and schedule matrix (the default), or "pr" for the reduced
-    pull-request matrix. Respects the global --table-format option.
+    (continue-on-error) job, or is absent from the matrix. A grid has two axes
+    and a matrix may vary on more, so a cell standing for several jobs states
+    how many: pivot on the axis you care about with --row-axis or --col-axis
+    to break them apart. Pass "full" for the push and schedule matrix (the
+    default), or "pr" for the reduced pull-request matrix. Respects the global
+    --table-format option.
 
     \b
     Examples:
         repomatic show-test-matrix
         repomatic show-test-matrix pr --no-emoji
+        repomatic show-test-matrix --col-axis click-version
         repomatic --table-format github show-test-matrix full
     """
     meta = Metadata()
     matrix = meta.test_matrix if matrix_name == "full" else meta.test_matrix_pr
-    col_values, rows = matrix.pivot()
-    # Pivot keeps first-seen job order, which appends single-runner build
-    # flavors (like 3.14t) after every base version: re-sort rows by release.
-    rows = tuple(sorted(rows, key=lambda row: python_version_sort_key(row[0])))
-    # Align columns with the canonical runner order of the axis constants: an
-    # include directive or a full-include flattening can perturb first-seen
-    # order. Runners outside the canonical tuple keep their first-seen order
-    # after it.
-    canonical = TEST_RUNNERS_FULL if matrix_name == "full" else TEST_RUNNERS_PR
-    rank = {runner: index for index, runner in enumerate(canonical)}
-    permutation = sorted(
-        range(len(col_values)),
-        key=lambda index: rank.get(col_values[index], len(canonical)),
-    )
-    col_values = tuple(col_values[index] for index in permutation)
-    rows = tuple((row[0], *(row[1 + index] for index in permutation)) for row in rows)
-    headers = ("Python", *col_values)
-    if emoji:
-        rows = tuple(
-            (row[0], *(decorate_matrix_cell(cell) for cell in row[1:])) for row in rows
+    # An axis no job carries pivots into an empty grid, which reads as a matrix
+    # with nothing in it rather than as the typo it is.
+    job_keys = {key for job in matrix.solve() for key in job}
+    for hint, axis in (("--row-axis", row_axis), ("--col-axis", col_axis)):
+        if axis not in job_keys:
+            msg = (
+                f"{axis!r} is not a key of the {matrix_name} matrix. "
+                f"Pass {hint} one of: {', '.join(sorted(job_keys))}."
+            )
+            raise UsageError(msg)
+    col_values, rows = matrix.pivot(row_axis, col_axis)
+    tallies = matrix.pivot_counts(row_axis, col_axis)
+    # Pivot keeps the order the solved job stream presents each axis in, which
+    # only matches the canonical one for a plain cross-product matrix.
+    row_key = matrix_axis_sort_key(row_axis, matrix_name)
+    if row_key:
+        rows = tuple(sorted(rows, key=lambda row: row_key(row[0])))
+    col_key = matrix_axis_sort_key(col_axis, matrix_name)
+    if col_key:
+        permutation = sorted(
+            range(len(col_values)), key=lambda index: col_key(col_values[index])
         )
+        col_values = tuple(col_values[index] for index in permutation)
+        rows = tuple(
+            (row[0], *(row[1 + index] for index in permutation)) for row in rows
+        )
+    headers = (AXIS_HEADER_LABELS.get(row_axis, row_axis), *col_values)
+    rows = tuple(
+        (
+            row[0],
+            *(
+                format_matrix_cell(cell, tallies.get((row[0], col)), emoji=emoji)
+                for col, cell in zip(col_values, row[1:], strict=True)
+            ),
+        )
+        for row in rows
+    )
     ctx.print_table(rows, headers)
 
 

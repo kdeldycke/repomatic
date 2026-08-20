@@ -37,6 +37,12 @@ The reduced pull-request matrix keeps one runner per OS and two Python versions,
 invoke(repomatic, args=['show-test-matrix', 'pr'])
 ```
 
+A grid has two axes and a matrix may vary on more: a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. To break them apart, lay the grid out on the axes you care about with `--row-axis` and `--col-axis`, naming any job key the matrix carries:
+
+```{click:run}
+invoke(repomatic, args=['show-test-matrix', '--row-axis', 'os', '--col-axis', 'python-version'])
+```
+
 The grid honors the global `--table-format` option, so the same view renders as GitHub-flavored Markdown, CSV, JSON, and the rest. For the raw GitHub Actions matrix the [`metadata` job](workflows.md) hands to CI: the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them, request the `test_matrix` (or `test_matrix_pr`) key from [`repomatic metadata`](cli.md):
 
 ```{click:run}

@@ -11,6 +11,8 @@
 - `sync-workflow-pins` no longer bumps the uv pin past what the pinned `astral-sh/setup-uv` can checksum-verify: the action silently skips validation for a version its bundled table does not list.
 - `lint-repo` gains a `setup-uv-checksum-coverage` check, warning when the pinned uv carries no checksum in the pinned `astral-sh/setup-uv` and CI therefore installs it unverified.
 - `show-test-matrix` sorts its Python rows by release instead of job order, placing a free-threaded build (`3.14t`) right after its base version, and aligns its OS columns with the canonical runner order of the test-matrix constants.
+- `show-test-matrix` gains `--row-axis` and `--col-axis`, laying the grid out on any job key the matrix carries instead of the fixed Python-by-OS view.
+- `show-test-matrix` states how many jobs a cell stands for (`✅ stable ×5`), so a cell collapsing an axis the grid cannot show no longer reads as a single job.
 - Fix `show-test-matrix` leaving a cell bare when several jobs share it: every state of a `stable, unstable` cell now carries its own glyph.
 - Fix `show-test-matrix` column alignment in terminals giving the unstable glyph a single cell: the grid label drops its emoji variation selector.
 - Fix the `plugin` component writing tab-indented settings into a repository whose `[tool.biome.formatter]` asks for spaces, which had `sync-repomatic` and `format-json` reindenting the file past each other on every run. The indent now follows the repository's own Biome config, native `biome.json` included.

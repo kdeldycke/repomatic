@@ -22,6 +22,7 @@ import json
 import logging
 import re
 import subprocess
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +33,9 @@ from extra_platforms import is_windows
 from repomatic.binary import NUITKA_BUILD_TARGETS
 from repomatic.cli import (
     EMOJI_PRESENTATION_SELECTOR,
+    JOB_COUNT_MARK,
     TEST_MATRIX_STATE_DISPLAY,
-    decorate_matrix_cell,
+    format_matrix_cell,
     repomatic,
 )
 from repomatic.config import (
@@ -41,7 +43,11 @@ from repomatic.config import (
 )
 from repomatic.github.actions import NULL_SHA
 from repomatic.github.ci_status import UNSTABLE_GLYPH
-from repomatic.github.matrix import PIVOT_CELL_SEPARATOR
+from repomatic.github.matrix import (
+    OS_AXIS,
+    PIVOT_CELL_SEPARATOR,
+    PYTHON_VERSION_AXIS,
+)
 from repomatic.matrix_axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
@@ -1179,7 +1185,7 @@ def test_show_test_matrix_no_emoji_uses_plain_words():
     for state, label in TEST_MATRIX_STATE_DISPLAY.items():
         assert label.removesuffix(f" {state}") not in plain.output
     states = {
-        value
+        value.split(f" {JOB_COUNT_MARK}")[0]
         for row in json.loads(plain.output)
         for key, value in row.items()
         if key != "Python"
@@ -1201,14 +1207,64 @@ def test_show_test_matrix_labels_drop_the_emoji_selector(state, label):
     assert EMOJI_PRESENTATION_SELECTOR not in label, f"{state}: {label!r}"
 
 
-def test_decorate_matrix_cell_decorates_every_state():
+def test_format_matrix_cell_labels_every_state():
     """Each state of a cell shared by several jobs gets its own glyph."""
-    joined = PIVOT_CELL_SEPARATOR.join(TEST_MATRIX_STATE_DISPLAY)
-    assert decorate_matrix_cell(joined) == PIVOT_CELL_SEPARATOR.join(
+    tally = Counter(dict.fromkeys(TEST_MATRIX_STATE_DISPLAY, 1))
+    assert format_matrix_cell("", tally) == PIVOT_CELL_SEPARATOR.join(
         TEST_MATRIX_STATE_DISPLAY.values()
     )
-    # The empty-intersection placeholder is not a state: it stays bare.
-    assert decorate_matrix_cell("—") == "—"
+
+
+@pytest.mark.parametrize(("state", "label"), tuple(TEST_MATRIX_STATE_DISPLAY.items()))
+def test_format_matrix_cell_counts_jobs_past_the_first(state, label):
+    """A state carrying several jobs says how many; a lone job stays bare."""
+    assert format_matrix_cell("", Counter({state: 1})) == label
+    assert format_matrix_cell("", Counter({state: 3})) == f"{label} {JOB_COUNT_MARK}3"
+    # A count is data, not decoration: --no-emoji keeps it.
+    assert (
+        format_matrix_cell("", Counter({state: 3}), emoji=False)
+        == f"{state} {JOB_COUNT_MARK}3"
+    )
+
+
+def test_format_matrix_cell_keeps_the_empty_intersection_placeholder():
+    """A cell no job occupies renders whatever `pivot` put there."""
+    assert format_matrix_cell("—", None) == "—"
+
+
+def test_show_test_matrix_pivots_on_the_chosen_axes():
+    """--row-axis and --col-axis transpose the grid onto the named job keys."""
+    default = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix"]
+    )
+    transposed = CliRunner().invoke(
+        repomatic,
+        [
+            "--table-format",
+            "json",
+            "show-test-matrix",
+            "--row-axis",
+            OS_AXIS,
+            "--col-axis",
+            PYTHON_VERSION_AXIS,
+        ],
+    )
+    assert default.exit_code == 0, default.output
+    assert transposed.exit_code == 0, transposed.output
+    default_rows = json.loads(default.output)
+    transposed_rows = json.loads(transposed.output)
+    # Transposing swaps the two axes: each one's values head the other side.
+    assert next(iter(transposed_rows[0])) == "OS"
+    assert {row["Python"] for row in default_rows} == set(transposed_rows[0]) - {"OS"}
+    assert {row["OS"] for row in transposed_rows} == set(default_rows[0]) - {"Python"}
+
+
+def test_show_test_matrix_rejects_an_unknown_axis():
+    """An axis no job carries is refused, naming the keys the matrix has."""
+    result = CliRunner().invoke(repomatic, ["show-test-matrix", "--col-axis", "papaya"])
+    assert result.exit_code != 0
+    assert "papaya" in result.output
+    assert PYTHON_VERSION_AXIS in result.output
 
 
 def test_show_test_matrix_rejects_unknown_name():

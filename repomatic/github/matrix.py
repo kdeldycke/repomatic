@@ -22,6 +22,7 @@ from __future__ import annotations
 import itertools
 import json
 import logging
+from collections import Counter
 
 from boltons.dictutils import FrozenDict
 from boltons.iterutils import unique
@@ -30,6 +31,18 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
 
+
+JOB_STATE_KEY = "state"
+"""Job key carrying whether a cell runs as `stable` or `unstable`.
+
+{meth}`Matrix.pivot` reads it into each cell, absent a caller's choice.
+"""
+
+OS_AXIS = "os"
+"""Job key naming the runner image, laid out as {meth}`Matrix.pivot` columns."""
+
+PYTHON_VERSION_AXIS = "python-version"
+"""Job key naming the interpreter version, laid out as {meth}`Matrix.pivot` rows."""
 
 PIVOT_CELL_SEPARATOR = ", "
 """Joins the distinct states {meth}`Matrix.pivot` finds at one intersection.
@@ -392,11 +405,41 @@ class Matrix:
             self._count_job()
             yield job
 
+    def pivot_counts(
+        self,
+        row_axis: str = PYTHON_VERSION_AXIS,
+        col_axis: str = OS_AXIS,
+        cell_key: str = JOB_STATE_KEY,
+    ) -> dict[tuple[str, str], Counter[str]]:
+        """Tally, per grid intersection, the jobs carrying each `cell_key` value.
+
+        The grouping {meth}`pivot` renders, kept as counts rather than
+        collapsed into a string. A caller cannot recover them from the
+        rendered grid, where a cell holding five identical states and one
+        holding a single job read alike, which is the whole reason a matrix
+        varying on a third axis needs this.
+
+        :param row_axis: Job key whose values become grid rows.
+        :param col_axis: Job key whose values become grid columns.
+        :param cell_key: Job key whose values are tallied.
+        :return: A `(row_value, col_value)` to {class}`~collections.Counter`
+            mapping, in first-seen job order, each counter keyed in first-seen
+            order too. An intersection no job occupies is absent from the
+            mapping rather than present with an empty counter.
+        """
+        tallies: dict[tuple[str, str], Counter[str]] = {}
+        for job in self.solve():
+            if row_axis not in job or col_axis not in job:
+                continue
+            cell = tallies.setdefault((job[row_axis], job[col_axis]), Counter())
+            cell[job.get(cell_key, "")] += 1
+        return tallies
+
     def pivot(
         self,
-        row_axis: str = "python-version",
-        col_axis: str = "os",
-        cell_key: str = "state",
+        row_axis: str = PYTHON_VERSION_AXIS,
+        col_axis: str = OS_AXIS,
+        cell_key: str = JOB_STATE_KEY,
         missing: str = "—",
     ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
         """Pivot the solved matrix into a 2D grid keyed by two axes.
@@ -427,23 +470,17 @@ class Matrix:
         cell.
         ```
         """
-        jobs = [job for job in self.solve() if row_axis in job and col_axis in job]
-        col_values = tuple(unique(job[col_axis] for job in jobs))
-        row_values = tuple(unique(job[row_axis] for job in jobs))
-
-        cells: dict[tuple[str, str], list[str]] = {}
-        for job in jobs:
-            cells.setdefault((job[row_axis], job[col_axis]), []).append(
-                job.get(cell_key, "")
-            )
+        tallies = self.pivot_counts(row_axis, col_axis, cell_key)
+        col_values = tuple(unique(col for _, col in tallies))
+        row_values = tuple(unique(row for row, _ in tallies))
 
         rows: list[tuple[str, ...]] = []
         for row in row_values:
             cells_in_row = []
             for col in col_values:
-                states = cells.get((row, col))
+                states = tallies.get((row, col))
                 cells_in_row.append(
-                    PIVOT_CELL_SEPARATOR.join(unique(states)) if states else missing
+                    PIVOT_CELL_SEPARATOR.join(states) if states else missing
                 )
             rows.append((row, *cells_in_row))
 

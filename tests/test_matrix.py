@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from itertools import permutations
 
 import pytest
@@ -940,6 +941,38 @@ def test_pivot_multi_job_cell_joins_states():
     cols, rows = matrix.pivot()
     assert cols == ("ubuntu-slim",)
     assert rows == (("3.14", "stable, unstable"),)
+
+
+def test_pivot_counts_tallies_the_jobs_behind_each_cell():
+    """A cell collapsing several jobs counts them, per distinct state."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-slim"])
+    matrix.add_variation("python-version", ["3.14"])
+    matrix.add_variation("click-version", ["stable", "main", "released"])
+    matrix.add_includes({"state": "stable"})
+    matrix.add_includes({"state": "unstable", "click-version": "main"})
+
+    assert matrix.pivot_counts() == {
+        ("3.14", "ubuntu-slim"): Counter({"stable": 2, "unstable": 1})
+    }
+
+
+def test_pivot_counts_omits_an_empty_intersection():
+    """An excluded combination is absent, not present with an empty counter."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-slim", "macos-26"])
+    matrix.add_variation("python-version", ["3.10", "3.14"])
+    matrix.add_includes({"state": "stable"})
+    matrix.add_excludes({"os": "macos-26", "python-version": "3.14"})
+
+    tallies = matrix.pivot_counts()
+    assert ("3.14", "macos-26") not in tallies
+    assert set(tallies) == {
+        ("3.10", "ubuntu-slim"),
+        ("3.10", "macos-26"),
+        ("3.14", "ubuntu-slim"),
+    }
+    assert all(tally == Counter({"stable": 1}) for tally in tallies.values())
 
 
 def test_pivot_custom_axes_and_missing_marker():
