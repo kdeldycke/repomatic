@@ -24,6 +24,7 @@
 - `sample-metrics` names the phase (`forward`, `reconstruct`, `import` or `wayback`) in a new column of its report table, so a subject repeating once per lane that ran is readable as one outcome per phase rather than as duplicates.
 - `sample-metrics --backfill-wayback` abandons the archive once ten captures are refused in a row and reports to retry later, instead of paying every remaining capture's retry schedule against a spent per-IP budget, and a recovered point prints once rather than twice under `--verbosity INFO`.
 - The Todo list documentation page now lists the project's pending work: each deferred change is written as a `todo` admonition beside the code or prose it acts on.
+- The `repomatic-ship` skill now sweeps those admonitions: pending work the cycle introduced is written as one, and a todo whose upstream trigger fired is retired with the shim it guards.
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 
