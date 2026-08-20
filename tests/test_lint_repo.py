@@ -46,6 +46,7 @@ from repomatic.lint_repo import (
     check_python_version_consistency,
     check_runner_images,
     check_self_pin_cooldown_exemption,
+    check_setup_uv_checksum_coverage,
     check_setup_uv_version_pin,
     check_sha_pinning_required,
     check_stale_draft_releases,
@@ -2235,3 +2236,55 @@ def test_repo_check_names_are_unique():
     """Two checks sharing a name would make the roster ambiguous to read."""
     names = [check.name for check in REPO_CHECKS]
     assert len(set(names)) == len(names), "duplicate RepoCheck names"
+
+
+# ---------------------------------------------------------------------------
+# setup-uv checksum coverage check tests
+# ---------------------------------------------------------------------------
+
+
+def _coverage(tmp_path, verified, *versions):
+    """Run the coverage check over a workflow pinning *versions*."""
+    (tmp_path / "tests.yaml").write_text(
+        _setup_uv_workflow(*versions), encoding="UTF-8"
+    )
+    with patch("repomatic.lint_repo.setup_uv_verified_versions", return_value=verified):
+        return check_setup_uv_checksum_coverage(tmp_path)
+
+
+def test_setup_uv_checksum_coverage_accepts_a_covered_pin(tmp_path):
+    """A pinned uv the pinned action can hash is the state worth having."""
+    result = _coverage(tmp_path, frozenset({"0.12.3"}), "0.12.3")
+    assert result.passed is True
+    assert "0.12.3" in result.message
+
+
+def test_setup_uv_checksum_coverage_flags_an_uncovered_pin(tmp_path):
+    """Two good pins can still verify nothing between them.
+
+    `setup-uv` skips validation for a version absent from the table its own
+    release bundles, on a debug line no CI log shows, so nothing else reports
+    this.
+    """
+    result = _coverage(tmp_path, frozenset({"0.11.30"}), "0.12.3")
+    assert result.passed is False
+    assert "0.12.3" in result.message
+
+
+def test_setup_uv_checksum_coverage_skips_on_an_unreadable_table(tmp_path):
+    """An unreachable API is indeterminate, never a red run."""
+    result = _coverage(tmp_path, None, "0.12.3")
+    assert result.passed is None
+    assert "unreadable" in result.message
+
+
+def test_setup_uv_checksum_coverage_skips_without_a_pinned_version(tmp_path):
+    """An unpinned step is the other check's finding, not this one's."""
+    result = _coverage(tmp_path, frozenset({"0.12.3"}), None)
+    assert result.passed is None
+    assert "no pinned uv version" in result.message
+
+
+def test_setup_uv_checksum_coverage_skips_without_workflows(tmp_path):
+    """A repository with no workflow has nothing to check."""
+    assert check_setup_uv_checksum_coverage(tmp_path).passed is None

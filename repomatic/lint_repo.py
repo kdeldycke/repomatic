@@ -73,7 +73,12 @@ from .pypi import (
     pypi_trusted_publisher_settings_url,
 )
 from .registry import DEFAULT_REPO, INSTALL_GUIDE_PATH, WORKFLOW_TARGET_ROOT
-from .version_sync import find_upstream_ref_versions, self_pin_exemption_re
+from .version_sync import (
+    SETUP_UV_SLUG,
+    find_upstream_ref_versions,
+    self_pin_exemption_re,
+    setup_uv_verified_versions,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -2023,6 +2028,39 @@ def check_self_pin_cooldown_exemption(
     )
 
 
+def _setup_uv_steps(
+    workflows: Mapping[Path, dict],
+) -> Iterator[tuple[Path, str, str | None]]:
+    """Yield `(path, ref, version)` for every `astral-sh/setup-uv` step.
+
+    The one definition of what counts as a `setup-uv` step, shared by the two
+    checks reading them so neither can vouch for a step the other skips.
+
+    *ref* is whatever follows the `@` (a commit SHA in a repository whose pins
+    `sync-action-pins` walks, a tag in one pinning by tag), and *version* is
+    the `with: version:` input, `None` when the step declares none.
+
+    :param workflows: Parsed workflow documents, keyed by path.
+    """
+    for path, data in workflows.items():
+        for job in data["jobs"].values():
+            if not isinstance(job, dict):
+                continue
+            for step in job.get("steps", []) or ():
+                if not isinstance(step, dict):
+                    continue
+                uses = str(step.get("uses", ""))
+                if not uses.startswith(f"{SETUP_UV_SLUG}@"):
+                    continue
+                inputs = step.get("with")
+                version = inputs.get("version") if isinstance(inputs, dict) else None
+                yield (
+                    path,
+                    uses.partition("@")[2],
+                    None if version is None else str(version),
+                )
+
+
 def check_setup_uv_version_pin(
     workflow_dir: Path = WORKFLOW_DIR,
     workflows: Mapping[Path, dict] | None = None,
@@ -2059,22 +2097,12 @@ def check_setup_uv_version_pin(
     unpinned: list[str] = []
     versions: dict[str, set[str]] = {}
     steps = 0
-    for path, data in workflows.items():
-        for job in data["jobs"].values():
-            if not isinstance(job, dict):
-                continue
-            for step in job.get("steps", []) or ():
-                if not isinstance(step, dict):
-                    continue
-                if not str(step.get("uses", "")).startswith("astral-sh/setup-uv@"):
-                    continue
-                steps += 1
-                inputs = step.get("with")
-                version = inputs.get("version") if isinstance(inputs, dict) else None
-                if version is None:
-                    unpinned.append(path.name)
-                    continue
-                versions.setdefault(str(version), set()).add(path.name)
+    for path, _ref, version in _setup_uv_steps(workflows):
+        steps += 1
+        if version is None:
+            unpinned.append(path.name)
+            continue
+        versions.setdefault(version, set()).add(path.name)
 
     if not steps:
         return CheckResult(None, "setup-uv version pin: no setup-uv step found.")
@@ -2097,6 +2125,68 @@ def check_setup_uv_version_pin(
     pinned_version = next(iter(versions))
     return CheckResult(
         True, f"astral-sh/setup-uv steps ({steps}) all pin uv {pinned_version}."
+    )
+
+
+def check_setup_uv_checksum_coverage(
+    workflow_dir: Path = WORKFLOW_DIR,
+    workflows: Mapping[Path, dict] | None = None,
+) -> CheckResult:
+    """Check the pinned uv is one the pinned `setup-uv` can checksum-verify.
+
+    The pin check above settles that CI resolves through a uv somebody chose.
+    Whether the bytes it downloads are the bytes that version shipped is a
+    second question, and `setup-uv` answers it only for the versions listed in
+    the checksum table its own release bundles: anything else installs with no
+    verification and no warning. So a repository can hold two perfectly good
+    pins that together verify nothing, which is what this reports.
+
+    Advisory, and not fatal for the same reason the pin check is not: the
+    download succeeds and the job runs, it just carries a cooldown where it
+    could have carried a cooldown and a hash. The repair is a
+    `sync-action-pins` bump, and `sync-workflow-pins` stops widening the gap on
+    its own (see {func}`repomatic.sync_ops._gate_uv_on_checksums`).
+
+    :param workflow_dir: Directory holding the workflow YAML files. Ignored
+        when *workflows* is supplied.
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
+    :return: A `CheckResult`, indeterminate when the table cannot be read.
+    """
+    if workflows is None:
+        workflows = _load_workflows(workflow_dir)
+    if not workflows:
+        return CheckResult(None, "setup-uv checksum coverage: skipped (no workflows).")
+
+    refs: set[str] = set()
+    versions: set[str] = set()
+    for _path, ref, version in _setup_uv_steps(workflows):
+        refs.add(ref)
+        if version is not None:
+            versions.add(version)
+
+    if not versions:
+        return CheckResult(
+            None, "setup-uv checksum coverage: skipped (no pinned uv version)."
+        )
+
+    verified = setup_uv_verified_versions(refs)
+    if verified is None:
+        return CheckResult(
+            None, "setup-uv checksum coverage: skipped (checksum table unreadable)."
+        )
+
+    unverified = sorted(versions - verified)
+    if unverified:
+        return CheckResult(
+            False,
+            f"uv {', '.join(unverified)} carries no checksum in the pinned"
+            f" {SETUP_UV_SLUG}, so CI installs uv unverified. Bump the"
+            " action pin to one whose table covers it.",
+        )
+    return CheckResult(
+        True,
+        f"Pinned uv ({', '.join(sorted(versions))}) is checksum-verified by the"
+        f" pinned {SETUP_UV_SLUG}.",
     )
 
 
@@ -2916,6 +3006,14 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "setup-uv-version-pin",
         lambda ctx: check_setup_uv_version_pin(workflows=ctx.workflows),
+    ),
+    # The second half of the same pin: which uv CI runs, then whether it can
+    # tell it got that uv. Non-fatal on the same reasoning, and indeterminate
+    # rather than red when the table cannot be read, per `claude.md` § PAT-gated
+    # checks degrade.
+    RepoCheck(
+        "setup-uv-checksum-coverage",
+        lambda ctx: check_setup_uv_checksum_coverage(workflows=ctx.workflows),
     ),
     # Fatal for the same reason again: a retired key fails the `metadata` job,
     # and every other job is `needs: metadata`.

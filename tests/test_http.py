@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the shared JSON-over-HTTP fetch and cache mechanics."""
+"""Tests for the shared HTTP fetch and cache mechanics."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 import pytest
 
-from repomatic.http import FetchError, get_cached_json, get_json
+from repomatic.http import FetchError, get_cached_json, get_json, get_text
 from tests.conftest import FakeResponse
 
 PAYLOAD = {"time": {"1.0.0": "2026-01-02T00:00:00.000Z"}}
@@ -57,6 +57,30 @@ def test_get_json_persistent_incomplete_read():
         pytest.raises(FetchError),
     ):
         get_json("https://example.test/mango")
+
+
+def test_get_text_decodes_body():
+    """A text fetch returns the decoded body rather than a parsed value."""
+    with patch("repomatic.http.urlopen", return_value=FakeResponse(b"pomelo\n")):
+        assert get_text("https://example.test/fruit") == "pomelo\n"
+
+
+def test_get_text_rejects_undecodable_body():
+    """A body that is not UTF-8 is a failed fetch, not mojibake."""
+    with (
+        patch("repomatic.http.urlopen", return_value=FakeResponse(b"\xff\xfe")),
+        pytest.raises(FetchError),
+    ):
+        get_text("https://example.test/fruit")
+
+
+def test_get_text_retries_incomplete_read():
+    """A truncated text body earns the same single retry as a JSON one."""
+    with patch(
+        "repomatic.http.urlopen",
+        side_effect=[IncompleteRead(b""), FakeResponse(b"pomelo")],
+    ):
+        assert get_text("https://example.test/fruit") == "pomelo"
 
 
 def test_get_cached_json_fetches_and_stores():

@@ -124,6 +124,8 @@ from .uv import (
 )
 from .version_sync import (
     MIN_AGE_HELD_BACK_NOTE,
+    SETUP_UV_PACKAGE,
+    SETUP_UV_SLUG,
     apply_action_pins,
     apply_workflow_literals,
     find_action_pins,
@@ -140,11 +142,12 @@ from .version_sync import (
     select_latest,
     set_tool_version,
     set_with_package_version,
+    setup_uv_verified_versions,
 )
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from datetime import timedelta
     from typing import Any
 
@@ -970,6 +973,71 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
     return plan
 
 
+def _gate_uv_on_checksums(
+    candidates: list[Candidate],
+    pinned: str,
+    file_data: Mapping[Path, str],
+    min_age: timedelta,
+    today: date,
+) -> list[Candidate]:
+    """Drop uv releases the pinned `setup-uv` cannot checksum-verify.
+
+    The uv pin is the one literal whose adoptable range is decided by a
+    *second* pin: `setup-uv` verifies a download only against the checksum
+    table its own release bundles, and silently skips verification for anything
+    else (see {func}`~repomatic.version_sync.setup_uv_verified_versions`).
+    Walking uv forward past that table therefore trades a hash for nothing,
+    which is the opposite of what pinning it was for.
+
+    So the ceiling moves when the action pin moves, not when uv publishes.
+    Nothing is downgraded: the caller only adopts a candidate newer than what
+    is pinned, so a repository already past its ceiling simply stays put until
+    `sync-action-pins` lands a `setup-uv` that covers it.
+
+    :param candidates: Every uv release, as offered by PyPI.
+    :param pinned: The uv version currently written in the workflows.
+    :param file_data: The scanned files, read for their `setup-uv` pins.
+    :param min_age: The stabilization window, to name what the gate withheld.
+    :param today: Reference date for the cooldown computation.
+    :return: The candidates carrying a checksum, or all of them when no table
+        could be read.
+    """
+    shas = {
+        pin.sha
+        for text in file_data.values()
+        for pin in find_action_pins(text)
+        if pin.slug == SETUP_UV_SLUG
+    }
+    verified = setup_uv_verified_versions(shas)
+    if verified is None:
+        return candidates
+
+    # Audit the pin already on disk, not just the one about to replace it: the
+    # same reason pin_inside_cooldown exists, for a condition that likewise
+    # entered the tree without passing this gate (hand-edited, or written
+    # before the gate existed). Nothing here can fix it, since the repair is a
+    # sync-action-pins bump, so it is reported rather than acted on.
+    if pinned not in verified:
+        logging.warning(
+            f"uv {pinned} is pinned but carries no checksum in the pinned"
+            f" {SETUP_UV_SLUG}, so every job installs it unverified. Bump the"
+            " action pin to restore verification."
+        )
+
+    gated = [candidate for candidate in candidates if candidate.version in verified]
+    ungated_latest = select_latest(candidates, min_age, today)
+    gated_latest = select_latest(gated, min_age, today)
+    if ungated_latest is not None and (
+        gated_latest is None or is_newer(ungated_latest.version, gated_latest.version)
+    ):
+        logging.info(
+            f"uv {ungated_latest.version} cleared the cooldown but carries no"
+            f" checksum in the pinned {SETUP_UV_SLUG}: holding the pin until"
+            " the action pin catches up."
+        )
+    return gated
+
+
 def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     """Bump npm and PyPI version literals embedded in workflow YAML.
 
@@ -1031,6 +1099,10 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         candidates = (
             npm_candidates(package) if ecosystem == "npm" else pypi_candidates(package)
         )
+        if ecosystem == "pypi" and package == SETUP_UV_PACKAGE:
+            candidates = _gate_uv_on_checksums(
+                candidates, current_version, file_data, min_age, today
+            )
         latest = select_latest(candidates, min_age, today)
         # Audit the pin already on disk, not just the one about to replace it.
         # A pin inside the window resolves through `uvx` in CI, which can read

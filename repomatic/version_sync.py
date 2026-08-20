@@ -42,18 +42,20 @@ from typing import NamedTuple
 from click_extra import parse_friendly_duration
 from packaging.version import InvalidVersion, Version
 
+from .github.gh import api_headers
 from .github.releases import (
     GitHubReleasesUnavailable,
     extract_version,
     get_release_tags,
 )
+from .http import FetchError, get_text
 from .humanize import SECONDS_PER_DAY
 from .npm import get_release_dates as npm_release_dates
 from .pypi import get_release_dates as pypi_release_dates
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
 MINIMUM_RELEASE_AGE_URL = "https://repomatic.net/configuration#minimum-release-age"
 """Docs anchor for the `minimum-release-age` cooldown, linked from PR bodies."""
@@ -108,6 +110,31 @@ _PYPI_LITERAL_RE = re.compile(
 
 SETUP_UV_PACKAGE = "uv"
 """PyPI project backing the `astral-sh/setup-uv` version pin."""
+
+SETUP_UV_SLUG = "astral-sh/setup-uv"
+"""Action slug provisioning uv, whose own pin decides what CI can verify."""
+
+SETUP_UV_CHECKSUMS_PATH = "src/download/checksum/known-checksums.ts"
+"""Path of the checksum table inside the {data}`SETUP_UV_SLUG` repository."""
+
+GITHUB_API_CONTENTS_URL = (
+    "https://api.github.com/repos/{slug}/contents/{path}?ref={ref}"
+)
+"""GitHub API URL for reading one file at one commit.
+
+Requested with the `raw` media type, so the body arrives verbatim: the JSON
+form base64-encodes it and caps out at 1 MB, and the checksum table is already
+past half of that.
+"""
+
+_SETUP_UV_CHECKSUM_KEY_RE = re.compile(r'"[a-z0-9_-]+-(?P<version>\d+\.\d+\.\d+)"')
+"""Match the uv version tail of a `KNOWN_CHECKSUMS` key.
+
+Keys are ``{target-triple}-{version}`` (`aarch64-apple-darwin-0.12.4`). The
+triple has no fixed segment count (`arm-unknown-linux-musleabihf` against
+`x86_64-apple-darwin`), so the version anchors the match instead: the leading
+character class holds no dot, which is what stops it eating into the version.
+"""
 
 # The uv build `astral-sh/setup-uv` installs, as a `version:` input on the step.
 _SETUP_UV_VERSION_RE = re.compile(
@@ -488,6 +515,69 @@ def npm_candidates(package: str) -> list[Candidate]:
         Candidate(version=version, date=published, ref=version)
         for version, published in npm_release_dates(package).items()
     ]
+
+
+@cache
+def _checksum_table(sha: str) -> frozenset[str] | None:
+    """Read the uv versions listed in one `setup-uv` commit's checksum table.
+
+    Cached per commit for the process: the content at a SHA is immutable, and
+    both `sync-workflow-pins` and `lint-repo`'s coverage check read the same
+    half-megabyte file.
+
+    :param sha: The pinned {data}`SETUP_UV_SLUG` commit.
+    :return: Every uv version the table names, or `None` when the file could
+        not be read or yielded no key at all (a format change upstream), which
+        callers treat as "unknown" rather than as "verifies nothing".
+    """
+    url = GITHUB_API_CONTENTS_URL.format(
+        slug=SETUP_UV_SLUG, path=SETUP_UV_CHECKSUMS_PATH, ref=sha
+    )
+    try:
+        table = get_text(
+            url, headers={**api_headers(), "Accept": "application/vnd.github.raw"}
+        )
+    except FetchError as exc:
+        logging.warning(f"Could not read the {SETUP_UV_SLUG} checksum table: {exc}")
+        return None
+    versions = frozenset(
+        match.group("version") for match in _SETUP_UV_CHECKSUM_KEY_RE.finditer(table)
+    )
+    if not versions:
+        logging.warning(
+            f"No checksum key parsed from {SETUP_UV_CHECKSUMS_PATH} at {sha}:"
+            " the upstream format changed, so the uv pin is no longer gated."
+        )
+        return None
+    return versions
+
+
+def setup_uv_verified_versions(shas: Iterable[str]) -> frozenset[str] | None:
+    """uv releases every pinned `setup-uv` commit can checksum-verify.
+
+    `setup-uv` verifies a download against a checksum table bundled into the
+    action release. A version absent from that table is not refused: it is
+    installed with no verification at all, on a `core.debug` line no CI log
+    shows by default (`src/download/checksum/checksum.ts`). uv ships weekly and
+    `setup-uv` roughly monthly, and `sync-action-pins` and `sync-workflow-pins`
+    walk the two pins independently, so the uv pin drifts past the table on its
+    own. Measured on 2026-08-20: `setup-uv` `v9.0.0` stopped at uv `0.11.30`
+    while every workflow here pinned `0.12.3`, five releases later.
+
+    Intersecting rather than picking one table keeps a repository mid-bump
+    honest: while `sync-action-pins` has landed on some files and not others,
+    the only uv a *whole* fleet can verify is one both tables carry.
+
+    :param shas: Every distinct {data}`SETUP_UV_SLUG` commit pinned in the
+        repository.
+    :return: The uv versions verifiable by all of them, or `None` when no
+        table could be read (no pin found, or every fetch failed), which leaves
+        the caller ungated rather than blocked.
+    """
+    tables = [table for sha in sorted(set(shas)) if (table := _checksum_table(sha))]
+    if not tables:
+        return None
+    return frozenset.intersection(*tables)
 
 
 def safe_version(value: str) -> Version | None:

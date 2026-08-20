@@ -58,6 +58,8 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 
 The only remaining third-party action (1 of 8 total) is `astral-sh/setup-uv`, which installs the toolchain every other job runs through.
 
+That makes its own pin do double duty: it fixes the action's code, and it fixes which uv builds arrive checksum-verified, since `setup-uv` validates a download only against the table its release bundles and silently skips verification for anything else. `sync-workflow-pins` therefore never walks the uv pin past that table, and `lint-repo` reports a repository already sitting past it.
+
 Every other `uses:` in the tree is GitHub's own: `actions/checkout`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/attest`, `actions/upload-pages-artifact` and `actions/deploy-pages`. All but `actions/checkout` speak the Actions cache, artifact, attestation and Pages backplanes, and are kept deliberately: those are internal service protocols GitHub reserves the right to change, so a reimplementation would break silently rather than loudly.
 
 #### Issue and pull-request labelling

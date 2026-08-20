@@ -2554,6 +2554,8 @@ def lint_repo(
         --exclude-newer-package exemption (error).
       - Workflows only ask repomatic metadata for keys it still emits (error).
       - Every astral-sh/setup-uv step pins one uv version (warning).
+      - The pinned uv carries a checksum in the pinned astral-sh/setup-uv
+        (warning).
       - GitHub topics subset of pyproject.toml keywords (warning).
       - Funding file present when owner has GitHub Sponsors (warning).
       - Stale draft releases (non-.dev0 drafts) (warning).

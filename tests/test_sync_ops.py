@@ -23,12 +23,14 @@ shared invariant, so a new operation that breaks a convention fails by name.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import re
 import subprocess
 from datetime import date, timedelta
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -52,6 +54,7 @@ from repomatic.sync_ops import (
     SyncPlan,
     UvProjectExtras,
     _apply_file_writes,
+    _gate_uv_on_checksums,
     _pinned_with_packages,
     _plan_file_rewrites,
     _resolve_action_pins,
@@ -64,7 +67,13 @@ from repomatic.sync_ops import (
     selected_operations,
 )
 from repomatic.tool_registry import TOOL_REGISTRY
-from repomatic.version_sync import apply_workflow_literals, is_newer
+from repomatic.version_sync import (
+    SETUP_UV_SLUG,
+    Candidate,
+    apply_workflow_literals,
+    is_newer,
+    select_latest,
+)
 from tests.conftest import load_workflow
 
 OPERATION_NAMES = [op.name for op in SYNC_OPERATIONS]
@@ -929,3 +938,108 @@ def test_apply_file_writes_verbatim_without_rebase(tmp_path):
     _apply_file_writes(plan)
 
     assert target.read_text(encoding="UTF-8") == "new\n"
+
+
+# ---------------------------------------------------------------------------
+# uv checksum gate
+# ---------------------------------------------------------------------------
+
+UV_CANDIDATES = [
+    Candidate("0.12.2", "2026-08-05", "0.12.2"),
+    Candidate("0.12.3", "2026-08-07", "0.12.3"),
+    Candidate("0.12.4", "2026-08-13", "0.12.4"),
+]
+"""Three uv releases, all clear of the cooldown on {data}`GATE_TODAY`."""
+
+GATE_TODAY = date(2026, 8, 28)
+MIN_AGE = timedelta(days=7)
+
+SETUP_UV_PIN = {
+    Path("lint.yaml"): (
+        "jobs:\n  lint:\n    steps:\n"
+        f"      - uses: {SETUP_UV_SLUG}@{'a' * 40} # v10.0.0\n"
+        '        with:\n          version: "0.12.3"\n'
+    )
+}
+"""A workflow pinning both halves: the action commit and the uv it installs."""
+
+
+def _gate(verified, pinned="0.12.3", candidates=None):
+    """Run the gate with *verified* standing in for the fetched table."""
+    with patch("repomatic.sync_ops.setup_uv_verified_versions", return_value=verified):
+        return _gate_uv_on_checksums(
+            list(UV_CANDIDATES if candidates is None else candidates),
+            pinned,
+            SETUP_UV_PIN,
+            MIN_AGE,
+            GATE_TODAY,
+        )
+
+
+def test_uv_gate_drops_unverifiable_releases():
+    """A uv the pinned action cannot checksum is not a candidate.
+
+    Without this, `sync-workflow-pins` walks uv past the table on its own
+    schedule and CI installs it with no verification at all.
+    """
+    gated = _gate(frozenset({"0.12.2", "0.12.3"}))
+    assert [candidate.version for candidate in gated] == ["0.12.2", "0.12.3"]
+    picked = select_latest(gated, MIN_AGE, GATE_TODAY)
+    assert picked is not None and picked.version == "0.12.3"
+
+
+def test_uv_gate_reads_the_action_pin_out_of_the_scanned_files():
+    """The commit the table is fetched at comes from the files being synced.
+
+    The gate's two halves are wired through the scanned text: miss the pin and
+    it silently degrades to ungated, which is the failure it exists to prevent.
+    """
+    with patch(
+        "repomatic.sync_ops.setup_uv_verified_versions", return_value=None
+    ) as verified:
+        _gate_uv_on_checksums(
+            list(UV_CANDIDATES), "0.12.3", SETUP_UV_PIN, MIN_AGE, GATE_TODAY
+        )
+    verified.assert_called_once_with({"a" * 40})
+
+
+def test_uv_gate_passes_everything_through_when_the_table_is_unknown():
+    """An unreadable table degrades to the ungated behaviour, never to a block."""
+    assert _gate(None) == UV_CANDIDATES
+
+
+def test_uv_gate_never_downgrades_a_pin_above_the_table():
+    """A pin already past the table stays put instead of walking backwards.
+
+    The gate only removes candidates; the caller adopts one solely when it
+    beats what is pinned, so the repair stays a `sync-action-pins` bump.
+    """
+    gated = _gate(frozenset({"0.11.30"}), pinned="0.12.3")
+    assert select_latest(gated, MIN_AGE, GATE_TODAY) is None
+
+
+def test_uv_gate_warns_when_the_pinned_uv_is_unverified(caplog):
+    """The pin on disk is audited too, not just the one about to replace it."""
+    with caplog.at_level(logging.WARNING):
+        _gate(frozenset({"0.11.30"}), pinned="0.12.3")
+    assert "installs it unverified" in caplog.text
+
+
+def test_uv_gate_stays_quiet_when_the_pinned_uv_is_verified(caplog):
+    """A covered pin is the normal state and earns no warning."""
+    with caplog.at_level(logging.WARNING):
+        _gate(frozenset({"0.12.3", "0.12.4"}), pinned="0.12.3")
+    assert not caplog.text
+
+
+def test_uv_gate_reports_a_release_it_withheld(caplog):
+    """A newer uv the action cannot verify is announced, at info level.
+
+    uv ships weekly against `setup-uv`'s monthly cadence, so this is the
+    ordinary state between action bumps: a warning every run would train the
+    reader to ignore the ones that mean something.
+    """
+    with caplog.at_level(logging.INFO):
+        _gate(frozenset({"0.12.3"}), pinned="0.12.3")
+    assert "0.12.4" in caplog.text
+    assert "holding the pin" in caplog.text

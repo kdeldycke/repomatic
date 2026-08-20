@@ -14,15 +14,19 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Shared JSON-over-HTTP fetch for the API clients.
+"""Shared HTTP fetch for the API clients.
 
-The single implementation of the GET-and-parse-JSON loop used by the PyPI
+The single implementation of the GET loop used by the PyPI
 ({mod}`repomatic.pypi`), npm ({mod}`repomatic.npm`), and GitHub Releases
 ({mod}`repomatic.github.releases`) clients, so every datasource shares the
 same timeout and truncated-body retry semantics. Caching *policy* stays with
 the callers — each client owns its cache namespace, TTL, and serialization —
 while {func}`get_cached_json` shares the raw-response caching mechanics for
 the clients that store verbatim bodies.
+
+Most responses are JSON ({func}`get_json`); {func}`get_text` serves the one
+datasource that is a source file rather than an API payload, the
+`astral-sh/setup-uv` checksum table {mod}`repomatic.version_sync` reads.
 """
 
 from __future__ import annotations
@@ -61,6 +65,40 @@ class FetchError(RuntimeError):
     """
 
 
+def _read_body(
+    url: str,
+    accept: str,
+    headers: Mapping[str, str] | None,
+    timeout: float,
+) -> bytes:
+    """GET *url* and return its raw body, retrying once on truncation.
+
+    A truncated body (`IncompleteRead`) is transient (a flaky connection or
+    an interfering proxy), so it earns one retry; every other failure mode
+    fails straight away.
+
+    :param url: The URL to fetch.
+    :param accept: Default `Accept` media type, overridable by *headers*.
+    :param headers: Extra request headers, merged over *accept* (caller wins
+        on conflict).
+    :param timeout: Socket timeout in seconds.
+    :return: The raw response body.
+    :raises FetchError: On HTTP error, network error, timeout, or a body
+        still truncated after the retry.
+    """
+    request = Request(url, headers={"Accept": accept, **(headers or {})})
+    for retry in (True, False):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                body: bytes = response.read()
+            return body
+        except (URLError, TimeoutError, IncompleteRead) as exc:
+            if retry and isinstance(exc, IncompleteRead):
+                continue
+            raise FetchError(str(exc)) from exc
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 def get_json(
     url: str,
     *,
@@ -68,10 +106,6 @@ def get_json(
     timeout: float = DEFAULT_TIMEOUT,
 ) -> tuple[Any, bytes]:
     """GET *url* and parse the body as JSON, retrying once on truncation.
-
-    A truncated body (`IncompleteRead`) is transient (a flaky connection or
-    an interfering proxy), so it earns one retry; every other failure mode
-    fails straight away.
 
     :param url: The URL to fetch.
     :param headers: Extra request headers, merged over the JSON `Accept`
@@ -81,17 +115,38 @@ def get_json(
         (for callers that cache the verbatim response).
     :raises FetchError: On any failure (see the class docstring).
     """
-    request = Request(url, headers={"Accept": "application/json", **(headers or {})})
-    for retry in (True, False):
-        try:
-            with urlopen(request, timeout=timeout) as response:
-                raw = response.read()
-            return json.loads(raw), raw
-        except (URLError, TimeoutError, json.JSONDecodeError, IncompleteRead) as exc:
-            if retry and isinstance(exc, IncompleteRead):
-                continue
-            raise FetchError(str(exc)) from exc
-    raise AssertionError("unreachable")  # pragma: no cover
+    raw = _read_body(url, "application/json", headers, timeout)
+    try:
+        return json.loads(raw), raw
+    except json.JSONDecodeError as exc:
+        raise FetchError(str(exc)) from exc
+
+
+def get_text(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> str:
+    """GET *url* and decode the body as UTF-8 text.
+
+    An undecodable body is a failed fetch rather than something to paper over
+    with replacement characters: every caller parses what it reads, and
+    parsing mojibake yields a wrong answer instead of a missing one.
+
+    :param url: The URL to fetch.
+    :param headers: Extra request headers, merged over the plain-text `Accept`
+        default (caller wins on conflict).
+    :param timeout: Socket timeout in seconds.
+    :return: The decoded response body.
+    :raises FetchError: On any failure (see the class docstring), including a
+        body that is not valid UTF-8.
+    """
+    raw = _read_body(url, "text/plain", headers, timeout)
+    try:
+        return raw.decode("UTF-8")
+    except UnicodeDecodeError as exc:
+        raise FetchError(str(exc)) from exc
 
 
 def get_json_soft(url: str, log_label: str) -> tuple[Any, bytes] | None:
