@@ -27,6 +27,7 @@
 - `sample-metrics` gains `--carry-from`, restoring the store from a remote branch before sampling so readings pending in an open pull request are appended to rather than dropped.
 - The Todo list documentation page now lists the project's pending work: each deferred change is written as a `todo` admonition beside the code or prose it acts on.
 - The `repomatic-ship` skill now sweeps those admonitions: pending work the cycle introduced is written as one, and a todo whose upstream trigger fired is retired with the shim it guards.
+- The `commit-messages` page and the bundled skills now hold a commit body to three cases: bundled orthogonal work, a link to a public record, or a `Closes #N` pointer.
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 

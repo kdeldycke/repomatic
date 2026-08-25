@@ -49,6 +49,12 @@ Avoid the bare one-word subject (`Typo`, `Lint`, `Fix`). It costs the next reade
 
 ## Writing the body
 
-Omit it when the subject says everything. Add one short paragraph when the *why* is not evident from the diff, and especially when a **public record of the decision exists**: the upstream issue or pull request, a commit in another repository, the specification or documentation page that forced the behavior, the discussion thread. Point at the commit being reverted or followed up on.
+Omit the body by default, even when the *why* is not evident from the diff. A body is not the place to explain the change, defend the approach, or restate what the diff already shows. Write one only in these three cases, and write no more than the case needs:
+
+1. **The commit bundles orthogonal work.** It carries several unrelated tasks, or spans different domains, and one subject cannot name them all. Give one short line per strand.
+2. **A public record holds the context.** Link it: the upstream issue or pull request, a commit in another repository, the specification or documentation page that forced the behavior, the discussion thread. Point at the commit being reverted or followed up on the same way.
+3. **The commit resolves or references a tracked item.** Use `Closes #N` when merging into the default branch must close the issue, and `Related to #N` when it must not.
 
 Forges render commit messages as HTML, so a link is the cheapest path from `git log` to the full story. A body carrying one is where accountability and traceability actually live.
+
+Everything else belongs somewhere durable instead: a code comment, a docstring, `docs/`, or the pull request body. Never narrate the work in sequence or enumerate the files touched, since `git log --stat` lists the files and the diff shows the rest.
