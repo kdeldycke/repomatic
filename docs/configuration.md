@@ -157,6 +157,8 @@ Tune rules for precision, not recall. The labeller pre-labels for the maintainer
 
 `sample-metrics` records what forges say about a set of repositories, into one CSV committed here. It is opt-in, and `metrics.sync` is also what decides whether `repomatic init` hands the repository the `metrics.yaml` workflow at all.
 
+The weekly job publishes through one long-lived pull request that every run appends to, so enabling this leaves a pull request open for you to merge whenever you want the readings live. Leaving it open costs freshness and never a reading: see [§ Sampling accumulates in one pull request](operation-contracts.md#sampling-accumulates-in-one-pull-request).
+
 Every reading is one row: which repository, which metric, on which date, what it said, and where the figure came from. How long a row is kept is a property of the metric rather than of the caller. A **counter** like the star count accrues, so its curve can be charted. An **attribute** like the date of a project's newest commit keeps a single row, restamped only when the value moves, since nothing reads it chronologically and a hundred subjects sampled weekly would otherwise pile up thousands of rows a year.
 
 ```toml

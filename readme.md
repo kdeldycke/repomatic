@@ -10,7 +10,7 @@
 
 A Python CLI and `pyproject.toml` configuration that let you **release Python packages multiple times a day with only 2-clicks**. Designed for `uv`-based Python projects, but usable for other projects too. Every step is a CLI command: reusable GitHub Actions workflows are only the trigger, so the same automation runs on your machine.
 
-**Maintainer-in-the-loop**: nothing is done behind your back. A PR or issue is created every time a change is proposed or action is needed.
+**Maintainer-in-the-loop**: nothing is done behind your back. Every change repomatic proposes arrives as a PR you review; every action it needs from you opens an issue.
 
 ## What it automates
 
