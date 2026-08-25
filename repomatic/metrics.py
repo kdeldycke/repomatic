@@ -80,6 +80,7 @@ from enum import Enum, auto
 from itertools import accumulate
 
 from .forge import GITHUB_HOST, canonical_url, repo_metrics, split_repo_url
+from .git_ops import fetch_remote_branch, restore_paths
 from .github.gh import run_gh_command
 from .tabular import read_csv, render_csv, write_csv
 
@@ -462,6 +463,48 @@ def last_fetch_failure() -> str:
         f"{count}x {reason}" for reason, count in _LAST_FETCH_REASONS.most_common()
     )
     return tally or "no response"
+
+
+def carry_pending_readings(branch: str, path: Path, remote: str = "origin") -> bool:
+    """Read the store back from *branch* before sampling appends to it.
+
+    A sampled reading cannot be fetched again, so the store is the only place
+    that history exists. Once the accrual is delivered through a pull request
+    instead of a direct push, a run starting from the default branch would
+    measure against a store missing every reading still waiting in that pull
+    request, and publish a branch holding one row where the history needs all
+    of them. Restoring the store from the branch first makes each run append
+    to what is already pending, so the pull request always shows the whole
+    accrual as one diff against its base.
+
+    Idempotent and self-healing, whichever way the pull request was merged.
+    Once merged, the branch's store and the base's agree, so the restore
+    changes nothing and the next run starts a fresh accrual from a store the
+    base already holds. A squash merge is no different here: the comparison is
+    of file content, never of commit history.
+
+    ```{note}
+    Only the store travels. Anything drawn from it is a pure function of the
+    history (see {func}`~repomatic.metric_chart.render_chart`), so a chart
+    redrawn from the restored store lands on the same bytes the branch holds
+    without being carried over.
+    ```
+
+    :param branch: Remote branch holding the pending readings, usually the one
+        the job's pull request is opened from.
+    :param path: The CSV store to restore.
+    :param remote: Remote to read the branch from.
+    :return: `True` when readings were carried over.
+    """
+    tip = fetch_remote_branch(branch, remote=remote)
+    if tip is None:
+        logging.debug(f"No {branch!r} branch on {remote}, nothing pending to carry.")
+        return False
+    if not restore_paths(tip, (path,)):
+        logging.debug(f"{remote}/{branch} carries no {path}, nothing to carry.")
+        return False
+    logging.info(f"Carried the store pending on {remote}/{branch} into {path}.")
+    return True
 
 
 def load_metrics(path: Path) -> dict[tuple[str, str, str], MetricRecord]:

@@ -139,10 +139,11 @@ The property that separates it from a `sync-*` is that it never converges. A syn
 
 1. **CLI command.** A `repomatic sample-*` command that loads config, checks its toggle, and exits cleanly (`ctx.exit(0)`) when disabled or when nothing is configured to sample.
 2. **Config toggle, opt-in.** A `sync: bool = False` field on the operation's nested config (`[tool.repomatic.metrics] sync`). Opt-in rather than opt-out, unlike a `sync-*`: an accumulating store is a commitment a maintainer makes deliberately, and most repositories track nothing. The same key gates the workflow component, so a repository that never enables it is never handed the file.
-3. **Workflow job.** A job in a schedule-only workflow, never triggered on push: sampling the same value twice in one day writes the same point, so a per-push run costs API calls and produces nothing. It commits directly (see below).
-4. **Documentation.** Config reference in `docs/configuration.md`. Job description with its "Skipped if" clause in `docs/workflows.md`. Changelog entry.
-5. **Store format.** One CSV, through {mod}`repomatic.tabular`, one row per reading. Never JSON: see `claude.md` § Naming conventions rule 8.
-6. **Tests.** A conformance test over the committed store: known provenances, no duplicate key, sorted, no date in the future, and no attribute holding two rows. The store is written unattended by a scheduled job, so nothing else would catch a malformed append.
+3. **Workflow job.** A job in a schedule-only workflow, never triggered on push: sampling the same value twice in one day writes the same point, so a per-push run costs API calls and produces nothing. It publishes through one long-lived pull request (see below).
+4. **PR branch and body template.** Named after the operation, like any other publishing job: `repomatic/templates/sample-*.md`, rendered by `pr-sync --template`. The branch carries the accrual between merges, so the template tells a reader what leaving it open costs.
+5. **Documentation.** Config reference in `docs/configuration.md`. Job description with its "Skipped if" clause in `docs/workflows.md`. Changelog entry.
+6. **Store format.** One CSV, through {mod}`repomatic.tabular`, one row per reading. Never JSON: see `claude.md` § Naming conventions rule 8.
+7. **Tests.** A conformance test over the committed store: known provenances, no duplicate key, sorted, no date in the future, and no attribute holding two rows. The store is written unattended by a scheduled job, so nothing else would catch a malformed append.
 
 **Invariants:**
 
@@ -151,16 +152,27 @@ The property that separates it from a `sync-*` is that it never converges. A syn
 - **A weaker provenance never overwrites a stronger one.** A history mixing methodologies records which one each point came from, and a one-off backfill run against an already-populated store must degrade nothing (see {data}`repomatic.metrics.SOURCE_RANK`).
 - **A failed reading costs its own row, never the run.** One unreachable forge must not blank every metric collected beside it, and a stale figure carrying its own date beats a hole.
 - **Rendering is a pure function of the store.** Anything drawn from the history is stamped with the newest reading rather than with the run date, so a pass that found nothing new rewrites no committed file.
+- **The accrual survives an unmerged pull request.** A run reads the store back from its own branch before appending, so readings waiting for review are added to rather than replaced. See [§ Sampling accumulates in one pull request](#sampling-accumulates-in-one-pull-request).
 
-### Sampling commits directly
+### Sampling accumulates in one pull request
 
 ```{important}
-`sample-metrics` commits its store with a direct push to the default branch (via `repomatic git-commit-push`), not a pull request. Disable it with `[tool.repomatic] metrics.sync = false`.
+`sample-metrics` publishes its store through a single long-lived pull request (via `repomatic pr-sync --template sample-metrics`), which every run appends to until you merge it. Disable the whole operation with `[tool.repomatic] metrics.sync = false`.
 ```
 
-The reasoning of [§ Release-lane direct commits](#release-lane-direct-commits) applies unchanged, and the first bullet applies with more force. The diff records what an external API answered at a moment that has passed: rejecting or editing it cannot change the reading, only make the history wrong or lose it. A weekly pull request appending machine-read counts would also be a weekly pull request nobody reads, and one left unmerged stalls the accrual silently, which is the failure mode the whole operation exists to prevent.
+A per-run pull request would be the wrong shape here, and that is the objection this design answers. The diff records what an external API answered at a moment that has passed: rejecting or editing it cannot change the reading, only make the history wrong or lose it. Fifty-two pull requests a year proposing machine-read counts is fifty-two nobody reads, and one left unmerged would stall the accrual, which is the failure mode the whole operation exists to prevent.
 
-The push is engineered for a busy default branch the same way: `git-commit-push` is idempotent and rebases on rejection. It runs with `--all-changes` rather than a path list, because the store and the charts live wherever the repository's configuration puts them and the workflow cannot know: the runner starts from a pristine checkout and the sampling steps are its only writers, so everything that changed is exactly the job's own output.
+One accumulating pull request has neither problem. There is a single review surface open at any time, and leaving it open stalls nothing: the readings keep landing on its branch every run, and only the charts published from the default branch lag behind. Merging is a decision about freshness, never about whether a reading is kept.
+
+The mechanism is one restore, in {func}`repomatic.metrics.carry_pending_readings`. Before sampling, the job reads its store back from the branch through {func}`repomatic.git_ops.restore_paths`, which moves the named files without moving `HEAD`: the run keeps the source tree and lock file it was called on, and only the store travels. Nothing else has to be carried, because rendering is a pure function of the store, so charts redrawn from the restored history land on the bytes the branch already holds.
+
+That makes the cycle self-healing, whichever way the pull request was merged. Once merged, the branch's store and the default branch's agree, so the restore changes nothing, `pr-sync` finds no diff to publish, and it closes the pull request and deletes the branch. The next run starts a fresh accrual. A squash merge is no different, because every comparison here is of file content and never of commit history.
+
+`pr-sync` commits the whole tree rather than a path list, because the store and the charts live wherever the repository's configuration puts them and the workflow cannot know: the runner starts from a pristine checkout and the sampling steps are its only writers, so everything that changed is exactly the job's own output.
+
+```{note}
+The pull request is opened with `REPOMATIC_PAT` for the reason every other automation pull request is: one opened with the default token triggers no `pull_request` workflow, and the store's conformance test would then never run on the branch it exists to guard. Publishing through a branch does drop the job's need to push to a protected default branch, so the token is no longer used to bypass one.
+```
 
 ## PR body template conventions
 

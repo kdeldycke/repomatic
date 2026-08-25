@@ -795,10 +795,11 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 - A counter like the star count accrues, so its curve can be charted; an attribute like the date of the newest release or commit keeps a single row, restamped only when it moves, so a quiet week leaves the file untouched
 - Reconstructs an exact star curve for every GitHub repository the token administers, from the per-star timestamps GitHub still serves an admin: those curves are complete from their first star rather than from the day sampling started
 - Redraws the configured SVG charts, stamped with the newest reading of the metric they plot rather than the run date, so a week that moved nothing rewrites nothing
-- Commits the store straight to the default branch: the diff records what an API answered at a moment that has passed, so there is nothing a pull request could review (see [§ Sampling commits directly](operation-contracts.md#sampling-commits-directly))
+- Publishes the store through one long-lived pull request that every run appends to, restoring the store from its branch before sampling so readings still awaiting review are added to rather than replaced (see [§ Sampling accumulates in one pull request](operation-contracts.md#sampling-accumulates-in-one-pull-request))
+- Leaving that pull request open stalls nothing: readings keep landing on its branch, and only the charts published from the default branch lag behind. Merging it starts a fresh accrual, whichever merge method is used
 - **Runs on**: weekly schedule, manual dispatch, and `workflow_call` from downstream repositories. Never on push: sampling the same value twice in a day writes the same row
 - **Requires**:
-  - `REPOMATIC_PAT` secret with contents write permission, to push to a protected default branch and to read the per-star timestamps of the repositories it administers
+  - `REPOMATIC_PAT` secret with contents write permission, to open a pull request whose checks actually run and to read the per-star timestamps of the repositories it administers
 - **Skipped if**:
   - `metrics.sync = false` in `[tool.repomatic]`, or no subject is declared
 
@@ -929,7 +930,9 @@ GitHub resolves a job's `strategy.matrix` during setup even when the job's `if:`
 
 ### Maintainer-in-the-loop
 
-Workflows never commit directly or act silently. Every proposed change creates a PR; every action needed opens an issue. You review and decide — nothing lands without your approval.
+Workflows never act silently. Every proposed change opens a pull request; every action needed opens an issue. You review and decide, and no change to your source lands without your approval.
+
+Two lanes commit to the default branch without one, and both record a fact rather than propose a change. The release lane writes back what an already-published release measured: its VirusTotal scan records and the binaries page built from them (see [§ Release-lane direct commits](operation-contracts.md#release-lane-direct-commits)), plus the version machinery's own `[changelog]` commits. Rejecting either cannot undo the release they describe. Everything else, sampling included, goes through a pull request.
 
 ### Configurable with sensible defaults
 

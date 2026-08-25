@@ -835,6 +835,10 @@ REFERENCE_WORKFLOWS = (
     # release push is that job's only firing moment, and autofix.yaml (its
     # former home) skips version-bump pushes wholesale.
     ".github/workflows/_release-engine.yaml",
+    # The sample-metrics --template reference lives in its own schedule-only
+    # workflow, which `repomatic init` only materializes for a repository that
+    # opted into an accumulating store.
+    ".github/workflows/metrics.yaml",
     # Upstream-only bumpers, whose write domain exists only in this repository.
     ".github/workflows/self-maintenance.yaml",
 )

@@ -54,13 +54,16 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # A protected default branch refuses the default token, so the weekly
-          # commit takes the same route the autofix jobs take. Without the PAT
-          # the sampling still runs and the push is what fails, which is the
-          # loud half: a silent skip would look like a repository nobody stars.
+          # The pull request is opened with this token, and one opened with the
+          # default token triggers no `pull_request` workflow: the conformance
+          # test guarding the store would never run on the branch carrying it.
+          # Without the PAT the sampling still runs and the publishing is what
+          # fails, which is the loud half: a silent skip would look like a
+          # repository nobody stars.
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
@@ -69,19 +72,28 @@ jobs:
       # `gh` inherits this token to read the aggregate counts, and the per-star
       # timestamps of the repositories it administers, which only an admin
       # token still sees. Every other forge is read anonymously.
+      #
+      # `--carry-from` names the branch below, so the store is read back from
+      # the open pull request before this run appends to it: a reading cannot
+      # be fetched twice, and measuring against the default branch alone would
+      # drop every one still waiting there. See `carry_pending_readings` in
+      # repomatic/metrics.py for why the charts need no such carrying.
       - name: Sample forge metrics
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uv --no-progress run --frozen -- repomatic --verbosity INFO sample-metrics
+        run: >
+          uv --no-progress run --frozen -- repomatic --verbosity INFO
+          sample-metrics --carry-from sample-metrics
 
-      # Nothing to commit is the common case between two stars, and
-      # `git-commit-push` is idempotent, so the guard is in the command rather
-      # than in an `if:` here. `--all-changes` rather than a path list: the
+      # Nothing new to publish is the common case between two stars, and
+      # `pr-sync` is idempotent, so the guard is in the command rather than in
+      # an `if:` here. The whole tree is committed rather than a path list: the
       # store and the charts live wherever `[tool.repomatic.metrics]` puts them,
       # which this workflow cannot know, and the step above is the only writer
       # in a pristine checkout.
-      - name: Commit the new readings
+      - name: Sync pull request
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
           uv --no-progress run --frozen -- repomatic
-          git-commit-push --all-changes
-          --message "Sample forge metrics"
+          pr-sync --template sample-metrics

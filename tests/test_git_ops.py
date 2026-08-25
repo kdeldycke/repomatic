@@ -46,6 +46,7 @@ from repomatic.git_ops import (
     merge_base,
     push_tag,
     rebase_onto,
+    restore_paths,
     stage_all,
     tag_exists,
     tree_sha,
@@ -627,3 +628,42 @@ def test_rebase_onto_reports_a_conflict_without_leaving_one_behind(git_workdir):
     assert head_sha() != carried
     # No rebase left in progress.
     assert current_branch() == "tmp-conflict"
+
+
+def test_restore_paths_carries_a_file_without_moving_head(git_workdir):
+    """A path travels from a branch while the checkout keeps its own tree.
+
+    The property the sampling lane depends on: a job reads its accumulating
+    store back from an open pull request and still runs the code of the branch
+    it was called on.
+    """
+    (git_workdir / "readings.csv").write_text("papaya,12\n", encoding="UTF-8")
+    stage_all()
+    create_branch("pending")
+    _seed_commit(git_workdir, "seed.txt", "branch edit\n", "Diverge the branch")
+    branch_tip = head_sha()
+
+    checkout("main")
+    main_tip = head_sha()
+    restored = restore_paths(branch_tip, ["readings.csv"])
+
+    assert restored == ("readings.csv",)
+    assert (git_workdir / "readings.csv").read_text(encoding="UTF-8") == "papaya,12\n"
+    # Only the named path travelled: `HEAD` and every other file stayed put.
+    assert head_sha() == main_tip
+    assert (git_workdir / "seed.txt").read_text(encoding="UTF-8") == "seed\n"
+
+
+def test_restore_paths_skips_what_the_ref_does_not_carry(git_workdir):
+    """A path missing from the ref is left alone, which is the first-run case."""
+    assert restore_paths(head_sha(), ["never-committed.csv"]) == ()
+    assert not (git_workdir / "never-committed.csv").exists()
+
+
+def test_restore_paths_skips_a_path_outside_the_working_tree(git_workdir, tmp_path):
+    """A path resolving outside the checkout is skipped, never reached for."""
+    outsider = tmp_path / "elsewhere.csv"
+    outsider.write_text("untouched\n", encoding="UTF-8")
+
+    assert restore_paths(head_sha(), [outsider]) == ()
+    assert outsider.read_text(encoding="UTF-8") == "untouched\n"

@@ -235,6 +235,7 @@ from .metric_chart import ChartSpec, write_chart
 from .metrics import (
     SAMPLE_HEADER_DEFS,
     backfill_wayback as _backfill_wayback,
+    carry_pending_readings,
     collected_subjects,
     import_star_history_csv,
     load_metrics,
@@ -3438,6 +3439,16 @@ def prepare_release(
     help="CSV store to accumulate into. Defaults to [tool.repomatic.metrics] store.",
 )
 @option(
+    "--carry-from",
+    "carry_from",
+    metavar="BRANCH",
+    default=None,
+    help="Restore the store from this remote branch before sampling, so "
+    "readings still pending in an open pull request are appended to instead "
+    "of dropped. Name the branch the job publishes to. Ignored when the "
+    "branch does not exist, which is every run that follows a merge.",
+)
+@option(
     "--forward/--no-forward",
     default=True,
     help="Read every subject's current metrics from its own forge.",
@@ -3470,6 +3481,7 @@ def prepare_release(
 def sample_metrics(
     ctx: Context,
     store: Path | None,
+    carry_from: str | None,
     forward: bool,
     reconstruct: bool,
     backfill_wayback: bool,
@@ -3513,6 +3525,8 @@ def sample_metrics(
         return
 
     store_path = store or Path(config.metrics.store)
+    if carry_from:
+        carry_pending_readings(carry_from, store_path)
     try:
         records = load_metrics(store_path)
         tracked = collected_subjects(

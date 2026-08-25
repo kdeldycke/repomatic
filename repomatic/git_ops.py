@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+from pathlib import Path
 from typing import NamedTuple
 
 from packaging.version import InvalidVersion, Version
@@ -45,7 +46,6 @@ from packaging.version import InvalidVersion, Version
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
 
 COMMIT_IDENTITY_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 """Commit author email for automated commits: GitHub's own Actions bot user.
@@ -314,6 +314,40 @@ def current_branch() -> str | None:
 def checkout(ref: str) -> None:
     """Check out *ref* (a branch name or commit SHA)."""
     _git("checkout", ref)
+
+
+def restore_paths(ref: str, paths: Sequence[str | Path]) -> tuple[str, ...]:
+    """Overwrite *paths* in the working tree with the content they hold at *ref*.
+
+    `HEAD` stays where it is, so the checkout keeps the source tree and lock
+    file it was cloned with and only the named files travel. That is the whole
+    point over a `git checkout` of the branch: a job reading a file back from
+    an open pull request still runs the code of the branch it was called on.
+
+    A path *ref* does not carry is skipped rather than deleted. The caller
+    names the files it means to read, and one missing from *ref* is the
+    first-run case, not an instruction to remove anything.
+
+    :param ref: Any tree-ish: a branch, a tag, or a commit SHA.
+    :param paths: Files to restore, absolute or relative to the current
+        directory. One outside the working tree is skipped.
+    :return: The paths actually restored, as repository-relative pathspecs.
+    """
+    root = Path(_git("rev-parse", "--show-toplevel").stdout.strip()).resolve()
+    restorable = []
+    for path in paths:
+        try:
+            pathspec = Path(path).resolve().relative_to(root).as_posix()
+        except ValueError:
+            logging.debug(f"{path} sits outside {root}, not restoring it.")
+            continue
+        if _git("cat-file", "-e", f"{ref}:{pathspec}", check=False).returncode:
+            logging.debug(f"{ref} carries no {pathspec}, not restoring it.")
+            continue
+        restorable.append(pathspec)
+    if restorable:
+        _git("checkout", ref, "--", *restorable)
+    return tuple(restorable)
 
 
 def stash() -> None:
