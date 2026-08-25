@@ -1230,6 +1230,18 @@ SKILL_PHASE_ORDER: tuple[str, ...] = (
 )
 """Canonical display order for lifecycle phases in `list-skills` output."""
 
+SKILL_LIST_HEADER_DEFS: tuple[tuple[str, str], ...] = (
+    ("Phase", "phase"),
+    ("Skill", "skill"),
+    ("Description", "description"),
+)
+"""Column definitions for the `repomatic list-skills` table.
+
+Lives beside {func}`skill_catalog`, whose triples these columns render, so the
+two cannot drift apart. The columns mirror the hand-maintained roster of
+`docs/skills.md`, which the page renders this command right above.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Registry queries.

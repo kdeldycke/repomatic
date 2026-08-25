@@ -99,7 +99,7 @@ $ pacaur -S python-repomatic
 
 ## Python compatibility
 
-The table below shows which Python versions each `repomatic` release range supports, derived from the declarations in each git tag's `pyproject.toml`. It is refreshed by [click-extra's `{matrix}` directive machinery](https://kdeldycke.github.io/click-extra/sphinx.html#the-matrix-directive) through the `update-docs` job. Releases prior to `4.0.0` did not declare Python version support in any form and are not represented.
+The table below shows which Python versions each `repomatic` release range supports, derived from the declarations in each git tag's `pyproject.toml`. It is refreshed by [click-extra's `{matrix}` directive machinery](https://kdeldycke.github.io/click-extra/sphinx.html#the-matrix-directive) through the `update-docs` job. A `✅` marks a version the release declares through its classifiers. A `❌` marks one its `requires-python` rules out. A `–` marks one the release neither declared nor excluded, which is what an open-ended `requires-python` leaves for a Python published after that tag. Releases prior to `4.0.0` did not declare Python version support in any form and are not represented.
 
 <!-- matrix python -->
 
@@ -107,10 +107,10 @@ The table below shows which Python versions each `repomatic` release range suppo
 | :------------------ | :--------- | :----: | :----: | :----: | :----: | :----: | :---: | :---: |
 | `4.25.x` → `7.x`    | 2025-12-05 |   ✅   |   ✅   |   ✅   |   ✅   |   ✅   |  ❌   |  ❌   |
 | `4.20.x` → `4.24.x` | 2025-10-10 |   ✅   |   ✅   |   ✅   |   ✅   |   ❌   |  ❌   |  ❌   |
-| `4.15.x` → `4.19.x` | 2025-03-05 |   ❌   |   ✅   |   ✅   |   ✅   |   ❌   |  ❌   |  ❌   |
-| `4.7.x` → `4.14.x`  | 2024-11-03 |   ❌   |   ✅   |   ✅   |   ✅   |   ✅   |  ❌   |  ❌   |
-| `4.4.x` → `4.6.x`   | 2024-07-27 |   ❌   |   ❌   |   ✅   |   ✅   |   ✅   |  ✅   |  ❌   |
-| `4.0.x` → `4.3.x`   | 2024-06-29 |   ❌   |   ❌   |   ✅   |   ✅   |   ✅   |  ✅   |  ✅   |
+| `4.15.x` → `4.19.x` | 2025-03-05 |   –    |   ✅   |   ✅   |   ✅   |   ❌   |  ❌   |  ❌   |
+| `4.7.x` → `4.14.x`  | 2024-11-03 |   –    |   ✅   |   ✅   |   ✅   |   ✅   |  ❌   |  ❌   |
+| `4.4.x` → `4.6.x`   | 2024-07-27 |   –    |   –    |   ✅   |   ✅   |   ✅   |  ✅   |  ❌   |
+| `4.0.x` → `4.3.x`   | 2024-06-29 |   –    |   –    |   ✅   |   ✅   |   ✅   |  ✅   |  ✅   |
 
 <!-- matrix-end -->
 

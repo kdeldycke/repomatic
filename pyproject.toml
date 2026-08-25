@@ -91,12 +91,10 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 8.8 absorbed the utilities repomatic now delegates to instead of
-  # carrying: `format_size` (image and cache reports), the
-  # `parse_friendly_duration`/`parse_iso8601_duration` pair (uv cooldown spans),
-  # `prep_path`/`is_stdout`/`STDOUT_SENTINEL` (CLI `--output`), and
-  # `config_table_to_flags` (tool flag translation).
-  "click-extra>=8.8",
+  # click-extra 8.9 added the `max_column_widths` argument of `print_table`,
+  # which caps the description column of `show-config` and `list-skills`
+  # instead of letting one long cell push the whole table off the terminal.
+  "click-extra>=8.9",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.

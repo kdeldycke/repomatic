@@ -253,6 +253,7 @@ from .registry import (
     DEFAULT_REPO,
     EPHEMERAL_TARGETS,
     FILE_SELECTOR_COMPONENTS,
+    SKILL_LIST_HEADER_DEFS,
     SKILL_PHASE_ORDER,
     WORKFLOW_TARGET_ROOT,
     parse_component_entries,
@@ -4409,24 +4410,28 @@ init_project.help = init_project.help.format(
     short_help="List available Claude Code skills",
     section=_section_setup,
 )
-def list_skills() -> None:
-    """List all bundled Claude Code skills grouped by lifecycle phase.
+@pass_context
+def list_skills(ctx: Context) -> None:
+    """List all bundled Claude Code skills, in lifecycle-phase order.
 
-    Reads skill definitions from the bundled data files and displays them
-    in a table grouped by phase: Setup, Development, Quality, and Release.
+    Reads skill definitions from the bundled data files and renders them as a
+    table. Respects the global --table-format option.
+
+    The rows keep the canonical lifecycle order, Setup first and Release
+    last. No --sort-by is offered against it: sorting the phase column
+    alphabetically would spell that lifecycle Development first.
     """
-    skills = skill_catalog()
+    rows = [
+        (phase, f"/{name}", description)
+        for phase, name, description in sorted(
+            skill_catalog(), key=lambda skill: SKILL_PHASE_ORDER.index(skill[0])
+        )
+    ]
 
-    # Group by phase in canonical order.
-    for phase in SKILL_PHASE_ORDER:
-        phase_skills = [(n, d) for p, n, d in skills if p == phase]
-        if not phase_skills:
-            continue
-        echo(f"\n{phase}:")
-        for name, description in phase_skills:
-            echo(f"  /{name:<24s} {description}")
-
-    echo("")
+    # A skill description is written for a model deciding whether to invoke it,
+    # so it runs to a few sentences and would otherwise set the table's width on
+    # its own. A format unable to render a wrapped cell drops the cap itself.
+    ctx.print_table(rows, SKILL_LIST_HEADER_DEFS, max_column_widths=(None, None, 60))
 
 
 _metadata_sort = SortByOption(*METADATA_KEYS_HEADER_DEFS, default="key")
@@ -4561,7 +4566,14 @@ def show_config(ctx: Context) -> None:
         (option, escape_type_for_gfm_table(ftype), default, desc)
         for option, ftype, default, desc in config_reference()
     ]
-    ctx.print_table(rows, CONFIG_REFERENCE_HEADER_DEFS)
+    # Cap the three columns whose outliers set the whole table's width: a
+    # `list[dict[str, str | bool | list[str]]]` type, a list default, and a
+    # description running past a hundred characters. `Option` stays uncapped,
+    # because wrapping a dotted key splits an identifier mid-token. A format
+    # unable to render a wrapped cell drops the caps on its own.
+    ctx.print_table(
+        rows, CONFIG_REFERENCE_HEADER_DEFS, max_column_widths=(None, 24, 24, 60)
+    )
 
 
 AXIS_HEADER_LABELS = {"os": "OS", "python-version": "Python", "state": "State"}

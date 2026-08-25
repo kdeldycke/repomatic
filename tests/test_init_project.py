@@ -57,6 +57,7 @@ from repomatic.registry import (
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
     SKILL_FILENAME,
+    SKILL_PHASE_ORDER,
     SKILL_PHASES,
     BundledComponent,
     FileEntry,
@@ -1807,6 +1808,18 @@ def test_skills_consistency():
         f"missing={fs_skills - phase_skills}, "
         f"stale={phase_skills - fs_skills}"
     )
+
+
+def test_every_skill_phase_is_orderable():
+    """`list-skills` orders its rows by `SKILL_PHASE_ORDER.index()`.
+
+    The two constants are declared apart: one names the phase of each registry
+    entry, the other the lifecycle order they render in. A phase in the first
+    and not the second used to drop its skill from the listing without a word,
+    and now raises instead, so the roster can no longer go quietly short.
+    """
+    strays = set(SKILL_PHASES.values()) - set(SKILL_PHASE_ORDER)
+    assert not strays, f"Phases with no rank in SKILL_PHASE_ORDER: {sorted(strays)}."
 
 
 def test_init_only_workflows(tmp_path: Path):
