@@ -21,9 +21,9 @@ scanning. This seeds antivirus vendor databases with the signatures of freshly
 built binaries, which keeps false-positive rates in check for downstream
 distributors.
 
-Detection statistics polled after an upload are appended to a JSON history
-file, one record per binary per scan date. The `sync-binaries` command renders
-that history into the binaries catalog page (`docs/binaries.md`).
+Detection statistics polled after an upload are appended to a CSV history, one
+record per binary per scan date. The `sync-binaries` command renders that
+history into the binaries catalog page (`docs/binaries.md`).
 
 ```{note}
 Scan results are deliberately kept out of GitHub release notes: a raw
@@ -159,7 +159,7 @@ class ScanResult:
 class ScanRecord:
     """A detection snapshot for one binary, taken on a given date.
 
-    Records accumulate in a JSON history file (see
+    Records accumulate in a CSV history (see
     {func}`upsert_scan_records`) committed to the repository. Each record
     freezes the `flagged / total` verdict counts at scan time, so the history
     supports trend analysis across releases even after VirusTotal re-analyzes
@@ -467,16 +467,19 @@ def load_scan_records(path: Path) -> list[ScanRecord]:
 
 
 def upsert_scan_records(path: Path, new_records: list[ScanRecord]) -> bool:
-    """Merge new records into the JSON history file at *path*.
+    """Merge new records into the CSV history at *path*.
 
     Records sharing the same `(sha256, scanned)` identity are replaced, so
     re-running a scan the same day is idempotent. The file is created (with
     its parent directories) when missing, and always rewritten in normalized
-    form: sorted by version, filename, and scan date, serialized with the
-    same layout Biome's JSON formatter produces so the `format-json` autofix
-    job never rewrites it.
+    form, sorted by version, filename and scan date.
 
-    :param path: Path to the JSON history file.
+    CSV also keeps the store out of the autofix lane: nothing there rewrites a
+    `.csv`, where a committed JSON file has to match whatever layout Biome is
+    configured for or `format-json` reformats it right back. See `claude.md`
+    § Naming conventions rule 8 for the rest of that reasoning.
+
+    :param path: Path to the CSV history.
     :param new_records: Records to merge in.
     :return: `True` when the file content changed.
     """
