@@ -1,6 +1,6 @@
-# {octicon}`mortar-board` Claude Code skills
+# {octicon}`mortar-board` Agent skills
 
-This repository includes [Claude Code skills](https://code.claude.com/docs/en/skills) that bring `repomatic` workflows into Claude Code as slash commands. Downstream repositories can install them with:
+This repository includes [Agent Skills](https://agentskills.io/specification) that bring `repomatic` workflows into your agent as slash commands. Downstream repositories can install them with:
 
 ```shell-session
 $ uvx -- repomatic init skills
@@ -14,7 +14,7 @@ $ uvx -- repomatic init skills/repomatic-topics
 
 Selectors use the same `component[/file]` syntax as the `exclude` config option in [`[tool.repomatic]`](configuration.md).
 
-These same skills are also published as a Claude Code plugin, which installs them without committing any copy to your repository: see [§ Claude Code plugin](plugin.md).
+These same skills are also published as a Claude Code plugin, which installs them without committing any copy to your repository: see [§ Claude Code plugin](claude-code-plugin.md).
 
 To list all available skills with descriptions:
 
@@ -199,7 +199,7 @@ compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 A `model:` key would have pinned the model automatically instead of merely recommending it, but it is not in the spec, so the recommendation is advisory: switch with [`/model`](https://code.claude.com/docs/en/model-config) if you want it honoured.
 
 ```{warning}
-No skill sets `disable-model-invocation`, so **Claude may invoke any of them on its own**, including `/repomatic-ship` and `/repomatic-topics apply`. That is deliberate: skills exist to augment the parent agent. What a skill may actually *do* is still gated by Claude Code's permission layer, which is untouched by any of this, so an autonomous `git push` still needs the same approval it always did.
+No skill sets `disable-model-invocation`, so **the agent may invoke any of them on its own**, including `/repomatic-ship` and `/repomatic-topics apply`. That is deliberate: skills exist to augment the parent agent. What a skill may actually *do* is still gated by the agent's permission layer, which is untouched by any of this, so an autonomous `git push` still needs the same approval it always did.
 ```
 
 The optional `license` field stays unset. `repomatic init skills` copies each skill into a downstream repository where it is meant to be edited, so an upstream declaration would misstate the file the moment it is customized.

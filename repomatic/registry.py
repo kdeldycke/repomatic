@@ -1239,7 +1239,7 @@ SKILL_LIST_HEADER_DEFS: tuple[tuple[str, str], ...] = (
 
 Lives beside {func}`skill_catalog`, whose triples these columns render, so the
 two cannot drift apart. The columns mirror the hand-maintained roster of
-`docs/skills.md`, which the page renders this command right above.
+`docs/agent-skills.md`, which the page renders this command right above.
 """
 
 

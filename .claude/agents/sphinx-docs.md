@@ -564,7 +564,7 @@ The graph used to close `install.md`; it moved here so the install page stays en
 
 A Sphinx site for a CLI/library project should converge on a predictable page set. Downstream repos that mirror this roster get free coherence with every other repo following the convention, and readers learn one navigation pattern.
 
-`docs/index.md` is the landing page. Two `{toctree}` blocks: a primary one listing user-facing pages, then a `{caption: Development}` block listing maintainer-facing pages. Both `:hidden:` so the body of `index.md` (typically a `{include} ../readme.md`) carries the visible content.
+`docs/index.md` is the landing page. Three `{toctree}` blocks: a primary one listing user-facing pages, then a `{caption: Agent tooling}` block for the assets the project ships to an AI agent, then a `{caption: Development}` block listing maintainer-facing pages. All `:hidden:` so the body of `index.md` (typically a `{include} ../readme.md`) carries the visible content.
 
 Primary toctree (user-facing), in this order:
 
@@ -578,9 +578,13 @@ Primary toctree (user-facing), in this order:
 08. `test-matrix` — Only when the project documents its CI test-matrix composition.
 09. `nuitka` — Only for projects compiling standalone executables through the release engine: the canonical home for build targets, fleet cadence, compile caching and measured build times (the `binaries` page below stays the per-release catalog).
 10. `security` — Optional, and absent by default: a security page with nothing project-specific to say (no real threat model, no attack surface worth describing, no dedicated reporting channel) is boilerplate that dilutes the docs. Add it only when the project has a genuine security consideration. When present, single-source it as `docs/security.md`: GitHub's security tab detects the file in `docs/` as well as `.github/`, so no duplicate copy is needed.
-11. `skills`, `agents` — Only when the project ships Claude Code skills or agents (see § Recipes › skills/agents pages below).
-12. `plugin` — Only when those skills and agents are also published as an installable Claude Code plugin. Both distribution paths coexist, so the page covers the marketplace install, what the archive ships, and how to wire it into a repository.
-13. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
+11. `benchmark` — Optional comparison page; only useful for projects positioning against alternatives. MyST docstring authoring needs no local page: it is canonically documented on the [click-extra MyST docstrings page](https://kdeldycke.github.io/click-extra/myst-docstrings.html), which also covers the `click-extra convert-to-myst` migration command.
+
+Agent tooling toctree, in this order. Drop the whole block when the project ships none of them. Name each page for what it is portable to: skills follow a cross-vendor specification, subagents follow the component that ships them, and only the plugin, which no vendor-neutral format covers, keeps a Claude Code name.
+
+1. `agent-skills` — Only when the project ships Agent Skills (see § Recipes › skills and subagents pages below).
+2. `subagents` — Only when the project ships subagent definitions.
+3. `claude-code-plugin` — Only when those skills and subagents are also published as an installable Claude Code plugin. Both distribution paths coexist, so the page covers the marketplace install, what the archive ships, and how to wire it into a repository.
 
 Development toctree, in this order:
 
@@ -610,7 +614,7 @@ Page-shape rules that apply across the roster:
   | :------------------------- | :--------------------- |
   | `add-new-manager.md`       | `diff-added`           |
   | `add-packaging-channel.md` | `git-merge`            |
-  | `agents.md`                | `dependabot`           |
+  | `agent-skills.md`          | `mortar-board`         |
   | `architectures.md`         | `cpu`                  |
   | `augmentations.md`         | `plus-circle`          |
   | `bar-plugin.md`            | `plug`                 |
@@ -620,6 +624,7 @@ Page-shape rules that apply across the roster:
   | `changelog-archive.md`     | `history`              |
   | `changelog.md`             | `diff`                 |
   | `ci.md`                    | `container`            |
+  | `claude-code-plugin.md`    | `plug`                 |
   | `cli.md`                   | `command-palette`      |
   | `code-of-conduct.md`       | `code-of-conduct`      |
   | `colorize.md`              | `paintbrush`           |
@@ -659,10 +664,10 @@ Page-shape rules that apply across the roster:
   | `screenshots.md`           | `device-camera`        |
   | `security.md`              | `shield-lock`          |
   | `shells.md`                | `chevron-right`        |
-  | `skills.md`                | `mortar-board`         |
   | `sphinx.md`                | `book`                 |
   | `spinner.md`               | `sync`                 |
   | `styling.md`               | `typography`           |
+  | `subagents.md`             | `dependabot`           |
   | `sudo.md`                  | `key`                  |
   | `table.md`                 | `table`                |
   | `telemetry.md`             | `broadcast`            |
@@ -693,9 +698,9 @@ Page-shape rules that apply across the roster:
 
 - **External links go in the toctree, not the body.** Putting `GitHub repository` and `Funding` in the toctree gives them sidebar entries on every page; in the body they only show on the landing page.
 
-Skills/agents pages (when shipped):
+Skills and subagents pages (when shipped):
 
-- `docs/skills.md` and `docs/agents.md` lead with a one-line install pointer, then a `{click:run}` block rendering the live `repomatic list-skills` / equivalent, then a manual table that links each skill/agent to its source-file URL on GitHub. Avoid restating skill descriptions — they're already in the SKILL.md frontmatter.
+- `docs/agent-skills.md` and `docs/subagents.md` lead with a one-line install pointer, then a `{click:run}` block rendering the live `repomatic list-skills` / equivalent, then a manual table that links each skill/agent to its source-file URL on GitHub. Avoid restating skill descriptions — they're already in the SKILL.md frontmatter.
 
 Pages that **don't** belong in the roster:
 

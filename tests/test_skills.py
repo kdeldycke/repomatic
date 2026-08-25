@@ -51,7 +51,7 @@ from repomatic.registry import (
     skill_catalog,
 )
 
-SKILLS_PAGE = Path(__file__).parent.parent / "docs" / "skills.md"
+SKILLS_PAGE = Path(__file__).parent.parent / "docs" / "agent-skills.md"
 """The hand-maintained page whose table must mirror the skill registry."""
 
 SKILL_TABLE_ROW_RE = re.compile(r"^\|[^|]*\|\s*\[`/([a-z0-9-]+)`\]", re.MULTILINE)
@@ -311,7 +311,7 @@ def test_local_files_beside_a_skill_survive(exported_skill):
 
 
 def test_docs_table_lists_every_bundled_skill():
-    """`docs/skills.md` tabulates the registry, and nothing else.
+    """`docs/agent-skills.md` tabulates the registry, and nothing else.
 
     The page renders `list-skills` live right above the table, so a skill
     added to the registry shows up in the rendered output while the
@@ -325,7 +325,7 @@ def test_docs_table_lists_every_bundled_skill():
     )
     bundled = {name for _phase, name, _description in skill_catalog()}
     assert documented == bundled, (
-        f"docs/skills.md table drifted from the registry. "
+        f"docs/agent-skills.md table drifted from the registry. "
         f"Missing rows: {sorted(bundled - documented) or 'none'}. "
         f"Rows with no bundled skill: {sorted(documented - bundled) or 'none'}."
     )

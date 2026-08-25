@@ -18,14 +18,20 @@ cloudflare
 test-matrix
 nuitka
 security
-skills
-agents
-plugin
 benchmark
 ```
 
 % Furo doesn't support icons in toctree entries natively.
 % CSS workaround in _static/custom.css, see: https://github.com/pradyunsg/furo/discussions/921
+
+```{toctree}
+:caption: Agent tooling
+:maxdepth: 2
+:hidden:
+agent-skills
+subagents
+claude-code-plugin
+```
 
 ```{toctree}
 :caption: Development

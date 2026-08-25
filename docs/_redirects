@@ -1,0 +1,13 @@
+# Cloudflare Pages redirect rules, copied to the build root by
+# `html_extra_path` in conf.py. Every rule is static, so all of them are
+# accounted against the 2000-rule static budget: keep any rule carrying a `*`
+# or a `:placeholder` below the static ones, or the engine bills the remainder
+# against the 100-rule dynamic budget and stops reading the file at rule 101.
+#
+# `repomatic lint-repo` replays this file through the real engine.
+
+# The agent tooling pages, renamed 2026-08-25 when they moved under their own
+# section and dropped the Claude Code prefix.
+/agents  /subagents            301
+/plugin  /claude-code-plugin   301
+/skills  /agent-skills         301

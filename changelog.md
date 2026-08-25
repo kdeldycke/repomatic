@@ -33,6 +33,7 @@
 - The `repomatic-ship` skill now sweeps those admonitions: pending work the cycle introduced is written as one, and a todo whose upstream trigger fired is retired with the shim it guards.
 - The Python compatibility table of the install page marks a version a release neither declared nor excluded with `–`, instead of counting it as unsupported.
 - The `commit-messages` page and the bundled skills now hold a commit body to three cases: bundled orthogonal work, a link to a public record, or a `Closes #N` pointer.
+- The skills, subagents and plugin documentation pages group under an Agent tooling section and move to `/agent-skills`, `/subagents` and `/claude-code-plugin`, with the old URLs redirecting.
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 

@@ -21,7 +21,7 @@
 #   2. Claude Desktop chat (claude.ai / Desktop app chat mode)
 #      Runs in a server-side container. The primary route is now the plugin
 #      archive: Customize > Plugins accepts one upload that carries every
-#      skill and agent (verified 2026-08-09; see docs/plugin.md). This
+#      skill and agent (verified 2026-08-09; see docs/claude-code-plugin.md). This
 #      script's per-skill ZIPs remain for the older Customize > Skills
 #      panel, where the mount is unreliable: metadata is registered in the
 #      system prompt, yet SKILL.md files are often not mounted on disk

@@ -152,7 +152,7 @@ Compiled Python binaries (built with [Nuitka](https://nuitka.net/) `--onefile`) 
 
 The [`scan-virustotal`](workflows.md#github-workflows-release-engine-yaml-jobs) job in `_release-engine.yaml` uploads all compiled binaries to [VirusTotal](https://www.virustotal.com/) on every release. This seeds AV vendor databases to reduce false positive rates for downstream distributors (Chocolatey, Scoop, etc.). Each release's `flagged / total` snapshot is recorded in `docs/assets/virustotal-scans.csv` and rendered, along with the full catalog of released binaries and their analysis links, on the [binaries page](binaries.md). Detection counts are deliberately kept out of GitHub release notes, where they read as a malware verdict without context (see [kdeldycke/meta-package-manager#1911](https://github.com/kdeldycke/meta-package-manager/issues/1911)).
 
-When a release is flagged, the `/av-false-positive` [skill](skills.md) generates per-vendor submission files with pre-written text and form field mappings. The vendor details below document the process for manual reference.
+When a release is flagged, the `/av-false-positive` [skill](agent-skills.md) generates per-vendor submission files with pre-written text and form field mappings. The vendor details below document the process for manual reference.
 
 ### Why binaries get flagged
 

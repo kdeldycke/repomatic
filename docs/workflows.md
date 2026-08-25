@@ -569,7 +569,7 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
 Repomatic-only. This job is not part of the shape `repomatic init` generates: it exists in the upstream `release.yaml` alone, as the reference consumer of the `release-assets` handoff described under [§ Extra release assets](#extra-release-assets-extra-assets). A downstream repository that wants its own extra asset writes an equivalent job of its own.
 ```
 
-- Runs `repomatic pack-plugin`, which assembles `.claude-plugin/plugin.json` and every skill and agent the component registry declares into `repomatic-claude-plugin.zip`, then uploads it as the `release-asset-repomatic-claude-plugin.zip` run artifact the engine's `extra-assets` job collects. See [§ Claude Code plugin](plugin.md).
+- Runs `repomatic pack-plugin`, which assembles `.claude-plugin/plugin.json` and every skill and agent the component registry declares into `repomatic-claude-plugin.zip`, then uploads it as the `release-asset-repomatic-claude-plugin.zip` run artifact the engine's `extra-assets` job collects. See [§ Claude Code plugin](claude-code-plugin.md).
 - Deliberately unconditional, with no `if:` and no matrix. The `release` job gates on it, so a skip here would cascade into skipping the whole engine on ordinary pushes, taking `sync-dev-release` with it. Packing a zip is cheap enough to pay on every push.
 - The artifact is only ever consumed on a release commit, where `main` HEAD is the freeze commit whose version `pack-plugin` stamps into the packaged manifest.
 - Runs on `ubuntu-26.04`.
@@ -1015,7 +1015,7 @@ Workflows in this repository are **self-referential**. The [`prepare-release`](h
 
 ### Release engineering
 
-A maintainer cuts a release with the [`/repomatic-ship`](skills.md) skill, which reconciles the tree, commits and pushes, and runs `/babysit-ci` until `main` is green. The maintainer then merges the release PR with "Rebase and merge". Everything below is what that merge triggers.
+A maintainer cuts a release with the [`/repomatic-ship`](agent-skills.md) skill, which reconciles the tree, commits and pushes, and runs `/babysit-ci` until `main` is green. The maintainer then merges the release PR with "Rebase and merge". Everything below is what that merge triggers.
 
 A complete release consists of all of the following:
 

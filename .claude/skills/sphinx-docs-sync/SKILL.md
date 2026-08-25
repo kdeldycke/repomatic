@@ -67,7 +67,7 @@ Group, in this order:
 2. Structural alignment (toctree, page naming, `conf.py` settings).
 3. Content improvements (install.md sections, extra-deps tables, badges).
 
-For each row, name the agent section that authorizes the change (e.g., "agent § Standard page roster: docs/agents toctree entry missing"). If a discrepancy doesn't map to any agent section, flag it as a candidate for new agent content rather than a fix to push.
+For each row, name the agent section that authorizes the change (e.g., "agent § Standard page roster: docs/subagents toctree entry missing"). If a discrepancy doesn't map to any agent section, flag it as a candidate for new agent content rather than a fix to push.
 
 ### Implement
 

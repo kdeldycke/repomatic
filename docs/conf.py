@@ -342,6 +342,12 @@ html_static_path = [
 ]
 html_css_files = ["custom.css"]
 
+# Copied verbatim to the root of the build, which is the directory
+# `wrangler pages deploy` uploads, so Cloudflare Pages reads the rules. An
+# entry here keeps its leading underscore, unlike html_static_path, whose
+# contents Sphinx re-roots under `_static/`. The file is inert on GitHub Pages.
+html_extra_path = ["_redirects"]
+
 
 def setup(app):
     """Sphinx extension entry point.
