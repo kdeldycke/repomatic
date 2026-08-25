@@ -76,6 +76,7 @@ from .pr_body import fit_github_body, temp_body_file
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
     from typing import Any
 
 
@@ -305,6 +306,60 @@ def _set_draft(number: int, draft: bool) -> None:
         run_gh_command(args)
     except RuntimeError as error:
         logging.warning(f"Could not set draft={draft} on PR #{number}: {error}")
+
+
+def carry_pr_branch_paths(
+    branch: str,
+    paths: Sequence[str | Path],
+    remote: str = "origin",
+) -> tuple[str, ...]:
+    """Restore *paths* from an open pull request's branch, before rebuilding them.
+
+    The counterpart of {func}`upsert_pr` for a job whose output *accrues*
+    rather than converges. A convergent job rebuilds its file from scratch,
+    so starting from the base branch loses nothing. An accruing one appends
+    to what it wrote last time, and starting from the base would publish a
+    branch holding one entry where the history needs all of them.
+
+    Reading the file back from the branch first makes each run append to what
+    is already pending, so the pull request always shows the whole accrual as
+    one diff against its base, however many runs went into it.
+
+    Only what accrues has to be carried. Anything the job derives from it is
+    rebuilt from the restored file and lands on the same bytes the branch
+    already holds, so passing a derived path here buys nothing.
+
+    ```{note}
+    `HEAD` never moves: only the named files travel. A job carrying its store
+    still runs the code and lock file of the branch it was called on, which a
+    `git checkout` of the pull request branch would silently replace with
+    whatever that branch was built from.
+    ```
+
+    Idempotent and self-healing, whichever way the pull request was merged.
+    Once merged, the branch's copy and the base's agree, so the restore
+    changes nothing, {func}`upsert_pr` finds no diff, and it closes the pull
+    request and deletes the branch. The next run starts a fresh accrual. A
+    squash merge is no different, because every comparison here is of file
+    content and never of commit history.
+
+    :param branch: Remote branch holding the pending work, by convention the
+        one the job's own pull request is opened from.
+    :param paths: Files to restore. One the branch does not carry is skipped,
+        which is every run that follows a merge.
+    :param remote: Remote to read the branch from.
+    :return: The paths actually restored, as repository-relative pathspecs.
+    """
+    tip = git_ops.fetch_remote_branch(branch, remote=remote)
+    if tip is None:
+        logging.debug(f"No {branch!r} branch on {remote}, nothing pending to carry.")
+        return ()
+    restored = git_ops.restore_paths(tip, paths)
+    if not restored:
+        logging.debug(f"{remote}/{branch} carries none of {paths}, nothing to carry.")
+        return ()
+    logging.info(f"Carried {', '.join(restored)} pending on {remote}/{branch}.")
+    return restored
 
 
 def upsert_pr(

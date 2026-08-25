@@ -857,8 +857,10 @@ jobs:
       && needs.metadata.outputs.has_virustotal_key
     strategy:
       matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
-      # Each cell commits scan records to the default branch; serializing the
-      # (rare) multi-release runs keeps them from racing on the same files.
+      # Each cell carries the pending scan records off the pull request
+      # branch, appends its own, and republishes the branch. Serializing the
+      # (rare) multi-release runs is what keeps that read-append-push cycle
+      # from racing: raising this drops whichever cell pushed first.
       max-parallel: 1
     runs-on: ubuntu-26.04
     # Upload plus the 600 s --poll-timeout, with margin; a stuck poll must not
@@ -866,12 +868,14 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Scan records and the binaries page are committed on top of the
-          # default branch tip, not the release commit. The PAT (when
-          # available) lets the push trigger the docs deploy workflow.
+          # Scan records and the binaries page are built on top of the default
+          # branch tip, not the release commit, so the pull request opens
+          # against a branch rather than a detached `HEAD`. The PAT (when
+          # available) is what makes that pull request run its checks.
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
@@ -902,6 +906,7 @@ jobs:
           --poll
           --poll-timeout 600
           --records docs/assets/virustotal-scans.csv
+          --carry-from scan-virustotal
       - name: Regenerate binaries page
         # See repomatic/binaries_page.py for the page design rationale.
         # Skipped when [tool.repomatic] binaries.sync is disabled.
@@ -914,22 +919,20 @@ jobs:
           --page docs/binaries.md
           --records docs/assets/virustotal-scans.csv
           --backfill-records
-      - name: Commit and push scan records
-        # Direct push to the default branch, not a PR: this step records facts
-        # about an already-published release. Skipped when [tool.repomatic]
-        # binaries.sync is disabled. See docs/operation-contracts.md § Scan job
-        # contract for the rationale.
+      - name: Sync pull request
+        # One long-lived pull request every release appends to, not a direct
+        # push: the records are a trend read across releases, so nothing is
+        # lost by leaving it open. Skipped when [tool.repomatic] binaries.sync
+        # is disabled. See docs/operation-contracts.md § Scan job contract.
         if: fromJSON(needs.metadata.outputs.metadata).binaries_sync != false
         env:
-          CURRENT_VERSION: ${{ matrix.current_version }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic git-commit-push
-          --message "Record v${CURRENT_VERSION} binaries"
-          --branch "${DEFAULT_BRANCH}"
-          docs/binaries.md
-          docs/assets/binaries.csv
-          docs/assets/virustotal-scans.csv
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template scan-virustotal
+          --add-path docs/binaries.md
+          --add-path docs/assets/binaries.csv
+          --add-path docs/assets/virustotal-scans.csv
 
   sync-dev-release:
     name: 🔄 Sync dev pre-release

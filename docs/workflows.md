@@ -730,7 +730,7 @@ flowchart TD
 
 - Uploads compiled binaries (`.bin` and `.exe`) to [VirusTotal](https://www.virustotal.com/) via `repomatic scan-virustotal`, polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.csv`
 - Seeds AV vendor databases to reduce false positive detections for downstream distributors (Chocolatey, Scoop, etc.)
-- Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then commits the files directly to the default branch via `repomatic git-commit-push`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
+- Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then publishes the files through the job's pull request via `repomatic pr-sync`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
 - **Requires**:
   - `VIRUSTOTAL_API_KEY` repository secret ([free API key](https://www.virustotal.com/gui/my-apikey))
   - Successful `publish-release` job
@@ -740,7 +740,7 @@ flowchart TD
 - **Recording steps skipped if**: `binaries.sync = false` in [`[tool.repomatic]`](configuration.md) (the scan still runs and seeds AV vendor databases; the catalog and scan history are not committed)
 
 > [!IMPORTANT]
-> The recording lands as a direct push to the default branch, not a pull request: it captures facts about an already-published release, and the binaries page must be live while the release is fresh. This is the only file-modifying operation exempt from the PR convention: see [§ Release-lane direct commits](operation-contracts.md#release-lane-direct-commits) for the full rationale, and set `binaries.sync = false` to disable the recording while keeping the scan.
+> The recording lands in one long-lived pull request every release appends to, merged whenever you like. The detection counts are a trend read across releases rather than a verdict on any one of them, so nothing is lost by leaving it open: only the published binaries page lags. See [§ Scanning accumulates in one pull request](operation-contracts.md#scanning-accumulates-in-one-pull-request) for the full rationale, and set `binaries.sync = false` to disable the recording while keeping the scan.
 
 #### 🔄 Sync dev pre-release (`sync-dev-release`)
 
@@ -932,7 +932,7 @@ GitHub resolves a job's `strategy.matrix` during setup even when the job's `if:`
 
 Workflows never act silently. Every proposed change opens a pull request; every action needed opens an issue. You review and decide, and no change to your source lands without your approval.
 
-Two lanes commit to the default branch without one, and both record a fact rather than propose a change. The release lane writes back what an already-published release measured: its VirusTotal scan records and the binaries page built from them (see [§ Release-lane direct commits](operation-contracts.md#release-lane-direct-commits)), plus the version machinery's own `[changelog]` commits. Rejecting either cannot undo the release they describe. Everything else, sampling included, goes through a pull request.
+Every file-modifying job goes through a pull request, scanning and sampling included: the two that accrue a history publish through one long-lived pull request each run appends to, rather than one per run nobody would read. The only writes reaching the default branch on their own are the version machinery's `[changelog]` commits, which carry the release you triggered rather than a change proposed to you.
 
 ### Configurable with sensible defaults
 

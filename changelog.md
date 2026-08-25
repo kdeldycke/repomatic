@@ -25,6 +25,8 @@
 - `sample-metrics --backfill-wayback` abandons the archive once ten captures are refused in a row and reports to retry later, instead of paying every remaining capture's retry schedule against a spent per-IP budget, and a recovered point prints once rather than twice under `--verbosity INFO`.
 - `show-config` wraps its widest columns instead of running past 240 characters. A format unable to hold a wrapped cell, like `github` or `csv`, stays unwrapped.
 - `list-skills` renders a table honoring `--table-format`, replacing the hand-padded lines that ran to 500 characters.
+- `scan-virustotal` publishes its scan records and the binaries page through one long-lived pull request that each release appends to, instead of committing them straight to the default branch. No file-modifying job pushes to the default branch any more.
+- `scan-virustotal` gains `--carry-from`, restoring the scan history from a remote branch before scanning so records pending in an open pull request are appended to rather than dropped.
 - `sample-metrics` publishes its readings through one long-lived pull request that each run appends to, instead of committing them straight to the default branch. Merging it is now what moves them onto the default branch.
 - `sample-metrics` gains `--carry-from`, restoring the store from a remote branch before sampling so readings pending in an open pull request are appended to rather than dropped.
 - The Todo list documentation page now lists the project's pending work: each deferred change is written as a `todo` admonition beside the code or prose it acts on.

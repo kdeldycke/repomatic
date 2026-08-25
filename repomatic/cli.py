@@ -159,7 +159,12 @@ from .github.matrix import (
     PIVOT_CELL_SEPARATOR,
     PYTHON_VERSION_AXIS,
 )
-from .github.pr import close_open_prs_on_branch, list_changed_files, upsert_pr
+from .github.pr import (
+    carry_pr_branch_paths,
+    close_open_prs_on_branch,
+    list_changed_files,
+    upsert_pr,
+)
 from .github.pr_body import (
     build_pr_body,
     build_release_review_steps,
@@ -235,7 +240,6 @@ from .metric_chart import ChartSpec, write_chart
 from .metrics import (
     SAMPLE_HEADER_DEFS,
     backfill_wayback as _backfill_wayback,
-    carry_pending_readings,
     collected_subjects,
     import_star_history_csv,
     load_metrics,
@@ -3527,7 +3531,7 @@ def sample_metrics(
 
     store_path = store or Path(config.metrics.store)
     if carry_from:
-        carry_pending_readings(carry_from, store_path)
+        carry_pr_branch_paths(carry_from, (store_path,))
     try:
         records = load_metrics(store_path)
         tracked = collected_subjects(
@@ -3669,7 +3673,17 @@ def sample_metrics(
     "--records",
     type=file_path(resolve_path=True),
     default=None,
-    help="JSON scan history file to record detection snapshots in (requires --poll).",
+    help="CSV scan history to record detection snapshots in (requires --poll).",
+)
+@option(
+    "--carry-from",
+    "carry_from",
+    metavar="BRANCH",
+    default=None,
+    help="Restore --records from this remote branch before scanning, so "
+    "snapshots still pending in an open pull request are appended to instead "
+    "of dropped. Name the branch the job publishes to. Ignored when the "
+    "branch does not exist, which is every run that follows a merge.",
 )
 def scan_virustotal(
     tag: str,
@@ -3679,6 +3693,7 @@ def scan_virustotal(
     poll: bool,
     poll_timeout: int,
     records: Path | None,
+    carry_from: str | None,
 ) -> None:
     """Upload release binaries to VirusTotal.
 
@@ -3688,8 +3703,8 @@ def scan_virustotal(
 
     With --poll, waits for the analyses to complete and reports each binary's
     flagged / total verdict counts. With --records, the polled snapshots are
-    merged into a JSON history file, which sync-binaries renders into the
-    binaries catalog page.
+    merged into a CSV history, which sync-binaries renders into the binaries
+    catalog page.
 
     \b
     Examples:
@@ -3701,6 +3716,10 @@ def scan_virustotal(
     """
     if records and not poll:
         raise UsageError("--records requires --poll.")
+    if carry_from and not records:
+        raise UsageError("--carry-from requires --records.")
+    if carry_from and records:
+        carry_pr_branch_paths(carry_from, (records,))
 
     file_paths = sorted(
         p

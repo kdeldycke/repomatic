@@ -29,6 +29,7 @@ from repomatic.github.pr import (
     PrOperation,
     PrSyncResult,
     _needs_push,
+    carry_pr_branch_paths,
     close_open_prs_on_branch,
     close_pr,
     list_open_prs_by_branch,
@@ -533,3 +534,45 @@ def test_pr_sync_cli_validates_its_inputs(cli_upsert, args, error):
     result = CliRunner().invoke(repomatic, ["pr-sync", *args])
     assert result.exit_code != 0
     assert error in result.output
+
+
+@pytest.mark.parametrize(
+    ("tip", "restored", "expected"),
+    (
+        pytest.param(None, (), (), id="no-branch"),
+        pytest.param("abc123", (), (), id="branch-without-the-file"),
+        pytest.param("abc123", ("store.csv",), ("store.csv",), id="work-pending"),
+    ),
+)
+def test_carry_pr_branch_paths_outcomes(monkeypatch, tip, restored, expected):
+    """Work travels only when the branch exists and carries the named file.
+
+    Every other outcome is the first run of a fresh accrual, which must be a
+    silent no-op rather than a failure: the branch is legitimately gone after
+    each merge.
+    """
+    monkeypatch.setattr(
+        "repomatic.github.pr.git_ops.fetch_remote_branch", lambda *a, **kw: tip
+    )
+    monkeypatch.setattr(
+        "repomatic.github.pr.git_ops.restore_paths", lambda *a, **kw: restored
+    )
+    assert carry_pr_branch_paths(BRANCH, ("store.csv",)) == expected
+
+
+def test_carry_pr_branch_paths_restores_the_fetched_tip(monkeypatch):
+    """The restore reads the tip just fetched, never the branch name.
+
+    A branch name resolves against whatever remote-tracking ref the checkout
+    held before the fetch, which on a CI clone is frequently nothing at all.
+    """
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(
+        "repomatic.github.pr.git_ops.fetch_remote_branch", lambda *a, **kw: "dee"
+    )
+    monkeypatch.setattr(
+        "repomatic.github.pr.git_ops.restore_paths",
+        lambda ref, paths: seen.update(ref=ref, paths=tuple(paths)) or ("store.csv",),
+    )
+    assert carry_pr_branch_paths(BRANCH, ("store.csv",)) == ("store.csv",)
+    assert seen == {"ref": "dee", "paths": ("store.csv",)}

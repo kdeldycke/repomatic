@@ -11,7 +11,7 @@ Every `sync-*` operation modifies or overwrites user-controlled files or resourc
 1. **Config toggle.** A `*_sync: bool = True` field in the `Config` dataclass. Dotted sub-key in `[tool.repomatic]` (e.g., `gitignore.sync = false`). Alphabetically sorted among existing sync fields.
 2. **CLI command.** A `repomatic sync-*` command that loads config, checks the toggle, and exits cleanly (`ctx.exit(0)`) when disabled. Uses `@pass_context` to receive `ctx`.
 3. **Toggle enforcement.** For CLI-based syncs: the toggle field goes in `SUBCOMMAND_CONFIG_FIELDS` (checked in the CLI, not exposed as metadata). For workflow-only syncs (no CLI command): the toggle is exposed as a metadata output and checked in the job's `if:` condition. For syncs whose workflow also gates other steps on the toggle (like `sync-binaries`, whose output a separate `git-commit-push` step commits): both at once, a CLI check plus a metadata output kept out of `SUBCOMMAND_CONFIG_FIELDS`.
-4. **Workflow job.** A `sync-*` job in the appropriate workflow file (usually `autofix.yaml`, but lifecycle-specific syncs may live elsewhere — e.g., `sync-dev-release` in `_release-engine.yaml`, `sync-labels` in `labels.yaml`). Requires: metadata `needs:` when applicable, prerequisite `if:` conditions, PR creation via `repomatic pr-sync --template sync-*` (branch, body, labels and commit message all derive from the template and its frontmatter). Exceptions: syncs targeting API resources (e.g., labels) rather than repo files apply changes directly, and `sync-binaries` runs as release-lane recording whose output is pushed straight to the default branch (see [§ Release-lane direct commits](#release-lane-direct-commits)).
+4. **Workflow job.** A `sync-*` job in the appropriate workflow file (usually `autofix.yaml`, but lifecycle-specific syncs may live elsewhere — e.g., `sync-dev-release` in `_release-engine.yaml`, `sync-labels` in `labels.yaml`). Requires: metadata `needs:` when applicable, prerequisite `if:` conditions, PR creation via `repomatic pr-sync --template sync-*` (branch, body, labels and commit message all derive from the template and its frontmatter). Exceptions: syncs targeting API resources (e.g., labels) rather than repo files apply changes directly, and `sync-binaries` shares the pull request of the `scan-virustotal` job it runs inside, rather than opening one of its own (see [§ Scanning accumulates in one pull request](#scanning-accumulates-in-one-pull-request)).
 5. **Documentation.** Config table row and TOML example in `docs/configuration.md`. Job description with "Skipped if" clause in `docs/workflows.md`. Changelog entry.
 6. **Tests.** Default and custom value assertions in `test_repomatic_config_defaults` and `test_repomatic_config_custom_values`.
 
@@ -106,28 +106,36 @@ Every `scan-*` operation submits release artifacts to an external analysis servi
 
 1. **CLI command.** A `repomatic scan-*` command that performs the submission and writes the result records (like `scan-virustotal --records`).
 2. **Workflow job.** A `scan-*` job in the release engine (`_release-engine.yaml`), running after `publish-release` so the released assets exist. Gated on the service's API key secret: no key, no scan.
-3. **Config toggle for the recording.** The in-repo recording must be disableable via `[tool.repomatic]`: `binaries.sync = false` skips the catalog regeneration and commit steps while the scan itself still runs. Because the commit is performed by a separate `git-commit-push` step, the toggle is exposed as a metadata output (kept out of `SUBCOMMAND_CONFIG_FIELDS`) and checked in the step `if:` conditions, in addition to the usual CLI check inside the paired `sync-*` command.
-4. **Documentation.** Job description in `docs/workflows.md`. Changelog entry.
-5. **Tests.** Default and custom value assertions in `test_repomatic_config_defaults` and `test_repomatic_config_custom_values`.
+3. **Config toggle for the recording.** The in-repo recording must be disableable via `[tool.repomatic]`: `binaries.sync = false` skips the catalog regeneration and publishing steps while the scan itself still runs. Because the publishing is performed by a separate `pr-sync` step, the toggle is exposed as a metadata output (kept out of `SUBCOMMAND_CONFIG_FIELDS`) and checked in the step `if:` conditions, in addition to the usual CLI check inside the paired `sync-*` command.
+4. **PR branch and body template.** Named after the job, like any other publishing job: `repomatic/templates/scan-*.md`, rendered by `pr-sync --template`. A job pairing a `scan-*` with the `sync-*` that renders its records publishes both under the `scan-*` name, since one job opens one pull request.
+5. **Documentation.** Job description in `docs/workflows.md`. Changelog entry.
+6. **Tests.** Default and custom value assertions in `test_repomatic_config_defaults` and `test_repomatic_config_custom_values`.
 
 **Invariants:**
 
 - Idempotent: re-running a scan upserts result records (no duplicate snapshots), and regenerating the catalog is convergent.
-- The recording only ever touches generated data files (scan history JSON, catalog CSV, generated page), never user-authored content.
+- The recording only ever touches generated data files (scan history CSV, catalog CSV, generated page), never user-authored content.
+- **The accrual survives an unmerged pull request.** A run restores its scan history from its own branch before appending, so records awaiting review are added to rather than replaced. See [§ Scanning accumulates in one pull request](#scanning-accumulates-in-one-pull-request).
 
-### Release-lane direct commits
+### Scanning accumulates in one pull request
 
 ```{important}
-`scan-virustotal` records its results with a direct push to the default branch (via `repomatic git-commit-push`), not a pull request. This is the only file-modifying operation exempt from the PR convention. Disable it with `[tool.repomatic] binaries.sync = false`.
+`scan-virustotal` publishes its records through a single long-lived pull request (via `repomatic pr-sync --template scan-virustotal`), which every release appends to until you merge it. Disable the recording with `[tool.repomatic] binaries.sync = false`: binaries are still scanned, nothing is published.
 ```
 
-A post-release recording job gets nothing from a PR:
+A per-release pull request would be the wrong shape, and that is the objection this design answers. The diff records what an external service reported about an already-published, immutable release: rejecting or editing it cannot change the release, only make the record wrong or missing. Ending every release on its own pull request would also mean every release needs a follow-up merge, or per-repo auto-merge wiring that can block indefinitely.
 
-- The data is not reviewable: it records facts about an already-published, immutable release, fetched from external APIs (VirusTotal, the GitHub Releases API). Rejecting or editing the diff cannot change the release; it can only make the record wrong or missing.
-- The binaries page must be fresh at release time: the push (with `REPOMATIC_PAT` configured) triggers the docs deploy, so download links and VirusTotal verdicts are live exactly when users and downstream distributors (Chocolatey, Scoop) fetch the new binaries. A PR would leave the page stale until someone merges it.
-- The job is the tail of the release pipeline: ending a release on an open PR means every release needs a follow-up merge, or per-repo auto-merge wiring (branch protection, required checks, a PAT that triggers CI) that can block indefinitely. That adds failure modes for zero review value.
+One accumulating pull request has neither problem. Releases append to it, and merging is a decision you make when it suits you rather than once per release.
 
-The push is engineered for a busy default branch: `git-commit-push` is idempotent, rebases and retries on rejection, and multi-release runs are serialized with `max-parallel: 1`. Repositories that do not want automated pushes on their default branch set `[tool.repomatic] binaries.sync = false`: binaries are still scanned, nothing is committed.
+What makes that affordable is what the history is *for*. A detection count is a trend read across releases, not a verdict on any one of them: a fresh Nuitka binary no vendor has yet seen is flagged on sight, and the count falls as vendors process it. Watching that trend fall is what tells you when to retry a submission to a distribution channel that rejects binaries on detection counts. Nothing in that question is answered any better by a record that landed an hour after the release than by one that landed a week after, so the only cost of leaving the pull request open is the freshness of the published binaries page.
+
+The mechanism is the one [§ Sampling accumulates in one pull request](#sampling-accumulates-in-one-pull-request) uses, through the same {func}`repomatic.github.pr.carry_pr_branch_paths`. Only the scan history accrues, so only it is carried: the catalog CSV is regenerated wholesale from the GitHub Releases API and the page renders from those two, so both converge on their own from the restored history.
+
+Two details the release lane adds. The publishing step names its paths with `--add-path`, because the job downloads the release binaries into its own checkout and that directory must not ride along. And `max-parallel: 1` on the matrix is what serializes the carry-append-publish cycle across a multi-release run: raising it would drop whichever cell published first.
+
+```{note}
+Merging the pull request while a release is running makes that cell fail, since `pr-sync` publishes with `--force-with-lease` and the branch moved underneath it. The window is narrow and the recovery is a re-run, which carries the merged state and republishes cleanly.
+```
 
 ## Sample job contract
 
@@ -164,7 +172,7 @@ A per-run pull request would be the wrong shape here, and that is the objection 
 
 One accumulating pull request has neither problem. There is a single review surface open at any time, and leaving it open stalls nothing: the readings keep landing on its branch every run, and only the charts published from the default branch lag behind. Merging is a decision about freshness, never about whether a reading is kept.
 
-The mechanism is one restore, in {func}`repomatic.metrics.carry_pending_readings`. Before sampling, the job reads its store back from the branch through {func}`repomatic.git_ops.restore_paths`, which moves the named files without moving `HEAD`: the run keeps the source tree and lock file it was called on, and only the store travels. Nothing else has to be carried, because rendering is a pure function of the store, so charts redrawn from the restored history land on the bytes the branch already holds.
+The mechanism is one restore, in {func}`repomatic.github.pr.carry_pr_branch_paths`. Before sampling, the job reads its store back from the branch through {func}`repomatic.git_ops.restore_paths`, which moves the named files without moving `HEAD`: the run keeps the source tree and lock file it was called on, and only the store travels. Nothing else has to be carried, because rendering is a pure function of the store, so charts redrawn from the restored history land on the bytes the branch already holds.
 
 That makes the cycle self-healing, whichever way the pull request was merged. Once merged, the branch's store and the default branch's agree, so the restore changes nothing, `pr-sync` finds no diff to publish, and it closes the pull request and deletes the branch. The next run starts a fresh accrual. A squash merge is no different, because every comparison here is of file content and never of commit history.
 

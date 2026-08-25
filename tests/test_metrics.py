@@ -56,7 +56,6 @@ from repomatic.metrics import (
     MetricRecord,
     Retention,
     backfill_wayback,
-    carry_pending_readings,
     collected_subjects,
     fetch,
     gunzip,
@@ -1094,39 +1093,3 @@ def test_tracked_subjects_are_reachable():
     # subject shows nothing.
     for reason in config.metrics.skip.values():
         assert reason.endswith("."), f"{reason!r} should read as a sentence"
-
-
-@pytest.mark.parametrize(
-    ("tip", "restored", "expected"),
-    (
-        pytest.param(None, (), False, id="no-branch"),
-        pytest.param("abc123", (), False, id="branch-without-the-store"),
-        pytest.param("abc123", ("metrics.csv",), True, id="readings-pending"),
-    ),
-)
-def test_carry_pending_readings_outcomes(monkeypatch, tip, restored, expected):
-    """The store travels only when the branch exists and carries one.
-
-    Every other outcome is the first run of a fresh accrual, which must be a
-    silent no-op rather than a failure: the branch is legitimately gone after
-    each merge.
-    """
-    monkeypatch.setattr("repomatic.metrics.fetch_remote_branch", lambda *a, **kw: tip)
-    monkeypatch.setattr("repomatic.metrics.restore_paths", lambda *a, **kw: restored)
-    assert carry_pending_readings("sample-metrics", Path("metrics.csv")) is expected
-
-
-def test_carry_pending_readings_restores_the_fetched_tip(monkeypatch):
-    """The restore reads the tip that was just fetched, not the branch name.
-
-    A branch name would resolve against whatever the checkout's remote-tracking
-    ref held before the fetch, which on a shallow CI clone is nothing at all.
-    """
-    seen: dict[str, object] = {}
-    monkeypatch.setattr("repomatic.metrics.fetch_remote_branch", lambda *a, **kw: "dee")
-    monkeypatch.setattr(
-        "repomatic.metrics.restore_paths",
-        lambda ref, paths: seen.update(ref=ref, paths=tuple(paths)) or ("store.csv",),
-    )
-    assert carry_pending_readings("sample-metrics", Path("store.csv")) is True
-    assert seen == {"ref": "dee", "paths": (Path("store.csv"),)}

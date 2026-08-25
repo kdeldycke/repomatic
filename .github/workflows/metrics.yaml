@@ -76,8 +76,8 @@ jobs:
       # `--carry-from` names the branch below, so the store is read back from
       # the open pull request before this run appends to it: a reading cannot
       # be fetched twice, and measuring against the default branch alone would
-      # drop every one still waiting there. See `carry_pending_readings` in
-      # repomatic/metrics.py for why the charts need no such carrying.
+      # drop every one still waiting there. See `carry_pr_branch_paths` in
+      # repomatic/github/pr.py for why the charts need no such carrying.
       - name: Sample forge metrics
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
