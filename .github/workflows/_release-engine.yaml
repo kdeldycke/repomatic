@@ -249,7 +249,7 @@ jobs:
           uv --no-progress sync --frozen ${flags}
       - name: Pre-bake build metadata
         if: contains(matrix.current_version, '.dev')
-        run: uvx --no-progress 'click-extra==8.8.1' prebake all
+        run: uvx --no-progress 'click-extra==8.9.1' prebake all
       - name: Build binary
         id: build-binary
         continue-on-error: true
