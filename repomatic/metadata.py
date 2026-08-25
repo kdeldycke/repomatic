@@ -64,7 +64,6 @@ import subprocess
 from collections.abc import Callable, Iterable
 from dataclasses import fields
 from functools import cached_property, partial
-from operator import itemgetter
 from pathlib import Path
 
 import tomlrt
@@ -1797,10 +1796,12 @@ class Metadata:
         matrix = Matrix()
 
         # Register all runners on which we want to run Nuitka builds.
-        matrix.add_variation("os", tuple(map(itemgetter("os"), build_targets.values())))
+        matrix.add_variation(
+            "os", tuple(target.os for target in build_targets.values())
+        )
         # Augment each "os" entry with platform-specific data.
-        for target_id, target_data in build_targets.items():
-            matrix.add_includes({"target": target_id} | target_data)
+        for build_target in build_targets.values():
+            matrix.add_includes(build_target.as_matrix_entry())
 
         # `[tool.nuitka]` is not assembled here: `repomatic run nuitka` resolves
         # it at build time (the tool runner translates the section to CLI flags).
@@ -1905,7 +1906,7 @@ class Metadata:
                 continue
             matrix.add_includes({
                 "state": "unstable",
-                "os": NUITKA_BUILD_TARGETS[unstable_target]["os"],
+                "os": NUITKA_BUILD_TARGETS[unstable_target].os,
             })
 
         return matrix

@@ -21,8 +21,8 @@ print("| Target | Runner | Architecture | Extension |")
 print("| ------ | ------ | ------------ | --------- |")
 for target_id, target in NUITKA_BUILD_TARGETS.items():
     print(
-        f"| `{target_id}` | `{target['os']}` | `{target['arch']}` "
-        f"| `.{target['extension']}` |"
+        f"| `{target_id}` | `{target.os}` | `{target.arch.id}` "
+        f"| `.{target.extension}` |"
     )
 ```
 

@@ -1227,7 +1227,7 @@ def test_binary_build_targets_are_the_test_axes() -> None:
     widening the test axes in {mod}`repomatic.matrix_axes`, never editing this
     fleet alone. `binary.py`'s own docstring states the rule; this holds it.
     """
-    build_runners = {target["os"] for target in NUITKA_BUILD_TARGETS.values()}
+    build_runners = {target.os for target in NUITKA_BUILD_TARGETS.values()}
     assert build_runners == set(KNOWN_RUNNERS), (
         "Nuitka build targets and the test axes have diverged. Only in "
         f"NUITKA_BUILD_TARGETS: {sorted(build_runners - set(KNOWN_RUNNERS))}; "

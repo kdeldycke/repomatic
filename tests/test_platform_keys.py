@@ -41,7 +41,7 @@ VALID_BUILD_KEYS = frozenset(NUITKA_BUILD_TARGETS)
 @pytest.mark.parametrize("target", sorted(VALID_BUILD_KEYS))
 def test_naming_round_trip_per_target(target):
     """Composed names match the pattern and alias back losslessly."""
-    extension = NUITKA_BUILD_TARGETS[target]["extension"]
+    extension = NUITKA_BUILD_TARGETS[target].extension
     versioned = binary_name("repomatic", target, "1.2.3")
     assert versioned == f"repomatic-1.2.3-{target}.{extension}"
 

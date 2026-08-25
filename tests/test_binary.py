@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import struct
 import sys
 from pathlib import Path
@@ -26,7 +27,7 @@ from string import ascii_lowercase, digits
 from unittest.mock import patch
 
 import pytest
-from extra_platforms import ALL_IDS
+from extra_platforms import AARCH64, ALL_ARCHITECTURES, ALL_IDS, LINUX, X86_64
 
 from repomatic.binary import (
     ELF_MACHINES,
@@ -34,6 +35,7 @@ from repomatic.binary import (
     NUITKA_BUILD_TARGETS,
     PE_MACHINES,
     SKIP_BINARY_BUILD_BRANCHES,
+    BuildTarget,
     _binary_format,
     _elf_info,
     _macho_info,
@@ -181,10 +183,10 @@ def test_unknown_target(tmp_path):
     [
         ("linux-arm64", make_elf(EM_AARCH64)),
         ("linux-x64", make_elf(EM_X86_64)),
-        ("macos-arm64", make_macho(MACHO_CPU_TYPES["arm64"])),
-        ("macos-x64", make_fat([make_macho(MACHO_CPU_TYPES["x64"])])),
-        ("windows-arm64", make_pe(PE_MACHINES["arm64"])),
-        ("windows-x64", make_pe(PE_MACHINES["x64"])),
+        ("macos-arm64", make_macho(MACHO_CPU_TYPES[AARCH64])),
+        ("macos-x64", make_fat([make_macho(MACHO_CPU_TYPES[X86_64])])),
+        ("windows-arm64", make_pe(PE_MACHINES[AARCH64])),
+        ("windows-x64", make_pe(PE_MACHINES[X86_64])),
     ],
 )
 def test_matching_arch(tmp_path, target, payload):
@@ -200,10 +202,10 @@ def test_matching_arch(tmp_path, target, payload):
     [
         # Wrong architecture, right format.
         ("linux-arm64", make_elf(EM_X86_64)),
-        ("macos-arm64", make_macho(MACHO_CPU_TYPES["x64"])),
-        ("windows-x64", make_pe(PE_MACHINES["arm64"])),
+        ("macos-arm64", make_macho(MACHO_CPU_TYPES[X86_64])),
+        ("windows-x64", make_pe(PE_MACHINES[AARCH64])),
         # Wrong executable format entirely.
-        ("linux-x64", make_pe(PE_MACHINES["x64"])),
+        ("linux-x64", make_pe(PE_MACHINES[X86_64])),
         ("windows-x64", make_elf(EM_X86_64)),
         # Not an executable at all.
         ("linux-x64", b""),
@@ -229,8 +231,8 @@ def test_macho_info_fat_slices(tmp_path):
     sample = tmp_path / "sample.bin"
     sample.write_bytes(
         make_fat([
-            make_macho(MACHO_CPU_TYPES["arm64"], "12.4"),
-            make_macho(MACHO_CPU_TYPES["x64"], "10.15"),
+            make_macho(MACHO_CPU_TYPES[AARCH64], "12.4"),
+            make_macho(MACHO_CPU_TYPES[X86_64], "10.15"),
         ])
     )
     cpu_types, floor = _macho_info(sample)
@@ -241,8 +243,8 @@ def test_macho_info_fat_slices(tmp_path):
 def test_pe_machine_parsing(tmp_path):
     """The COFF machine field is read from PE headers, None elsewhere."""
     sample = tmp_path / "sample.exe"
-    sample.write_bytes(make_pe(PE_MACHINES["arm64"]))
-    assert _pe_machine(sample) == PE_MACHINES["arm64"]
+    sample.write_bytes(make_pe(PE_MACHINES[AARCH64]))
+    assert _pe_machine(sample) == PE_MACHINES[AARCH64]
     sample.write_bytes(b"MZ not a real PE")
     assert _pe_machine(sample) is None
 
@@ -265,10 +267,10 @@ def test_running_interpreter_parses():
 def test_floor_within_bounds_macos(tmp_path):
     """Files at or below the declared macOS floor pass verification."""
     binary = tmp_path / "test.bin"
-    binary.write_bytes(make_macho(MACHO_CPU_TYPES["arm64"], "11.0"))
+    binary.write_bytes(make_macho(MACHO_CPU_TYPES[AARCH64], "11.0"))
     dist = tmp_path / "app.dist"
     dist.mkdir()
-    (dist / "lib.dylib").write_bytes(make_macho(MACHO_CPU_TYPES["arm64"], "10.9"))
+    (dist / "lib.dylib").write_bytes(make_macho(MACHO_CPU_TYPES[AARCH64], "10.9"))
     # Should not raise.
     verify_binary_floor("macos-arm64", binary, [dist])
 
@@ -276,10 +278,10 @@ def test_floor_within_bounds_macos(tmp_path):
 def test_floor_exceeded_macos(tmp_path):
     """A dist file above the declared macOS floor fails verification."""
     binary = tmp_path / "test.bin"
-    binary.write_bytes(make_macho(MACHO_CPU_TYPES["arm64"], "11.0"))
+    binary.write_bytes(make_macho(MACHO_CPU_TYPES[AARCH64], "11.0"))
     dist = tmp_path / "app.dist"
     dist.mkdir()
-    (dist / "lib.dylib").write_bytes(make_macho(MACHO_CPU_TYPES["arm64"], "26.0"))
+    (dist / "lib.dylib").write_bytes(make_macho(MACHO_CPU_TYPES[AARCH64], "26.0"))
     with pytest.raises(AssertionError, match="OS floor exceeded") as excinfo:
         verify_binary_floor("macos-arm64", binary, [dist])
     assert "26.0" in str(excinfo.value)
@@ -309,7 +311,7 @@ def test_floor_linux(tmp_path, measured, passes):
 def test_floor_windows_is_documentation_only(tmp_path):
     """Windows targets have no enforceable floor and always pass."""
     binary = tmp_path / "test.exe"
-    binary.write_bytes(make_pe(PE_MACHINES["x64"]))
+    binary.write_bytes(make_pe(PE_MACHINES[X86_64]))
     # Should not raise, and must not even look at the headers.
     verify_binary_floor("windows-x64", binary)
 
@@ -322,40 +324,96 @@ def test_floor_unknown_target(tmp_path):
         verify_binary_floor("unknown-platform", binary)
 
 
-@pytest.mark.parametrize(
-    ("target_id", "target_data"), sorted(NUITKA_BUILD_TARGETS.items())
-)
-def test_nuitka_targets(target_id: str, target_data: dict[str, str]) -> None:
-    assert isinstance(target_id, str)
-    assert isinstance(target_data, dict)
+ASSET_ARCH_LABELS = {AARCH64: "arm64", X86_64: "x64"}
+"""Short architecture spellings frozen into the published release-asset names.
 
-    expected_keys = {"os", "platform_id", "arch", "extension"}
-    if target_data["platform_id"] == "linux":
+`BuildTarget.arch` carries the canonical extra-platforms id (`aarch64`,
+`x86_64`), while every published download URL says `arm64` or `x64`. This maps
+one onto the other, so a target key and its fields cannot drift apart.
+"""
+
+
+@pytest.mark.parametrize(
+    ("target_id", "build_target"), sorted(NUITKA_BUILD_TARGETS.items())
+)
+def test_nuitka_targets(target_id: str, build_target: BuildTarget) -> None:
+    assert isinstance(target_id, str)
+    assert build_target.id == target_id
+
+    assert set(build_target.os).issubset(ascii_lowercase + digits + "-.")
+    assert build_target.platform.id in ALL_IDS
+    assert build_target.arch in ALL_ARCHITECTURES
+    assert set(build_target.extension).issubset(ascii_lowercase)
+
+    # Linux compiles inside a pinned container against a glibc floor; the
+    # other platforms carry a minimum OS version instead.
+    if build_target.platform is LINUX:
+        assert build_target.container is not None
+        assert build_target.container.startswith("quay.io/pypa/manylinux_2_28_")
+        assert "@sha256:" in build_target.container
+        assert build_target.glibc_floor is not None
+        assert _version_key(build_target.glibc_floor) >= (2,)
+        assert build_target.min_os is None
+    else:
+        assert build_target.container is None
+        assert build_target.glibc_floor is None
+        assert build_target.min_os is not None
+        assert _version_key(build_target.min_os) >= (10,)
+
+    # The key is the published asset identifier, frozen on the short
+    # architecture spelling rather than the canonical id the field carries.
+    label = ASSET_ARCH_LABELS[build_target.arch]
+    assert target_id == f"{build_target.platform.id}-{label}"
+    assert set(target_id).issubset(ascii_lowercase + digits + "-")
+
+
+@pytest.mark.parametrize(
+    ("target_id", "build_target"), sorted(NUITKA_BUILD_TARGETS.items())
+)
+def test_matrix_entry_is_json_safe(target_id: str, build_target: BuildTarget) -> None:
+    """No extra-platforms trait may leak into the GitHub matrix.
+
+    `build_targets` and `nuitka_matrix` are serialized into the metadata JSON
+    the release workflow reads, so an `Architecture` object reaching one of
+    those dicts breaks the whole release lane at metadata time.
+    """
+    entry = build_target.as_matrix_entry()
+    assert json.loads(json.dumps(entry)) == entry
+    for key, value in entry.items():
+        assert isinstance(key, str)
+        assert isinstance(value, str)
+
+    assert entry["target"] == target_id
+    assert entry["platform_id"] == build_target.platform.id
+    assert entry["arch"] == build_target.arch.id
+
+    expected_keys = {"target", "os", "platform_id", "arch", "extension"}
+    if build_target.platform is LINUX:
         expected_keys |= {"container", "glibc_floor"}
     else:
         expected_keys |= {"min_os"}
-    assert set(target_data) == expected_keys, (
-        f"Unexpected keys in target data for {target_id}"
-    )
+    assert set(entry) == expected_keys, f"Unexpected matrix keys for {target_id}"
 
-    for value in target_data.values():
-        assert isinstance(value, str)
 
-    assert set(target_data["os"]).issubset(ascii_lowercase + digits + "-.")
-    assert target_data["platform_id"] in ALL_IDS
-    assert target_data["arch"] in {"arm64", "x64"}
-    assert set(target_data["extension"]).issubset(ascii_lowercase)
+@pytest.mark.parametrize(
+    ("target_id", "build_target"), sorted(NUITKA_BUILD_TARGETS.items())
+)
+def test_enforced_floor_follows_binary_format(
+    target_id: str, build_target: BuildTarget
+) -> None:
+    """Only ELF and Mach-O record a floor a scan can measure.
 
-    if "container" in target_data:
-        assert target_data["container"].startswith("quay.io/pypa/manylinux_2_28_")
-        assert "@sha256:" in target_data["container"]
-    if "glibc_floor" in target_data:
-        assert _version_key(target_data["glibc_floor"]) >= (2,)
-    if "min_os" in target_data:
-        assert _version_key(target_data["min_os"]) >= (10,)
-
-    assert target_id == target_data["platform_id"] + "-" + target_data["arch"]
-    assert set(target_id).issubset(ascii_lowercase + digits + "-")
+    A PE carries a nominal version header, so its declared `min_os` stays
+    documentation and `verify_binary_floor` has nothing to enforce.
+    """
+    floor = build_target.enforced_floor
+    if build_target.binary_format == "pe":
+        assert floor is None
+        assert build_target.min_os is not None
+    else:
+        assert floor is not None
+        field, version = floor
+        assert getattr(build_target, field) == version
 
 
 def test_skip_binary_build_branches_constant():

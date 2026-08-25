@@ -29,15 +29,19 @@ import logging
 import re
 import shutil
 import struct
+from dataclasses import dataclass
 from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
 from elftools.elf.gnuversions import GNUVerNeedSection
+from extra_platforms import AARCH64, LINUX, MACOS, WINDOWS, X86_64
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
     from typing import Final
+
+    from extra_platforms import Architecture, Group, Platform
 
 
 BINARY_ASSET_SUFFIXES = (".bin", ".exe")
@@ -85,63 +89,38 @@ _MANYLINUX_2_28_AARCH64 = (
 )
 
 
-NUITKA_BUILD_TARGETS = {
-    "linux-arm64": {
-        "os": "ubuntu-26.04-arm",
-        "platform_id": "linux",
-        "arch": "arm64",
-        "extension": "bin",
-        "container": _MANYLINUX_2_28_AARCH64,
-        "glibc_floor": "2.28",
-    },
-    "linux-x64": {
-        "os": "ubuntu-26.04",
-        "platform_id": "linux",
-        "arch": "x64",
-        "extension": "bin",
-        "container": _MANYLINUX_2_28_X86_64,
-        "glibc_floor": "2.28",
-    },
-    "macos-arm64": {
-        "os": "macos-26",
-        "platform_id": "macos",
-        "arch": "arm64",
-        "extension": "bin",
-        # First Apple-silicon macOS, and the python-build-standalone target.
-        "min_os": "11.0",
-    },
-    "macos-x64": {
-        "os": "macos-26-intel",
-        "platform_id": "macos",
-        "arch": "x64",
-        "extension": "bin",
-        # The python-build-standalone x86_64 deployment target.
-        "min_os": "10.15",
-    },
-    "windows-arm64": {
-        "os": "windows-11-arm",
-        "platform_id": "windows",
-        "arch": "arm64",
-        "extension": "exe",
-        "min_os": "11",
-    },
-    "windows-x64": {
-        "os": "windows-2025",
-        "platform_id": "windows",
-        "arch": "x64",
-        "extension": "exe",
-        "min_os": "10",
-    },
-}
-"""GitHub-hosted runner matrix for Nuitka builds, keyed by target name.
+@dataclass(frozen=True)
+class BuildTarget:
+    """One Nuitka compile target: a runner image, a platform and an architecture.
 
-The key doubles as the compiled binary's short target identifier: it names the
-published release asset, so it is chosen for user-friendliness and must stay
-stable (download URLs and `docs/binaries.md` match on it).
+    Carries the metadata every consumer branches on, and the methods that
+    interpret it, so a caller asks the target what its binaries must look like
+    instead of re-deriving it from a platform name.
 
-Values are dictionaries with the following keys:
+    Platform and architecture are [Extra
+    Platforms](https://github.com/kdeldycke/extra-platforms) traits rather than
+    free strings, which is the same vocabulary
+    {data}`~repomatic.tool_registry.PlatformKey` keys the downloaded-binary
+    registry on. {meth}`as_matrix_entry` renders both back to their ids for the
+    workflow matrix.
+    """
 
-- `os`: Operating system name, as used in [GitHub-hosted runners](https://docs.github.com/en/actions/writing-workflows/choosing-where-your-workflow-runs/choosing-the-runner-for-a-job#standard-github-hosted-runners-for-public-repositories).
+    id: str
+    """Short target identifier, chosen for user-friendliness.
+
+    It names the published release asset, so it must stay stable: download
+    URLs, `docs/install.md` and the `binaries.csv` catalog all match on it.
+
+    ```{note}
+    It is deliberately *not* derived from {attr}`platform` and {attr}`arch`.
+    The asset names froze on the short `x64` and `arm64` spellings, while
+    those two fields carry the canonical extra-platforms ids (`x86_64`,
+    `aarch64`). `tests/test_binary.py` pins the pairing.
+    ```
+    """
+
+    os: str
+    """Runner image, as named in [GitHub-hosted runners](https://docs.github.com/en/actions/writing-workflows/choosing-where-your-workflow-runs/choosing-the-runner-for-a-job#standard-github-hosted-runners-for-public-repositories).
 
     ```{hint}
     One compile job per target, each on one of the six runners the test matrix
@@ -150,45 +129,166 @@ Values are dictionaries with the following keys:
     {data}`~repomatic.lint_repo.KNOWN_RUNNERS`, not a separate selection: an
     image is added here by widening the test axes, never on its own.
     ```
+    """
 
-- `platform_id`: Platform identifier, as defined by [Extra Platform](https://github.com/kdeldycke/extra-platforms).
+    platform: Platform | Group
+    """Operating system the binary runs on."""
 
-- `arch`: Architecture identifier.
+    arch: Architecture
+    """CPU architecture the binary is compiled for."""
 
-    ```{note}
-    Architecture IDs are [inspired from those specified for self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/supported-architectures-and-operating-systems-for-self-hosted-runners#supported-processor-architectures)
-    ```
+    extension: str
+    """File extension of the compiled binary."""
 
-    ```{todo}
-    Evaluate replacing the `platform_id` / `arch` pair with a single
-    [target triple](https://mcyoung.xyz/2025/04/14/target-triples/).
-    ```
+    container: str | None = None
+    """OCI image the Linux compile and self-test jobs run in.
 
-- `extension`: File extension of the compiled binary.
+    Passed to the `container:` key of the release workflow. Compiling inside
+    `manylinux_2_28` caps the toolchain at glibc 2.28, so binaries stop
+    inheriting the floor of whatever glibc the current runner image ships.
+    Linux targets only: GitHub Actions containers do not exist for macOS and
+    Windows runners.
+    """
 
-- `container`: OCI image the Linux compile and self-test jobs run in, via the
-  `container:` key of the release workflow. Compiling inside `manylinux_2_28`
-  caps the toolchain at glibc 2.28, so binaries stop inheriting the floor of
-  whatever glibc the current runner image ships. Linux targets only: GitHub
-  Actions containers do not exist for macOS and Windows runners.
+    glibc_floor: str | None = None
+    """Highest glibc symbol version the compiled artifacts may require.
 
-- `glibc_floor`: highest glibc symbol version the compiled artifacts may
-  require, matching the build container. Enforced by
-  {func}`~repomatic.binary.verify_binary_floor` and documented in
-  `docs/binaries.md`.
+    Matches the build container, and is enforced by
+    {func}`~repomatic.binary.verify_binary_floor`.
+    """
 
-- `min_os`: minimum OS version the binary runs on. On macOS the release
-  workflow exports it as `MACOSX_DEPLOYMENT_TARGET` at compile time (without
-  it, compiled objects and processed dylibs inherit the build runner's macOS
-  version) and {func}`~repomatic.binary.verify_binary_floor` enforces it. On
-  Windows it is documentation-only: the floor is CPython's own Windows
-  support policy, not a linker artifact.
+    min_os: str | None = None
+    """Minimum OS version the binary runs on.
+
+    On macOS the release workflow exports it as `MACOSX_DEPLOYMENT_TARGET` at
+    compile time (without it, compiled objects and processed dylibs inherit
+    the build runner's macOS version). On Windows it is documentation-only:
+    the floor is CPython's own Windows support policy, not a linker artifact,
+    which is why {attr}`enforced_floor` returns nothing there.
+    """
+
+    @property
+    def binary_format(self) -> str:
+        """Executable format the compiler emits for this target."""
+        return PLATFORM_FORMATS[self.platform]
+
+    @property
+    def expected_machine(self) -> str | int:
+        """Machine identifier this target's binaries carry in their header.
+
+        Decoded from a different field per format, so the value is a
+        pyelftools machine name on ELF and a raw integer on Mach-O and PE.
+        """
+        if self.binary_format == "elf":
+            return ELF_MACHINES[self.arch]
+        if self.binary_format == "macho":
+            return MACHO_CPU_TYPES[self.arch]
+        return PE_MACHINES[self.arch]
+
+    @property
+    def enforced_floor(self) -> tuple[str, str] | None:
+        """The floor field and version this target's binaries are measured against.
+
+        `None` for PE binaries, whose version headers are nominal: nothing in
+        the file records a floor to compare {attr}`min_os` against.
+        """
+        if self.binary_format == "elf" and self.glibc_floor is not None:
+            return "glibc_floor", self.glibc_floor
+        if self.binary_format == "macho" and self.min_os is not None:
+            return "min_os", self.min_os
+        return None
+
+    def as_matrix_entry(self) -> dict[str, str]:
+        """Flat, JSON-safe mapping of this target, for GitHub matrix inclusion.
+
+        Renders {attr}`platform` and {attr}`arch` back to their extra-platforms
+        ids, the spelling the workflow expressions (`matrix.platform_id`) and
+        `tests.yaml`'s runner check compare against. Unset optional fields are
+        omitted, so an entry carries only the keys that apply to its target.
+        """
+        entry = {
+            "target": self.id,
+            "os": self.os,
+            "platform_id": self.platform.id,
+            "arch": self.arch.id,
+            "extension": self.extension,
+        }
+        if self.container is not None:
+            entry["container"] = self.container
+        if self.glibc_floor is not None:
+            entry["glibc_floor"] = self.glibc_floor
+        if self.min_os is not None:
+            entry["min_os"] = self.min_os
+        return entry
+
+
+NUITKA_BUILD_TARGETS: Final[dict[str, BuildTarget]] = {
+    target.id: target
+    for target in (
+        BuildTarget(
+            id="linux-arm64",
+            os="ubuntu-26.04-arm",
+            platform=LINUX,
+            arch=AARCH64,
+            extension="bin",
+            container=_MANYLINUX_2_28_AARCH64,
+            glibc_floor="2.28",
+        ),
+        BuildTarget(
+            id="linux-x64",
+            os="ubuntu-26.04",
+            platform=LINUX,
+            arch=X86_64,
+            extension="bin",
+            container=_MANYLINUX_2_28_X86_64,
+            glibc_floor="2.28",
+        ),
+        BuildTarget(
+            id="macos-arm64",
+            os="macos-26",
+            platform=MACOS,
+            arch=AARCH64,
+            extension="bin",
+            # First Apple-silicon macOS, and the python-build-standalone target.
+            min_os="11.0",
+        ),
+        BuildTarget(
+            id="macos-x64",
+            os="macos-26-intel",
+            platform=MACOS,
+            arch=X86_64,
+            extension="bin",
+            # The python-build-standalone x86_64 deployment target.
+            min_os="10.15",
+        ),
+        BuildTarget(
+            id="windows-arm64",
+            os="windows-11-arm",
+            platform=WINDOWS,
+            arch=AARCH64,
+            extension="exe",
+            min_os="11",
+        ),
+        BuildTarget(
+            id="windows-x64",
+            os="windows-2025",
+            platform=WINDOWS,
+            arch=X86_64,
+            extension="exe",
+            min_os="10",
+        ),
+    )
+}
+"""GitHub-hosted runner matrix for Nuitka builds, keyed by target name.
+
+The roster is closed: every entry compiles on a runner the test matrix already
+covers, and the key doubles as the compiled binary's published identifier. See
+{class}`BuildTarget` for what each field means and which of them are frozen.
 """
 
 
-FLAT_BUILD_TARGETS = [
-    {"target": target_id} | target_data
-    for target_id, target_data in NUITKA_BUILD_TARGETS.items()
+FLAT_BUILD_TARGETS: Final[list[dict[str, str]]] = [
+    target.as_matrix_entry() for target in NUITKA_BUILD_TARGETS.values()
 ]
 """List of build targets in a flat format, suitable for matrix inclusion."""
 
@@ -202,7 +302,7 @@ def binary_name(package: str, target: str, version: str | None = None) -> str:
     `releases/latest/download` URLs. The extension comes from
     {data}`NUITKA_BUILD_TARGETS`.
     """
-    extension = NUITKA_BUILD_TARGETS[target]["extension"]
+    extension = NUITKA_BUILD_TARGETS[target].extension
     middle = f"-{version}" if version else ""
     return f"{package}{middle}-{target}.{extension}"
 
@@ -232,7 +332,7 @@ def binary_filename_re(package: str) -> re.Pattern[str]:
     """
     targets = "|".join(sorted(NUITKA_BUILD_TARGETS))
     extensions = "|".join(
-        sorted({data["extension"] for data in NUITKA_BUILD_TARGETS.values()})
+        sorted({target.extension for target in NUITKA_BUILD_TARGETS.values()})
     )
     return re.compile(
         rf"{re.escape(package)}(?:-[\d.]+)?-"
@@ -321,28 +421,32 @@ they belong to a different policy.
 """
 
 
-PLATFORM_FORMATS: Final[dict[str, str]] = {
-    "linux": "elf",
-    "macos": "macho",
-    "windows": "pe",
+PLATFORM_FORMATS: Final[dict[Platform | Group, str]] = {
+    LINUX: "elf",
+    MACOS: "macho",
+    WINDOWS: "pe",
 }
-"""Executable format expected for each build platform."""
+"""Executable format expected for each build platform.
 
-ELF_MACHINES: Final[dict[str, str]] = {
-    "arm64": "EM_AARCH64",
-    "x64": "EM_X86_64",
+Read through {attr}`BuildTarget.binary_format`, which is how every caller
+reaches it.
+"""
+
+ELF_MACHINES: Final[dict[Architecture, str]] = {
+    AARCH64: "EM_AARCH64",
+    X86_64: "EM_X86_64",
 }
 """Expected ELF `e_machine` value (as decoded by pyelftools) per architecture."""
 
-MACHO_CPU_TYPES: Final[dict[str, int]] = {
-    "arm64": 0x0100000C,
-    "x64": 0x01000007,
+MACHO_CPU_TYPES: Final[dict[Architecture, int]] = {
+    AARCH64: 0x0100000C,
+    X86_64: 0x01000007,
 }
 """Expected Mach-O header `cputype` per architecture."""
 
-PE_MACHINES: Final[dict[str, int]] = {
-    "arm64": 0xAA64,
-    "x64": 0x8664,
+PE_MACHINES: Final[dict[Architecture, int]] = {
+    AARCH64: 0xAA64,
+    X86_64: 0x8664,
 }
 """Expected PE COFF `Machine` field per architecture."""
 
@@ -484,7 +588,7 @@ def _iter_native_binaries(directories: Iterable[Path]) -> Iterator[Path]:
                 yield path
 
 
-def _check_target(target: str) -> dict[str, str]:
+def _check_target(target: str) -> BuildTarget:
     """Return the target's build data, raising on unknown target names."""
     if target not in NUITKA_BUILD_TARGETS:
         msg = (
@@ -506,9 +610,8 @@ def verify_binary_arch(target: str, binary_path: Path) -> None:
     :raises ValueError: If target is unknown.
     :raises AssertionError: If binary format or architecture does not match.
     """
-    target_data = _check_target(target)
-    arch = target_data["arch"]
-    expected_format = PLATFORM_FORMATS[target_data["platform_id"]]
+    build_target = _check_target(target)
+    expected_format = build_target.binary_format
 
     actual_format = _binary_format(binary_path)
     if actual_format != expected_format:
@@ -519,19 +622,16 @@ def verify_binary_arch(target: str, binary_path: Path) -> None:
         )
 
     reported: set[object]
-    expected: object
     if expected_format == "elf":
         machine, _ = _elf_info(binary_path)
-        expected = ELF_MACHINES[arch]
         reported = {machine}
     elif expected_format == "macho":
         cpu_types, _ = _macho_info(binary_path)
-        expected = MACHO_CPU_TYPES[arch]
         reported = set(cpu_types)
     else:
-        expected = PE_MACHINES[arch]
         reported = {_pe_machine(binary_path)}
 
+    expected: object = build_target.expected_machine
     if expected not in reported:
         raise AssertionError(
             f"Binary architecture mismatch!\n"
@@ -571,15 +671,14 @@ def verify_binary_floor(
     :raises ValueError: If target is unknown.
     :raises AssertionError: If any scanned file exceeds the declared floor.
     """
-    target_data = _check_target(target)
-    platform_id = target_data["platform_id"]
-    if platform_id == "windows":
+    build_target = _check_target(target)
+    floor = build_target.enforced_floor
+    if floor is None:
         logging.info(f"No enforceable floor for {target}: documented floor only.")
         return
 
-    floor_key = "glibc_floor" if platform_id == "linux" else "min_os"
-    declared = target_data[floor_key]
-    expected_format = PLATFORM_FORMATS[platform_id]
+    floor_key, declared = floor
+    expected_format = build_target.binary_format
 
     violations = []
     scanned = 0

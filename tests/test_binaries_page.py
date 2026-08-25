@@ -21,6 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from extra_platforms import LINUX, MACOS
 
 from repomatic.binaries_page import (
     CSV_HEADERS,
@@ -408,11 +409,13 @@ def test_docs_floor_table_matches_build_targets():
     text = (REPO_ROOT / "docs" / "binaries.md").read_text(encoding="UTF-8")
     assert "## Minimum OS requirements" in text
 
-    for target, target_data in NUITKA_BUILD_TARGETS.items():
+    for target, build_target in NUITKA_BUILD_TARGETS.items():
         assert f"`{target}`" in text, f"target {target} missing from the table"
-        if target_data["platform_id"] == "linux":
-            assert f"glibc `{target_data['glibc_floor']}`" in text
-        elif target_data["platform_id"] == "macos":
-            assert f"macOS {target_data['min_os'].removesuffix('.0')}" in text
+        if build_target.platform is LINUX:
+            assert f"glibc `{build_target.glibc_floor}`" in text
+            continue
+        assert build_target.min_os is not None
+        if build_target.platform is MACOS:
+            assert f"macOS {build_target.min_os.removesuffix('.0')}" in text
         else:
-            assert f"Windows {target_data['min_os']}" in text
+            assert f"Windows {build_target.min_os}" in text
