@@ -27,16 +27,26 @@ from string import ascii_lowercase, digits
 from unittest.mock import patch
 
 import pytest
-from extra_platforms import AARCH64, ALL_ARCHITECTURES, ALL_IDS, LINUX, X86_64
+from extra_platforms import (
+    AARCH64,
+    ALL_ARCHITECTURES,
+    ALL_IDS,
+    LINUX,
+    WINDOWS,
+    X86_64,
+)
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from extra_platforms import Architecture
 
 from repomatic.binary import (
-    ELF_MACHINES,
-    MACHO_CPU_TYPES,
+    BINARY_ASSET_SUFFIXES,
+    MACHINE_IDS,
     NUITKA_BUILD_TARGETS,
-    PE_MACHINES,
     SKIP_BINARY_BUILD_BRANCHES,
+    BinaryFormat,
     BuildTarget,
-    _binary_format,
     _elf_info,
     _macho_info,
     _pe_machine,
@@ -97,6 +107,35 @@ def make_pe(machine: int) -> bytes:
     return dos_header + b"PE\0\0" + struct.pack("<H", machine) + bytes(18)
 
 
+def _macho_cpu_type(arch: Architecture) -> int:
+    """The Mach-O `cputype` for an architecture, narrowed for the byte builders.
+
+    {data}`~repomatic.binary.MACHINE_IDS` spans every format, so its values are
+    `str | int`: a pyelftools machine name on ELF, a raw header integer on the
+    other two. These two accessors carry that correspondence for the helpers
+    below, which write real header bytes and need the integer.
+    """
+    value = MACHINE_IDS[BinaryFormat.MACHO, arch]
+    assert isinstance(value, int)
+    return value
+
+
+def _pe_machine_id(arch: Architecture) -> int:
+    """The PE COFF `Machine` value for an architecture, narrowed to `int`."""
+    value = MACHINE_IDS[BinaryFormat.PE, arch]
+    assert isinstance(value, int)
+    return value
+
+
+def _machines_for(binary_format: BinaryFormat) -> set[str | int]:
+    """Every machine identifier recorded for one executable format."""
+    return {
+        machine
+        for (candidate, _arch), machine in MACHINE_IDS.items()
+        if candidate is binary_format
+    }
+
+
 @pytest.mark.parametrize(
     "target",
     [
@@ -155,10 +194,10 @@ def test_compute_file_sha256(tmp_path):
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [
-        (make_elf(EM_X86_64), "elf"),
-        (make_macho(0x0100000C), "macho"),
-        (make_fat([make_macho(0x01000007)]), "macho"),
-        (make_pe(0x8664), "pe"),
+        (make_elf(EM_X86_64), BinaryFormat.ELF),
+        (make_macho(0x0100000C), BinaryFormat.MACHO),
+        (make_fat([make_macho(0x01000007)]), BinaryFormat.MACHO),
+        (make_pe(0x8664), BinaryFormat.PE),
         (b"plain text", None),
         (b"", None),
     ],
@@ -167,7 +206,7 @@ def test_binary_format_detection(tmp_path, payload, expected):
     """Executable formats are recognized from their magic bytes."""
     sample = tmp_path / "sample.bin"
     sample.write_bytes(payload)
-    assert _binary_format(sample) == expected
+    assert BinaryFormat.detect(sample) is expected
 
 
 def test_unknown_target(tmp_path):
@@ -183,10 +222,10 @@ def test_unknown_target(tmp_path):
     [
         ("linux-arm64", make_elf(EM_AARCH64)),
         ("linux-x64", make_elf(EM_X86_64)),
-        ("macos-arm64", make_macho(MACHO_CPU_TYPES[AARCH64])),
-        ("macos-x64", make_fat([make_macho(MACHO_CPU_TYPES[X86_64])])),
-        ("windows-arm64", make_pe(PE_MACHINES[AARCH64])),
-        ("windows-x64", make_pe(PE_MACHINES[X86_64])),
+        ("macos-arm64", make_macho(_macho_cpu_type(AARCH64))),
+        ("macos-x64", make_fat([make_macho(_macho_cpu_type(X86_64))])),
+        ("windows-arm64", make_pe(_pe_machine_id(AARCH64))),
+        ("windows-x64", make_pe(_pe_machine_id(X86_64))),
     ],
 )
 def test_matching_arch(tmp_path, target, payload):
@@ -202,10 +241,10 @@ def test_matching_arch(tmp_path, target, payload):
     [
         # Wrong architecture, right format.
         ("linux-arm64", make_elf(EM_X86_64)),
-        ("macos-arm64", make_macho(MACHO_CPU_TYPES[X86_64])),
-        ("windows-x64", make_pe(PE_MACHINES[AARCH64])),
+        ("macos-arm64", make_macho(_macho_cpu_type(X86_64))),
+        ("windows-x64", make_pe(_pe_machine_id(AARCH64))),
         # Wrong executable format entirely.
-        ("linux-x64", make_pe(PE_MACHINES[X86_64])),
+        ("linux-x64", make_pe(_pe_machine_id(X86_64))),
         ("windows-x64", make_elf(EM_X86_64)),
         # Not an executable at all.
         ("linux-x64", b""),
@@ -231,20 +270,20 @@ def test_macho_info_fat_slices(tmp_path):
     sample = tmp_path / "sample.bin"
     sample.write_bytes(
         make_fat([
-            make_macho(MACHO_CPU_TYPES[AARCH64], "12.4"),
-            make_macho(MACHO_CPU_TYPES[X86_64], "10.15"),
+            make_macho(_macho_cpu_type(AARCH64), "12.4"),
+            make_macho(_macho_cpu_type(X86_64), "10.15"),
         ])
     )
     cpu_types, floor = _macho_info(sample)
-    assert cpu_types == set(MACHO_CPU_TYPES.values())
+    assert cpu_types == _machines_for(BinaryFormat.MACHO)
     assert floor == "12.4"
 
 
 def test_pe_machine_parsing(tmp_path):
     """The COFF machine field is read from PE headers, None elsewhere."""
     sample = tmp_path / "sample.exe"
-    sample.write_bytes(make_pe(PE_MACHINES[AARCH64]))
-    assert _pe_machine(sample) == PE_MACHINES[AARCH64]
+    sample.write_bytes(make_pe(_pe_machine_id(AARCH64)))
+    assert _pe_machine(sample) == _pe_machine_id(AARCH64)
     sample.write_bytes(b"MZ not a real PE")
     assert _pe_machine(sample) is None
 
@@ -254,23 +293,23 @@ def test_running_interpreter_parses():
     executable = Path(sys.executable)
     if sys.platform.startswith("linux"):
         machine, floor = _elf_info(executable)
-        assert machine in ELF_MACHINES.values()
+        assert machine in _machines_for(BinaryFormat.ELF)
         assert floor is None or _version_key(floor) >= (2,)
     elif sys.platform == "darwin":
         cpu_types, floor = _macho_info(executable)
-        assert cpu_types & set(MACHO_CPU_TYPES.values())
+        assert cpu_types & _machines_for(BinaryFormat.MACHO)
         assert floor is not None
     elif sys.platform == "win32":
-        assert _pe_machine(executable) in PE_MACHINES.values()
+        assert _pe_machine(executable) in _machines_for(BinaryFormat.PE)
 
 
 def test_floor_within_bounds_macos(tmp_path):
     """Files at or below the declared macOS floor pass verification."""
     binary = tmp_path / "test.bin"
-    binary.write_bytes(make_macho(MACHO_CPU_TYPES[AARCH64], "11.0"))
+    binary.write_bytes(make_macho(_macho_cpu_type(AARCH64), "11.0"))
     dist = tmp_path / "app.dist"
     dist.mkdir()
-    (dist / "lib.dylib").write_bytes(make_macho(MACHO_CPU_TYPES[AARCH64], "10.9"))
+    (dist / "lib.dylib").write_bytes(make_macho(_macho_cpu_type(AARCH64), "10.9"))
     # Should not raise.
     verify_binary_floor("macos-arm64", binary, [dist])
 
@@ -278,10 +317,10 @@ def test_floor_within_bounds_macos(tmp_path):
 def test_floor_exceeded_macos(tmp_path):
     """A dist file above the declared macOS floor fails verification."""
     binary = tmp_path / "test.bin"
-    binary.write_bytes(make_macho(MACHO_CPU_TYPES[AARCH64], "11.0"))
+    binary.write_bytes(make_macho(_macho_cpu_type(AARCH64), "11.0"))
     dist = tmp_path / "app.dist"
     dist.mkdir()
-    (dist / "lib.dylib").write_bytes(make_macho(MACHO_CPU_TYPES[AARCH64], "26.0"))
+    (dist / "lib.dylib").write_bytes(make_macho(_macho_cpu_type(AARCH64), "26.0"))
     with pytest.raises(AssertionError, match="OS floor exceeded") as excinfo:
         verify_binary_floor("macos-arm64", binary, [dist])
     assert "26.0" in str(excinfo.value)
@@ -297,7 +336,7 @@ def test_floor_exceeded_macos(tmp_path):
     ],
 )
 def test_floor_linux(tmp_path, measured, passes):
-    """Linux floors compare the measured glibc requirement to glibc_floor."""
+    """Linux floors compare the measured glibc requirement to the declared floor."""
     binary = tmp_path / "test.bin"
     binary.write_bytes(make_elf(EM_X86_64))
     with patch("repomatic.binary._elf_info", return_value=("EM_X86_64", measured)):
@@ -311,7 +350,7 @@ def test_floor_linux(tmp_path, measured, passes):
 def test_floor_windows_is_documentation_only(tmp_path):
     """Windows targets have no enforceable floor and always pass."""
     binary = tmp_path / "test.exe"
-    binary.write_bytes(make_pe(PE_MACHINES[X86_64]))
+    binary.write_bytes(make_pe(_pe_machine_id(X86_64)))
     # Should not raise, and must not even look at the headers.
     verify_binary_floor("windows-x64", binary)
 
@@ -340,25 +379,28 @@ def test_nuitka_targets(target_id: str, build_target: BuildTarget) -> None:
     assert isinstance(target_id, str)
     assert build_target.id == target_id
 
-    assert set(build_target.os).issubset(ascii_lowercase + digits + "-.")
+    assert set(build_target.runner).issubset(ascii_lowercase + digits + "-.")
     assert build_target.platform.id in ALL_IDS
     assert build_target.arch in ALL_ARCHITECTURES
-    assert set(build_target.extension).issubset(ascii_lowercase)
+    # Keyed on the platform, not on the format the extension is derived from,
+    # so a wrong `BinaryFormat.extension` cannot satisfy both sides.
+    assert build_target.extension == (
+        "exe" if build_target.platform is WINDOWS else "bin"
+    )
+    assert f".{build_target.extension}" in BINARY_ASSET_SUFFIXES
 
-    # Linux compiles inside a pinned container against a glibc floor; the
-    # other platforms carry a minimum OS version instead.
+    # Every target declares a floor; only Linux compiles in a container, and
+    # what the version counts differs by format (a glibc symbol version below
+    # 3, an OS release above 10).
+    assert _version_key(build_target.floor) >= (
+        (2,) if build_target.binary_format is BinaryFormat.ELF else (10,)
+    )
     if build_target.platform is LINUX:
         assert build_target.container is not None
         assert build_target.container.startswith("quay.io/pypa/manylinux_2_28_")
         assert "@sha256:" in build_target.container
-        assert build_target.glibc_floor is not None
-        assert _version_key(build_target.glibc_floor) >= (2,)
-        assert build_target.min_os is None
     else:
         assert build_target.container is None
-        assert build_target.glibc_floor is None
-        assert build_target.min_os is not None
-        assert _version_key(build_target.min_os) >= (10,)
 
     # The key is the published asset identifier, frozen on the short
     # architecture spelling rather than the canonical id the field carries.
@@ -387,11 +429,12 @@ def test_matrix_entry_is_json_safe(target_id: str, build_target: BuildTarget) ->
     assert entry["platform_id"] == build_target.platform.id
     assert entry["arch"] == build_target.arch.id
 
-    expected_keys = {"target", "os", "platform_id", "arch", "extension"}
+    assert entry["os"] == build_target.runner
+    assert entry["floor"] == build_target.floor
+
+    expected_keys = {"target", "os", "platform_id", "arch", "extension", "floor"}
     if build_target.platform is LINUX:
-        expected_keys |= {"container", "glibc_floor"}
-    else:
-        expected_keys |= {"min_os"}
+        expected_keys.add("container")
     assert set(entry) == expected_keys, f"Unexpected matrix keys for {target_id}"
 
 
@@ -403,17 +446,16 @@ def test_enforced_floor_follows_binary_format(
 ) -> None:
     """Only ELF and Mach-O record a floor a scan can measure.
 
-    A PE carries a nominal version header, so its declared `min_os` stays
-    documentation and `verify_binary_floor` has nothing to enforce.
+    A PE carries a nominal version header, so its declared floor stays
+    documentation and `verify_binary_floor` has nothing to enforce. The
+    format's `floor_label` is what says which of the two a target is in.
     """
-    floor = build_target.enforced_floor
-    if build_target.binary_format == "pe":
-        assert floor is None
-        assert build_target.min_os is not None
+    if build_target.binary_format is BinaryFormat.PE:
+        assert build_target.binary_format.floor_label is None
+        assert build_target.enforced_floor is None
     else:
-        assert floor is not None
-        field, version = floor
-        assert getattr(build_target, field) == version
+        assert build_target.binary_format.floor_label
+        assert build_target.enforced_floor == build_target.floor
 
 
 def test_skip_binary_build_branches_constant():

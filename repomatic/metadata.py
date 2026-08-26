@@ -1797,7 +1797,7 @@ class Metadata:
 
         # Register all runners on which we want to run Nuitka builds.
         matrix.add_variation(
-            "os", tuple(target.os for target in build_targets.values())
+            "os", tuple(target.runner for target in build_targets.values())
         )
         # Augment each "os" entry with platform-specific data.
         for build_target in build_targets.values():
@@ -1906,7 +1906,7 @@ class Metadata:
                 continue
             matrix.add_includes({
                 "state": "unstable",
-                "os": NUITKA_BUILD_TARGETS[unstable_target].os,
+                "os": NUITKA_BUILD_TARGETS[unstable_target].runner,
             })
 
         return matrix

@@ -412,10 +412,8 @@ def test_docs_floor_table_matches_build_targets():
     for target, build_target in NUITKA_BUILD_TARGETS.items():
         assert f"`{target}`" in text, f"target {target} missing from the table"
         if build_target.platform is LINUX:
-            assert f"glibc `{build_target.glibc_floor}`" in text
-            continue
-        assert build_target.min_os is not None
-        if build_target.platform is MACOS:
-            assert f"macOS {build_target.min_os.removesuffix('.0')}" in text
+            assert f"glibc `{build_target.floor}`" in text
+        elif build_target.platform is MACOS:
+            assert f"macOS {build_target.floor.removesuffix('.0')}" in text
         else:
-            assert f"Windows {build_target.min_os}" in text
+            assert f"Windows {build_target.floor}" in text

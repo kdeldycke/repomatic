@@ -280,7 +280,7 @@ jobs:
           # dylibs inherit the build runner's own macOS version as their
           # minimum. Empty (and inert) on the other platforms.
           MACOSX_DEPLOYMENT_TARGET: >-
-            ${{ matrix.platform_id == 'macos' && matrix.min_os || '' }}
+            ${{ matrix.platform_id == 'macos' && matrix.floor || '' }}
         shell: bash
         run: |
           # NUITKA_PYTHON_FLAGS and NUITKA_CCACHE_FLAG hold optional flags,

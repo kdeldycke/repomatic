@@ -30,6 +30,7 @@ import re
 import shutil
 import struct
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
@@ -89,6 +90,98 @@ _MANYLINUX_2_28_AARCH64 = (
 )
 
 
+MACHO_MAGIC_64: Final[int] = 0xFEEDFACF
+"""Magic of a 64-bit Mach-O header, in the file's own (little) endianness."""
+
+MACHO_FAT_MAGICS: Final[frozenset[int]] = frozenset((0xCAFEBABE, 0xCAFEBABF))
+"""Big-endian magics of universal (fat) Mach-O containers, 32- and 64-bit."""
+
+
+class BinaryFormat(Enum):
+    """Executable container format a compiled binary uses.
+
+    Each member owns what varies by format: the name messages print, the file
+    extension its executables take, and what a target's floor measures. That
+    last one doubles as the enforceability flag, since a format recording no
+    measurable floor has nothing to label.
+
+    ```{note}
+    Members carry no magic bytes of their own: {meth}`detect` needs to read
+    them in a fixed order (a fat Mach-O and a PE both fail an equality test on
+    the first four bytes), so the probe stays one method rather than a table.
+    ```
+    """
+
+    ELF = ("elf", "bin", "glibc")
+    MACHO = ("macho", "bin", "macOS")
+    PE = ("pe", "exe", None)
+
+    def __init__(self, label: str, extension: str, floor_label: str | None) -> None:
+        self.label = label
+        """Lowercase format name, as printed in verification messages."""
+        self.extension = extension
+        """File extension executables of this format take."""
+        self.floor_label = floor_label
+        """What a target's floor measures for this format, or `None`.
+
+        `None` marks a format whose headers record nothing a scan can check,
+        so {attr}`BuildTarget.enforced_floor` reports no floor to enforce.
+        Only PE is in that case: its version headers are nominal, and the
+        Windows floor is CPython's own support policy, not a linker artifact.
+        """
+
+    @classmethod
+    def detect(cls, path: Path) -> BinaryFormat | None:
+        """Identify a file's executable format from its magic bytes.
+
+        :param path: Path to the file to probe.
+        :return: The matching format, or `None` for anything unrecognized.
+        """
+        with path.open("rb") as stream:
+            magic = stream.read(4)
+        if magic == b"\x7fELF":
+            return cls.ELF
+        if magic[:2] == b"MZ":
+            return cls.PE
+        if len(magic) == 4 and (
+            struct.unpack("<I", magic)[0] == MACHO_MAGIC_64
+            or struct.unpack(">I", magic)[0] in MACHO_FAT_MAGICS
+        ):
+            return cls.MACHO
+        return None
+
+
+PLATFORM_FORMATS: Final[dict[Platform | Group, BinaryFormat]] = {
+    LINUX: BinaryFormat.ELF,
+    MACOS: BinaryFormat.MACHO,
+    WINDOWS: BinaryFormat.PE,
+}
+"""Executable format each build platform compiles to.
+
+Read through {attr}`BuildTarget.binary_format`, which is how every caller
+reaches it.
+"""
+
+MACHINE_IDS: Final[dict[tuple[BinaryFormat, Architecture], str | int]] = {
+    # ELF `e_machine`, as decoded by pyelftools.
+    (BinaryFormat.ELF, AARCH64): "EM_AARCH64",
+    (BinaryFormat.ELF, X86_64): "EM_X86_64",
+    # Mach-O header `cputype`.
+    (BinaryFormat.MACHO, AARCH64): 0x0100000C,
+    (BinaryFormat.MACHO, X86_64): 0x01000007,
+    # PE COFF `Machine` field.
+    (BinaryFormat.PE, AARCH64): 0xAA64,
+    (BinaryFormat.PE, X86_64): 0x8664,
+}
+"""Machine identifier a binary's header carries, per format and architecture.
+
+One table rather than three, keyed the way
+{data}`~repomatic.tool_registry.PlatformKey` keys the tool registry: the value
+is a pyelftools machine name on ELF and a raw header integer on Mach-O and PE,
+so a caller compares it against whatever the matching parser returns.
+"""
+
+
 @dataclass(frozen=True)
 class BuildTarget:
     """One Nuitka compile target: a runner image, a platform and an architecture.
@@ -103,6 +196,10 @@ class BuildTarget:
     {data}`~repomatic.tool_registry.PlatformKey` keys the downloaded-binary
     registry on. {meth}`as_matrix_entry` renders both back to their ids for the
     workflow matrix.
+
+    Every field is irreducible: anything a format decides (the file extension,
+    what the floor measures, which header field to read) lives on
+    {class}`BinaryFormat` instead.
     """
 
     id: str
@@ -112,15 +209,21 @@ class BuildTarget:
     URLs, `docs/install.md` and the `binaries.csv` catalog all match on it.
 
     ```{note}
-    It is deliberately *not* derived from {attr}`platform` and {attr}`arch`.
-    The asset names froze on the short `x64` and `arm64` spellings, while
-    those two fields carry the canonical extra-platforms ids (`x86_64`,
-    `aarch64`). `tests/test_binary.py` pins the pairing.
+    It is deliberately *not* derived from {attr}`platform` and {attr}`arch`,
+    even though all six targets currently read `{platform}-{short arch}`. The
+    asset names froze on the short `x64` and `arm64` spellings while those
+    fields carry the canonical extra-platforms ids, and a future target
+    splitting an existing pair (a musl Linux, say) would need a name the
+    derivation cannot produce. `tests/test_binary.py` pins the pairing.
     ```
     """
 
-    os: str
+    runner: str
     """Runner image, as named in [GitHub-hosted runners](https://docs.github.com/en/actions/writing-workflows/choosing-where-your-workflow-runs/choosing-the-runner-for-a-job#standard-github-hosted-runners-for-public-repositories).
+
+    Named for what it holds, not for the `os` matrix key it renders to:
+    `ubuntu-26.04-arm` is an image, and {attr}`platform` is the operating
+    system.
 
     ```{hint}
     One compile job per target, each on one of the six runners the test matrix
@@ -137,8 +240,20 @@ class BuildTarget:
     arch: Architecture
     """CPU architecture the binary is compiled for."""
 
-    extension: str
-    """File extension of the compiled binary."""
+    floor: str
+    """Oldest runtime the binary is built to run on.
+
+    What the version counts is the format's business, named by
+    {attr}`BinaryFormat.floor_label`: a glibc symbol version on ELF, a macOS
+    deployment target on Mach-O, a Windows release on PE. The first two are
+    measured out of the compiled files by
+    {func}`~repomatic.binary.verify_binary_floor`; the third is documentation,
+    since PE version headers record nothing to measure.
+
+    On macOS the release workflow also exports it as
+    `MACOSX_DEPLOYMENT_TARGET` at compile time. Without it, compiled objects
+    and processed dylibs inherit the build runner's own macOS version.
+    """
 
     container: str | None = None
     """OCI image the Linux compile and self-test jobs run in.
@@ -146,79 +261,51 @@ class BuildTarget:
     Passed to the `container:` key of the release workflow. Compiling inside
     `manylinux_2_28` caps the toolchain at glibc 2.28, so binaries stop
     inheriting the floor of whatever glibc the current runner image ships.
-    Linux targets only: GitHub Actions containers do not exist for macOS and
-    Windows runners.
-    """
 
-    glibc_floor: str | None = None
-    """Highest glibc symbol version the compiled artifacts may require.
-
-    Matches the build container, and is enforced by
-    {func}`~repomatic.binary.verify_binary_floor`.
-    """
-
-    min_os: str | None = None
-    """Minimum OS version the binary runs on.
-
-    On macOS the release workflow exports it as `MACOSX_DEPLOYMENT_TARGET` at
-    compile time (without it, compiled objects and processed dylibs inherit
-    the build runner's macOS version). On Windows it is documentation-only:
-    the floor is CPython's own Windows support policy, not a linker artifact,
-    which is why {attr}`enforced_floor` returns nothing there.
+    Declared per target rather than derived from {attr}`platform`, which would
+    assume every Linux target is a manylinux one. Absent on macOS and Windows:
+    GitHub Actions containers do not exist for those runners.
     """
 
     @property
-    def binary_format(self) -> str:
+    def binary_format(self) -> BinaryFormat:
         """Executable format the compiler emits for this target."""
         return PLATFORM_FORMATS[self.platform]
 
     @property
-    def expected_machine(self) -> str | int:
-        """Machine identifier this target's binaries carry in their header.
-
-        Decoded from a different field per format, so the value is a
-        pyelftools machine name on ELF and a raw integer on Mach-O and PE.
-        """
-        if self.binary_format == "elf":
-            return ELF_MACHINES[self.arch]
-        if self.binary_format == "macho":
-            return MACHO_CPU_TYPES[self.arch]
-        return PE_MACHINES[self.arch]
+    def extension(self) -> str:
+        """File extension of the compiled binary."""
+        return self.binary_format.extension
 
     @property
-    def enforced_floor(self) -> tuple[str, str] | None:
-        """The floor field and version this target's binaries are measured against.
+    def expected_machine(self) -> str | int:
+        """Machine identifier this target's binaries carry in their header."""
+        return MACHINE_IDS[self.binary_format, self.arch]
 
-        `None` for PE binaries, whose version headers are nominal: nothing in
-        the file records a floor to compare {attr}`min_os` against.
-        """
-        if self.binary_format == "elf" and self.glibc_floor is not None:
-            return "glibc_floor", self.glibc_floor
-        if self.binary_format == "macho" and self.min_os is not None:
-            return "min_os", self.min_os
-        return None
+    @property
+    def enforced_floor(self) -> str | None:
+        """{attr}`floor`, or `None` when the format records nothing to measure."""
+        return self.floor if self.binary_format.floor_label else None
 
     def as_matrix_entry(self) -> dict[str, str]:
         """Flat, JSON-safe mapping of this target, for GitHub matrix inclusion.
 
         Renders {attr}`platform` and {attr}`arch` back to their extra-platforms
         ids, the spelling the workflow expressions (`matrix.platform_id`) and
-        `tests.yaml`'s runner check compare against. Unset optional fields are
-        omitted, so an entry carries only the keys that apply to its target.
+        `tests.yaml`'s runner check compare against, and {attr}`runner` back to
+        the `os` key `runs-on:` reads. A target with no container omits the
+        key, so an entry carries only what applies to it.
         """
         entry = {
             "target": self.id,
-            "os": self.os,
+            "os": self.runner,
             "platform_id": self.platform.id,
             "arch": self.arch.id,
             "extension": self.extension,
+            "floor": self.floor,
         }
         if self.container is not None:
             entry["container"] = self.container
-        if self.glibc_floor is not None:
-            entry["glibc_floor"] = self.glibc_floor
-        if self.min_os is not None:
-            entry["min_os"] = self.min_os
         return entry
 
 
@@ -227,55 +314,49 @@ NUITKA_BUILD_TARGETS: Final[dict[str, BuildTarget]] = {
     for target in (
         BuildTarget(
             id="linux-arm64",
-            os="ubuntu-26.04-arm",
+            runner="ubuntu-26.04-arm",
             platform=LINUX,
             arch=AARCH64,
-            extension="bin",
+            floor="2.28",
             container=_MANYLINUX_2_28_AARCH64,
-            glibc_floor="2.28",
         ),
         BuildTarget(
             id="linux-x64",
-            os="ubuntu-26.04",
+            runner="ubuntu-26.04",
             platform=LINUX,
             arch=X86_64,
-            extension="bin",
+            floor="2.28",
             container=_MANYLINUX_2_28_X86_64,
-            glibc_floor="2.28",
         ),
         BuildTarget(
             id="macos-arm64",
-            os="macos-26",
+            runner="macos-26",
             platform=MACOS,
             arch=AARCH64,
-            extension="bin",
             # First Apple-silicon macOS, and the python-build-standalone target.
-            min_os="11.0",
+            floor="11.0",
         ),
         BuildTarget(
             id="macos-x64",
-            os="macos-26-intel",
+            runner="macos-26-intel",
             platform=MACOS,
             arch=X86_64,
-            extension="bin",
             # The python-build-standalone x86_64 deployment target.
-            min_os="10.15",
+            floor="10.15",
         ),
         BuildTarget(
             id="windows-arm64",
-            os="windows-11-arm",
+            runner="windows-11-arm",
             platform=WINDOWS,
             arch=AARCH64,
-            extension="exe",
-            min_os="11",
+            floor="11",
         ),
         BuildTarget(
             id="windows-x64",
-            os="windows-2025",
+            runner="windows-2025",
             platform=WINDOWS,
             arch=X86_64,
-            extension="exe",
-            min_os="10",
+            floor="10",
         ),
     )
 }
@@ -421,41 +502,6 @@ they belong to a different policy.
 """
 
 
-PLATFORM_FORMATS: Final[dict[Platform | Group, str]] = {
-    LINUX: "elf",
-    MACOS: "macho",
-    WINDOWS: "pe",
-}
-"""Executable format expected for each build platform.
-
-Read through {attr}`BuildTarget.binary_format`, which is how every caller
-reaches it.
-"""
-
-ELF_MACHINES: Final[dict[Architecture, str]] = {
-    AARCH64: "EM_AARCH64",
-    X86_64: "EM_X86_64",
-}
-"""Expected ELF `e_machine` value (as decoded by pyelftools) per architecture."""
-
-MACHO_CPU_TYPES: Final[dict[Architecture, int]] = {
-    AARCH64: 0x0100000C,
-    X86_64: 0x01000007,
-}
-"""Expected Mach-O header `cputype` per architecture."""
-
-PE_MACHINES: Final[dict[Architecture, int]] = {
-    AARCH64: 0xAA64,
-    X86_64: 0x8664,
-}
-"""Expected PE COFF `Machine` field per architecture."""
-
-MACHO_MAGIC_64: Final[int] = 0xFEEDFACF
-"""Magic of a 64-bit Mach-O header, in the file's own (little) endianness."""
-
-MACHO_FAT_MAGICS: Final[frozenset[int]] = frozenset((0xCAFEBABE, 0xCAFEBABF))
-"""Big-endian magics of universal (fat) Mach-O containers, 32- and 64-bit."""
-
 LC_VERSION_MIN_MACOSX: Final[int] = 0x24
 """Mach-O load command carrying the minimum macOS version (pre-10.14 SDKs)."""
 
@@ -474,22 +520,6 @@ binary."""
 def _version_key(version: str) -> tuple[int, ...]:
     """Sort key for dotted version strings like `2.28` or `10.15`."""
     return tuple(int(part) for part in version.split("."))
-
-
-def _binary_format(path: Path) -> str | None:
-    """Detect the executable format of a file from its magic bytes."""
-    with path.open("rb") as stream:
-        magic = stream.read(4)
-    if magic == b"\x7fELF":
-        return "elf"
-    if magic[:2] == b"MZ":
-        return "pe"
-    if len(magic) == 4 and (
-        struct.unpack("<I", magic)[0] == MACHO_MAGIC_64
-        or struct.unpack(">I", magic)[0] in MACHO_FAT_MAGICS
-    ):
-        return "macho"
-    return None
 
 
 def _elf_info(path: Path) -> tuple[str, str | None]:
@@ -584,7 +614,7 @@ def _iter_native_binaries(directories: Iterable[Path]) -> Iterator[Path]:
     """Yield files with a recognized executable format under the given dirs."""
     for directory in directories:
         for path in sorted(directory.rglob("*")):
-            if path.is_file() and _binary_format(path) is not None:
+            if path.is_file() and BinaryFormat.detect(path) is not None:
                 yield path
 
 
@@ -613,19 +643,20 @@ def verify_binary_arch(target: str, binary_path: Path) -> None:
     build_target = _check_target(target)
     expected_format = build_target.binary_format
 
-    actual_format = _binary_format(binary_path)
-    if actual_format != expected_format:
+    actual_format = BinaryFormat.detect(binary_path)
+    if actual_format is not expected_format:
+        got = actual_format.label if actual_format else "unrecognized"
         raise AssertionError(
             f"Binary architecture mismatch!\n"
-            f"Expected: {expected_format} executable for target {target!r}\n"
-            f"Got: {actual_format or 'unrecognized'} file at {binary_path}"
+            f"Expected: {expected_format.label} executable for target {target!r}\n"
+            f"Got: {got} file at {binary_path}"
         )
 
     reported: set[object]
-    if expected_format == "elf":
+    if expected_format is BinaryFormat.ELF:
         machine, _ = _elf_info(binary_path)
         reported = {machine}
-    elif expected_format == "macho":
+    elif expected_format is BinaryFormat.MACHO:
         cpu_types, _ = _macho_info(binary_path)
         reported = set(cpu_types)
     else:
@@ -656,14 +687,19 @@ def verify_binary_floor(
     Nuitka dist directories (whose content the onefile payload repacks), and
     compares each file's measured requirement to the target's declared floor:
 
-    - Linux: the highest `GLIBC_x.y` version requirement of each ELF against
-      `glibc_floor`. A higher requirement means a compiled object picked up
-      symbols newer than the build container provides for, and the binary
-      would die at load time on the distributions the floor promises.
-    - macOS: the `minos` of each Mach-O against `min_os`, the deployment
-      target the build exports as `MACOSX_DEPLOYMENT_TARGET`.
-    - Windows: nothing. PE version headers are nominal; the floor is
-      CPython's own Windows support policy, tracked in the docs.
+    What the floor counts comes from the format, per
+    {attr}`BinaryFormat.floor_label`:
+
+    - ELF: the highest `GLIBC_x.y` version requirement of each file. A higher
+      requirement means a compiled object picked up symbols newer than the
+      build container provides for, and the binary would die at load time on
+      the distributions the floor promises.
+    - Mach-O: the `minos` of each file, against the deployment target the
+      build exports as `MACOSX_DEPLOYMENT_TARGET`.
+    - PE: nothing. Its version headers are nominal, so
+      {attr}`BuildTarget.enforced_floor` reports no floor and this returns
+      early; the Windows floor is CPython's own support policy, tracked in
+      the docs.
 
     :param target: Build target (e.g., 'linux-arm64', 'macos-x64').
     :param binary_path: Path to the binary file.
@@ -672,20 +708,20 @@ def verify_binary_floor(
     :raises AssertionError: If any scanned file exceeds the declared floor.
     """
     build_target = _check_target(target)
-    floor = build_target.enforced_floor
-    if floor is None:
+    declared = build_target.enforced_floor
+    if declared is None:
         logging.info(f"No enforceable floor for {target}: documented floor only.")
         return
 
-    floor_key, declared = floor
     expected_format = build_target.binary_format
+    floor_label = expected_format.floor_label
 
     violations = []
     scanned = 0
     for path in (binary_path, *_iter_native_binaries(dist_dirs)):
-        if _binary_format(path) != expected_format:
+        if BinaryFormat.detect(path) is not expected_format:
             continue
-        if expected_format == "elf":
+        if expected_format is BinaryFormat.ELF:
             _, measured = _elf_info(path)
         else:
             _, measured = _macho_info(path)
@@ -698,7 +734,8 @@ def verify_binary_floor(
             f"- {path}: requires {measured}" for path, measured in violations
         )
         raise AssertionError(
-            f"OS floor exceeded for {target}: declared {floor_key} is {declared}, "
+            f"OS floor exceeded for {target}: declared {floor_label} floor is "
+            f"{declared}, "
             f"but these files require newer:\n{details}"
         )
 

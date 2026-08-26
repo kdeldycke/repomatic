@@ -1227,7 +1227,7 @@ def test_binary_build_targets_are_the_test_axes() -> None:
     widening the test axes in {mod}`repomatic.matrix_axes`, never editing this
     fleet alone. `binary.py`'s own docstring states the rule; this holds it.
     """
-    build_runners = {target.os for target in NUITKA_BUILD_TARGETS.values()}
+    build_runners = {target.runner for target in NUITKA_BUILD_TARGETS.values()}
     assert build_runners == set(KNOWN_RUNNERS), (
         "Nuitka build targets and the test axes have diverged. Only in "
         f"NUITKA_BUILD_TARGETS: {sorted(build_runners - set(KNOWN_RUNNERS))}; "
@@ -1775,6 +1775,38 @@ def test_workflow_declares_cooldown_env(workflow: str) -> None:
     assert cooldown_env_block() in content, (
         f"{workflow} is missing the cooldown env block. Re-render it from "
         "repomatic.github.workflow_sync.cooldown_env_block()."
+    )
+
+
+def _render_arch_aliases() -> str:
+    """Render the alias map `tests.yaml`'s runner check has to carry.
+
+    Mirrors {attr}`extra_platforms.Architecture.aliases` for every architecture
+    the build fleet targets, so an added target grows the map on its own.
+    """
+    entries = []
+    architectures = {target.arch for target in NUITKA_BUILD_TARGETS.values()}
+    for arch in sorted(architectures, key=lambda candidate: candidate.id):
+        quoted = [f'"{alias}"' for alias in sorted(arch.aliases)]
+        entries.append(f'"{arch.id}": [{", ".join(quoted)}]')
+    return "ARCH_ALIASES = {" + ", ".join(entries) + "}"
+
+
+def test_arch_aliases_mirror_extra_platforms() -> None:
+    """`tests.yaml`'s runner check carries extra-platforms' aliases verbatim.
+
+    The check runs on the runner image's own interpreter, with no dependency
+    install: reaching `extra_platforms` means resolving a Python through uv,
+    which transparently prefers an x86_64 interpreter on aarch64, the very
+    thing that job exists to catch. So the alias data is copied into the YAML,
+    and this pins the copy to its source the way
+    {func}`test_workflow_declares_cooldown_env` pins the cooldown block.
+    """
+    content = (WORKFLOWS_DIR / "tests.yaml").read_text(encoding="UTF-8")
+    expected = _render_arch_aliases()
+    assert expected in content, (
+        f"tests.yaml's runner check must carry {expected!r}, mirroring the "
+        "`aliases` field of every architecture NUITKA_BUILD_TARGETS names."
     )
 
 

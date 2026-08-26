@@ -632,11 +632,11 @@ expected: dict[str, Any] = {
             "platform_id": "linux",
             "arch": "aarch64",
             "extension": "bin",
+            "floor": "2.28",
             "container": (
                 "quay.io/pypa/manylinux_2_28_aarch64@sha256:"
                 "e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80"
             ),
-            "glibc_floor": "2.28",
         },
         {
             "target": "linux-x64",
@@ -644,11 +644,11 @@ expected: dict[str, Any] = {
             "platform_id": "linux",
             "arch": "x86_64",
             "extension": "bin",
+            "floor": "2.28",
             "container": (
                 "quay.io/pypa/manylinux_2_28_x86_64@sha256:"
                 "fdb9a9c223b215604dc7b6f7e8fff4b39bfea5fbaa7777a2e5544a60dfa437f8"
             ),
-            "glibc_floor": "2.28",
         },
         {
             "target": "macos-arm64",
@@ -656,7 +656,7 @@ expected: dict[str, Any] = {
             "platform_id": "macos",
             "arch": "aarch64",
             "extension": "bin",
-            "min_os": "11.0",
+            "floor": "11.0",
         },
         {
             "target": "macos-x64",
@@ -664,7 +664,7 @@ expected: dict[str, Any] = {
             "platform_id": "macos",
             "arch": "x86_64",
             "extension": "bin",
-            "min_os": "10.15",
+            "floor": "10.15",
         },
         {
             "target": "windows-arm64",
@@ -672,7 +672,7 @@ expected: dict[str, Any] = {
             "platform_id": "windows",
             "arch": "aarch64",
             "extension": "exe",
-            "min_os": "11",
+            "floor": "11",
         },
         {
             "target": "windows-x64",
@@ -680,7 +680,7 @@ expected: dict[str, Any] = {
             "platform_id": "windows",
             "arch": "x86_64",
             "extension": "exe",
-            "min_os": "10",
+            "floor": "10",
         },
     ],
     "nuitka_matrix": {
@@ -705,11 +705,11 @@ expected: dict[str, Any] = {
                 "platform_id": "linux",
                 "arch": "aarch64",
                 "extension": "bin",
+                "floor": "2.28",
                 "container": (
                     "quay.io/pypa/manylinux_2_28_aarch64@sha256:"
                     "e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80"
                 ),
-                "glibc_floor": "2.28",
             },
             {
                 "target": "linux-x64",
@@ -717,11 +717,11 @@ expected: dict[str, Any] = {
                 "platform_id": "linux",
                 "arch": "x86_64",
                 "extension": "bin",
+                "floor": "2.28",
                 "container": (
                     "quay.io/pypa/manylinux_2_28_x86_64@sha256:"
                     "fdb9a9c223b215604dc7b6f7e8fff4b39bfea5fbaa7777a2e5544a60dfa437f8"
                 ),
-                "glibc_floor": "2.28",
             },
             {
                 "target": "macos-arm64",
@@ -729,7 +729,7 @@ expected: dict[str, Any] = {
                 "platform_id": "macos",
                 "arch": "aarch64",
                 "extension": "bin",
-                "min_os": "11.0",
+                "floor": "11.0",
             },
             {
                 "target": "macos-x64",
@@ -737,7 +737,7 @@ expected: dict[str, Any] = {
                 "platform_id": "macos",
                 "arch": "x86_64",
                 "extension": "bin",
-                "min_os": "10.15",
+                "floor": "10.15",
             },
             {
                 "target": "windows-arm64",
@@ -745,7 +745,7 @@ expected: dict[str, Any] = {
                 "platform_id": "windows",
                 "arch": "aarch64",
                 "extension": "exe",
-                "min_os": "11",
+                "floor": "11",
             },
             {
                 "target": "windows-x64",
@@ -753,7 +753,7 @@ expected: dict[str, Any] = {
                 "platform_id": "windows",
                 "arch": "x86_64",
                 "extension": "exe",
-                "min_os": "10",
+                "floor": "10",
             },
             # Entry point info (fixed, one per entry point). The --python-flag=-m
             # workaround for __main__.py packages rides here, per entry point;
@@ -1334,7 +1334,9 @@ def test_nuitka_matrix_full_fleet_on_schedule(monkeypatch):
     monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
     matrix = Metadata().nuitka_matrix
     assert matrix is not None
-    assert set(matrix["os"]) == {target.os for target in NUITKA_BUILD_TARGETS.values()}
+    assert set(matrix["os"]) == {
+        target.runner for target in NUITKA_BUILD_TARGETS.values()
+    }
 
 
 def test_nuitka_matrix_full_fleet_on_release_push(monkeypatch):
@@ -1345,14 +1347,18 @@ def test_nuitka_matrix_full_fleet_on_release_push(monkeypatch):
     monkeypatch.setattr(Metadata, "release_commits_matrix", release_matrix)
     matrix = Metadata().nuitka_matrix
     assert matrix is not None
-    assert set(matrix["os"]) == {target.os for target in NUITKA_BUILD_TARGETS.values()}
+    assert set(matrix["os"]) == {
+        target.runner for target in NUITKA_BUILD_TARGETS.values()
+    }
 
 
 def test_nuitka_matrix_full_fleet_locally():
     """Outside CI (no event), the matrix keeps the full roster."""
     matrix = Metadata().nuitka_matrix
     assert matrix is not None
-    assert set(matrix["os"]) == {target.os for target in NUITKA_BUILD_TARGETS.values()}
+    assert set(matrix["os"]) == {
+        target.runner for target in NUITKA_BUILD_TARGETS.values()
+    }
 
 
 def test_nuitka_matrix_skips_push_without_dev_targets(monkeypatch):

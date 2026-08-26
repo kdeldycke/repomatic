@@ -350,8 +350,8 @@ jobs:
           python -m pip --version
       - name: Check architecture is ${{ matrix.arch }}
         # Deliberately the runner's own interpreter, with no uv and no
-        # dependency install: `extra_platforms.current_architecture()` would
-        # normalize the spelling below, but reaching it means resolving a
+        # dependency install: `extra_platforms.is_aarch64()` and its siblings
+        # make exactly this comparison, but reaching them means resolving a
         # Python through uv, which transparently prefers an x86_64 interpreter
         # on aarch64. That is the very thing this job exists to catch.
         shell: python
@@ -360,13 +360,15 @@ jobs:
 
           # `platform.machine()` spells one ISA several ways: macOS says
           # "arm64" and Windows "AMD64"/"ARM64", where the matrix carries the
-          # canonical extra-platforms ids Linux already reports.
-          ALIASES = {"amd64": "x86_64", "arm64": "aarch64"}
+          # canonical extra-platforms id Linux already reports. Mirrors the
+          # `aliases` field of the matching `extra_platforms.Architecture`, and
+          # `tests/test_workflows.py` pins the copy to it.
+          ARCH_ALIASES = {"aarch64": ["arm64"], "x86_64": ["amd64"]}
 
-          machine = platform.machine().lower()
-          detected = ALIASES.get(machine, machine)
           expected = "${{ matrix.arch }}"
-          print(f"Detected architecture: {machine!r}, normalized to {detected!r}.")
-          assert detected == expected, (
-              f"Runner reports {detected!r}, matrix expects {expected!r}."
+          accepted = {expected, *ARCH_ALIASES[expected]}
+          machine = platform.machine().lower()
+          print(f"Detected architecture: {machine!r}, accepting {sorted(accepted)}.")
+          assert machine in accepted, (
+              f"Runner reports {machine!r}, matrix expects one of {sorted(accepted)}."
           )
