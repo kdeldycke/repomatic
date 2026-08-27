@@ -208,9 +208,7 @@ def test_latest_run_reads_jobs():
         },
         {"name": "⁉️ py3.15-dev", "status": "completed", "conclusion": "failure"},
     ]
-    with patch(
-        "repomatic.github.ci_status.run_gh_command", side_effect=_gh(listing, jobs)
-    ):
+    with patch("repomatic.github.gh.run_gh_command", side_effect=_gh(listing, jobs)):
         status = latest_run("tests.yaml", "main")
     assert status is not None
     assert status.run_id == 42
@@ -220,13 +218,13 @@ def test_latest_run_reads_jobs():
 
 def test_latest_run_with_no_run():
     """An empty listing is not an error: GitHub may not have materialized one."""
-    with patch("repomatic.github.ci_status.run_gh_command", side_effect=_gh([], [])):
+    with patch("repomatic.github.gh.run_gh_command", side_effect=_gh([], [])):
         assert latest_run("tests.yaml", "main") is None
 
 
 def test_read_ci_status_skips_workflows_without_a_run():
     """A workflow with no run drops out rather than reporting a fake green."""
-    with patch("repomatic.github.ci_status.run_gh_command", side_effect=_gh([], [])):
+    with patch("repomatic.github.gh.run_gh_command", side_effect=_gh([], [])):
         status = read_ci_status(["tests.yaml", "lint.yaml"], "main")
     assert status.runs == []
     assert status.blocking == []

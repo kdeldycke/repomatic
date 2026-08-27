@@ -41,7 +41,6 @@ which is exactly what the schema now says and nothing more.
 from __future__ import annotations
 
 import logging
-import os
 import re
 import subprocess
 import tempfile
@@ -51,7 +50,7 @@ from pathlib import Path
 import tomlrt
 from wcmatch import glob
 
-from .github.gh import resolve_gh_token
+from .github.gh import gh_env
 from .tool_runner import ensure_binary
 
 TYPE_CHECKING = False
@@ -432,8 +431,7 @@ def _run_labelmaker(labelmaker_path: Path, *args: str) -> None:
     """
     cmd = [str(labelmaker_path), *args]
     logging.info(f"Running: {' '.join(cmd)}")
-    token = resolve_gh_token()
-    env = {**os.environ, "GH_TOKEN": token} if token else None
+    env = gh_env()
     result = subprocess.run(
         cmd,
         capture_output=True,

@@ -47,13 +47,12 @@ rather than for a decorated name.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 
 import yaml
 
-from .gh import run_gh_command
+from .gh import gh_api_json
 from .workflow_sync import workflow_triggers
 
 TYPE_CHECKING = False
@@ -235,18 +234,6 @@ def monitored_workflows(workflow_dir: Path) -> list[str]:
     return names
 
 
-def _gh_json(args: list[str]) -> object:
-    """Run a `gh` command expected to emit JSON, tolerating an empty answer."""
-    raw = run_gh_command(args).strip()
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        logging.warning("Could not parse gh output as JSON: %r", raw[:200])
-        return None
-
-
 def latest_run(workflow: str, branch: str) -> RunStatus | None:
     """Read a workflow's most recent run on *branch*, jobs included.
 
@@ -256,20 +243,27 @@ def latest_run(workflow: str, branch: str) -> RunStatus | None:
         is not proof the workflow was filtered out: GitHub can sit on a push
         event for hours before materializing a run.
     """
-    listing = _gh_json([
-        "run",
-        "list",
-        f"--workflow={workflow}",
-        f"--branch={branch}",
-        "--limit=1",
-        "--json",
-        "databaseId,workflowName,status,conclusion,headSha",
-    ])
+    # `strict`: an unreachable `gh` must fail the read rather than report the
+    # workflow as run-less, which `/babysit-ci` would read as a green hole.
+    listing = gh_api_json(
+        [
+            "run",
+            "list",
+            f"--workflow={workflow}",
+            f"--branch={branch}",
+            "--limit=1",
+            "--json",
+            "databaseId,workflowName,status,conclusion,headSha",
+        ],
+        strict=True,
+    )
     if not isinstance(listing, list) or not listing:
         return None
     entry = listing[0]
 
-    detail = _gh_json(["run", "view", str(entry["databaseId"]), "--json", "jobs"])
+    detail = gh_api_json(
+        ["run", "view", str(entry["databaseId"]), "--json", "jobs"], strict=True
+    )
     jobs: list[JobStatus] = []
     if isinstance(detail, dict):
         jobs = [

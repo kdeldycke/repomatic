@@ -52,7 +52,7 @@ import logging
 import statistics
 from dataclasses import dataclass
 
-from ..dep_report import parse_iso_datetime
+from ..humanize import parse_iso_datetime
 from ..lint_repo import KNOWN_RUNNERS
 from ..tabular import render_markdown_table
 from .gh import gh_api_json
@@ -98,14 +98,22 @@ class JobTiming:
     """
 
 
+_RUNNERS_LONGEST_FIRST = tuple(sorted(KNOWN_RUNNERS, key=len, reverse=True))
+"""Runner images by descending label length, sorted once.
+
+Longest first, so `ubuntu-26.04-arm` is never shadowed by `ubuntu-26.04`; a
+module constant because {func}`match_runner` runs once per job across every
+sampled run.
+"""
+
+
 def match_runner(job_name: str) -> str:
     """Attribute a job to the runner image named in it.
 
     :param job_name: Job name as GitHub reports it.
     :return: The matched image, or {data}`UNATTRIBUTED`.
     """
-    # Longest first, so `ubuntu-26.04-arm` is never shadowed by `ubuntu-26.04`.
-    for image in sorted(KNOWN_RUNNERS, key=len, reverse=True):
+    for image in _RUNNERS_LONGEST_FIRST:
         if image in job_name:
             return image
     return UNATTRIBUTED
@@ -118,7 +126,7 @@ def _duration(job: dict) -> float | None:
     and a still-running one has no end: both are skipped rather than counted
     as zero, which would drag a median toward a runner's queue behaviour
     instead of its speed. Timestamps go through the package-wide
-    {func}`~repomatic.dep_report.parse_iso_datetime`, which reads the `Z`
+    {func}`~repomatic.humanize.parse_iso_datetime`, which reads the `Z`
     suffix GitHub always writes on every supported Python.
     """
     started, completed = job.get("startedAt"), job.get("completedAt")

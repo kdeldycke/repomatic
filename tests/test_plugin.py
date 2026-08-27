@@ -430,6 +430,26 @@ def test_settings_wiring_is_format_json_shaped() -> None:
         ),
         pytest.param(
             {
+                "biome.jsonc": (
+                    '{"formatter": {"indentStyle": "space", "indentWidth": 4}}'
+                ),
+                "pyproject.toml": '[tool.biome.formatter]\nindentStyle = "tab"\n',
+            },
+            "    ",
+            id="jsonc-file-replaces-pyproject",
+        ),
+        pytest.param(
+            {
+                "biome.json": '{"formatter": {"indentStyle": "space", "indentWidth": 3}}',
+                "biome.jsonc": (
+                    '{"formatter": {"indentStyle": "space", "indentWidth": 6}}'
+                ),
+            },
+            "   ",
+            id="registry-filename-order-decides",
+        ),
+        pytest.param(
+            {
                 "pyproject.toml": (
                     '[tool.biome.formatter]\nindentStyle = "space"\nindentWidth = 0\n'
                 )

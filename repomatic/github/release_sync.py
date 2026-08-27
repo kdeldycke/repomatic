@@ -27,7 +27,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from ..changelog import Changelog
+from ..changelog import GITHUB_RELEASE_URL, Changelog
 from ..tabular import render_markdown_table
 from .actions import ReportAction
 from .pr_body import render_template
@@ -171,7 +171,7 @@ def sync_github_releases(
             logging.debug(f"No GitHub release for version {version}.")
             continue
 
-        release_url = f"{repo_url}/releases/tag/v{version}"
+        release_url = GITHUB_RELEASE_URL.format(repo_url=repo_url, version=version)
         expected = build_expected_body(changelog, version)
 
         if not expected:

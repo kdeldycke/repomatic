@@ -41,9 +41,9 @@ from .dep_report import (
     HeldBackPackage,
     format_eligible,
     format_released,
-    parse_iso_datetime,
 )
-from .version_sync import is_newer
+from .humanize import parse_iso_datetime
+from .versions import is_newer
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -53,6 +53,17 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Command builders
 # ---------------------------------------------------------------------------
+
+
+def uv_executable() -> str:
+    """The `uv` binary every command this package builds shells out to.
+
+    One seam rather than a literal in each argv, mirroring
+    {func}`repomatic.github.gh.gh_executable`: today it answers `$PATH`'s
+    `uv`, and a future registry-pinned build would change every call site by
+    changing this function.
+    """
+    return "uv"
 
 
 def uv_cmd(
@@ -70,7 +81,7 @@ def uv_cmd(
     (a `YYYY-MM-DD` date) to gate an unlocked resolution by the
     `minimum-release-age` cooldown, mirroring {func}`uvx_cmd`.
     """
-    cmd = ["uv", "--no-progress", subcommand]
+    cmd = [uv_executable(), "--no-progress", subcommand]
     if frozen:
         cmd.append("--frozen")
     if no_project:
@@ -261,6 +272,20 @@ def packages_outside_cooldown(
                 " is within the exclude-newer window."
             )
     return outside
+
+
+def _is_relative_span(value: str) -> bool:
+    """Whether an `exclude-newer-package` value is a relative span, not a cutoff.
+
+    A span (`0 day`, `P7D`) tracks the latest release rather than holding one,
+    which is what separates a permanent exemption from a freeze. Shared by the
+    freeze rewrite and the forecast report so the two classify entries the same
+    way.
+    """
+    return (
+        parse_friendly_duration(value) is not None
+        or parse_iso8601_duration(value) is not None
+    )
 
 
 def _bare_date(value: str) -> date | None:
@@ -497,7 +522,6 @@ def add_exclude_newer_packages(
 def freeze_exclude_newer_packages(
     pyproject_path: Path,
     lock_path: Path,
-    lock: LockFile | None = None,
 ) -> set[str]:
     """Convert relative-span cooldown bypasses into fixed freeze cutoffs.
 
@@ -519,7 +543,6 @@ def freeze_exclude_newer_packages(
 
     :param pyproject_path: Path to the `pyproject.toml` file.
     :param lock_path: Path to the `uv.lock` file.
-    :param lock: Pre-parsed *lock_path*, to skip re-reading it.
     :return: The names of the packages whose entry was rewritten (span frozen
         or bare date pinned); empty when no entry needed rewriting (the file
         is then left untouched).
@@ -530,17 +553,13 @@ def freeze_exclude_newer_packages(
     if not pkg_table:
         return set()
 
-    upload_times = (lock or LockFile.load(lock_path)).upload_times
+    upload_times = LockFile.load(lock_path).upload_times
     frozen: dict[str, str] = {}
     rewritten: set[str] = set()
     for pkg, value in pkg_table.items():
         text = str(value)
         # Only relative spans track the latest release; fixed cutoffs already hold.
-        is_span = (
-            parse_friendly_duration(text) is not None
-            or parse_iso8601_duration(text) is not None
-        )
-        if is_span:
+        if _is_relative_span(text):
             freeze = _freeze_cutoff(upload_times.get(pkg, ""))
             if freeze is not None:
                 frozen[pkg] = freeze
@@ -574,7 +593,6 @@ def freeze_exclude_newer_packages(
 def prune_stale_exclude_newer_packages(
     pyproject_path: Path,
     lock_path: Path,
-    lock: LockFile | None = None,
 ) -> set[str]:
     """Remove stale entries from `[tool.uv].exclude-newer-package`.
 
@@ -593,7 +611,6 @@ def prune_stale_exclude_newer_packages(
 
     :param pyproject_path: Path to the `pyproject.toml` file.
     :param lock_path: Path to the `uv.lock` file.
-    :param lock: Pre-parsed *lock_path*, to skip re-reading it.
     :return: The names of the pruned packages; empty when nothing was stale
         (the file is then left untouched).
     """
@@ -612,7 +629,7 @@ def prune_stale_exclude_newer_packages(
         )
         return set()
 
-    upload_times = (lock or LockFile.load(lock_path)).upload_times
+    upload_times = LockFile.load(lock_path).upload_times
 
     stale: set[str] = set()
     for pkg in pkg_table:
@@ -702,15 +719,18 @@ class LockFile:
     def load(cls, lock_path: Path) -> LockFile:
         """Read every cooldown-relevant field out of *lock_path* in one parse.
 
+        The parse itself comes from {func}`load_lock_data`'s cache, so calling
+        this repeatedly against an unchanged file only rebuilds the cheap
+        views, never re-reads the document.
+
         :param lock_path: Path to the `uv.lock` file.
         :return: The parsed views, or an all-empty instance when the file does
             not exist. A missing lock is not an error: several callers run
             before the first `uv lock`.
         """
-        if not lock_path.exists():
+        data = load_lock_data(lock_path)
+        if not data:
             return cls()
-        with lock_path.open("rb") as f:
-            data = tomlrt.load(f)
 
         versions = {
             pkg["name"]: pkg["version"]
@@ -765,31 +785,45 @@ def parse_lock_upload_times(lock_path: Path) -> dict[str, str]:
     return LockFile.load(lock_path).upload_times
 
 
-def parse_lock_exclude_newer(lock_path: Path) -> str:
-    """Parse the effective `exclude-newer` cutoff from a `uv.lock` file.
+_LOCK_PARSE_CACHE: dict[Path, tuple[int, int, dict[str, Any]]] = {}
+"""Parsed `uv.lock` documents, keyed by absolute path.
 
-    See {attr}`LockFile.exclude_newer` for how a relative span is resolved.
-
-    :param lock_path: Path to the `uv.lock` file.
-    :return: An ISO 8601 datetime string for the effective cutoff, or an
-        empty string if neither field is present (or the sentinel is
-        present without a parseable span).
-    """
-    return LockFile.load(lock_path).exclude_newer
+The same `(st_mtime_ns, st_size)` identity scheme as
+{data}`repomatic.pyproject._PARSE_CACHE`, for the same reason: a lock runs to
+hundreds of kilobytes, and one `audit --fix` used to parse the same bytes five
+times over (`lint-deps` twice). Every mid-run rewrite — `uv lock` itself, the
+byte-level snapshot restores — moves the file's identity, which is what keeps
+the cache honest across the upgrade-then-diff flows. Treat results as
+read-only: every consumer only iterates and `.get()`s.
+"""
 
 
 def load_lock_data(lock_path: Path | None = None) -> dict[str, Any]:
-    """Load and parse a `uv.lock` file.
+    """Load and parse a `uv.lock` file, memoized per file identity.
+
+    The one reader of the lock: {meth}`LockFile.load` builds its views from
+    this parse, so however many passes a command makes over the same lock, the
+    document is decoded once. Treat the result as read-only.
 
     :param lock_path: Path to uv.lock file. If None, looks in current directory.
     :return: Parsed TOML data as a dict, or empty dict if the file does not exist.
     """
     if lock_path is None:
         lock_path = Path("uv.lock")
-    if not lock_path.exists():
+    lock_path = lock_path.absolute()
+    try:
+        stat = lock_path.stat()
+        if not lock_path.is_file():
+            return {}
+        cached = _LOCK_PARSE_CACHE.get(lock_path)
+        if cached is not None and cached[:2] == (stat.st_mtime_ns, stat.st_size):
+            return cached[2]
+        with lock_path.open("rb") as f:
+            data: dict[str, Any] = tomlrt.load(f)
+    except OSError:
         return {}
-    with lock_path.open("rb") as f:
-        return tomlrt.load(f)
+    _LOCK_PARSE_CACHE[lock_path] = (stat.st_mtime_ns, stat.st_size, data)
+    return data
 
 
 EXTRA_MARKER_RE = re.compile(r"\bextra\s*==\s*'([^']+)'")
@@ -1069,11 +1103,7 @@ def compute_bypass_forecasts(
     today = datetime.now(timezone.utc).date()
     forecasts = []
     for pkg, value in sorted(_bypass_entries(pyproject_path).items()):
-        is_span = (
-            parse_friendly_duration(value) is not None
-            or parse_iso8601_duration(value) is not None
-        )
-        if is_span:
+        if _is_relative_span(value):
             continue
         held_version = versions.get(pkg, "")
         if not held_version:
@@ -1191,18 +1221,20 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     # (so uv resolves them normally again), then freeze the survivors at
     # their locked version so the upgrade below holds them instead of
     # tracking newer releases. Steps 1 and 2 all read the same pre-upgrade
-    # lock, so it is parsed once here (nothing below writes it until Step 3).
+    # lock through load_lock_data's cache (nothing writes it until Step 3);
+    # `pre` is held for the passes that must keep answering pre-upgrade
+    # questions after Step 3 has moved the file.
     pre = LockFile.load(lock_path)
     pyproject_path = lock_path.parent / "pyproject.toml"
     pruned: set[str] = set()
     pruned_records: list[BypassForecast] = []
     frozen: set[str] = set()
     if pyproject_path.exists():
-        pruned = prune_stale_exclude_newer_packages(pyproject_path, lock_path, lock=pre)
+        pruned = prune_stale_exclude_newer_packages(pyproject_path, lock_path)
         # Snapshot the cleared freezes now, while the lock still holds the
         # versions the entries froze (see compute_pruned_forecasts).
         pruned_records = compute_pruned_forecasts(pruned, lock_path, lock=pre)
-        frozen = freeze_exclude_newer_packages(pyproject_path, lock_path, lock=pre)
+        frozen = freeze_exclude_newer_packages(pyproject_path, lock_path)
     pyproject_changed = bool(pruned or frozen)
 
     # Step 2: Snapshot versions and the raw lock bytes before upgrading. The

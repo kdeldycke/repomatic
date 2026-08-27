@@ -48,6 +48,16 @@ Safe to share unguarded: no consumer mutates the returned mapping, and
 click-extra's schema callable copies its input before normalizing it.
 """
 
+_EMPTY_PYPROJECT: dict[str, Any] = {}
+"""The one mapping every missing or unreadable `pyproject.toml` reads as.
+
+Returning a shared object rather than a fresh `{}` gives the no-file case a
+stable identity, which is what `load_repomatic_config`'s memo keys on: a
+repository carrying no `pyproject.toml` at all (an awesome list) would
+otherwise rebuild its default `Config` on every read. Same read-only contract
+as the cached parses above.
+"""
+
 
 def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
     """Parse `pyproject.toml` from *project_root*.
@@ -71,13 +81,13 @@ def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
     try:
         stat = pyproject_path.stat()
         if not pyproject_path.is_file():
-            return {}
+            return _EMPTY_PYPROJECT
         cached = _PARSE_CACHE.get(pyproject_path)
         if cached is not None and cached[:2] == (stat.st_mtime_ns, stat.st_size):
             return cached[2]
         data: dict[str, Any] = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
     except (tomlrt.TOMLParseError, OSError):
-        return {}
+        return _EMPTY_PYPROJECT
     _PARSE_CACHE[pyproject_path] = (stat.st_mtime_ns, stat.st_size, data)
     return data
 

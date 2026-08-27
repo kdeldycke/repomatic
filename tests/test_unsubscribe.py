@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import json
 import logging
-from contextlib import contextmanager
 from datetime import datetime, timezone
-from unittest.mock import Mock, patch
+from functools import partial
+from unittest.mock import patch
 
 import pytest
 
@@ -46,6 +46,7 @@ from repomatic.github.unsubscribe import (
     render_report,
     unsubscribe_threads,
 )
+from tests.conftest import patch_gh as shared_patch_gh
 
 _MODULE = "repomatic.github.unsubscribe"
 
@@ -189,21 +190,8 @@ def _dispatch_gh(
     return _run
 
 
-@contextmanager
-def patch_gh(**mock_kwargs):
-    """Patch both `gh` dispatch points of the module with one shared mock.
-
-    The thread-detail lookups go through `gh_api_json` (which calls the `gh`
-    module's `run_gh_command`) while every other call uses the name imported
-    into `unsubscribe` directly; one mock keeps each test's dispatch table and
-    call records in a single place.
-    """
-    mock_gh = Mock(**mock_kwargs)
-    with (
-        patch(f"{_MODULE}.run_gh_command", mock_gh),
-        patch("repomatic.github.gh.run_gh_command", mock_gh),
-    ):
-        yield mock_gh
+patch_gh = partial(shared_patch_gh, _MODULE)
+"""The conftest `patch_gh`, bound to this module's dispatch points."""
 
 
 def _gh_calls_matching(mock_gh, prefix):

@@ -51,6 +51,7 @@ from repomatic.lint_repo import (
     check_setup_uv_version_pin,
     check_sha_pinning_required,
     check_stale_draft_releases,
+    check_stale_gh_pages_branch,
     check_test_matrix_excludes,
     check_topics_subset_of_keywords,
     check_website_for_sphinx,
@@ -297,11 +298,13 @@ def test_all_checks_pass():
             "description": "A cool package",
         }
         exit_code = run_repo_lint(
-            package_name="my-package",
-            repo_name="my-package",
-            is_sphinx=True,
-            project_description="A cool package",
-            repo="owner/repo",
+            LintContext(
+                package_name="my-package",
+                repo_name="my-package",
+                is_sphinx=True,
+                project_description="A cool package",
+                repo="owner/repo",
+            )
         )
         assert exit_code == 0
 
@@ -314,8 +317,10 @@ def test_description_mismatch(capsys):
             "description": "Different description",
         }
         exit_code = run_repo_lint(
-            project_description="A cool package",
-            repo="owner/repo",
+            LintContext(
+                project_description="A cool package",
+                repo="owner/repo",
+            )
         )
         assert exit_code == 1
         captured = capsys.readouterr()
@@ -325,8 +330,10 @@ def test_description_mismatch(capsys):
 def test_package_name_warning(capsys):
     """Emit warning for package name mismatch but still pass."""
     exit_code = run_repo_lint(
-        package_name="my-package",
-        repo_name="different-repo",
+        LintContext(
+            package_name="my-package",
+            repo_name="different-repo",
+        )
     )
     assert exit_code == 0
     captured = capsys.readouterr()
@@ -338,8 +345,10 @@ def test_website_warning(capsys):
     with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
         mock_get.return_value = {"homepageUrl": None, "description": None}
         exit_code = run_repo_lint(
-            is_sphinx=True,
-            repo="owner/repo",
+            LintContext(
+                is_sphinx=True,
+                repo="owner/repo",
+            )
         )
         assert exit_code == 0
         captured = capsys.readouterr()
@@ -354,9 +363,11 @@ def test_website_docs_url_mismatch_warning(capsys):
             "description": None,
         }
         exit_code = run_repo_lint(
-            is_sphinx=True,
-            docs_url="https://papaya.example",
-            repo="owner/repo",
+            LintContext(
+                is_sphinx=True,
+                docs_url="https://papaya.example",
+                repo="owner/repo",
+            )
         )
         assert exit_code == 0
         captured = capsys.readouterr()
@@ -377,8 +388,10 @@ def test_notifications_pat_check(
 ):
     """The notifications PAT check only fires when the workflow is opted in."""
     exit_code = run_repo_lint(
-        unsubscribe_active=unsubscribe_active,
-        has_notifications_pat=has_notifications_pat,
+        LintContext(
+            unsubscribe_active=unsubscribe_active,
+            has_notifications_pat=has_notifications_pat,
+        )
     )
     assert exit_code == 0
     captured = capsys.readouterr()
@@ -426,9 +439,11 @@ def test_cloudflare_secrets_check(capsys, site_deploy, is_sphinx, has_token, exp
     to, so no second identifier is asked for or reported on.
     """
     exit_code = run_repo_lint(
-        is_sphinx=is_sphinx,
-        site_deploy=site_deploy,
-        has_cloudflare_api_token=has_token,
+        LintContext(
+            is_sphinx=is_sphinx,
+            site_deploy=site_deploy,
+            has_cloudflare_api_token=has_token,
+        )
     )
     assert exit_code == 0
     captured = capsys.readouterr()
@@ -460,9 +475,11 @@ def test_pages_deployment_source_follows_the_deploy_target(site_deploy, probed):
         mock_get.return_value = {"homepageUrl": None, "description": None}
         probe.return_value = CheckResult(True, "Pages source is GitHub Actions.")
         run_repo_lint(
-            is_sphinx=True,
-            site_deploy=site_deploy,
-            repo="orchard/papaya",
+            LintContext(
+                is_sphinx=True,
+                site_deploy=site_deploy,
+                repo="orchard/papaya",
+            )
         )
     assert probe.called is probed
 
@@ -764,7 +781,7 @@ def test_wrangler_config_check(
 
 def test_minimal_run():
     """Run with no checks enabled."""
-    exit_code = run_repo_lint()
+    exit_code = run_repo_lint(LintContext())
     assert exit_code == 0
 
 
@@ -819,13 +836,44 @@ def test_topics_empty_response():
         assert "skipped" in msg
 
 
+def test_stale_gh_pages_branch_absent_passes():
+    """A 404 is the desired state: the branch is gone."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.side_effect = RuntimeError("HTTP 404: Branch not found")
+        result = check_stale_gh_pages_branch("owner/repo")
+    assert result.passed is True
+
+
+def test_stale_gh_pages_branch_present_fails():
+    """A readable branch is the stale leftover the check exists to flag."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.return_value = '{"name": "gh-pages"}'
+        result = check_stale_gh_pages_branch("owner/repo")
+    assert result.passed is False
+    assert "gh-pages" in result.message
+
+
+def test_stale_gh_pages_branch_api_failure_skips():
+    """An unreadable API is a skip, never a pass.
+
+    Every other failure used to report green, so an auth flap or a rate limit
+    silently vouched for a branch nobody read.
+    """
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.side_effect = RuntimeError("HTTP 502: upstream error")
+        result = check_stale_gh_pages_branch("owner/repo")
+    assert result.passed is None
+    assert "skipped" in result.message
+
+
 def _graphql_response(*, is_fork: bool = False, has_sponsors: bool = True) -> dict:
-    """Build a mock GraphQL payload for funding checks."""
+    """Build a mock GraphQL `data` envelope for funding checks.
+
+    Already unwrapped, the way `gh_graphql` hands it to the check.
+    """
     return {
-        "data": {
-            "repository": {"isFork": is_fork},
-            "repositoryOwner": {"hasSponsorsListing": has_sponsors},
-        },
+        "repository": {"isFork": is_fork},
+        "repositoryOwner": {"hasSponsorsListing": has_sponsors},
     }
 
 
@@ -856,7 +904,7 @@ def test_funding_file_exists_lowercase(tmp_path, monkeypatch):
 def test_funding_missing_with_sponsors(tmp_path, monkeypatch):
     """Warning when owner has sponsors but no funding file."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
         mock_gh.return_value = _graphql_response(has_sponsors=True)
         result = check_funding_file("owner/repo")
         assert result.passed is False
@@ -867,7 +915,7 @@ def test_funding_missing_with_sponsors(tmp_path, monkeypatch):
 def test_funding_skipped_for_fork(tmp_path, monkeypatch):
     """Skip funding check for forked repositories."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
         mock_gh.return_value = _graphql_response(is_fork=True)
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
@@ -877,7 +925,7 @@ def test_funding_skipped_for_fork(tmp_path, monkeypatch):
 def test_funding_skipped_no_sponsors(tmp_path, monkeypatch):
     """Skip when owner has no GitHub Sponsors listing."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
         mock_gh.return_value = _graphql_response(has_sponsors=False)
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
@@ -945,8 +993,8 @@ def test_workflow_permissions(tmp_path, monkeypatch, workflow, expect_fail, need
 def test_funding_unreadable_payload(tmp_path, monkeypatch):
     """Skip gracefully when the GraphQL payload cannot be read."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = None
+    with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
+        mock_gh.side_effect = RuntimeError("boom")
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
         assert "skipped" in msg
@@ -1376,7 +1424,7 @@ def test_pat_permission_probe_fail_403(probe):
     """Fail with the missing-permission message when the API call 403s."""
     with (
         patch("repomatic.github.token.run_gh_command") as mock_gh,
-        patch("repomatic.github.token.status_annotation", return_value=""),
+        patch("repomatic.github.status.status_annotation", return_value=""),
     ):
         mock_gh.side_effect = RuntimeError("HTTP 403: Forbidden")
         passed, msg = probe_pat_permission("owner/repo", probe)
@@ -1394,7 +1442,7 @@ def test_pat_vulnerability_alerts_permission_404():
     )
     with (
         patch("repomatic.github.token.run_gh_command") as mock_gh,
-        patch("repomatic.github.token.status_annotation", return_value=""),
+        patch("repomatic.github.status.status_annotation", return_value=""),
     ):
         mock_gh.side_effect = RuntimeError("HTTP 404: Not Found")
         passed, msg = probe_pat_permission("owner/repo", vuln_probe)
@@ -1407,7 +1455,7 @@ def test_pat_check_non_403_surfaces_raw_error():
     """A 401 from an upstream incident surfaces the raw stderr, not a scope hint."""
     with (
         patch("repomatic.github.token.run_gh_command") as mock_gh,
-        patch("repomatic.github.token.status_annotation", return_value=""),
+        patch("repomatic.github.status.status_annotation", return_value=""),
     ):
         mock_gh.side_effect = RuntimeError("HTTP 401: Requires authentication")
         passed, msg = probe_pat_permission("owner/repo", PAT_PERMISSION_PROBES[0])
@@ -1422,7 +1470,7 @@ def test_pat_check_annotates_with_github_status_incident():
     with (
         patch("repomatic.github.token.run_gh_command") as mock_gh,
         patch(
-            "repomatic.github.token.status_annotation",
+            "repomatic.github.status.status_annotation",
             return_value="GitHub Status reports an active incident (major): "
             "Partial System Outage. See https://www.githubstatus.com for details.",
         ),
@@ -1473,7 +1521,7 @@ def test_pat_stale_statuses_permission_unexpected_success():
 
 def test_pat_checks_skipped_without_pat(capsys):
     """PAT checks are skipped when has_pat is False."""
-    exit_code = run_repo_lint(has_pat=False)
+    exit_code = run_repo_lint(LintContext(has_pat=False))
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "skipped (no REPOMATIC_PAT)" in captured.out
@@ -1489,8 +1537,10 @@ def test_pat_checks_all_pass(capsys):
         ),
     ):
         exit_code = run_repo_lint(
-            repo="owner/repo",
-            has_pat=True,
+            LintContext(
+                repo="owner/repo",
+                has_pat=True,
+            )
         )
         assert exit_code == 0
         captured = capsys.readouterr()
@@ -1520,8 +1570,10 @@ def test_pat_checks_fail_on_missing_permission(capsys):
         ),
     ):
         exit_code = run_repo_lint(
-            repo="owner/repo",
-            has_pat=True,
+            LintContext(
+                repo="owner/repo",
+                has_pat=True,
+            )
         )
         assert exit_code == 1
         captured = capsys.readouterr()
@@ -1682,6 +1734,31 @@ def test_check_test_matrix_excludes(tmp_path, monkeypatch, runner, stale):
         assert any(r.passed is False and runner in r.message for r in results)
     else:
         assert all(r.passed is not False for r in results)
+
+
+def test_check_test_matrix_excludes_names_only_the_stale_half(tmp_path, monkeypatch):
+    """A partially stale exclude is reported by its stale values alone.
+
+    Under `full-include` the emitted matrix is a flat job list whose
+    `all_variations()` is empty, and the check used to read its axes from
+    there: every key of the entry then counted as absent, so the message
+    blamed the live half along with the stale one.
+    """
+    metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        '[project]\nname = "p"\nversion = "1.0.0"\n\n'
+        "[tool.repomatic.test-matrix]\n"
+        'full-include = [{os = "ubuntu-26.04-arm", python-version = "3.10"}]\n'
+        'exclude = [{os = "ubuntu-26.04", python-version = "9.99"}]\n',
+    )
+
+    results = check_test_matrix_excludes()
+    failures = [r for r in results if r.passed is False]
+    assert len(failures) == 1
+    # Only the value no axis carries is named as absent; the live runner half
+    # appears in the quoted entry but never in the absent-values list.
+    assert "({'python-version': '9.99'})" in failures[0].message
 
 
 def _write_project(tmp_path, monkeypatch, classifiers, requires_python=">= 3.11"):

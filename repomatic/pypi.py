@@ -16,23 +16,47 @@
 """PyPI API client for package metadata lookups.
 
 Provides a shared HTTP client and domain-specific query functions used by
-{mod}`repomatic.changelog` (release dates, yanked status) and
-{mod}`repomatic.uv` (source repository discovery for release notes).
+{mod}`repomatic.changelog` (release dates, yanked status),
+{mod}`repomatic.version_sync` (release candidates) and
+{mod}`repomatic.dep_report` (source repository discovery for release notes).
+Also the home of what counts as the public index at all
+({data}`PYPI_INDEX_HOSTS`), which the shippability gate reads.
 """
 
 from __future__ import annotations
 
 from typing import NamedTuple
-from urllib.parse import urlencode
-
-from packaging.version import InvalidVersion, Version
+from urllib.parse import urlencode, urlsplit
 
 from .config import load_repomatic_config
 from .http import get_cached_json, get_json_soft
+from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any
+
+    from packaging.version import Version
+
+PYPI_INDEX_HOSTS = frozenset({"pypi.org", "www.pypi.org"})
+"""Hosts a package may be resolved from and still count as published.
+
+Anything else is a private index, a staging index (TestPyPI lives on
+`test.pypi.org`, deliberately absent) or a proxy: a user running
+`pip install` or `uvx` against the default index reaches none of them, so a
+dependency pinned there is no more installable than one pinned to a git
+branch.
+"""
+
+
+def is_pypi_url(url: str) -> bool:
+    """Whether *url* points at the public Python Package Index.
+
+    :param url: An index or registry URL.
+    :return: `True` when its host is one of {data}`PYPI_INDEX_HOSTS`.
+    """
+    return urlsplit(url).hostname in PYPI_INDEX_HOSTS
+
 
 PYPI_API_URL = "https://pypi.org/pypi/{package}/json"
 """PyPI JSON API URL for fetching all release metadata for a package."""
@@ -177,7 +201,9 @@ def _fetch_json(package: str, *, force_refresh: bool = False) -> dict[str, Any] 
     :param force_refresh: Ignore any cached response and re-fetch.
     :return: Parsed JSON response, or `None` on any failure.
     """
-    return get_cached_json(
+    if not force_refresh and package in _FETCH_MEMO:
+        return _FETCH_MEMO[package]
+    result = get_cached_json(
         "pypi",
         package,
         PYPI_API_URL.format(package=package),
@@ -185,6 +211,21 @@ def _fetch_json(package: str, *, force_refresh: bool = False) -> dict[str, Any] 
         log_label=f"PyPI lookup failed for {package}",
         force_refresh=force_refresh,
     )
+    _FETCH_MEMO[package] = result
+    return result
+
+
+_FETCH_MEMO: dict[str, dict[str, Any] | None] = {}
+"""In-process snapshots of {func}`_fetch_json` answers, keyed by package.
+
+The disk cache spares the network, not the decode: a mature package's JSON
+payload runs to hundreds of kilobytes, and one report renders two or three
+accessors per package off the same document. Holding the parsed result for
+the process keeps that to one decode. A *force_refresh* bypasses the memo and
+replaces the snapshot, so the live re-confirm path stays live; a `None`
+failure is memoized too, deliberately, since retrying a dead lookup once per
+accessor only multiplies the timeout.
+"""
 
 
 def _project_urls(package: str) -> dict[str, str]:
@@ -372,9 +413,8 @@ def get_latest_release_file(package: str) -> tuple[str, str] | None:
         upload_dates = [f["upload_time"] for f in live_files if f.get("upload_time")]
         if not upload_dates:
             continue
-        try:
-            parsed = Version(version)
-        except InvalidVersion:
+        parsed = safe_version(version)
+        if parsed is None:
             continue
         wheels = [f for f in live_files if f.get("filename", "").endswith(".whl")]
         chosen = wheels[0] if wheels else live_files[0]

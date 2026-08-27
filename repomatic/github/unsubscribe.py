@@ -33,7 +33,6 @@ permissions.
 
 from __future__ import annotations
 
-import calendar
 import json
 import logging
 from dataclasses import dataclass, field
@@ -42,7 +41,7 @@ from functools import partial
 
 import arrow
 
-from ..dep_report import parse_iso_datetime
+from ..humanize import parse_iso_datetime
 from ..tabular import render_markdown_table
 from .actions import ReportAction
 from .gh import gh_api_json, iter_graphql_nodes, run_gh_command
@@ -160,21 +159,15 @@ class UnsubscribeResult:
 def _compute_cutoff(months: int) -> datetime:
     """Compute a cutoff datetime by subtracting `months` from now.
 
-    Uses `calendar.monthrange` for day-clamping to avoid invalid dates
-    (e.g., subtracting 1 month from March 31 yields February 28/29).
+    arrow's `shift` clamps the day for us (subtracting 1 month from March 31
+    yields February 28/29), and the library is already loaded for the report's
+    `.humanize()` phrasing.
 
     :param months: Number of months to subtract.
     :return: Timezone-aware UTC datetime.
     """
     now = datetime.now(timezone.utc)
-    year = now.year
-    month = now.month - months
-    while month < 1:
-        month += 12
-        year -= 1
-    max_day = calendar.monthrange(year, month)[1]
-    day = min(now.day, max_day)
-    return now.replace(year=year, month=month, day=day)
+    return arrow.Arrow.fromdatetime(now).shift(months=-months).datetime
 
 
 def _format_link(row: DetailRow) -> str:
@@ -221,9 +214,9 @@ def _fetch_notification_threads(
             "--paginate",
             "--jq",
             jq_filter,
-            "-f",
+            "--raw-field",
             "all=true",
-            "-f",
+            "--raw-field",
             f"per_page={NOTIFICATION_PAGE_SIZE}",
         ])
     except RuntimeError as exc:
@@ -367,9 +360,9 @@ def _graphql_unsubscribe(node_id: str) -> bool:
         run_gh_command([
             "api",
             "graphql",
-            "-f",
+            "--raw-field",
             f"query={UNSUBSCRIBE_MUTATION}",
-            "-f",
+            "--raw-field",
             f"id={node_id}",
         ])
     except RuntimeError:

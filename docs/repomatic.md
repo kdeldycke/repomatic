@@ -227,6 +227,15 @@
    :undoc-members:
 ```
 
+## `repomatic.hashing` module
+
+```{eval-rst}
+.. automodule:: repomatic.hashing
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.http` module
 
 ```{eval-rst}
@@ -474,6 +483,15 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.version_sync
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.versions` module
+
+```{eval-rst}
+.. automodule:: repomatic.versions
    :members:
    :show-inheritance:
    :undoc-members:

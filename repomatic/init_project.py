@@ -41,11 +41,9 @@ from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from shutil import rmtree
-from urllib.request import Request, urlopen
 
 import tomlrt
 import yaml
-from packaging.version import InvalidVersion, Version
 
 from . import __git_tag_sha__, __version__
 from .bundle import get_data_content
@@ -58,7 +56,7 @@ from .github.workflow_sync import (
     identify_canonical_workflow,
     render_thin_caller_for_target,
 )
-from .http import DEFAULT_TIMEOUT
+from .http import get_bytes
 from .lint_repo import requested_metadata_keys
 from .metadata import Metadata, all_metadata_keys
 from .plugin import merge_plugin_settings
@@ -87,6 +85,8 @@ from .registry import (
     ToolConfigComponent,
     WorkflowComponent,
     excluded_rel_path,
+    is_awesome_repo,
+    package_of,
     parse_component_entries,
 )
 from .tool_registry import TOOL_REGISTRY
@@ -97,11 +97,10 @@ from .version_sync import (
     apply_self_pin_exemption,
     find_upstream_ref_pins,
     github_candidates,
-    is_newer,
     parse_min_age,
     select_latest,
-    strip_dev_suffix,
 )
+from .versions import is_newer, safe_version, strip_dev_suffix
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -988,7 +987,7 @@ def run_init(
     # Auto-include awesome-template for awesome-* repositories.
     if not repo_slug:
         repo_slug = Metadata().repo_slug
-    is_awesome = bool(repo_slug and repo_slug.split("/")[-1].startswith("awesome-"))
+    is_awesome = bool(repo_slug and is_awesome_repo(repo_slug.split("/")[-1]))
     is_python = is_python_project(output_dir)
     is_package = is_python_package(output_dir)
     logging.debug(
@@ -1459,7 +1458,7 @@ def _realign_inline_pins(
     :param output_dir: Repository root, for the reported relative path.
     :param repo: Upstream `owner/repo`; its name is the inline package to match.
     """
-    package = repo.rsplit("/", 1)[-1]
+    package = package_of(repo)
     pin_re = re.compile(rf"\b{re.escape(package)}==[0-9]+(?:\.[0-9]+)*")
     # A `uses:` ref names a git tag and keeps the `v`; a requirement specifier
     # names the PyPI package and must not carry it. Same number, two namespaces.
@@ -1547,12 +1546,11 @@ def _check_metadata_keys(
     # Compared on the release tuple, so a development build checks the release
     # it is heading for: the pin drops the `.devN` suffix the running version
     # carries, and string equality would skip the check on every dev checkout.
-    try:
-        same_release = (
-            Version(version.removeprefix("v")).release == Version(__version__).release
-        )
-    except InvalidVersion:
-        same_release = False
+    pinned = safe_version(version.removeprefix("v"))
+    running = safe_version(__version__)
+    same_release = (
+        pinned is not None and running is not None and pinned.release == running.release
+    )
     if not same_release:
         logging.debug(
             "Workflows pin %s, not the running %s: skipping the metadata-key "
@@ -1562,7 +1560,7 @@ def _check_metadata_keys(
         )
         return
 
-    package = repo.rsplit("/", 1)[-1]
+    package = package_of(repo)
     valid_keys = all_metadata_keys()
     for target in sorted(workflows_dir.glob("*.y*ml")):
         unknown = sorted({
@@ -1945,11 +1943,11 @@ def _fetch_extra_labels(
     `extra-labels/` subdirectory under `output_dir`.
     Does nothing if no URLs are configured.
 
-    Fetched the way {mod}`repomatic.gitignore` fetches its template: an explicit
-    {data}`~repomatic.http.DEFAULT_TIMEOUT` and a `repomatic/{version}`
-    User-Agent. These URLs come from a downstream repository's own config and
-    are reached on every labels sync, so an unresponsive host has to fail the
-    step rather than hang the job.
+    Fetched through the shared {func}`~repomatic.http.get_bytes` seam, so the
+    download carries the standard timeout, `User-Agent` and truncation retry.
+    These URLs come from a downstream repository's own config and are reached
+    on every labels sync, so an unresponsive host has to fail the step rather
+    than hang the job.
     """
     if config is None:
         config = load_repomatic_config()
@@ -1968,9 +1966,7 @@ def _fetch_extra_labels(
         target = target_dir / filename
         rel = target.relative_to(output_dir).as_posix()
         logging.info(f"Downloading {url} -> {target}")
-        request = Request(url, headers={"User-Agent": f"repomatic/{__version__}"})
-        with urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
-            target.write_bytes(response.read())
+        target.write_bytes(get_bytes(url))
         result.created.append(rel)
 
 

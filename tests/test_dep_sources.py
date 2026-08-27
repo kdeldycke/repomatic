@@ -296,7 +296,7 @@ COOLDOWN_PYPROJECT = """\
 name = "basket"
 version = "1.0.0"
 dependencies = [
-  "cherry>={floor}",
+  "{requirement}",
 ]
 """
 
@@ -313,18 +313,25 @@ upload-time = "{upload}"
 
 
 @pytest.mark.parametrize(
-    ("floor", "locked", "age_days", "flagged"),
+    ("requirement", "floor", "locked", "age_days", "flagged"),
     (
         # Floor demands the locked release, which is still inside the window.
-        ("1.2", "1.2.0", 1, True),
+        ("cherry>=1.2", "1.2", "1.2.0", 1, True),
         # Same floor, but the release has aged out: uvx resolves it unaided.
-        ("1.2", "1.2.0", 30, False),
+        ("cherry>=1.2", "1.2", "1.2.0", 30, False),
         # Floor predates the locked release, so an older version satisfies it.
-        ("1.0", "1.2.0", 1, False),
+        ("cherry>=1.0", "1.0", "1.2.0", 1, False),
+        # An exclusive bound is a lower bound too. This exercises the stale-lock
+        # corner (a floor excluding the version still locked): with a fresh lock
+        # the locked version always strictly exceeds a `>` floor, so the narrower
+        # fresh-lock case cannot fire, and this guard is deliberately about the
+        # operator set rather than that arithmetic.
+        ("cherry>1.2", "1.2", "1.2.0", 1, True),
     ),
 )
 def test_floors_inside_cooldown(
     tmp_path: Path,
+    requirement: str,
     floor: str,
     locked: str,
     age_days: int,
@@ -333,7 +340,9 @@ def test_floors_inside_cooldown(
     """Only a floor demanding a release inside the window is reported."""
     upload = datetime.now(timezone.utc) - timedelta(days=age_days)
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(COOLDOWN_PYPROJECT.format(floor=floor), encoding="UTF-8")
+    pyproject.write_text(
+        COOLDOWN_PYPROJECT.format(requirement=requirement), encoding="UTF-8"
+    )
     lock = tmp_path / "uv.lock"
     lock.write_text(
         COOLDOWN_LOCK.format(

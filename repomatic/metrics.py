@@ -509,16 +509,19 @@ def save_metrics(
     merged = {**load_metrics(path), **records}
     # An attribute keeps one row per subject: whatever came back from disk for
     # a metric the caller just pruned is dropped again here, so the merge
-    # cannot resurrect a superseded reading.
-    for key, record in list(merged.items()):
+    # cannot resurrect a superseded reading. One grouping pass finds each
+    # subject's newest day; scanning the whole store per record made the
+    # wayback backfill, which saves after every recovered point, quadratic.
+    newest: dict[tuple[str, str], str] = {}
+    for record in merged.values():
         metric = METRICS_BY_ID.get(record.metric)
         if metric is None or metric.accrues:
             continue
-        newest = max(
-            (r.day for r in merged.values() if r.subject_key == record.subject_key),
-            default=record.day,
-        )
-        if record.day != newest:
+        held = newest.get(record.subject_key)
+        if held is None or record.day > held:
+            newest[record.subject_key] = record.day
+    for key, record in list(merged.items()):
+        if record.subject_key in newest and record.day != newest[record.subject_key]:
             del merged[key]
     rows = [merged[key].as_row() for key in sorted(merged)]
     return write_csv(path, render_csv(METRIC_HEADERS, rows))
@@ -672,7 +675,7 @@ def sample_subject(
     :return: What the sample produced.
     """
     if day is None:
-        day = datetime.now(tz=timezone.utc).date().isoformat()
+        day = datetime.now(timezone.utc).date().isoformat()
     try:
         metrics = repo_metrics(repo, extra_forges)
     except (RuntimeError, ValueError, KeyError, IndexError, TypeError) as error:
@@ -915,7 +918,7 @@ def backfill_wayback(
             continue
         # A served page proves the archive healthy whatever it holds.
         _WAYBACK_REFUSAL_STREAK = 0
-        stars = read_star_counter(payload.decode("utf-8", errors="replace"))
+        stars = read_star_counter(payload.decode("UTF-8", errors="replace"))
         if stars is None:
             logging.info(f"  {path} {day}: no counter found")
             continue
@@ -1064,13 +1067,18 @@ def series(
         msg = f"Metric {metric!r} has no history to chart. Pick one of: {chartable}."
         raise ValueError(msg)
 
+    # One pass over the store, then one lookup per subject: scanning every
+    # record once per subject grew with the product of the two.
+    by_repo: dict[str, list[tuple[date, int]]] = {}
+    for held in records.values():
+        if held.metric == metric:
+            by_repo.setdefault(held.repo, []).append((
+                date.fromisoformat(held.day),
+                held.count,
+            ))
     grouped: dict[str, list[tuple[date, int]]] = {}
     for name, repo in collected_subjects(subjects, predecessors).items():
-        points = sorted(
-            (date.fromisoformat(held.day), held.count)
-            for held in records.values()
-            if held.repo == repo and held.metric == metric
-        )
+        points = sorted(by_repo.get(repo, ()))
         if points:
             grouped[name] = points
 

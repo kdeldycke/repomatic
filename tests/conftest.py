@@ -18,16 +18,26 @@
 
 from __future__ import annotations
 
+import ast
+from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 from subprocess import CompletedProcess
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
 from click_extra import ClickException
 
+from repomatic import metrics, pypi
+from repomatic.bundle import get_data_content
+from repomatic.github.actions import get_github_event
 from repomatic.github.token import PatPermissionResults
+from repomatic.github.workflow_sync import (
+    canonical_caller_permissions,
+    extract_trigger_info,
+)
+from repomatic.lint_repo import _fetch_rulesets
 from repomatic.metadata import Metadata
 from repomatic.tool_runner import ensure_binary, run_tool
 
@@ -125,16 +135,35 @@ def hermetic_git(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 
 
-@pytest.fixture(autouse=True)
-def _reset_metadata():
-    """Ensure each test gets a fresh Metadata singleton.
+def _reset_process_caches() -> None:
+    """Clear every process-level memo a test could have poisoned.
 
-    Resets before and after every test so that ``@cached_property`` values
-    computed with one test's monkeypatched env vars never leak into another.
+    The production caches assume their inputs are immutable for the life of
+    the process, which is true of a CLI run and false of a test session: a
+    monkeypatched `get_data_content` or a rewritten fixture project would
+    otherwise leak one test's world into the next through them.
     """
     Metadata.reset()
+    get_github_event.cache_clear()
+    pypi._FETCH_MEMO.clear()
+    _fetch_rulesets.cache_clear()
+    get_data_content.cache_clear()
+    extract_trigger_info.cache_clear()
+    canonical_caller_permissions.cache_clear()
+    metrics._LAST_FETCH_REASONS.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_metadata():
+    """Ensure each test gets fresh singleton, event and content caches.
+
+    Resets before and after every test so that ``@cached_property`` values
+    computed with one test's monkeypatched env vars never leak into another,
+    and so the process-level memos never serve another test's stubs.
+    """
+    _reset_process_caches()
     yield
-    Metadata.reset()
+    _reset_process_caches()
 
 
 @pytest.fixture(autouse=True)
@@ -282,3 +311,49 @@ def cache_env(monkeypatch, tmp_path):
     monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(cache_dir))
     monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "0")
     return cache_dir
+
+
+@contextmanager
+def patch_gh(module: str, **mock_kwargs):
+    """Patch a module's `gh` dispatch points with one shared mock.
+
+    Read paths go through `gh_api_json` (which calls the `gh` module's
+    `run_gh_command`) while write paths call the name imported into *module*
+    directly; patching both with the same mock keeps a test's single call
+    sequence intact across the two layers. Bind the module with
+    `functools.partial` for a per-file shorthand.
+    """
+    mock_gh = Mock(**mock_kwargs)
+    with (
+        patch(f"{module}.run_gh_command", mock_gh),
+        patch("repomatic.github.gh.run_gh_command", mock_gh),
+    ):
+        yield mock_gh
+
+
+def attribute_docstrings(body: list[ast.stmt]):
+    """Yield `(line, owner, text)` for each attribute docstring in *body*.
+
+    An attribute docstring is the bare string literal following an assignment.
+    `ast.get_docstring` cannot see one, yet it is this project's convention for
+    documenting a dataclass field or a module constant, and
+    `automodule ... :undoc-members:` renders it.
+    """
+    owner = ""
+    for statement in body:
+        if (
+            owner
+            and isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Constant)
+            and isinstance(statement.value.value, str)
+        ):
+            yield statement.lineno, owner, statement.value.value
+        if isinstance(statement, ast.Assign):
+            targets = [t for t in statement.targets if isinstance(t, ast.Name)]
+            owner = targets[0].id if targets else ""
+        elif isinstance(statement, ast.AnnAssign) and isinstance(
+            statement.target, ast.Name
+        ):
+            owner = statement.target.id
+        else:
+            owner = ""

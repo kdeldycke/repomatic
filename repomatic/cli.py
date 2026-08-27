@@ -218,7 +218,7 @@ from .labels import (
 from .lint_repo import (
     KNOWN_RUNNERS,
     WORKFLOW_DIR,
-    documentation_url,
+    LintContext,
     literal_runners,
     run_repo_lint,
 )
@@ -300,7 +300,7 @@ from .tool_runner import (
     run_tool,
     verify_via_write_path,
 )
-from .version_sync import strip_dev_suffix
+from .versions import strip_dev_suffix
 from .virustotal import (
     FREE_TIER_RATE_LIMIT,
     load_scan_records,
@@ -1940,10 +1940,11 @@ _audit_sort = SortByOption(*AUDIT_HEADER_DEFS, default="package")
     "--repo",
     "repo",
     type=str,
-    default=lambda: os.environ.get("GITHUB_REPOSITORY", ""),
+    default="",
+    envvar="GITHUB_REPOSITORY",
     help=(
         "Repository in OWNER/NAME format. Enables the GitHub Advisory"
-        " Database source. Defaults to GITHUB_REPOSITORY when set."
+        " Database source. Defaults to $GITHUB_REPOSITORY."
     ),
 )
 @option(
@@ -2609,41 +2610,18 @@ def lint_repo(
         repomatic lint-repo --has-pat
     """
 
-    if repo_name is None and repo:
-        # Extract repo name from owner/repo format.
-        repo_name = repo.split("/")[-1] if "/" in repo else repo
-
-    # Derive package_name, is_sphinx, project_description, docs_url and keywords
-    # from pyproject.toml.
-    metadata = Metadata()
-    package_name = get_project_name()
-    is_sphinx = metadata.is_sphinx
-    project_description = metadata.project_description
-    project_table = metadata.pyproject_toml.get("project", {})
-    docs_url = documentation_url(project_table.get("urls"))
-    keywords = project_table.get("keywords")
-
-    config = get_tool_config(ctx)
-    nuitka_active = config.nuitka_enabled and bool(metadata.script_entries)
-
+    # Everything the checkout can answer is derived inside the context
+    # constructor; the command hands over only what it alone knows.
     exit_code = run_repo_lint(
-        package_name=package_name,
-        repo_name=repo_name,
-        is_package=metadata.is_python_package,
-        is_sphinx=is_sphinx,
-        site_deploy=config.site_deploy,
-        site_cloudflare_project=config.site_cloudflare_project,
-        site_cloudflare_compatibility_date=config.site_cloudflare_compatibility_date,
-        project_description=project_description,
-        docs_url=docs_url,
-        keywords=keywords,
-        repo=repo if repo else None,
-        has_pat=has_pat,
-        has_virustotal_key=has_virustotal_key,
-        has_cloudflare_api_token=has_cloudflare_api_token,
-        nuitka_active=nuitka_active,
-        has_notifications_pat=has_notifications_pat,
-        unsubscribe_active=config.notification_unsubscribe,
+        LintContext.from_project(
+            get_tool_config(ctx),
+            repo=repo or None,
+            repo_name=repo_name,
+            has_pat=has_pat,
+            has_virustotal_key=has_virustotal_key,
+            has_cloudflare_api_token=has_cloudflare_api_token,
+            has_notifications_pat=has_notifications_pat,
+        )
     )
     ctx.exit(exit_code)
 
@@ -5427,7 +5405,7 @@ def sync_gitignore(ctx: Context, output_path: Path | None, drop_orphans: bool) -
     # Compare against what is already there before overwriting it. Skipped for
     # stdout, which destroys nothing, and for a first run, which has nothing to
     # destroy.
-    if not drop_orphans and str(output_path) != "-" and output_path.is_file():
+    if not drop_orphans and not is_stdout(output_path) and output_path.is_file():
         orphans = orphaned_rules(output_path.read_text(encoding="UTF-8"), content)
         if orphans:
             emit_annotation(

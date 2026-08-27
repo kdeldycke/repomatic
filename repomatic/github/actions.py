@@ -253,7 +253,7 @@ def trim_to_budget(text: str, budget: int, measure: Callable[[str], int]) -> str
 
 def _utf8_len(text: str) -> int:
     """Length of *text* in UTF-8 bytes, the unit `$GITHUB_OUTPUT` is capped in."""
-    return len(text.encode("utf-8"))
+    return len(text.encode("UTF-8"))
 
 
 def trim_to_byte_budget(text: str, budget: int) -> str:

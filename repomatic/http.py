@@ -19,14 +19,16 @@
 The single implementation of the GET loop used by the PyPI
 ({mod}`repomatic.pypi`), npm ({mod}`repomatic.npm`), and GitHub Releases
 ({mod}`repomatic.github.releases`) clients, so every datasource shares the
-same timeout and truncated-body retry semantics. Caching *policy* stays with
-the callers — each client owns its cache namespace, TTL, and serialization —
-while {func}`get_cached_json` shares the raw-response caching mechanics for
-the clients that store verbatim bodies.
+same timeout, `User-Agent` and truncated-body retry semantics. Caching
+*policy* stays with the callers — each client owns its cache namespace, TTL,
+and serialization — while {func}`get_cached_json` shares the raw-response
+caching mechanics for the clients that store verbatim bodies.
 
-Most responses are JSON ({func}`get_json`); {func}`get_text` serves the one
-datasource that is a source file rather than an API payload, the
-`astral-sh/setup-uv` checksum table {mod}`repomatic.version_sync` reads.
+Most responses are JSON ({func}`get_json`); {func}`get_text` serves the
+datasources that are text rather than an API payload (the `astral-sh/setup-uv`
+checksum table {mod}`repomatic.version_sync` reads, the gitignore.io template
+{mod}`repomatic.gitignore` fetches), and {func}`get_bytes` the ones written
+back verbatim (a downloaded label-definition file).
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from http.client import IncompleteRead
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from . import __version__
 from .cache import get_cached_response, store_response
 
 TYPE_CHECKING = False
@@ -48,9 +51,15 @@ if TYPE_CHECKING:
 DEFAULT_TIMEOUT = 10
 """Socket timeout in seconds for every HTTP fetch repomatic makes.
 
-Shared by the JSON clients here and the plain-text gitignore.io fetch
-({mod}`repomatic.gitignore`): a stalled connection must fail the operation,
-not hang it.
+A stalled connection must fail the operation, not hang it.
+"""
+
+USER_AGENT = f"repomatic/{__version__}"
+"""`User-Agent` header sent with every fetch this module makes.
+
+Identifying the client beats urllib's anonymous default on every count: some
+registries throttle unidentified agents harder, and an operator reading an
+upstream access log can tell which release of this tool hit them.
 """
 
 
@@ -86,7 +95,10 @@ def _read_body(
     :raises FetchError: On HTTP error, network error, timeout, or a body
         still truncated after the retry.
     """
-    request = Request(url, headers={"Accept": accept, **(headers or {})})
+    request = Request(
+        url,
+        headers={"Accept": accept, "User-Agent": USER_AGENT, **(headers or {})},
+    )
     for retry in (True, False):
         try:
             with urlopen(request, timeout=timeout) as response:
@@ -147,6 +159,27 @@ def get_text(
         return raw.decode("UTF-8")
     except UnicodeDecodeError as exc:
         raise FetchError(str(exc)) from exc
+
+
+def get_bytes(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> bytes:
+    """GET *url* and return its raw body.
+
+    For payloads written back verbatim (a downloaded label-definition file),
+    where decoding would only risk corrupting bytes nothing here reads.
+
+    :param url: The URL to fetch.
+    :param headers: Extra request headers, merged over the wildcard `Accept`
+        default (caller wins on conflict).
+    :param timeout: Socket timeout in seconds.
+    :return: The raw response body.
+    :raises FetchError: On any failure (see the class docstring).
+    """
+    return _read_body(url, "*/*", headers, timeout)
 
 
 def get_json_soft(url: str, log_label: str) -> tuple[Any, bytes] | None:

@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import struct
 import sys
@@ -51,7 +50,6 @@ from repomatic.binary import (
     _macho_info,
     _pe_machine,
     _version_key,
-    compute_file_sha256,
     pack_binary_assets,
     verify_binary_arch,
     verify_binary_floor,
@@ -183,14 +181,6 @@ def test_version_key_ordering():
     assert max(["2.4", "2.38", "2.17"], key=_version_key) == "2.38"
 
 
-def test_compute_file_sha256(tmp_path):
-    """Compute SHA-256 of a file with known content."""
-    p = tmp_path / "test.bin"
-    p.write_bytes(b"hello world")
-    expected = hashlib.sha256(b"hello world").hexdigest()
-    assert compute_file_sha256(p) == expected
-
-
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [
@@ -251,10 +241,10 @@ def test_matching_arch(tmp_path, target, payload):
     ],
 )
 def test_mismatched_arch(tmp_path, target, payload):
-    """Binary with mismatched architecture or format raises AssertionError."""
+    """Binary with mismatched architecture or format raises ValueError."""
     binary = tmp_path / "test.bin"
     binary.write_bytes(payload)
-    with pytest.raises(AssertionError, match="Binary architecture mismatch"):
+    with pytest.raises(ValueError, match="Binary architecture mismatch"):
         verify_binary_arch(target, binary)
 
 
@@ -321,7 +311,7 @@ def test_floor_exceeded_macos(tmp_path):
     dist = tmp_path / "app.dist"
     dist.mkdir()
     (dist / "lib.dylib").write_bytes(make_macho(_macho_cpu_type(AARCH64), "26.0"))
-    with pytest.raises(AssertionError, match="OS floor exceeded") as excinfo:
+    with pytest.raises(ValueError, match="OS floor exceeded") as excinfo:
         verify_binary_floor("macos-arm64", binary, [dist])
     assert "26.0" in str(excinfo.value)
     assert "lib.dylib" in str(excinfo.value)
@@ -343,7 +333,7 @@ def test_floor_linux(tmp_path, measured, passes):
         if passes:
             verify_binary_floor("linux-x64", binary)
         else:
-            with pytest.raises(AssertionError, match="OS floor exceeded"):
+            with pytest.raises(ValueError, match="OS floor exceeded"):
                 verify_binary_floor("linux-x64", binary)
 
 

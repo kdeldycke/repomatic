@@ -69,7 +69,7 @@ from pathlib import Path
 import tomlrt
 from click_extra import echo
 
-from .dep_report import parse_iso_datetime
+from .humanize import parse_iso_datetime
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -252,7 +252,7 @@ def _parse_timestamp(value: object) -> datetime | None:
     """Read one of Cloudflare's or wrangler's timestamps, or `None` if unreadable.
 
     A thin coercing front on the package-wide
-    {func}`~repomatic.dep_report.parse_iso_datetime`, kept because both callers
+    {func}`~repomatic.humanize.parse_iso_datetime`, kept because both callers
     hand over whatever a JSON or TOML lookup answered, `None` included.
     """
     return parse_iso_datetime(str(value)) if value else None
@@ -478,10 +478,18 @@ def _ensure_dns_record(domain: str, target: str, token: str) -> bool:
     return True
 
 
+MISSING: Any = KeyError
+"""Sentinel a `_dig` walk answers when the path names nothing.
+
+A named alias of the class it always was, so the three-way tests below read
+as the absence checks they are rather than as exception handling.
+"""
+
+
 def _dig(node: Any, path: tuple[str, ...]) -> Any:
     for key in path:
         if not isinstance(node, dict) or key not in node:
-            return KeyError
+            return MISSING
         node = node[key]
     return node
 
@@ -525,7 +533,7 @@ def _is_unset(value: Any) -> bool:
     against the empty string declaring exactly that, and `--create` closes by
     reporting a fault in the project it just made correctly.
     """
-    return value is KeyError or value is None or value == ""
+    return value is MISSING or value is None or value == ""
 
 
 def _diff(
@@ -672,7 +680,7 @@ def run_cloudflare_pages(
     for setting in matched:
         echo(f"ok    {_describe(setting)} = {setting.desired!r}")
     for setting, value in drifted:
-        shown = "<absent>" if value is KeyError else repr(value)
+        shown = "<absent>" if value is MISSING else repr(value)
         echo(
             f"DRIFT {_describe(setting)}\n        live={shown} want={setting.desired!r}"
         )

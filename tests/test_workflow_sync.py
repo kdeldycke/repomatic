@@ -2064,6 +2064,9 @@ def test_canonical_caller_permissions_keeps_most_permissive(
     monkeypatch.setattr(
         "repomatic.github.workflow_sync.get_data_content", lambda _name: stub
     )
+    # The function memoizes per filename, so each parametrization's stub needs
+    # a clean slate under the shared "stub.yaml" key.
+    canonical_caller_permissions.cache_clear()
     assert canonical_caller_permissions("stub.yaml") == {"contents": expected}
 
 

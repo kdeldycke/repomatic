@@ -133,7 +133,6 @@ from .version_sync import (
     find_workflow_literals,
     format_cooldown_note,
     github_candidates,
-    is_newer,
     npm_candidates,
     parse_min_age,
     pin_inside_cooldown,
@@ -144,6 +143,7 @@ from .version_sync import (
     set_with_package_version,
     setup_uv_verified_versions,
 )
+from .versions import is_newer
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

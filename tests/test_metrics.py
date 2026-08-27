@@ -996,6 +996,21 @@ def test_render_chart_escapes_a_series_name():
     assert ">a & b" not in svg
 
 
+@pytest.mark.parametrize("peak", (0, 1))
+@pytest.mark.parametrize("logarithmic", (False, True))
+def test_render_chart_survives_a_flat_or_single_star_history(peak, logarithmic):
+    """Check a peak of 0 or 1 renders instead of dividing by zero.
+
+    A brand-new repository's history is exactly this: the zero-star creation
+    row alone, or that row plus its first star. Halving the axis step used to
+    floor it to 0, and the ceiling division then crashed on both scales.
+    """
+    grouped = {"papaya": [(date(2026, 1, 1), 0), (date(2026, 2, 1), peak)]}
+    data = build_chart_data(grouped, ChartSpec(output=Path("chart.svg")))
+    svg = render_chart(data, logarithmic=logarithmic, stamp="2026-08-16")
+    assert '<polyline class="s-papaya"' in svg
+
+
 def test_write_chart_is_convergent(tmp_path, history):
     """Check redrawing an unmoved history rewrites nothing."""
     grouped = series(history, SUBJECTS, "stars", PREDECESSORS)

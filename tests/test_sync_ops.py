@@ -71,9 +71,9 @@ from repomatic.version_sync import (
     SETUP_UV_SLUG,
     Candidate,
     apply_workflow_literals,
-    is_newer,
     select_latest,
 )
+from repomatic.versions import is_newer
 from tests.conftest import load_workflow
 
 OPERATION_NAMES = [op.name for op in SYNC_OPERATIONS]

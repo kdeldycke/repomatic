@@ -55,7 +55,7 @@ from repomatic.github.pr_body import (
     template_args,
 )
 from repomatic.metadata import Metadata
-from repomatic.version_sync import strip_dev_suffix
+from repomatic.versions import strip_dev_suffix
 
 # Full set of GITHUB_* environment variables for testing.
 GITHUB_ENV_VARS = {

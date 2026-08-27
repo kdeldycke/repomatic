@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace
+from functools import cache
 from urllib.parse import urlsplit
 
 MAX_LINE_LENGTH = 2000
@@ -64,6 +65,15 @@ SPLAT_REGEX = re.compile(r"\*")
 PLACEHOLDER_REGEX = re.compile(r":[A-Za-z]\w*")
 URL_REGEX = re.compile(r"^https://+(?P<host>[^/]+)/?(?P<path>.*)")
 HOST_WITH_PORT_REGEX = re.compile(r".*:\d+$")
+
+# The engine strips inline comments: whitespace followed by `#` ends the rule.
+INLINE_COMMENT_REGEX = re.compile(r"\s+#.*$")
+
+# A destination the engine's own .html / /index stripping would re-trigger.
+# The unescaped dot is the reference's, verbatim: fidelity to rules-engine.ts
+# beats regex hygiene here, so it also matches an `/indexXhtml` the way the
+# engine does.
+INDEX_DESTINATION_REGEX = re.compile(r"/index(.html)?$")
 
 # Everything the reference escapes before turning a source into a regex.
 ESCAPE_REGEX_CHARACTERS = re.compile(r"[-/\\^$*+?.()|[\]{}]")
@@ -178,8 +188,7 @@ def parse_redirects(text: str) -> ParseResult:
             )
             continue
 
-        # The engine strips inline comments: whitespace followed by `#` ends the rule.
-        tokens = re.sub(r"\s+#.*$", "", line).split()
+        tokens = INLINE_COMMENT_REGEX.sub("", line).split()
         if not 2 <= len(tokens) <= 3:
             result.invalid.append(
                 Invalid(
@@ -251,12 +260,9 @@ def parse_redirects(text: str) -> ParseResult:
         # The engine refuses rules whose destination would re-trigger themselves
         # through its own .html / /index stripping.
         has_relative_path = not _url_has_host(destination)
-        wildcard_to_index = source.endswith("/*") and re.search(
-            r"/index(.html)?$", destination
-        )
-        root_to_index = source.endswith("/") and re.search(
-            r"/index(.html)?$", destination
-        )
+        to_index = bool(INDEX_DESTINATION_REGEX.search(destination))
+        wildcard_to_index = source.endswith("/*") and to_index
+        root_to_index = source.endswith("/") and to_index
         if has_relative_path and (wildcard_to_index or root_to_index):
             result.invalid.append(
                 Invalid("Infinite loop detected in this rule.", line, index + 1)
@@ -306,8 +312,13 @@ def misordered_statics(rules: list[Rule]) -> list[Rule]:
     return [rule for rule in rules[first_dynamic:] if not rule.is_dynamic]
 
 
+@cache
 def rule_pattern(source: str) -> re.Pattern[str]:
-    """Compile a rule source exactly the way ``generateRuleRegExp`` does."""
+    """Compile a rule source exactly the way ``generateRuleRegExp`` does.
+
+    Memoized: {func}`apply_rule` recompiles the same dynamic rules once per
+    probed path otherwise.
+    """
     # Escape everything, turning each splat into its capture group along the way.
     pattern = "(?P<splat>.*)".join(
         ESCAPE_REGEX_CHARACTERS.sub(r"\\\g<0>", part) for part in source.split("*")

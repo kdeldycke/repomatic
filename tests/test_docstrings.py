@@ -62,7 +62,12 @@ import re
 
 import pytest
 
-from tests.conftest import PACKAGE_DIR, PACKAGE_FILES, PROJECT_ROOT
+from tests.conftest import (
+    PACKAGE_DIR,
+    PACKAGE_FILES,
+    PROJECT_ROOT,
+    attribute_docstrings,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -156,24 +161,7 @@ def _attribute_docstrings(tree: ast.Module) -> Iterator[tuple[int, str, str]]:
         body = getattr(node, "body", None)
         if not isinstance(body, list):
             continue
-        owner = ""
-        for statement in body:
-            if (
-                owner
-                and isinstance(statement, ast.Expr)
-                and isinstance(statement.value, ast.Constant)
-                and isinstance(statement.value.value, str)
-            ):
-                yield statement.lineno, owner, statement.value.value
-            if isinstance(statement, ast.Assign):
-                targets = [t for t in statement.targets if isinstance(t, ast.Name)]
-                owner = targets[0].id if targets else ""
-            elif isinstance(statement, ast.AnnAssign) and isinstance(
-                statement.target, ast.Name
-            ):
-                owner = statement.target.id
-            else:
-                owner = ""
+        yield from attribute_docstrings(body)
 
 
 def _mangled_docstrings(tree: ast.Module) -> list[str]:

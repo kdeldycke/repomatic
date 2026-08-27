@@ -36,16 +36,17 @@ import logging
 import re
 from typing import NamedTuple
 
-from packaging.version import InvalidVersion, Version
-
 from ..cache import get_cached_response, store_response
 from ..config import load_repomatic_config
 from ..http import FetchError, get_json
+from ..versions import safe_version
 from .gh import api_headers, run_gh_command
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from packaging.version import Version
 
 GITHUB_API_RELEASES_URL = "https://api.github.com/repos/{owner}/{repo}/releases"
 """GitHub API URL for fetching all releases for a repository."""
@@ -368,10 +369,7 @@ def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
 
 def parse_release_version(tag: str) -> Version | None:
     """Parse a release tag as a version, or `None` for foreign tag schemes."""
-    try:
-        return Version(tag.removeprefix("v"))
-    except InvalidVersion:
-        return None
+    return safe_version(tag.removeprefix("v"))
 
 
 def dev_release_url_and_previous_version(

@@ -51,10 +51,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import vt
-from packaging.version import InvalidVersion, Version
+from packaging.version import Version
 
-from .binary import compute_file_sha256
+from .hashing import compute_file_sha256
 from .tabular import read_csv, render_csv, write_csv
+from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -430,10 +431,7 @@ def _record_sort_key(record: ScanRecord) -> tuple[Version, str, str, str]:
     Tags that don't parse as versions sort first under `Version("0")`, with
     the raw tag string as tie-breaker.
     """
-    try:
-        version = Version(record.tag.removeprefix("v"))
-    except InvalidVersion:
-        version = Version("0")
+    version = safe_version(record.tag.removeprefix("v")) or Version("0")
     return (version, record.tag, record.filename, record.scanned)
 
 

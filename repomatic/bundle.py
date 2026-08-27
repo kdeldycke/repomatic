@@ -25,6 +25,7 @@ exportable-file registry, and `repomatic.tool_runner` resolves tool configs.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from functools import cache
 from importlib.resources import as_file, files
 
 TYPE_CHECKING = False
@@ -33,10 +34,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+@cache
 def get_data_content(filename: str) -> str:
     """Get the content of a bundled data file.
 
     This is the low-level function for reading any file from `repomatic/data/`.
+
+    Memoized for the process: bundled data is immutable for the life of an
+    installed release, and the workflow lint re-reads the same canonical
+    workflow per downstream file it checks.
 
     :param filename: Name of the file to retrieve (e.g., "labels.toml").
     :return: Content of the file as a string.

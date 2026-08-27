@@ -57,7 +57,6 @@ from click_extra import ClickException, Spinner, config_table_to_flags, progress
 from extra_platforms import is_github_ci
 from packaging.version import Version
 
-from .binary import compute_file_sha256
 from .bundle import get_data_file_path
 from .cache import (
     binary_sidecar_path,
@@ -67,7 +66,9 @@ from .cache import (
 )
 from .config import load_repomatic_config
 from .file_inventory import FileInventory
+from .hashing import compute_file_sha256
 from .metadata import Metadata
+from .pyproject import read_pyproject_toml
 from .tool_registry import (
     NPM_MIN_VERSION_FOR_COOLDOWN,
     TOOL_REGISTRY,
@@ -1209,7 +1210,7 @@ def run_tool(
             # same minimum-release-age window the sync jobs apply to pins.
             cutoff = exclude_newer_cutoff(
                 load_repomatic_config().minimum_release_age,
-                datetime.now(tz=timezone.utc).date(),
+                datetime.now(timezone.utc).date(),
             )
             cmd = _build_install_args(spec, exclude_newer=cutoff)
 
@@ -1474,7 +1475,11 @@ def _detect_config_level(spec: ToolSpec) -> tuple[int, str]:
         if Path(config_file).exists():
             return 1, f"{config_file}{shadowed}"
 
-    tool_config = load_pyproject_tool_section(spec.name)
+    # The cached plain parse, not `load_pyproject_tool_section`: detection only
+    # tests presence, and `repomatic run --list` probes every registry tool, so
+    # a trivia-preserving tomlrt re-parse per tool would read the same file
+    # dozens of times over.
+    tool_config = read_pyproject_toml().get("tool", {}).get(spec.name)
     if tool_config:
         return 2, f"[tool.{spec.name}] in pyproject.toml{shadowed}"
 

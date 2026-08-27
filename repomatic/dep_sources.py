@@ -61,7 +61,6 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import tomlrt
 from packaging.requirements import InvalidRequirement, Requirement
@@ -73,10 +72,10 @@ from .dep_report import (
     format_released,
     link_name,
     markdown_section,
-    parse_iso_datetime,
 )
 from .github.actions import AnnotationLevel
-from .pypi import get_release_dates
+from .humanize import parse_iso_datetime
+from .pypi import get_release_dates, is_pypi_url
 from .uv import (
     LockFile,
     freeze_cutoff_after,
@@ -85,7 +84,7 @@ from .uv import (
     resolve_exclude_newer_cutoff,
     uv_table,
 )
-from .version_sync import safe_version
+from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -109,16 +108,6 @@ annotation line under the table instead, where the width is the screen's
 rather than the widest cell's.
 """
 
-PYPI_INDEX_HOSTS = frozenset({"pypi.org", "www.pypi.org"})
-"""Hosts a package may be resolved from and still count as published.
-
-Anything else is a private index, a staging index (TestPyPI lives on
-`test.pypi.org`, deliberately absent) or a proxy: a user running
-`pip install` or `uvx` against the default index reaches none of them, so a
-dependency pinned there is no more installable than one pinned to a git
-branch.
-"""
-
 WHEEL_METADATA_TABLES = ("project.dependencies", "project.optional-dependencies")
 """Requirement arrays whose entries land in the published `Requires-Dist`.
 
@@ -126,6 +115,25 @@ WHEEL_METADATA_TABLES = ("project.dependencies", "project.optional-dependencies"
 deliberately absent: it never reaches distribution metadata. That is what
 separates a finding an installer trips over from one only a contributor does,
 which the report says out loud even though both block.
+"""
+
+LOWER_BOUND_OPERATORS = frozenset((">", ">="))
+"""PEP 440 operators that put a floor under a requirement.
+
+The one spelling of "lower bound" this module tests specifiers against. Three
+checks used to each carry their own operator tuple, and the sets had drifted:
+a `>`-style floor was seen by the dev-floor discovery but escaped the cooldown
+gate entirely. A site that also treats an exact pin as a bound unions
+{data}`PIN_OPERATOR` in explicitly, so the difference stays a decision rather
+than an accident.
+"""
+
+PIN_OPERATOR = frozenset(("==",))
+"""The PEP 440 operator pinning a requirement to one version.
+
+A pin demands its version the way a floor demands its minimum, so the checks
+asking "can PyPI serve what this declaration requires" test both; the checks
+looking for the managed git-branch floor idiom deliberately do not.
 """
 
 DEV_BOUND_PATTERN = re.compile(r"(?P<op>>=?)\s*(?P<version>[0-9][A-Za-z0-9.!+]*)")
@@ -286,7 +294,7 @@ def dev_floor(pyproject_path: Path, name: str) -> str | None:
             if canonicalize_name(requirement.name) != canonical:
                 continue
             for spec in requirement.specifier:
-                if spec.operator not in (">=", ">"):
+                if spec.operator not in LOWER_BOUND_OPERATORS:
                     continue
                 version = safe_version(spec.version)
                 if version is not None and version.is_devrelease:
@@ -366,7 +374,7 @@ def floors_inside_cooldown(
             if locked_parsed is None:
                 continue
             for spec in requirement.specifier:
-                if spec.operator not in (">=", "=="):
+                if spec.operator not in LOWER_BOUND_OPERATORS | PIN_OPERATOR:
                     continue
                 floor = safe_version(spec.version)
                 if floor is not None and floor >= locked_parsed:
@@ -627,15 +635,6 @@ class DepFinding:
         )
 
 
-def is_pypi_url(url: str) -> bool:
-    """Whether *url* points at the public Python Package Index.
-
-    :param url: An index or registry URL.
-    :return: `True` when its host is one of {data}`PYPI_INDEX_HOSTS`.
-    """
-    return urlsplit(url).hostname in PYPI_INDEX_HOSTS
-
-
 def classify_source(value: object) -> SourceKind | None:
     """Read a `[tool.uv.sources]` entry or a `uv.lock` source table.
 
@@ -711,7 +710,7 @@ def _unreleased_floor(requirement: str) -> bool:
     if parsed is None:
         return False
     for spec in parsed.specifier:
-        if spec.operator not in (">=", ">", "=="):
+        if spec.operator not in LOWER_BOUND_OPERATORS | PIN_OPERATOR:
             continue
         version = safe_version(spec.version)
         if version is not None and (version.is_devrelease or version.is_prerelease):

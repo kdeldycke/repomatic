@@ -44,6 +44,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 
 import yaml
@@ -62,6 +63,7 @@ from .actions import AnnotationLevel, emit_annotation
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from typing import Any, Final
 
 
@@ -295,8 +297,12 @@ def _parse_workflow(workflow_path: Path) -> dict[str, Any] | LintResult:
     return data
 
 
+@cache
 def canonical_caller_permissions(filename: str) -> dict[str, str]:
     """Union the job-level `permissions:` scopes of a canonical workflow.
+
+    Memoized like {func}`extract_trigger_info`, and under the same read-only
+    contract on the shared result.
 
     A caller job hands its own permissions down to the reusable workflow it
     calls, and the called workflow's jobs are capped by them: they cannot
@@ -328,11 +334,20 @@ def canonical_caller_permissions(filename: str) -> dict[str, str]:
     return dict(sorted(union.items()))
 
 
+@cache
 def extract_trigger_info(filename: str) -> WorkflowTriggerInfo:
     """Extract trigger information from a bundled canonical workflow.
 
     Parses the workflow YAML and separates `workflow_call` configuration from
     other triggers.
+
+    Memoized: the workflow lint asks for the same canonical's triggers once
+    per check, per downstream file.
+
+    ```{caution}
+    The returned `WorkflowTriggerInfo` is shared between callers and holds
+    mutable dicts: treat it as read-only, the way every reader does today.
+    ```
 
     :param filename: Workflow filename (e.g., `release.yaml`).
     :return: Parsed trigger information.
@@ -826,6 +841,48 @@ def render_thin_caller_for_target(
     return content, existing
 
 
+def _job_body_end(
+    lines: Sequence[str], start: int, *, claim_indent_comments: bool
+) -> int:
+    """Index of the last line belonging to the job whose key sits at *start*.
+
+    The one boundary rule for walking a job's raw body, shared by
+    {func}`_extract_raw_job` and {func}`extract_extra_jobs`: both decide where
+    a managed job ends in files `repomatic init` rewrites downstream, so two
+    hand-kept copies of the rule risked duplicating or truncating job bodies
+    the day they diverged. Anything indented deeper than the two-space job key
+    is body whatever its exact depth (a hand-edited 3-space line must not end
+    the walk early), a blank line rides along without extending the body, and
+    a sibling key at the job indent or a dedent to column 0 ends it.
+
+    The single deliberate divergence between the two callers is a comment at
+    exactly the job indent. Extracting a bundled canonical job keeps it
+    (*claim_indent_comments*), matching how those files are written; the
+    extras split leaves it out, so a heading comment above a downstream job
+    survives with that job rather than being swallowed by the managed one.
+
+    :param lines: The workflow's lines.
+    :param start: Index of the ``  {job}:`` key line.
+    :param claim_indent_comments: Whether a job-indent comment counts as body.
+    :return: Index of the body's last line; *start* itself for an empty body.
+    """
+    end = start
+    for i in range(start + 1, len(lines)):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped:
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent > 2:
+            end = i
+            continue
+        if indent == 2 and stripped.startswith("#") and claim_indent_comments:
+            end = i
+            continue
+        break
+    return end
+
+
 def _extract_raw_job(content: str, job_name: str) -> str | None:
     """Extract a single job mapping from a workflow as raw text.
 
@@ -846,26 +903,8 @@ def _extract_raw_job(content: str, job_name: str) -> str | None:
     )
     if start is None:
         return None
-
-    result = [lines[start]]
-    for line in lines[start + 1 :]:
-        stripped = line.strip()
-        # A sibling job key sits at exactly the two-space job indent; anything
-        # more indented is this job's body. A dedent to column 0 (the next
-        # top-level key) also ends the jobs block.
-        sibling = (
-            line.startswith("  ")
-            and not line.startswith("   ")
-            and bool(stripped)
-            and not stripped.startswith("#")
-        )
-        if sibling or (line and not line[0].isspace()):
-            break
-        result.append(line)
-
-    while result and not result[-1].strip():
-        result.pop()
-    return "\n".join(result)
+    end = _job_body_end(lines, start, claim_indent_comments=True)
+    return "\n".join(lines[start : end + 1])
 
 
 _LOCAL_PUBLISH_PYPI_ACTION: Final[str] = "./.github/actions/publish-pypi"
@@ -1348,23 +1387,11 @@ def extract_extra_jobs(
                 break
         if managed_idx is None:
             continue
-        body_idx = managed_idx
-        for i in range(managed_idx + 1, len(all_lines)):
-            line = all_lines[i]
-            # Anything indented deeper than the two-space job key is body,
-            # whatever its exact depth: a hand-edited 3-space line must not
-            # end the walk early, or the managed job's tail is misread as
-            # extra content and duplicated below the regenerated lanes.
-            # Mirrors `_extract_raw_job`'s boundary rule. Comments at the
-            # job indent stay outside the body, so a heading comment above a
-            # downstream job survives with that job.
-            if line and line[0] == " " and len(line) - len(line.lstrip()) > 2:
-                body_idx = i
-            elif line == "":
-                continue
-            else:
-                break
-        last_body_idx = body_idx
+        # The shared boundary rule; see _job_body_end for why comments at the
+        # job indent stay outside the body on this side of the split.
+        last_body_idx = _job_body_end(
+            all_lines, managed_idx, claim_indent_comments=False
+        )
 
     if last_body_idx < 0:
         return ""

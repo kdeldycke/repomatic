@@ -40,7 +40,6 @@ from functools import cache
 from typing import NamedTuple
 
 from click_extra import parse_friendly_duration
-from packaging.version import InvalidVersion, Version
 
 from .github.gh import api_headers
 from .github.releases import (
@@ -52,10 +51,13 @@ from .http import FetchError, get_text
 from .humanize import SECONDS_PER_DAY
 from .npm import get_release_dates as npm_release_dates
 from .pypi import get_release_dates as pypi_release_dates
+from .versions import is_newer, safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+
+    from packaging.version import Version
 
 MINIMUM_RELEASE_AGE_URL = "https://repomatic.net/configuration#minimum-release-age"
 """Docs anchor for the `minimum-release-age` cooldown, linked from PR bodies."""
@@ -84,9 +86,6 @@ The `slug/slug@<40-hex>` shape only matches `owner/repo` actions, so local
 `./…` refs and reusable-workflow refs carrying a subpath
 (`owner/repo/.github/workflows/x.yaml@…`) are skipped automatically.
 """
-
-DEV_SUFFIX_RE = re.compile(r"\.dev\d*$")
-"""Match the trailing PEP 440 developmental-release segment of a version."""
 
 # npm install commands: `npm install awesome-lint@2.3.0`.
 #
@@ -578,54 +577,6 @@ def setup_uv_verified_versions(shas: Iterable[str]) -> frozenset[str] | None:
     if not tables:
         return None
     return frozenset.intersection(*tables)
-
-
-def safe_version(value: str) -> Version | None:
-    """Parse a PEP 440 version, returning `None` for anything unparsable.
-
-    Every version this package reads comes from somewhere it does not control
-    (a lock file, a package index, a git tag), so the parse has to tolerate
-    junk. Collapsing the `try`/`except InvalidVersion` into one helper keeps
-    the callers reading as the filters they are.
-
-    ```{note}
-    The modules *below* this one in the import graph (`pypi`, `git_ops`,
-    `virustotal`, `github.releases`) keep a local two-line copy of this parse:
-    importing it from here would either close an import cycle or drag this
-    module's index clients into dependency-light modules.
-    ```
-
-    :param value: A version string.
-    :return: The parsed {class}`~packaging.version.Version`, or `None` when
-        *value* is empty or not PEP 440.
-    """
-    if not value:
-        return None
-    try:
-        return Version(value)
-    except InvalidVersion:
-        return None
-
-
-def is_newer(new: str, old: str) -> bool:
-    """Return `True` when *new* is a strictly higher version than *old*.
-
-    Unparsable versions compare as not-newer, so a malformed candidate never
-    triggers a bump.
-    """
-    new_v, old_v = safe_version(new), safe_version(old)
-    if new_v is None or old_v is None:
-        return False
-    return new_v > old_v
-
-
-def strip_dev_suffix(version: str) -> str:
-    """Drop any PEP 440 `.devN` segment from *version*.
-
-    `"5.10.0.dev0"` becomes `"5.10.0"`. A version carrying no developmental
-    segment is returned unchanged, so the call is safe to apply blindly.
-    """
-    return DEV_SUFFIX_RE.sub("", version)
 
 
 def set_tool_version(content: str, name: str, new_version: str) -> str:

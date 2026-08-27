@@ -40,7 +40,6 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from operator import itemgetter
-from pathlib import Path
 
 from ..metadata import Metadata
 from .gh import parse_create_output, run_gh_command
@@ -53,6 +52,7 @@ from .pr_body import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
     from typing import Any
 
 

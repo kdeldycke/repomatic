@@ -17,8 +17,15 @@
 - `show-test-matrix` gains `--row-axis` and `--col-axis`, laying the grid out on any job key the matrix carries instead of the fixed Python-by-OS view.
 - `show-test-matrix` states how many jobs a cell stands for (`✅ stable ×5`), so a cell collapsing an axis the grid cannot show no longer reads as a single job.
 - `show-test-matrix --flat` lists one row per job under a column per axis, showing every axis of a matrix that a two-axis grid has to collapse.
+- `metadata` and every glob-driven check now walk the repository tree once and skip `.git/`, an order-of-magnitude speedup on the tree scan.
+- Every HTTP fetch now identifies itself with a `repomatic/{version}` user agent.
+- The `lint-repo` stale gh-pages check now passes only on a confirmed `404`: any other API failure reports as skipped instead of green.
+- Fix `lint-repo` flagging every `test-matrix.exclude` entry as stale on a `full-include` matrix, and the finding now names the missing axis values.
+- Fix `lint-deps` missing a dependency floor declared with `>` when checking floors against the cooldown window.
+- Fix the `sample-metrics` chart crashing on a series whose peak is `0` or `1`.
+- Dependency-update pull requests no longer list yanked or pre-release versions in their intermediate release notes.
 - Fix `show-test-matrix` leaving a cell bare when several jobs share it: every state of a `stable, unstable` cell now carries its own glyph.
-- Fix the `plugin` component writing tab-indented settings into a repository whose `[tool.biome.formatter]` asks for spaces, which had `sync-repomatic` and `format-json` reindenting the file past each other on every run. The indent now follows the repository's own Biome config, native `biome.json` included.
+- Fix the `plugin` component writing tab-indented settings into a repository whose `[tool.biome.formatter]` asks for spaces, which had `sync-repomatic` and `format-json` reindenting the file past each other on every run. The indent now follows the repository's own Biome config, native `biome.json` and `biome.jsonc` included.
 - Fix `lint-deps` asking an aggregate extra selecting the project's own extras for a version floor, which a project can never declare on itself.
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.
 - Fix `format-images` dropping its optimization summary table from the PR body, lost in `7.11.0` when its two PR-publishing steps collapsed into one.

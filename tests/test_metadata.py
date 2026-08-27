@@ -2159,12 +2159,13 @@ exclude = [
     metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
     # ubuntu-26.04 is a live axis value, so its exclude is honored. The renamed
-    # macos-15-intel and the bogus Python version match no axis and are flagged.
+    # macos-15-intel and the bogus Python version match no axis and are flagged,
+    # each paired with the values no axis carries.
     # `ubuntu-slim` would fail here too: a known runner, but no longer a cell.
     stale = metadata.stale_test_matrix_excludes
-    assert {"os": "ubuntu-26.04"} not in stale
-    assert {"os": "macos-15-intel"} in stale
-    assert {"python-version": "9.99"} in stale
+    assert all(entry != {"os": "ubuntu-26.04"} for entry, _bad in stale)
+    assert ({"os": "macos-15-intel"}, {"os": "macos-15-intel"}) in stale
+    assert ({"python-version": "9.99"}, {"python-version": "9.99"}) in stale
 
 
 def test_unstable_targets_default(tmp_path, monkeypatch):

@@ -41,7 +41,9 @@ import subprocess
 from pathlib import Path
 from typing import NamedTuple
 
-from packaging.version import InvalidVersion, Version
+from packaging.version import Version
+
+from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -643,10 +645,11 @@ def get_latest_tag_version() -> Version | None:
         # a tag like `v1.2.3_hotfix` still matches: skip what the parser
         # refuses rather than letting one odd tag break every metadata
         # consumer (mirrors `releases.parse_release_version`).
-        try:
-            versions.append(Version(tag.removeprefix("v")))
-        except InvalidVersion:
+        parsed = safe_version(tag.removeprefix("v"))
+        if parsed is None:
             logging.debug(f"Skipping non-PEP 440 tag: {tag}")
+        else:
+            versions.append(parsed)
 
     if not versions:
         return None
@@ -696,7 +699,7 @@ def get_all_version_tags() -> dict[str, str]:
     """
     result = _git(
         "tag",
-        "-l",
+        "--list",
         "v[0-9]*.[0-9]*.[0-9]*",
         "--format=%(refname:short) %(creatordate:short)",
         check=False,

@@ -43,7 +43,12 @@ import ast
 
 import pytest
 
-from tests.conftest import PACKAGE_DIR, PACKAGE_FILES, PROJECT_ROOT
+from tests.conftest import (
+    PACKAGE_DIR,
+    PACKAGE_FILES,
+    PROJECT_ROOT,
+    attribute_docstrings,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -94,34 +99,6 @@ def _module_path(source_file: Path) -> str:
     return ".".join(parts)
 
 
-def _attribute_docstrings(body: list[ast.stmt]) -> Iterator[tuple[int, str, str]]:
-    """Yield `(line, owner, text)` for each attribute docstring in *body*.
-
-    An attribute docstring is the bare string literal following an assignment.
-    `ast.get_docstring` cannot see one, yet it is this project's convention for
-    documenting a dataclass field or a module constant, and
-    `automodule ... :undoc-members:` renders it.
-    """
-    owner = ""
-    for statement in body:
-        if (
-            owner
-            and isinstance(statement, ast.Expr)
-            and isinstance(statement.value, ast.Constant)
-            and isinstance(statement.value.value, str)
-        ):
-            yield statement.lineno, owner, statement.value.value
-        if isinstance(statement, ast.Assign):
-            targets = [t for t in statement.targets if isinstance(t, ast.Name)]
-            owner = targets[0].id if targets else ""
-        elif isinstance(statement, ast.AnnAssign) and isinstance(
-            statement.target, ast.Name
-        ):
-            owner = statement.target.id
-        else:
-            owner = ""
-
-
 def _todo_owners(tree: ast.Module, module: str) -> Iterator[tuple[int, str]]:
     """Yield `(line, dotted_owner)` for every todo admonition in *tree*.
 
@@ -139,7 +116,7 @@ def _todo_owners(tree: ast.Module, module: str) -> Iterator[tuple[int, str]]:
             docstring = ast.get_docstring(node, clean=False)
             if docstring and TODO_MARKER in docstring:
                 yield getattr(node, "lineno", 1), prefix
-        for line, owner, text in _attribute_docstrings(body):
+        for line, owner, text in attribute_docstrings(body):
             if TODO_MARKER in text:
                 yield line, f"{prefix}.{owner}"
         # Only a class body nests further: `autodoc` never reaches a name

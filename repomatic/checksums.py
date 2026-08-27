@@ -38,8 +38,12 @@ from click_extra import (
     run_jobs,
 )
 
-from .tool_registry import TOOL_REGISTRY, PlatformKey, ToolSpec
+from .tool_registry import TOOL_REGISTRY
 from .tool_runner import download_to
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from .tool_registry import PlatformKey, ToolSpec
 
 
 def _download_sha256(url: str) -> str:

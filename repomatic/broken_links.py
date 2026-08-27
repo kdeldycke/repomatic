@@ -38,6 +38,7 @@ from click_extra import TableFormat, render_table
 from .github.issue import manage_issue_lifecycle
 from .github.pr_body import render_template, sanitize_markdown_mentions
 from .metadata import Metadata
+from .registry import is_awesome_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -189,7 +190,7 @@ def get_label(repo_name: str) -> str:
     :param repo_name: The repository name.
     :return: `"🩹 fix link"` for `awesome-*` repos, else `"📚 documentation"`.
     """
-    if repo_name.startswith("awesome-"):
+    if is_awesome_repo(repo_name):
         return "🩹 fix link"
     return "📚 documentation"
 

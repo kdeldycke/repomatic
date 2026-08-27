@@ -99,6 +99,7 @@ from pathlib import Path
 from . import __version__
 from .pyproject import read_pyproject_toml
 from .registry import COMPONENTS_BY_NAME
+from .tool_registry import TOOL_REGISTRY
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -347,8 +348,18 @@ def _biome_json_indent(root: Path) -> str:
     :return: The literal string one level of indentation is written with.
     """
     config: Mapping[str, Any] = {}
-    native = root / "biome.json"
-    if native.is_file():
+    # Probe every filename the registry declares for Biome, in its order: a
+    # repository configured through `biome.jsonc` used to fall through to the
+    # `[tool.biome]` branch and could get an indent `format-json` then fought.
+    native = next(
+        (
+            candidate
+            for name in TOOL_REGISTRY["biome"].native_config_files
+            if (candidate := root / name).is_file()
+        ),
+        None,
+    )
+    if native is not None:
         try:
             loaded = json.loads(native.read_text(encoding="UTF-8"))
         except (OSError, ValueError):

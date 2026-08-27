@@ -19,8 +19,8 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
-from unittest.mock import Mock, call, patch
+from functools import partial
+from unittest.mock import call, patch
 
 import pytest
 
@@ -31,6 +31,7 @@ from repomatic.github.dev_release import (
     sync_dev_release,
     upload_release_assets,
 )
+from tests.conftest import patch_gh as shared_patch_gh
 
 UNRELEASED_CHANGELOG = """\
 # Changelog
@@ -76,21 +77,8 @@ def _delete_call(tag: str, repo: str = "user/repo") -> list[str]:
     return ["release", "delete", tag, "--cleanup-tag", "--yes", "--repo", repo]
 
 
-@contextmanager
-def patch_gh(**mock_kwargs):
-    """Patch every `gh` dispatch point of the module with one shared mock.
-
-    The read paths go through `gh_api_json` (which calls the `gh` module's
-    `run_gh_command`) while the write paths call the name imported into
-    `dev_release` directly; patching both with the same mock keeps the tests'
-    single call sequence intact across the two layers.
-    """
-    mock_gh = Mock(**mock_kwargs)
-    with (
-        patch("repomatic.github.dev_release.run_gh_command", mock_gh),
-        patch("repomatic.github.gh.run_gh_command", mock_gh),
-    ):
-        yield mock_gh
+patch_gh = partial(shared_patch_gh, "repomatic.github.dev_release")
+"""The conftest `patch_gh`, bound to this module's dispatch points."""
 
 
 def test_sync_dev_release_dry_run(unreleased_changelog):

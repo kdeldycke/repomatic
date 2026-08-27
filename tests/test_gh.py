@@ -41,10 +41,10 @@ def _no_status_probe():
     """Neutralize the githubstatus.com probe by default.
 
     Tests that exercise the incident annotation override this fixture by
-    patching ``repomatic.github.gh.status_annotation`` themselves.
+    patching ``repomatic.github.status.status_annotation`` themselves.
     """
     with patch(
-        "repomatic.github.gh.status_annotation",
+        "repomatic.github.status.status_annotation",
         return_value="",
     ):
         yield
@@ -308,7 +308,7 @@ def test_401_fallback_also_fails():
     """When fallback also fails, original 401 error is raised."""
     with (
         patch("repomatic.github.gh.run") as mock_run,
-        patch("repomatic.github.gh.status_annotation", return_value=""),
+        patch("repomatic.github.status.status_annotation", return_value=""),
         patch.dict(
             "os.environ",
             {"GH_TOKEN": "expired-pat", "GITHUB_TOKEN": "gha-token"},
@@ -331,7 +331,7 @@ def test_failure_message_includes_github_status_annotation():
     )
     with (
         patch("repomatic.github.gh.run") as mock_run,
-        patch("repomatic.github.gh.status_annotation", return_value=annotation),
+        patch("repomatic.github.status.status_annotation", return_value=annotation),
     ):
         mock_run.return_value = _make_result(returncode=1, stderr="some error")
         with pytest.raises(RuntimeError) as excinfo:
@@ -345,7 +345,7 @@ def test_failure_message_omits_status_when_no_incident():
     """The healthy status annotation (empty string) leaves the error untouched."""
     with (
         patch("repomatic.github.gh.run") as mock_run,
-        patch("repomatic.github.gh.status_annotation", return_value=""),
+        patch("repomatic.github.status.status_annotation", return_value=""),
     ):
         mock_run.return_value = _make_result(returncode=1, stderr="some error\n")
         with pytest.raises(RuntimeError) as excinfo:
@@ -644,9 +644,9 @@ def test_iter_graphql_nodes_variable_flags():
             )
         )
     args = mock_gh.call_args.args[0]
-    assert args[args.index("owner=melon") - 1] == "-f"
-    assert args[args.index("count=5") - 1] == "-F"
-    assert args[args.index("flag=True") - 1] == "-F"
+    assert args[args.index("owner=melon") - 1] == "--raw-field"
+    assert args[args.index("count=5") - 1] == "--field"
+    assert args[args.index("flag=True") - 1] == "--field"
 
 
 def test_iter_graphql_nodes_missing_connection_yields_nothing():

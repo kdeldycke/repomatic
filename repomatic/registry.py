@@ -1184,7 +1184,28 @@ the workflow's downstream path as `target` (`.github/workflows/{name}`).
 DEFAULT_REPO: str = "kdeldycke/repomatic"
 """Default upstream repository for reusable workflows."""
 
-UPSTREAM_PACKAGE: str = DEFAULT_REPO.rsplit("/", 1)[-1]
+
+def is_awesome_repo(name: str) -> bool:
+    """Whether a repository name marks an `awesome-*` curated list.
+
+    The one spelling of the prefix test: repository-trait detection, the
+    broken-links label choice and the awesome-template auto-inclusion all
+    classify on it.
+    """
+    return name.startswith("awesome-")
+
+
+def package_of(repo: str) -> str:
+    """The package name an `owner/repo` slug implies: its repository half.
+
+    The one spelling of that derivation, shared by every check and rewriter
+    that maps a `--upstream-repo` value onto the inline `package==X.Y.Z` pin
+    it governs.
+    """
+    return repo.rsplit("/", 1)[-1]
+
+
+UPSTREAM_PACKAGE: str = package_of(DEFAULT_REPO)
 """Distribution name of the upstream toolkit, derived from {data}`DEFAULT_REPO`.
 
 The freeze, cooldown-exemption, and lint code that handles the `uses:` refs

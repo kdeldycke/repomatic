@@ -383,7 +383,7 @@ def render_chart(
     :return: The complete SVG document.
     """
     if stamp is None:
-        stamp = datetime.now(tz=timezone.utc).date().isoformat()
+        stamp = datetime.now(timezone.utc).date().isoformat()
     grouped = data.points
 
     width, height = 960, 460
@@ -421,9 +421,12 @@ def render_chart(
     # Round the axis up to a decade-ish step so the top gridline is a whole
     # number the eye can anchor on. Annotated because `int ** int` widens to
     # `Any` (a negative exponent would yield a float), which would otherwise
-    # leak all the way into the plotted coordinates.
+    # leak all the way into the plotted coordinates. The halving floors at 1:
+    # a peak of 0 or 1 would otherwise halve the step to 0 and crash the
+    # ceiling division, which is the chart of a brand-new repository whose
+    # only reading is its zero-star creation row.
     step: int = 10 ** (len(str(peak)) - 1)
-    step = step // 2 if peak / step < 2 else step
+    step = max(step // 2, 1) if peak / step < 2 else step
     ceiling: int = ((peak // step) + 1) * step
 
     # A logarithmic axis stops at the peak itself rather than at the next whole

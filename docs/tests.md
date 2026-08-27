@@ -252,6 +252,15 @@
    :undoc-members:
 ```
 
+## `tests.test_hashing` module
+
+```{eval-rst}
+.. automodule:: tests.test_hashing
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `tests.test_help` module
 
 ```{eval-rst}
@@ -616,6 +625,15 @@
 
 ```{eval-rst}
 .. automodule:: tests.test_version_sync
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `tests.test_versions` module
+
+```{eval-rst}
+.. automodule:: tests.test_versions
    :members:
    :show-inheritance:
    :undoc-members:

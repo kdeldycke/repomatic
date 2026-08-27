@@ -65,6 +65,7 @@ from .uv import (
     packages_outside_cooldown,
     parse_lock_versions,
     uv_cmd,
+    uv_executable,
     uv_lock_command,
 )
 
@@ -282,7 +283,7 @@ def _uv_version() -> Version:
     :raises RuntimeError: when `uv --version` output cannot be parsed.
     """
     result = subprocess.run(
-        ["uv", "--version"],
+        [uv_executable(), "--version"],
         capture_output=True,
         text=True,
         encoding="UTF-8",

@@ -121,7 +121,7 @@ def generated_header(command: str, comment_prefix: str = "# ") -> str:
     :param comment_prefix: Comment prefix for the target format.
     """
     line1 = GENERATED_HEADER_TEMPLATE.format(command=command, version=__version__)
-    line2 = f"Timestamp: {datetime.now(tz=timezone.utc).isoformat()}"
+    line2 = f"Timestamp: {datetime.now(timezone.utc).isoformat()}"
     return f"{comment_prefix}{line1}\n{comment_prefix}{line2}\n"
 
 

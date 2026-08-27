@@ -236,16 +236,9 @@ class Matrix:
         effective: list[dict[str, str]] = []
         noops: list[tuple[dict[str, str], str]] = []
         for exclude in self.exclude:
-            noop_key = None
-            for key, value in exclude.items():
-                if key not in self.variations:
-                    noop_key = key
-                    break
-                if value not in self.variations[key]:
-                    noop_key = key
-                    break
-            if noop_key:
-                noops.append((exclude, noop_key))
+            stale = stale_axis_values(exclude, self.variations)
+            if stale:
+                noops.append((exclude, next(iter(stale))))
             else:
                 effective.append(exclude)
         for exclude, noop_key in noops:

@@ -54,11 +54,11 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
-from click_extra import TableFormat, render_table
-
 from .humanize import format_file_size
+from .tabular import render_markdown_table
 from .tool_registry import TOOL_REGISTRY
 from .tool_runner import ensure_binary
 
@@ -97,8 +97,13 @@ class OptimizationResult:
         return (self.saved_bytes / self.before_bytes) * 100
 
 
+@cache
 def _check_tool(name: str) -> bool:
     """Whether *name* can be run, from the registry or from `$PATH`.
+
+    Memoized per process, following {func}`~repomatic.tool_runner.ensure_binary`
+    and for the same reason: the optimizer loop asks once per image, and a
+    `$PATH` walk per JPEG answers the same question every time.
 
     A tool the registry ships as a binary is always obtainable, so it never
     depends on what the machine happens to have installed:
@@ -293,11 +298,10 @@ def generate_markdown_summary(results: list[OptimizationResult]) -> str:
         ]
         for r in results
     ]
-    table = render_table(
+    table = render_markdown_table(
+        ["Filename", "Before", "After", "Improvement"],
         rows,
-        headers=["Filename", "Before", "After", "Improvement"],
-        table_format=TableFormat.GITHUB,
-        colalign=("left", "right", "right", "right"),
+        align=("left", "right", "right", "right"),
     )
     headline = (
         f"Compression reduced images by **{total_pct:.1f}%**, "

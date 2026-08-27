@@ -38,8 +38,9 @@ imported here for globbing, once it reads gitignore files natively:
 from __future__ import annotations
 
 import logging
+import os
 from functools import cached_property
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from py_walk import get_parser_from_file
 from py_walk.models import Parser
@@ -51,8 +52,17 @@ from wcmatch.glob import (
     GLOBTILDE,
     NEGATE,
     NODIR,
+    globmatch,
     iglob,
 )
+
+_GLOB_FLAGS = NODIR | GLOBSTAR | DOTGLOB | GLOBTILDE | BRACE | FOLLOW | NEGATE
+"""One flag set for the walk and the per-group matches.
+
+The walk collects candidates with {func}`~wcmatch.glob.iglob` and each group
+filters them with {func}`~wcmatch.glob.globmatch`; sharing the flags is what
+keeps the two reading a pattern the same way.
+"""
 
 GITIGNORE_PATH = Path(".gitignore")
 """Path of the `.gitignore` file whose rules filter every inventory lookup.
@@ -71,6 +81,35 @@ class FileInventory:
     the lookups resolve against the current directory at call time.
     """
 
+    def __init__(self) -> None:
+        self._dir_ignored: dict[str, bool] = {}
+        """Per-directory verdicts: the directory, or one of its ancestors, is
+        gitignored.
+
+        The py-walk match costs about half a millisecond per path, and the
+        candidates a walk yields inside an ignored tree (a virtualenv, a Sphinx
+        build directory) outnumber the kept files by orders of magnitude. Git
+        never re-includes anything below an ignored directory, so a single
+        `True` recorded for `.venv` answers for its entire subtree through
+        dictionary lookups instead of one parser match per file.
+        """
+
+        self._file_ignored: dict[str, bool] = {}
+        """Per-file gitignore verdicts, shared across the group lookups.
+
+        Overlapping groups re-encounter the same files (every Markdown file is
+        also a doc file), so each path is judged once per inventory rather
+        than once per group.
+        """
+
+        self._zsh_shebangs: dict[Path, bool | None] = {}
+        """Per-file shebang verdicts, shared by the two shell groups.
+
+        {attr}`shfmt_files` and {attr}`zsh_files` probe the same `.sh` files
+        from opposite directions, so each file is opened once per inventory
+        rather than once per group.
+        """
+
     @cached_property
     def gitignore_exists(self) -> bool:
         return GITIGNORE_PATH.is_file()
@@ -83,14 +122,72 @@ class FileInventory:
             return get_parser_from_file(GITIGNORE_PATH)
         return None
 
+    def _in_ignored_dir(self, file_path: str) -> bool:
+        """Whether *file_path* sits below a gitignored directory.
+
+        Walks the parent chain up to the nearest already-judged ancestor, then
+        fills the verdicts back down (see `_dir_ignored`). A directory only
+        pays a parser match when no ancestor already answered `True`.
+        """
+        parent = PurePath(file_path).parent
+        verdicts = self._dir_ignored
+        chain: list[str] = []
+        node = parent
+        while True:
+            key = str(node)
+            if key == "." or key in verdicts or node.parent == node:
+                break
+            chain.append(key)
+            node = node.parent
+        ignored = verdicts.get(str(node), False)
+        parser = self.gitignore_parser
+        for key in reversed(chain):
+            if not ignored and parser is not None:
+                ignored = bool(parser.match(key))
+            verdicts[key] = ignored
+        return verdicts.get(str(parent), ignored)
+
     def gitignore_match(self, file_path: Path | str) -> bool:
-        return bool(self.gitignore_parser and self.gitignore_parser.match(file_path))
+        if self.gitignore_parser is None:
+            return False
+        key = str(file_path)
+        verdict = self._file_ignored.get(key)
+        if verdict is None:
+            verdict = self._in_ignored_dir(key) or bool(
+                self.gitignore_parser.match(key)
+            )
+            self._file_ignored[key] = verdict
+        return verdict
+
+    @cached_property
+    def _all_files(self) -> tuple[str, ...]:
+        """Every non-ignored file under the working directory, walked once.
+
+        The candidate pool every {meth}`glob_files` call filters. Each group
+        lookup used to run its own full-tree traversal, re-descending the
+        ignored trees (a virtualenv holds thousands of files a walk visits and
+        the filter then discards) once per group: ten lookups, ten walks. One
+        walk feeds them all, and the per-group patterns match in memory.
+
+        `.git/` internals are dropped up front: they are git's bookkeeping,
+        never repository content, and no `.gitignore` rule covers them, so
+        each of those hundreds of object files would otherwise pay a full
+        parser match just to be discarded by every group pattern.
+        """
+        git_dir = f".git{os.sep}"
+        return tuple(
+            file_path
+            for file_path in iglob(["**/*"], flags=_GLOB_FLAGS)
+            if not file_path.startswith(git_dir) and not self.gitignore_match(file_path)
+        )
 
     def glob_files(self, *patterns: str) -> list[Path]:
         """Return all file path matching the `patterns`.
 
         Patterns are glob patterns supporting `**` for recursive search, and `!`
-        for negation.
+        for negation, resolved against the current working directory: they
+        select from one shared walk of it (see {attr}`_all_files`), so an
+        absolute pattern matches nothing.
 
         All directories are traversed, whether they are hidden (i.e. starting with a
         dot `.`) or not, including symlinks.
@@ -115,10 +212,10 @@ class FileInventory:
         current_dir = Path.cwd()
         seen = set()
 
-        for file_path in iglob(
-            patterns,
-            flags=NODIR | GLOBSTAR | DOTGLOB | GLOBTILDE | BRACE | FOLLOW | NEGATE,
-        ):
+        for file_path in self._all_files:
+            if not globmatch(file_path, patterns, flags=_GLOB_FLAGS):
+                continue
+
             # Normalize the path to avoid duplicates.
             try:
                 absolute_path = Path(file_path).resolve(strict=True)
@@ -141,11 +238,6 @@ class FileInventory:
 
             if normalized_path in seen:
                 logging.debug(f"Skip duplicate file: {normalized_path}")
-                continue
-
-            # Skip files that are ignored by .gitignore.
-            if self.gitignore_match(file_path):
-                logging.debug(f"Skip file matching {GITIGNORE_PATH}: {file_path}")
                 continue
 
             seen.add(normalized_path)
@@ -208,27 +300,33 @@ class FileInventory:
         """
         return self.glob_files("**/*.{jpeg,jpg,png,webp,avif}")
 
-    @staticmethod
-    def shebang_names_zsh(path: Path) -> bool | None:
+    def shebang_names_zsh(self, path: Path) -> bool | None:
         """Whether *path* opens with a shebang line naming zsh.
 
         The `.sh` extension is ambiguous: it says POSIX shell while the
         shebang picks the actual interpreter. Reading that first line is what
         keeps {attr}`shfmt_files` and {attr}`zsh_files` disjoint, so a bash
         script is never handed to the Zsh linter and a zsh script is never
-        handed to `shfmt`.
+        handed to `shfmt`. Verdicts are memoized per inventory (see
+        `_zsh_shebangs`).
 
         :param path: File to probe.
         :return: `True` when the shebang names zsh, `False` when it does not,
             and `None` when the file cannot be read. Both callers drop an
             unreadable file rather than guess at its dialect.
         """
+        if path in self._zsh_shebangs:
+            return self._zsh_shebangs[path]
+        verdict: bool | None
         try:
             with path.open("rb") as fh:
                 first_line = fh.readline(256)
         except OSError:
-            return None
-        return first_line.startswith(b"#!") and b"zsh" in first_line
+            verdict = None
+        else:
+            verdict = first_line.startswith(b"#!") and b"zsh" in first_line
+        self._zsh_shebangs[path] = verdict
+        return verdict
 
     @cached_property
     def shfmt_files(self) -> list[Path]:

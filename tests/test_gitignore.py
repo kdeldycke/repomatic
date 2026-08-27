@@ -31,6 +31,7 @@ from repomatic.gitignore import (
     orphaned_rules,
     parse_rules,
 )
+from repomatic.http import FetchError
 from tests.conftest import FakeResponse
 
 
@@ -48,7 +49,7 @@ def test_build_gitignore_requests_base_categories():
     """The base categories are fetched and the response body is returned."""
     body = b"# managed by repomatic\n*.log\n"
     with patch(
-        "repomatic.gitignore.urlopen", return_value=FakeResponse(body)
+        "repomatic.http.urlopen", return_value=FakeResponse(body)
     ) as mock_urlopen:
         content = build_gitignore(_config())
 
@@ -67,7 +68,7 @@ def test_build_gitignore_merges_and_dedupes_extra_categories():
     # "python" is already a base category (deduplicated); "papaya" is new.
     config = _config(extra_categories=("python", "papaya"))
     with patch(
-        "repomatic.gitignore.urlopen", return_value=FakeResponse(b"content")
+        "repomatic.http.urlopen", return_value=FakeResponse(b"content")
     ) as mock_urlopen:
         build_gitignore(config)
 
@@ -79,7 +80,7 @@ def test_build_gitignore_merges_and_dedupes_extra_categories():
 def test_build_gitignore_appends_extra_content():
     """Configured extra content is appended after the fetched template."""
     config = _config(extra_content="# custom\n*.tmp")
-    with patch("repomatic.gitignore.urlopen", return_value=FakeResponse(b"base\n")):
+    with patch("repomatic.http.urlopen", return_value=FakeResponse(b"base\n")):
         content = build_gitignore(config)
 
     assert content == "base\n\n# custom\n*.tmp\n"
@@ -88,8 +89,8 @@ def test_build_gitignore_appends_extra_content():
 def test_build_gitignore_propagates_fetch_error():
     """A failed gitignore.io fetch surfaces to the caller, not silently empty."""
     with (
-        patch("repomatic.gitignore.urlopen", side_effect=URLError("unreachable")),
-        pytest.raises(URLError),
+        patch("repomatic.http.urlopen", side_effect=URLError("unreachable")),
+        pytest.raises(FetchError),
     ):
         build_gitignore(_config())
 

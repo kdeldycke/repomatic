@@ -70,12 +70,16 @@ from functools import cached_property
 from pathlib import Path
 
 from .binary import binary_filename_re
-from .changelog import Changelog
+from .changelog import Changelog, resolved_changelog_path
 from .config import load_repomatic_config
 from .metadata import Metadata
 from .plugin import ARCHIVE_NAME, MARKETPLACE_PATH
 from .registry import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE, WORKFLOW_TARGET_ROOT
 from .version_sync import frozen_cli_invocation
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 SELF_PIN_COOLDOWN_EXEMPTION = f"--exclude-newer-package {UPSTREAM_PACKAGE}=P0D"
 """uv escape hatch letting a just-published repomatic install under the cooldown.
@@ -148,8 +152,8 @@ class PrepareRelease:
         marketplace_path: Path | None = None,
         default_branch: str = "main",
     ) -> None:
-        self.changelog_path = (
-            changelog_path or Path(load_repomatic_config().changelog_location).resolve()
+        self.changelog_path = changelog_path or resolved_changelog_path(
+            load_repomatic_config()
         )
         self.citation_path = citation_path or Path("./citation.cff").resolve()
         self.workflow_dir = workflow_dir or Path(WORKFLOW_TARGET_ROOT).resolve()
@@ -303,54 +307,48 @@ class PrepareRelease:
         )
 
     @staticmethod
+    def _map_noncomment_lines(
+        content: str,
+        transform: Callable[[str], str],
+        comment_prefix: str = "#",
+    ) -> str:
+        """Apply *transform* to every line that is not a comment.
+
+        Comment lines (where the first non-whitespace character is
+        `comment_prefix`) are preserved unchanged. This prevents
+        freeze/unfreeze operations from corrupting explanatory comments that
+        mention the string being rewritten. The shared body of the two
+        rewriters below, which used to be near-identical copies.
+        """
+        return "".join(
+            line if line.lstrip().startswith(comment_prefix) else transform(line)
+            for line in content.splitlines(keepends=True)
+        )
+
+    @classmethod
     def _replace_skip_comments(
+        cls,
         content: str,
         search: str,
         replacement: str,
         comment_prefix: str = "#",
     ) -> str:
-        """Replace a string only in non-comment lines.
-
-        Comment lines (where the first non-whitespace character is
-        `comment_prefix`) are preserved unchanged. This prevents
-        freeze/unfreeze operations from corrupting explanatory comments that
-        mention the search string.
-
-        :param content: The file content to process.
-        :param search: The literal string to find and replace.
-        :param replacement: The string to substitute.
-        :param comment_prefix: The character that marks a comment line.
-        :return: The content with replacements applied to non-comment lines.
-        """
-        lines = content.splitlines(keepends=True)
-        return "".join(
-            line
-            if line.lstrip().startswith(comment_prefix)
-            else line.replace(search, replacement)
-            for line in lines
+        """Replace a literal string only in non-comment lines."""
+        return cls._map_noncomment_lines(
+            content, lambda line: line.replace(search, replacement), comment_prefix
         )
 
-    @staticmethod
+    @classmethod
     def _sub_skip_comments(
+        cls,
         content: str,
         pattern: re.Pattern[str],
         replacement: str,
         comment_prefix: str = "#",
     ) -> str:
-        """Regex-substitute only in non-comment lines.
-
-        :param content: The file content to process.
-        :param pattern: The compiled regex pattern to match.
-        :param replacement: The string to substitute.
-        :param comment_prefix: The character that marks a comment line.
-        :return: The content with substitutions applied to non-comment lines.
-        """
-        lines = content.splitlines(keepends=True)
-        return "".join(
-            line
-            if line.lstrip().startswith(comment_prefix)
-            else pattern.sub(replacement, line)
-            for line in lines
+        """Regex-substitute only in non-comment lines."""
+        return cls._map_noncomment_lines(
+            content, lambda line: pattern.sub(replacement, line), comment_prefix
         )
 
     def freeze_install_download_urls(self, version: str) -> bool:

@@ -48,7 +48,7 @@ from subprocess import run
 
 from click_extra import ClickException
 
-from .status import status_annotation
+from .status import with_status_annotation
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -204,6 +204,22 @@ def api_headers() -> dict[str, str]:
     return headers
 
 
+def gh_env(token: str | None = None) -> dict[str, str] | None:
+    """Child environment promoting a token to `GH_TOKEN`, or `None` for none.
+
+    The one spelling of the promotion every `gh`-reading subprocess gets
+    (`gh` itself, and `labelmaker`, which reads the same variable): the
+    canonical {func}`resolve_gh_token` winner is injected as `GH_TOKEN`, a
+    value-preserving no-op when `GH_TOKEN` itself won the resolution.
+
+    :param token: The credential to promote; resolved when omitted. An empty
+        resolution returns `None`, leaving the child the parent environment.
+    """
+    if token is None:
+        token = resolve_gh_token()
+    return {**os.environ, "GH_TOKEN": token} if token else None
+
+
 def run_gh_command(args: list[str]) -> str:
     """Run a `gh` CLI command and return stdout.
 
@@ -233,13 +249,9 @@ def run_gh_command(args: list[str]) -> str:
     cmd = [gh_executable(), *args]
     logging.debug(f"Running: {' '.join(cmd)}")
 
-    # Build the env override for the gh subprocess. The gh CLI only reads
-    # GH_TOKEN natively, so the canonical {func}`resolve_gh_token` winner is
-    # injected as GH_TOKEN (a value-preserving no-op when GH_TOKEN itself
-    # wins). No override when no token is set at all.
     github_token = os.environ.get("GITHUB_TOKEN")
     primary = resolve_gh_token()
-    env = {**os.environ, "GH_TOKEN": primary} if primary else None
+    env = gh_env(primary)
     process = run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
 
     # Bounded same-token retry, before the cross-token fallback. Catches
@@ -285,17 +297,14 @@ def run_gh_command(args: list[str]) -> str:
                 capture_output=True,
                 encoding="UTF-8",
                 check=False,
-                env={**os.environ, "GH_TOKEN": github_token},
+                env=gh_env(github_token),
             )
             if not retry.returncode:
                 return retry.stdout
             logging.warning("GITHUB_TOKEN fallback also failed.")
 
         logging.debug(f"gh command failed: {stderr}")
-        annotation = status_annotation()
-        if annotation:
-            raise RuntimeError(f"{stderr}\n{annotation}")
-        raise RuntimeError(stderr)
+        raise RuntimeError(with_status_annotation(stderr, sep="\n"))
 
     return process.stdout
 
@@ -324,7 +333,7 @@ def parse_create_output(output: str, kind: str) -> tuple[int, str]:
     return int(tail), url
 
 
-def gh_api_json(args: Sequence[str]) -> Any | None:
+def gh_api_json(args: Sequence[str], *, strict: bool = False) -> Any | None:
     """Run a `gh` command expected to emit JSON, and parse it.
 
     The two ways a JSON-producing `gh` call can fail are indistinguishable to a
@@ -335,17 +344,22 @@ def gh_api_json(args: Sequence[str]) -> Any | None:
 
     Reserved for calls whose failure is a *tolerable* outcome, which is what
     every {mod}`repomatic.lint_repo` check wants: a probe that cannot run reports
-    itself as skipped rather than failing the lint. Callers that must distinguish
-    the failure modes, or that treat a failure as fatal, should keep using
-    {func}`run_gh_command` and handle `RuntimeError` themselves.
+    itself as skipped rather than failing the lint. A caller for whom a failed
+    *command* is fatal while unparsable *output* stays a soft miss passes
+    *strict* (`ci-status` reads runs this way); one treating every failure as
+    fatal keeps using {func}`run_gh_command` and handles `RuntimeError` itself.
 
     :param args: Command arguments to pass to `gh`.
-    :return: The parsed JSON payload, or `None` when the command failed or its
-        output did not parse.
+    :param strict: Re-raise the `RuntimeError` of a command that could not run,
+        instead of collapsing it to `None`.
+    :return: The parsed JSON payload, or `None` when the command failed (unless
+        *strict*) or its output did not parse.
     """
     try:
         output = run_gh_command(list(args))
     except RuntimeError as error:
+        if strict:
+            raise
         logging.debug(f"gh {' '.join(args)} failed: {error}")
         return None
     try:
@@ -418,17 +432,17 @@ def iter_graphql_nodes(
     yielded = 0
 
     while max_nodes is None or yielded < max_nodes:
-        args = ["api", "graphql", "-f", f"query={query}"]
+        args = ["api", "graphql", "--raw-field", f"query={query}"]
         for var_name, value in (variables or {}).items():
-            flag = "-f" if isinstance(value, str) else "-F"
+            flag = "--raw-field" if isinstance(value, str) else "--field"
             args.extend([flag, f"{var_name}={value}"])
         if page_size_var:
             size = page_size
             if max_nodes is not None:
                 size = min(size, max_nodes - yielded)
-            args.extend(["-F", f"{page_size_var}={size}"])
+            args.extend(["--field", f"{page_size_var}={size}"])
         if cursor:
-            args.extend(["-f", f"cursor={cursor}"])
+            args.extend(["--raw-field", f"cursor={cursor}"])
 
         response = json.loads(run_gh_command(args))
         connection = response.get("data", {})

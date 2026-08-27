@@ -83,6 +83,7 @@ from .changelog import (
     GITHUB_RELEASE_URL,
     Changelog,
     build_release_admonition,
+    resolved_changelog_path,
 )
 from .compat import StrEnum
 from .config import (
@@ -112,7 +113,12 @@ from .git_ops import (
     stash_count,
     stash_pop,
 )
-from .github.actions import NULL_SHA, WorkflowEvent, generate_delimiter
+from .github.actions import (
+    NULL_SHA,
+    WorkflowEvent,
+    generate_delimiter,
+    get_github_event,
+)
 from .github.gh import run_gh_command
 from .github.matrix import Matrix, stale_axis_values
 from .github.release_sync import build_expected_body
@@ -131,6 +137,7 @@ from .pyproject import (
     is_python_package as _is_python_package,
     is_python_project as _is_python_project,
 )
+from .registry import is_awesome_repo
 from .tool_registry import MYPY_VERSION_MIN
 from .version_sync import min_release_age_days
 
@@ -492,19 +499,21 @@ class Metadata:
 
         GitHub Actions automatically sets `GITHUB_EVENT_PATH` to a JSON file
         containing the complete webhook event payload.
+
+        Delegates to {func}`repomatic.github.actions.get_github_event`, the
+        one loader of the payload: the two used to parse the file
+        independently and disagree on whether a missing file was fatal. The
+        tolerant contract wins (an unreadable payload degrades every consumer
+        to its no-event behavior); only the CI-context warning lives here,
+        since the shared loader serves non-CI callers too.
         """
-        event_path = os.environ.get("GITHUB_EVENT_PATH")
-        if not event_path:
-            if is_github_ci():
-                logging.warning("GITHUB_EVENT_PATH not set in environment.")
-            return {}
-        event_file = Path(event_path)
-        if not event_file.exists():
-            raise FileNotFoundError(f"Event file not found: {event_path}")
-        event = json.loads(event_file.read_text(encoding="UTF-8"))
-        logging.debug("--- GitHub event payload ---")
-        logging.debug(json.dumps(event, indent=4))
-        return event  # type:ignore[no-any-return]
+        if is_github_ci() and not os.environ.get("GITHUB_EVENT_PATH"):
+            logging.warning("GITHUB_EVENT_PATH not set in environment.")
+        event = get_github_event()
+        if event:
+            logging.debug("--- GitHub event payload ---")
+            logging.debug(json.dumps(event, indent=4))
+        return event
 
     def git_stash_count(self) -> int:
         """Returns the number of stashes."""
@@ -732,7 +741,7 @@ class Metadata:
     @cached_property
     def event_actor(self) -> str | None:
         """Returns the GitHub login of the user that triggered the workflow run."""
-        return os.environ.get("GITHUB_ACTOR")
+        return os.environ.get("GITHUB_ACTOR") or None
 
     @cached_property
     def event_sender_type(self) -> str | None:
@@ -823,7 +832,7 @@ class Metadata:
         Detected by the `awesome-` prefix on the repository name.
         """
         name = self.repo_name
-        return bool(name and name.startswith("awesome-"))
+        return bool(name and is_awesome_repo(name))
 
     @cached_property
     def repo_owner(self) -> str | None:
@@ -1282,18 +1291,11 @@ class Metadata:
 
         The inventory is its own concern ({mod}`repomatic.file_inventory`):
         answering "which Markdown files are there" needs no CI context, no git
-        history and no `pyproject.toml`. The groups below forward to it so
-        every existing caller, and every `metadata` output key, keeps its name.
+        history and no `pyproject.toml`. The group properties below forward to
+        it so every `metadata` output key keeps its name; a caller wanting the
+        argument-taking lookups goes to the inventory itself.
         """
         return FileInventory()
-
-    def glob_files(self, *patterns: str) -> list[Path]:
-        """Files matching *patterns*, per {meth}`FileInventory.glob_files`."""
-        return self.files.glob_files(*patterns)
-
-    def gitignore_match(self, file_path: Path | str) -> bool:
-        """Whether `.gitignore` excludes *file_path*."""
-        return self.files.gitignore_match(file_path)
 
     @property
     def gitignore_exists(self) -> bool:
@@ -1558,6 +1560,25 @@ class Metadata:
         return entries
 
     @cached_property
+    def requires_python_floor(self) -> tuple[int, int] | None:
+        """The project's `requires-python` lower bound, as `(major, minor)`.
+
+        The one reduction of the specifier to a floor, shared by
+        {attr}`mypy_params` and the `lint-repo` Python-consistency check so the
+        two cannot disagree on which operators count as a bound.
+
+        :return: The first `>=`/`>` bound's release pair, or `None` when the
+            project declares no `requires-python` or no lower bound.
+        """
+        if not self.pyproject or not self.pyproject.requires_python:
+            return None
+        for spec in self.pyproject.requires_python:
+            if spec.operator in (">=", ">"):
+                release = Version(spec.version).release
+                return (release[0], release[1])
+        return None
+
+    @cached_property
     def mypy_params(self) -> list[str] | None:
         """Generates `mypy` parameters.
 
@@ -1566,17 +1587,7 @@ class Metadata:
         Extracts the minimum Python version from the project's `requires-python`
         specifier. Only takes `major.minor` into account.
         """
-        if not self.pyproject or not self.pyproject.requires_python:
-            return None
-
-        # Find the lower bound from the requires-python specifier.
-        min_version = None
-        for spec in self.pyproject.requires_python:
-            if spec.operator in (">=", ">"):
-                release = Version(spec.version).release
-                min_version = (release[0], release[1])
-                break
-
+        min_version = self.requires_python_floor
         if not min_version:
             return None
 
@@ -2052,7 +2063,9 @@ class Metadata:
         return matrix
 
     @cached_property
-    def stale_test_matrix_excludes(self) -> list[dict[str, str]]:
+    def stale_test_matrix_excludes(
+        self,
+    ) -> list[tuple[dict[str, str], dict[str, str]]]:
         """User `test-matrix.exclude` entries matching no full-matrix axis value.
 
         An exclude naming a value absent from every axis (like a renamed
@@ -2062,13 +2075,20 @@ class Metadata:
         `macos-26-intel`). The `lint-repo` check surfaces these so the drift
         fails loudly instead of silently.
 
-        :return: The offending exclude entries, in config order.
+        The axes come from {attr}`_test_matrix_base`, never from the emitted
+        {attr}`test_matrix`: a `full-include` matrix emits as a flat job list
+        whose `all_variations()` is empty, which would misreport every key of
+        an entry as stale. Carrying the absent values in the result is what
+        keeps the lint check from re-deriving them against the wrong matrix.
+
+        :return: `(entry, absent_values)` pairs in config order: each
+            offending exclude with the key/value pairs no axis carries.
         """
         axes = self._test_matrix_base.all_variations()
         return [
-            entry
+            (entry, bad)
             for entry in self.config.test_matrix.exclude
-            if stale_axis_values(entry, axes)
+            if (bad := stale_axis_values(entry, axes))
         ]
 
     @cached_property
@@ -2085,7 +2105,7 @@ class Metadata:
         version = self.released_version or self.current_version
         if not version:
             return None
-        changelog_path = Path(self.config.changelog_location)
+        changelog_path = resolved_changelog_path(self.config)
         if not changelog_path.exists():
             return None
         return version, Changelog(changelog_path.read_text(encoding="UTF-8"))

@@ -31,12 +31,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import arrow
 
 from .github.pr_body import demote_markdown_headings, sanitize_markdown_mentions
 from .github.releases import get_github_release_body
+from .humanize import parse_iso_datetime
 from .pypi import (
     PYPI_PACKAGE_URL,
     get_changelog_url as get_pypi_changelog_url,
@@ -44,7 +45,7 @@ from .pypi import (
     get_source_url as get_pypi_source_url,
 )
 from .tabular import render_markdown_table
-from .version_sync import safe_version
+from .versions import safe_version
 
 RELEASE_NOTES_MAX_LENGTH = 2000
 """Maximum characters per package release body before truncation."""
@@ -102,40 +103,6 @@ def markdown_section(
 # ---------------------------------------------------------------------------
 # Date parsing and formatting
 # ---------------------------------------------------------------------------
-
-
-def parse_iso_datetime(value: str) -> datetime | None:
-    """Parse an ISO 8601 / RFC 3339 timestamp into a timezone-aware datetime.
-
-    The package-wide parser for any timestamp an external service writes:
-    besides this module's own upload times, {mod}`repomatic.uv` reads lock
-    timestamps, {mod}`repomatic.cloudflare` token expiries and
-    {mod}`repomatic.github.job_timings` job clocks through it, so every
-    consumer tolerates the same shapes.
-
-    Uses arrow, so a nanosecond fractional second and a `Z` suffix (both of
-    which Python 3.10's stdlib `datetime.fromisoformat` rejects) parse cleanly;
-    sub-microsecond precision is truncated to fit `datetime`.
-
-    arrow also supplies the `.humanize()` relative-time phrasing used in the
-    sync report.
-
-    ```{todo}
-    Switch this parser back to whenever, the prior implementation, once it
-    grows a humanizer:
-    [whenever#277](https://github.com/ariebovenberg/whenever/discussions/277).
-    ```
-
-    :param value: An ISO 8601 / RFC 3339 instant, or empty.
-    :return: A timezone-aware {class}`~datetime.datetime`, or `None` when
-        *value* is empty or not a valid instant.
-    """
-    if not value:
-        return None
-    try:
-        return arrow.get(value).datetime
-    except (ValueError, TypeError):
-        return None
 
 
 def format_upload_date(iso_datetime: str) -> str:
@@ -210,8 +177,8 @@ def format_exclude_newer_note(exclude_newer: str) -> str:
     `minimum-release-age` note instead.
 
     :param exclude_newer: ISO 8601 datetime from the lock's
-        `[options].exclude-newer`, as returned by
-        {func}`repomatic.uv.parse_lock_exclude_newer`, or empty.
+        `[options].exclude-newer`, as carried by
+        {attr}`repomatic.uv.LockFile.exclude_newer`, or empty.
     :return: A one-line markdown note, or empty when *exclude_newer* is empty.
     """
     if not exclude_newer:
@@ -570,7 +537,10 @@ def _versions_in_range(package: str, old: str, new: str) -> list[str]:
     """Return PyPI versions of *package* in the half-open range `(old, new]`.
 
     Versions are sorted in ascending order. Falls back to `[new]` if no
-    intermediate versions are found or PyPI is unreachable.
+    intermediate versions are found or PyPI is unreachable. Yanked and
+    prerelease versions are skipped, matching the selection sweeps: a pulled
+    release has no notes worth advertising, and the sweep that produced *new*
+    never picked a prerelease either.
     """
     releases = get_pypi_release_dates(package)
     if not releases:
@@ -580,9 +550,9 @@ def _versions_in_range(package: str, old: str, new: str) -> list[str]:
     if old_v is None or new_v is None:
         return [new]
     intermediate = []
-    for version_str in releases:
+    for version_str, release in releases.items():
         v = safe_version(version_str)
-        if v is None:
+        if v is None or release.yanked or (v.is_prerelease and v != new_v):
             continue
         if old_v < v <= new_v:
             intermediate.append((v, version_str))

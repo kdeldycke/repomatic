@@ -93,7 +93,7 @@ from click_extra import ClickException
 
 from ..http import DEFAULT_TIMEOUT
 from .gh import api_headers, resolve_gh_token, run_gh_command
-from .status import status_annotation
+from .status import with_status_annotation
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -126,18 +126,6 @@ def require_token(
     return decorator
 
 
-def _with_status_annotation(msg: str) -> str:
-    """Append a {func}`~repomatic.github.status.status_annotation` when active.
-
-    Returns *msg* unchanged when GitHub reports healthy or the probe
-    fails, so callers can wrap any diagnostic without branching.
-    """
-    annotation = status_annotation()
-    if annotation:
-        return f"{msg} {annotation}"
-    return msg
-
-
 def _classify_pat_error(stderr: str, missing_permission_msg: str) -> str:
     """Build a permission-check failure message from a `gh` stderr.
 
@@ -159,7 +147,7 @@ def _classify_pat_error(stderr: str, missing_permission_msg: str) -> str:
         msg = missing_permission_msg
     else:
         msg = f"GitHub API call failed: {stderr.strip()}"
-    return _with_status_annotation(msg)
+    return with_status_annotation(msg)
 
 
 class PatProbe(NamedTuple):
@@ -260,7 +248,7 @@ def probe_pat_permission(repo: str, probe: PatProbe) -> tuple[bool, str]:
     except RuntimeError as exc:
         stderr = str(exc)
         if probe.not_found and "HTTP 404" in stderr:
-            return False, _with_status_annotation(probe.not_found.format(repo=repo))
+            return False, with_status_annotation(probe.not_found.format(repo=repo))
         return False, _classify_pat_error(
             stderr,
             f"Token lacks {probe.permission!r} permission. "
@@ -295,23 +283,23 @@ class PatPermissionResults:
     workflows: tuple[bool, str]
     """Result of the `workflows` {data}`PAT_PERMISSION_PROBES` row."""
 
+    def iter_results(self) -> list[tuple[bool, str]]:
+        """Every probe's `(passed, message)` pair, in field order.
+
+        Each field is a plain `tuple[bool, str]` filled by
+        {func}`check_all_pat_permissions`, so there is nothing optional to
+        filter: the one loop serves both the full listing and
+        {meth}`failed`'s view of it.
+        """
+        return [getattr(self, f.name) for f in fields(self)]
+
     def failed(self) -> list[tuple[str, str]]:
         """Return `(field_name, message)` pairs for each failed check."""
-        failures: list[tuple[str, str]] = []
-        for f in fields(self):
-            result = getattr(self, f.name)
-            if result is not None and not result[0]:
-                failures.append((f.name, result[1]))
-        return failures
-
-    def iter_results(self) -> list[tuple[bool, str]]:
-        """Yield all non-`None` `(passed, message)` tuples."""
-        results: list[tuple[bool, str]] = []
-        for f in fields(self):
-            result = getattr(self, f.name)
-            if result is not None:
-                results.append(result)
-        return results
+        return [
+            (f.name, result[1])
+            for f, result in zip(fields(self), self.iter_results())
+            if not result[0]
+        ]
 
 
 def check_all_pat_permissions(repo: str) -> PatPermissionResults:
@@ -380,13 +368,13 @@ def validate_gh_api_access() -> tuple[int, dict[str, str], str]:
         detail = f"GitHub API returned an error ({exc.code})."
         if message:
             detail += f" GitHub says: {message}"
-        raise RuntimeError(_with_status_annotation(detail)) from exc
+        raise RuntimeError(with_status_annotation(detail)) from exc
     except (URLError, TimeoutError) as exc:
         # Unreachable rather than refused. Only possible to hit now that the
         # request carries a timeout, and the caller's contract promises a
         # RuntimeError for every failure, so it cannot escape raw.
         detail = f"Could not reach the GitHub API: {exc}"
-        raise RuntimeError(_with_status_annotation(detail)) from exc
+        raise RuntimeError(with_status_annotation(detail)) from exc
 
     return status, headers, body
 

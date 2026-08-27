@@ -130,3 +130,17 @@ def status_annotation() -> str:
     if status is None:
         return ""
     return status.annotation()
+
+
+def with_status_annotation(msg: str, *, sep: str = " ") -> str:
+    """Append the incident annotation to *msg* when one is active.
+
+    Returns *msg* unchanged when GitHub reports healthy or the probe fails, so
+    callers can wrap any diagnostic without branching. The separator is
+    load-bearing: the PAT probes annotate inline, while the `gh` wrapper puts
+    the annotation on its own line under a multi-line stderr.
+    """
+    annotation = status_annotation()
+    if annotation:
+        return f"{msg}{sep}{annotation}"
+    return msg

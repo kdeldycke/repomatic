@@ -14,15 +14,22 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+"""Group the contributor identities of the git history into a `.mailmap`.
+
+Backs the `sync-mailmap` command: parses the existing mappings as the
+reference for identities already grouped, reads every author and committer the
+history holds, and appends whatever is not covered yet.
+"""
+
 from __future__ import annotations
 
 import logging
-import sys
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 
 from boltons.iterutils import unique
+from click_extra import ClickException
 
 from .git_ops import list_contributor_identities
 
@@ -168,13 +175,14 @@ class Mailmap:
         """Returns the set of all contributors found in the Git commit history.
 
         No normalization happens: all variations of authors and committers strings
-        attached to all commits are considered. A failing git invocation exits
-        the process with git's stderr, keeping the CLI's error output clean.
+        attached to all commits are considered. A failing git invocation raises
+        through the CLI framework, which prints git's stderr and exits non-zero
+        without a property ever terminating the process itself.
         """
         try:
             contributors = list_contributor_identities()
         except RuntimeError as exc:
-            sys.exit(str(exc))
+            raise ClickException(str(exc)) from exc
 
         logging.debug(
             "Authors and committers found in Git history:\n"

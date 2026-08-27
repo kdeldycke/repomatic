@@ -30,7 +30,7 @@ import logging
 import re
 import shlex
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cache, cached_property
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import urlsplit
@@ -38,14 +38,12 @@ from urllib.parse import urlsplit
 import tomlrt
 import yaml
 from click_extra import echo
-from packaging.version import Version
 
-from .config import Config
+from .config import Config, deploys_to
 from .file_inventory import FileInventory
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import gh_api_json, gh_graphql, run_gh_command
-from .github.matrix import stale_axis_values
 from .github.token import check_all_pat_permissions
 from .matrix_axes import (
     TEST_RUNNERS_FULL,
@@ -72,7 +70,13 @@ from .pypi import (
     get_trusted_publishers,
     pypi_trusted_publisher_settings_url,
 )
-from .registry import DEFAULT_REPO, INSTALL_GUIDE_PATH, WORKFLOW_TARGET_ROOT
+from .pyproject import get_project_name
+from .registry import (
+    DEFAULT_REPO,
+    INSTALL_GUIDE_PATH,
+    WORKFLOW_TARGET_ROOT,
+    package_of,
+)
 from .version_sync import (
     SETUP_UV_SLUG,
     find_upstream_ref_versions,
@@ -175,6 +179,19 @@ sits inside a folded scalar, so the surrounding `run:` value is one opaque
 string whichever way the file is parsed.
 """
 
+FUNDING_SPONSORS_QUERY = """
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) { isFork }
+  repositoryOwner(login: $owner) {
+    ... on Sponsorable { hasSponsorsListing }
+  }
+}"""
+"""Reads whether a repository is a fork and whether its owner runs Sponsors.
+
+One query for both facts the funding check gates on. GraphQL because the REST
+API does not expose `hasSponsorsListing`.
+"""
+
 BRANCH_PROTECTION_RULES_QUERY = """
 query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
@@ -211,15 +228,17 @@ class CheckResult(NamedTuple):
     message: str
 
 
+@cache
 def _fetch_rulesets(repo: str) -> list[dict] | None:
     """Fetch the repository's rulesets, parents included.
 
-    One endpoint serves two checks ({func}`check_tag_protection_rules` and
-    {func}`check_branch_ruleset_on_default`), which filter the same payload on
-    different `target` values. They still call it once each: their skip verdicts
-    differ (`None` vs `False`), and sharing a single fetch would mean threading
-    the payload through {func}`run_repo_lint`, which calls each check
-    independently.
+    One endpoint serves the ruleset checks ({func}`check_tag_protection_rules`
+    and {func}`check_branch_ruleset_on_default`), which filter the same
+    payload on different `target` values, and the setup guide reads it again
+    through the latter. Memoized per repository so one run pays the endpoint
+    once; each check still renders its own skip verdict off the shared
+    payload. A failed fetch is memoized too, which is what sharing one fetch
+    means: both checks report the same unreadable API instead of retrying it.
 
     :param repo: Repository in 'owner/repo' format.
     :return: The ruleset list, or `None` when the API could not be read.
@@ -229,7 +248,7 @@ def _fetch_rulesets(repo: str) -> list[dict] | None:
         f"repos/{repo}/rulesets",
         "--method",
         "GET",
-        "-f",
+        "--field",
         "includes_parents=true",
     ])
     return rulesets if isinstance(rulesets, list) else None
@@ -428,19 +447,17 @@ def check_funding_file(repo: str) -> CheckResult:
 
     owner, name = repo.split("/", 1)
 
-    # Single GraphQL query for both isFork and hasSponsorsListing.
-    query = (
-        f"{{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ isFork }}"
-        f" repositoryOwner(login: {json.dumps(owner)}) {{"
-        " ... on Sponsorable { hasSponsorsListing } } }"
-    )
-
-    data = gh_api_json(["api", "graphql", "--field", f"query={query}"])
-    if data is None:
+    # One GraphQL query for both isFork and hasSponsorsListing, through the
+    # shared runner: variables travel as GraphQL variables rather than being
+    # interpolated into the query body, matching the sibling ruleset check.
+    try:
+        data = gh_graphql(FUNDING_SPONSORS_QUERY, owner=owner, name=name)
+    except RuntimeError as error:
+        logging.warning(f"Could not query GitHub Sponsors state: {error}")
         return CheckResult(None, "Funding check: skipped (could not query GitHub API)")
 
-    repo_data = data.get("data", {}).get("repository", {})
-    owner_data = data.get("data", {}).get("repositoryOwner", {})
+    repo_data = data.get("repository") or {}
+    owner_data = data.get("repositoryOwner") or {}
 
     if repo_data.get("isFork"):
         return CheckResult(None, "Funding check: skipped (repository is a fork)")
@@ -664,9 +681,9 @@ def check_pat_repository_scope(repo: str) -> CheckResult:
             f"/users/{owner}/repos",
             "--jq",
             ".[].full_name",
-            "-f",
+            "--raw-field",
             "per_page=10",
-            "-f",
+            "--raw-field",
             "type=owner",
         ])
     except RuntimeError:
@@ -735,7 +752,7 @@ def check_pat_stale_statuses_permission(repo: str) -> CheckResult:
             "--method",
             "POST",
             f"repos/{repo}/statuses/{NULL_SHA}",
-            "-f",
+            "--raw-field",
             "state=success",
             "--silent",
         ])
@@ -1290,9 +1307,16 @@ def check_stale_gh_pages_branch(repo: str) -> CheckResult:
     """
     try:
         run_gh_command(["api", f"repos/{repo}/branches/gh-pages"])
-    except RuntimeError:
-        # 404: branch doesn't exist. That's the desired state.
-        return CheckResult(True, "No stale gh-pages branch found.")
+    except RuntimeError as exc:
+        # 404: branch doesn't exist. That's the desired state. Any other
+        # failure (network, auth, rate limit) means the branch could not be
+        # read at all, which is a skip, never a pass: this used to report
+        # every API failure as green, the one false-green path in the lane.
+        if "HTTP 404" in str(exc):
+            return CheckResult(True, "No stale gh-pages branch found.")
+        return CheckResult(
+            None, "Stale gh-pages branch check: skipped (could not query API)."
+        )
 
     msg = (
         "Stale `gh-pages` branch detected. Pages is deployed via GitHub"
@@ -1418,7 +1442,6 @@ def check_test_matrix_excludes() -> list[CheckResult]:
             CheckResult(None, "Test matrix excludes check: skipped (none configured).")
         ]
 
-    axes = metadata.test_matrix.all_variations()
     stale = metadata.stale_test_matrix_excludes
     if not stale:
         return [
@@ -1428,8 +1451,7 @@ def check_test_matrix_excludes() -> list[CheckResult]:
         ]
 
     results: list[CheckResult] = []
-    for entry in stale:
-        bad = stale_axis_values(entry, axes)
+    for entry, bad in stale:
         msg = (
             f"Test matrix exclude {entry} references values absent from the "
             f"matrix axes ({bad}); it is silently dropped and never takes "
@@ -1586,20 +1608,14 @@ def check_python_version_consistency(
     results: list[CheckResult] = []
 
     floor = min(advertised)
-    required = (
-        [s for s in metadata.pyproject.requires_python if s.operator in (">=", ">")]
-        if metadata.pyproject and metadata.pyproject.requires_python
-        else []
-    )
-    if not required:
+    declared = metadata.requires_python_floor
+    if declared is None:
         results.append(
             CheckResult(
                 None, "Python floor check: skipped (no requires-python lower bound)."
             )
         )
     else:
-        release = Version(required[0].version).release
-        declared = (release[0], release[1])
         floor_str = ".".join(map(str, floor))
         if declared != floor:
             results.append(
@@ -1919,13 +1935,18 @@ def check_release_path(
     if not engine:
         return results
 
+    # One condition walk per workflow, however many gates read it.
+    indexes: dict[str, tuple[list[tuple[str, str]], list[tuple[str, str]]]] = {}
     for gate in RELEASE_ONLY_GATES:
         if gate.metadata_key is None:
             continue
         data = engine.get(gate.workflow)
         if data is None:
             continue
-        conditions = _conditions_for(data, gate.name)
+        index = indexes.get(gate.workflow)
+        if index is None:
+            index = indexes[gate.workflow] = _collect_conditions(data)
+        conditions = _conditions_for(index, gate.name)
         if not conditions:
             results.append(
                 CheckResult(
@@ -1956,7 +1977,40 @@ def check_release_path(
     return results
 
 
-def _conditions_for(workflow: dict, name: str) -> list[str]:
+def _collect_conditions(
+    workflow: dict,
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Walk a workflow once, collecting every job's and step's `(name, if)`.
+
+    The gate roster asks {func}`_conditions_for` about several names in the
+    same document, and each question used to re-walk every job and step; one
+    walk feeds them all.
+
+    :param workflow: Parsed workflow document.
+    :return: `(job_pairs, step_pairs)`, each a `(name, condition)` list with
+        the empty-condition entries kept so the name filter decides.
+    """
+    job_pairs: list[tuple[str, str]] = []
+    step_pairs: list[tuple[str, str]] = []
+    for job in workflow.get("jobs", {}).values():
+        if not isinstance(job, dict):
+            continue
+        job_name = job.get("name", "")
+        if isinstance(job_name, str):
+            job_pairs.append((job_name, str(job.get("if", ""))))
+        for step in job.get("steps", []) or ():
+            if not isinstance(step, dict):
+                continue
+            step_name = step.get("name")
+            if isinstance(step_name, str):
+                step_pairs.append((step_name, str(step.get("if", ""))))
+    return job_pairs, step_pairs
+
+
+def _conditions_for(
+    index: tuple[list[tuple[str, str]], list[tuple[str, str]]],
+    name: str,
+) -> list[str]:
     """Collect the `if:` expressions attached to a named job or step.
 
     A job is matched on its `name:`, a step on its `name:` too, so the registry
@@ -1964,23 +2018,15 @@ def _conditions_for(workflow: dict, name: str) -> list[str]:
     condition is returned alongside its steps', since either can be where the
     gate lives.
 
-    :param workflow: Parsed workflow document.
-    :param name: Job or step name, matched on its rendered prefix so a name
-        carrying a `${{ }}` suffix still matches.
-    :return: Every `if:` expression found, as strings.
+    :param index: A workflow's `(job_pairs, step_pairs)`, from
+        {func}`_collect_conditions`.
+    :param name: Job or step name; a job matches on its rendered prefix so a
+        name carrying a `${{ }}` suffix still matches, a step on equality.
+    :return: Every non-empty `if:` expression found, as strings.
     """
-    found: list[str] = []
-    for job in workflow.get("jobs", {}).values():
-        if not isinstance(job, dict):
-            continue
-        job_name = job.get("name", "")
-        if isinstance(job_name, str) and job_name.startswith(name):
-            found.append(str(job.get("if", "")))
-        for step in job.get("steps", []) or ():
-            if not isinstance(step, dict):
-                continue
-            if step.get("name") == name:
-                found.append(str(step.get("if", "")))
+    job_pairs, step_pairs = index
+    found = [cond for job_name, cond in job_pairs if job_name.startswith(name)]
+    found.extend(cond for step_name, cond in step_pairs if step_name == name)
     return [cond for cond in found if cond]
 
 
@@ -2007,7 +2053,7 @@ def check_inline_pins_match_upstream(
     :param texts: Pre-read workflow texts, read from disk when `None`.
     :return: A `CheckResult`.
     """
-    package = upstream_repo.rsplit("/", 1)[-1]
+    package = package_of(upstream_repo)
     if not workflow_dir.is_dir():
         return CheckResult(
             None, f"Inline {package} pin check: skipped (no {workflow_dir.as_posix()})."
@@ -2078,7 +2124,7 @@ def check_self_pin_cooldown_exemption(
     :param texts: Pre-read workflow texts, read from disk when `None`.
     :return: A `CheckResult`.
     """
-    package = upstream_repo.rsplit("/", 1)[-1]
+    package = package_of(upstream_repo)
     if not workflow_dir.is_dir():
         return CheckResult(
             None,
@@ -2377,7 +2423,7 @@ def check_metadata_keys(
     :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A list of `CheckResult`.
     """
-    package = upstream_repo.rsplit("/", 1)[-1]
+    package = package_of(upstream_repo)
     if workflows is None:
         workflows = _load_workflows(workflow_dir)
     if not workflows:
@@ -2686,18 +2732,68 @@ class LintContext:
     def deploys_to(self, target: str) -> bool:
         """Whether this repository publishes its site to *target*.
 
-        Mirrors {meth}`repomatic.setup_guide.GuideContext.deploys_to`, so the
-        audit and the guide agree on which host a repository is on. The
-        GitHub Pages half stays gated on Sphinx, the only tree the Docs
-        workflow knows how to publish there; the Cloudflare half follows the
-        declaration alone, since a site built by the repository's own
-        workflow still needs the project and the credential.
+        Routes through {func}`repomatic.config.deploys_to`, the same predicate
+        the setup guide reads, so the audit and the guide cannot disagree on
+        which host a repository is on.
         """
-        if self.site_deploy != target:
-            return False
-        if target == "github-pages":
-            return self.is_sphinx
-        return True
+        return deploys_to(self.site_deploy, target, is_sphinx=self.is_sphinx)
+
+    @classmethod
+    def from_project(
+        cls,
+        config: Config,
+        *,
+        repo: str | None = None,
+        repo_name: str | None = None,
+        has_pat: bool = False,
+        has_virustotal_key: bool = False,
+        has_cloudflare_api_token: bool = False,
+        has_notifications_pat: bool = False,
+    ) -> LintContext:
+        """Resolve the project-shaped fields from the current checkout.
+
+        The one derivation the CLI runs: everything `pyproject.toml`, the
+        `Metadata` singleton and the `[tool.repomatic]` config can answer is
+        read here, so the command hands over only what it alone knows (which
+        secrets exist, which repository was named). The 17-field transcription
+        this replaces lived in the CLI and cost four edits per new
+        check-relevant fact.
+
+        :param config: The resolved `[tool.repomatic]` configuration.
+        :param repo: Repository in `owner/repo` format, or `None`.
+        :param repo_name: Repository name; derived from *repo* when omitted.
+        :param has_pat: Whether `REPOMATIC_PAT` is configured.
+        :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
+        :param has_cloudflare_api_token: Whether `CLOUDFLARE_API_TOKEN` is
+            configured.
+        :param has_notifications_pat: Whether `REPOMATIC_NOTIFICATIONS_PAT` is
+            configured.
+        """
+        if repo_name is None and repo:
+            repo_name = repo.split("/")[-1] if "/" in repo else repo
+        metadata = Metadata()
+        project_table = metadata.pyproject_toml.get("project", {})
+        return cls(
+            package_name=get_project_name(),
+            repo_name=repo_name,
+            is_package=metadata.is_python_package,
+            is_sphinx=metadata.is_sphinx,
+            site_deploy=config.site_deploy,
+            site_cloudflare_project=config.site_cloudflare_project,
+            site_cloudflare_compatibility_date=(
+                config.site_cloudflare_compatibility_date
+            ),
+            project_description=metadata.project_description,
+            docs_url=documentation_url(project_table.get("urls")),
+            keywords=project_table.get("keywords"),
+            repo=repo or None,
+            has_pat=has_pat,
+            has_virustotal_key=has_virustotal_key,
+            has_cloudflare_api_token=has_cloudflare_api_token,
+            nuitka_active=config.nuitka_enabled and bool(metadata.script_entries),
+            has_notifications_pat=has_notifications_pat,
+            unsubscribe_active=config.notification_unsubscribe,
+        )
 
 
 @dataclass(frozen=True)
@@ -3145,25 +3241,7 @@ in this module but reached only from {mod}`repomatic.setup_guide`, so
 """
 
 
-def run_repo_lint(
-    package_name: str | None = None,
-    repo_name: str | None = None,
-    is_package: bool = False,
-    is_sphinx: bool = False,
-    site_deploy: str = Config.site_deploy,
-    site_cloudflare_project: str = "",
-    site_cloudflare_compatibility_date: str = "",
-    project_description: str | None = None,
-    docs_url: str | None = None,
-    keywords: list[str] | None = None,
-    repo: str | None = None,
-    has_pat: bool = False,
-    has_virustotal_key: bool = False,
-    has_cloudflare_api_token: bool = False,
-    nuitka_active: bool = False,
-    has_notifications_pat: bool = False,
-    unsubscribe_active: bool = False,
-) -> int:
+def run_repo_lint(ctx: LintContext) -> int:
     """Run all repository lint checks.
 
     Walks {data}`REPO_CHECKS`, printing each result and emitting its GitHub
@@ -3171,48 +3249,11 @@ def run_repo_lint(
     command; everything else is advisory, so a scheduled run stays green on
     findings a maintainer merely needs to see.
 
-    :param package_name: The Python package name.
-    :param repo_name: The repository name.
-    :param is_package: Whether the project builds a distributable package.
-    :param is_sphinx: Whether the project uses Sphinx documentation.
-    :param site_deploy: Where the repository's built site publishes.
-    :param site_cloudflare_project: Cloudflare Pages project name override.
-    :param site_cloudflare_compatibility_date: Declared Workers runtime date.
-    :param project_description: Description from pyproject.toml.
-    :param docs_url: Documentation URL declared in `[project.urls]`.
-    :param keywords: Keywords list from pyproject.toml.
-    :param repo: Repository in 'owner/repo' format.
-    :param has_pat: Whether `GH_TOKEN` contains `REPOMATIC_PAT`.
-    :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
-    :param has_cloudflare_api_token: Whether `CLOUDFLARE_API_TOKEN` is
-        configured.
-    :param nuitka_active: Whether Nuitka binary compilation is active.
-    :param has_notifications_pat: Whether `REPOMATIC_NOTIFICATIONS_PAT` is
-        configured.
-    :param unsubscribe_active: Whether the unsubscribe workflow is opted in
-        via `notification.unsubscribe`.
+    :param ctx: Everything the checks read. Build it with
+        {meth}`LintContext.from_project` to derive the project-shaped fields
+        the way the CLI does, or directly for a hand-assembled probe.
     :return: Exit code (0 for success, 1 for errors).
     """
-    ctx = LintContext(
-        package_name=package_name,
-        repo_name=repo_name,
-        is_package=is_package,
-        is_sphinx=is_sphinx,
-        site_deploy=site_deploy,
-        site_cloudflare_project=site_cloudflare_project,
-        site_cloudflare_compatibility_date=site_cloudflare_compatibility_date,
-        project_description=project_description,
-        docs_url=docs_url,
-        keywords=keywords,
-        repo=repo,
-        has_pat=has_pat,
-        has_virustotal_key=has_virustotal_key,
-        has_cloudflare_api_token=has_cloudflare_api_token,
-        nuitka_active=nuitka_active,
-        has_notifications_pat=has_notifications_pat,
-        unsubscribe_active=unsubscribe_active,
-    )
-
     fatal_error = False
     for check in REPO_CHECKS:
         if not check.applies(ctx):

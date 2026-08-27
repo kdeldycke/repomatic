@@ -114,8 +114,9 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+from functools import cache, cached_property
 from pathlib import Path
 from textwrap import indent
 from typing import NamedTuple
@@ -149,8 +150,9 @@ def resolved_changelog_path(config: Config) -> Path:
     """Absolute path of the configured changelog.
 
     The one derivation of `[tool.repomatic] changelog.location` into a
-    filesystem path, so every command resolves the same file the same way
-    (two call sites used to resolve the path and two did not).
+    filesystem path, so every consumer (the CLI commands, the release freeze,
+    the metadata singleton, the setup guide) resolves the same file the same
+    way.
     """
     return Path(config.changelog_location).resolve()
 
@@ -242,6 +244,14 @@ heading, a comparison URL) uses this one.
 """
 
 VERSION_TOKEN = rf"{RELEASE_VERSION_TOKEN}(?:\.\w+)?"
+
+GFM_ALERT_RE = re.compile(r"(?:^>.*$\n?)+", re.MULTILINE)
+"""A GFM alert block: consecutive lines starting with `>`.
+
+The shape every changelog admonition takes (the development warning, the PyPI
+availability note, a yanked caution), matched wherever a section's blocks are
+inventoried.
+"""
 """Regex fragment for any version a `##` heading may carry.
 
 Widens {data}`RELEASE_VERSION_TOKEN` with the trailing `.devN` a
@@ -296,8 +306,12 @@ def _heading_fragment(version: str | None = None) -> str:
     return rf"^{SECTION_START}\s*\[`?{token}`?\s"
 
 
+@cache
 def _heading_re(version: str | None = None) -> re.Pattern[str]:
     """Compile {func}`_heading_fragment` on its own, to locate headings.
+
+    Memoized like {func}`repomatic.version_sync._upstream_ref_re`: the lint
+    loop asks for the same versions' patterns over and over.
 
     :param version: Match this exact version, or any version when `None`.
     :return: A compiled pattern whose `version` group holds the version, for
@@ -306,12 +320,14 @@ def _heading_re(version: str | None = None) -> re.Pattern[str]:
     return re.compile(_heading_fragment(version), re.MULTILINE)
 
 
+@cache
 def _section_re(version: str) -> re.Pattern[str]:
     """Compile a pattern spanning a whole version section.
 
     Matches from the heading line of *version* down to the next `##` heading
     or the end of the content, whichever comes first. Everything below the
-    heading line is captured as the `body` group.
+    heading line is captured as the `body` group. Memoized like
+    {func}`_heading_re`.
 
     :param version: The version whose section to match.
     :return: A compiled pattern.
@@ -691,11 +707,6 @@ class Changelog:
         body = section_match["body"].strip()
         if not body:
             return elements
-        # Match GFM alert blocks: consecutive lines starting with "> ".
-        admonition_pattern = re.compile(
-            r"(?:^>.*$\n?)+",
-            re.MULTILINE,
-        )
 
         # Track regions to exclude from changes.
         exclude_regions: list[tuple[int, int]] = []
@@ -704,7 +715,7 @@ class Changelog:
         # Accumulate editorial (hand-written) admonitions.
         editorial_parts: list[str] = []
 
-        for block_match in admonition_pattern.finditer(body):
+        for block_match in GFM_ALERT_RE.finditer(body):
             block_text = block_match.group(0)
             exclude_regions.append((block_match.start(), block_match.end()))
             if "not released yet" in block_text:
@@ -1026,13 +1037,16 @@ def warn_on_empty_sections(changelog: Changelog) -> None:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ReleaseSources:
     """The external lookups a changelog's dates and availability are checked against.
 
     Both lookups are TTL-cached, and the boundary versions derived from them
     used to be recomputed by hand after a forced refresh: deriving them here
-    means a refresh cannot leave a stale boundary behind.
+    means a refresh cannot leave a stale boundary behind. Frozen so the
+    boundary properties can be cached: a refreshed half swaps in through
+    `dataclasses.replace`, which is what actually guarantees the derivations
+    can never go stale against an in-place edit.
     """
 
     package: str | None
@@ -1055,14 +1069,21 @@ class ReleaseSources:
         """Whether PyPI is the reference source, rather than git tags."""
         return bool(self.pypi_data)
 
-    @property
+    @cached_property
     def first_pypi_version(self) -> Version | None:
-        """Oldest version on PyPI, for the predates-the-index boundary."""
+        """Oldest version on PyPI, for the predates-the-index boundary.
+
+        Cached: the fix loop reads the boundary several times per version, and
+        each uncached read parsed a `Version` per PyPI release all over again.
+        """
         return min(map(Version, self.pypi_data), default=None)
 
-    @property
+    @cached_property
     def first_github_version(self) -> Version | None:
-        """Oldest GitHub release, for the predates-the-releases boundary."""
+        """Oldest GitHub release, for the predates-the-releases boundary.
+
+        Cached, like {attr}`first_pypi_version`.
+        """
         return min(map(Version, self.github_releases), default=None)
 
     @classmethod
@@ -1519,7 +1540,7 @@ def lint_changelog_dates(
             sources = confirmed
         else:
             # Keep the fresh PyPI half; the GitHub half stays as fetched.
-            sources.pypi_data = confirmed.pypi_data
+            sources = replace(sources, pypi_data=confirmed.pypi_data)
         still_missing = sources.retracted_versions(changelog, releases)
         if still_missing:
             # Confirmed against the live APIs: the release really is gone (a

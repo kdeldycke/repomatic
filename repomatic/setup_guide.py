@@ -30,10 +30,11 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import cached_property
-from pathlib import Path
 
 from click_extra import TableFormat, render_table
 
+from .changelog import resolved_changelog_path
+from .config import deploys_to
 from .github import token
 from .github.gh import run_gh_command
 from .github.issue import BOT_ISSUE_LABEL, manage_issue_lifecycle
@@ -142,7 +143,7 @@ class GuideContext:
     @cached_property
     def has_changelog(self) -> bool:
         """Whether the configured changelog exists on disk."""
-        return Path(self.config.changelog_location).exists()
+        return resolved_changelog_path(self.config).exists()
 
     @cached_property
     def nuitka_active(self) -> bool:
@@ -226,19 +227,12 @@ class GuideContext:
         One host's setup step is the other's noise, and the guide asks about
         exactly the one `site.deploy` names: a Cloudflare-hosted project has
         no GitHub Pages source to set, and the probe for it answers `404`
-        forever.
-
-        The GitHub Pages half stays gated on Sphinx, because the Docs workflow
-        is the only publisher repomatic runs for that host and it only builds
-        Sphinx trees. The Cloudflare half follows the declaration alone: a
-        repository whose site is built by its own workflow still needs the
-        project and the two credentials this guide walks through.
+        forever. Routes through {func}`repomatic.config.deploys_to`, the same
+        predicate the `lint-repo` audit reads.
         """
-        if self.config.site_deploy != target:
-            return False
-        if target == "github-pages":
-            return bool(self.md.is_sphinx)
-        return True
+        return deploys_to(
+            self.config.site_deploy, target, is_sphinx=bool(self.md.is_sphinx)
+        )
 
     @property
     def dependabot_ok(self) -> bool:

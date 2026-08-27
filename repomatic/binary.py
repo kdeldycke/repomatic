@@ -24,13 +24,13 @@ external tool is needed on runners or inside build containers.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import shutil
 import struct
 from dataclasses import dataclass
 from enum import Enum
+from itertools import chain
 from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
@@ -40,7 +40,7 @@ from extra_platforms import AARCH64, LINUX, MACOS, WINDOWS, X86_64
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
-    from typing import Final
+    from typing import IO, Final
 
     from extra_platforms import Architecture, Group, Platform
 
@@ -62,19 +62,6 @@ definition: {func}`pack_binary_assets` excludes this set from the binary
 upload list (`create-release` already attached those), and the dev-release
 asset globs add it on top of the compiled binaries.
 """
-
-
-def compute_file_sha256(path: Path) -> str:
-    """Compute the SHA-256 hex digest of a file.
-
-    :param path: Path to the file.
-    :return: Lowercase hex digest string.
-    """
-    sha256 = hashlib.sha256()
-    with path.open("rb") as f:
-        while chunk := f.read(65536):
-            sha256.update(chunk)
-    return sha256.hexdigest()
 
 
 # manylinux_2_28 (AlmaLinux 8, glibc 2.28) build containers from
@@ -476,9 +463,9 @@ rebuild.
 
 SKIP_BINARY_BUILD_BRANCHES: Final[frozenset[str]] = frozenset((
     # Autofix branches that don't affect compiled binaries.
+    "format-images",
     "format-json",
     "format-markdown",
-    "format-images",
     "format-shell",
     "sync-gitignore",
     "sync-mailmap",
@@ -549,20 +536,48 @@ def _decode_macho_version(value: int) -> str:
     return f"{value >> 16}.{(value >> 8) & 0xFF}"
 
 
-def _macho_slices(data: bytes) -> Iterator[bytes]:
-    """Yield each architecture slice of a Mach-O file (fat or thin)."""
-    magic = struct.unpack_from(">I", data, 0)[0]
+def _macho_header_region(stream: IO[bytes], base: int, size: int | None) -> bytes:
+    """Read one slice's header and load commands, never its whole body.
+
+    The consumer parses nothing past the load commands, whose byte length the
+    header itself declares (`sizeofcmds`, offset 20). Mirrors the bounded
+    `_PE_PROBE_BYTES` read: a onefile macOS binary runs to tens of megabytes
+    while its load commands run to kilobytes.
+
+    :param stream: The open Mach-O file.
+    :param base: Byte offset of the slice within the file.
+    :param size: Byte length of the slice, capping the read; `None` for a thin
+        file whose slice is the file itself.
+    """
+    stream.seek(base)
+    header = stream.read(32)
+    if len(header) < 32 or struct.unpack_from("<I", header, 0)[0] != MACHO_MAGIC_64:
+        return header
+    length = struct.unpack_from("<I", header, 20)[0]
+    if size is not None:
+        length = min(length, max(size - 32, 0))
+    return header + stream.read(length)
+
+
+def _macho_slices(stream: IO[bytes]) -> Iterator[bytes]:
+    """Yield each slice's header-and-load-commands region (fat or thin)."""
+    head = stream.read(8)
+    if len(head) < 8:
+        yield head
+        return
+    magic = struct.unpack_from(">I", head, 0)[0]
     if magic not in MACHO_FAT_MAGICS:
-        yield data
+        yield _macho_header_region(stream, 0, None)
         return
     wide = magic == 0xCAFEBABF
     entry_format = ">iiQQII" if wide else ">iiIII"
     entry_size = struct.calcsize(entry_format)
-    count = struct.unpack_from(">I", data, 4)[0]
+    count = struct.unpack_from(">I", head, 4)[0]
+    table = stream.read(count * entry_size)
     for index in range(count):
-        fields = struct.unpack_from(entry_format, data, 8 + index * entry_size)
+        fields = struct.unpack_from(entry_format, table, index * entry_size)
         offset, size = fields[2], fields[3]
-        yield data[offset : offset + size]
+        yield _macho_header_region(stream, offset, size)
 
 
 def _macho_info(path: Path) -> tuple[set[int], str | None]:
@@ -573,10 +588,11 @@ def _macho_info(path: Path) -> tuple[set[int], str | None]:
     universal binary. It is what the loader compares to the running macOS
     before letting the file execute.
     """
-    data = path.read_bytes()
     cpu_types: set[int] = set()
     floors: set[str] = set()
-    for chunk in _macho_slices(data):
+    with path.open("rb") as stream:
+        chunks = list(_macho_slices(stream))
+    for chunk in chunks:
         if len(chunk) < 32 or struct.unpack_from("<I", chunk, 0)[0] != MACHO_MAGIC_64:
             continue
         cpu_types.add(struct.unpack_from("<I", chunk, 4)[0])
@@ -610,12 +626,21 @@ def _pe_machine(path: Path) -> int | None:
     return int(struct.unpack_from("<H", head, pe_offset + 4)[0])
 
 
-def _iter_native_binaries(directories: Iterable[Path]) -> Iterator[Path]:
-    """Yield files with a recognized executable format under the given dirs."""
+def _iter_native_binaries(
+    directories: Iterable[Path],
+) -> Iterator[tuple[Path, BinaryFormat]]:
+    """Yield each recognized executable under the given dirs, with its format.
+
+    The format rides along so the caller never re-probes a file this walk
+    already opened: a Nuitka dist tree holds hundreds of shared objects, and
+    detecting each twice doubled the file opens for nothing.
+    """
     for directory in directories:
         for path in sorted(directory.rglob("*")):
-            if path.is_file() and BinaryFormat.detect(path) is not None:
-                yield path
+            if path.is_file():
+                detected = BinaryFormat.detect(path)
+                if detected is not None:
+                    yield path, detected
 
 
 def _check_target(target: str) -> BuildTarget:
@@ -638,7 +663,7 @@ def verify_binary_arch(target: str, binary_path: Path) -> None:
     :param target: Build target (e.g., 'linux-arm64', 'macos-x64').
     :param binary_path: Path to the binary file.
     :raises ValueError: If target is unknown.
-    :raises AssertionError: If binary format or architecture does not match.
+    :raises ValueError: If binary format or architecture does not match.
     """
     build_target = _check_target(target)
     expected_format = build_target.binary_format
@@ -646,7 +671,7 @@ def verify_binary_arch(target: str, binary_path: Path) -> None:
     actual_format = BinaryFormat.detect(binary_path)
     if actual_format is not expected_format:
         got = actual_format.label if actual_format else "unrecognized"
-        raise AssertionError(
+        raise ValueError(
             f"Binary architecture mismatch!\n"
             f"Expected: {expected_format.label} executable for target {target!r}\n"
             f"Got: {got} file at {binary_path}"
@@ -664,7 +689,7 @@ def verify_binary_arch(target: str, binary_path: Path) -> None:
 
     expected: object = build_target.expected_machine
     if expected not in reported:
-        raise AssertionError(
+        raise ValueError(
             f"Binary architecture mismatch!\n"
             f"Expected: {expected!r} for target {target!r}\n"
             f"Got: {reported!r} from {binary_path}"
@@ -705,7 +730,7 @@ def verify_binary_floor(
     :param binary_path: Path to the binary file.
     :param dist_dirs: Nuitka dist directories to include in the scan.
     :raises ValueError: If target is unknown.
-    :raises AssertionError: If any scanned file exceeds the declared floor.
+    :raises ValueError: If any scanned file exceeds the declared floor.
     """
     build_target = _check_target(target)
     declared = build_target.enforced_floor
@@ -718,8 +743,15 @@ def verify_binary_floor(
 
     violations = []
     scanned = 0
-    for path in (binary_path, *_iter_native_binaries(dist_dirs)):
-        if BinaryFormat.detect(path) is not expected_format:
+    # chain() keeps the dist walk lazy: a `(binary_path, *generator)` tuple
+    # display would drain it up front, and the walk already carries each
+    # file's detected format so nothing is probed twice.
+    candidates = chain(
+        ((binary_path, BinaryFormat.detect(binary_path)),),
+        _iter_native_binaries(dist_dirs),
+    )
+    for path, detected in candidates:
+        if detected is not expected_format:
             continue
         if expected_format is BinaryFormat.ELF:
             _, measured = _elf_info(path)
@@ -733,7 +765,7 @@ def verify_binary_floor(
         details = "\n".join(
             f"- {path}: requires {measured}" for path, measured in violations
         )
-        raise AssertionError(
+        raise ValueError(
             f"OS floor exceeded for {target}: declared {floor_label} floor is "
             f"{declared}, "
             f"but these files require newer:\n{details}"

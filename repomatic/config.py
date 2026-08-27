@@ -235,6 +235,24 @@ rejects one rather than letting the workflow run green and publish nothing.
 """
 
 
+def deploys_to(site_deploy: str, target: str, *, is_sphinx: bool) -> bool:
+    """Whether a repository declaring *site_deploy* publishes its site to *target*.
+
+    The one routing rule behind both the `lint-repo` audit and the setup
+    guide, which used to carry mirror copies kept in sync by prose. The
+    GitHub Pages half stays gated on Sphinx, because the Docs workflow is the
+    only publisher repomatic runs for that host and it only builds Sphinx
+    trees. The Cloudflare half follows the declaration alone: a repository
+    whose site is built by its own workflow still needs the project and the
+    credentials the checks and the guide cover.
+    """
+    if site_deploy != target:
+        return False
+    if target == "github-pages":
+        return is_sphinx
+    return True
+
+
 def location_path(location: str) -> str:
     """Normalize a `*.location` config value into a bare repo-relative path.
 
@@ -1637,6 +1655,28 @@ config, so a single stale key would otherwise be re-warned on each call,
 drowning one actionable line in a dozen duplicates per invocation.
 """
 
+_CONFIG_CACHE: dict[int, tuple[dict[str, Any], Config]] = {}
+"""Loaded `Config` instances, keyed by the identity of the parse they came from.
+
+Rebuilding a `Config` walks the whole schema through click-extra's dataclass
+instantiation (~0.6 ms), and the hot paths re-load it constantly: every HTTP
+cache access resolves {func}`repomatic.cache.cache_dir` and every PyPI, npm and
+GitHub lookup re-reads its TTL, so a dependency sweep pays for hundreds of
+identical rebuilds. `read_pyproject_toml` returns the *same* dict object for an
+unchanged file (its own cache is keyed on mtime and size), so that object's
+identity is the file's identity: the entry keeps a strong reference to the
+keyed dict, both to pin its `id` and to guard against reuse. An edited file
+parses into a new dict and misses the cache naturally.
+
+Safe to share unguarded for the same reason the parse cache is: no production
+caller mutates a loaded `Config` (tests that flip flags build their own
+`Config()` directly). Cleared wholesale past {data}`_CONFIG_CACHE_MAX` entries,
+a bound only a test session churning through fixture projects ever reaches.
+"""
+
+_CONFIG_CACHE_MAX = 64
+"""Entry count past which {data}`_CONFIG_CACHE` is reset."""
+
 
 def load_repomatic_config(
     pyproject_data: dict[str, Any] | None = None,
@@ -1646,6 +1686,9 @@ def load_repomatic_config(
     Delegates to click-extra's schema-aware dataclass instantiation, which
     handles normalization, flattening, nested dataclasses, and opaque field
     extraction automatically based on field metadata and type hints.
+
+    Loads are memoized per parsed document (see {data}`_CONFIG_CACHE`), so
+    treat the returned instance as read-only.
 
     :param pyproject_data: Pre-parsed `pyproject.toml` dict. If `None`,
         reads and parses `pyproject.toml` from the current working directory.
@@ -1659,6 +1702,10 @@ def load_repomatic_config(
         warn_unknown = pyproject_path not in _UNKNOWN_KEYS_WARNED
         _UNKNOWN_KEYS_WARNED.add(pyproject_path)
 
+    cached = _CONFIG_CACHE.get(id(pyproject_data))
+    if cached is not None and cached[0] is pyproject_data:
+        return cached[1]
+
     tool_section = pyproject_data.get("tool", {})
     user_config: dict[str, Any] = tool_section.get("repomatic", {})
 
@@ -1670,4 +1717,7 @@ def load_repomatic_config(
     )
     assert schema_callable is not None
     config: Config = schema_callable(user_config)
+    if len(_CONFIG_CACHE) >= _CONFIG_CACHE_MAX:
+        _CONFIG_CACHE.clear()
+    _CONFIG_CACHE[id(pyproject_data)] = (pyproject_data, config)
     return config
