@@ -82,7 +82,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic --verbosity INFO
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.14.0' --verbosity INFO
           sample-metrics --carry-from sample-metrics
 
       # Nothing new to publish is the common case between two stars, and
@@ -95,5 +95,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.14.0'
           pr-sync --template sample-metrics

@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.14.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.14.0` (2026-08-27)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...v7.14.0)
 
 - **Breaking:** the `agent` component is gone, with the `agent.location` config key and the bundled `claude.md` reference document. `repomatic init` no longer writes to a repository's instructions file, which each repository now owns outright.
 - **Breaking:** `CLOUDFLARE_ACCOUNT_ID` is gone: the account derives from `CLOUDFLARE_API_TOKEN` alone. `cloudflare-pages --account-id` and `lint-repo --has-cloudflare-account-id` are removed with it.
