@@ -81,7 +81,7 @@ jobs:
         env:
           PR_REF: ${{ steps.extract.outputs.pr_ref }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.14.0'
+          uv --no-progress run --frozen -- repomatic
           pr-body --output-format github-actions
           --template detect-squash-merge
           --pr-ref "${PR_REF}"
@@ -130,7 +130,7 @@ jobs:
       - name: Run repomatic metadata
         id: metadata
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.14.0' metadata
+          uv --no-progress run --frozen -- repomatic metadata
           --format github-json --output "$GITHUB_OUTPUT"
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
           is_python_project cli_scripts package_name current_version released_version
@@ -166,7 +166,7 @@ jobs:
           version: "0.12.4"
       - name: Check dependency sources
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.14.0' lint-deps
+          uv --no-progress run --frozen -- repomatic lint-deps
           ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
           && '--fatal' || '--no-fatal' }}
 
