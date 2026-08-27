@@ -12,6 +12,7 @@
 - **Breaking:** `build_targets` and `nuitka_matrix` replace the `glibc_floor` and `min_os` keys with a single `floor`, holding the same versions. A workflow reading `matrix.min_os` needs `matrix.floor`.
 - `sync-workflow-pins` no longer bumps the uv pin past what the pinned `astral-sh/setup-uv` can checksum-verify: the action silently skips validation for a version its bundled table does not list.
 - `lint-repo` gains a `setup-uv-checksum-coverage` check, warning when the pinned uv carries no checksum in the pinned `astral-sh/setup-uv` and CI therefore installs it unverified.
+- `lint-repo` gains a `classic-branch-protection` check, reporting a branch protection rule left beside a ruleset: GitHub applies both, splitting the branch policy across two settings pages.
 - `show-test-matrix` sorts its Python rows by release instead of job order, placing a free-threaded build (`3.14t`) right after its base version, and aligns its OS columns with the canonical runner order of the test-matrix constants.
 - `show-test-matrix` gains `--row-axis` and `--col-axis`, laying the grid out on any job key the matrix carries instead of the fixed Python-by-OS view.
 - `show-test-matrix` states how many jobs a cell stands for (`✅ stable ×5`), so a cell collapsing an axis the grid cannot show no longer reads as a single job.

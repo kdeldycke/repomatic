@@ -44,7 +44,7 @@ from .config import Config
 from .file_inventory import FileInventory
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
-from .github.gh import gh_api_json, run_gh_command
+from .github.gh import gh_api_json, gh_graphql, run_gh_command
 from .github.matrix import stale_axis_values
 from .github.token import check_all_pat_permissions
 from .matrix_axes import (
@@ -173,6 +173,29 @@ TEMPLATE_FILE_ARG_RE = re.compile(r"--template-file[=\s]+(?P<path>\S+)")
 Matched against the raw YAML text rather than the parsed document: the argument
 sits inside a folded scalar, so the surrounding `run:` value is one opaque
 string whichever way the file is parsed.
+"""
+
+BRANCH_PROTECTION_RULES_QUERY = """
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    branchProtectionRules(first: 100) {
+      nodes { pattern }
+    }
+  }
+}
+"""
+"""Lists every branch protection rule a repository declares, by branch pattern.
+
+GraphQL because REST cannot answer the question. `GET
+/repos/{repo}/branches/{branch}/protection` reads one concrete branch, so
+finding a rule needs the branch name up front and still misses any pattern
+targeting a branch that does not exist yet. This field enumerates the rules
+themselves.
+
+The field also draws the line the check depends on: a ruleset never appears
+here, and a branch protection rule never appears under `rulesets`. Verified on
+2026-08-27 against a repository holding both at once, which listed the branch
+protection rule here and the ruleset only there.
 """
 
 
@@ -925,6 +948,70 @@ def check_branch_ruleset_on_default(repo: str) -> CheckResult:
     return CheckResult(
         False, "No active branch rulesets found protecting the default branch."
     )
+
+
+def check_classic_branch_protection(repo: str) -> CheckResult:
+    """Check that no branch protection rule survives beside the rulesets.
+
+    Branch protection rules predate rulesets and GitHub still supports both,
+    with no deprecation notice and no removal date. They are not alternatives
+    a repository picks between: [both apply at
+    once](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets),
+    and where the two carry the same rule, the stricter version wins. A rule
+    left behind after a migration therefore changes nothing on the day it is
+    left, which is what makes it worth reporting: the branch policy is now
+    split across two settings pages, and an edit to one page does not show on
+    the other.
+
+    {func}`check_branch_ruleset_on_default` states the other half of the same
+    policy, that a ruleset must exist. Together they say the protection is a
+    ruleset and only a ruleset.
+
+    ```{note}
+
+    Advisory, not fatal. A leftover rule protects the branch rather than
+    exposing it, so the finding is a cleanup, per `claude.md` § Defensive
+    workflow design.
+    ```
+
+    :param repo: Repository in 'owner/repo' format.
+    :return: A `CheckResult`. `passed` is `None` when the API could not be
+        read, matching the ruleset checks. Reading the rules needs admin on
+        the repository, so a token without it skips rather than passes.
+    """
+    owner, _, name = repo.partition("/")
+    try:
+        data = gh_graphql(BRANCH_PROTECTION_RULES_QUERY, owner=owner, name=name)
+    except (RuntimeError, KeyError, json.JSONDecodeError) as error:
+        logging.debug(f"Could not read branch protection rules for {repo}: {error}")
+        return CheckResult(
+            None,
+            "Branch protection rule check: skipped"
+            " (could not query the branchProtectionRules API).",
+        )
+
+    repository = (data or {}).get("repository") or {}
+    nodes = (repository.get("branchProtectionRules") or {}).get("nodes") or []
+    patterns = sorted(
+        node["pattern"]
+        for node in nodes
+        if isinstance(node, dict) and node.get("pattern")
+    )
+    if not patterns:
+        return CheckResult(
+            True, "No branch protection rules found: rulesets are the only layer."
+        )
+
+    names = ", ".join(f"`{pattern}`" for pattern in patterns)
+    msg = (
+        f"Branch protection rules found on: {names}."
+        " Rulesets already protect this repository, and the two layer, so the"
+        " branch policy is split across two settings pages."
+        " Move anything these rules still hold into a ruleset at"
+        f" https://github.com/{repo}/settings/rules, then delete them at"
+        f" https://github.com/{repo}/settings/branches."
+    )
+    return CheckResult(False, msg)
 
 
 def check_immutable_releases(repo: str) -> CheckResult:
@@ -2947,6 +3034,11 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "branch-ruleset-on-default",
         lambda ctx: check_branch_ruleset_on_default(ctx.repo or ""),
+        applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        "classic-branch-protection",
+        lambda ctx: check_classic_branch_protection(ctx.repo or ""),
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(

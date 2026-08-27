@@ -32,6 +32,7 @@ from repomatic.lint_repo import (
     CheckResult,
     LintContext,
     check_branch_ruleset_on_default,
+    check_classic_branch_protection,
     check_description_matches,
     check_funding_file,
     check_immutable_releases,
@@ -2172,6 +2173,88 @@ def test_check_branch_ruleset_api_error():
         passed, msg = check_branch_ruleset_on_default("owner/repo")
     assert passed is None
     assert "skipped" in msg
+
+
+# --- check_classic_branch_protection ---------------------------------------------
+
+
+def _graphql_rules(*patterns: str) -> dict:
+    """Wrap branch patterns in the envelope `gh_graphql` hands back."""
+    return {
+        "repository": {
+            "branchProtectionRules": {
+                "nodes": [{"pattern": pattern} for pattern in patterns]
+            }
+        }
+    }
+
+
+def test_check_classic_branch_protection_none():
+    """A repository holding only rulesets passes."""
+
+    with patch("repomatic.lint_repo.gh_graphql", return_value=_graphql_rules()):
+        passed, msg = check_classic_branch_protection("owner/repo")
+    assert passed is True
+    assert "rulesets" in msg
+
+
+@pytest.mark.parametrize(
+    ("patterns", "expected"),
+    (
+        (("main",), ("`main`",)),
+        # Sorted, so the message is stable whatever order the API answers in.
+        (("release/*", "main"), ("`main`", "`release/*`")),
+    ),
+)
+def test_check_classic_branch_protection_found(patterns, expected):
+    """Every surviving rule is named, and both settings pages are linked."""
+
+    with patch(
+        "repomatic.lint_repo.gh_graphql", return_value=_graphql_rules(*patterns)
+    ):
+        passed, msg = check_classic_branch_protection("owner/repo")
+    assert passed is False
+    positions = [msg.find(pattern) for pattern in expected]
+    assert all(position >= 0 for position in positions)
+    assert positions == sorted(positions)
+    assert "https://github.com/owner/repo/settings/rules" in msg
+    assert "https://github.com/owner/repo/settings/branches" in msg
+
+
+def test_check_classic_branch_protection_api_error():
+    """Reading the rules needs admin, so a refusal skips instead of passing.
+
+    A token without admin gets the same `RuntimeError` as a network failure.
+    Answering `True` there would report a clean repository on the strength of
+    a question nobody managed to ask.
+    """
+
+    with patch("repomatic.lint_repo.gh_graphql", side_effect=RuntimeError("403")):
+        passed, msg = check_classic_branch_protection("owner/repo")
+    assert passed is None
+    assert "skipped" in msg
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        None,
+        {},
+        {"repository": None},
+        {"repository": {"branchProtectionRules": None}},
+        {"repository": {"branchProtectionRules": {"nodes": None}}},
+    ),
+)
+def test_check_classic_branch_protection_partial_payload(payload):
+    """A partial GraphQL response reads as no rules, never as a crash.
+
+    GraphQL answers `200` with a null branch when a field resolves to nothing,
+    so every level of the envelope can arrive empty.
+    """
+
+    with patch("repomatic.lint_repo.gh_graphql", return_value=payload):
+        passed, _msg = check_classic_branch_protection("owner/repo")
+    assert passed is True
 
 
 # --- check_immutable_releases ---------------------------------------------------
