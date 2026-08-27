@@ -67,7 +67,7 @@ jobs:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
 
       # `gh` inherits this token to read the aggregate counts, and the per-star
       # timestamps of the repositories it administers, which only an admin

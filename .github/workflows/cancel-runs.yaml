@@ -49,7 +49,7 @@ jobs:
           # invalidate.
           enable-cache: false
           ignore-empty-workdir: true
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Cancel in-progress runs for PR branch
         env:
           GH_TOKEN: ${{ github.token }}

@@ -62,7 +62,7 @@ jobs:
         run: git log --decorate=full --oneline
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Run repomatic metadata
         id: metadata
         run: >
@@ -138,7 +138,7 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       # Persist the Nuitka compile caches across runs: ccache objects on gcc
       # targets, Nuitka's internal clcache objects on MSVC, plus downloads
       # and demoted-module bytecode. The per-commit key never hits exactly,
@@ -452,7 +452,7 @@ jobs:
         run: chmod +x "${DOWNLOAD_PATH}/${BIN_NAME}"
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Run test suite for binary
         env:
           DOWNLOAD_PATH: ${{ steps.artifacts.outputs.download-path }}
@@ -499,7 +499,7 @@ jobs:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Create and push tag
         # Idempotent: skips if tag already exists instead of failing. This allows re-running
         # workflows interrupted after tag creation.
@@ -535,7 +535,7 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Download Python package
         # Do not fetch build artifacts for non-Python projects (no wheel built).
         if: fromJSON(needs.metadata.outputs.metadata).is_python_project
@@ -613,7 +613,7 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Install project
         run: uv --no-progress sync --frozen
       - name: Generate man pages
@@ -702,7 +702,7 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Download asset artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -810,7 +810,7 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         if: needs.compile-binaries.result != 'skipped'
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Upload binaries and attestation bundles to release
         # Exclude Python packages (.tar.gz, .whl) already uploaded by create-release.
         # Each versioned binary is also uploaded under a versionless alias
@@ -881,7 +881,7 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Download release binaries
         # Versioned patterns leave out the versionless alias copies, which
         # share their digest with a versioned sibling and would only submit
@@ -966,7 +966,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Download all build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1000,7 +1000,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       - name: Generate graph
         # Package name and output path are auto-detected from pyproject.toml.
         run: uv --no-progress run --frozen -- repomatic update-dep-graph
