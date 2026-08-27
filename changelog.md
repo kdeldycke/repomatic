@@ -19,7 +19,7 @@
 - `cloudflare-pages --create` is now idempotent: an existing Pages project is reused and reconciled against the declared settings, instead of failing on the API's `409` duplicate-name refusal.
 - The Todo list documentation page lists the project's pending work: each deferred change is written as a `todo` admonition beside the code or prose it acts on.
 - The `repomatic-ship` skill now sweeps those admonitions: pending work the cycle introduced is written as one, and a todo whose upstream trigger fired is retired with the shim it guards.
-- `metadata` and every glob-driven check now walk the repository tree once and skip `.git/`, an order-of-magnitude speedup on the tree scan.
+- `metadata` and every glob-driven check now walk the repository tree once and skip `.git/`, instead of re-walking it on every lookup.
 - `ci-status` locates every workflow's newest run through one branch-wide listing instead of one query per workflow.
 - Every HTTP fetch now identifies itself with a `repomatic/{version}` user agent.
 - `sync-workflow-pins` no longer bumps the uv pin past what the pinned `astral-sh/setup-uv` can checksum-verify: the action silently skips validation for a version its bundled table does not list.
