@@ -379,10 +379,10 @@ testpaths = [ "tests" ]
 # Make sure tests that are expected to fail do not resurrect and start working all of a sudden.
 xfail_strict = true
 
-[tool.coverage]
 # https://coverage.readthedocs.io/en/latest/config.html
-run.branch = true
+[tool.coverage]
 run.source = [ "repomatic" ]
+run.branch = true
 # Coverage ratchet: the suite fails below this. The matrix floor sits near
 # 81.6%, since the only cell-dependent tests (tests/test_sphinx_crossrefs.py)
 # run on Linux + Python 3.14 alone and push that cell *up*; the package holds
