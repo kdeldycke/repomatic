@@ -41,7 +41,7 @@
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.
 - Fix `format-images` dropping its optimization summary table from the PR body, lost in `7.11.0` when its two PR-publishing steps collapsed into one.
 - The skills, subagents and plugin documentation pages group under an Agent tooling section and move to `/agent-skills`, `/subagents` and `/claude-code-plugin`, with the old URLs redirecting.
-- The generated API reference now renders only on the `/repomatic` pages. The guide pages keep their tutorials and prose, and no longer repeat a module's reference below it.
+- The generated API reference moves off the guide pages and splits one page per module (`/repomatic.awesome_toc`), instead of stacking a whole package onto one page. The guide pages keep their prose and link to it.
 - The Python compatibility table of the install page marks a version a release neither declared nor excluded with `–`, instead of counting it as unsupported.
 - The `commit-messages` page and the bundled skills now hold a commit body to three cases: bundled orthogonal work, a link to a public record, or a `Closes #N` pointer.
 - Fix the `exclude` example of the configuration page naming `zizmor`, which is not a component: copying it made `repomatic init` fail.

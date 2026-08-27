@@ -281,3 +281,5 @@ from repomatic.tooling.tool_registry import tool_reference
 
 print(tool_reference())
 ```
+
+The runner's own API is documented on the [`repomatic.tooling.tool_runner`](repomatic.tooling.tool_runner.md) page.

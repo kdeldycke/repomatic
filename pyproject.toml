@@ -523,6 +523,11 @@ abandoned-versions = [
   "6.18.0",
 ]
 changelog.archive-location = "./docs/changelog-archive.md"
+# Give every module its own reference page (`/repomatic.awesome_toc`) instead of
+# stacking a package's modules onto one. Page length then follows the module it
+# documents rather than the package it sits in, so the reference cannot grow
+# unreadable as the package does. The guide pages carry the prose and link here.
+docs.apidoc-extra-args = [ "--separate" ]
 exclude = [ "workflows" ]
 # Render the Click command tree as roff `.1` files and attach a
 # `repomatic-manpages.tar.gz` asset to every GitHub release. The script target

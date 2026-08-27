@@ -212,3 +212,5 @@ False-positive submissions are a per-release moving target. The structural fixes
 - **Code signing with an EV certificate** would reduce heuristic detections across the board, especially from Microsoft and Symantec ML models.
 - **Switching from `--onefile` to `--standalone`** would eliminate the self-extracting pattern entirely, at the cost of distributing a directory instead of a single `.exe`.
 - **[Nuitka Commercial](https://nuitka.net/doc/commercial.html)** claims proprietary AV-mitigation techniques but offers no guarantees.
+
+The code behind this page is documented on the [`repomatic.release.virustotal`](repomatic.release.virustotal.md), [`repomatic.release.checksums`](repomatic.release.checksums.md) and [`repomatic.release.binary`](repomatic.release.binary.md) pages.

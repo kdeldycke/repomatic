@@ -25,326 +25,44 @@
 
 ## Submodules
 
-## `repomatic.awesome_toc` module
-
 ```{eval-rst}
-.. automodule:: repomatic.awesome_toc
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.broken_links` module
-
-```{eval-rst}
-.. automodule:: repomatic.broken_links
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cache` module
-
-```{eval-rst}
-.. automodule:: repomatic.cache
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.changelog` module
-
-```{eval-rst}
-.. automodule:: repomatic.changelog
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cloudflare` module
-
-```{eval-rst}
-.. automodule:: repomatic.cloudflare
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.compat` module
-
-```{eval-rst}
-.. automodule:: repomatic.compat
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.config` module
-
-```{eval-rst}
-.. automodule:: repomatic.config
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.docs` module
-
-```{eval-rst}
-.. automodule:: repomatic.docs
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.file_inventory` module
-
-```{eval-rst}
-.. automodule:: repomatic.file_inventory
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.forge` module
-
-```{eval-rst}
-.. automodule:: repomatic.forge
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.frontmatter` module
-
-```{eval-rst}
-.. automodule:: repomatic.frontmatter
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.git_ops` module
-
-```{eval-rst}
-.. automodule:: repomatic.git_ops
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.gitignore` module
-
-```{eval-rst}
-.. automodule:: repomatic.gitignore
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.hashing` module
-
-```{eval-rst}
-.. automodule:: repomatic.hashing
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.http` module
-
-```{eval-rst}
-.. automodule:: repomatic.http
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.humanize` module
-
-```{eval-rst}
-.. automodule:: repomatic.humanize
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.images` module
-
-```{eval-rst}
-.. automodule:: repomatic.images
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.init_project` module
-
-```{eval-rst}
-.. automodule:: repomatic.init_project
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.labels` module
-
-```{eval-rst}
-.. automodule:: repomatic.labels
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.lint_repo` module
-
-```{eval-rst}
-.. automodule:: repomatic.lint_repo
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.mailmap` module
-
-```{eval-rst}
-.. automodule:: repomatic.mailmap
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.matrix_axes` module
-
-```{eval-rst}
-.. automodule:: repomatic.matrix_axes
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.metric_chart` module
-
-```{eval-rst}
-.. automodule:: repomatic.metric_chart
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.metrics` module
-
-```{eval-rst}
-.. automodule:: repomatic.metrics
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.npm` module
-
-```{eval-rst}
-.. automodule:: repomatic.npm
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.pages_redirects` module
-
-```{eval-rst}
-.. automodule:: repomatic.pages_redirects
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.pypi` module
-
-```{eval-rst}
-.. automodule:: repomatic.pypi
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.pyproject` module
-
-```{eval-rst}
-.. automodule:: repomatic.pyproject
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.registry` module
-
-```{eval-rst}
-.. automodule:: repomatic.registry
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.runner_catalog` module
-
-```{eval-rst}
-.. automodule:: repomatic.runner_catalog
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.runner_images` module
-
-```{eval-rst}
-.. automodule:: repomatic.runner_images
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.setup_guide` module
-
-```{eval-rst}
-.. automodule:: repomatic.setup_guide
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.site_anchors` module
-
-```{eval-rst}
-.. automodule:: repomatic.site_anchors
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.sync_ops` module
-
-```{eval-rst}
-.. automodule:: repomatic.sync_ops
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.tabular` module
-
-```{eval-rst}
-.. automodule:: repomatic.tabular
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.versions` module
-
-```{eval-rst}
-.. automodule:: repomatic.versions
-   :members:
-   :show-inheritance:
-   :undoc-members:
+.. toctree::
+   :maxdepth: 4
+
+   repomatic.awesome_toc
+   repomatic.broken_links
+   repomatic.cache
+   repomatic.changelog
+   repomatic.cloudflare
+   repomatic.compat
+   repomatic.config
+   repomatic.docs
+   repomatic.file_inventory
+   repomatic.forge
+   repomatic.frontmatter
+   repomatic.git_ops
+   repomatic.gitignore
+   repomatic.hashing
+   repomatic.http
+   repomatic.humanize
+   repomatic.images
+   repomatic.init_project
+   repomatic.labels
+   repomatic.lint_repo
+   repomatic.mailmap
+   repomatic.matrix_axes
+   repomatic.metric_chart
+   repomatic.metrics
+   repomatic.npm
+   repomatic.pages_redirects
+   repomatic.pypi
+   repomatic.pyproject
+   repomatic.registry
+   repomatic.runner_catalog
+   repomatic.runner_images
+   repomatic.setup_guide
+   repomatic.site_anchors
+   repomatic.sync_ops
+   repomatic.tabular
+   repomatic.versions
 ```

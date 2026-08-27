@@ -13,3 +13,5 @@ from repomatic.cli.main import repomatic
 .. autoclasstree:: repomatic.cli.main
    :strict:
 ```
+
+Each command's own signature and docstring is on the [`repomatic.cli.main`](repomatic.cli.main.md) page, alongside the rest of the [`repomatic.cli`](repomatic.cli.md) package.

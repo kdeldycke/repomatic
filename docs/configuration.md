@@ -269,3 +269,5 @@ Only the configs repomatic keeps syncing behave this way: `typos`, `uv` and `bum
 ## `[tool.X]` bridge and tool runner
 
 `repomatic run` also bridges the gap for tools that can't read `pyproject.toml` natively: write your config in `[tool.<name>]` and repomatic translates it to the tool's native format at invocation time. See the [tool runner](tool-runner.md) page for the full list of supported tools, config resolution precedence, binary caching, and a tutorial.
+
+Every option above maps to a field on the `Config` dataclass, whose reference is on the [`repomatic.config`](repomatic.config.md) page.

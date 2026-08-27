@@ -9,38 +9,12 @@
 
 ## Submodules
 
-## `repomatic.tooling.bundle` module
-
 ```{eval-rst}
-.. automodule:: repomatic.tooling.bundle
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
+.. toctree::
+   :maxdepth: 4
 
-## `repomatic.tooling.plugin` module
-
-```{eval-rst}
-.. automodule:: repomatic.tooling.plugin
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.tooling.tool_registry` module
-
-```{eval-rst}
-.. automodule:: repomatic.tooling.tool_registry
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.tooling.tool_runner` module
-
-```{eval-rst}
-.. automodule:: repomatic.tooling.tool_runner
-   :members:
-   :show-inheritance:
-   :undoc-members:
+   repomatic.tooling.bundle
+   repomatic.tooling.plugin
+   repomatic.tooling.tool_registry
+   repomatic.tooling.tool_runner
 ```

@@ -197,52 +197,62 @@ def test_docs_tool_runner_uses_render_blocks(renderer: str) -> None:
     assert f"from repomatic.tooling.tool_registry import {renderer}" in tool_runner_text
 
 
-# Sphinx-apidoc module pages that carry importable modules. The data/, templates/,
-# and awesome-template subpackages hold only bundled assets, so they have no
-# module pages to keep in sync.
-_MODULE_DOC_PAGES = {
-    "repomatic.md": ("repomatic", REPO_ROOT / "repomatic"),
-    "repomatic.cli.md": ("repomatic.cli", REPO_ROOT / "repomatic" / "cli"),
-    "repomatic.deps.md": ("repomatic.deps", REPO_ROOT / "repomatic" / "deps"),
-    "repomatic.github.md": ("repomatic.github", REPO_ROOT / "repomatic" / "github"),
-    "repomatic.metadata.md": (
-        "repomatic.metadata",
-        REPO_ROOT / "repomatic" / "metadata",
-    ),
-    "repomatic.release.md": ("repomatic.release", REPO_ROOT / "repomatic" / "release"),
-    "repomatic.tooling.md": ("repomatic.tooling", REPO_ROOT / "repomatic" / "tooling"),
-    "tests.md": ("tests", REPO_ROOT / "tests"),
-}
+# Packages sphinx-apidoc walks. The data/, templates/ and awesome-template
+# subpackages hold only bundled assets, so they carry no importable module.
+_APIDOC_ROOTS = ("repomatic", "tests")
 
-# sphinx-apidoc emits an automodule for every module except a package `__init__`
-# (covered by the package page) and `__main__` (an entry-point shim it skips).
-_APIDOC_SKIP = frozenset({"__init__", "__main__"})
+# sphinx-apidoc emits a page for every module except `__main__`, an entry-point
+# shim it skips. A package `__init__` is documented by the package's own page,
+# which is named for the package rather than for the file.
+_APIDOC_SKIP = frozenset({"__main__"})
 
 
-@pytest.mark.parametrize("page", sorted(_MODULE_DOC_PAGES))
-def test_every_module_has_a_docs_automodule(page: str) -> None:
-    """Every module appears in its sphinx-apidoc doc page.
+def _expected_module_pages() -> dict[str, str]:
+    """Map each module's dotted name to the page `--separate` gives it.
 
-    These pages are write-once: ``click_extra.rst_to_myst`` preserves an
-    existing ``.md``,
-    so a module added after a page was last generated silently goes undocumented
-    (Sphinx then warns "document isn't included in any toctree"). The
-    ``update-docs`` drift test cannot catch this, since the generator never
-    rewrites the page. To regenerate a page complete, delete it and run
-    ``repomatic update-docs``.
+    A package `__init__.py` collapses onto the package page (`repomatic.cli`),
+    every other module gets its own (`repomatic.cli.main`).
     """
-    prefix, root = _MODULE_DOC_PAGES[page]
-    documented = set(
-        re.findall(
-            r"automodule:: ([\w.]+)",
-            (REPO_ROOT / "docs" / page).read_text(encoding="UTF-8"),
-        )
+    pages = {}
+    for root in _APIDOC_ROOTS:
+        for path in sorted((REPO_ROOT / root).rglob("*.py")):
+            if path.stem in _APIDOC_SKIP:
+                continue
+            parts = path.relative_to(REPO_ROOT).with_suffix("").parts
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            pages[".".join(parts)] = ".".join(parts)
+    return pages
+
+
+@pytest.mark.parametrize("module", sorted(_expected_module_pages()))
+def test_every_module_has_a_docs_automodule(module: str) -> None:
+    """Every module has its own reference page, carrying its automodule.
+
+    `[tool.repomatic] docs.apidoc-extra-args` passes `--separate`, so the
+    reference is one page per module rather than one page per package. That
+    keeps a page's length tied to the module it documents, and it is why this
+    checks for a page named after the module rather than for an entry on a
+    package page.
+
+    These pages are write-once: {func}`click_extra.convert_rst_files_in_directory`
+    keeps an existing `.md` and discards the regenerated `.rst`, so a module
+    added later silently goes undocumented (Sphinx then warns "document isn't
+    included in any toctree"). The `update-docs` drift test cannot catch it,
+    since the generator never rewrites a page that already exists. To rebuild
+    one, delete it and run `repomatic update-docs`.
+
+    :param module: Dotted module name that must own a reference page.
+    """
+    page = REPO_ROOT / "docs" / f"{module}.md"
+    assert page.is_file(), (
+        f"{module} has no docs/{module}.md page. "
+        f"Run `repomatic update-docs` to generate it."
     )
-    on_disk = {
-        f"{prefix}.{p.stem}" for p in root.glob("*.py") if p.stem not in _APIDOC_SKIP
-    }
-    missing = sorted(on_disk - documented)
-    assert not missing, (
-        f"docs/{page} has no automodule entry for: {missing}. "
-        f"Delete docs/{page} and run `repomatic update-docs` to regenerate it."
+    documented = set(
+        re.findall(r"automodule:: ([\w.]+)", page.read_text(encoding="UTF-8"))
+    )
+    assert module in documented, (
+        f"docs/{module}.md carries no automodule for {module}. "
+        f"Delete it and run `repomatic update-docs` to regenerate it."
     )

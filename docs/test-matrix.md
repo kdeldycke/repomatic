@@ -307,3 +307,5 @@ The shipped configuration is exercised everywhere a regression would reach a use
 .. autoclasstree:: repomatic.metadata.core
    :strict:
 ```
+
+The constants this page describes are documented on the [`repomatic.matrix_axes`](repomatic.matrix_axes.md) page, and the class itself on [`repomatic.metadata.core`](repomatic.metadata.core.md).
