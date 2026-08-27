@@ -13,21 +13,17 @@
 .. toctree::
    :maxdepth: 4
 
+   repomatic.cli
    repomatic.data
+   repomatic.deps
    repomatic.github
+   repomatic.metadata
+   repomatic.release
    repomatic.templates
+   repomatic.tooling
 ```
 
 ## Submodules
-
-## `repomatic.release.attestation` module
-
-```{eval-rst}
-.. automodule:: repomatic.release.attestation
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
 
 ## `repomatic.awesome_toc` module
 
@@ -38,37 +34,10 @@
    :undoc-members:
 ```
 
-## `repomatic.release.binaries_page` module
-
-```{eval-rst}
-.. automodule:: repomatic.release.binaries_page
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.release.binary` module
-
-```{eval-rst}
-.. automodule:: repomatic.release.binary
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.broken_links` module
 
 ```{eval-rst}
 .. automodule:: repomatic.broken_links
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.tooling.bundle` module
-
-```{eval-rst}
-.. automodule:: repomatic.tooling.bundle
    :members:
    :show-inheritance:
    :undoc-members:
@@ -87,78 +56,6 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.changelog
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.release.checksums` module
-
-```{eval-rst}
-.. automodule:: repomatic.release.checksums
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cli.main` module
-
-```{eval-rst}
-.. automodule:: repomatic.cli.main
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cli.github` module
-
-```{eval-rst}
-.. automodule:: repomatic.cli.github
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cli.lint` module
-
-```{eval-rst}
-.. automodule:: repomatic.cli.lint
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cli.release` module
-
-```{eval-rst}
-.. automodule:: repomatic.cli.release
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cli.sample` module
-
-```{eval-rst}
-.. automodule:: repomatic.cli.sample
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cli.setup` module
-
-```{eval-rst}
-.. automodule:: repomatic.cli.setup
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.cli.sync` module
-
-```{eval-rst}
-.. automodule:: repomatic.cli.sync
    :members:
    :show-inheritance:
    :undoc-members:
@@ -186,42 +83,6 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.config
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.deps.dep_graph` module
-
-```{eval-rst}
-.. automodule:: repomatic.deps.dep_graph
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.deps.dep_policy` module
-
-```{eval-rst}
-.. automodule:: repomatic.deps.dep_policy
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.deps.dep_report` module
-
-```{eval-rst}
-.. automodule:: repomatic.deps.dep_report
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.deps.dep_sources` module
-
-```{eval-rst}
-.. automodule:: repomatic.deps.dep_sources
    :members:
    :show-inheritance:
    :undoc-members:
@@ -362,51 +223,6 @@
    :undoc-members:
 ```
 
-## `repomatic.metadata.core` module
-
-```{eval-rst}
-.. automodule:: repomatic.metadata.core
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.metadata.env` module
-
-```{eval-rst}
-.. automodule:: repomatic.metadata.env
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.metadata.git` module
-
-```{eval-rst}
-.. automodule:: repomatic.metadata.git
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.metadata.matrix` module
-
-```{eval-rst}
-.. automodule:: repomatic.metadata.matrix
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.metadata.project` module
-
-```{eval-rst}
-.. automodule:: repomatic.metadata.project
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.metric_chart` module
 
 ```{eval-rst}
@@ -438,24 +254,6 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.pages_redirects
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.tooling.plugin` module
-
-```{eval-rst}
-.. automodule:: repomatic.tooling.plugin
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.release.prepare_release` module
-
-```{eval-rst}
-.. automodule:: repomatic.release.prepare_release
    :members:
    :show-inheritance:
    :undoc-members:
@@ -542,64 +340,10 @@
    :undoc-members:
 ```
 
-## `repomatic.tooling.tool_registry` module
-
-```{eval-rst}
-.. automodule:: repomatic.tooling.tool_registry
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.tooling.tool_runner` module
-
-```{eval-rst}
-.. automodule:: repomatic.tooling.tool_runner
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.deps.uv` module
-
-```{eval-rst}
-.. automodule:: repomatic.deps.uv
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.release.version_sync` module
-
-```{eval-rst}
-.. automodule:: repomatic.release.version_sync
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
 ## `repomatic.versions` module
 
 ```{eval-rst}
 .. automodule:: repomatic.versions
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.release.virustotal` module
-
-```{eval-rst}
-.. automodule:: repomatic.release.virustotal
-   :members:
-   :show-inheritance:
-   :undoc-members:
-```
-
-## `repomatic.deps.vulnerable_deps` module
-
-```{eval-rst}
-.. automodule:: repomatic.deps.vulnerable_deps
    :members:
    :show-inheritance:
    :undoc-members:

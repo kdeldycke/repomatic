@@ -218,17 +218,18 @@ def manage_combined_broken_links_issue(
     {class}`~repomatic.metadata.core.Metadata` and well-known file paths:
 
     - `repo_name` defaults to {attr}`Metadata.repo_name
-      <repomatic.metadata.core.Metadata.repo_name>`.
+      <repomatic.metadata.env.EnvironmentMetadata.repo_name>`.
     - `lychee_body_file` defaults to `./lychee/out.md` when
       `lychee_exit_code` is provided and the file exists.
     - `sphinx_output_json` defaults to `./docs/_linkcheck/output.json`
       when the file exists.
     - `sphinx_source_url` is composed from {attr}`Metadata.repo_url
-      <repomatic.metadata.core.Metadata.repo_url>` and {attr}`Metadata.sha
-      <repomatic.metadata.core.Metadata.sha>`.
+      <repomatic.metadata.env.EnvironmentMetadata.repo_url>` and
+      {attr}`Metadata.sha <repomatic.metadata.env.EnvironmentMetadata.sha>`.
 
     :param repo_name: Repository name (for label selection). Defaults to
-        {attr}`Metadata.repo_name <repomatic.metadata.core.Metadata.repo_name>`.
+        {attr}`Metadata.repo_name
+        <repomatic.metadata.env.EnvironmentMetadata.repo_name>`.
     :param lychee_exit_code: Exit code from lychee (0=no broken links,
         2=broken links found). `None` if lychee was not run.
     :param lychee_body_file: Path to the lychee output file. Defaults to
@@ -238,8 +239,8 @@ def manage_combined_broken_links_issue(
         Defaults to `./docs/_linkcheck/output.json` when the file exists.
     :param sphinx_source_url: Base URL for linking filenames and line numbers
         in the Sphinx report. Auto-composed from {attr}`Metadata.repo_url
-        <repomatic.metadata.core.Metadata.repo_url>` and {attr}`Metadata.sha
-        <repomatic.metadata.core.Metadata.sha>`.
+        <repomatic.metadata.env.EnvironmentMetadata.repo_url>` and
+        {attr}`Metadata.sha <repomatic.metadata.env.EnvironmentMetadata.sha>`.
     :raises ValueError: If `repo_name` cannot be determined.
     """
     # Shared Metadata instance for all CI context lookups.

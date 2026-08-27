@@ -513,7 +513,8 @@ class BinarySpec:
 MYPY_VERSION_MIN = (3, 8)
 """Earliest Python dialect Mypy's `--python-version 3.x` parameter accepts.
 
-Floors the value {attr}`repomatic.metadata.core.Metadata.mypy_params` derives from
+Floors the value {attr}`Metadata.mypy_params
+<repomatic.metadata.project.ProjectMetadata.mypy_params>` derives from
 the project's `requires-python`, which the `mypy` entry in
 {data}`TOOL_REGISTRY` passes through `computed_params`. A project declaring an
 older floor would otherwise hand mypy a version it rejects outright.

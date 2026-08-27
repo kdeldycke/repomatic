@@ -685,7 +685,11 @@ _metadata_sort = SortByOption(*METADATA_KEYS_HEADER_DEFS, default="key")
 _show_config_sort = SortByOption(*CONFIG_REFERENCE_HEADER_DEFS, default="option")
 
 
-AXIS_HEADER_LABELS = {"os": "OS", "python-version": "Python", "state": "State"}
+AXIS_HEADER_LABELS = {
+    OS_AXIS: "OS",
+    PYTHON_VERSION_AXIS: "Python",
+    JOB_STATE_KEY: "State",
+}
 """Display names for the job keys `show-test-matrix` heads a row or column with.
 
 A key absent from here heads its column under the raw name a matrix declares

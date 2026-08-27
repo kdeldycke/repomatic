@@ -939,14 +939,14 @@ class Config:
     """Whether the release pipeline records released binaries into the repository.
 
     When enabled, the `scan-virustotal` release job regenerates the binaries
-    catalog (`docs/binaries.md` and `docs/assets/binaries.csv`) and pushes it,
-    along with the scan history (`docs/assets/virustotal-scans.csv`), straight
-    to the default branch without a pull request: the release-lane exception
-    documented in
+    catalog (`docs/binaries.md` and `docs/assets/binaries.csv`) and publishes
+    it, along with the scan history (`docs/assets/virustotal-scans.csv`),
+    through one long-lived pull request that each release appends to: the
+    contract documented in
     [`docs/operation-contracts.md`](https://repomatic.net/operation-contracts#scan-job-contract).
     Set to `false` to keep the repository untouched: binaries are still
     scanned on VirusTotal (seeding AV vendor databases), but no catalog page,
-    CSV, or scan record is committed.
+    CSV, or scan record is published.
     """
 
     bumpversion_sync: bool = field(
@@ -1485,8 +1485,8 @@ class Config:
         """Point the asset locations at the selected agent's layout.
 
         Only a location still sitting at its default is derived, so an explicit
-        `skills.location`, `subagents.location`, `agent.location` or
-        `settings.location` always wins over the flavor. Also rejects a
+        `skills.location`, `subagents.location` or `settings.location` always
+        wins over the flavor. Also rejects a
         `site.deploy` target nothing implements, which would otherwise read as
         a workflow that runs and publishes nowhere, and a
         `site.cloudflare-placement` value the Pages API would bounce far from

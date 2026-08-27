@@ -30,7 +30,13 @@ from pathlib import Path
 from ..github.actions import (
     WorkflowEvent,
 )
-from ..github.matrix import Matrix, stale_axis_values
+from ..github.matrix import (
+    JOB_STATE_KEY,
+    OS_AXIS,
+    PYTHON_VERSION_AXIS,
+    Matrix,
+    stale_axis_values,
+)
 from ..matrix_axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
@@ -169,7 +175,7 @@ class MatrixMetadata:
 
         # Register all runners on which we want to run Nuitka builds.
         matrix.add_variation(
-            "os", tuple(target.runner for target in build_targets.values())
+            OS_AXIS, tuple(target.runner for target in build_targets.values())
         )
         # Augment each "os" entry with platform-specific data.
         for build_target in build_targets.values():
@@ -272,13 +278,13 @@ class MatrixMetadata:
         # configuration. Unstable targets outside the selected subset are
         # dropped: an include whose "os" matches no matrix combination would
         # be added by GitHub as a new, half-formed combination.
-        matrix.add_includes({"state": "stable"})
+        matrix.add_includes({JOB_STATE_KEY: "stable"})
         for unstable_target in self.unstable_targets:
             if unstable_target not in build_targets:
                 continue
             matrix.add_includes({
-                "state": "unstable",
-                "os": NUITKA_BUILD_TARGETS[unstable_target].runner,
+                JOB_STATE_KEY: "unstable",
+                OS_AXIS: NUITKA_BUILD_TARGETS[unstable_target].runner,
             })
 
         return matrix
@@ -306,7 +312,7 @@ class MatrixMetadata:
             # include. Full matrix only: in the PR matrix a non-base axis key
             # (e.g. click-version) would be added to every job and hijack it.
             for combination in self.config.test_matrix.unstable:
-                matrix.add_includes({**combination, "state": "unstable"})
+                matrix.add_includes({**combination, JOB_STATE_KEY: "unstable"})
         if self.config.test_matrix.exclude:
             matrix.add_excludes(*self.config.test_matrix.exclude)
         if self.config.test_matrix.include:
@@ -328,15 +334,18 @@ class MatrixMetadata:
         here, so it keeps working whichever form {attr}`test_matrix` emits.
         """
         matrix = Matrix()
-        matrix.add_variation("os", TEST_RUNNERS_FULL)
-        matrix.add_variation("python-version", TEST_PYTHON_FULL)
-        removed_os = self.config.test_matrix.remove.get("os", ())
+        matrix.add_variation(OS_AXIS, TEST_RUNNERS_FULL)
+        matrix.add_variation(PYTHON_VERSION_AXIS, TEST_PYTHON_FULL)
+        removed_os = self.config.test_matrix.remove.get(OS_AXIS, ())
         # Python 3.10 has no native ARM64 Windows build. Skip this guard when
         # the project removes windows-11-arm, so it does not linger as a no-op
         # exclude that prune would warn about.
         if "windows-11-arm" not in removed_os:
-            matrix.add_excludes({"os": "windows-11-arm", "python-version": "3.10"})
-        matrix.add_includes({"state": "stable"})
+            matrix.add_excludes({
+                OS_AXIS: "windows-11-arm",
+                PYTHON_VERSION_AXIS: "3.10",
+            })
+        matrix.add_includes({JOB_STATE_KEY: "stable"})
         # `python-label` is display-only: it spells the version the way pyenv and
         # actions/setup-python name a prerelease, so the job title says why the
         # cell is continue-on-error. It rides alongside the version rather than
@@ -345,8 +354,8 @@ class MatrixMetadata:
         # {data}`~repomatic.matrix_axes.PRERELEASE_LABEL_SUFFIX`.
         for version in sorted(UNSTABLE_PYTHON_VERSIONS):
             matrix.add_includes({
-                "state": "unstable",
-                "python-version": version,
+                JOB_STATE_KEY: "unstable",
+                PYTHON_VERSION_AXIS: version,
                 "python-label": f"{version}{PRERELEASE_LABEL_SUFFIX}",
             })
         # Released build flavors (free-threaded) are a variant of an
@@ -358,9 +367,9 @@ class MatrixMetadata:
         for version, keep_os in sorted(SINGLE_RUNNER_PYTHON_VERSIONS.items()):
             if keep_os not in removed_os:
                 matrix.add_includes({
-                    "os": keep_os,
-                    "python-version": version,
-                    "state": "stable",
+                    OS_AXIS: keep_os,
+                    PYTHON_VERSION_AXIS: version,
+                    JOB_STATE_KEY: "stable",
                 })
         self._apply_test_matrix_config(matrix, full=True)
         return matrix
@@ -393,7 +402,7 @@ class MatrixMetadata:
             if len(directive) == 1
             for key, value in directive.items()
         }
-        defaults.setdefault("state", "stable")
+        defaults.setdefault(JOB_STATE_KEY, "stable")
         # Solve the base cross-product to explicit jobs, then append each
         # full-include row as its own standalone job. Emitting this flat list
         # sidesteps GitHub's include augment-or-add ambiguity for rows sharing
@@ -417,9 +426,9 @@ class MatrixMetadata:
         variations are not (to keep the PR matrix small).
         """
         matrix = Matrix()
-        matrix.add_variation("os", TEST_RUNNERS_PR)
-        matrix.add_variation("python-version", TEST_PYTHON_PR)
-        matrix.add_includes({"state": "stable"})
+        matrix.add_variation(OS_AXIS, TEST_RUNNERS_PR)
+        matrix.add_variation(PYTHON_VERSION_AXIS, TEST_PYTHON_PR)
+        matrix.add_includes({JOB_STATE_KEY: "stable"})
         self._apply_test_matrix_config(matrix, full=False)
         return matrix
 

@@ -49,6 +49,7 @@ config that parsed, warned about unknown keys, and silently did nothing.
 
 from __future__ import annotations
 
+import ast
 import re
 
 import pytest
@@ -93,6 +94,18 @@ this stays keyed on the one shape in use rather than accepting three.
 
 MODULE_PATH_RE = re.compile(r"^(repomatic/[a-z0-9_/]+\.py)$")
 """A package module quoted as a repository-relative path."""
+
+MODULE_SYMBOL_RE = re.compile(
+    r"`(?P<symbol>[A-Za-z_][\w.]*)`\s*(?:in\s+)?\(?`(?P<module>repomatic/[a-z0-9_/]+\.py)`\)?"
+)
+"""An asset attributing a Python name to the module that defines it.
+
+The two shapes assets write, `` `Class.attribute` (`repomatic/pkg/mod.py`) ``
+and ``see `Class.attribute` in `repomatic/pkg/mod.py` ``, differ only by the
+parentheses. Like {data}`MODULE_PATH_RE`, only the repository-relative path
+counts: a bare `mod.py` is too ordinary a span to key on, and this package
+already holds two modules named `matrix.py`.
+"""
 
 WORKFLOW_FILE_RE = re.compile(r"^(_?[a-z][a-z0-9-]*\.yaml)$")
 """A workflow filename quoted on its own."""
@@ -208,6 +221,49 @@ def test_module_paths_exist(asset_id: str, body: str) -> None:
         module = match.group(1)
         assert (PROJECT_ROOT / module).is_file(), (
             f"{asset_id} points at {module}, which no longer exists."
+        )
+
+
+def module_bindings(source: str) -> set[str]:
+    """Every name *source* binds, class and function members included.
+
+    Walking the whole tree also collects names bound inside a function body,
+    which no asset ever points at. That keeps the lookup permissive on
+    purpose: the question asked of it is whether a name is defined in the
+    module at all, and a wrong answer there costs a false failure.
+    """
+    names = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+    return names
+
+
+@bundled_asset
+def test_attributed_symbols_live_in_the_named_module(asset_id: str, body: str) -> None:
+    """A Python name an asset credits to a module is defined by that module.
+
+    The path check above only proves the file is still there, so a name that
+    moved between two modules that both survive still reads as valid. The
+    `7.14.0` regroup split `metadata.py` into a package and left `babysit-ci`
+    crediting `metadata/core.py` for a `skip_binary_build` that had landed in
+    `metadata/git.py`. That is what
+    {func}`test_attributed_jobs_live_in_the_named_workflow` guards for a job,
+    one dimension over.
+
+    Only the last component of a dotted name is looked up: assets name the
+    composed `Metadata` class, while each attribute is defined on whichever
+    mixin module owns it.
+    """
+    for match in MODULE_SYMBOL_RE.finditer(body):
+        symbol, module = match.group("symbol"), match.group("module")
+        path = PROJECT_ROOT / module
+        assert path.is_file(), f"{asset_id} points at {module}, which no longer exists."
+        attribute = symbol.rsplit(".", 1)[-1]
+        assert attribute in module_bindings(path.read_text(encoding="UTF-8")), (
+            f"{asset_id} credits {module} with {symbol}, which it does not define."
         )
 
 

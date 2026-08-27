@@ -5,51 +5,47 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** the `agent` component is gone: `repomatic init` no longer merges audience-tagged sections into a repository's instructions file, and the `agent.location` config key and the bundled `claude.md` reference document are removed with it. Consuming repositories own their instructions file outright; the generic conventions the component used to carry now live with their maintainer.
-- **Breaking:** `CLOUDFLARE_ACCOUNT_ID` is gone: the account derives from `CLOUDFLARE_API_TOKEN` alone, a multi-account credential resolving it by which account owns the project. `cloudflare-pages --account-id` and `lint-repo --has-cloudflare-account-id` are removed with it; creating a project no visible account claims now needs a token made under the intended account.
-- **Breaking:** the `debug.yaml` workflow is now opt-in, gated by a new `[tool.repomatic] debug.sync` key. A repository already carrying it keeps it by setting `debug.sync = true`; otherwise the next `sync-repomatic` pull request proposes its deletion.
-- **Breaking:** the `arch` field of `repomatic metadata`'s `build_targets` and `nuitka_matrix` output now reads `x86_64` and `aarch64`, not `x64` and `arm64`. Target ids and release-asset names are unchanged; update any workflow branching on `matrix.arch`.
+- **Breaking:** the `agent` component is gone, with the `agent.location` config key and the bundled `claude.md` reference document. `repomatic init` no longer writes to a repository's instructions file, which each repository now owns outright.
+- **Breaking:** `CLOUDFLARE_ACCOUNT_ID` is gone: the account derives from `CLOUDFLARE_API_TOKEN` alone. `cloudflare-pages --account-id` and `lint-repo --has-cloudflare-account-id` are removed with it.
+- **Breaking:** the `debug.yaml` workflow is now opt-in, gated by a new `[tool.repomatic] debug.sync` key. A repository already carrying it keeps it by setting `debug.sync = true`.
+- **Breaking:** the `arch` field of `repomatic metadata`'s `build_targets` and `nuitka_matrix` output now reads `x86_64` and `aarch64`, not `x64` and `arm64`. Update any workflow branching on `matrix.arch`.
 - **Breaking:** `build_targets` and `nuitka_matrix` replace the `glibc_floor` and `min_os` keys with a single `floor`, holding the same versions. A workflow reading `matrix.min_os` needs `matrix.floor`.
-- `sync-workflow-pins` no longer bumps the uv pin past what the pinned `astral-sh/setup-uv` can checksum-verify: the action silently skips validation for a version its bundled table does not list.
-- `lint-repo` gains a `setup-uv-checksum-coverage` check, warning when the pinned uv carries no checksum in the pinned `astral-sh/setup-uv` and CI therefore installs it unverified.
-- `lint-repo` gains a `classic-branch-protection` check, reporting a branch protection rule left beside a ruleset: GitHub applies both, splitting the branch policy across two settings pages.
-- `show-test-matrix` sorts its Python rows by release instead of job order, placing a free-threaded build (`3.14t`) right after its base version, and aligns its OS columns with the canonical runner order of the test-matrix constants.
-- `show-test-matrix` gains `--row-axis` and `--col-axis`, laying the grid out on any job key the matrix carries instead of the fixed Python-by-OS view.
-- `show-test-matrix` states how many jobs a cell stands for (`✅ stable ×5`), so a cell collapsing an axis the grid cannot show no longer reads as a single job.
-- `show-test-matrix --flat` lists one row per job under a column per axis, showing every axis of a matrix that a two-axis grid has to collapse.
+- `lint-repo` gains two checks: `setup-uv-checksum-coverage`, warning when CI installs the pinned uv unverified, and `classic-branch-protection`, reporting a branch protection rule left beside a ruleset.
+- `show-test-matrix` gains `--row-axis`, `--col-axis` and `--flat`, laying the grid out on any job key the matrix carries or listing one row per job.
+- `show-test-matrix` states how many jobs a cell stands for (`✅ stable ×5`), and sorts its Python rows by release instead of job order.
+- `scan-virustotal` and `sample-metrics` publish through one long-lived pull request that each run appends to, instead of committing to the default branch. No file-modifying job pushes there any more.
+- Both gain `--carry-from`, restoring the store from a remote branch first, so records pending in an open pull request are appended to rather than dropped.
+- `sample-metrics` names the phase (`forward`, `reconstruct`, `import` or `wayback`) in a new column of its report table, so one subject reads as one outcome per phase.
+- `cloudflare-pages --create` is now idempotent: an existing Pages project is reused and reconciled against the declared settings, instead of failing on the API's `409` duplicate-name refusal.
+- The Todo list documentation page lists the project's pending work: each deferred change is written as a `todo` admonition beside the code or prose it acts on.
+- The `repomatic-ship` skill now sweeps those admonitions: pending work the cycle introduced is written as one, and a todo whose upstream trigger fired is retired with the shim it guards.
 - `metadata` and every glob-driven check now walk the repository tree once and skip `.git/`, an order-of-magnitude speedup on the tree scan.
+- `ci-status` locates every workflow's newest run through one branch-wide listing instead of one query per workflow.
 - Every HTTP fetch now identifies itself with a `repomatic/{version}` user agent.
+- `sync-workflow-pins` no longer bumps the uv pin past what the pinned `astral-sh/setup-uv` can checksum-verify: the action silently skips validation for a version its bundled table does not list.
+- `show-config` wraps its widest columns instead of running past 240 characters. A format unable to hold a wrapped cell, like `github` or `csv`, stays unwrapped.
+- `list-skills` renders a table honoring `--table-format`, replacing the hand-padded lines that ran to 500 characters.
+- Dependency-update pull requests no longer list yanked or pre-release versions in their intermediate release notes.
+- The bundled `[tool.typos]` config no longer checks SVG content: a terminal capture splits words across `<text>` runs, so correcting a fragment corrupts the image.
 - The `lint-repo` stale gh-pages check now passes only on a confirmed `404`: any other API failure reports as skipped instead of green.
 - Fix `lint-repo` flagging every `test-matrix.exclude` entry as stale on a `full-include` matrix, and the finding now names the missing axis values.
 - Fix `lint-deps` missing a dependency floor declared with `>` when checking floors against the cooldown window.
-- Fix `metadata` leaving the checkout on a past commit with changes stashed when a mid-scan git command fails.
-- `ci-status` locates every workflow's newest run through one branch-wide listing instead of one query per workflow.
-- Fix the `sample-metrics` chart crashing on a series whose peak is `0` or `1`.
-- Dependency-update pull requests no longer list yanked or pre-release versions in their intermediate release notes.
-- Fix `show-test-matrix` leaving a cell bare when several jobs share it: every state of a `stable, unstable` cell now carries its own glyph.
-- Fix the `plugin` component writing tab-indented settings into a repository whose `[tool.biome.formatter]` asks for spaces, which had `sync-repomatic` and `format-json` reindenting the file past each other on every run. The indent now follows the repository's own Biome config, native `biome.json` and `biome.jsonc` included.
 - Fix `lint-deps` asking an aggregate extra selecting the project's own extras for a version floor, which a project can never declare on itself.
+- Fix `metadata` leaving the checkout on a past commit with changes stashed when a mid-scan git command fails.
+- Fix the `sample-metrics` chart crashing on a series whose peak is `0` or `1`.
+- Fix `sample-metrics` abandoning the tail of a sampling pass to GitHub's secondary rate limit: the `gh` plumbing now retries the refusal on a bounded backoff.
+- `sample-metrics --backfill-wayback` gives up after ten consecutive refusals and reports to retry later, instead of spending every remaining capture's retry schedule against an exhausted per-IP budget.
+- Fix `show-test-matrix` leaving a cell bare when several jobs share it: every state of a `stable, unstable` cell now carries its own glyph.
+- Fix the `plugin` component writing tab-indented settings into a repository whose Biome config asks for spaces, which had `sync-repomatic` and `format-json` fighting each other. The indent now follows that config.
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.
 - Fix `format-images` dropping its optimization summary table from the PR body, lost in `7.11.0` when its two PR-publishing steps collapsed into one.
-- `cloudflare-pages --create` is now idempotent: an existing Pages project is reused and reconciled against the declared settings, instead of failing on the API's `409` duplicate-name refusal.
-- Fix `sample-metrics` abandoning the tail of a sampling pass to GitHub's secondary rate limit: the `gh` plumbing now retries a `No server is currently available` refusal with the same token on a bounded backoff, the way it already absorbs transient 401s. A burst of back-to-back reads of a hundred-odd repositories trips the limit, which then refuses every remaining call of the run; the refusal lifts on its own within the minute, which the retry spends sleeping.
-- `sample-metrics` names the phase (`forward`, `reconstruct`, `import` or `wayback`) in a new column of its report table, so a subject repeating once per lane that ran is readable as one outcome per phase rather than as duplicates.
-- `sample-metrics --backfill-wayback` abandons the archive once ten captures are refused in a row and reports to retry later, instead of paying every remaining capture's retry schedule against a spent per-IP budget, and a recovered point prints once rather than twice under `--verbosity INFO`.
-- `show-config` wraps its widest columns instead of running past 240 characters. A format unable to hold a wrapped cell, like `github` or `csv`, stays unwrapped.
-- `list-skills` renders a table honoring `--table-format`, replacing the hand-padded lines that ran to 500 characters.
-- `scan-virustotal` publishes its scan records and the binaries page through one long-lived pull request that each release appends to, instead of committing them straight to the default branch. No file-modifying job pushes to the default branch any more.
-- `scan-virustotal` gains `--carry-from`, restoring the scan history from a remote branch before scanning so records pending in an open pull request are appended to rather than dropped.
-- `sample-metrics` publishes its readings through one long-lived pull request that each run appends to, instead of committing them straight to the default branch. Merging it is now what moves them onto the default branch.
-- `sample-metrics` gains `--carry-from`, restoring the store from a remote branch before sampling so readings pending in an open pull request are appended to rather than dropped.
-- The bundled `[tool.typos]` config no longer checks SVG content: a terminal capture splits words across `<text>` runs, so correcting a fragment corrupts the image.
-- The Todo list documentation page now lists the project's pending work: each deferred change is written as a `todo` admonition beside the code or prose it acts on.
-- Fix two `mdformat` items missing from the Todo list page: a `todo` admonition on a private name never reached it.
-- The `repomatic-ship` skill now sweeps those admonitions: pending work the cycle introduced is written as one, and a todo whose upstream trigger fired is retired with the shim it guards.
+- The skills, subagents and plugin documentation pages group under an Agent tooling section and move to `/agent-skills`, `/subagents` and `/claude-code-plugin`, with the old URLs redirecting.
 - The Python compatibility table of the install page marks a version a release neither declared nor excluded with `–`, instead of counting it as unsupported.
 - The `commit-messages` page and the bundled skills now hold a commit body to three cases: bundled orthogonal work, a link to a public record, or a `Closes #N` pointer.
-- The skills, subagents and plugin documentation pages group under an Agent tooling section and move to `/agent-skills`, `/subagents` and `/claude-code-plugin`, with the old URLs redirecting.
+- Fix the `exclude` example of the configuration page naming `zizmor`, which is not a component: copying it made `repomatic init` fail.
+- Fix stale guidance in the bundled skills: two module pointers the regroup broke, the scan history now published through a pull request, and a retired upstream contribution target.
 - Sphinx linkcheck no longer reports every release-asset download URL as broken: `conf.py` withholds its github.com credential from those URLs, which GitHub redirects to a host that answers 401.
-- Fix the dead links on the install and operation-contracts pages: a moved GitHub documentation page, and references to sections that left `claude.md` with the `agent` component.
+- Fix the dead links on the install and operation-contracts pages, and the API reference documenting every regrouped module twice.
 
 ## [`7.13.0` (2026-08-17)](https://github.com/kdeldycke/repomatic/compare/v7.12.1...v7.13.0)
 

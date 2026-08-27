@@ -43,7 +43,7 @@ def get_default_owner() -> str | None:
     """Get the repository owner from CI context.
 
     Delegates to {attr}`Metadata.repo_owner
-    <repomatic.metadata.core.Metadata.repo_owner>`.
+    <repomatic.metadata.env.EnvironmentMetadata.repo_owner>`.
     """
     owner = Metadata().repo_owner
     return owner if owner else None

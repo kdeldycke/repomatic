@@ -202,7 +202,15 @@ def test_docs_tool_runner_uses_render_blocks(renderer: str) -> None:
 # module pages to keep in sync.
 _MODULE_DOC_PAGES = {
     "repomatic.md": ("repomatic", REPO_ROOT / "repomatic"),
+    "repomatic.cli.md": ("repomatic.cli", REPO_ROOT / "repomatic" / "cli"),
+    "repomatic.deps.md": ("repomatic.deps", REPO_ROOT / "repomatic" / "deps"),
     "repomatic.github.md": ("repomatic.github", REPO_ROOT / "repomatic" / "github"),
+    "repomatic.metadata.md": (
+        "repomatic.metadata",
+        REPO_ROOT / "repomatic" / "metadata",
+    ),
+    "repomatic.release.md": ("repomatic.release", REPO_ROOT / "repomatic" / "release"),
+    "repomatic.tooling.md": ("repomatic.tooling", REPO_ROOT / "repomatic" / "tooling"),
     "tests.md": ("tests", REPO_ROOT / "tests"),
 }
 

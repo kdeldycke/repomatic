@@ -31,6 +31,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+READ_CHUNK_SIZE = 65536
+"""Read size for incremental hashing and for streaming downloads.
+
+Both walk a file the same way, so they share one buffer: the tool runner hashes
+what it just downloaded, and a mismatch between the two sizes would only make
+the second pass re-chunk the first one's bytes.
+"""
+
+
 def compute_file_sha256(path: Path) -> str:
     """Compute the SHA-256 hex digest of a file.
 
@@ -39,6 +48,6 @@ def compute_file_sha256(path: Path) -> str:
     """
     sha256 = hashlib.sha256()
     with path.open("rb") as f:
-        while chunk := f.read(65536):
+        while chunk := f.read(READ_CHUNK_SIZE):
             sha256.update(chunk)
     return sha256.hexdigest()

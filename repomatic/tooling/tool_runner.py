@@ -66,7 +66,7 @@ from ..cache import (
 from ..config import load_repomatic_config
 from ..deps.uv import uv_cmd, uvx_cmd
 from ..file_inventory import FileInventory
-from ..hashing import compute_file_sha256
+from ..hashing import READ_CHUNK_SIZE, compute_file_sha256
 from ..metadata.core import Metadata
 from ..pyproject import read_pyproject_toml
 from ..release.version_sync import exclude_newer_cutoff, min_release_age_days
@@ -308,9 +308,6 @@ pause and lets only a repeated failure surface.
 ```
 """
 
-_DOWNLOAD_CHUNK_SIZE = 65536
-"""Read size for streaming downloads and incremental hashing."""
-
 
 def download_to(
     url: str,
@@ -364,7 +361,7 @@ def download_to(
         else:
             feedback = Spinner(label or dest_path.name)
         with feedback as bar:
-            while chunk := response.read(_DOWNLOAD_CHUNK_SIZE):
+            while chunk := response.read(READ_CHUNK_SIZE):
                 f.write(chunk)
                 sha256.update(chunk)
                 bytes_read += len(chunk)

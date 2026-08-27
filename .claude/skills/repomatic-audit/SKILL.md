@@ -3,7 +3,7 @@ name: repomatic-audit
 description: Audit how far a downstream repo has drifted from the upstream repomatic reference. Cover workflows, configs and conventions.
 compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Grep Glob WebFetch Agent
-argument-hint: '[all|workflows|configs]'
+argument-hint: '[all|workflows|configs|upstream]'
 ---
 
 ## Context
@@ -117,7 +117,7 @@ Scan the downstream repo for patterns, workarounds, or configurations that are *
 - **Better tool configurations**: e.g., ruff `extend-include` patterns, pytest addopts, coverage settings that are more complete than upstream.
 - **Useful `pyproject.toml` patterns**: e.g., dependency group definitions, build config, or tool settings that could be generalized.
 - **Custom workflow steps**: Reusable patterns in header-only workflows (e.g., package install verification, environment variable passing) that could become part of the reference workflow.
-- **Documentation improvements**: `claude.md` sections, issue templates, or repo metadata patterns that would benefit all downstream repos.
+- **Documentation improvements**: bundled skill or subagent guidance, issue templates, or repo metadata patterns that would benefit all downstream repos. Upstream no longer syncs instructions-file content into a consuming repo, so a convention worth spreading belongs in a skill or a subagent, never in a proposed `claude.md` section.
 
 For each candidate, assess:
 

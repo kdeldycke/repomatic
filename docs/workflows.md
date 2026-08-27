@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.12.1
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.13.0
 ```
 
 > [!IMPORTANT]
@@ -614,7 +614,7 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 
 [Release Engineering is a full-time job, and full of edge-cases](https://web.archive.org/web/20250126113318/https://blog.axo.dev/2023/02/cargo-dist) that nobody wants to deal with. This workflow automates most of it for Python projects. The entry `release.yaml` gates it on `needs: build`, so it starts once the fast lane's wheel is ready (binary compilation therefore begins roughly one package build after the push).
 
-**Cross-platform binaries** — Targets 6 platform/architecture combinations (Linux/macOS/Windows × `x86_64`/`arm64`). Unstable targets use `continue-on-error` so builds don't fail on experimental platforms. Job names are prefixed with ✅ (stable, must pass) or ⁉️ (unstable, allowed to fail) for quick visual triage in the GitHub Actions UI.
+**Cross-platform binaries** — Targets 6 platform/architecture combinations (Linux/macOS/Windows × `x86_64`/`aarch64`). Unstable targets use `continue-on-error` so builds don't fail on experimental platforms. Job names are prefixed with ✅ (stable, must pass) or ⁉️ (unstable, allowed to fail) for quick visual triage in the GitHub Actions UI.
 
 **Canary builds on ordinary pushes** — The full fleet only compiles for release commits, the weekly `schedule` trigger, and manual `workflow_dispatch` runs; an ordinary push rebuilds only the `[tool.repomatic] nuitka.dev-targets` canary subset. The [Nuitka compilation](nuitka.md) page is the canonical reference for the build cadence, compile caching, and measured build times.
 
@@ -644,7 +644,7 @@ flowchart TD
 
 #### ✅ Compile binaries (`compile-binaries`)
 
-- Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x64`/`arm64`
+- Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x86_64`/`aarch64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
 - Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on the gcc targets, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode alongside them), so a warm build skips most of the C compilation. Release commits neither restore nor save the cache, and macOS is left out of it entirely: see [](nuitka.md#compile-caching)
 - On non-release runs, self-tests the freshly-built binary in place with [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html); the standalone `test-binaries` job is reserved for release commits
@@ -817,7 +817,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 #### 🔬 Run tests (`tests`)
 
-- Runs the test suite across a matrix of OS (Linux/macOS/Windows × `x86_64`/`arm64`) and Python versions: `3.10`, `3.14`, and the `continue-on-error` development `3.15` on every runner, plus the free-threaded `3.14t` as a stable single-runner smoke test (see [test matrix](test-matrix.md))
+- Runs the test suite across a matrix of OS (Linux/macOS/Windows × `x86_64`/`aarch64`) and Python versions: `3.10`, `3.14`, and the `continue-on-error` development `3.15` on every runner, plus the free-threaded `3.14t` as a stable single-runner smoke test (see [test matrix](test-matrix.md))
 - Installs all optional extras (`--all-extras`) to catch incompatibilities between optional dependency groups
 - Runs `pytest` under the `[tool.coverage] report.fail_under` coverage floor, excluding `once`-marked tests (covered by the dedicated `once-tests` job)
 - Runs self-tests against the CLI test suite, through both the console script and `python -m`

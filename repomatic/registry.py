@@ -1214,7 +1214,7 @@ writer/checker pairs in lockstep and makes a rename a one-line change.
 """
 
 UPSTREAM_REPO_SLUGS: tuple[str, ...] = (
-    "kdeldycke/repomatic",
+    DEFAULT_REPO,
     "kdeldycke/repokit",
     "kdeldycke/workflows",
 )

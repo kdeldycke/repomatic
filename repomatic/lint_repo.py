@@ -44,6 +44,7 @@ from .file_inventory import FileInventory
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import gh_api_json, gh_graphql, run_gh_command
+from .github.matrix import PYTHON_VERSION_AXIS
 from .github.token import check_all_pat_permissions
 from .matrix_axes import (
     TEST_RUNNERS_FULL,
@@ -1637,7 +1638,7 @@ def _literal_python_axes(workflows: Mapping[Path, dict]) -> dict[str, list[str]]
         matrix = job.get("strategy", {}).get("matrix")
         if not isinstance(matrix, dict):
             continue
-        versions = matrix.get("python-version")
+        versions = matrix.get(PYTHON_VERSION_AXIS)
         if isinstance(versions, list) and versions:
             axes[f"{path.name}:{job_id}"] = [str(v) for v in versions]
     return axes

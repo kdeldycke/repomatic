@@ -474,7 +474,7 @@ BINARY_AFFECTING_PATHS: Final[tuple[str, ...]] = (
 
 Project-specific source directories (derived from `[project.scripts]` in
 `pyproject.toml`) are added dynamically by
-{attr}`~repomatic.metadata.core.Metadata.binary_affecting_paths`.
+{attr}`~repomatic.metadata.git.GitMetadata.binary_affecting_paths`.
 
 The release workflow entries cover both layouts: upstream keeps the
 `_release-engine.yaml` lane (which defines the Nuitka compile and binary
@@ -498,7 +498,7 @@ SKIP_BINARY_BUILD_BRANCHES: Final[frozenset[str]] = frozenset((
 Members are PR branch names produced by autofix jobs that touch only
 repository housekeeping (`.mailmap`, `.gitignore`, JSON, Markdown,
 images, shell scripts, dependency graph). The binary output is
-unchanged, so {attr}`~repomatic.metadata.core.Metadata.skip_binary_build`
+unchanged, so {attr}`~repomatic.metadata.git.GitMetadata.skip_binary_build`
 returns `True` when the PR head branch matches a member, saving an
 expensive Nuitka compilation.
 

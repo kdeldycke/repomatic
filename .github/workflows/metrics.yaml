@@ -4,8 +4,8 @@
 # GitHub restricted its stargazer endpoints to a repository's own admins on
 # 2026-06-30 (REST) and 2026-07-17 (GraphQL), which killed every third-party
 # star chart on the web. The aggregate count stayed public, so this job
-# snapshots it weekly and commits the result: a history that accrues in the
-# repository cannot be revoked upstream.
+# snapshots it weekly and publishes the result through one long-lived pull
+# request: a history that accrues in the repository cannot be revoked upstream.
 #
 # Only the sampling needs the network. Whatever renders the data reads the
 # committed CSV and SVG, so a docs build stays hermetic.

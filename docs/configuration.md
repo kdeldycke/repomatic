@@ -47,7 +47,7 @@ gitignore.extra-content = '''
 .claude/
 '''
 
-exclude = ["skills", "workflows/autolock.yaml", "zizmor"]
+exclude = ["skills", "workflows/autolock.yaml", "mypy"]
 
 flavor.agent = "claude_code"
 flavor.ci = "github_ci"

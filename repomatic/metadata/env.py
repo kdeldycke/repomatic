@@ -145,10 +145,7 @@ class EnvironmentMetadata:
         The branch name is extracted from the `GITHUB_HEAD_REF` environment variable,
         which is [only set for pull request events](https://docs.github.com/en/actions/learn-github-actions/variables).
         """
-        head_ref = os.environ.get("GITHUB_HEAD_REF")
-        if head_ref:
-            return head_ref
-        return None
+        return os.environ.get("GITHUB_HEAD_REF") or None
 
     @cached_property
     def event_name(self) -> str | None:
