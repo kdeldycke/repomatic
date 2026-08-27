@@ -77,8 +77,9 @@ from repomatic.registry import (
     valid_file_ids,
 )
 from repomatic.tool_registry import TOOL_REGISTRY
-from repomatic.tool_runner import get_data_file_path
+from repomatic.tool_runner import get_data_file_path, run_tool
 from repomatic.version_sync import Candidate, UpstreamRefPin
+from tests.conftest import skip_unless_tool_runs
 
 # Convenience set for tests that check opt-in workflow membership.
 _OPT_IN_IDS = frozenset(
@@ -2634,6 +2635,42 @@ def test_typos_merged_inline_tables_use_pyproject_fmt_spacing(tmp_path: Path) ->
     )
     assert "= { " in identifiers_line
     assert identifiers_line.endswith(" }")
+
+
+def test_typos_skips_svg_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A word split across two `<text>` runs survives a real `fix-typos` pass.
+
+    A terminal capture renders each run of same-styled characters as one
+    `<text>` element, so a word cut at a run boundary leaves a fragment the
+    checker reads as a misspelling. Rewriting it in place doubles a letter and
+    corrupts the picture, which `type.svg.check-file` prevents.
+
+    The plain-text control proves the dictionary still carries the fragment, so
+    the SVG half cannot pass for the wrong reason once typos drops the entry.
+    """
+    skip_unless_tool_runs("typos")
+
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(PYPROJECT_WITH_TYPOS, encoding="UTF-8")
+    merged = init_config("typos", pyproject)
+    assert merged is not None
+    pyproject.write_text(merged, encoding="UTF-8")
+
+    # Cut at runtime so the fragment never appears as a literal here, where
+    # `fix-typos` would "correct" it.
+    word = "Style"
+    split = f"<text>{word[:-1]}</text><text>{word[-1]}</text>"
+    joined = f"<text>{word}</text><text>{word[-1]}</text>"
+    capture = tmp_path / "capture.svg"
+    capture.write_text(split, encoding="UTF-8")
+    control = tmp_path / "control.txt"
+    control.write_text(split, encoding="UTF-8")
+
+    monkeypatch.chdir(tmp_path)
+    run_tool("typos", extra_args=("capture.svg", "control.txt"))
+
+    assert capture.read_text(encoding="UTF-8") == split
+    assert control.read_text(encoding="UTF-8") == joined
 
 
 # --- Init exclusion tests ---

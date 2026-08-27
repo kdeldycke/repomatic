@@ -31,6 +31,7 @@
 - `scan-virustotal` gains `--carry-from`, restoring the scan history from a remote branch before scanning so records pending in an open pull request are appended to rather than dropped.
 - `sample-metrics` publishes its readings through one long-lived pull request that each run appends to, instead of committing them straight to the default branch. Merging it is now what moves them onto the default branch.
 - `sample-metrics` gains `--carry-from`, restoring the store from a remote branch before sampling so readings pending in an open pull request are appended to rather than dropped.
+- The bundled `[tool.typos]` config no longer checks SVG content: a terminal capture splits words across `<text>` runs, so correcting a fragment corrupts the image.
 - The Todo list documentation page now lists the project's pending work: each deferred change is written as a `todo` admonition beside the code or prose it acts on.
 - The `repomatic-ship` skill now sweeps those admonitions: pending work the cycle introduced is written as one, and a todo whose upstream trigger fired is retired with the shim it guards.
 - The Python compatibility table of the install page marks a version a release neither declared nor excluded with `–`, instead of counting it as unsupported.
