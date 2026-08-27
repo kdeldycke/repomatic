@@ -120,8 +120,15 @@ def test_summary_table_links_to_its_sections(built_docs, page, anchor):
 
 
 def test_intersphinx_click_resolves(built_docs):
-    """Click cross-references resolve to the upstream documentation site."""
-    html = read_html(built_docs, "cli.html")
+    """Click cross-references resolve to the upstream documentation site.
+
+    Read from the apidoc page rather than the CLI guide: a Click link is
+    emitted by a rendered signature or docstring, and the generated API
+    reference lives only on the `repomatic.*` pages. The guide keeps the
+    `{click:tree}` output, which links within this site and would pass this
+    assertion for the wrong reason.
+    """
+    html = read_html(built_docs, "repomatic.cli.html")
     assert "https://click.palletsprojects.com" in html, (
         "no intersphinx link to Click found; the mapping may be broken"
     )
