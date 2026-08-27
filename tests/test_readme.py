@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.tool_registry import TOOL_REGISTRY, NativeFormat
+from repomatic.tooling.tool_registry import TOOL_REGISTRY, NativeFormat
 
 REPO_ROOT = Path(__file__).parent.parent
 CLI_MD = REPO_ROOT / "docs" / "cli.md"
@@ -189,12 +189,12 @@ def test_docs_tip_table_covers_registry() -> None:
 def test_docs_tool_runner_uses_render_blocks(renderer: str) -> None:
     """docs/tool-runner.md must render its registry content live.
 
-    Each `repomatic.tool_registry` renderer is embedded through a
+    Each `repomatic.tooling.tool_registry` renderer is embedded through a
     `{python:render}` block, so registry coverage is by construction. These
     canaries only guard against a block being dropped from the page.
     """
     tool_runner_text = TOOL_RUNNER_MD.read_text(encoding="UTF-8")
-    assert f"from repomatic.tool_registry import {renderer}" in tool_runner_text
+    assert f"from repomatic.tooling.tool_registry import {renderer}" in tool_runner_text
 
 
 # Sphinx-apidoc module pages that carry importable modules. The data/, templates/,

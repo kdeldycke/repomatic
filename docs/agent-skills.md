@@ -19,7 +19,7 @@ These same skills are also published as a Claude Code plugin, which installs the
 To list all available skills with descriptions:
 
 ```{click:run}
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 invoke(repomatic, args=['list-skills'])
 ```
 

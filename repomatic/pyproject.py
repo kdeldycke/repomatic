@@ -18,7 +18,7 @@
 
 Provides standalone functions for extracting project name and source paths
 from `pyproject.toml`. These functions have no dependency on the
-{class}`~repomatic.metadata.Metadata` singleton and can be used independently.
+{class}`~repomatic.metadata.core.Metadata` singleton and can be used independently.
 """
 
 from __future__ import annotations

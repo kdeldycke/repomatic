@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for `repomatic.metadata`: the CI metadata singleton and its dump."""
+"""Tests for `repomatic.metadata.core`: the CI metadata singleton and its dump."""
 
 from __future__ import annotations
 
@@ -30,8 +30,7 @@ import pytest
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 
-from repomatic.binary import NUITKA_BUILD_TARGETS
-from repomatic.cli import (
+from repomatic.cli.main import (
     JOB_COUNT_MARK,
     TEST_MATRIX_STATE_DISPLAY,
     flat_matrix_table,
@@ -56,7 +55,7 @@ from repomatic.matrix_axes import (
     UNSTABLE_PYTHON_VERSIONS,
     python_version_sort_key,
 )
-from repomatic.metadata import (
+from repomatic.metadata.core import (
     _METADATA_KEY_DESCRIPTIONS,
     Dialect,
     Metadata,
@@ -64,6 +63,7 @@ from repomatic.metadata import (
     all_metadata_keys,
     metadata_keys_reference,
 )
+from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from tests.conftest import metadata_from_pyproject
 
 
@@ -571,7 +571,7 @@ expected: dict[str, Any] = {
     "is_python_project": True,
     "is_python_package": True,
     "binaries_sync": True,
-    "manpages_script": "repomatic.cli:repomatic",
+    "manpages_script": "repomatic.cli.main:repomatic",
     "manpages_asset_name": "",
     # Plain strings, not Path objects, so GitHub format joins them unquoted.
     "release_assets": StringList(["repomatic-claude-plugin.zip"]),
@@ -971,7 +971,7 @@ def test_file_inventories_are_not_vacuous():
     that will exist for the life of the project, and the symlink collapse
     must keep targets, never link names.
     """
-    assert "repomatic/cli.py" in expected["python_files"]
+    assert "repomatic/cli/main.py" in expected["python_files"]
     assert "tests/test_metadata.py" in expected["python_files"]
     assert ".github/workflows/tests.yaml" in expected["workflow_files"]
     assert ".github/workflows/autofix.yaml" in expected["yaml_files"]
@@ -1093,7 +1093,7 @@ def test_metadata_command_renders_under_captured_runner():
     in-memory runner, which is Click's default `capture="sys"` mode: its stdout has
     no `fileno()`. `prep_path` must degrade to that stream rather than reopening its
     descriptor, and a bare stdout run must stay silent (no spurious overwrite
-    warning) so the rendered block is pure JSON. See `repomatic.cli.prep_path`.
+    warning) so the rendered block is pure JSON. See `repomatic.cli.main.prep_path`.
     """
     result = CliRunner().invoke(
         repomatic, ["metadata", "test_matrix", "--format", "json"]
@@ -1318,7 +1318,7 @@ nuitka.dev-targets = ["windows-x64", "himalaya"]
 
 def test_nuitka_matrix_canary_on_push(monkeypatch):
     """An ordinary CI push compiles only the dev-targets canary subset."""
-    monkeypatch.setattr("repomatic.metadata_env.is_github_ci", lambda: True)
+    monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     matrix = Metadata().nuitka_matrix
     assert matrix is not None
@@ -1330,7 +1330,7 @@ def test_nuitka_matrix_canary_on_push(monkeypatch):
 
 def test_nuitka_matrix_full_fleet_on_schedule(monkeypatch):
     """The weekly scheduled run rebuilds every target."""
-    monkeypatch.setattr("repomatic.metadata_env.is_github_ci", lambda: True)
+    monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
     matrix = Metadata().nuitka_matrix
     assert matrix is not None
@@ -1341,7 +1341,7 @@ def test_nuitka_matrix_full_fleet_on_schedule(monkeypatch):
 
 def test_nuitka_matrix_full_fleet_on_release_push(monkeypatch):
     """A push carrying a release commit rebuilds every target."""
-    monkeypatch.setattr("repomatic.metadata_env.is_github_ci", lambda: True)
+    monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     release_matrix = Metadata().current_commit_matrix
     monkeypatch.setattr(Metadata, "release_commits_matrix", release_matrix)
@@ -1363,7 +1363,7 @@ def test_nuitka_matrix_full_fleet_locally():
 
 def test_nuitka_matrix_skips_push_without_dev_targets(monkeypatch):
     """An empty dev-targets list disables binary builds on ordinary pushes."""
-    monkeypatch.setattr("repomatic.metadata_env.is_github_ci", lambda: True)
+    monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     monkeypatch.setattr(Metadata, "dev_targets", set())
     assert Metadata().nuitka_matrix is None
@@ -1415,7 +1415,7 @@ def test_changed_files_surfaces_git_stderr(monkeypatch, caplog):
             stderr="fatal: detected dubious ownership in repository",
         )
 
-    monkeypatch.setattr("repomatic.metadata_git.diff_names", reject)
+    monkeypatch.setattr("repomatic.metadata.git.diff_names", reject)
     with caplog.at_level(logging.WARNING):
         assert Metadata().changed_files is None
     assert "dubious ownership" in caplog.text
@@ -1539,9 +1539,9 @@ def test_repo_slug_fallback_chain(monkeypatch, gh_slug, remote_slug, expected):
             raise RuntimeError(msg)
         return f"{gh_slug}\n"
 
-    monkeypatch.setattr("repomatic.metadata_env.run_gh_command", fake_gh)
+    monkeypatch.setattr("repomatic.metadata.env.run_gh_command", fake_gh)
     monkeypatch.setattr(
-        "repomatic.metadata_env.get_repo_slug_from_remote", lambda: remote_slug
+        "repomatic.metadata.env.get_repo_slug_from_remote", lambda: remote_slug
     )
 
     assert Metadata().repo_slug == expected
@@ -1551,7 +1551,7 @@ def test_repo_name_fallback_to_gh_cli(monkeypatch):
     """`repo_name` is the trailing segment of a gh-resolved slug."""
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(
-        "repomatic.metadata_env.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
+        "repomatic.metadata.env.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
     )
 
     assert Metadata().repo_name == "papaya"
@@ -1600,7 +1600,7 @@ def test_repo_url_fallback(monkeypatch):
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.delenv("GITHUB_SERVER_URL", raising=False)
     monkeypatch.setattr(
-        "repomatic.metadata_env.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
+        "repomatic.metadata.env.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
     )
 
     assert Metadata().repo_url == "https://github.com/owner/papaya"

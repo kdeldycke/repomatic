@@ -375,7 +375,7 @@ jobs:
       - name: Name the attestation bundle after its binary
         # actions/attest writes every bundle to the same basename, so all matrix targets produce an `attestation.json`
         # and publish-release's `merge-multiple: true` download would keep only the last. See
-        # repomatic/attestation.py, which owns the naming rule for every attested asset in this lane.
+        # repomatic/release/attestation.py, which owns the naming rule for every attested asset in this lane.
         if: >-
           github.ref == 'refs/heads/main'
           && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
@@ -558,7 +558,7 @@ jobs:
         # lane) removes the cross-lane race where that edit ran before this job
         # had created the release. release_notes_with_admonition is empty for
         # non-PyPI projects, which then fall back to the plain notes. See
-        # repomatic/metadata.py:release_notes_with_admonition for rationale.
+        # repomatic/metadata/core.py:release_notes_with_admonition for rationale.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
@@ -657,7 +657,7 @@ jobs:
           --signer-repo kdeldycke/repomatic
       - name: Attach to release draft
         # pack-attestation names the bundle after the tarball it attests and prints both paths, so neither filename
-        # is spelled here. See repomatic/attestation.py.
+        # is spelled here. See repomatic/release/attestation.py.
         env:
           CURRENT_VERSION: ${{ matrix.current_version }}
           BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
@@ -741,7 +741,7 @@ jobs:
       - name: Attach assets to release draft
         # A repository declaring one asset gets a bundle named after it; several assets share one bundle, which then
         # takes the `--name` set name because no single filename can claim it. The bundle lands after the attest step
-        # above, so it never ends up a subject of itself. See repomatic/attestation.py.
+        # above, so it never ends up a subject of itself. See repomatic/release/attestation.py.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
@@ -793,7 +793,7 @@ jobs:
       # Checkout first, before the download below: actions/checkout deletes everything in a workspace holding no
       # `.git` of its own, so downloading the binaries ahead of it drops them on the floor. The CLI call further down
       # resolves from `uv.lock`, so it needs the release commit's tree: upstream always runs the unfrozen form,
-      # whatever the freeze wrote. See repomatic/prepare_release.py for why.
+      # whatever the freeze wrote. See repomatic/release/prepare_release.py for why.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: needs.compile-binaries.result != 'skipped'
         with:
@@ -818,7 +818,7 @@ jobs:
         # stable releases/latest/download URLs always resolve. Aliases are
         # byte-identical copies: artifact attestations verify them unchanged
         # (digest-based), and the catalog recorder collapses them onto their
-        # versioned sibling (see repomatic/binaries_page.py).
+        # versioned sibling (see repomatic/release/binaries_page.py).
         if: needs.compile-binaries.result != 'skipped'
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -908,7 +908,7 @@ jobs:
           --records docs/assets/virustotal-scans.csv
           --carry-from scan-virustotal
       - name: Regenerate binaries page
-        # See repomatic/binaries_page.py for the page design rationale.
+        # See repomatic/release/binaries_page.py for the page design rationale.
         # Skipped when [tool.repomatic] binaries.sync is disabled.
         if: fromJSON(needs.metadata.outputs.metadata).binaries_sync != false
         env:

@@ -31,9 +31,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from .bundle import get_data_content
 from .config import Config, location_path
 from .frontmatter import split_frontmatter
+from .tooling.bundle import get_data_content
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -572,7 +572,7 @@ WORKFLOW_TARGET_ROOT = ".github/workflows"
 INSTALL_GUIDE_PATH = "docs/install.md"
 """Install guide the release freeze pins download URLs in.
 
-Shared by {class}`~repomatic.prepare_release.PrepareRelease`, which rewrites
+Shared by {class}`~repomatic.release.prepare_release.PrepareRelease`, which rewrites
 those URLs, and {func}`~repomatic.lint_repo.check_install_guide_downloads`,
 which verifies the release they name actually carries the files.
 """
@@ -1368,7 +1368,7 @@ and nothing resolves them at runtime. That is what lets their jobs drop the
 upstream-only step needs, and pick a schedule without spending downstream CI.
 
 A workflow belongs here when its write domain is a path that exists only in this
-repository (`repomatic/tool_registry.py` and friends). A workflow that merely
+repository (`repomatic/tooling/tool_registry.py` and friends). A workflow that merely
 *behaves* differently upstream does not: it still ships, so it still needs the
 runtime guard.
 """

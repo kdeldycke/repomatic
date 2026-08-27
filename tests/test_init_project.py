@@ -31,8 +31,8 @@ from click.testing import CliRunner
 from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__, init_project as ip
-from repomatic.cli import repomatic
-from repomatic.cli_setup import init_project
+from repomatic.cli.main import repomatic
+from repomatic.cli.setup import init_project
 from repomatic.config import Config, WorkflowConfig, load_repomatic_config
 from repomatic.init_project import (
     EXPORTABLE_FILES,
@@ -77,9 +77,9 @@ from repomatic.registry import (
     parse_component_entries,
     valid_file_ids,
 )
-from repomatic.tool_registry import TOOL_REGISTRY
-from repomatic.tool_runner import get_data_file_path, run_tool
-from repomatic.version_sync import Candidate, UpstreamRefPin
+from repomatic.release.version_sync import Candidate, UpstreamRefPin
+from repomatic.tooling.tool_registry import TOOL_REGISTRY
+from repomatic.tooling.tool_runner import get_data_file_path, run_tool
 from tests.conftest import skip_unless_tool_runs
 
 # Convenience set for tests that check opt-in workflow membership.

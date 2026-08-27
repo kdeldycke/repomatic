@@ -201,7 +201,7 @@ jobs:
       - name: Close stale ${{ matrix.part }} bump PR
         # Runs on the inverse path: when a bump is no longer allowed, reconcile
         # any orphan PR left by an earlier run that raced a competing merge.
-        # See repomatic/cli.py::close_stale_bump_pr for rationale.
+        # See repomatic/cli/main.py::close_stale_bump_pr for rationale.
         if: ${{ !fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)] }}
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}

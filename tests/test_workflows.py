@@ -28,7 +28,6 @@ import pytest
 import tomlrt
 import yaml
 
-from repomatic.binary import NUITKA_BUILD_TARGETS
 from repomatic.config import SITE_DEPLOY_TARGETS
 from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,
@@ -41,8 +40,6 @@ from repomatic.git_ops import (
 from repomatic.github.pr_body import template_labels
 from repomatic.github.workflow_sync import cooldown_env_block, workflow_triggers
 from repomatic.lint_repo import KNOWN_RUNNERS
-from repomatic.plugin import ARCHIVE_NAME
-from repomatic.prepare_release import LOCAL_CLI_INVOCATION
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
     COMPONENTS,
@@ -50,7 +47,10 @@ from repomatic.registry import (
     SELF_MAINTENANCE_WORKFLOWS,
     WORKFLOW_SOURCES,
 )
-from repomatic.version_sync import find_workflow_literals
+from repomatic.release.binary import NUITKA_BUILD_TARGETS
+from repomatic.release.prepare_release import LOCAL_CLI_INVOCATION
+from repomatic.release.version_sync import find_workflow_literals
+from repomatic.tooling.plugin import ARCHIVE_NAME
 from tests.conftest import (
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
@@ -290,7 +290,7 @@ def test_exempt_workflows_no_concurrency(workflow_name: str) -> None:
 
 
 TOOL_CACHE_KEY_SUFFIX = (
-    "${{ github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}"
+    "${{ github.job_workflow_sha || hashFiles('repomatic/tooling/tool_registry.py') }}"
 )
 """The only valid ending for a tool-cache key derived from the registry file."""
 
@@ -317,7 +317,7 @@ def test_tool_cache_keys_rotate_downstream() -> None:
                 if not (isinstance(uses, str) and uses.startswith("actions/cache")):
                     continue
                 key = step.get("with", {}).get("key", "")
-                if "hashFiles('repomatic/tool_registry.py')" not in key:
+                if "hashFiles('repomatic/tooling/tool_registry.py')" not in key:
                     continue
                 checked += 1
                 assert key.endswith(TOOL_CACHE_KEY_SUFFIX), (
@@ -1217,7 +1217,7 @@ def test_binary_build_targets_are_the_test_axes() -> None:
 
     The companion to {func}`test_every_job_runs_on_a_test_axis`, which can only
     see a literal `runs-on:`. The `compile-binaries` job takes its runner from a
-    matrix expression fed by {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`, so
+    matrix expression fed by {data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS`, so
     that test skips it and the build fleet would otherwise be the one place an
     untracked image could sit unnoticed.
 
@@ -1879,7 +1879,7 @@ def test_local_cli_job_checks_out_repo(workflow_name: str, job_name: str) -> Non
     on the release commit — but a rebase-merged release PR pushes the freeze and
     unfreeze commits together, and Actions runs the workflow at the push head,
     so the unfrozen form is what executes upstream. See
-    `repomatic/prepare_release.py` for the contract.
+    `repomatic/release/prepare_release.py` for the contract.
     """
     steps = load_workflow(workflow_name)["jobs"][job_name]["steps"]
     assert any(
@@ -1986,7 +1986,7 @@ def test_every_setup_uv_step_pins_a_version(path: Path) -> None:
     Two reasons this must hold everywhere rather than mostly. Without the input,
     `setup-uv` installs the newest uv satisfying `required-version`, so the tool
     enforcing every cooldown arrives without one. And
-    {data}`~repomatic.version_sync._SETUP_UV_VERSION_RE` scans lazily from the
+    {data}`~repomatic.release.version_sync._SETUP_UV_VERSION_RE` scans lazily from the
     `uses:` line to the next `version:`, so a step missing the input would silently
     borrow the following step's and `sync-workflow-pins` would rewrite the wrong
     line.
@@ -2068,7 +2068,7 @@ def _declared_release_assets() -> list[str]:
 def test_plugin_archive_is_a_declared_release_asset() -> None:
     """The packed plugin's filename is one of the declared release assets.
 
-    `pack-plugin` writes {data}`~repomatic.plugin.ARCHIVE_NAME` by default and
+    `pack-plugin` writes {data}`~repomatic.tooling.plugin.ARCHIVE_NAME` by default and
     `release.yaml` passes no `--output`, so renaming the constant on its own
     would leave `release-assets` and the upload `path:` naming a file no job
     produces. The test below then holds that filename equal to the run-artifact

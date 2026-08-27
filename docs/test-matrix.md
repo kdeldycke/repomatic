@@ -22,7 +22,7 @@ To see the matrix your configuration actually produces, render it as a grid with
 
 ```{click:source}
 :hide-source:
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 ```
 
 ```{click:run}
@@ -310,13 +310,13 @@ The shipped configuration is exercised everywhere a regression would reach a use
    :show-inheritance:
 ```
 
-## `repomatic.metadata` API
+## `repomatic.metadata.core` API
 
 ```{eval-rst}
-.. autoclasstree:: repomatic.metadata
+.. autoclasstree:: repomatic.metadata.core
    :strict:
 
-.. automodule:: repomatic.metadata
+.. automodule:: repomatic.metadata.core
    :members:
    :undoc-members:
    :show-inheritance:

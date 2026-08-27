@@ -175,7 +175,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 
 #### 🙈 Sync `.gitignore` (`sync-gitignore`)
 
-- Regenerates `.gitignore` from [gitignore.io](https://github.com/toptal/gitignore.io) templates using [`repomatic sync-gitignore`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
+- Regenerates `.gitignore` from [gitignore.io](https://github.com/toptal/gitignore.io) templates using [`repomatic sync-gitignore`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/main.py)
 - **Requires**:
   - A `.gitignore` file in the repository
 - **Skipped if**:
@@ -184,7 +184,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 
 #### 🔄 Sync bumpversion config (`sync-bumpversion`)
 
-- Re-derives the `[tool.bumpversion]` configuration in `pyproject.toml` from the bundled template on every run using [`repomatic sync-bumpversion`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py), overwriting canonical entries while preserving local-only additions
+- Re-derives the `[tool.bumpversion]` configuration in `pyproject.toml` from the bundled template on every run using [`repomatic sync-bumpversion`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/main.py), overwriting canonical entries while preserving local-only additions
 - **Requires**:
   - A Python project that builds a distributable, gated on the `is_python_package` metadata key rather than `is_python_project`: a uv virtual project (`[tool.uv] package = false`) has a `[project]` table but nothing to version
 - **Skipped if**:
@@ -215,7 +215,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 ##### 🔀 `sync-dep-sources` updater
 
-- Swaps a dependency tracked from a git branch back to its released version using [`repomatic sync-dep-sources`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/dep_sources.py)
+- Swaps a dependency tracked from a git branch back to its released version using [`repomatic sync-dep-sources`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/dep_sources.py)
 - Manages one idiom: a `[tool.uv.sources]` entry tracking a git **branch**, paired with a `.dev` version floor naming the awaited release (like `mango>=2.1.0.dev0`); path or workspace sources, `rev`/`tag` pins, and floor-less branch tracks are never touched
 - Once a stable, non-yanked release satisfying the floor ships on PyPI, one PR drops the source override, tightens the `.dev` floor to its base release, freezes the adopted release through the [`exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) cooldown (an `exclude-newer-package` entry the `sync-uv-lock` lifecycle prunes once it ages out), and re-locks
 - The swap is all-or-nothing: a resolution conflict, or a lock landing on an unexpected version, restores the project untouched and reports nothing
@@ -227,7 +227,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 ##### ⛓️ `sync-uv-lock` updater
 
-- Runs `uv lock --upgrade` to update transitive dependencies to their latest allowed versions using [`repomatic sync-uv-lock`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/uv.py)
+- Runs `uv lock --upgrade` to update transitive dependencies to their latest allowed versions using [`repomatic sync-uv-lock`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/uv.py)
 - Syncs the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) from the bundled template into `pyproject.toml`, so the lock resolves against the pinned uv floor and cooldown, while leaving every other project-owned `[tool.uv]` key untouched
 - Only creates a PR when the lock file contains real dependency changes or a cooldown-bypass edit (timestamp-only noise is detected and skipped)
 - PR body includes a table of updated packages with version ranges linked to GitHub comparison diffs, plus collapsible release notes for all intermediate versions
@@ -240,7 +240,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 ##### 📌 `sync-action-pins` updater
 
-- Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-action-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
+- Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-action-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/main.py)
 - Handles the SHA-to-semver mapping automatically: reads the trailing `# vX.Y.Z` comment, fetches the latest release, resolves it to a commit SHA, and rewrites the `uses:` line
 - Leaves pins owned by `sync-repomatic` untouched: upstream `kdeldycke/repomatic` refs and any `uses:` line inside a file `repomatic init` deploys verbatim (like the `publish-pypi` composite action). Bumping those here would be reset on the next init sync, ping-ponging the two pull requests
 - PR body lists each updated action with old and new versions
@@ -251,7 +251,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 ##### 🔢 `sync-workflow-pins` updater
 
-- Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py)
+- Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/main.py)
 - Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; `npm install`, `npx` and `uvx` pins are handled here). Flags sitting between the command and the package (`npx --yes pkg@1.2.3`) are skipped over, and scoped npm names are matched
 - The upstream toolkit's own pin (like `uvx 'repomatic==x.y.z'`) is exempt from the cooldown: the repomatic `uses:` refs are its source of truth (kept current by `repomatic init`'s thin-caller regeneration), and the `lint-repo` job fails on any drift between them, so the pin aligns to those refs in lockstep. Because that alignment ignores the cooldown, the rewrite also splices `--exclude-newer-package {package}=P0D` in ahead of the pin: `uvx` reads no per-package exemption from the environment, from `pyproject.toml`, or from an adjacent `uv.toml` ([astral-sh/uv#20995](https://github.com/astral-sh/uv/issues/20995) tracks the missing environment variable), so the flag has to ride on the command line for the workflow's own `UV_EXCLUDE_NEWER` not to withhold the version just written. Its PR table row shows a `⛓️ lockstep` marker in the `Released` column instead of a PyPI upload date, since no cooldown-checked release listing was consulted
 - Backfills that same `--exclude-newer-package` flag even on a run that moves no pin version at all, so a repository already pinned at the newest release still gets the splice instead of carrying a broken pin indefinitely. A PR opening for the splice alone carries a `🩹 Restored cooldown exemption` section in place of the usual pin-diff table
@@ -439,7 +439,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 #### 🔄 Sync labels (`sync-labels`)
 
-- Synchronizes repository labels using [`repomatic sync-labels`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py) and [`labelmaker`](https://github.com/jwodder/labelmaker)
+- Synchronizes repository labels using [`repomatic sync-labels`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/main.py) and [`labelmaker`](https://github.com/jwodder/labelmaker)
 - Uses [`labels.toml`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/labels.toml) with multiple profiles:
   - `default` profile applied to all repositories
   - `awesome` profile additionally applied to `awesome-*` repositories
@@ -468,7 +468,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 #### 🏠 Lint repository metadata (`lint-repo`)
 
-- Validates repository metadata (package name, Sphinx docs, project description) and Dependabot configuration using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py). Reads `pyproject.toml` directly. When `REPOMATIC_PAT` is configured, also validates PAT capabilities (contents, issues, pull requests, Dependabot alerts, workflows permissions). Warns when the fork PR workflow approval policy is weaker than `first_time_contributors`. Warns about missing `VIRUSTOTAL_API_KEY` when Nuitka binary compilation is active. Warns about missing `REPOMATIC_NOTIFICATIONS_PAT` when the unsubscribe workflow is enabled. Warns about a missing `CLOUDFLARE_API_TOKEN` when `site.deploy` targets Cloudflare Pages: the token is the whole of the credential, with the account derived from it at run time. Fails when a committed `_redirects` file would lose rules to the Cloudflare Pages engine's undocumented budget accounting, since a dropped rule is silently dead in production ([details](cloudflare.md#the-redirects-engine-as-it-actually-is)). Warns when a committed `wrangler.toml` contradicts the declared Cloudflare project name or compatibility date.
+- Validates repository metadata (package name, Sphinx docs, project description) and Dependabot configuration using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/main.py). Reads `pyproject.toml` directly. When `REPOMATIC_PAT` is configured, also validates PAT capabilities (contents, issues, pull requests, Dependabot alerts, workflows permissions). Warns when the fork PR workflow approval policy is weaker than `first_time_contributors`. Warns about missing `VIRUSTOTAL_API_KEY` when Nuitka binary compilation is active. Warns about missing `REPOMATIC_NOTIFICATIONS_PAT` when the unsubscribe workflow is enabled. Warns about a missing `CLOUDFLARE_API_TOKEN` when `site.deploy` targets Cloudflare Pages: the token is the whole of the credential, with the account derived from it at run time. Fails when a committed `_redirects` file would lose rules to the Cloudflare Pages engine's undocumented budget accounting, since a dropped rule is silently dead in production ([details](cloudflare.md#the-redirects-engine-as-it-actually-is)). Warns when a committed `wrangler.toml` contradicts the declared Cloudflare project name or compatibility date.
 - Warns when a Sphinx project's GitHub website field does not name the documentation URL it declares in `[project.urls]` (`Documentation`, then `Docs`). A trailing slash and the case of the scheme and host are ignored, since GitHub stores the website field with the slash a browser appends. Moving a documentation site to a new domain is what this catches: Sphinx renders `<link rel="canonical">` from `html_baseurl`, so every published page names the new origin while the repository sidebar keeps sending visitors to the old one. A project declaring no documentation URL keeps the presence-only check
 - Warns when a release download URL in `docs/install.md` names a file its release does not carry. The release freeze pins those URLs before the binaries exist, so a failed build lane leaves the guide advertising 404s until the next release moves past it: this is the check that surfaces the gap instead of leaving it for a user to hit. Versionless `releases/latest/download` URLs are checked against the latest published release too, and rot longer: nothing rewrites them at release time, so a renamed asset leaves one pointing at a 404 indefinitely
 - Fails when a workflow's inline upstream pin (like `uvx 'repomatic==X.Y.Z'`) resolves under a cooldown but carries no `--exclude-newer-package` exemption beside it, checked only in a workflow that sets `UV_EXCLUDE_NEWER` at all. `uvx` reads no project configuration, so the flag on the command line is the only place the bypass can live: without it, a pin naming a release younger than the window cannot resolve, and since the pin usually sits in the `metadata` job with every other job `needs: metadata`, the whole workflow fails at its first job while executing nothing. `sync-workflow-pins` backfills the flag on its next run, but a repository already pinned at the newest release never triggers that backfill on its own, which is what this check catches. The sharper of the two fatal pin checks, since the pin it guards takes every `needs: metadata` job down with it
@@ -677,12 +677,12 @@ flowchart TD
 - Creates a Git tag for the release version
 - **Requires**:
   - Push to `main` branch
-  - Release commits matrix from [`repomatic metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata.py)
+  - Release commits matrix from [`repomatic metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)
 
 #### 🐙 Create release draft (`create-release`)
 
 - Creates a GitHub release **draft** with the Python package attached using `gh release create`
-- The draft notes carry the PyPI availability admonition from the start (baked in via [`repomatic metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata.py)'s `release_notes_with_admonition`), so it never depends on a later cross-lane edit; non-PyPI projects fall back to the plain release notes
+- The draft notes carry the PyPI availability admonition from the start (baked in via [`repomatic metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)'s `release_notes_with_admonition`), so it never depends on a later cross-lane edit; non-PyPI projects fall back to the plain release notes
 - Binaries are attached independently by each `compile-binaries` matrix entry as they complete (uploading to drafts is allowed)
 - **Requires**:
   - Successful `create-tag` job
@@ -756,7 +756,7 @@ flowchart TD
 
 #### 🕸️ Update dependency graph (`update-dep-graph`)
 
-- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/dep_graph.py), and opens a PR with the refreshed diagram
+- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/dep_graph.py), and opens a PR with the refreshed diagram
 - Lives in the release engine because a release push is its only firing moment (ordinary pushes would only churn the graph with transitive noise), and `autofix.yaml`, its former home, now skips version-bump pushes wholesale
 - **Runs on**: Release commits only
 - **Requires**:
@@ -772,11 +772,11 @@ This workflow maintains repomatic's own package source and is the one file in `.
 
 #### 🔼 Sync tool versions (`sync-tool-versions`)
 
-- **Upstream-only**: rewrites `repomatic/tool_registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
+- **Upstream-only**: rewrites `repomatic/tooling/tool_registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
 - Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
 - Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
-- Runs via `uv run` against the local editable source, rewriting `repomatic/tool_registry.py` directly
+- Runs via `uv run` against the local editable source, rewriting `repomatic/tooling/tool_registry.py` directly
 - **Runs on**: daily schedule and manual dispatch. Daily rather than weekly because the `minimum-release-age` cooldown already delays every adoption on its own, and a release becomes eligible on whatever weekday its cooldown expires
 - **Requires**:
   - `REPOMATIC_PAT` secret with contents write permission
@@ -865,7 +865,7 @@ This expands the capabilities of GitHub Actions, since it allows to:
 - Allow for runner introspection
 - Fix quirks (like missing environment variables, events/commits mismatch, merge commits, etc.)
 
-This job relies on the [`repomatic metadata` command](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata.py) to gather data from multiple sources:
+This job relies on the [`repomatic metadata` command](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py) to gather data from multiple sources:
 
 - **Git**: current branch, latest tag, commit messages, changed files
 - **GitHub**: event type, actor, PR labels
@@ -876,7 +876,7 @@ To see the full set of keys it exposes to downstream jobs, run `repomatic metada
 
 ```{click:source}
 :hide-source:
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 ```
 
 ```{click:run}

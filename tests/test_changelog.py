@@ -40,7 +40,7 @@ from repomatic.changelog import (
 from repomatic.github.pr_body import render_template
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
-from repomatic.tool_runner import verify_via_write_path
+from repomatic.tooling.tool_runner import verify_via_write_path
 from tests.conftest import skip_unless_tool_runs
 
 SAMPLE_CHANGELOG = dedent(
@@ -1870,7 +1870,7 @@ def test_rendered_sections_are_an_mdformat_fixed_point(tmp_path, monkeypatch):
 
     Verified through the write path rather than `mdformat --check`, whose
     verdict is unreliable for a tool carrying a `post_process` fixup (see
-    {func}`~repomatic.tool_runner.verify_via_write_path`).
+    {func}`~repomatic.tooling.tool_runner.verify_via_write_path`).
 
     Marked `once`: it resolves mdformat and its fifteen plugins through uvx, so
     one runner suffices.

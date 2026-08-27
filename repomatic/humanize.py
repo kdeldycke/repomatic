@@ -47,7 +47,7 @@ def parse_iso_datetime(value: str) -> datetime | None:
     """Parse an ISO 8601 / RFC 3339 timestamp into a timezone-aware datetime.
 
     The package-wide parser for any timestamp an external service writes:
-    {mod}`repomatic.dep_report` reads PyPI upload times, {mod}`repomatic.uv`
+    {mod}`repomatic.deps.dep_report` reads PyPI upload times, {mod}`repomatic.deps.uv`
     lock timestamps, {mod}`repomatic.cloudflare` token expiries and
     {mod}`repomatic.github.job_timings` job clocks through it, so every
     consumer tolerates the same shapes.

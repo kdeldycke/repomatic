@@ -37,7 +37,7 @@ from click_extra import TableFormat, render_table
 
 from .github.issue import manage_issue_lifecycle
 from .github.pr_body import render_template, sanitize_markdown_mentions
-from .metadata import Metadata
+from .metadata.core import Metadata
 from .registry import is_awesome_repo
 
 TYPE_CHECKING = False
@@ -215,20 +215,20 @@ def manage_combined_broken_links_issue(
     show a "No broken links found." message.
 
     When running in GitHub Actions, most parameters are auto-detected from
-    {class}`~repomatic.metadata.Metadata` and well-known file paths:
+    {class}`~repomatic.metadata.core.Metadata` and well-known file paths:
 
     - `repo_name` defaults to {attr}`Metadata.repo_name
-      <repomatic.metadata.Metadata.repo_name>`.
+      <repomatic.metadata.core.Metadata.repo_name>`.
     - `lychee_body_file` defaults to `./lychee/out.md` when
       `lychee_exit_code` is provided and the file exists.
     - `sphinx_output_json` defaults to `./docs/_linkcheck/output.json`
       when the file exists.
     - `sphinx_source_url` is composed from {attr}`Metadata.repo_url
-      <repomatic.metadata.Metadata.repo_url>` and {attr}`Metadata.sha
-      <repomatic.metadata.Metadata.sha>`.
+      <repomatic.metadata.core.Metadata.repo_url>` and {attr}`Metadata.sha
+      <repomatic.metadata.core.Metadata.sha>`.
 
     :param repo_name: Repository name (for label selection). Defaults to
-        {attr}`Metadata.repo_name <repomatic.metadata.Metadata.repo_name>`.
+        {attr}`Metadata.repo_name <repomatic.metadata.core.Metadata.repo_name>`.
     :param lychee_exit_code: Exit code from lychee (0=no broken links,
         2=broken links found). `None` if lychee was not run.
     :param lychee_body_file: Path to the lychee output file. Defaults to
@@ -238,8 +238,8 @@ def manage_combined_broken_links_issue(
         Defaults to `./docs/_linkcheck/output.json` when the file exists.
     :param sphinx_source_url: Base URL for linking filenames and line numbers
         in the Sphinx report. Auto-composed from {attr}`Metadata.repo_url
-        <repomatic.metadata.Metadata.repo_url>` and {attr}`Metadata.sha
-        <repomatic.metadata.Metadata.sha>`.
+        <repomatic.metadata.core.Metadata.repo_url>` and {attr}`Metadata.sha
+        <repomatic.metadata.core.Metadata.sha>`.
     :raises ValueError: If `repo_name` cannot be determined.
     """
     # Shared Metadata instance for all CI context lookups.

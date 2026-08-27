@@ -56,7 +56,7 @@ jobs:
   detect-squash-merge:
     name: 🧯 No squash on release
     # Detect squash merges on release PRs and open an issue instead of releasing.
-    # See RELEASE_COMMIT_PATTERN in repomatic/metadata.py for the detection mechanism.
+    # See RELEASE_COMMIT_PATTERN in repomatic/metadata/core.py for the detection mechanism.
     if: >-
       github.event_name == 'push'
       && startsWith(github.event.head_commit.message, 'Release `v')
@@ -143,7 +143,7 @@ jobs:
     # wheel builds and uploads exactly as it would have and only the install fails: nothing else
     # in the lane can see it. Fatal only on a release commit, so test-driving a git branch during
     # development stays frictionless while still annotating every push.
-    # See repomatic/dep_sources.py for the rules and the failure classes.
+    # See repomatic/deps/dep_sources.py for the rules and the failure classes.
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).is_python_project

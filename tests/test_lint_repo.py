@@ -25,7 +25,7 @@ from unittest.mock import patch
 import pytest
 
 from repomatic import lint_repo
-from repomatic.cli_setup import metadata as metadata_command
+from repomatic.cli.setup import metadata as metadata_command
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
     REPO_CHECKS,
@@ -62,10 +62,10 @@ from repomatic.lint_repo import (
     run_repo_lint,
 )
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
-from repomatic.metadata import METADATA_VALUE_OPTIONS
-from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.metadata.core import METADATA_VALUE_OPTIONS
 from repomatic.pypi import TrustedPublisher
 from repomatic.registry import INSTALL_GUIDE_PATH
+from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from tests.conftest import metadata_from_pyproject, pat_results
 
 

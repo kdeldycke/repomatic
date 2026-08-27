@@ -76,7 +76,7 @@ workflow.ignore-paths = ["uv.lock"]
 ```
 
 ```{click:config} repomatic
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 ```
 
 ### Ephemeral components

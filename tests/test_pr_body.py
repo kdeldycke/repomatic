@@ -26,9 +26,9 @@ import pytest
 from click.testing import CliRunner
 
 from repomatic import __version__
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 from repomatic.config import config_reference
-from repomatic.dep_sources import RELEASE_READY_SENTENCE
+from repomatic.deps.dep_sources import RELEASE_READY_SENTENCE
 from repomatic.frontmatter import split_frontmatter
 from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,
@@ -54,7 +54,7 @@ from repomatic.github.pr_body import (
     render_title,
     template_args,
 )
-from repomatic.metadata import Metadata
+from repomatic.metadata.core import Metadata
 from repomatic.versions import strip_dev_suffix
 
 # Full set of GITHUB_* environment variables for testing.
@@ -1082,7 +1082,7 @@ def _invoke_pr_body(
     """Invoke ``repomatic pr-body`` with all GITHUB_* env vars cleared.
 
     Writes to ``output_path`` instead of stdout so the assertion target is
-    stable and {func}`~repomatic.cli.prep_path` does not call ``fileno()`` on
+    stable and {func}`~repomatic.cli.main.prep_path` does not call ``fileno()`` on
     the in-memory stream that Click's runner installs.
     """
     for key in GITHUB_ENV_VARS:

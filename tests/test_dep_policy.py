@@ -23,7 +23,7 @@ from textwrap import dedent
 import pytest
 
 from repomatic.config import LintDepsConfig
-from repomatic.dep_policy import count_comment_words, scan_policy
+from repomatic.deps.dep_policy import count_comment_words, scan_policy
 
 from .conftest import PROJECT_ROOT
 

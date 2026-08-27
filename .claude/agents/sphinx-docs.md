@@ -459,7 +459,7 @@ Document **dataclass fields with attribute docstrings** (PEP 257 string literal 
 
 ## Recipes for common doc artifacts
 
-The patterns below are how this repo renders `docs/configuration.md`, `docs/cli.md`, and `docs/install.md`. Downstream CLI projects can replicate them verbatim by pointing at their own dataclass schema and Click root command. Every reference page renders live (click-extra directives for the CLI and config references, `{python:render}` blocks over `repomatic.tool_registry` for the tool registry); the repo has no `docs_update.py` regenerator, and only `install.md`'s matrix stays checked in as a marker region for GitHub rendering. Free-form per-tool prose lives in the registry itself (`ToolSpec.docs_notes`), not in the page, so it survives without marker islands.
+The patterns below are how this repo renders `docs/configuration.md`, `docs/cli.md`, and `docs/install.md`. Downstream CLI projects can replicate them verbatim by pointing at their own dataclass schema and Click root command. Every reference page renders live (click-extra directives for the CLI and config references, `{python:render}` blocks over `repomatic.tooling.tool_registry` for the tool registry); the repo has no `docs_update.py` regenerator, and only `install.md`'s matrix stays checked in as a marker region for GitHub rendering. Free-form per-tool prose lives in the registry itself (`ToolSpec.docs_notes`), not in the page, so it survives without marker islands.
 
 ### `configuration.md`: option reference from a dataclass
 

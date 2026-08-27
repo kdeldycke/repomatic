@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import pytest
 
-from repomatic.binary import (
+from repomatic.release.binary import (
     NUITKA_BUILD_TARGETS,
     binary_filename_re,
     binary_name,

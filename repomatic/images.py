@@ -59,8 +59,8 @@ from pathlib import Path
 
 from .humanize import format_file_size
 from .tabular import render_markdown_table
-from .tool_registry import TOOL_REGISTRY
-from .tool_runner import ensure_binary
+from .tooling.tool_registry import TOOL_REGISTRY
+from .tooling.tool_runner import ensure_binary
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -101,13 +101,13 @@ class OptimizationResult:
 def _check_tool(name: str) -> bool:
     """Whether *name* can be run, from the registry or from `$PATH`.
 
-    Memoized per process, following {func}`~repomatic.tool_runner.ensure_binary`
+    Memoized per process, following {func}`~repomatic.tooling.tool_runner.ensure_binary`
     and for the same reason: the optimizer loop asks once per image, and a
     `$PATH` walk per JPEG answers the same question every time.
 
     A tool the registry ships as a binary is always obtainable, so it never
     depends on what the machine happens to have installed:
-    {func}`~repomatic.tool_runner.ensure_binary` downloads and verifies it on
+    {func}`~repomatic.tooling.tool_runner.ensure_binary` downloads and verifies it on
     first use. A download that fails then raises rather than silently skipping
     the file, which is the intent: a pinned tool that cannot be fetched is a
     problem to surface, not to work around.

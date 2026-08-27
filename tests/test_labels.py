@@ -34,8 +34,7 @@ import tomlrt
 from click.testing import CliRunner
 
 from repomatic import labels as labels_module
-from repomatic.bundle import get_data_content
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 from repomatic.config import Config, LabelsConfig, load_repomatic_config
 from repomatic.github.actions import get_github_event
 from repomatic.labels import (
@@ -50,6 +49,7 @@ from repomatic.labels import (
     serialize_inline_labels,
 )
 from repomatic.sync_ops import DEPENDENCY_LABEL
+from repomatic.tooling.bundle import get_data_content
 
 
 def _make_config(**labels_kwargs):
@@ -283,7 +283,7 @@ def test_default_content_rules_match_as_advertised(text, expected):
         pytest.param(["uv.lock"], {"🔗 dependencies"}, id="lockfile"),
         pytest.param(["docs/guide/index.md"], {"📚 documentation"}, id="docs-tree"),
         pytest.param([".github/funding.yml"], {"🤖 ci"}, id="funding"),
-        pytest.param(["repomatic/cli.py"], set(), id="source-is-unlabelled"),
+        pytest.param(["repomatic/cli/main.py"], set(), id="source-is-unlabelled"),
     ),
 )
 def test_default_file_rules_match_as_advertised(files, expected):

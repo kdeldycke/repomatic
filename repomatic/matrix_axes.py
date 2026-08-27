@@ -18,7 +18,7 @@
 
 Defines the GitHub-hosted runner images and Python versions used to build
 test matrices. Separating these from
-{mod}`repomatic.metadata` makes the CI matrix configuration self-contained
+{mod}`repomatic.metadata.core` makes the CI matrix configuration self-contained
 and easier to update when runner images or Python releases change.
 """
 
@@ -54,7 +54,7 @@ consecutive runs before the swap, `ubuntu-26.04-arm` beat `ubuntu-24.04-arm` by
 The residual risk is capacity rather than correctness: GitHub warns a preview
 image's capacity "will be balanced only throughout the next weeks", so queue
 time may be worse than the runtimes above suggest. Release binaries are built
-on GA images for that reason, see {data}`~repomatic.binary.NUITKA_BUILD_TARGETS`.
+on GA images for that reason, see {data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS`.
 ```
 
 ```{note} Architecture speed is not uniform across platforms

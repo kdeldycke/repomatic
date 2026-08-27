@@ -34,7 +34,7 @@ List all managed tools and their resolved config source:
 
 ```{click:source}
 :hide-source:
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 ```
 
 ```{click:run}
@@ -44,7 +44,7 @@ invoke(repomatic, args=['run', '--list'])
 ## Available tools
 
 ```{python:render}
-from repomatic.tool_registry import tool_summary
+from repomatic.tooling.tool_registry import tool_summary
 
 print(tool_summary())
 ```
@@ -277,15 +277,15 @@ With no arguments after the tool name, `--verify` resolves the same defaults a b
 ## Tool details
 
 ```{python:render}
-from repomatic.tool_registry import tool_reference
+from repomatic.tooling.tool_registry import tool_reference
 
 print(tool_reference())
 ```
 
-## `repomatic.tool_runner` API
+## `repomatic.tooling.tool_runner` API
 
 ```{eval-rst}
-.. automodule:: repomatic.tool_runner
+.. automodule:: repomatic.tooling.tool_runner
    :members:
    :undoc-members:
    :show-inheritance:

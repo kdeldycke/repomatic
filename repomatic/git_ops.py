@@ -156,7 +156,7 @@ so the matrix doesn't burn CI minutes for a guaranteed-passing run.
 ```{note}
 These branches are *not* binary-neutral: the rewritten version string
 is baked into the Nuitka binary, so they are deliberately absent from
-{data}`repomatic.binary.SKIP_BINARY_BUILD_BRANCHES`. Post-merge release
+{data}`repomatic.release.binary.SKIP_BINARY_BUILD_BRANCHES`. Post-merge release
 artifacts on `main` are still produced.
 ```
 """

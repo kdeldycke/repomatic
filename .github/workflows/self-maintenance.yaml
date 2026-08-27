@@ -34,8 +34,8 @@ jobs:
 
   sync-tool-versions:
     name: 🔼 Sync tool versions
-    # Bumps every `repomatic run` tool, and the packages pinned alongside them, in repomatic/tool_registry.py. That file
-    # only exists here, so this job has no downstream meaning. See repomatic/sync_ops.py for the resolver.
+    # Bumps every `repomatic run` tool, and the packages pinned alongside them, in repomatic/tooling/tool_registry.py.
+    # That file only exists here, so this job has no downstream meaning. See repomatic/sync_ops.py for the resolver.
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:

@@ -19,7 +19,7 @@
 The single home for reading GitHub Releases: raw cached API access (tags,
 versions, single bodies), tag-to-version extraction, tag-to-SHA resolution, and
 the range-to-release-notes fetch shared by the dependency updaters. The
-{mod}`repomatic.version_sync` adapters and {mod}`repomatic.dep_report`
+{mod}`repomatic.release.version_sync` adapters and {mod}`repomatic.deps.dep_report`
 release-notes helper build on top of these reads.
 
 One write helper lives here too: {func}`edit_release_notes`, the shared
@@ -562,8 +562,8 @@ def fetch_github_release_notes(
         pin, where *old* and *new* are bare versions and *tag_pattern* is the
         per-tool extraction regex (or `None` for the `vX.Y.Z` scheme).
     :return: A dict mapping names to `(repo_url, versions)` tuples, the same
-        shape {func}`repomatic.dep_report.fetch_release_notes` returns, so
-        {func}`repomatic.dep_report.format_release_notes` renders it unchanged. Only
+        shape {func}`repomatic.deps.dep_report.fetch_release_notes` returns, so
+        {func}`repomatic.deps.dep_report.format_release_notes` renders it unchanged. Only
         entries with at least one non-empty release body are included.
     """
     notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}

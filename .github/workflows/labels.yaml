@@ -88,7 +88,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-labelmaker-${{
-            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
+            github.job_workflow_sha || hashFiles('repomatic/tooling/tool_registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-labelmaker-
       - name: Sync labels

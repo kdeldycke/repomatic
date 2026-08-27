@@ -205,7 +205,7 @@ typing = [
 # upper cap breaks every machine the day the next uv minor lands, since uv
 # self-updates). uv.lock stays stable across minors because sync-uv-lock
 # discards a re-lock that only re-spells equivalent markers (see
-# repomatic.uv.sync_uv_lock).
+# repomatic.deps.uv.sync_uv_lock).
 required-version = ">=0.11.15"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
@@ -320,7 +320,7 @@ default.extend-ignore-identifiers-re = [
   # Standard GitHub API term for "name with owner" (e.g. "owner/repo").
   "nwo",
   # error: `vulnerabilit` should be `vulnerability`
-  #     ╭▸ ./repomatic/uv.py:82:55
+  #     ╭▸ ./repomatic/deps/uv.py:82:55
   #     │
   #  82 │     r"^(\S+)\s+(\S+)\s+has\s+\d+\s+known\s+vulnerabilit"
   #     ╰╴                                           ━━━━━━━━━━━━
@@ -528,7 +528,7 @@ exclude = [ "workflows" ]
 # `repomatic-manpages.tar.gz` asset to every GitHub release. The script target
 # mirrors `click_extra_manpages` in `docs/conf.py`, so the release tarball and
 # the HTML docs site stay in lockstep.
-manpages.script = "repomatic.cli:repomatic"
+manpages.script = "repomatic.cli.main:repomatic"
 # The comparison is logarithmic because the nearest peer outweighs repomatic by
 # two orders of magnitude, and a linear axis draws every project but the largest
 # two along the bottom edge. Most peers still hold a creation date and one

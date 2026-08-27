@@ -35,16 +35,22 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from repomatic import dep_sources
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 from repomatic.config import Config
-from repomatic.dep_report import HeldBackPackage
+from repomatic.deps import dep_sources
+from repomatic.deps.dep_report import HeldBackPackage
 from repomatic.github.pr_body import get_template_names, template_labels
 from repomatic.init_project import get_data_content
 from repomatic.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
-from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.pypi import PyPIRelease
 from repomatic.registry import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
+from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.release.version_sync import (
+    SETUP_UV_SLUG,
+    Candidate,
+    apply_workflow_literals,
+    select_latest,
+)
 from repomatic.sync_ops import (
     DEPENDENCY_LABEL,
     SYNC_OPERATIONS,
@@ -66,13 +72,7 @@ from repomatic.sync_ops import (
     run_sync_operations,
     selected_operations,
 )
-from repomatic.tool_registry import TOOL_REGISTRY
-from repomatic.version_sync import (
-    SETUP_UV_SLUG,
-    Candidate,
-    apply_workflow_literals,
-    select_latest,
-)
+from repomatic.tooling.tool_registry import TOOL_REGISTRY
 from repomatic.versions import is_newer
 from tests.conftest import load_workflow
 

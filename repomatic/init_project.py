@@ -46,7 +46,6 @@ import tomlrt
 import yaml
 
 from . import __git_tag_sha__, __version__
-from .bundle import get_data_content
 from .config import Config, load_repomatic_config, location_path
 from .github.releases import resolve_tag_to_sha
 from .github.workflow_sync import (
@@ -58,9 +57,7 @@ from .github.workflow_sync import (
 )
 from .http import get_bytes
 from .lint_repo import requested_metadata_keys
-from .metadata import Metadata, all_metadata_keys
-from .plugin import merge_plugin_settings
-from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from .metadata.core import Metadata, all_metadata_keys
 from .pyproject import (
     is_python_package,
     is_python_project,
@@ -89,9 +86,8 @@ from .registry import (
     package_of,
     parse_component_entries,
 )
-from .tool_registry import TOOL_REGISTRY
-from .tool_runner import find_unmodified_configs
-from .version_sync import (
+from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from .release.version_sync import (
     Candidate,
     UpstreamRefPin,
     apply_self_pin_exemption,
@@ -100,6 +96,10 @@ from .version_sync import (
     parse_min_age,
     select_latest,
 )
+from .tooling.bundle import get_data_content
+from .tooling.plugin import merge_plugin_settings
+from .tooling.tool_registry import TOOL_REGISTRY
+from .tooling.tool_runner import find_unmodified_configs
 from .versions import is_newer, safe_version, strip_dev_suffix
 
 TYPE_CHECKING = False
@@ -125,7 +125,7 @@ as-is. `release.yaml` is the canonical caller `repomatic.github.workflow_sync`
 reads to assemble each downstream `release.yaml`, copying its jobs and rewriting
 the local `uses:` refs (see `_generate_release_caller`); the deployed
 `release.yaml` is generated, not this bundled copy. `vt-trend-chart.js` is the
-detections-chart script `repomatic.binaries_page.render_chart_section` splices
+detections-chart script `repomatic.release.binaries_page.render_chart_section` splices
 into `docs/binaries.md` with its payload placeholders filled. New entries must
 be added explicitly so the data-file registry tests stay authoritative.
 """
@@ -555,7 +555,7 @@ def _select_cooldown_pin(
     :param base: The running repomatic version (bare, no `v` prefix).
     :param min_age: The `minimum-release-age` stabilization window.
     :param today: Reference date for the cooldown computation.
-    :return: The {class}`~repomatic.version_sync.Candidate` to pin instead of
+    :return: The {class}`~repomatic.release.version_sync.Candidate` to pin instead of
         `base`, or `None` to keep pinning `base`.
     """
     cutoff = today - min_age
@@ -587,7 +587,7 @@ def _highest_upstream_pin(output_dir: Path, repo: str) -> UpstreamRefPin | None:
 
     Scans {data}`~repomatic.registry.GITHUB_YAML_PATTERNS` resolved against
     *output_dir*, the same files `sync-workflow-pins` bumps, and returns the
-    winning {class}`~repomatic.version_sync.UpstreamRefPin`. Stragglers left
+    winning {class}`~repomatic.release.version_sync.UpstreamRefPin`. Stragglers left
     behind at an older pin therefore converge upward onto the repository-wide
     maximum, matching how `sync-action-pins` treats a slug pinned at more than
     one version.
@@ -642,7 +642,7 @@ def resolve_default_pin(
 
     `init` is the only writer of these refs: `sync-action-pins` skips every slug
     in {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`, and
-    {data}`~repomatic.version_sync.ACTION_PIN_RE` does not even match a
+    {data}`~repomatic.release.version_sync.ACTION_PIN_RE` does not even match a
     subpath-carrying reusable-workflow ref. So a downstream repository adopts a
     new repomatic release exactly one way: a human moves the pin, by hand or by
     running a newer `init`. Two things follow.
@@ -1423,7 +1423,7 @@ def _realign_inline_pins(
     touches; that is exactly where the lag hides.
 
     Also splices in the per-package cooldown escape hatch
-    ({data}`~repomatic.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION`) wherever a
+    ({data}`~repomatic.release.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION`) wherever a
     `uvx` command pinning the package lacks it. Every workflow exports a
     `UV_EXCLUDE_NEWER` covering all resolution, and the pin this function writes
     routinely names a release younger than that window, so realigning it without

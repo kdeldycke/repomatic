@@ -1022,7 +1022,7 @@ class Config:
 
     Swaps a dependency tracked from a git branch back to its released version
     once the release named by its `.dev` version floor ships on PyPI (see
-    {mod}`repomatic.dep_sources` for the managed idiom). Projects that manage
+    {mod}`repomatic.deps.dep_sources` for the managed idiom). Projects that manage
     `[tool.uv.sources]` overrides by hand can set this to `false`.
     """
 

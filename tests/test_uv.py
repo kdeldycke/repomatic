@@ -15,10 +15,10 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 """Tests for the `audit` command (read-only report by default, `--fix` to
-upgrade) and the `repomatic.uv` lock helpers behind the
+upgrade) and the `repomatic.deps.uv` lock helpers behind the
 `exclude-newer-package` cooldown-bypass lifecycle.
 
-The `repomatic.dep_report` renderers these helpers feed are covered by
+The `repomatic.deps.dep_report` renderers these helpers feed are covered by
 `tests/test_dep_report.py`'s golden renders.
 """
 
@@ -31,11 +31,11 @@ import pytest
 import tomlrt
 from click.testing import CliRunner
 
-from repomatic import cli_lint
-from repomatic.cli import repomatic
+from repomatic.cli import lint as cli_lint
+from repomatic.cli.main import repomatic
 from repomatic.config import Config
-from repomatic.dep_report import BYPASS_NEEDS_RELEASE, BypassForecast
-from repomatic.uv import (
+from repomatic.deps.dep_report import BYPASS_NEEDS_RELEASE, BypassForecast
+from repomatic.deps.uv import (
     compute_bypass_forecasts,
     compute_pruned_forecasts,
     freeze_exclude_newer_packages,
@@ -43,7 +43,7 @@ from repomatic.uv import (
     project_exclude_newer,
     prune_stale_exclude_newer_packages,
 )
-from repomatic.vulnerable_deps import (
+from repomatic.deps.vulnerable_deps import (
     AdvisorySource,
     VulnerablePackage,
 )

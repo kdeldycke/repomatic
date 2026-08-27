@@ -51,8 +51,8 @@ from repomatic.git_ops import (
     tag_exists,
     tree_sha,
 )
-from repomatic.metadata import Metadata
-from repomatic.metadata_project import is_version_bump_allowed
+from repomatic.metadata.core import Metadata
+from repomatic.metadata.project import is_version_bump_allowed
 
 
 @pytest.mark.parametrize(
@@ -374,14 +374,14 @@ def test_is_version_bump_allowed_uses_commit_fallback(
     the fallback the check fails open and allows a double increment.
     """
     monkeypatch.setattr(
-        "repomatic.metadata_project.ProjectMetadata.get_current_version",
+        "repomatic.metadata.project.ProjectMetadata.get_current_version",
         lambda: current,
     )
     monkeypatch.setattr(
-        "repomatic.metadata_project.get_latest_tag_version", lambda: None
+        "repomatic.metadata.project.get_latest_tag_version", lambda: None
     )
     monkeypatch.setattr(
-        "repomatic.metadata_project.get_release_version_from_commits",
+        "repomatic.metadata.project.get_release_version_from_commits",
         lambda: Version(released),
     )
     assert is_version_bump_allowed(part) is allowed
@@ -390,14 +390,14 @@ def test_is_version_bump_allowed_uses_commit_fallback(
 def test_is_version_bump_allowed_without_tags_or_commits(monkeypatch):
     """Nothing to compare against fails open, so a release is never blocked."""
     monkeypatch.setattr(
-        "repomatic.metadata_project.ProjectMetadata.get_current_version",
+        "repomatic.metadata.project.ProjectMetadata.get_current_version",
         lambda: "5.0.2",
     )
     monkeypatch.setattr(
-        "repomatic.metadata_project.get_latest_tag_version", lambda: None
+        "repomatic.metadata.project.get_latest_tag_version", lambda: None
     )
     monkeypatch.setattr(
-        "repomatic.metadata_project.get_release_version_from_commits", lambda: None
+        "repomatic.metadata.project.get_release_version_from_commits", lambda: None
     )
     assert is_version_bump_allowed("minor") is True
 

@@ -71,7 +71,7 @@ def stale_axis_values(
     since GitHub rejects a matrix whose excludes name unknown keys; this is
     the predicate behind that decision, exposed so callers can also *report*
     the drift instead of only absorbing it (see
-    {attr}`repomatic.metadata.Metadata.stale_test_matrix_excludes`).
+    {attr}`repomatic.metadata.core.Metadata.stale_test_matrix_excludes`).
     """
     return {
         key: value

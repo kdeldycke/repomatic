@@ -310,7 +310,7 @@ def _heading_fragment(version: str | None = None) -> str:
 def _heading_re(version: str | None = None) -> re.Pattern[str]:
     """Compile {func}`_heading_fragment` on its own, to locate headings.
 
-    Memoized like {func}`repomatic.version_sync._upstream_ref_re`: the lint
+    Memoized like {func}`repomatic.release.version_sync._upstream_ref_re`: the lint
     loop asks for the same versions' patterns over and over.
 
     :param version: Match this exact version, or any version when `None`.

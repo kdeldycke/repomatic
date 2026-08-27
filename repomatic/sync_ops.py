@@ -24,7 +24,7 @@ the lock), then rewrite the pin. This module turns that shape into data: one
 {class}`SyncOperation` per bumper, in {data}`SYNC_OPERATIONS`.
 
 The registry is the single source of truth consumed three ways: the thin
-`sync-*` commands and the aggregate `sync-deps` command in {mod}`repomatic.cli`,
+`sync-*` commands and the aggregate `sync-deps` command in {mod}`repomatic.cli.main`,
 and the consolidated CI job emitted by {mod}`repomatic.github.workflow_sync`.
 
 ```{rubric} Resolve then apply
@@ -51,9 +51,9 @@ resolve snapshots and restores the mutated files so the preview leaves no
 trace.
 
 The datasource adapters, version selection, and pure string rewriters live in
-{mod}`repomatic.version_sync` and {mod}`repomatic.uv`; this module composes them
+{mod}`repomatic.release.version_sync` and {mod}`repomatic.deps.uv`; this module composes them
 with the file I/O and checksum recompute. Terminal and PR-body rendering stay in
-{mod}`repomatic.cli`, fed from the {class}`SyncPlan`.
+{mod}`repomatic.cli.main`, fed from the {class}`SyncPlan`.
 """
 
 from __future__ import annotations
@@ -70,9 +70,7 @@ from pathlib import Path
 import click
 from click_extra import OperationTrail, echo, get_tool_config, resolve_jobs, run_jobs
 
-from . import tool_registry
-from .checksums import update_registry_checksums
-from .dep_report import (
+from .deps.dep_report import (
     BYPASS_COLUMNS,
     EXCLUDE_NEWER_HELD_BACK_NOTE,
     HELD_BACK_COLUMNS,
@@ -90,29 +88,14 @@ from .dep_report import (
     format_upload_date,
     pypi_name_urls,
 )
-from .dep_sources import (
+from .deps.dep_sources import (
     ReleaseSwap,
     apply_release_swaps,
     find_ready_swaps,
     format_swap_section,
     tracked_git_overrides,
 )
-from .github.actions import emit_report
-from .github.pr_body import template_docs_url
-from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
-from .init_project import init_config, is_source_repo
-from .npm import NPM_PACKAGE_URL
-from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
-from .pypi import PYPI_PACKAGE_URL, get_source_url
-from .registry import (
-    BUNDLED_VERBATIM_TARGETS,
-    DEFAULT_REPO,
-    GITHUB_YAML_PATTERNS,
-    UPSTREAM_PACKAGE,
-    UPSTREAM_REPO_SLUGS,
-)
-from .tool_registry import TOOL_REGISTRY, ToolBackend
-from .uv import (
+from .deps.uv import (
     LockFile,
     compute_bypass_forecasts,
     compute_held_back_packages,
@@ -122,7 +105,22 @@ from .uv import (
     upsert_exclude_newer_packages,
     uv_lock_command,
 )
-from .version_sync import (
+from .github.actions import emit_report
+from .github.pr_body import template_docs_url
+from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
+from .init_project import init_config, is_source_repo
+from .npm import NPM_PACKAGE_URL
+from .pypi import PYPI_PACKAGE_URL, get_source_url
+from .registry import (
+    BUNDLED_VERBATIM_TARGETS,
+    DEFAULT_REPO,
+    GITHUB_YAML_PATTERNS,
+    UPSTREAM_PACKAGE,
+    UPSTREAM_REPO_SLUGS,
+)
+from .release.checksums import update_registry_checksums
+from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from .release.version_sync import (
     MIN_AGE_HELD_BACK_NOTE,
     SETUP_UV_PACKAGE,
     SETUP_UV_SLUG,
@@ -143,6 +141,8 @@ from .version_sync import (
     set_with_package_version,
     setup_uv_verified_versions,
 )
+from .tooling import tool_registry
+from .tooling.tool_registry import TOOL_REGISTRY, ToolBackend
 from .versions import is_newer
 
 TYPE_CHECKING = False
@@ -154,7 +154,7 @@ if TYPE_CHECKING:
     from click_extra import Context
 
     from .config import Config
-    from .version_sync import Candidate
+    from .release.version_sync import Candidate
 
 DEPENDENCY_LABEL = "🔗 dependencies"
 """GitHub label applied to every dependency-update PR.
@@ -310,7 +310,7 @@ class SyncPlan:
     """The resolved, not-yet-written outcome of one operation's read phase.
 
     Carries everything {attr}`SyncOperation.apply` needs to write the changes
-    and everything {mod}`repomatic.cli` needs to render the terminal table and
+    and everything {mod}`repomatic.cli.main` needs to render the terminal table and
     the markdown PR body, so the write and the rendering never re-resolve.
     """
 
@@ -670,7 +670,7 @@ def _pinned_with_packages() -> list[tuple[str, str]]:
 
     When two tools pin the same package the *lowest* version wins the lookup, so
     a bump is proposed as long as any one of them trails the latest release;
-    {func}`~repomatic.version_sync.set_with_package_version` then rewrites every
+    {func}`~repomatic.release.version_sync.set_with_package_version` then rewrites every
     occurrence, converging them.
 
     :return: Sorted `(package, pinned_version)` pairs.
@@ -985,7 +985,7 @@ def _gate_uv_on_checksums(
     The uv pin is the one literal whose adoptable range is decided by a
     *second* pin: `setup-uv` verifies a download only against the checksum
     table its own release bundles, and silently skips verification for anything
-    else (see {func}`~repomatic.version_sync.setup_uv_verified_versions`).
+    else (see {func}`~repomatic.release.version_sync.setup_uv_verified_versions`).
     Walking uv forward past that table therefore trades a hash for nothing,
     which is the opposite of what pinning it was for.
 
@@ -1322,7 +1322,7 @@ def print_held_back_table(
     """Print the shared held-back terminal table for the cooldown-gated updaters.
 
     Columns are *subject* followed by
-    {data}`~repomatic.dep_report.HELD_BACK_COLUMNS`. Shared by `sync-uv-lock`
+    {data}`~repomatic.deps.dep_report.HELD_BACK_COLUMNS`. Shared by `sync-uv-lock`
     and the three `sync-*` commands, and respects the global `--table-format`.
     """
     echo("Held back by cooldown:")
@@ -1343,8 +1343,8 @@ def print_held_back_table(
 def print_bypass_table(ctx: Context, forecasts: list[BypassForecast]) -> None:
     """Print the active cooldown-bypass freezes with their expiry forecasts.
 
-    Columns are {data}`~repomatic.dep_report.BYPASS_COLUMNS`, mirroring the
-    markdown section from {func}`~repomatic.dep_report.format_bypass_section`,
+    Columns are {data}`~repomatic.deps.dep_report.BYPASS_COLUMNS`, mirroring the
+    markdown section from {func}`~repomatic.deps.dep_report.format_bypass_section`,
     and respects the global `--table-format`.
     """
     echo("Cooldown bypasses:")
@@ -1667,7 +1667,10 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
         resolve=_resolve_tool_versions,
         apply=_apply_tool_versions,
         applies_here=_tool_versions_applies,
-        write_domain=("repomatic/tool_registry.py", ".github/workflows/lint.yaml"),
+        write_domain=(
+            "repomatic/tooling/tool_registry.py",
+            ".github/workflows/lint.yaml",
+        ),
         workflow="self-maintenance.yaml",
         job="sync-tool-versions",
         editable=True,

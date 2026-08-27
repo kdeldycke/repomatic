@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from repomatic.virustotal import (
+from repomatic.release.virustotal import (
     SCAN_HEADERS,
     DetectionStats,
     ScanRecord,
@@ -314,8 +314,8 @@ def test_poll_detection_stats():
     mock_client.__exit__ = MagicMock(return_value=False)
 
     with (
-        patch("repomatic.virustotal.vt.Client", return_value=mock_client),
-        patch("repomatic.virustotal.time.sleep"),
+        patch("repomatic.release.virustotal.vt.Client", return_value=mock_client),
+        patch("repomatic.release.virustotal.time.sleep"),
     ):
         enriched = poll_detection_stats("key", results, timeout=60)
 
@@ -359,9 +359,9 @@ def test_poll_detection_stats_timeout():
     times = iter([start, start, start + 1000, start + 1000])
 
     with (
-        patch("repomatic.virustotal.vt.Client", return_value=mock_client),
-        patch("repomatic.virustotal.time.sleep"),
-        patch("repomatic.virustotal.time.monotonic", side_effect=times),
+        patch("repomatic.release.virustotal.vt.Client", return_value=mock_client),
+        patch("repomatic.release.virustotal.time.sleep"),
+        patch("repomatic.release.virustotal.time.monotonic", side_effect=times),
     ):
         enriched = poll_detection_stats("key", results, timeout=60)
 

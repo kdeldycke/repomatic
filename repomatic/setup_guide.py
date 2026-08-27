@@ -48,7 +48,7 @@ from .lint_repo import (
     check_pypi_trusted_publisher,
     check_sha_pinning_required,
 )
-from .metadata import Metadata
+from .metadata.core import Metadata
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     pypi_trusted_publisher_settings_url,

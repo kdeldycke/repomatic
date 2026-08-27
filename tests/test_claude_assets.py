@@ -55,11 +55,11 @@ import pytest
 import yaml
 from click_extra import schema_field_infos
 
-from repomatic.bundle import get_data_content
 from repomatic.config import Config
 from repomatic.frontmatter import split_frontmatter
-from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.registry import COMPONENTS_BY_NAME, SKILL_FILENAME
+from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.tooling.bundle import get_data_content
 
 from .conftest import PROJECT_ROOT, WORKFLOWS_DIR
 

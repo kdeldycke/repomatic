@@ -17,7 +17,7 @@
 """File digesting, shared by every integrity check.
 
 A stdlib-only leaf, like {mod}`repomatic.versions`: the digest used to live in
-{mod}`repomatic.binary`, so the tool runner and the VirusTotal client each
+{mod}`repomatic.release.binary`, so the tool runner and the VirusTotal client each
 imported the whole ELF and Mach-O parsing stack (pyelftools included) to hash
 a file.
 """

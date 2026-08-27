@@ -30,7 +30,6 @@ import yaml
 from click_extra import ClickException
 
 from repomatic import metrics, pypi
-from repomatic.bundle import get_data_content
 from repomatic.github.actions import get_github_event
 from repomatic.github.token import PatPermissionResults
 from repomatic.github.workflow_sync import (
@@ -38,8 +37,9 @@ from repomatic.github.workflow_sync import (
     extract_trigger_info,
 )
 from repomatic.lint_repo import _fetch_rulesets
-from repomatic.metadata import Metadata
-from repomatic.tool_runner import ensure_binary, run_tool
+from repomatic.metadata.core import Metadata
+from repomatic.tooling.bundle import get_data_content
+from repomatic.tooling.tool_runner import ensure_binary, run_tool
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -196,7 +196,7 @@ def _stub_gh_executable():
     """Keep the suite off the network when resolving the `gh` binary.
 
     `run_gh_command` resolves a registry-pinned `gh` through
-    {func}`~repomatic.tool_runner.ensure_binary`, which downloads and
+    {func}`~repomatic.tooling.tool_runner.ensure_binary`, which downloads and
     checksum-verifies an archive. Every test that exercises a `gh` path
     already patches the subprocess call, so the resolution is pure overhead
     and would make the suite depend on the network. Tests covering the

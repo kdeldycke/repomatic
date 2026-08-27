@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from repomatic.checksums import update_registry_checksums
-from repomatic.tool_registry import TOOL_REGISTRY
+from repomatic.release.checksums import update_registry_checksums
+from repomatic.tooling.tool_registry import TOOL_REGISTRY
 
 FAKE_HASH_OLD = "a" * 64
 FAKE_HASH_NEW = "b" * 64
@@ -54,7 +54,9 @@ def test_update_registry_checksums_replaces_stale_hash(tmp_path):
         encoding="UTF-8",
     )
 
-    with patch("repomatic.checksums._download_sha256", return_value=FAKE_HASH_NEW):
+    with patch(
+        "repomatic.release.checksums._download_sha256", return_value=FAKE_HASH_NEW
+    ):
         updated = update_registry_checksums(registry)
 
     # Every binary platform gets a fresh hash because the mock differs.
@@ -70,7 +72,7 @@ def test_update_registry_checksums_noop_when_current(tmp_path):
     content = "# no checksums to update\n"
     registry.write_text(content, encoding="UTF-8")
 
-    with patch("repomatic.checksums._download_sha256", side_effect=_real_hash):
+    with patch("repomatic.release.checksums._download_sha256", side_effect=_real_hash):
         updated = update_registry_checksums(registry)
 
     assert updated == []
@@ -87,7 +89,7 @@ def test_update_registry_checksums_reconciles_version_stamp(tmp_path):
         f'VERSIONS = {{\n    "{name}": "9.9.9",\n}}\n', encoding="UTF-8"
     )
 
-    with patch("repomatic.checksums._download_sha256", side_effect=_real_hash):
+    with patch("repomatic.release.checksums._download_sha256", side_effect=_real_hash):
         update_registry_checksums(registry)
 
     content = registry.read_text(encoding="UTF-8")
@@ -119,7 +121,7 @@ def test_update_registry_checksums_version_override(tmp_path):
         seen_urls.append(url)
         return FAKE_HASH_NEW
 
-    with patch("repomatic.checksums._download_sha256", side_effect=capture):
+    with patch("repomatic.release.checksums._download_sha256", side_effect=capture):
         update_registry_checksums(registry, version_overrides={name: new_version})
 
     content = registry.read_text(encoding="UTF-8")

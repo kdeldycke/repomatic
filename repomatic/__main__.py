@@ -31,7 +31,7 @@ invocation paths to catch entry-point and import issues early:
 
 from __future__ import annotations
 
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 
 
 def main():

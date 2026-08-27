@@ -20,10 +20,10 @@
 
 ## Submodules
 
-## `repomatic.attestation` module
+## `repomatic.release.attestation` module
 
 ```{eval-rst}
-.. automodule:: repomatic.attestation
+.. automodule:: repomatic.release.attestation
    :members:
    :show-inheritance:
    :undoc-members:
@@ -38,19 +38,19 @@
    :undoc-members:
 ```
 
-## `repomatic.binaries_page` module
+## `repomatic.release.binaries_page` module
 
 ```{eval-rst}
-.. automodule:: repomatic.binaries_page
+.. automodule:: repomatic.release.binaries_page
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.binary` module
+## `repomatic.release.binary` module
 
 ```{eval-rst}
-.. automodule:: repomatic.binary
+.. automodule:: repomatic.release.binary
    :members:
    :show-inheritance:
    :undoc-members:
@@ -65,10 +65,10 @@
    :undoc-members:
 ```
 
-## `repomatic.bundle` module
+## `repomatic.tooling.bundle` module
 
 ```{eval-rst}
-.. automodule:: repomatic.bundle
+.. automodule:: repomatic.tooling.bundle
    :members:
    :show-inheritance:
    :undoc-members:
@@ -92,73 +92,73 @@
    :undoc-members:
 ```
 
-## `repomatic.checksums` module
+## `repomatic.release.checksums` module
 
 ```{eval-rst}
-.. automodule:: repomatic.checksums
+.. automodule:: repomatic.release.checksums
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.cli` module
+## `repomatic.cli.main` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli
+.. automodule:: repomatic.cli.main
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.cli_github` module
+## `repomatic.cli.github` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli_github
+.. automodule:: repomatic.cli.github
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.cli_lint` module
+## `repomatic.cli.lint` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli_lint
+.. automodule:: repomatic.cli.lint
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.cli_release` module
+## `repomatic.cli.release` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli_release
+.. automodule:: repomatic.cli.release
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.cli_sample` module
+## `repomatic.cli.sample` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli_sample
+.. automodule:: repomatic.cli.sample
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.cli_setup` module
+## `repomatic.cli.setup` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli_setup
+.. automodule:: repomatic.cli.setup
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.cli_sync` module
+## `repomatic.cli.sync` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli_sync
+.. automodule:: repomatic.cli.sync
    :members:
    :show-inheritance:
    :undoc-members:
@@ -191,37 +191,37 @@
    :undoc-members:
 ```
 
-## `repomatic.dep_graph` module
+## `repomatic.deps.dep_graph` module
 
 ```{eval-rst}
-.. automodule:: repomatic.dep_graph
+.. automodule:: repomatic.deps.dep_graph
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.dep_policy` module
+## `repomatic.deps.dep_policy` module
 
 ```{eval-rst}
-.. automodule:: repomatic.dep_policy
+.. automodule:: repomatic.deps.dep_policy
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.dep_report` module
+## `repomatic.deps.dep_report` module
 
 ```{eval-rst}
-.. automodule:: repomatic.dep_report
+.. automodule:: repomatic.deps.dep_report
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.dep_sources` module
+## `repomatic.deps.dep_sources` module
 
 ```{eval-rst}
-.. automodule:: repomatic.dep_sources
+.. automodule:: repomatic.deps.dep_sources
    :members:
    :show-inheritance:
    :undoc-members:
@@ -362,46 +362,46 @@
    :undoc-members:
 ```
 
-## `repomatic.metadata` module
+## `repomatic.metadata.core` module
 
 ```{eval-rst}
-.. automodule:: repomatic.metadata
+.. automodule:: repomatic.metadata.core
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.metadata_env` module
+## `repomatic.metadata.env` module
 
 ```{eval-rst}
-.. automodule:: repomatic.metadata_env
+.. automodule:: repomatic.metadata.env
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.metadata_git` module
+## `repomatic.metadata.git` module
 
 ```{eval-rst}
-.. automodule:: repomatic.metadata_git
+.. automodule:: repomatic.metadata.git
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.metadata_matrix` module
+## `repomatic.metadata.matrix` module
 
 ```{eval-rst}
-.. automodule:: repomatic.metadata_matrix
+.. automodule:: repomatic.metadata.matrix
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.metadata_project` module
+## `repomatic.metadata.project` module
 
 ```{eval-rst}
-.. automodule:: repomatic.metadata_project
+.. automodule:: repomatic.metadata.project
    :members:
    :show-inheritance:
    :undoc-members:
@@ -443,19 +443,19 @@
    :undoc-members:
 ```
 
-## `repomatic.plugin` module
+## `repomatic.tooling.plugin` module
 
 ```{eval-rst}
-.. automodule:: repomatic.plugin
+.. automodule:: repomatic.tooling.plugin
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.prepare_release` module
+## `repomatic.release.prepare_release` module
 
 ```{eval-rst}
-.. automodule:: repomatic.prepare_release
+.. automodule:: repomatic.release.prepare_release
    :members:
    :show-inheritance:
    :undoc-members:
@@ -542,37 +542,37 @@
    :undoc-members:
 ```
 
-## `repomatic.tool_registry` module
+## `repomatic.tooling.tool_registry` module
 
 ```{eval-rst}
-.. automodule:: repomatic.tool_registry
+.. automodule:: repomatic.tooling.tool_registry
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.tool_runner` module
+## `repomatic.tooling.tool_runner` module
 
 ```{eval-rst}
-.. automodule:: repomatic.tool_runner
+.. automodule:: repomatic.tooling.tool_runner
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.uv` module
+## `repomatic.deps.uv` module
 
 ```{eval-rst}
-.. automodule:: repomatic.uv
+.. automodule:: repomatic.deps.uv
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.version_sync` module
+## `repomatic.release.version_sync` module
 
 ```{eval-rst}
-.. automodule:: repomatic.version_sync
+.. automodule:: repomatic.release.version_sync
    :members:
    :show-inheritance:
    :undoc-members:
@@ -587,19 +587,19 @@
    :undoc-members:
 ```
 
-## `repomatic.virustotal` module
+## `repomatic.release.virustotal` module
 
 ```{eval-rst}
-.. automodule:: repomatic.virustotal
+.. automodule:: repomatic.release.virustotal
    :members:
    :show-inheritance:
    :undoc-members:
 ```
 
-## `repomatic.vulnerable_deps` module
+## `repomatic.deps.vulnerable_deps` module
 
 ```{eval-rst}
-.. automodule:: repomatic.vulnerable_deps
+.. automodule:: repomatic.deps.vulnerable_deps
    :members:
    :show-inheritance:
    :undoc-members:

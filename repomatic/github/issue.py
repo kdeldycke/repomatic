@@ -41,7 +41,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from operator import itemgetter
 
-from ..metadata import Metadata
+from ..metadata.core import Metadata
 from .gh import parse_create_output, run_gh_command
 from .pr_body import (
     fit_github_body,

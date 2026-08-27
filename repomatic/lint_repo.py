@@ -50,7 +50,7 @@ from .matrix_axes import (
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
 )
-from .metadata import (
+from .metadata.core import (
     METADATA_VALUE_OPTIONS,
     Dialect,
     Metadata,
@@ -63,7 +63,6 @@ from .pages_redirects import (
     parse_redirects,
     sample_path,
 )
-from .prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     get_latest_release_file,
@@ -77,7 +76,8 @@ from .registry import (
     WORKFLOW_TARGET_ROOT,
     package_of,
 )
-from .version_sync import (
+from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from .release.version_sync import (
     SETUP_UV_SLUG,
     find_upstream_ref_versions,
     self_pin_exemption_re,
@@ -531,7 +531,7 @@ def check_install_guide_downloads(repo: str) -> CheckResult:
 
     Reports rather than repairs, per `claude.md` § Skip and move forward:
     the fix is a one-liner
-    ({meth}`~repomatic.prepare_release.PrepareRelease.freeze_install_download_urls`
+    ({meth}`~repomatic.release.prepare_release.PrepareRelease.freeze_install_download_urls`
     re-pointed at the last release that carries binaries), while an automated
     rewrite driven by one API read could downgrade a healthy install page on
     a flaky response.
@@ -1860,7 +1860,7 @@ def check_runner_images(
 class ReleaseGate(NamedTuple):
     """A release-only step or job, and the project capability it needs.
 
-    `metadata_key` names the {class}`~repomatic.metadata.Metadata` field that
+    `metadata_key` names the {class}`~repomatic.metadata.core.Metadata` field that
     both decides whether the step runs and supplies what it consumes. `None`
     marks a step that needs nothing beyond being on a release commit.
     """
@@ -2173,7 +2173,7 @@ def check_self_pin_cooldown_exemption(
     (`uvx 'repomatic==1.2.3' metadata`) resolves under the workflow-wide
     `UV_EXCLUDE_NEWER`, and that pin moves in lockstep with the `uses:` refs, so
     it routinely names a release published hours ago. Without
-    {data}`~repomatic.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION` on the
+    {data}`~repomatic.release.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION` on the
     command line, `uvx` cannot resolve it at all. `uvx` reads no project
     configuration, so there is nowhere else the bypass could live.
 

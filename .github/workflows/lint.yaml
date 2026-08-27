@@ -137,7 +137,7 @@ jobs:
       - name: Run Mypy
         # No file list: the tool runner resolves mypy's targets from the same
         # inventory this workflow's `python_files` comes from. See
-        # `ToolSpec.default_paths` in repomatic/tool_registry.py.
+        # `ToolSpec.default_paths` in repomatic/tooling/tool_registry.py.
         run: uv --no-progress run --frozen -- repomatic run mypy
 
   lint-yaml:
@@ -201,7 +201,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-actionlint-${{
-            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
+            github.job_workflow_sha || hashFiles('repomatic/tooling/tool_registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-actionlint-
       - name: Install shellcheck
@@ -289,7 +289,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-gitleaks-${{
-            github.job_workflow_sha || hashFiles('repomatic/tool_registry.py') }}
+            github.job_workflow_sha || hashFiles('repomatic/tooling/tool_registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-gitleaks-
       - name: Run gitleaks

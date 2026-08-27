@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for `repomatic.prepare_release`: the release freeze and unfreeze edits."""
+"""Tests for `repomatic.release.prepare_release`: the release freeze and unfreeze edits."""
 
 from __future__ import annotations
 
@@ -26,13 +26,16 @@ from textwrap import dedent
 
 import pytest
 
-from repomatic.plugin import ARCHIVE_NAME
-from repomatic.prepare_release import (
+from repomatic.release.prepare_release import (
     LOCAL_CLI_INVOCATION,
     SELF_PIN_COOLDOWN_EXEMPTION,
     PrepareRelease,
 )
-from repomatic.version_sync import apply_self_pin_exemption, frozen_cli_invocation
+from repomatic.release.version_sync import (
+    apply_self_pin_exemption,
+    frozen_cli_invocation,
+)
+from repomatic.tooling.plugin import ARCHIVE_NAME
 from tests.conftest import PROJECT_ROOT
 
 TYPE_CHECKING = False

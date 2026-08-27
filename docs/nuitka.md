@@ -15,7 +15,7 @@ The release engine compiles every selected `[project.scripts]` entry point into 
 One compile job per target, each on one of the six runners the test matrix already covers, so a published binary is built on an image the suite is validated against (see the [runner inventory](test-matrix.md#github-hosted-runner-inventory)):
 
 ```{python:render}
-from repomatic.binary import NUITKA_BUILD_TARGETS
+from repomatic.release.binary import NUITKA_BUILD_TARGETS
 
 print("| Target | Runner | Architecture | Extension |")
 print("| ------ | ------ | ------------ | --------- |")
@@ -26,7 +26,7 @@ for target_id, target in NUITKA_BUILD_TARGETS.items():
     )
 ```
 
-Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so every binary carries a stable, measured OS floor instead of inheriting whatever the runner image ships. The floors, and what they open execution to, are documented in [](binaries.md#minimum-os-requirements); {py:func}`repomatic.binary.verify_binary_floor` fails the build when a linked floor exceeds the declared one.
+Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so every binary carries a stable, measured OS floor instead of inheriting whatever the runner image ships. The floors, and what they open execution to, are documented in [](binaries.md#minimum-os-requirements); {py:func}`repomatic.release.binary.verify_binary_floor` fails the build when a linked floor exceeds the declared one.
 
 ## Build cadence
 
@@ -87,7 +87,7 @@ Nuitka's `--lto=auto` (the default, and what repomatic runs) disables LTO outrig
 
 Six Nuitka issues shape the integration; each workaround names its ticket and lives next to the code it patches. The last three were all filed the same day from auditing this page's own § Compile caching section, and cross-reference each other upstream:
 
-- [Nuitka#3879](https://github.com/Nuitka/Nuitka/issues/3879): a `__main__.py` entry point must be compiled as its package directory plus `--python-flag=-m`, or the binary silently exits. {py:attr}`repomatic.metadata.Metadata.nuitka_matrix` computes the flag per entry point; the same property documents why Nuitka 4.1's `--main-entry-point` flag cannot replace the positional form yet.
+- [Nuitka#3879](https://github.com/Nuitka/Nuitka/issues/3879): a `__main__.py` entry point must be compiled as its package directory plus `--python-flag=-m`, or the binary silently exits. {py:attr}`repomatic.metadata.core.Metadata.nuitka_matrix` computes the flag per entry point; the same property documents why Nuitka 4.1's `--main-entry-point` flag cannot replace the positional form yet.
 - [Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909): Nuitka does not read `[tool.nuitka]` natively, so the [tool runner](tool-runner.md#nuitka) translates the section into CLI flags at build time.
 - [Nuitka#3994](https://github.com/Nuitka/Nuitka/issues/3994): a symlink inside an `--include-data-dir` tree ships dangling (and crashes macOS codesigning), so the tool runner stages a symlink-free copy of any such directory before invoking Nuitka. Upstream confirmed the diagnosis; a real fix lands no earlier than Nuitka 4.3, and the staging shim stays until then.
 - [Nuitka#3996](https://github.com/Nuitka/Nuitka/issues/3996): `enableCcache()` never sets `CCACHE_BASEDIR`, so a per-run install path (uv's randomly-named package cache) leaks into Nuitka's injected `-I` flags and defeats ccache across machines, the root cause of the macOS 0/470 hit rate documented above. The release engine's cache-prep step works around it by writing `base_dir` into `ccache.conf` directly, which also insures the Linux cache against the same fragility.

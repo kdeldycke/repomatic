@@ -50,7 +50,6 @@ from pathlib import Path
 import yaml
 
 from .. import __version__
-from ..bundle import get_data_content
 from ..config import Config
 from ..registry import (
     DEFAULT_REPO,
@@ -58,7 +57,8 @@ from ..registry import (
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
 )
-from ..version_sync import min_release_age_days
+from ..release.version_sync import min_release_age_days
+from ..tooling.bundle import get_data_content
 from .actions import AnnotationLevel, emit_annotation
 
 TYPE_CHECKING = False

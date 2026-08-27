@@ -15,7 +15,7 @@
 | Install-time cooldowns                                         | Every workflow exports `UV_EXCLUDE_NEWER` and `NPM_CONFIG_MIN_RELEASE_AGE` at workflow level, so every `uvx`, `uv pip install`, `uv tool install`, `npm install` and `npx` in every job refuses a package published inside the window, transitive dependencies included. This covers the ad-hoc installs no pin or lockfile describes, including debugging steps and jobs added later: see [install-time cooldown](workflows.md#install-time-cooldown)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Trusted Publishing                                             | PyPI uploads via OIDC with no long-lived token. The [`publish-pypi`](workflows.md#github-workflows-release-yaml-jobs) job in each downstream caller workflow invokes the upstream [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action, which inherits the caller's OIDC context. This sidesteps [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096), where reusable workflows mint an OIDC token whose `job_workflow_ref` does not match the downstream's PyPI Trusted Publisher config. [`check_pypi_trusted_publisher`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/lint_repo.py) reads PEP 740 provenance for the latest published file and warns when no bundle names this repo's own `release.yaml`; the [setup guide](https://github.com/kdeldycke/repomatic/blob/main/repomatic/templates/setup-guide-pypi-trusted-publisher.md) walks through the registration |
 | Cryptographic attestations                                     | Every binary and wheel is attested to the workflow run that built it via `attest-build-provenance`: see the `Generate build attestations` steps in [`.github/workflows/_release-engine.yaml`](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-engine.yaml)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Checksums in installer scripts                                 | The [`update-checksums`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli.py) CLI command regenerates SHA-256 checksums for every binary tool; invoked automatically by [`sync-tool-versions`](workflows.md#github-workflows-sync-tool-versions-yaml-jobs) whenever a tool version is bumped                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Checksums in installer scripts                                 | The [`update-checksums`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/main.py) CLI command regenerates SHA-256 checksums for every binary tool; invoked automatically by [`sync-tool-versions`](workflows.md#github-workflows-sync-tool-versions-yaml-jobs) whenever a tool version is bumped                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Fork PR approval policy                                        | [`check_fork_pr_approval_policy`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/lint_repo.py) warns when the policy is weaker than `first_time_contributors`, and the [setup guide](https://github.com/kdeldycke/repomatic/blob/main/repomatic/templates/setup-guide-fork-pr-approval.md) ships a pre-filled `gh api` one-liner to fix it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 > [!WARNING]
@@ -213,28 +213,28 @@ False-positive submissions are a per-release moving target. The structural fixes
 - **Switching from `--onefile` to `--standalone`** would eliminate the self-extracting pattern entirely, at the cost of distributing a directory instead of a single `.exe`.
 - **[Nuitka Commercial](https://nuitka.net/doc/commercial.html)** claims proprietary AV-mitigation techniques but offers no guarantees.
 
-## `repomatic.virustotal` API
+## `repomatic.release.virustotal` API
 
 ```{eval-rst}
-.. automodule:: repomatic.virustotal
+.. automodule:: repomatic.release.virustotal
    :members:
    :undoc-members:
    :show-inheritance:
 ```
 
-## `repomatic.checksums` API
+## `repomatic.release.checksums` API
 
 ```{eval-rst}
-.. automodule:: repomatic.checksums
+.. automodule:: repomatic.release.checksums
    :members:
    :undoc-members:
    :show-inheritance:
 ```
 
-## `repomatic.binary` API
+## `repomatic.release.binary` API
 
 ```{eval-rst}
-.. automodule:: repomatic.binary
+.. automodule:: repomatic.release.binary
    :members:
    :undoc-members:
    :show-inheritance:

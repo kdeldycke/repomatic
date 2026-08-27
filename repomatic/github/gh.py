@@ -152,7 +152,7 @@ def gh_executable() -> str:
     # Imported here rather than at module scope: `tool_runner` reaches
     # `metadata`, which imports this module, so a top-level import would close
     # the cycle.
-    from ..tool_runner import ensure_binary
+    from ..tooling.tool_runner import ensure_binary
 
     try:
         return str(ensure_binary("gh"))

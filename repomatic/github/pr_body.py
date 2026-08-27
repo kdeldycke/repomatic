@@ -16,7 +16,7 @@
 
 """Generate PR body with workflow metadata for auto-created pull requests.
 
-Callers inject a {class}`~repomatic.metadata.Metadata` instance for CI
+Callers inject a {class}`~repomatic.metadata.core.Metadata` instance for CI
 context to produce a collapsible `<details>` block containing a metadata
 table (the injection keeps this module import-cycle-free: `Metadata` pulls
 in half the package). Template prefixes are loaded from markdown files in
@@ -59,7 +59,7 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from ..metadata import Metadata
+    from ..metadata.core import Metadata
 
 GITHUB_BODY_MAX_CHARS = 65536
 """GitHub's maximum PR and issue body size, in UTF-16 code units.
@@ -335,7 +335,7 @@ def _substitute(text: str, kwargs: dict[str, str | None]) -> str:
     """Apply `string.Template` substitution if kwargs are provided.
 
     `None` values are normalized to empty strings so callers can pass
-    {class}`~repomatic.metadata.Metadata` properties directly without
+    {class}`~repomatic.metadata.core.Metadata` properties directly without
     coercing at the call site.
     """
     if kwargs:
@@ -383,7 +383,7 @@ def render_template(*names: str | Path, **kwargs: str | None) -> str:
     The footer's version is `__version__` as read from the working tree, which
     makes it cosmetically wrong on the version-machinery PRs. That is accepted
     rather than fixed. Upstream runs the CLI from its own checkout
-    ({data}`~repomatic.prepare_release.LOCAL_CLI_INVOCATION`), and both the
+    ({data}`~repomatic.release.prepare_release.LOCAL_CLI_INVOCATION`), and both the
     `bump-version` and `prepare-release` jobs rewrite `__version__` with
     `bump-my-version` before this renders, so each of those bodies advertises
     the version its own PR produces (the `minor` or `major` bump target, or
@@ -556,7 +556,7 @@ def generate_pr_metadata_block(
     Reads the `GITHUB_*` environment context from *md* and returns a
     markdown `<details>` block listing the workflow metadata fields.
 
-    :param md: The {class}`~repomatic.metadata.Metadata` instance to read
+    :param md: The {class}`~repomatic.metadata.core.Metadata` instance to read
         CI context from.
     :param docs_url: Optional deep link to the job's section of the hosted
         workflows reference, rendered as the leading `Documentation` entry.
@@ -601,7 +601,7 @@ def generate_refresh_tip(md: Metadata) -> str:
     Reads the repository URL and `GITHUB_WORKFLOW_REF` from *md* to build
     the workflow dispatch URL.
 
-    :param md: The {class}`~repomatic.metadata.Metadata` instance to read
+    :param md: The {class}`~repomatic.metadata.core.Metadata` instance to read
         CI context from.
     :return: A GitHub-flavored markdown `[!TIP]` blockquote, or an empty
         string if the workflow reference is unavailable.

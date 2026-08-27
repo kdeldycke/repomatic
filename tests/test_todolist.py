@@ -23,7 +23,7 @@ the page reads as complete while under-reporting.
 
 `autodoc` skips a name starting with an underscore, so a `{todo}` on a private
 constant, function or class publishes nowhere. Two of them sat on the private
-regexes behind the `mdformat` post-process shim in `repomatic.tool_registry`,
+regexes behind the `mdformat` post-process shim in `repomatic.tooling.tool_registry`,
 and the page carried 14 items while the tree held 16.
 
 Nothing reports it. A `{todo}` renders exactly the same way whether or not its
@@ -145,7 +145,7 @@ def _unpublished_todos(tree: ast.Module, module: str) -> list[str]:
 def test_package_discovered() -> None:
     """The scan actually walks the package, so a green result means something."""
     assert len(PACKAGE_FILES) > 40
-    assert PACKAGE_DIR / "tool_registry.py" in PACKAGE_FILES
+    assert PACKAGE_DIR / "tooling" / "tool_registry.py" in PACKAGE_FILES
 
 
 def test_the_package_owes_something() -> None:

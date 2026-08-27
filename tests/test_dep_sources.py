@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from repomatic import dep_sources
 from repomatic.config import Config
-from repomatic.dep_sources import (
+from repomatic.deps import dep_sources
+from repomatic.deps.dep_sources import (
     BLOCKER_SECTION_NOTE,
     RELEASE_READY_SENTENCE,
     UNSHIPPABLE_BANNER_LEAD,

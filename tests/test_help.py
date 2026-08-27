@@ -36,7 +36,7 @@ import click
 import pytest
 import tomlrt
 
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

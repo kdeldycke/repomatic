@@ -39,7 +39,10 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from extra_platforms import Architecture
 
-from repomatic.binary import (
+from repomatic.git_ops import VERSION_BUMP_BRANCHES
+from repomatic.github.actions import WorkflowEvent
+from repomatic.metadata.core import Metadata
+from repomatic.release.binary import (
     BINARY_ASSET_SUFFIXES,
     MACHINE_IDS,
     NUITKA_BUILD_TARGETS,
@@ -54,9 +57,6 @@ from repomatic.binary import (
     verify_binary_arch,
     verify_binary_floor,
 )
-from repomatic.git_ops import VERSION_BUMP_BRANCHES
-from repomatic.github.actions import WorkflowEvent
-from repomatic.metadata import Metadata
 from tests.conftest import metadata_from_pyproject
 
 EM_AARCH64 = 183
@@ -108,7 +108,7 @@ def make_pe(machine: int) -> bytes:
 def _macho_cpu_type(arch: Architecture) -> int:
     """The Mach-O `cputype` for an architecture, narrowed for the byte builders.
 
-    {data}`~repomatic.binary.MACHINE_IDS` spans every format, so its values are
+    {data}`~repomatic.release.binary.MACHINE_IDS` spans every format, so its values are
     `str | int`: a pyelftools machine name on ELF, a raw header integer on the
     other two. These two accessors carry that correspondence for the helpers
     below, which write real header bytes and need the integer.
@@ -329,7 +329,9 @@ def test_floor_linux(tmp_path, measured, passes):
     """Linux floors compare the measured glibc requirement to the declared floor."""
     binary = tmp_path / "test.bin"
     binary.write_bytes(make_elf(EM_X86_64))
-    with patch("repomatic.binary._elf_info", return_value=("EM_X86_64", measured)):
+    with patch(
+        "repomatic.release.binary._elf_info", return_value=("EM_X86_64", measured)
+    ):
         if passes:
             verify_binary_floor("linux-x64", binary)
         else:

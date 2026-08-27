@@ -61,7 +61,7 @@ jobs:
     # branch (always `main`), not its head branch (see
     # https://github.com/actions/runner/issues/1591), so the version-bump
     # PRs slip through it and must be filtered here via `github.head_ref`.
-    # The branch list mirrors `repomatic.binary.VERSION_BUMP_BRANCHES` and
+    # The branch list mirrors `repomatic.release.binary.VERSION_BUMP_BRANCHES` and
     # is pinned by repomatic's own test suite.
     #
     # The `[changelog] Post-release bump ` commit prefix is intentionally

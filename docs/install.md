@@ -28,7 +28,7 @@ $ uvx -- repomatic --help
 ```
 
 ```{click:run}
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 invoke(repomatic, args=['--help'])
 ```
 ````

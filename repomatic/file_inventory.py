@@ -23,7 +23,7 @@ filters out anything `.gitignore` excludes. The results are the lists CI jobs
 gate on, so a job that formats Markdown and one that lints it see the same
 files.
 
-Split out of {class}`repomatic.metadata.Metadata`, which reaches CI context,
+Split out of {class}`repomatic.metadata.core.Metadata`, which reaches CI context,
 git history and `pyproject.toml`: none of that is needed to answer "what is on
 disk here", and `Metadata` keeps the family reachable under its own names for
 every existing caller.

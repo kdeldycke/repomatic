@@ -106,7 +106,7 @@ class NoZoomClassDiagram(MermaidClassDiagram):
 # ascending sort; the page length accommodates one release's worth of
 # binaries per page with room to spare. The render callback appends a
 # relative hint ("9 days ago") to the Released column (index 2 in
-# repomatic.binaries_page.CSV_HEADERS) at display time only, so sorting and
+# repomatic.release.binaries_page.CSV_HEADERS) at display time only, so sorting and
 # searching keep operating on the raw ISO dates and the generated CSV stays
 # free of hints that would go stale between releases. Passed as a raw JS
 # string because a JSON dict cannot carry the function. Raw string: the JS
@@ -172,7 +172,7 @@ click_extra_enable_exec_directives = True
 # release tarball and the HTML docs site stay in lockstep.
 click_extra_manpages = [
     {
-        "script": "repomatic.cli:repomatic",
+        "script": "repomatic.cli.main:repomatic",
         "prog_name": "repomatic",
     },
 ]

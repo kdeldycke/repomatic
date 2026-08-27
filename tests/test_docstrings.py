@@ -195,7 +195,7 @@ def _mangled_docstrings(tree: ast.Module) -> list[str]:
 def test_package_discovered() -> None:
     """The scan actually walks the package, so a green result means something."""
     assert len(PACKAGE_FILES) > 40
-    assert PACKAGE_DIR / "cli.py" in PACKAGE_FILES
+    assert PACKAGE_DIR / "cli" / "main.py" in PACKAGE_FILES
 
 
 def test_detector_flags_eaten_placeholder() -> None:

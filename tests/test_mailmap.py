@@ -23,7 +23,7 @@ from textwrap import dedent
 
 from click.testing import CliRunner
 
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 from repomatic.mailmap import Mailmap, Record, remove_header
 
 

@@ -19,7 +19,7 @@
 Every version this package reads comes from somewhere it does not control (a
 lock file, a package index, a git tag), so parsing has to tolerate junk, and
 nearly every module compares or normalizes versions somewhere. These helpers
-used to live in {mod}`repomatic.version_sync`, whose import graph reaches the
+used to live in {mod}`repomatic.release.version_sync`, whose import graph reaches the
 GitHub, PyPI and npm clients: the modules below it in that graph each kept a
 private two-line copy of the parse rather than close a cycle. A leaf module
 with no dependency beyond `packaging` is what lets everyone import the one

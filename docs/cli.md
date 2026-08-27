@@ -4,16 +4,16 @@
 > Each `[tool.repomatic]` config option maps to CLI behavior. See the [configuration reference](configuration.md) for project-level defaults.
 
 ```{click:tree} repomatic
-from repomatic.cli import repomatic
+from repomatic.cli.main import repomatic
 ```
 
-## `repomatic.cli` API
+## `repomatic.cli.main` API
 
 ```{eval-rst}
-.. autoclasstree:: repomatic.cli
+.. autoclasstree:: repomatic.cli.main
    :strict:
 
-.. automodule:: repomatic.cli
+.. automodule:: repomatic.cli.main
    :members:
    :undoc-members:
    :show-inheritance:

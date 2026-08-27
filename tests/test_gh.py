@@ -702,7 +702,7 @@ def test_gh_executable_prefers_the_pinned_registry_binary():
     """The pinned, checksum-verified `gh` wins over whatever `$PATH` holds."""
     pinned_path = Path("/cache/gh")
     with patch(
-        "repomatic.tool_runner.ensure_binary", return_value=pinned_path
+        "repomatic.tooling.tool_runner.ensure_binary", return_value=pinned_path
     ) as ensure:
         gh_executable.cache_clear()
         assert gh_executable() == str(pinned_path)
@@ -714,7 +714,7 @@ def test_gh_executable_prefers_the_pinned_registry_binary():
 def test_gh_executable_falls_back_to_path(failure, caplog):
     """A download failure degrades to `$PATH` loudly, never stranding the job."""
     caplog.set_level(logging.WARNING)
-    with patch("repomatic.tool_runner.ensure_binary", side_effect=failure):
+    with patch("repomatic.tooling.tool_runner.ensure_binary", side_effect=failure):
         gh_executable.cache_clear()
         assert gh_executable() == "gh"
     assert "falling back to whatever is on PATH" in caplog.text

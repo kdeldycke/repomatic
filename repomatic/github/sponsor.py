@@ -21,7 +21,7 @@ Supports both user and organization owners, with pagination for accounts
 that have more than 100 sponsors.
 
 When run in GitHub Actions, the owner defaults to
-{class}`~repomatic.metadata.Metadata`'s view of the repository; the author
+{class}`~repomatic.metadata.core.Metadata`'s view of the repository; the author
 and issue/PR number come from the event-payload readers in
 {mod}`~repomatic.github.actions`.
 """
@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-from ..metadata import Metadata
+from ..metadata.core import Metadata
 from .gh import iter_graphql_nodes
 
 TYPE_CHECKING = False
@@ -43,7 +43,7 @@ def get_default_owner() -> str | None:
     """Get the repository owner from CI context.
 
     Delegates to {attr}`Metadata.repo_owner
-    <repomatic.metadata.Metadata.repo_owner>`.
+    <repomatic.metadata.core.Metadata.repo_owner>`.
     """
     owner = Metadata().repo_owner
     return owner if owner else None

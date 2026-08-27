@@ -349,7 +349,7 @@ def _installing_tools() -> frozenset[str]:
     Two ways in: the tool *is* a downloaded binary, or it declares `path_tools`
     and so downloads its helpers before running.
     """
-    registry = importlib.import_module("repomatic.tool_registry")
+    registry = importlib.import_module("repomatic.tooling.tool_registry")
     return frozenset(
         name
         for name, spec in registry.TOOL_REGISTRY.items()
@@ -393,7 +393,7 @@ def test_run_tool_calls_mock_the_binary_install(test_file) -> None:
                 violations.append(f"{func.name} runs {node.args[0].value!r}")
     assert not violations, (
         f"{test_file.name} runs a downloading tool without patching"
-        f" `repomatic.tool_runner.{BINARY_INSTALL_MOCK}`: {'; '.join(violations)}."
+        f" `repomatic.tooling.tool_runner.{BINARY_INSTALL_MOCK}`: {'; '.join(violations)}."
         " Patch it, or gate the test on"
         f" `{INTEGRATION_TOOL_GUARD}` if the download is the point."
     )

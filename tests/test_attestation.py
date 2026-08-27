@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.attestation import (
+from repomatic.release.attestation import (
     ATTESTATION_SUFFIX,
     bundle_filename,
     bundle_subjects,

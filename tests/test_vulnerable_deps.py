@@ -25,7 +25,7 @@ from unittest.mock import patch
 import pytest
 
 from repomatic.config import VulnerableDepsConfig
-from repomatic.vulnerable_deps import (
+from repomatic.deps.vulnerable_deps import (
     AdvisorySource,
     VulnerablePackage,
     _run_uv_audit,
@@ -97,7 +97,7 @@ def test_config_default_sources_mirror_advisory_source_enum():
 def test_fetch_dependabot_alerts_parses_each_entry():
     """Each alert maps to one VulnerablePackage tagged with GHSA source."""
     with patch(
-        "repomatic.vulnerable_deps.run_gh_command",
+        "repomatic.deps.vulnerable_deps.run_gh_command",
         return_value=json.dumps(ALERTS_FIXTURE),
     ):
         result = fetch_dependabot_alerts("orchard/raspberry")
@@ -123,7 +123,7 @@ def test_fetch_dependabot_alerts_skips_entries_without_fix():
         },
     ]
     with patch(
-        "repomatic.vulnerable_deps.run_gh_command",
+        "repomatic.deps.vulnerable_deps.run_gh_command",
         return_value=json.dumps(no_fix),
     ):
         assert fetch_dependabot_alerts("orchard/raspberry") == []
@@ -138,7 +138,7 @@ def test_fetch_dependabot_alerts_skips_entries_without_fix():
 )
 def test_fetch_dependabot_alerts_degrades_to_empty(patch_kwargs):
     """Network/auth failures and unparsable responses degrade to an empty list."""
-    with patch("repomatic.vulnerable_deps.run_gh_command", **patch_kwargs):
+    with patch("repomatic.deps.vulnerable_deps.run_gh_command", **patch_kwargs):
         assert fetch_dependabot_alerts("orchard/raspberry") == []
 
 
@@ -165,9 +165,11 @@ def test_collect_unions_uv_audit_and_ghsa(lock_with_raspberry):
         sources={AdvisorySource.UV_AUDIT},
     )
     with (
-        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[audit_only]),
         patch(
-            "repomatic.vulnerable_deps.run_gh_command",
+            "repomatic.deps.vulnerable_deps._run_uv_audit", return_value=[audit_only]
+        ),
+        patch(
+            "repomatic.deps.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE),
         ),
     ):
@@ -199,11 +201,11 @@ def test_collect_dedupes_when_advisory_id_matches(lock_with_raspberry):
     )
     with (
         patch(
-            "repomatic.vulnerable_deps._run_uv_audit",
+            "repomatic.deps.vulnerable_deps._run_uv_audit",
             return_value=[same_advisory_audit],
         ),
         patch(
-            "repomatic.vulnerable_deps.run_gh_command",
+            "repomatic.deps.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE[:1]),
         ),
     ):
@@ -225,8 +227,8 @@ def test_collect_dedupes_when_advisory_id_matches(lock_with_raspberry):
 def test_collect_skips_ghsa_when_repo_missing(lock_with_raspberry):
     """No repo argument means the GHSA source is skipped entirely."""
     with (
-        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[]),
-        patch("repomatic.vulnerable_deps.run_gh_command") as gh,
+        patch("repomatic.deps.vulnerable_deps._run_uv_audit", return_value=[]),
+        patch("repomatic.deps.vulnerable_deps.run_gh_command") as gh,
     ):
         result = collect_vulnerable_packages(lock_with_raspberry, repo=None)
 
@@ -237,9 +239,9 @@ def test_collect_skips_ghsa_when_repo_missing(lock_with_raspberry):
 def test_collect_respects_sources_filter(lock_with_raspberry):
     """Only the explicitly requested sources are queried."""
     with (
-        patch("repomatic.vulnerable_deps._run_uv_audit") as audit,
+        patch("repomatic.deps.vulnerable_deps._run_uv_audit") as audit,
         patch(
-            "repomatic.vulnerable_deps.run_gh_command",
+            "repomatic.deps.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE),
         ),
     ):
@@ -271,9 +273,9 @@ def test_collect_backfills_current_version_across_case_difference(tmp_path):
         },
     ]
     with (
-        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[]),
+        patch("repomatic.deps.vulnerable_deps._run_uv_audit", return_value=[]),
         patch(
-            "repomatic.vulnerable_deps.run_gh_command",
+            "repomatic.deps.vulnerable_deps.run_gh_command",
             return_value=json.dumps(alert),
         ),
     ):
@@ -343,9 +345,9 @@ def test_collect_keeps_distinct_per_source_urls(lock_with_raspberry):
         },
     )
     with (
-        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[audit]),
+        patch("repomatic.deps.vulnerable_deps._run_uv_audit", return_value=[audit]),
         patch(
-            "repomatic.vulnerable_deps.run_gh_command",
+            "repomatic.deps.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE[:1]),
         ),
     ):
@@ -437,9 +439,9 @@ def test_collect_dedupes_across_sources_via_alias(lock_with_raspberry):
         sources={AdvisorySource.UV_AUDIT},
     )
     with (
-        patch("repomatic.vulnerable_deps._run_uv_audit", return_value=[audit]),
+        patch("repomatic.deps.vulnerable_deps._run_uv_audit", return_value=[audit]),
         patch(
-            "repomatic.vulnerable_deps.run_gh_command",
+            "repomatic.deps.vulnerable_deps.run_gh_command",
             return_value=json.dumps(ALERTS_FIXTURE[:1]),  # GHSA-fruit-1111-aaaa
         ),
     ):
@@ -508,11 +510,11 @@ def test_fix_restores_the_lock_when_the_upgrade_moves_nothing(tmp_path):
 
     with (
         patch(
-            "repomatic.vulnerable_deps.collect_vulnerable_packages",
+            "repomatic.deps.vulnerable_deps.collect_vulnerable_packages",
             return_value=[vuln],
         ),
         patch(
-            "repomatic.vulnerable_deps.subprocess.run",
+            "repomatic.deps.vulnerable_deps.subprocess.run",
             side_effect=record_the_override,
         ),
     ):
@@ -534,7 +536,7 @@ def test_fix_restores_the_lock_when_the_upgrade_moves_nothing(tmp_path):
 def test_uv_version_parses(stdout, expected):
     """`uv --version` output is parsed into a comparable Version."""
     completed = SimpleNamespace(stdout=stdout, stderr="")
-    with patch("repomatic.uv.subprocess.run", return_value=completed):
+    with patch("repomatic.deps.uv.subprocess.run", return_value=completed):
         assert str(_uv_version()) == expected
 
 
@@ -555,7 +557,7 @@ def test_run_uv_audit_parses_json(lock_with_raspberry):
     }
     version = SimpleNamespace(stdout="uv 0.11.15 (abc1234 2026-05-18)\n", stderr="")
     audit = SimpleNamespace(stdout=json.dumps(report), stderr="")
-    with patch("repomatic.uv.subprocess.run", side_effect=[version, audit]):
+    with patch("repomatic.deps.uv.subprocess.run", side_effect=[version, audit]):
         vulns = _run_uv_audit(lock_with_raspberry)
 
     assert [v.advisory_id for v in vulns] == ["PYSEC-2026-1"]
@@ -566,7 +568,7 @@ def test_run_uv_audit_rejects_old_uv(lock_with_raspberry):
     """An older uv (no JSON audit output) fails loud rather than scanning nothing."""
     version = SimpleNamespace(stdout="uv 0.11.14 (abc1234 2026-05-10)\n", stderr="")
     with (
-        patch("repomatic.uv.subprocess.run", return_value=version) as run,
+        patch("repomatic.deps.uv.subprocess.run", return_value=version) as run,
         pytest.raises(RuntimeError, match="0.11.15"),
     ):
         _run_uv_audit(lock_with_raspberry)
@@ -580,7 +582,7 @@ def test_run_uv_audit_raises_on_unknown_schema(lock_with_raspberry):
     version = SimpleNamespace(stdout="uv 0.12.0 (abc1234 2026-06-01)\n", stderr="")
     audit = SimpleNamespace(stdout=json.dumps({"schema": {"version": "v2"}}), stderr="")
     with (
-        patch("repomatic.uv.subprocess.run", side_effect=[version, audit]),
+        patch("repomatic.deps.uv.subprocess.run", side_effect=[version, audit]),
         pytest.raises(RuntimeError, match="schema version"),
     ):
         _run_uv_audit(lock_with_raspberry)

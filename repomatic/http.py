@@ -26,7 +26,7 @@ caching mechanics for the clients that store verbatim bodies.
 
 Most responses are JSON ({func}`get_json`); {func}`get_text` serves the
 datasources that are text rather than an API payload (the `astral-sh/setup-uv`
-checksum table {mod}`repomatic.version_sync` reads, the gitignore.io template
+checksum table {mod}`repomatic.release.version_sync` reads, the gitignore.io template
 {mod}`repomatic.gitignore` fetches), and {func}`get_bytes` the ones written
 back verbatim (a downloaded label-definition file).
 """

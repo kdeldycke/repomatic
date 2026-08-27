@@ -51,7 +51,7 @@ import tomlrt
 from wcmatch import glob
 
 from .github.gh import gh_env
-from .tool_runner import ensure_binary
+from .tooling.tool_runner import ensure_binary
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

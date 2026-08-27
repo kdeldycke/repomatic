@@ -23,7 +23,8 @@ from pathlib import Path
 import pytest
 from extra_platforms import LINUX, MACOS
 
-from repomatic.binaries_page import (
+from repomatic.github.releases import ReleaseAsset, ReleaseWithAssets
+from repomatic.release.binaries_page import (
     CSV_HEADERS,
     LEGACY_PAGE_END_MARKER,
     LEGACY_PAGE_START_MARKERS,
@@ -34,9 +35,8 @@ from repomatic.binaries_page import (
     update_binaries_csv,
     update_binaries_page,
 )
-from repomatic.binary import NUITKA_BUILD_TARGETS
-from repomatic.github.releases import ReleaseAsset, ReleaseWithAssets
-from repomatic.virustotal import DetectionStats, ScanRecord
+from repomatic.release.binary import NUITKA_BUILD_TARGETS
+from repomatic.release.virustotal import DetectionStats, ScanRecord
 
 REPO = "owner/papaya"
 

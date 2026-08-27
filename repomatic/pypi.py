@@ -17,8 +17,8 @@
 
 Provides a shared HTTP client and domain-specific query functions used by
 {mod}`repomatic.changelog` (release dates, yanked status),
-{mod}`repomatic.version_sync` (release candidates) and
-{mod}`repomatic.dep_report` (source repository discovery for release notes).
+{mod}`repomatic.release.version_sync` (release candidates) and
+{mod}`repomatic.deps.dep_report` (source repository discovery for release notes).
 Also the home of what counts as the public index at all
 ({data}`PYPI_INDEX_HOSTS`), which the shippability gate reads.
 """

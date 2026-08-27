@@ -63,7 +63,7 @@ from repomatic.registry import (
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
 )
-from repomatic.tool_runner import run_tool
+from repomatic.tooling.tool_runner import run_tool
 from tests.conftest import (
     PROJECT_ROOT,
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,

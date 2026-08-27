@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for `repomatic.dep_graph`: the Mermaid dependency-graph generator."""
+"""Tests for `repomatic.deps.dep_graph`: the Mermaid dependency-graph generator."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.dep_graph import (
+from repomatic.deps.dep_graph import (
     Subgraph,
     SubgraphKind,
     _compute_node_degrees,
@@ -37,7 +37,7 @@ from repomatic.dep_graph import (
     resolve_subgraph_selection,
     trim_graph_to_depth,
 )
-from repomatic.uv import LockSpecifiers
+from repomatic.deps.uv import LockSpecifiers
 
 # Sample CycloneDX SBOM data for testing.
 SAMPLE_SBOM = {
