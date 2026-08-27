@@ -1527,11 +1527,15 @@ def resolve_lockfile_plan(
 class SyncOperation:
     """One cooldown-respecting dependency updater, as data.
 
-    Naming rule 3 (`claude.md`): the CLI command, workflow job ID, PR branch,
-    and PR-body template all share {attr}`name`. The CI-only metadata
-    ({attr}`job_name`, {attr}`job_if`, {attr}`editable`, {attr}`needs_gh_token`,
-    {attr}`ci_flags`) lets {mod}`repomatic.github.workflow_sync` emit the
-    consolidated job without a hand-maintained YAML twin.
+    The CLI command, workflow job ID, PR branch and PR-body template all share
+    {attr}`name`, which makes a rename a one-line change.
+
+    ```{note}
+    The CI metadata ({attr}`job_name`, {attr}`write_domain`, {attr}`ci_flags`)
+    describes the job that runs the operation, but nothing generates that job
+    from it: the `autofix.yaml` steps are hand-written, and `tests/test_sync_ops.py`
+    is what holds the two descriptions in step.
+    ```
     """
 
     name: str
@@ -1542,9 +1546,6 @@ class SyncOperation:
 
     job_name: str
     """Human-facing CI job step name, with its emoji (`⛓️ Sync uv.lock`)."""
-
-    job_if: str
-    """The workflow `if:` expression gating the CI steps (empty for none)."""
 
     resolve: Callable[[ResolveContext], SyncPlan]
     """Read phase: network discovery, returns a {class}`SyncPlan`."""
@@ -1570,12 +1571,6 @@ class SyncOperation:
     a workflow `repomatic init` never materializes downstream (see
     {data}`~repomatic.registry.SELF_MAINTENANCE_WORKFLOWS`).
     """
-
-    editable: bool = False
-    """CI install mode: `uv run --frozen` (rewrites source) vs `uvx --from .`."""
-
-    needs_gh_token: bool = False
-    """Whether the CI step needs `GH_TOKEN` for the GitHub releases API."""
 
     ci_flags: tuple[str, ...] = ()
     """Extra CLI flags the consolidated CI job passes to the command."""
@@ -1614,7 +1609,6 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
         name="sync-dep-sources",
         config_flag="dep_sources_sync",
         job_name="🔀 Sync dependency sources",
-        job_if="fromJSON(needs.metadata.outputs.metadata).is_python_project",
         resolve=_resolve_dep_sources,
         apply=_apply_dep_sources,
         applies_here=_dep_sources_applies,
@@ -1625,7 +1619,6 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
         name="sync-uv-lock",
         config_flag="uv_lock_sync",
         job_name="⛓️ Sync uv.lock",
-        job_if="fromJSON(needs.metadata.outputs.metadata).is_python_project",
         resolve=_resolve_uv_lock,
         apply=_apply_uv_lock,
         applies_here=_uv_lock_applies,
@@ -1636,34 +1629,26 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
         name="sync-action-pins",
         config_flag="action_pins_sync",
         job_name="📌 Sync action pins",
-        job_if="fromJSON(needs.metadata.outputs.metadata).workflow_files",
         resolve=_resolve_action_pins,
         apply=_apply_file_writes,
         applies_here=_workflow_files_present,
         write_domain=(".github/workflows/*.yaml", ".github/actions/**/*.yaml"),
-        needs_gh_token=True,
         ci_flags=("--release-notes",),
     ),
     SyncOperation(
         name="sync-workflow-pins",
         config_flag="workflow_pins_sync",
         job_name="🔖 Sync workflow pins",
-        job_if="fromJSON(needs.metadata.outputs.metadata).workflow_files",
         resolve=_resolve_workflow_pins,
         apply=_apply_file_writes,
         applies_here=_workflow_files_present,
         write_domain=(".github/workflows/*.yaml", ".github/actions/**/*.yaml"),
-        needs_gh_token=True,
         ci_flags=("--release-notes",),
     ),
     SyncOperation(
         name="sync-tool-versions",
         config_flag="tool_versions_sync",
         job_name="🔼 Sync tool versions",
-        # No `if:` gate: this one lives in the upstream-only self-maintenance.yaml,
-        # which downstream repos never receive, so nothing has to be guarded away
-        # at runtime.
-        job_if="",
         resolve=_resolve_tool_versions,
         apply=_apply_tool_versions,
         applies_here=_tool_versions_applies,
@@ -1673,8 +1658,6 @@ SYNC_OPERATIONS: tuple[SyncOperation, ...] = (
         ),
         workflow="self-maintenance.yaml",
         job="sync-tool-versions",
-        editable=True,
-        needs_gh_token=True,
         ci_flags=("--release-notes",),
     ),
 )

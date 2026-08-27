@@ -301,23 +301,9 @@ On top of the built-in `3.14t` flavor smoke test (stable, on `ubuntu-26.04-arm` 
 
 The shipped configuration is exercised everywhere a regression would reach a user; the floor and the one regression-prone release are verified cheaply on the fastest runner; and the development branch gives a heads-up without the power to redden the build. The PR matrix stays the curated reduced set for fast feedback, since `variations` and `unstable` apply to the full matrix only. The same shape extends to a prerelease Python (add it as a `python-version` variation, pin it to one runner with `exclude`, and mark it `unstable`) or to a released free-threaded flavor (the same, but stable: leave it out of `unstable`, as [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner) explains).
 
-## `repomatic.matrix_axes` API
-
-```{eval-rst}
-.. automodule:: repomatic.matrix_axes
-   :members:
-   :undoc-members:
-   :show-inheritance:
-```
-
-## `repomatic.metadata.core` API
+## `Metadata` class hierarchy
 
 ```{eval-rst}
 .. autoclasstree:: repomatic.metadata.core
    :strict:
-
-.. automodule:: repomatic.metadata.core
-   :members:
-   :undoc-members:
-   :show-inheritance:
 ```

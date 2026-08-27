@@ -19,9 +19,10 @@
 Skills and agents ship verbatim to every downstream repo through
 `repomatic init`, and nothing else audits their bodies: `test_skills.py`
 checks frontmatter against the Agent Skills spec, the release sweep reads
-them by hand once a cycle. So a cooldown window, a config key or a module
-path quoted in one of them is a second copy of something the package
-already defines, free to drift the moment the original moves.
+them by hand once a cycle. So a cooldown window, a config key, a module
+path or a `claude.md` section quoted in one of them is a second copy of
+something the project already defines, free to drift the moment the
+original moves.
 
 A second family of checks holds the same assets to the prose rule in
 `claude.md` § Directives are written in Simplified Technical English: the
@@ -477,4 +478,74 @@ def test_directives_are_short(asset_id: str, body: str) -> None:
             f"directive, over the {DIRECTIVE_WORD_LIMIT}-word limit. Split "
             f"the rule from its exception, or move the detail into the "
             f"rationale after it: {directive!r}"
+        )
+
+
+CLAUDE_MD = PROJECT_ROOT / "claude.md"
+"""The instructions file every asset citation points into.
+
+Spelled lowercase because that is the tracked name. A case-insensitive
+filesystem resolves `CLAUDE.md` just the same, so the wrong spelling here
+passes locally and raises `FileNotFoundError` on a Linux runner.
+"""
+
+CLAUDE_SECTION_RE = re.compile(r"`?claude\.md`?\s+§\s+(?P<tail>[^\n]+)", re.IGNORECASE)
+"""A `claude.md § <section>` citation, plus the rest of the line it opens.
+
+Where the name ends is not something the citation reliably marks: the corpus
+holds `§ Documentation sync (upstream maintainers).`, which closes on
+punctuation the name itself contains, beside `§ Changelog and docs updates
+for style rules`, which runs into prose with no punctuation at all. So the
+tail runs to the end of the line and
+{func}`test_cited_claude_sections_resolve` matches the headings against it,
+rather than guessing a boundary and looking up whatever it captured.
+"""
+
+
+def claude_headings() -> list[str]:
+    """Every section heading `claude.md` declares, fenced blocks excluded.
+
+    A `#` opening a line inside a fence is a shell or TOML comment rather than
+    a heading, so the fence state is tracked the way {func}`directives` tracks
+    it.
+    """
+    headings = []
+    in_fence = False
+    for line in CLAUDE_MD.read_text(encoding="UTF-8").splitlines():
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+        elif not in_fence and line.startswith("#"):
+            headings.append(line.lstrip("#").strip())
+    return headings
+
+
+@bundled_asset
+def test_cited_claude_sections_resolve(asset_id: str, body: str) -> None:
+    """Every `claude.md § <section>` citation names a section that file declares.
+
+    Retiring the `agent` component in `7.14.0` moved the generic conventions
+    out of this repository's `claude.md`, and 32 citations reaching into them
+    became dead ends inside assets that still ship verbatim. A downstream
+    reader cannot tell a stale pointer from a section their own file is
+    missing, so a citation either names something or gives way to the rule
+    itself, stated inline.
+
+    A heading is matched as a prefix of the citation, which keeps the check as
+    under-inclusive as its siblings: a name that merely opens on a real heading
+    passes. The boundary that follows it must be a non-word character, so a
+    heading cannot satisfy a citation that only starts with its letters.
+
+    :param asset_id: Bundled asset the citation was read from.
+    :param body: Full asset text, frontmatter included.
+    """
+    headings = claude_headings()
+    for match in CLAUDE_SECTION_RE.finditer(body):
+        tail = match.group("tail")
+        assert any(
+            re.match(rf"{re.escape(heading)}(?![\w-])", tail, re.IGNORECASE)
+            for heading in headings
+        ), (
+            f"{asset_id} cites claude.md § {tail[:60]!r}, which claude.md does "
+            "not declare. Drop the pointer and state the rule inline, or aim "
+            "it at a section that exists."
         )

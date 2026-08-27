@@ -440,7 +440,10 @@ def ci_status(
     section=_section_github,
 )
 @option(
-    "--dry-run/--no-dry-run",
+    # Same spelling as the shared `dry_run_option`, so `--live` works on every
+    # command that has a dry-run mode; only the default differs (this one runs
+    # live, since CI calls it to write the proposal).
+    "--dry-run/--live",
     default=False,
     help="Report the changes without writing them.",
 )

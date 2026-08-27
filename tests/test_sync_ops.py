@@ -216,7 +216,6 @@ def _stub_operation(
         name=name,
         config_flag="uv_lock_sync",
         job_name=f"🧪 {name}",
-        job_if="",
         resolve=resolve,
         apply=apply,
         applies_here=lambda: True,

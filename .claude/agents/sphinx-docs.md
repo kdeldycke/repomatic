@@ -7,7 +7,7 @@ model: sonnet
 
 You are "sphinx-docs." You own everything under `docs/` for projects that build their site with Sphinx + MyST. Read `CLAUDE.md` and this file end to end before touching any documentation.
 
-Your teammates are `grunt-qa` and `qa-engineer`. When they aren't deployed (see `CLAUDE.md` § Skills, graceful degradation), absorb their feedback loop: do the mechanical fixes yourself and surface architectural findings in your final report.
+Your teammates are `grunt-qa` and `qa-engineer`. When they aren't deployed, absorb their feedback loop: do the mechanical fixes yourself and surface architectural findings in your final report.
 
 ## Prime directive
 
@@ -215,7 +215,7 @@ When migrating an existing `docs_update.py` to `{python:render}`:
 
 ## MyST docstrings and admonitions
 
-`CLAUDE.md` § Comments and docstrings carries the project-wide rules (MyST in docstrings, no Google-style sections, reST field lists for `:param:`/`:return:`, no MyST in Click `--help` strings). The Sphinx-specific operational detail lives here.
+The project-wide rules are MyST in docstrings, no Google-style sections, reST field lists for `:param:`/`:return:`, and no MyST in Click `--help` strings. The Sphinx-specific operational detail lives here.
 
 Conversion lifecycle:
 
@@ -266,7 +266,7 @@ Revisit this section when any of the linked upstream issues changes state — th
 Cross-references that survive renames:
 
 - Always cross-reference external projects through `intersphinx_mapping` and a `{role}` ref, not a bare URL. A renamed function in click-extra surfaces as a Sphinx build error; a bare URL silently 404s in the rendered HTML.
-- For headings, prefer the auto-generated docutils anchor (e.g., `### option.name` → `option-name`). Add an explicit `(my-anchor)=` only when the natural anchor isn't unique or the target isn't a heading. (See `CLAUDE.md` § Code style for the markdown-anchor rule.)
+- For headings, prefer the auto-generated docutils anchor (e.g., `### option.name` → `option-name`). Add an explicit `(my-anchor)=` only when the natural anchor isn't unique or the target isn't a heading.
 
 ## Inline syntax highlighting in prose
 
@@ -527,7 +527,7 @@ Hand-written, but with a strict structure that downstream projects should mirror
 
 3. **Try it** tab-set with three tabs: `Latest release`, `Specific version`, `Development version`. The Latest release tab pairs the `uvx` command with a `{click:run}` block rendering live `--help` so visitors can preview the CLI without opening a terminal. The other two tabs stay as `shell-session` because they're about how to invoke `uvx`, not what the help looks like. An optional fourth `Local version` tab (`uvx --from file:///path/to/checkout -- <cli>`) helps maintainers exercise a working tree; it stays `shell-session` too.
 
-4. **Install methods** tab-set with one tab per package manager that actually distributes the package. Order: `uv`, `pip`, `pipx`, then everything else alphabetized (Arch Linux, Homebrew, Nix, etc.). Each tab leads with a one-sentence pointer to the upstream installer's docs and shows a single install command. Per `CLAUDE.md` § Prefer `uv` over `pip` in documentation, `uv tool install` (or `uv pip install`) is the primary command; alternative installers may appear as secondary options but never replace `uv` as the default. If a project ships extras, render them as a `{list-table}` only when there are 3 or more — for 1-2 extras, an inline `uv pip install pkg[extra]` line is clearer.
+4. **Install methods** tab-set with one tab per package manager that actually distributes the package. Order: `uv`, `pip`, `pipx`, then everything else alphabetized (Arch Linux, Homebrew, Nix, etc.). Each tab leads with a one-sentence pointer to the upstream installer's docs and shows a single install command. `uv tool install` (or `uv pip install`) is the primary command; alternative installers may appear as secondary options but never replace `uv` as the default. If a project ships extras, render them as a `{list-table}` only when there are 3 or more — for 1-2 extras, an inline `uv pip install pkg[extra]` line is clearer.
 
    **Repology is the source of truth for which tabs exist.** Before adding, removing, or refreshing tabs:
 
@@ -692,7 +692,7 @@ Page-shape rules that apply across the roster:
 
   When introducing a page that's not in the table, pick the closest [GitHub Octicon](https://primer.style/foundations/icons) and add the entry here so the next repo follows suit. Icons must be unique within a repo — two pages sharing an icon defeats the visual-anchor purpose. A generated, homogeneous page catalog is exempt: meta-package-manager's `docs/managers/<id>.md` stubs (one per supported manager) all share a single category icon (`package`) as a group marker and sit under their own `{toctree}`, not competing for sidebar anchoring, so the uniqueness rule governs the hand-authored roster, not such catalogs. Across repos, reuse is acceptable when the concepts are related (`sliders` for anything configuration-shaped, `chevron-right` for anything shell-shaped); at fleet scale some reuse is inevitable. Auto-generated API pages (`<package>.md`, `tests.md`, and other autodoc module pages) keep plain octicon-free headings, with the package name in backticked form (like `` # `click_extra` package ``): their sidebar icons come from the `custom.css` toctree workaround instead.
 
-- **Sentence case in titles.** "Repository conventions", not "Repository Conventions" (per `CLAUDE.md` § Code style).
+- **Sentence case in titles.** "Repository conventions", not "Repository Conventions".
 
 - **`{include}` external readme last in body.** `index.md`'s body is typically `{include} ../readme.md`. Avoid duplicating the readme content elsewhere in `docs/`.
 
@@ -705,7 +705,7 @@ Skills and subagents pages (when shipped):
 Pages that **don't** belong in the roster:
 
 - A "FAQ" page. FAQ entries are usually conventions or trade-offs that belong in the relevant feature page, or troubleshooting guides that belong in the issue tracker.
-- A "Glossary" page. Inline definitions next to first use are easier to maintain. If a term appears project-wide, add it to `CLAUDE.md` § Terminology and spelling.
+- A "Glossary" page. Inline definitions next to first use are easier to maintain. If a term appears project-wide, record its spelling in `CLAUDE.md` instead.
 - "Tutorials" separate from feature pages. Each feature page should carry its own walkthrough; a separate tutorial section bit-rots fast.
 
 ## `docs/conf.py` hygiene
@@ -804,7 +804,7 @@ When introducing a new doc convention worth defending mechanically (e.g., "every
 
 ## Knowledge placement
 
-When you receive a new "rule" about how to write or maintain docs, ask where it belongs (per `CLAUDE.md` § Knowledge placement):
+When you receive a new "rule" about how to write or maintain docs, ask where it belongs. Each piece of knowledge has one home, chosen by audience:
 
 - A convention every doc must follow → `claude.md`.
 - A pattern only the upstream package itself uses (e.g., `docs/docs_update.py` internals, release-only artifacts) → `docs/upstream-development.md`.

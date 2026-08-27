@@ -7,14 +7,9 @@
 from repomatic.cli.main import repomatic
 ```
 
-## `repomatic.cli.main` API
+## Command hierarchy
 
 ```{eval-rst}
 .. autoclasstree:: repomatic.cli.main
    :strict:
-
-.. automodule:: repomatic.cli.main
-   :members:
-   :undoc-members:
-   :show-inheritance:
 ```

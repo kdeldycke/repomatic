@@ -20,7 +20,7 @@ Scan release binaries on VirusTotal and generate per-vendor false-positive submi
 
 ### Step 1: resolve version and artifacts
 
-If `$ARGUMENTS` is empty, use the latest release tag from the context above. Otherwise treat `$ARGUMENTS` as the version (accept both `6.2.1` and `v6.2.1`; normalize to bare version for filenames, `v`-prefixed for tags per CLAUDE.md § Version formatting).
+If `$ARGUMENTS` is empty, use the latest release tag from the context above. Otherwise treat `$ARGUMENTS` as the version (accept both `6.2.1` and `v6.2.1`; normalize to bare version for filenames, `v`-prefixed for tags).
 
 Detect the repository from the context (`nameWithOwner`). Extract the project name, license, and homepage URL from `pyproject.toml`.
 

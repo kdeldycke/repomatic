@@ -42,4 +42,4 @@ Where they land by default follows [`[tool.repomatic.flavor] agent`](configurati
 
 ## Self-containment
 
-Like skills, subagents must be self-contained for downstream portability. They reference [`claude.md`](https://github.com/kdeldycke/repomatic/blob/main/claude.md) sections rather than upstream `docs/` URLs, so a downstream repository's agent resolves every reference locally, with no network access.
+Like skills, subagents must be self-contained for downstream portability. They state each rule inline rather than pointing at an upstream `docs/` URL or a [`claude.md`](https://github.com/kdeldycke/repomatic/blob/main/claude.md) section, so a downstream repository's agent reads every rule locally, with no network access and no dependency on an instructions file it may not share.

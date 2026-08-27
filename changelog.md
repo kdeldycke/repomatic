@@ -25,6 +25,7 @@
 - `sync-workflow-pins` no longer bumps the uv pin past what the pinned `astral-sh/setup-uv` can checksum-verify: the action silently skips validation for a version its bundled table does not list.
 - `show-config` wraps its widest columns instead of running past 240 characters. A format unable to hold a wrapped cell, like `github` or `csv`, stays unwrapped.
 - `list-skills` renders a table honoring `--table-format`, replacing the hand-padded lines that ran to 500 characters.
+- `sync-runner-images` takes `--live` like every other command with a dry-run mode, replacing its odd `--no-dry-run` spelling.
 - Dependency-update pull requests no longer list yanked or pre-release versions in their intermediate release notes.
 - The bundled `[tool.typos]` config no longer checks SVG content: a terminal capture splits words across `<text>` runs, so correcting a fragment corrupts the image.
 - The `lint-repo` stale gh-pages check now passes only on a confirmed `404`: any other API failure reports as skipped instead of green.
@@ -40,10 +41,12 @@
 - Fix `init` leaving behind the folder of a removed skill whose `SKILL.md` was already gone: the tombstone addresses the file, so an empty folder outlived every later run.
 - Fix `format-images` dropping its optimization summary table from the PR body, lost in `7.11.0` when its two PR-publishing steps collapsed into one.
 - The skills, subagents and plugin documentation pages group under an Agent tooling section and move to `/agent-skills`, `/subagents` and `/claude-code-plugin`, with the old URLs redirecting.
+- The generated API reference now renders only on the `/repomatic` pages. The guide pages keep their tutorials and prose, and no longer repeat a module's reference below it.
 - The Python compatibility table of the install page marks a version a release neither declared nor excluded with `–`, instead of counting it as unsupported.
 - The `commit-messages` page and the bundled skills now hold a commit body to three cases: bundled orthogonal work, a link to a public record, or a `Closes #N` pointer.
 - Fix the `exclude` example of the configuration page naming `zizmor`, which is not a component: copying it made `repomatic init` fail.
 - Fix stale guidance in the bundled skills: two module pointers the regroup broke, the scan history now published through a pull request, and a retired upstream contribution target.
+- Fix the dead `claude.md` section cross-references the bundled skills and subagents carried, and guard against new ones.
 - Sphinx linkcheck no longer reports every release-asset download URL as broken: `conf.py` withholds its github.com credential from those URLs, which GitHub redirects to a host that answers 401.
 - Fix the dead links on the install and operation-contracts pages, and the API reference documenting every regrouped module twice.
 

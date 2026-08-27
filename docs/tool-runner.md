@@ -281,12 +281,3 @@ from repomatic.tooling.tool_registry import tool_reference
 
 print(tool_reference())
 ```
-
-## `repomatic.tooling.tool_runner` API
-
-```{eval-rst}
-.. automodule:: repomatic.tooling.tool_runner
-   :members:
-   :undoc-members:
-   :show-inheritance:
-```
