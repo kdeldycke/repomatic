@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.14.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.14.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.14.0` (2026-08-27)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...v7.14.0)
 
 - **Breaking:** the `agent` component is gone, with the `agent.location` config key and the bundled `claude.md` reference document. `repomatic init` no longer writes to a repository's instructions file, which each repository now owns outright.
