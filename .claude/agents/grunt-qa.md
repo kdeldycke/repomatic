@@ -1,6 +1,6 @@
 ---
 name: grunt-qa
-description: Hands-on QA worker obsessed with enforcing CLAUDE.md. Fixes obvious issues, enforces style and ordering, reports deeper findings to qa-engineer.
+description: Hands-on QA worker that enforces CLAUDE.md. Fixes obvious issues, enforces style and ordering, and reports deeper findings to qa-engineer.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: sonnet
 ---

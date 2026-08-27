@@ -142,6 +142,18 @@ A `[bracketed]` commit-subject prefix is reserved for a load-bearing mechanism t
 
 Only `[changelog] …` qualifies here, and it is an invariant, not a convention: every machine-authored version-machinery commit (release freeze, post-release bump, manual major/minor bumps) starts with {data}`repomatic.git_ops.CHANGELOG_COMMIT_PREFIX`, which lets workflow gates skip machinery pushes on that single prefix instead of enumerating message shapes. `tests/test_workflows.py::test_changelog_prefix_is_the_machinery_invariant` holds the prefix set, the gates, and the emitting template together; the auto-tagging job matches {data}`repomatic.git_ops.RELEASE_COMMIT_PATTERN` within the same family.
 
+### Directives are written in Simplified Technical English
+
+The generic conventions bind every text artifact to ASD-STE100. Only part of that is mechanically checkable, so only that part is enforced: `tests/test_claude_assets.py` holds every bundled skill and agent to a 25-word ceiling on each *directive*, and leaves the rationale after it alone.
+
+The split follows the house bullet style rather than imposing a new one. A rule bullet opens with the rule in bold, then explains itself in plain prose, so the bold span is the directive and everything after it is exempt. A bullet carrying no bold lead is measured only when it opens on a verb in `IMPERATIVE_VERBS`, and then only its first sentence. Enumerating those verbs is what keeps the check under-inclusive: a directive nobody's verb list catches is read as prose and skipped, which is the same trade the drift checks in that module make.
+
+A directive over the ceiling is nearly always two rules sharing a bullet, or a rule with its exception folded in. Split it; do not raise the number.
+
+**The ceiling does not cap a whole `description` field, and should not.** The three longest run past 45 words across four or five short sentences, which is the right shape: the router matches against the field's whole vocabulary, so trimming trigger nouns to hit a total would cost matching accuracy and buy nothing. The Agent Skills spec's 1024-character ceiling is the only total, already held by `tests/test_skills.py`. Note what this leaves uncovered: a description made of short sentences passes however long it grows, so the two worst offenders this rule was written against (56 and 39 words) were caught by review, not by the test.
+
+The approved-word dictionary stays out of scope. It is a controlled ASD specification rather than something to vendor as a data file, and the words it would rule on here (`run`, `sync`, `pin`, `release`) are the ones that must keep matching the code identifiers they name.
+
 ### Defaults: the `Config` dataclass surface
 
 Every configurable default lives in exactly one place: the `Config` dataclass in `repomatic/config.py`; all code derives it from there rather than repeating the literal.

@@ -1,6 +1,6 @@
 ---
 name: qa-engineer
-description: Senior QA engineer. Deep analysis, new automation, architectural decisions. Questions verbose prose and deduplicates content across CLAUDE.md and agent definitions.
+description: Senior QA engineer. Handles deep analysis, new automation and architectural decisions. Questions verbose prose and deduplicates content across CLAUDE.md and agent definitions.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: opus
 ---

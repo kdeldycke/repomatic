@@ -1,6 +1,6 @@
 ---
 name: repomatic-ship
-description: Orchestrate release preparation. Reconcile the changelog, code, and docs to the net release state, then commit, push, and babysit CI until the release PR is built and `main` is green. Stop before the merge. Review-gated in normal use, fully autonomous under `--dangerously-skip-permissions`.
+description: Prepare a release. Reconcile the changelog, code and docs to the net release state. Then commit, push, and babysit CI until the release PR is built and `main` is green. Stop before the merge. Ask for review in normal use; run fully autonomous under `--dangerously-skip-permissions`.
 compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Grep Glob Skill Agent
 ---

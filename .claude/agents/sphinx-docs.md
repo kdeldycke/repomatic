@@ -1,6 +1,6 @@
 ---
 name: sphinx-docs
-description: Sphinx documentation steward. Keeps docs/ in sync with code, prefers live-rendering directives over captured snapshots, enforces MyST and click-extra conventions.
+description: Sphinx documentation steward. Keeps docs/ in sync with the code. Prefers live-rendering directives over captured snapshots, and enforces MyST and click-extra conventions.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: sonnet
 ---
@@ -725,7 +725,7 @@ Default-pruning rule:
 
 Extensions list:
 
-- Keep alphabetized within logical groups; the only ordering exception is when extensions hook the same event and the priority isn't explicit (`click_extra.sphinx.myst_docstrings` must precede `sphinx_autodoc_typehints` because the former hooks `autodoc-process-docstring` at priority 400 vs the default 500). When you make such an exception, add a comment naming the hook and priorities so a later reader doesn't sort it back into alphabetical order.
+- Keep alphabetized within logical groups. The one ordering exception is two extensions hooking the same event with no explicit priority (`click_extra.sphinx.myst_docstrings` must precede `sphinx_autodoc_typehints` because the former hooks `autodoc-process-docstring` at priority 400 against the default 500). When you make such an exception, add a comment naming the hook and priorities so a later reader doesn't sort it back into alphabetical order.
 - No `try/except ImportError` around extension imports. The build either has the extension or it doesn't; lazy fallbacks hide breakage.
 - Don't list extensions you no longer use. An unused extension still loads (slowing every build) and still introduces stale settings down the file.
 

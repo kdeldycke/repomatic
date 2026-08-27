@@ -1,6 +1,6 @@
 ---
 name: babysit-ci
-description: Monitor CI tests, lint, autofix, docs, and Nuitka binary-build workflows, diagnose failures, fix code, commit, and loop until all stable jobs pass. Ignores unstable failures.
+description: Monitor the CI tests, lint, autofix, docs and Nuitka binary-build workflows. Diagnose each failure, fix the code, commit, and loop until every stable job passes. Ignore unstable failures.
 compatibility: 'Designed for Claude Code. Recommended model: Sonnet.'
 ---
 

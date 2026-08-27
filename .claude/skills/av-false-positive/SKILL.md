@@ -1,6 +1,6 @@
 ---
 name: av-false-positive
-description: Scan a release on VirusTotal and generate false positive submission instructions for flagged AV vendors.
+description: Scan a release on VirusTotal. Write submission instructions for each AV vendor that flags a false positive.
 compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Write Grep Glob Agent
 argument-hint: '[version]'

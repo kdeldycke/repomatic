@@ -1,6 +1,6 @@
 ---
 name: repomatic-audit
-description: Audit downstream repo alignment with upstream repomatic reference, covering workflows, configs, and conventions.
+description: Audit how far a downstream repo has drifted from the upstream repomatic reference. Cover workflows, configs and conventions.
 compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Grep Glob WebFetch Agent
 argument-hint: '[all|workflows|configs]'

@@ -23,7 +23,12 @@ them by hand once a cycle. So a cooldown window, a config key or a module
 path quoted in one of them is a second copy of something the package
 already defines, free to drift the moment the original moves.
 
-Each check below pins one such copy to its source, the way
+A second family of checks holds the same assets to the prose rule in
+`claude.md` § Directives are written in Simplified Technical English: the
+directive a rule opens with stays short enough to read once, while the
+rationale following it is left alone.
+
+Each drift check below pins one copy to its source, the way
 `test_workflows.py::test_workflow_declares_cooldown_env` pins the
 workflow-level cooldown block and `test_uv.py` pins `[tool.uv]
 exclude-newer`. Matching is deliberately under-inclusive: every rule
@@ -52,6 +57,7 @@ from click_extra import schema_field_infos
 
 from repomatic.bundle import get_data_content
 from repomatic.config import Config
+from repomatic.frontmatter import split_frontmatter
 from repomatic.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.registry import COMPONENTS_BY_NAME, SKILL_FILENAME
 
@@ -241,4 +247,171 @@ def test_attributed_jobs_live_in_the_named_workflow(asset_id: str, body: str) ->
         assert job in jobs, (
             f"{asset_id} credits {workflow} with a {job!r} job, which it does not "
             f"declare. Its jobs are: {', '.join(sorted(jobs))}."
+        )
+
+
+DIRECTIVE_WORD_LIMIT = 25
+"""Longest directive a bundled asset may carry, in words.
+
+ASD-STE100 caps an instruction at 25 words and a description at 20. One
+number covers both here, because a frontmatter `description` is an
+instruction to the router deciding whether to load the asset at all.
+"""
+
+BOLD_LEAD_RE = re.compile(r"^\*\*(?P<lead>.+?)\*\*")
+"""The bolded opening of a list item, which is where its directive sits.
+
+The house style opens a rule bullet with the rule in bold, then follows it
+with the rationale in plain prose. That split is what makes this checkable
+at all: the bold span is held to the limit and the rationale after it is
+not, so a rule can still explain itself at length.
+"""
+
+FENCE_RE = re.compile(r"^\s*```")
+"""A fenced block delimiter. What sits between two of them is not prose."""
+
+IMPERATIVE_VERBS = frozenset({
+    "add",
+    "always",
+    "ask",
+    "avoid",
+    "call",
+    "check",
+    "commit",
+    "confirm",
+    "copy",
+    "create",
+    "delete",
+    "do",
+    "drop",
+    "edit",
+    "fix",
+    "keep",
+    "leave",
+    "list",
+    "make",
+    "mark",
+    "merge",
+    "move",
+    "name",
+    "never",
+    "open",
+    "pass",
+    "pick",
+    "prefer",
+    "push",
+    "read",
+    "record",
+    "remove",
+    "rename",
+    "replace",
+    "report",
+    "rerun",
+    "reset",
+    "run",
+    "set",
+    "skip",
+    "stop",
+    "treat",
+    "update",
+    "use",
+    "verify",
+    "wait",
+    "write",
+})
+"""Verbs that open a directive in a bullet carrying no bold lead.
+
+Enumerated rather than inferred, which keeps the check under-inclusive by
+construction: a bullet opening on a verb nobody listed is read as prose and
+skipped. That is the same trade the drift checks above make, for the same
+reason. A missed directive costs nothing; a false failure costs an
+afternoon.
+"""
+
+LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+(?P<rest>.*)$")
+"""A bullet or a numbered step, with whatever follows its marker."""
+
+SENTENCE_END_RE = re.compile(r"^(?P<first>.+?[.:!?])(?:\s|$)")
+"""The first sentence of a directive that carries no bold lead."""
+
+URL_RE = re.compile(r"https?://\S+")
+"""A bare URL, counted as one word rather than as its own punctuation."""
+
+
+def word_count(text: str) -> int:
+    """Words in a directive, counting a code span or a URL as one each.
+
+    A directive quoting a long command is not a long sentence, and reads as
+    one item to whoever follows it.
+    """
+    return len(URL_RE.sub("URL", CODE_SPAN_RE.sub("CODE", text)).split())
+
+
+def directives(body: str) -> list[tuple[int, str]]:
+    """Every directive in an asset body, as `(line number, text)` pairs.
+
+    A directive is the bold lead of a list item, or the first sentence of a
+    list item opening on an {data}`IMPERATIVE_VERBS` entry. Prose paragraphs
+    and fenced code carry no directive and are skipped.
+    """
+    found = []
+    in_fence = False
+    for number, line in enumerate(body.splitlines(), 1):
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        item = LIST_ITEM_RE.match(line)
+        if not item:
+            continue
+        rest = item.group("rest")
+        bold = BOLD_LEAD_RE.match(rest)
+        if bold:
+            found.append((number, bold.group("lead")))
+            continue
+        first_word = re.match(r"[A-Za-z`][\w`'-]*", rest)
+        if first_word and first_word.group().strip("`").lower() in IMPERATIVE_VERBS:
+            sentence = SENTENCE_END_RE.match(rest)
+            found.append((number, sentence.group("first") if sentence else rest))
+    return found
+
+
+@bundled_asset
+def test_description_is_short_sentences(asset_id: str, body: str) -> None:
+    """Every sentence of a frontmatter `description` clears the word limit.
+
+    The description is the only part of an asset read on every turn, since
+    it is what the router matches against to decide whether to load the rest.
+    A 56-word run-on there costs matching accuracy on every session, which is
+    why this is the one place the limit binds unconditionally.
+    """
+    meta, _body = split_frontmatter(body)
+    description = meta.get("description", "")
+    for sentence in re.split(r"(?<=[.;])\s+", description):
+        if not sentence.strip():
+            continue
+        assert word_count(sentence) <= DIRECTIVE_WORD_LIMIT, (
+            f"{asset_id} opens with a {word_count(sentence)}-word sentence in "
+            f"its description, over the {DIRECTIVE_WORD_LIMIT}-word limit. "
+            f"Split it: {sentence!r}"
+        )
+
+
+@bundled_asset
+def test_directives_are_short(asset_id: str, body: str) -> None:
+    """Every directive in an asset body clears the word limit.
+
+    Only the directive is measured, never the rationale that follows it, so
+    a rule keeps as much room to explain itself as it needs. A directive
+    over the limit is nearly always two rules sharing a bullet, or a rule
+    with its exception folded in: both read better split.
+    """
+    _meta, content = split_frontmatter(body)
+    for number, directive in directives(content):
+        assert word_count(directive) <= DIRECTIVE_WORD_LIMIT, (
+            f"{asset_id}:{number} carries a {word_count(directive)}-word "
+            f"directive, over the {DIRECTIVE_WORD_LIMIT}-word limit. Split "
+            f"the rule from its exception, or move the detail into the "
+            f"rationale after it: {directive!r}"
         )
