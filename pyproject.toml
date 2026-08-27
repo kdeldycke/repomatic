@@ -479,6 +479,10 @@ exclude = [
   "bitdefender\\.com",
   # archive.ph rate-limits crawlers.
   "archive\\.ph",
+  # Sci-Hub serves a certificate that fails validation. The bundled awesome-list
+  # contributing guide points readers at it for research papers, in both its
+  # English and Chinese versions, so this repository checks those links itself.
+  "sci-hub\\.st",
   # npmjs.com returns 403 to bots.
   "^https://www\\.npmjs\\.com/package/.*$",
   # VirusTotal analysis pages are a JS app that rate-limits bots, and the

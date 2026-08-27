@@ -9,10 +9,6 @@ This repository is the **canonical reference** for conventions. Repos using the 
 **Contributing upstream:** Propose improvements to the `repomatic` CLI, configuration, reusable workflows, or this file via PR or issue at [`kdeldycke/repomatic`](https://github.com/kdeldycke/repomatic/issues).
 **Upstream runtime dependency boundary:** The only runtime dependency on upstream is reusable workflow `uses:` calls (like `kdeldycke/repomatic/.github/workflows/autofix.yaml@vX.Y.Z`), pinned to a git tag. Other references (PR body links, footer attribution) are informational. Do not introduce new runtime dependencies (Renovate shareable presets, remote config extends, API calls): they create unversioned coupling where upstream breaks cascade to all downstream repos.
 
-**Self-contained `claude.md`:** A section that reaches downstream must stand on its own, because neither a user-level `~/.claude/CLAUDE.md` nor any other external instruction file is guaranteed to exist in a contributor's checkout. Every rule Claude needs there must be inline. Which sections travel is declared per section: see [§ Section audience tags](#section-audience-tags).
-
-**The push is mechanical.** The `agent` component in {data}`~repomatic.registry.COMPONENTS` owns every tagged section downstream, and `repomatic init agent` re-emits them into whatever `[tool.repomatic] agent.location` names. It is opt-in, so a repository that never ran it still carries hand-maintained copies: of the sections nominally shared with this file, roughly four in five had diverged before the component existed. Treat an untagged downstream document as stale rather than as evidence of what a repo was told, and check whether the repository has adopted the component before reading anything into its contents.
-
 ### Trying an unreleased fix from downstream
 
 A fix landed on upstream `main` reaches a repository running a released `repomatic` only at the next release. To validate it ahead of that, run the CLI from the git pin, carrying the cooldown on the dependency tree `uvx` resolves beside it, and from the downstream checkout so `[tool.repomatic]` and repository-name discovery see the right project:
@@ -21,11 +17,9 @@ A fix landed on upstream `main` reaches a repository running a released `repomat
 $ uvx --no-progress --exclude-newer '{minimum-release-age}' --from 'git+https://github.com/kdeldycke/repomatic@{commit-sha}' repomatic {command}
 ```
 
-The pin is a testing tool, not a deployment: workflow `uses:` refs and `uvx 'repomatic==X.Y.Z'` pins move only through a release, per [§ Bumping the repomatic pin](#bumping-the-repomatic-pin).
+The pin is a testing tool, not a deployment: workflow `uses:` refs and `uvx 'repomatic==X.Y.Z'` pins move only through a release.
 
 ## A release ships only released dependencies
-
-<!-- audience: all; scope: package -->
 
 Consuming a dependency from a git branch, a fork, a local path or a private index is the right move mid-cycle, and `[tool.uv.sources]` exists for it. Releasing while one is in place is not: source overrides never reach the published metadata, so the wheel builds and uploads exactly as it would have, and only the *install* fails. Nothing in this repository can feel it, because every workflow here installs from `uv.lock` and resolves straight through the override.
 
@@ -34,8 +28,6 @@ Consuming a dependency from a git branch, a fork, a local path or a private inde
 The gate runs in four places, and the release lane's copy is the backstop, not the mechanism: by the time it fires the freeze commit is already on `main` and the recovery is to burn the version per [§ Skip and move forward](#skip-and-move-forward-dont-rewrite-history). The layer that prevents that is the `prepare-release` PR banner, which is regenerated on every push. See [`docs/dependencies.md` § Shippable sources](https://repomatic.net/dependencies#shippable-sources) for the rules and the failure classes.
 
 ### Changelog and docs updates
-
-<!-- audience: all; scope: package -->
 
 Always update documentation when making changes:
 
@@ -53,8 +45,6 @@ Use `**Breaking:**` when a surface the reader actually consumes is gone and thei
 To back a `**Deprecated:**` change in code, keep the old name importable for one cycle instead of deleting it: resolve it through an alias registry in a PEP 562 module `__getattr__` hook that emits the `DeprecationWarning` and redirects to the replacement, then remove it in the release the entry named. Reserve a hard `**Breaking:**` removal for a surface that genuinely cannot keep working. The `_deprecated.py` modules in `click-extra` and `extra-platforms` are reference implementations.
 
 #### Changelog entry length
-
-<!-- audience: all; scope: package -->
 
 A changelog entry is a **release note**, not a commit message or PR description. The reader scans to decide: does this affect me, and must I do anything? Write the shortest bullet that answers both.
 
@@ -98,13 +88,9 @@ Pick between the two Python scopes by asking what the entry needs to be useful. 
 
 ### Skip and move forward, don't rewrite history
 
-<!-- audience: all; scope: package -->
-
 When a release goes wrong (squash merge, broken artifact, bad metadata), prefer **skipping the version and releasing the next one** over reverting, force-pushing, or rewriting `main`: a burned version number is cheap, a botched automated recovery is not (this mirrors PyPI's [yank](https://peps.python.org/pep-0592/) model). When designing new safeguards, default to **detection + notification** over **detection + automated fix**: the blast radius of a missed notification is zero; that of a bad automated fix can be catastrophic.
 
 ### A published release freezes what is missing from it
-
-<!-- audience: all; scope: package -->
 
 Publishing flips [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) on, locking the asset list along with the tag. A binary the matrix never produced is then not a gap to fill later: it is a permanent property of that version. `v6.30.0` shipped without `windows-arm64`, `v7.5.0` without either Windows build, and `v7.7.0` without any binary at all. None of the three can be repaired, only superseded.
 
@@ -122,7 +108,7 @@ The generic conventions these rules add to are maintained in the maintainer's ho
 
 ### Cooldown: consuming repomatic from the lockfile
 
-This is why workflows on `main` run the CLI as `uv --no-progress run --frozen -- repomatic`, from the lockfile, rather than resolving it fresh: see {data}`repomatic.prepare_release.LOCAL_CLI_INVOCATION`. Beyond the stronger guarantee, an index resolution can be made *unsatisfiable* by the cooldown while a lockfile cannot: raising a dependency floor onto a release younger than the window leaves `uvx` with no version to pick and nowhere to record an exemption, since it reads neither `uv.lock` nor *any* project configuration: neither `[tool.uv] exclude-newer-package` in `pyproject.toml` nor a `uv.toml` sitting beside it, and uv exposes no environment variable for a per-package bypass. See [§ Per-ecosystem knobs](#per-ecosystem-knobs) for what that leaves reachable.
+This is why workflows on `main` run the CLI as `uv --no-progress run --frozen -- repomatic`, from the lockfile, rather than resolving it fresh: see {data}`repomatic.prepare_release.LOCAL_CLI_INVOCATION`. Beyond the stronger guarantee, an index resolution can be made *unsatisfiable* by the cooldown while a lockfile cannot: raising a dependency floor onto a release younger than the window leaves `uvx` with no version to pick and nowhere to record an exemption, since it reads neither `uv.lock` nor *any* project configuration: neither `[tool.uv] exclude-newer-package` in `pyproject.toml` nor a `uv.toml` sitting beside it, and uv exposes no environment variable for a per-package bypass. See [`docs/dependencies.md` § `exclude-newer-package` cooldown overrides](https://repomatic.net/dependencies#exclude-newer-package-cooldown-overrides) for what that leaves reachable.
 
 Running from the lockfile insulates this repository from that, which creates its own hazard: **a floor inside the window is now invisible here and breaks only the people installing the release** (downstream repos running a frozen workflow's `uvx 'repomatic==X.Y.Z'`, and `uvx repomatic` users). `tests/test_dep_sources.py` is what catches it, so treat that test failing as "this release is not shippable yet", not as a local annoyance to wait out.
 

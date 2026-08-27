@@ -130,7 +130,7 @@ Binaries of all past releases, with their VirusTotal analyses, are cataloged on 
 
 ## Release verification
 
-Every binary is signed with a [build provenance attestation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations) at release time. After downloading one, verify it with the [`gh` CLI](https://cli.github.com):
+Every binary is signed with a [build provenance attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations) at release time. After downloading one, verify it with the [`gh` CLI](https://cli.github.com):
 
 ```shell-session
 $ gh attestation verify repomatic-7.13.0-linux-x64.bin --repo kdeldycke/repomatic --signer-repo kdeldycke/repomatic

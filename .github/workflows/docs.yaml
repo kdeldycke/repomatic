@@ -335,7 +335,8 @@ jobs:
         # GitHub throttles anonymous crawls to ~1 request/minute, enough to blow a
         # capped runner's job budget on link-heavy repos (the runner kills the whole
         # job, bypassing continue-on-error). Exposing the token lets a repo's conf.py
-        # authenticate its github.com checks via linkcheck_request_headers.
+        # authenticate its github.com checks via linkcheck_auth, which spares release-asset
+        # download URLs: see docs/conf.py for what an Authorization header does to those.
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >

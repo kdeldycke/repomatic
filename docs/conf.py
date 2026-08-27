@@ -293,12 +293,35 @@ linkcheck_retries = 3
 # budget on link-heavy repos. docs.yaml exposes `GITHUB_TOKEN` on the linkcheck
 # step for exactly this consumer; local builds carry no token and stay
 # anonymous.
+#
+# Release-asset downloads are the exception and stay anonymous: an
+# `Authorization` header makes github.com redirect them to the legacy
+# `objects.githubusercontent.com` host instead of `release-assets`, and that
+# signed URL answers 401 whatever the next request carries. The binaries page
+# tabulates one download URL per binary ever released, so authenticating them
+# reports the whole catalog as broken. Checking that many anonymously stays
+# affordable: the endpoint answers a CDN redirect, not a rendered page, and a
+# burst of them draws none of the throttling above.
+#
+# `linkcheck_auth` carries the exception because its patterns are regular
+# expressions, where `linkcheck_request_headers` matches whole hosts only.
 if os.environ.get("GITHUB_TOKEN"):
-    linkcheck_request_headers = {
-        "https://github.com/": {
-            "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-        },
-    }
+
+    def github_bearer_auth(request):
+        """Sign a request with the CI token.
+
+        Returns the prepared request, as ``requests`` expects from an ``auth``
+        callable.
+        """
+        request.headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
+        return request
+
+    linkcheck_auth = [
+        (
+            r"https://github\.com/(?!.*/releases/(?:latest/)?download/)",
+            github_bearer_auth,
+        ),
+    ]
 
 linkcheck_ignore = [
     # These sites return 403 to bots but are valid.

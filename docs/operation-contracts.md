@@ -1,6 +1,6 @@
 # {octicon}`tasklist` Automated operation contracts
 
-> Referenced from `claude.md` [§ Automated operation contracts](https://github.com/kdeldycke/repomatic/blob/main/claude.md#automated-operation-contracts). This file contains the detailed checklists for each operation type.
+> This page holds the detailed checklists for each operation type.
 
 ## Sync job contract
 
@@ -219,7 +219,7 @@ footer: false
 A repository with a PR-opening job of its own ships the body as a file and passes it to `repomatic pr-sync --template-file`, instead of adding a template upstream. Those files follow the conventions above, plus three of their own:
 
 1. **Location: `.github/pr-templates/`.** `.github/` already namespaces by subdirectory (`ISSUE_TEMPLATE/`, `workflows/`, `actions/`), and a dedicated one leaves each basename free to carry the operation name. A flat `.github/pr-{name}.md` needs the `pr-` prefix only to disambiguate, and lands beside GitHub's own `pull_request_template.md`, an unrelated human-facing file.
-2. **Basename: the job ID.** Which is also the PR branch, per [§ Naming conventions for automated operations](https://github.com/kdeldycke/repomatic/blob/main/claude.md#naming-conventions-for-automated-operations). One exception: a template parametrized with `--template-arg` can serve several jobs, and is then named for what it renders rather than for any one of them (`update-package-spec.md`, feeding a job per packaging channel).
+2. **Basename: the job ID**, which is also the PR branch. One exception: a template parametrized with `--template-arg` can serve several jobs, and is then named for what it renders rather than for any one of them (`update-package-spec.md`, feeding a job per packaging channel).
 3. **No `docs` field.** It deep-links the hosted workflows reference, which documents upstream jobs only.
 
 Write `footer: false` as a bare boolean, and never leave it out. Both `false` and the quoted `'false'` opt out, but an absent field, `'False'` and every other value do not, and the failure is silent: the body carries the attribution footer twice.
