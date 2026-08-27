@@ -350,9 +350,11 @@ def word_count(text: str) -> int:
 def directives(body: str) -> list[tuple[int, str]]:
     """Every directive in an asset body, as `(line number, text)` pairs.
 
-    A directive is the bold lead of a list item, or the first sentence of a
-    list item opening on an {data}`IMPERATIVE_VERBS` entry. Prose paragraphs
-    and fenced code carry no directive and are skipped.
+    A directive is the bold lead of a list item, the first sentence of a list
+    item opening on an {data}`IMPERATIVE_VERBS` entry, or the bold lead of a
+    paragraph. That last shape is what the prose-heavy sections use instead of
+    bullets, and it carries rules exactly as a bullet does. Plain prose and
+    fenced code carry no directive and are skipped.
     """
     found = []
     in_fence = False
@@ -363,17 +365,22 @@ def directives(body: str) -> list[tuple[int, str]]:
         if in_fence:
             continue
         item = LIST_ITEM_RE.match(line)
-        if not item:
+        if item:
+            rest = item.group("rest")
+            bold = BOLD_LEAD_RE.match(rest)
+            if bold:
+                found.append((number, bold.group("lead")))
+                continue
+            first_word = re.match(r"[A-Za-z`][\w`'-]*", rest)
+            if first_word and first_word.group().strip("`").lower() in IMPERATIVE_VERBS:
+                sentence = SENTENCE_END_RE.match(rest)
+                found.append((number, sentence.group("first") if sentence else rest))
             continue
-        rest = item.group("rest")
-        bold = BOLD_LEAD_RE.match(rest)
-        if bold:
-            found.append((number, bold.group("lead")))
-            continue
-        first_word = re.match(r"[A-Za-z`][\w`'-]*", rest)
-        if first_word and first_word.group().strip("`").lower() in IMPERATIVE_VERBS:
-            sentence = SENTENCE_END_RE.match(rest)
-            found.append((number, sentence.group("first") if sentence else rest))
+        # An unindented `**lead**` opens a paragraph-shaped rule. Anchoring at
+        # column zero leaves an indented one as a bullet's continuation.
+        paragraph = BOLD_LEAD_RE.match(line)
+        if paragraph:
+            found.append((number, paragraph.group("lead")))
     return found
 
 
