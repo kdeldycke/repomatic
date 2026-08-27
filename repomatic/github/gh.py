@@ -158,9 +158,8 @@ def gh_executable() -> str:
         return str(ensure_binary("gh"))
     except (ClickException, OSError) as error:
         logging.warning(
-            "Could not install the pinned gh, falling back to whatever is on"
-            " PATH (unpinned and unverified): %s",
-            error,
+            "Could not install the pinned gh, falling back to whatever is on PATH "
+            f"(unpinned and unverified): {error}"
         )
         return "gh"
 
@@ -273,9 +272,7 @@ def run_gh_command(args: list[str]) -> str:
         if delay is None:
             break
         logging.warning(
-            "gh command %s, retrying in %ds with the same token.",
-            failure,
-            delay,
+            f"gh command {failure}, retrying in {delay}s with the same token."
         )
         time.sleep(delay)
         process = run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
@@ -289,8 +286,8 @@ def run_gh_command(args: list[str]) -> str:
         auth_marker = _matched_marker(stderr, _AUTH_FALLBACK_MARKERS)
         if auth_marker and github_token and github_token != primary:
             logging.warning(
-                "Primary token returned 401 (%s), retrying with GITHUB_TOKEN.",
-                auth_marker,
+                f"Primary token returned 401 ({auth_marker}), retrying with "
+                "GITHUB_TOKEN."
             )
             retry = run(
                 cmd,

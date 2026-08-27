@@ -110,6 +110,60 @@
    :undoc-members:
 ```
 
+## `repomatic.cli_github` module
+
+```{eval-rst}
+.. automodule:: repomatic.cli_github
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.cli_lint` module
+
+```{eval-rst}
+.. automodule:: repomatic.cli_lint
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.cli_release` module
+
+```{eval-rst}
+.. automodule:: repomatic.cli_release
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.cli_sample` module
+
+```{eval-rst}
+.. automodule:: repomatic.cli_sample
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.cli_setup` module
+
+```{eval-rst}
+.. automodule:: repomatic.cli_setup
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.cli_sync` module
+
+```{eval-rst}
+.. automodule:: repomatic.cli_sync
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
 ## `repomatic.cloudflare` module
 
 ```{eval-rst}
@@ -312,6 +366,42 @@
 
 ```{eval-rst}
 .. automodule:: repomatic.metadata
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.metadata_env` module
+
+```{eval-rst}
+.. automodule:: repomatic.metadata_env
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.metadata_git` module
+
+```{eval-rst}
+.. automodule:: repomatic.metadata_git
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.metadata_matrix` module
+
+```{eval-rst}
+.. automodule:: repomatic.metadata_matrix
+   :members:
+   :show-inheritance:
+   :undoc-members:
+```
+
+## `repomatic.metadata_project` module
+
+```{eval-rst}
+.. automodule:: repomatic.metadata_project
    :members:
    :show-inheritance:
    :undoc-members:

@@ -135,7 +135,7 @@ def _duration(job: dict) -> float | None:
     started_at = parse_iso_datetime(started)
     completed_at = parse_iso_datetime(completed)
     if started_at is None or completed_at is None:
-        logging.warning("Unparsable job timestamps: %r, %r", started, completed)
+        logging.warning(f"Unparsable job timestamps: {started!r}, {completed!r}")
         return None
     seconds = (completed_at - started_at).total_seconds()
     return seconds if seconds > 0 else None

@@ -218,17 +218,16 @@ def _resolve_rules(
     if not isinstance(overrides, dict):
         if overrides:
             logging.warning(
-                "Ignoring [tool.repomatic.labels] %s-rules: the array-of-tables"
-                " form was replaced in 7.11.0 by a table mapping each label to"
-                " its patterns. See the changelog for the migration.",
-                kind,
+                f"Ignoring [tool.repomatic.labels] {kind}-rules: the array-of-tables "
+                "form was replaced in 7.11.0 by a table mapping each label to its "
+                "patterns. See the changelog for the migration."
             )
         overrides = {}
     resolved = dict(defaults)
     for raw_label, raw_patterns in overrides.items():
         label = str(raw_label).strip()
         if not label:
-            logging.warning("Skipping %s rule with a blank label.", kind)
+            logging.warning(f"Skipping {kind} rule with a blank label.")
             continue
         if isinstance(raw_patterns, str):
             raw_patterns = [raw_patterns]
@@ -236,10 +235,8 @@ def _resolve_rules(
             isinstance(pattern, str) for pattern in raw_patterns
         ):
             logging.warning(
-                "Skipping %s rule for label %r: expected a list of strings, got %r.",
-                kind,
-                label,
-                raw_patterns,
+                f"Skipping {kind} rule for label {label!r}: expected a list of strings, "
+                f"got {raw_patterns!r}."
             )
             continue
         if raw_patterns:
@@ -314,7 +311,7 @@ def compile_content_pattern(pattern: str) -> re.Pattern[str] | None:
     try:
         return re.compile(body, flags)
     except re.error as error:
-        logging.warning("Skipping malformed content pattern %r: %s.", pattern, error)
+        logging.warning(f"Skipping malformed content pattern {pattern!r}: {error}.")
         return None
 
 
@@ -382,10 +379,7 @@ def serialize_inline_labels(entries: list[dict[str, Any]]) -> str:
     for entry in entries:
         name = str(entry.get("name", "")).strip()
         if not name:
-            logging.warning(
-                "Skipping inline label without a `name`: %r.",
-                entry,
-            )
+            logging.warning(f"Skipping inline label without a `name`: {entry!r}.")
             continue
         label: dict[str, Any] = {"name": name}
         for field_id in INLINE_LABEL_FIELDS[1:]:
@@ -404,9 +398,8 @@ def serialize_inline_labels(entries: list[dict[str, Any]]) -> str:
             label[field_id] = value
         if unknown := sorted(set(entry) - set(INLINE_LABEL_FIELDS)):
             logging.warning(
-                "Ignoring unknown fields %s on inline label %r.",
-                ", ".join(map(repr, unknown)),
-                name,
+                f"Ignoring unknown fields {', '.join(map(repr, unknown))} on inline "
+                f"label {name!r}."
             )
         labels.append(label)
 

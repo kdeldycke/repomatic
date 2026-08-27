@@ -991,10 +991,8 @@ def run_init(
     is_python = is_python_project(output_dir)
     is_package = is_python_package(output_dir)
     logging.debug(
-        "Repository traits: awesome=%s python=%s package=%s",
-        is_awesome,
-        is_python,
-        is_package,
+        f"Repository traits: awesome={is_awesome} python={is_python} "
+        f"package={is_package}"
     )
     if is_awesome and not components:
         selected.add("awesome-template")
@@ -1039,11 +1037,11 @@ def run_init(
         | ephemeral
     )
     if default_exclusions:
-        logging.debug("Default exclusions: %s", ", ".join(sorted(default_exclusions)))
+        logging.debug(f"Default exclusions: {', '.join(sorted(default_exclusions))}")
     if user_exclude:
-        logging.debug("User exclude: %s", ", ".join(user_exclude))
+        logging.debug(f"User exclude: {', '.join(user_exclude)}")
     if user_include:
-        logging.debug("User include: %s", ", ".join(user_include))
+        logging.debug(f"User include: {', '.join(user_include)}")
     excluded_components, excluded_files = parse_component_entries(
         exclude_entries, context="exclude"
     )
@@ -1104,13 +1102,9 @@ def run_init(
         # --- Component-level scope ---
         if not reg_comp.scope.matches(is_awesome, is_python, is_package):
             logging.debug(
-                "Scope exclusion: %s (%s) not applicable to repo "
-                "(awesome=%s, python=%s, package=%s).",
-                reg_comp.name,
-                reg_comp.scope.name,
-                is_awesome,
-                is_python,
-                is_package,
+                f"Scope exclusion: {reg_comp.name} ({reg_comp.scope.name}) not "
+                f"applicable to repo (awesome={is_awesome}, python={is_python}, "
+                f"package={is_package})."
             )
             if not scope_bypassed and reg_comp.name not in include_files:
                 selected.discard(reg_comp.name)
@@ -1126,23 +1120,17 @@ def run_init(
         if reg_comp.name in selected and not reg_comp.is_enabled(config):
             selected.discard(reg_comp.name)
             logging.info(
-                "[tool.repomatic] %s is disabled. Skipping %s.",
-                reg_comp.config_key,
-                reg_comp.name,
+                f"[tool.repomatic] {reg_comp.config_key} is disabled. Skipping "
+                f"{reg_comp.name}."
             )
 
         # --- File-level scope and config_key ---
         for entry in reg_comp.files:
             if not entry.scope.matches(is_awesome, is_python, is_package):
                 logging.debug(
-                    "Scope exclusion: %s/%s (%s) not applicable to repo "
-                    "(awesome=%s, python=%s, package=%s).",
-                    reg_comp.name,
-                    entry.file_id,
-                    entry.scope.name,
-                    is_awesome,
-                    is_python,
-                    is_package,
+                    f"Scope exclusion: {reg_comp.name}/{entry.file_id} "
+                    f"({entry.scope.name}) not applicable to repo "
+                    f"(awesome={is_awesome}, python={is_python}, package={is_package})."
                 )
                 if (
                     not scope_bypassed
@@ -1152,10 +1140,8 @@ def run_init(
                     excluded_files.setdefault(reg_comp.name, set()).add(entry.file_id)
             if not is_source and not entry.is_enabled(config):
                 logging.debug(
-                    "Config exclusion: %s/%s (%s disabled).",
-                    reg_comp.name,
-                    entry.file_id,
-                    entry.config_key,
+                    f"Config exclusion: {reg_comp.name}/{entry.file_id} "
+                    f"({entry.config_key} disabled)."
                 )
                 excluded_files.setdefault(reg_comp.name, set()).add(entry.file_id)
 
@@ -1182,7 +1168,7 @@ def run_init(
     # Dispatch by component type.
     tool_configs_to_merge: list[str] = []
 
-    logging.debug("Selected components: %s", ", ".join(sorted(selected)))
+    logging.debug(f"Selected components: {', '.join(sorted(selected))}")
 
     # Resolve the upstream version pin (and its SHA) only when a workflow is
     # actually generated: config-only inits (labels, bumpversion) need no pin
@@ -1553,10 +1539,8 @@ def _check_metadata_keys(
     )
     if not same_release:
         logging.debug(
-            "Workflows pin %s, not the running %s: skipping the metadata-key "
-            "check, whose key set is this version's.",
-            version,
-            __version__,
+            f"Workflows pin {version}, not the running {__version__}: skipping the "
+            "metadata-key check, whose key set is this version's."
         )
         return
 

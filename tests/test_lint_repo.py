@@ -25,7 +25,7 @@ from unittest.mock import patch
 import pytest
 
 from repomatic import lint_repo
-from repomatic.cli import metadata as metadata_command
+from repomatic.cli_setup import metadata as metadata_command
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
     REPO_CHECKS,

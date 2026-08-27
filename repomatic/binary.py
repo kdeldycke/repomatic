@@ -88,9 +88,10 @@ class BinaryFormat(Enum):
     """Executable container format a compiled binary uses.
 
     Each member owns what varies by format: the name messages print, the file
-    extension its executables take, and what a target's floor measures. That
-    last one doubles as the enforceability flag, since a format recording no
-    measurable floor has nothing to label.
+    extension its executables take, what a target's floor measures, and the
+    header parser {meth}`read_info` dispatches to. The floor label doubles as
+    the enforceability flag, since a format recording no measurable floor has
+    nothing to label.
 
     ```{note}
     Members carry no magic bytes of their own: {meth}`detect` needs to read
@@ -116,6 +117,27 @@ class BinaryFormat(Enum):
         Only PE is in that case: its version headers are nominal, and the
         Windows floor is CPython's own support policy, not a linker artifact.
         """
+
+    def read_info(self, path: Path) -> tuple[frozenset[object], str | None]:
+        """Parse a binary's headers into its machine set and measured floor.
+
+        The machine element type follows the format (ELF machine names,
+        Mach-O CPU type integers, the PE machine id or `None` when
+        unparsable), matching what {data}`ARCH_MACHINES` records as the
+        expectation. The floor is the measured requirement
+        {func}`verify_binary_floor` compares against the declared one:
+        always `None` on PE, whose headers record nothing enforceable.
+
+        :param path: Path to the binary file.
+        :return: `(machines, floor)` as parsed from the headers.
+        """
+        if self is BinaryFormat.ELF:
+            machine, floor = _elf_info(path)
+            return frozenset((machine,)), floor
+        if self is BinaryFormat.MACHO:
+            cpu_types, floor = _macho_info(path)
+            return frozenset(cpu_types), floor
+        return frozenset((_pe_machine(path),)), None
 
     @classmethod
     def detect(cls, path: Path) -> BinaryFormat | None:
@@ -677,15 +699,7 @@ def verify_binary_arch(target: str, binary_path: Path) -> None:
             f"Got: {got} file at {binary_path}"
         )
 
-    reported: set[object]
-    if expected_format is BinaryFormat.ELF:
-        machine, _ = _elf_info(binary_path)
-        reported = {machine}
-    elif expected_format is BinaryFormat.MACHO:
-        cpu_types, _ = _macho_info(binary_path)
-        reported = set(cpu_types)
-    else:
-        reported = {_pe_machine(binary_path)}
+    reported, _ = expected_format.read_info(binary_path)
 
     expected: object = build_target.expected_machine
     if expected not in reported:
@@ -753,10 +767,7 @@ def verify_binary_floor(
     for path, detected in candidates:
         if detected is not expected_format:
             continue
-        if expected_format is BinaryFormat.ELF:
-            _, measured = _elf_info(path)
-        else:
-            _, measured = _macho_info(path)
+        _, measured = expected_format.read_info(path)
         scanned += 1
         if measured and _version_key(measured) > _version_key(declared):
             violations.append((path, measured))

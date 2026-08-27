@@ -220,7 +220,7 @@ def _fetch_notification_threads(
             f"per_page={NOTIFICATION_PAGE_SIZE}",
         ])
     except RuntimeError as exc:
-        logging.warning("Failed to fetch notification threads: %s", exc)
+        logging.warning(f"Failed to fetch notification threads: {exc}")
         return 0, []
 
     threads = []
@@ -311,9 +311,8 @@ def _validate_notifications_token() -> None:
     if scope_list != ["notifications"]:
         scopes_header = ", ".join(scope_list)
         logging.warning(
-            "GH_TOKEN has more scopes than needed: '%s'."
-            " Only 'notifications' is required.",
-            scopes_header,
+            f"GH_TOKEN has more scopes than needed: '{scopes_header}'. Only "
+            "'notifications' is required."
         )
 
 
@@ -399,36 +398,45 @@ def _render_detail_table(rows: list[DetailRow]) -> str:
     return f"### \U0001f4dd Details\n\n{table}"
 
 
-def render_report(result: UnsubscribeResult) -> str:
-    """Render a markdown report from unsubscribe results.
+def _phase_summary_line(
+    candidates: int,
+    unsubscribed: int,
+    failed: int,
+    cutoff: datetime | None,
+    months: int,
+    dry_run: bool,
+) -> str:
+    """One phase's summary line, with identical wording for both phases."""
+    cutoff_str = cutoff.isoformat() if cutoff else "-"
+    if dry_run:
+        return (
+            f"\U0001f50d **Candidates found:** {candidates}"
+            f" \u2014 cutoff: `{cutoff_str}`"
+            f" (inactive for more than {months} months, dry-run)"
+        )
+    return (
+        f"\U0001f515 **Unsubscribed:** {unsubscribed}"
+        f" | \u26a0\ufe0f **Failed:** {failed}"
+        f" \u2014 cutoff: `{cutoff_str}`"
+        f" (inactive for more than {months} months)"
+    )
 
-    Pure function that produces the same markdown structure as the
-    downstream `unsubscribe.yaml` workflow's `$GITHUB_STEP_SUMMARY`.
 
-    :param result: Structured results from both phases.
-    :return: Markdown report string.
-    """
-    mode = "dry-run" if result.dry_run else "live"
-    p1 = result.phase1
-    p2 = result.phase2
-
-    # Phase 1 summary line.
+def _render_phase1_fragments(
+    p1: Phase1Result, months: int, dry_run: bool
+) -> dict[str, str]:
+    """Build the phase-1 fragments of the report template."""
     cutoff_str = p1.cutoff.isoformat() if p1.cutoff else "-"
-    if result.dry_run:
-        summary_line = (
-            f"\U0001f50d **Candidates found:** {len(p1.rows)}"
-            f" \u2014 cutoff: `{cutoff_str}`"
-            f" (inactive for more than {result.months} months, dry-run)"
-        )
-    else:
-        summary_line = (
-            f"\U0001f515 **Unsubscribed:** {p1.threads_unsubscribed}"
-            f" | \u26a0\ufe0f **Failed:** {p1.threads_failed}"
-            f" \u2014 cutoff: `{cutoff_str}`"
-            f" (inactive for more than {result.months} months)"
-        )
+    summary_line = _phase_summary_line(
+        len(p1.rows),
+        p1.threads_unsubscribed,
+        p1.threads_failed,
+        p1.cutoff,
+        months,
+        dry_run,
+    )
 
-    # Phase 1 batch details rows.
+    # Batch details rows.
     remaining = p1.threads_total - p1.threads_inspected
     oldest_str = p1.oldest_updated.isoformat() if p1.oldest_updated else "-"
     newest_str = p1.newest_updated.isoformat() if p1.newest_updated else "-"
@@ -442,7 +450,7 @@ def render_report(result: UnsubscribeResult) -> str:
         f"| \u2702\ufe0f Cutoff | {cutoff_str} |",
     ])
 
-    # Phase 1 state breakdown rows.
+    # State breakdown rows.
     stale_count = p1.threads_unsubscribed + p1.threads_failed
     state_breakdown_rows = "\n".join([
         f"| \U0001f7e2 Open | {p1.threads_skipped_open} |",
@@ -478,93 +486,90 @@ def render_report(result: UnsubscribeResult) -> str:
             "> with a larger batch to clear the backlog faster.",
         ])
 
-    # Phase 1 details section (includes --- separator).
-    p1_detail_table = _render_detail_table(p1.rows)
-    details_section = f"---\n\n{p1_detail_table}" if p1_detail_table else ""
+    # Details section (includes --- separator).
+    detail_table = _render_detail_table(p1.rows)
+    details_section = f"---\n\n{detail_table}" if detail_table else ""
 
-    # Phase 2 content.
+    return {
+        "summary_line": summary_line,
+        "batch_details_rows": batch_details_rows,
+        "state_breakdown_rows": state_breakdown_rows,
+        "backlog_warning": backlog_warning,
+        "details_section": details_section,
+    }
+
+
+def _render_phase2_content(p2: Phase2Result, months: int, dry_run: bool) -> str:
+    """Build the phase-2 block of the report template."""
     if p2.skipped:
-        phase2_content = f"> [!WARNING]\n> {p2.skip_reason}"
-    else:
-        # Phase 2 summary line.
-        p2_cutoff_str = p2.cutoff.isoformat() if p2.cutoff else "-"
-        if result.dry_run:
-            p2_summary = (
-                f"\U0001f50d **Candidates found:** {len(p2.rows)}"
-                f" \u2014 cutoff: `{p2_cutoff_str}`"
-                f" (inactive for more than {result.months} months, dry-run)"
-            )
-        else:
-            p2_summary = (
-                f"\U0001f515 **Unsubscribed:** {p2.graphql_unsubscribed}"
-                f" | \u26a0\ufe0f **Failed:** {p2.graphql_failed}"
-                f" \u2014 cutoff: `{p2_cutoff_str}`"
-                f" (inactive for more than {result.months} months)"
-            )
+        return f"> [!WARNING]\n> {p2.skip_reason}"
 
-        # Phase 2 search details table.
-        subscribed_count = p2.graphql_unsubscribed + p2.graphql_failed
-        p2_table = "### \U0001f4ca Search details\n\n" + render_markdown_table(
-            ("Metric", "Value"),
-            (
-                ("\U0001f50e Search query", f"`{p2.search_query}`"),
-                ("\U0001f514 Total results", p2.graphql_total),
-                ("\U0001f4e6 Batch size", p2.batch_size),
-                ("\u2705 Still subscribed", subscribed_count),
-                ("\u23ed\ufe0f Not subscribed", p2.graphql_not_subscribed),
-                ("\U0001f7e1 Active since cutoff", p2.graphql_skipped_recent),
-            ),
-        )
+    summary_line = _phase_summary_line(
+        len(p2.rows),
+        p2.graphql_unsubscribed,
+        p2.graphql_failed,
+        p2.cutoff,
+        months,
+        dry_run,
+    )
 
-        p2_detail_table = _render_detail_table(p2.rows)
-        p2_parts = [p2_summary, "", p2_table]
-        if p2_detail_table:
-            p2_parts.extend(["", p2_detail_table])
-        phase2_content = "\n".join(p2_parts)
+    # Search details table.
+    subscribed_count = p2.graphql_unsubscribed + p2.graphql_failed
+    search_table = "### \U0001f4ca Search details\n\n" + render_markdown_table(
+        ("Metric", "Value"),
+        (
+            ("\U0001f50e Search query", f"`{p2.search_query}`"),
+            ("\U0001f514 Total results", p2.graphql_total),
+            ("\U0001f4e6 Batch size", p2.batch_size),
+            ("\u2705 Still subscribed", subscribed_count),
+            ("\u23ed\ufe0f Not subscribed", p2.graphql_not_subscribed),
+            ("\U0001f7e1 Active since cutoff", p2.graphql_skipped_recent),
+        ),
+    )
 
+    detail_table = _render_detail_table(p2.rows)
+    parts = [summary_line, "", search_table]
+    if detail_table:
+        parts.extend(["", detail_table])
+    return "\n".join(parts)
+
+
+def render_report(result: UnsubscribeResult) -> str:
+    """Render a markdown report from unsubscribe results.
+
+    Pure function that produces the same markdown structure as the
+    downstream `unsubscribe.yaml` workflow's `$GITHUB_STEP_SUMMARY`.
+
+    :param result: Structured results from both phases.
+    :return: Markdown report string.
+    """
     return render_template(
         "unsubscribe-phase1",
         "unsubscribe-phase2",
-        mode=mode,
-        summary_line=summary_line,
-        batch_details_rows=batch_details_rows,
-        state_breakdown_rows=state_breakdown_rows,
-        backlog_warning=backlog_warning,
-        details_section=details_section,
-        phase2_content=phase2_content,
+        mode="dry-run" if result.dry_run else "live",
+        phase2_content=_render_phase2_content(
+            result.phase2, result.months, result.dry_run
+        ),
+        **_render_phase1_fragments(result.phase1, result.months, result.dry_run),
     )
 
 
-def unsubscribe_threads(
-    months: int,
+def _run_rest_phase(
+    cutoff: datetime,
     batch_size: int,
     dry_run: bool,
-) -> UnsubscribeResult:
-    """Unsubscribe from closed, inactive notification threads.
+) -> Phase1Result:
+    """Phase 1: inspect REST notification threads, unsubscribing stale ones.
 
-    Runs two phases:
-
-    1. **REST notification threads** — Fetches notification threads, inspects
-       each subject for closed + stale status, and unsubscribes.
-    2. **GraphQL threadless subscriptions** — Searches for closed issues/PRs
-       the user is involved in and unsubscribes via mutation.
-
-    :param months: Inactivity threshold in months.
-    :param batch_size: Maximum threads/items to process per phase.
-    :param dry_run: If `True`, report what would be done without acting.
-    :return: Structured results from both phases.
+    :param cutoff: Inactivity boundary; only threads whose subject closed and
+        last moved before it are acted on.
+    :param batch_size: Maximum threads to inspect.
+    :param dry_run: If `True`, record what would be done without acting.
+    :return: The phase's structured result.
     """
-    result = UnsubscribeResult(dry_run=dry_run, months=months)
-    cutoff = _compute_cutoff(months)
-    prefix = "[dry-run] " if dry_run else ""
-
-    logging.info(f"Cutoff date: {cutoff.strftime('%Y-%m-%d')} ({months} months ago).")
-
-    # Phase 1: REST notification threads.
     logging.info("Phase 1: Processing REST notification threads...")
-    p1 = result.phase1
-    p1.cutoff = cutoff
-    p1.batch_size = batch_size
+    prefix = "[dry-run] " if dry_run else ""
+    p1 = Phase1Result(cutoff=cutoff, batch_size=batch_size)
 
     total, threads = _fetch_notification_threads(batch_size)
     p1.threads_total = total
@@ -632,21 +637,36 @@ def unsubscribe_threads(
             p1.threads_failed += 1
             p1.rows.append(row(action=ReportAction.FAILED))
 
-    # Phase 2: GraphQL threadless subscriptions.
+    return p1
+
+
+def _run_graphql_phase(
+    cutoff: datetime,
+    batch_size: int,
+    dry_run: bool,
+) -> Phase2Result:
+    """Phase 2: unsubscribe from threadless subscriptions found by search.
+
+    :param cutoff: Inactivity boundary; only items closed and last moved
+        before it are acted on.
+    :param batch_size: Maximum search results to inspect.
+    :param dry_run: If `True`, record what would be done without acting.
+    :return: The phase's structured result, marked skipped when the account
+        or the search cannot be read.
+    """
     logging.info("Phase 2: Processing GraphQL threadless subscriptions...")
-    p2 = result.phase2
-    p2.cutoff = cutoff
-    p2.batch_size = batch_size
+    prefix = "[dry-run] " if dry_run else ""
+    p2 = Phase2Result(cutoff=cutoff, batch_size=batch_size)
 
     try:
         username = _get_authenticated_username()
     except RuntimeError as exc:
         logging.warning(
-            "Failed to get authenticated username. Skipping Phase 2: %s", exc
+            f"Failed to get authenticated username. Skipping Phase 2: {exc}"
         )
         p2.skipped = True
         p2.skip_reason = "Failed to get authenticated username. Skipping Phase 2."
-        return result
+        return p2
 
     cutoff_date = cutoff.strftime("%Y-%m-%d")
     p2.search_query = f"involves:{username} is:closed updated:<{cutoff_date}"
@@ -698,13 +718,43 @@ def unsubscribe_threads(
                 p2.rows.append(row(action=ReportAction.FAILED))
     except RuntimeError as exc:
         logging.warning(
-            "GraphQL search failed. Phase 2 may be incomplete. "
-            "Fine-grained PATs may not support GraphQL search: %s",
-            exc,
+            "GraphQL search failed. Phase 2 may be incomplete. Fine-grained PATs may "
+            f"not support GraphQL search: {exc}"
         )
         p2.skipped = True
         p2.skip_reason = (
             "GraphQL search failed. Fine-grained PATs may not support GraphQL search."
         )
 
-    return result
+    return p2
+
+
+def unsubscribe_threads(
+    months: int,
+    batch_size: int,
+    dry_run: bool,
+) -> UnsubscribeResult:
+    """Unsubscribe from closed, inactive notification threads.
+
+    Runs two phases, each behind its own runner:
+
+    1. **REST notification threads** ({func}`_run_rest_phase`) — Fetches
+       notification threads, inspects each subject for closed + stale status,
+       and unsubscribes.
+    2. **GraphQL threadless subscriptions** ({func}`_run_graphql_phase`) —
+       Searches for closed issues/PRs the user is involved in and
+       unsubscribes via mutation.
+
+    :param months: Inactivity threshold in months.
+    :param batch_size: Maximum threads/items to process per phase.
+    :param dry_run: If `True`, report what would be done without acting.
+    :return: Structured results from both phases.
+    """
+    cutoff = _compute_cutoff(months)
+    logging.info(f"Cutoff date: {cutoff.strftime('%Y-%m-%d')} ({months} months ago).")
+    return UnsubscribeResult(
+        dry_run=dry_run,
+        months=months,
+        phase1=_run_rest_phase(cutoff, batch_size, dry_run),
+        phase2=_run_graphql_phase(cutoff, batch_size, dry_run),
+    )

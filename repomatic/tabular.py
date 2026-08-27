@@ -49,8 +49,12 @@ import logging
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
+    from typing import Any, TypeVar
+
+    RecordT = TypeVar("RecordT")
+    """Row type a committed store materializes into."""
 
 
 def render_csv(headers: Sequence[str], rows: Iterable[Sequence[object]]) -> str:
@@ -131,6 +135,38 @@ def read_csv(path: Path) -> list[dict[str, str]]:
             msg = f"Malformed CSV {path}: no header row."
             raise ValueError(msg)
         return [dict(row) for row in reader]
+
+
+def load_records(
+    path: Path,
+    from_row: Callable[[Mapping[str, Any]], RecordT],
+    kind: str,
+    rows: Iterable[Mapping[str, Any]] | None = None,
+) -> list[RecordT]:
+    """Materialize a committed store through a row parser, loudly.
+
+    The committed-dataset counterpart of {func}`read_csv`: one row-to-record
+    pass with one failure contract, so every store fails the same way.
+
+    :param path: Path to the CSV store, read when *rows* is `None` and named
+        in the failure message either way.
+    :param from_row: The row parser, typically the record class's `from_row`
+        classmethod.
+    :param kind: What the store holds, opening the failure message.
+    :param rows: Rows already produced by a caller-side fallback read, parsed
+        in place of the file's.
+    :return: The parsed records.
+    :raises ValueError: When the store exists but cannot be parsed. Loud on
+        purpose: a corrupt store must never be silently clobbered by the next
+        write.
+    """
+    try:
+        if rows is None:
+            rows = read_csv(path)
+        return [from_row(row) for row in rows]
+    except (KeyError, TypeError, ValueError) as error:
+        msg = f"Malformed {kind} {path}: {error}"
+        raise ValueError(msg) from error
 
 
 def write_if_changed(path: Path, content: str) -> bool:

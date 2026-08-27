@@ -1318,7 +1318,7 @@ nuitka.dev-targets = ["windows-x64", "himalaya"]
 
 def test_nuitka_matrix_canary_on_push(monkeypatch):
     """An ordinary CI push compiles only the dev-targets canary subset."""
-    monkeypatch.setattr("repomatic.metadata.is_github_ci", lambda: True)
+    monkeypatch.setattr("repomatic.metadata_env.is_github_ci", lambda: True)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     matrix = Metadata().nuitka_matrix
     assert matrix is not None
@@ -1330,7 +1330,7 @@ def test_nuitka_matrix_canary_on_push(monkeypatch):
 
 def test_nuitka_matrix_full_fleet_on_schedule(monkeypatch):
     """The weekly scheduled run rebuilds every target."""
-    monkeypatch.setattr("repomatic.metadata.is_github_ci", lambda: True)
+    monkeypatch.setattr("repomatic.metadata_env.is_github_ci", lambda: True)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
     matrix = Metadata().nuitka_matrix
     assert matrix is not None
@@ -1341,7 +1341,7 @@ def test_nuitka_matrix_full_fleet_on_schedule(monkeypatch):
 
 def test_nuitka_matrix_full_fleet_on_release_push(monkeypatch):
     """A push carrying a release commit rebuilds every target."""
-    monkeypatch.setattr("repomatic.metadata.is_github_ci", lambda: True)
+    monkeypatch.setattr("repomatic.metadata_env.is_github_ci", lambda: True)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     release_matrix = Metadata().current_commit_matrix
     monkeypatch.setattr(Metadata, "release_commits_matrix", release_matrix)
@@ -1363,7 +1363,7 @@ def test_nuitka_matrix_full_fleet_locally():
 
 def test_nuitka_matrix_skips_push_without_dev_targets(monkeypatch):
     """An empty dev-targets list disables binary builds on ordinary pushes."""
-    monkeypatch.setattr("repomatic.metadata.is_github_ci", lambda: True)
+    monkeypatch.setattr("repomatic.metadata_env.is_github_ci", lambda: True)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     monkeypatch.setattr(Metadata, "dev_targets", set())
     assert Metadata().nuitka_matrix is None
@@ -1415,7 +1415,7 @@ def test_changed_files_surfaces_git_stderr(monkeypatch, caplog):
             stderr="fatal: detected dubious ownership in repository",
         )
 
-    monkeypatch.setattr("repomatic.metadata.diff_names", reject)
+    monkeypatch.setattr("repomatic.metadata_git.diff_names", reject)
     with caplog.at_level(logging.WARNING):
         assert Metadata().changed_files is None
     assert "dubious ownership" in caplog.text
@@ -1539,9 +1539,9 @@ def test_repo_slug_fallback_chain(monkeypatch, gh_slug, remote_slug, expected):
             raise RuntimeError(msg)
         return f"{gh_slug}\n"
 
-    monkeypatch.setattr("repomatic.metadata.run_gh_command", fake_gh)
+    monkeypatch.setattr("repomatic.metadata_env.run_gh_command", fake_gh)
     monkeypatch.setattr(
-        "repomatic.metadata.get_repo_slug_from_remote", lambda: remote_slug
+        "repomatic.metadata_env.get_repo_slug_from_remote", lambda: remote_slug
     )
 
     assert Metadata().repo_slug == expected
@@ -1551,7 +1551,7 @@ def test_repo_name_fallback_to_gh_cli(monkeypatch):
     """`repo_name` is the trailing segment of a gh-resolved slug."""
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(
-        "repomatic.metadata.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
+        "repomatic.metadata_env.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
     )
 
     assert Metadata().repo_name == "papaya"
@@ -1600,7 +1600,7 @@ def test_repo_url_fallback(monkeypatch):
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.delenv("GITHUB_SERVER_URL", raising=False)
     monkeypatch.setattr(
-        "repomatic.metadata.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
+        "repomatic.metadata_env.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
     )
 
     assert Metadata().repo_url == "https://github.com/owner/papaya"

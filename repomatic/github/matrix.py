@@ -243,10 +243,8 @@ class Matrix:
                 effective.append(exclude)
         for exclude, noop_key in noops:
             logging.warning(
-                "Dropping no-op exclude %s: %r is not in the %r axis.",
-                exclude,
-                exclude[noop_key],
-                noop_key,
+                f"Dropping no-op exclude {exclude}: {exclude[noop_key]!r} is not in the "
+                f"{noop_key!r} axis."
             )
         self.exclude = tuple(effective)
 

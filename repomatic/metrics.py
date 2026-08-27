@@ -81,7 +81,7 @@ from itertools import accumulate
 
 from .forge import GITHUB_HOST, canonical_url, repo_metrics, split_repo_url
 from .github.gh import run_gh_command
-from .tabular import read_csv, render_csv, write_csv
+from .tabular import load_records, read_csv, render_csv, write_csv
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -473,12 +473,7 @@ def load_metrics(path: Path) -> dict[tuple[str, str, str], MetricRecord]:
         purpose: a corrupt store must never be silently clobbered by the next
         {func}`save_metrics` write.
     """
-    try:
-        rows = read_csv(path)
-        records = [MetricRecord.from_row(row) for row in rows]
-    except (KeyError, TypeError, ValueError) as error:
-        msg = f"Malformed metric store {path}: {error}"
-        raise ValueError(msg) from error
+    records = load_records(path, MetricRecord.from_row, "metric store")
     return {record.key: record for record in records}
 
 

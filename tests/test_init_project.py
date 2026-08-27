@@ -31,7 +31,8 @@ from click.testing import CliRunner
 from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__, init_project as ip
-from repomatic.cli import init_project, repomatic
+from repomatic.cli import repomatic
+from repomatic.cli_setup import init_project
 from repomatic.config import Config, WorkflowConfig, load_repomatic_config
 from repomatic.init_project import (
     EXPORTABLE_FILES,

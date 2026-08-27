@@ -107,7 +107,7 @@ def get_github_status() -> GitHubStatus | None:
     # OSError on top of FetchError: the probe runs from an error path, so
     # even an exotic local failure must never mask the error being annotated.
     except (FetchError, OSError) as exc:
-        logging.debug("GitHub Status probe failed: %s", exc)
+        logging.debug(f"GitHub Status probe failed: {exc}")
         return None
     status = payload.get("status") if isinstance(payload, dict) else None
     if not isinstance(status, dict):

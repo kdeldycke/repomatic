@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import urllib.parse
 from dataclasses import dataclass
+from enum import Enum
 
 from .github.gh import gh_graphql
 from .http import FetchError, get_json
@@ -41,10 +42,41 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
     from typing import Any
 
-FORGE_APIS: dict[str, str] = {
-    "codeberg.org": "forgejo",
-    "github.com": "github",
-    "gitlab.com": "gitlab",
+
+class Forge(Enum):
+    """Forge software a host runs, which owns how to read its API.
+
+    Supporting a fourth forge means a new member plus its collector behind
+    {meth}`metrics`, which keeps the config-side validation and the dispatch
+    from drifting: {func}`forge_of` resolves declared values through the
+    member lookup, so a `[tool.repomatic.metrics] forges` entry naming
+    anything else fails there rather than at sampling time.
+    """
+
+    FORGEJO = "forgejo"
+    GITHUB = "github"
+    GITLAB = "gitlab"
+
+    def metrics(self, host: str, path: str) -> ForgeMetrics | None:
+        """Read one repository through this forge's API.
+
+        :param host: The instance's hostname. Unused on GitHub, whose one
+            host `gh` already addresses.
+        :param path: The repository's `owner/name` or namespace path.
+        :return: The repository's metrics, or `None` when unreadable.
+        :raises RuntimeError: When a GitHub call fails.
+        """
+        if self is Forge.GITHUB:
+            return github_metrics(path)
+        if self is Forge.GITLAB:
+            return gitlab_metrics(host, path)
+        return forgejo_metrics(host, path)
+
+
+FORGE_APIS: dict[str, Forge] = {
+    "codeberg.org": Forge.FORGEJO,
+    "github.com": Forge.GITHUB,
+    "gitlab.com": Forge.GITLAB,
 }
 """Forge software each known host runs, which is what selects the API to call.
 
@@ -193,18 +225,18 @@ def canonical_url(subject: str) -> str:
     return f"https://{host}/{path}"
 
 
-def forge_of(url: str, extra_forges: Mapping[str, str] | None = None) -> str:
+def forge_of(url: str, extra_forges: Mapping[str, str] | None = None) -> Forge:
     """Name the forge software running the host of *url*.
 
     :param url: An `https://host/owner/name` repository URL.
     :param extra_forges: Host-to-forge entries a repository declared for the
         self-hosted instances it tracks, merged over {data}`FORGE_APIS`.
-    :return: One of `forgejo`, `github` or `gitlab`.
+    :return: The {class}`Forge` the host runs.
     :raises ValueError: When the host is not declared anywhere, which is
         deliberate: a silently unsampled subject is worse than a loud one.
     """
     host, _path = split_repo_url(url)
-    forges = {**FORGE_APIS, **(extra_forges or {})}
+    forges: dict[str, Forge | str] = {**FORGE_APIS, **(extra_forges or {})}
     forge = forges.get(host)
     if forge is None:
         known = ", ".join(sorted(forges))
@@ -213,12 +245,12 @@ def forge_of(url: str, extra_forges: Mapping[str, str] | None = None) -> str:
             f"[tool.repomatic.metrics] forges. Known hosts: {known}."
         )
         raise ValueError(msg)
-    if forge not in {"forgejo", "github", "gitlab"}:
-        msg = (
-            f"Unsupported forge {forge!r} for {host!r}: pick forgejo, github or gitlab."
-        )
-        raise ValueError(msg)
-    return forge
+    try:
+        return Forge(forge)
+    except ValueError:
+        supported = ", ".join(sorted(member.value for member in Forge))
+        msg = f"Unsupported forge {forge!r} for {host!r}: pick one of {supported}."
+        raise ValueError(msg) from None
 
 
 def newest_dated(
@@ -365,9 +397,4 @@ def repo_metrics(
     :raises RuntimeError: When a GitHub call fails.
     """
     host, path = split_repo_url(url)
-    forge = forge_of(url, extra_forges)
-    if forge == "github":
-        return github_metrics(path)
-    if forge == "gitlab":
-        return gitlab_metrics(host, path)
-    return forgejo_metrics(host, path)
+    return forge_of(url, extra_forges).metrics(host, path)

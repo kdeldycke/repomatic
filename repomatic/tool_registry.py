@@ -418,9 +418,8 @@ class BinarySpec:
             for key_plat, key_arch in self.urls:
                 if key_arch == arch and key_plat is LINUX:
                     logging.warning(
-                        "Unidentified Linux distribution, falling back to %s %s.",
-                        key_plat.name,
-                        arch.name,
+                        "Unidentified Linux distribution, falling back to "
+                        f"{key_plat.name} {arch.name}."
                     )
                     return (key_plat, key_arch)
 
@@ -1005,7 +1004,7 @@ def _fix_myst_directives(extra_args: Sequence[str]) -> None:
         fixed = _ESCAPED_COLON_FENCE_RE.sub(_unescape_colon_fence, fixed)
         if fixed != content:
             path.write_text(fixed, encoding="UTF-8")
-            logging.debug("Fixed MyST directives in %s", path)
+            logging.debug(f"Fixed MyST directives in {path}")
 
 
 # ---------------------------------------------------------------------------

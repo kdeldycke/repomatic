@@ -70,7 +70,7 @@ from uuid import uuid4
 from .. import git_ops
 from ..compat import StrEnum
 from .gh import parse_create_output, run_gh_command
-from .issue import run_unlocking
+from .issue import add_labels, run_unlocking
 from .pr_body import fit_github_body, temp_body_file
 
 TYPE_CHECKING = False
@@ -226,33 +226,6 @@ def close_open_prs_on_branch(branch: str, comment: str) -> list[int]:
         close_pr(pr["number"], comment)
         closed.append(pr["number"])
     return closed
-
-
-def _apply_pr_attributes(
-    number: int,
-    labels: Sequence[str] = (),
-    assignees: Sequence[str] = (),
-) -> None:
-    """Attach labels and assignees to a pull request, tolerating refusals.
-
-    Deliberately a second call rather than flags on `gh pr create`, and
-    deliberately non-fatal. `github.actor` is the natural assignee and is
-    `github-actions[bot]` whenever the bot pushed the triggering commit, which
-    GitHub refuses to assign; a label renamed in `repomatic/data/labels.toml`
-    but not yet synced is refused the same way. Neither is worth losing the
-    pull request over, so both degrade to a warning.
-    """
-    if not labels and not assignees:
-        return
-    args = ["pr", "edit", str(number)]
-    for label in labels:
-        args.extend(["--add-label", label])
-    for assignee in assignees:
-        args.extend(["--add-assignee", assignee])
-    try:
-        run_gh_command(args)
-    except RuntimeError as error:
-        logging.warning(f"Could not set labels/assignees on PR #{number}: {error}")
 
 
 def _needs_push(
@@ -496,7 +469,7 @@ def upsert_pr(
                 str(body_path),
             ])
             logging.info(f"Updated PR #{number}")
-            _apply_pr_attributes(number, labels, assignees)
+            add_labels(None, number, labels, assignees=assignees, is_pr=True)
             if draft and not open_prs[0].get("isDraft"):
                 _set_draft(number, draft=True)
             return PrSyncResult(PrOperation.UPDATED, branch, number=number)
@@ -519,5 +492,7 @@ def upsert_pr(
 
     number, url = parse_create_output(output, "pr")
     logging.info(f"Created PR #{number}: {url}")
-    _apply_pr_attributes(number, labels, assignees)
+    # A second call rather than flags on `gh pr create`: a refused label or
+    # assignee then degrades to a warning instead of losing the pull request.
+    add_labels(None, number, labels, assignees=assignees, is_pr=True)
     return PrSyncResult(PrOperation.CREATED, branch, number=number, url=url)

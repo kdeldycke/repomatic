@@ -375,9 +375,9 @@ def store_binary(
     try:
         _atomic_write(dest, f".{source.name}.", fill)
     except OSError as exc:
-        logging.warning("Cannot cache %s at %s: %s", name, dest, exc)
+        logging.warning(f"Cannot cache {name} at {dest}: {exc}")
         return None
-    logging.debug("Cached %s %s for %s at %s.", name, version, platform_key, dest)
+    logging.debug(f"Cached {name} {version} for {platform_key} at {dest}.")
     auto_purge()
     return dest
 
@@ -469,10 +469,10 @@ def get_cached_response(
     age = time.time() - path.stat().st_mtime
     if age > max_age_seconds:
         logging.debug(
-            "Stale HTTP cache entry: %s (age %.0fs > %ds).", path, age, max_age_seconds
+            f"Stale HTTP cache entry: {path} (age {age:.0f}s > {max_age_seconds}s)."
         )
         return None
-    logging.debug("HTTP cache hit: %s.", path)
+    logging.debug(f"HTTP cache hit: {path}.")
     return path.read_bytes()
 
 
@@ -496,10 +496,10 @@ def store_response(
     try:
         _atomic_write(dest, ".response.", lambda tmp_path: tmp_path.write_bytes(data))
     except OSError:
-        logging.debug("Failed to cache HTTP response: %s/%s.", namespace, key)
+        logging.debug(f"Failed to cache HTTP response: {namespace}/{key}.")
         return None
 
-    logging.debug("Cached HTTP response: %s/%s at %s.", namespace, key, dest)
+    logging.debug(f"Cached HTTP response: {namespace}/{key} at {dest}.")
     auto_purge()
     return dest
 
@@ -593,10 +593,10 @@ def store_config(
             lambda tmp_path: tmp_path.write_text(content, encoding="UTF-8"),
         )
     except OSError:
-        logging.debug("Failed to cache config for %s.", tool_name)
+        logging.debug(f"Failed to cache config for {tool_name}.")
         return None
 
-    logging.debug("Cached config for %s at %s.", tool_name, dest)
+    logging.debug(f"Cached config for {tool_name} at {dest}.")
     return dest
 
 
@@ -726,7 +726,7 @@ def _purge(
     for entry in entries:
         if keep(entry):
             continue
-        logging.debug("Purging cache entry: %s", entry.path)
+        logging.debug(f"Purging cache entry: {entry.path}")
         try:
             bytes_freed += entry.size
             entry.path.unlink()
@@ -736,7 +736,7 @@ def _purge(
                     sidecar.unlink()
             files_deleted += 1
         except OSError:
-            logging.debug("Failed to remove %s.", entry.path)
+            logging.debug(f"Failed to remove {entry.path}.")
 
     _prune_empty_dirs(root)
     return files_deleted, bytes_freed
@@ -776,8 +776,7 @@ def _max_age_days() -> int:
             return int(raw)
         except ValueError:
             logging.warning(
-                "Invalid REPOMATIC_CACHE_MAX_AGE=%r, using config default.",
-                raw,
+                f"Invalid REPOMATIC_CACHE_MAX_AGE={raw!r}, using config default."
             )
 
     # 2 + 3. Config from [tool.repomatic] (falls back to field default).
@@ -818,7 +817,5 @@ def auto_purge() -> None:
     total_freed = bin_freed + http_freed
     if total_deleted:
         logging.debug(
-            "Auto-purged %d cached entry(ies), freed %d bytes.",
-            total_deleted,
-            total_freed,
+            f"Auto-purged {total_deleted} cached entry(ies), freed {total_freed} bytes."
         )

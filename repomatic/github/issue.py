@@ -131,41 +131,56 @@ clean sweep of a set it only partially saw.
 
 
 def add_labels(
-    repository: str,
+    repository: str | None,
     number: int,
     labels: Sequence[str],
     *,
+    assignees: Sequence[str] = (),
     is_pr: bool = False,
 ) -> bool:
-    """Add labels to an issue or pull request.
+    """Add labels, and optionally assignees, to an issue or pull request.
 
     Additive only: labels already on the thread are left in place, and none is
     ever removed. Every automated labeller here pre-labels for the
     maintainer's first pass, so it must never undo a classification made by
     hand.
 
-    :param repository: GitHub repository in `owner/name` form.
+    Deliberately non-fatal, because refusals are routine: `github.actor` is
+    the natural assignee and is `github-actions[bot]` whenever the bot pushed
+    the triggering commit, which GitHub refuses to assign, and a label renamed
+    in the labels config but not yet synced is refused the same way. Neither
+    is worth losing the thread over, so both degrade to a warning.
+
+    :param repository: GitHub repository in `owner/name` form, or `None` to
+        let `gh` resolve it from the working directory's remote.
     :param number: The issue or pull request number.
-    :param labels: Labels to add. A no-op when empty.
+    :param labels: Labels to add.
+    :param assignees: Accounts to assign. A no-op when both this and *labels*
+        are empty.
     :param is_pr: Whether *number* names a pull request rather than an issue.
-    :return: Whether the labels were applied. `False` on an API failure, which
-        is logged rather than raised: a labelling run is a convenience, and
-        failing the job over it would be louder than the outcome deserves.
+    :return: Whether the attributes were applied. `False` on an API failure,
+        which is logged rather than raised, per the refusals above.
     """
-    if not labels:
+    if not labels and not assignees:
         return True
     resource = "pr" if is_pr else "issue"
-    args = [resource, "edit", str(number), "--repo", repository]
+    args = [resource, "edit", str(number)]
+    if repository:
+        args.extend(["--repo", repository])
     for label in labels:
         args.extend(["--add-label", label])
+    for assignee in assignees:
+        args.extend(["--add-assignee", assignee])
     try:
         run_gh_command(args)
-    except RuntimeError:
-        logging.error(f"Failed to label {resource} #{number} in {repository}")
+    except RuntimeError as error:
+        logging.warning(
+            f"Could not set labels/assignees on {resource} #{number}: {error}"
+        )
         return False
-    logging.info(
-        f"Added {', '.join(map(repr, labels))} to {resource} #{number} in {repository}"
-    )
+    added = ", ".join(map(repr, (*labels, *assignees)))
+    target = f" in {repository}" if repository else ""
+    logging.info(f"Added {added} to {resource} #{number}{target}")
     return True
 
 

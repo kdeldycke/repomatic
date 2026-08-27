@@ -60,6 +60,14 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
 
+BATCH_RUN_LIMIT = 100
+"""Runs fetched by the branch-wide listing {func}`read_ci_status` starts with.
+
+Deep enough that every monitored workflow's newest run on a freshly pushed
+branch sits inside it. A workflow whose newest run is older than the window
+is not misreported: it falls back to its own {func}`latest_run` query.
+"""
+
 STABLE_GLYPH = "✅"
 """Marks a matrix cell that must pass. See {data}`UNSTABLE_GLYPH`."""
 
@@ -226,12 +234,43 @@ def monitored_workflows(workflow_dir: Path) -> list[str]:
         try:
             data = yaml.safe_load(path.read_text(encoding="UTF-8"))
         except yaml.YAMLError:
-            logging.warning("Could not parse %s, skipping.", path)
+            logging.warning(f"Could not parse {path}, skipping.")
             continue
         triggers = workflow_triggers(data)
         if "push" in triggers:
             names.append(path.name)
     return names
+
+
+def _run_status(entry: dict, workflow: str) -> RunStatus:
+    """Build a run's status from its listing entry, fetching its jobs.
+
+    :param entry: A `gh run list` entry for the run.
+    :param workflow: Workflow filename, the fallback display name.
+    :return: The run with its jobs attached.
+    """
+    detail = gh_api_json(
+        ["run", "view", str(entry["databaseId"]), "--json", "jobs"], strict=True
+    )
+    jobs: list[JobStatus] = []
+    if isinstance(detail, dict):
+        jobs = [
+            JobStatus(
+                name=job.get("name") or "",
+                status=job.get("status") or "",
+                conclusion=job.get("conclusion") or "",
+            )
+            for job in detail.get("jobs") or []
+        ]
+
+    return RunStatus(
+        workflow=entry.get("workflowName") or workflow,
+        run_id=int(entry["databaseId"]),
+        head_sha=entry.get("headSha") or "",
+        status=entry.get("status") or "",
+        conclusion=entry.get("conclusion") or "",
+        jobs=tuple(jobs),
+    )
 
 
 def latest_run(workflow: str, branch: str) -> RunStatus | None:
@@ -259,44 +298,77 @@ def latest_run(workflow: str, branch: str) -> RunStatus | None:
     )
     if not isinstance(listing, list) or not listing:
         return None
-    entry = listing[0]
+    return _run_status(listing[0], workflow)
 
-    detail = gh_api_json(
-        ["run", "view", str(entry["databaseId"]), "--json", "jobs"], strict=True
-    )
-    jobs: list[JobStatus] = []
-    if isinstance(detail, dict):
-        jobs = [
-            JobStatus(
-                name=job.get("name") or "",
-                status=job.get("status") or "",
-                conclusion=job.get("conclusion") or "",
-            )
-            for job in detail.get("jobs") or []
-        ]
 
-    return RunStatus(
-        workflow=entry.get("workflowName") or workflow,
-        run_id=int(entry["databaseId"]),
-        head_sha=entry.get("headSha") or "",
-        status=entry.get("status") or "",
-        conclusion=entry.get("conclusion") or "",
-        jobs=tuple(jobs),
+def _workflow_files_by_id(names: Iterable[str]) -> dict[int, str]:
+    """Map workflow database ids onto the wanted filenames, in one call.
+
+    `gh run list` reports a run's workflow as a display name and a database
+    id, never as the file defining it, so the batched listing in
+    {func}`read_ci_status` needs this index to recognize which runs belong
+    to the monitored files.
+
+    :param names: Workflow filenames to index.
+    :return: Database id to filename, for the filenames the repository knows.
+    """
+    wanted = set(names)
+    listing = gh_api_json(
+        ["workflow", "list", "--all", "--limit=100", "--json", "id,path"],
+        strict=True,
     )
+    index: dict[int, str] = {}
+    if isinstance(listing, list):
+        for entry in listing:
+            basename = str(entry.get("path") or "").rpartition("/")[2]
+            if basename in wanted:
+                index[int(entry["id"])] = basename
+    return index
 
 
 def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
     """Read the latest run of each workflow on *branch*.
+
+    Batched: one branch-wide run listing locates the newest run of every
+    recently active workflow, then one `gh run view` per run reads its jobs,
+    so a poll costs 2 + N calls where the per-workflow loop cost 2 per
+    workflow. A workflow whose newest run is older than the listing window
+    falls back to its own {func}`latest_run` query, so the batching never
+    costs correctness.
 
     :param workflows: Workflow filenames to read.
     :param branch: Branch to read runs from.
     :return: The collected status.
     """
     status = CIStatus(branch=branch)
-    for workflow in workflows:
-        run = latest_run(workflow, branch)
+    names = list(workflows)
+    if not names:
+        return status
+    files_by_id = _workflow_files_by_id(names)
+    listing = gh_api_json(
+        [
+            "run",
+            "list",
+            f"--branch={branch}",
+            f"--limit={BATCH_RUN_LIMIT}",
+            "--json",
+            "databaseId,workflowName,workflowDatabaseId,status,conclusion,headSha",
+        ],
+        strict=True,
+    )
+    newest: dict[str, dict] = {}
+    if isinstance(listing, list):
+        # Newest first, per `gh run list` ordering: the first entry seen for
+        # a workflow is its latest run on the branch.
+        for entry in listing:
+            filename = files_by_id.get(int(entry.get("workflowDatabaseId") or 0))
+            if filename and filename not in newest:
+                newest[filename] = entry
+    for workflow in names:
+        entry = newest.get(workflow)
+        run = _run_status(entry, workflow) if entry else latest_run(workflow, branch)
         if run is None:
-            logging.info("No run found for %s on %s.", workflow, branch)
+            logging.info(f"No run found for {workflow} on {branch}.")
             continue
         status.runs.append(run)
     return status

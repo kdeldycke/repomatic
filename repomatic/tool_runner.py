@@ -109,9 +109,9 @@ def load_pyproject_tool_section(tool_name: str) -> dict[str, Any]:
     pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
     tool_section: dict[str, Any] = pyproject_data.get("tool", {}).get(tool_name, {})
     if tool_section:
-        logging.debug("[tool.%s] found in pyproject.toml: %r", tool_name, tool_section)
+        logging.debug(f"[tool.{tool_name}] found in pyproject.toml: {tool_section!r}")
     else:
-        logging.debug("No [tool.%s] section in pyproject.toml.", tool_name)
+        logging.debug(f"No [tool.{tool_name}] section in pyproject.toml.")
     return tool_section
 
 
@@ -142,17 +142,13 @@ def _store_config_to_cache(
     cached = store_config(spec.name, filename, content)
     if cached is not None:
         logging.info(
-            "%s: config cached at %s, passing via %s.",
-            spec.name,
-            cached,
-            spec.config_flag,
+            f"{spec.name}: config cached at {cached}, passing via {spec.config_flag}."
         )
         return [spec.config_flag, str(cached)], None
 
     # Cache not writable — fall back to temp file.
     logging.warning(
-        "%s: cache directory not writable, falling back to temp file.",
-        spec.name,
+        f"{spec.name}: cache directory not writable, falling back to temp file."
     )
     with tempfile.NamedTemporaryFile(
         encoding="UTF-8",
@@ -181,12 +177,8 @@ def _write_cwd_config(spec: ToolSpec, content: str, level: int) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="UTF-8")
     logging.warning(
-        "%s: wrote config to repo at %s (level %d). "
-        "This tool has no --config flag; the file will be removed "
-        "after the run.",
-        spec.name,
-        target.resolve(),
-        level,
+        f"{spec.name}: wrote config to repo at {target.resolve()} (level {level}). This "
+        "tool has no --config flag; the file will be removed after the run."
     )
     return target
 
@@ -246,7 +238,7 @@ def resolve_config(
     for config_file in spec.native_config_files:
         if Path(config_file).exists():
             logging.info(
-                "%s: using native config file: %s (level 1).", spec.name, config_file
+                f"{spec.name}: using native config file: {config_file} (level 1)."
             )
             return [], None
 
@@ -257,28 +249,22 @@ def resolve_config(
     if tool_config:
         if spec.reads_pyproject:
             logging.info(
-                "%s: using [tool.%s] in pyproject.toml, read natively (level 2).",
-                spec.name,
-                spec.name,
+                f"{spec.name}: using [tool.{spec.name}] in pyproject.toml, read "
+                "natively (level 2)."
             )
             return [], None
 
         if spec.native_format is NativeFormat.FLAGS:
             flags = config_table_to_flags(tool_config)
             logging.info(
-                "%s: translated [tool.%s] to %d CLI flag(s) (level 2).",
-                spec.name,
-                spec.name,
-                len(flags),
+                f"{spec.name}: translated [tool.{spec.name}] to {len(flags)} CLI "
+                "flag(s) (level 2)."
             )
             return flags, None
 
         content = spec.native_format.serialize(tool_config, tool_name=spec.name)
         logging.debug(
-            "Translated [tool.%s] to %s:\n%s",
-            spec.name,
-            spec.native_format.value,
-            content,
+            f"Translated [tool.{spec.name}] to {spec.native_format.value}:\n{content}"
         )
         return _deliver_config(spec, content, level=2)
 
@@ -289,7 +275,7 @@ def resolve_config(
         return _deliver_config(spec, content, level=3)
 
     # Level 4: Bare invocation.
-    logging.info("%s: no config found, bare invocation (level 4).", spec.name)
+    logging.info(f"{spec.name}: no config found, bare invocation (level 4).")
     return [], None
 
 
@@ -431,13 +417,13 @@ def _download_and_verify(
             )
             time.sleep(2 * attempt)
     if expected_sha256 is None:
-        logging.info("SHA-256 of %s: %s (not verified).", url, actual)
+        logging.info(f"SHA-256 of {url}: {actual} (not verified).")
         return
     if actual != expected_sha256:
         dest_path.unlink(missing_ok=True)
         msg = f"SHA-256 mismatch for {url}: expected {expected_sha256}, got {actual}"
         raise ValueError(msg)
-    logging.debug("SHA-256 verified for %s: %s", url, actual)
+    logging.debug(f"SHA-256 verified for {url}: {actual}")
 
 
 def _check_member_safety(member_path: str) -> None:
@@ -574,7 +560,7 @@ def _write_binary_sidecar(binary_path: Path) -> None:
     digest = compute_file_sha256(binary_path)
     sidecar = binary_sidecar_path(binary_path)
     sidecar.write_text(digest, encoding="UTF-8")
-    logging.debug("Wrote binary sidecar: %s (%s).", sidecar, digest)
+    logging.debug(f"Wrote binary sidecar: {sidecar} ({digest}).")
 
 
 def _verify_cached_binary(path: Path) -> bool:
@@ -650,25 +636,20 @@ def _install_binary(
         if cached is not None:
             if skip_checksum:
                 logging.info(
-                    "Using cached %s %s for %s (checksum skipped).",
-                    spec.name,
-                    spec.version,
-                    cache_key,
+                    f"Using cached {spec.name} {spec.version} for {cache_key} (checksum "
+                    "skipped)."
                 )
                 return cached
             if _verify_cached_binary(cached):
                 logging.info(
-                    "Using cached %s %s for %s (sidecar verified).",
-                    spec.name,
-                    spec.version,
-                    cache_key,
+                    f"Using cached {spec.name} {spec.version} for {cache_key} (sidecar "
+                    "verified)."
                 )
                 return cached
             # Sidecar missing or digest mismatch: re-download from source.
             logging.warning(
-                "Cached %s %s failed integrity check, re-downloading.",
-                spec.name,
-                spec.version,
+                f"Cached {spec.name} {spec.version} failed integrity check, "
+                "re-downloading."
             )
             cached.unlink(missing_ok=True)
             binary_sidecar_path(cached).unlink(missing_ok=True)
@@ -679,9 +660,9 @@ def _install_binary(
     archive_name = url.rsplit("/", 1)[-1]
     archive_path = tmp_dir / archive_name
 
-    logging.info("Downloading %s %s for %s...", spec.name, spec.version, cache_key)
+    logging.info(f"Downloading {spec.name} {spec.version} for {cache_key}...")
     if skip_checksum:
-        logging.warning("Checksum verification skipped for %s.", spec.name)
+        logging.warning(f"Checksum verification skipped for {spec.name}.")
     _download_and_verify(
         url,
         checksum,
@@ -705,8 +686,8 @@ def _install_binary(
             _write_binary_sidecar(cached)
             return cached
         logging.warning(
-            "Cached binary unavailable after store at %s, using temp path.",
-            cached if cached is not None else "cache",
+            "Cached binary unavailable after store at "
+            f"{cached if cached is not None else 'cache'}, using temp path."
         )
     return extracted
 
@@ -784,12 +765,11 @@ def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
         cmd.append(f"--min-release-age={cooldown_days}")
         if not _npm_supports_cooldown(npm):
             logging.warning(
-                "npm on PATH is older than %s, so the minimum-release-age cooldown "
-                "is not enforced; %s's transitive dependencies resolve without it.",
-                NPM_MIN_VERSION_FOR_COOLDOWN,
-                spec.name,
+                f"npm on PATH is older than {NPM_MIN_VERSION_FOR_COOLDOWN}, so the "
+                f"minimum-release-age cooldown is not enforced; {spec.name}'s "
+                "transitive dependencies resolve without it."
             )
-    logging.info("Installing %s via npm: %s", spec.name, " ".join(cmd))
+    logging.info(f"Installing {spec.name} via npm: {' '.join(cmd)}")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         raise RuntimeError(
@@ -978,16 +958,13 @@ def _path_tools_env(
             # tool working, degraded, instead of making it unusable on the
             # platform: mdformat still formats Markdown, leaving only its shell
             # blocks untouched.
-            logging.warning("Skipping %s on PATH for %s: %s", tool_name, spec.name, exc)
+            logging.warning(f"Skipping {tool_name} on PATH for {spec.name}: {exc}")
             continue
         except RuntimeError as exc:
             msg = f"Cannot provision {tool_name} on PATH for {spec.name}: {exc}"
             raise ClickException(msg) from exc
         logging.info(
-            "Exposing %s %s on PATH for %s.",
-            tool_name,
-            companion.version,
-            spec.name,
+            f"Exposing {tool_name} {companion.version} on PATH for {spec.name}."
         )
         prefixes.append(str(bin_path.parent))
 
@@ -1159,7 +1136,7 @@ def run_tool(
         resolved = resolve_default_args(spec)
         if resolved is None:
             logging.info(
-                "Skipping %s: the repository holds no %s.", name, spec.default_paths
+                f"Skipping {name}: the repository holds no {spec.default_paths}."
             )
             return 0
         arg_batches = resolved
@@ -1172,7 +1149,7 @@ def run_tool(
         new_checksums = {**spec.binary.checksums, key: checksum}
         spec = replace(spec, binary=replace(spec.binary, checksums=new_checksums))
 
-    logging.info("Resolving config for %s %s...", spec.name, spec.version)
+    logging.info(f"Resolving config for {spec.name} {spec.version}...")
     config_args, tmp_path = resolve_config(spec)
 
     bin_dir = None
@@ -1254,10 +1231,10 @@ def run_tool(
                 _digest_targets(batch) if spec.rewrite_exit_code is not None else {}
             )
 
-            logging.info("Running: %s", " ".join(cmd))
+            logging.info(f"Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, check=False, env=env)
 
-            logging.info("%s exited with code %d.", spec.name, result.returncode)
+            logging.info(f"{spec.name} exited with code {result.returncode}.")
 
             # A rewrite status that rewrote nothing is a contradiction, and the
             # shape a crash takes in a tool whose caller has to tolerate that
@@ -1270,12 +1247,10 @@ def run_tool(
             )
             if crashed:
                 logging.error(
-                    "%s exited with code %d, which it uses to report rewritten "
-                    "files, but left every target unchanged. Treating it as a "
-                    "crash and reporting %d; re-run it directly to see why.",
-                    spec.name,
-                    result.returncode,
-                    TOOL_CRASH_EXIT_CODE,
+                    f"{spec.name} exited with code {result.returncode}, which it uses "
+                    "to report rewritten files, but left every target unchanged. "
+                    f"Treating it as a crash and reporting {TOOL_CRASH_EXIT_CODE}; "
+                    "re-run it directly to see why."
                 )
 
             # post_process is a write-mode-only fixup: it rewrites files on
@@ -1290,16 +1265,13 @@ def run_tool(
             # misleading status.
             if spec.check_bypasses_post_process(batch):
                 logging.warning(
-                    "%s ran in check mode, but it relies on a repomatic "
-                    "post-processing step that only runs when files are "
-                    "written. Its exit status is unreliable here: it can flag "
-                    "drift the write path would reconcile, or miss drift the "
-                    "write path would introduce. Re-run in write mode and "
-                    "inspect the diff for an authoritative result; from the "
-                    "CLI, `repomatic run %s --verify` does that against "
-                    "throwaway copies.",
-                    spec.name,
-                    spec.name,
+                    f"{spec.name} ran in check mode, but it relies on a repomatic "
+                    "post-processing step that only runs when files are written. Its "
+                    "exit status is unreliable here: it can flag drift the write path "
+                    "would reconcile, or miss drift the write path would introduce. "
+                    "Re-run in write mode and inspect the diff for an authoritative "
+                    f"result; from the CLI, `repomatic run {spec.name} --verify` does "
+                    "that against throwaway copies."
                 )
 
             # Keep going after a failure, the way `xargs` does, but never let a
@@ -1316,7 +1288,7 @@ def run_tool(
         for path_dir in path_dirs:
             path_dir.cleanup()
         if tmp_path is not None:
-            logging.debug("Cleaning up temp config: %s", tmp_path.resolve())
+            logging.debug(f"Cleaning up temp config: {tmp_path.resolve()}")
             tmp_path.unlink(missing_ok=True)
 
 
@@ -1363,7 +1335,7 @@ def verify_via_write_path(
         batches = resolve_default_args(spec)
         if batches is None:
             logging.info(
-                "Skipping %s: the repository holds no %s.", name, spec.default_paths
+                f"Skipping {name}: the repository holds no {spec.default_paths}."
             )
             return 0, []
         # Deduplicate while preserving order: a non-per-file tool repeats its
@@ -1408,7 +1380,7 @@ def verify_via_write_path(
 
         if not pairs:
             logging.warning(
-                "%s: no existing path among %r, nothing to verify.", name, extra_args
+                f"{name}: no existing path among {extra_args!r}, nothing to verify."
             )
             return 0, []
 
@@ -1420,10 +1392,8 @@ def verify_via_write_path(
         run_code = run_tool(name, extra_args=rewritten, **run_kwargs)
         if run_code not in {0, spec.rewrite_exit_code}:
             logging.error(
-                "%s failed with code %d on the throwaway copies; its formatting "
-                "cannot be verified.",
-                name,
-                run_code,
+                f"{name} failed with code {run_code} on the throwaway copies; its "
+                "formatting cannot be verified."
             )
             return run_code, []
 

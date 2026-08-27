@@ -441,9 +441,9 @@ def cli_upsert(monkeypatch):
         captured.update(kwargs)
         return PrSyncResult(PrOperation.NONE, kwargs["branch"])
 
-    monkeypatch.setattr("repomatic.cli.upsert_pr", spy)
+    monkeypatch.setattr("repomatic.cli_github.upsert_pr", spy)
     monkeypatch.setattr(
-        "repomatic.cli._render_pr_content",
+        "repomatic.cli_github._render_pr_content",
         lambda **kwargs: ("Rendered title", "Rendered body", "Rendered message"),
     )
     return captured
@@ -451,7 +451,7 @@ def cli_upsert(monkeypatch):
 
 def test_pr_sync_cli_resolves_everything_from_the_template(cli_upsert, monkeypatch):
     """One flag yields branch, labels, draft, title, body and commit message."""
-    monkeypatch.setattr("repomatic.cli.current_branch", lambda: "main")
+    monkeypatch.setattr("repomatic.cli_github.current_branch", lambda: "main")
     result = CliRunner().invoke(
         repomatic, ["pr-sync", "--template", "format-python"], catch_exceptions=False
     )
@@ -465,7 +465,7 @@ def test_pr_sync_cli_resolves_everything_from_the_template(cli_upsert, monkeypat
 
 def test_pr_sync_cli_reads_draft_from_frontmatter(cli_upsert, monkeypatch):
 
-    monkeypatch.setattr("repomatic.cli.current_branch", lambda: "main")
+    monkeypatch.setattr("repomatic.cli_github.current_branch", lambda: "main")
     result = CliRunner().invoke(
         repomatic,
         [
@@ -487,7 +487,7 @@ def test_pr_sync_cli_falls_back_to_the_event_default_branch(
     cli_upsert, monkeypatch, tmp_path
 ):
     """A detached checkout takes its base from the CI event payload."""
-    monkeypatch.setattr("repomatic.cli.current_branch", lambda: None)
+    monkeypatch.setattr("repomatic.cli_github.current_branch", lambda: None)
     event = tmp_path / "event.json"
     event.write_text(
         json.dumps({"repository": {"default_branch": "trunk"}}), encoding="UTF-8"
@@ -502,7 +502,7 @@ def test_pr_sync_cli_falls_back_to_the_event_default_branch(
 
 def test_pr_sync_cli_explicit_labels_override_frontmatter(cli_upsert, monkeypatch):
 
-    monkeypatch.setattr("repomatic.cli.current_branch", lambda: "main")
+    monkeypatch.setattr("repomatic.cli_github.current_branch", lambda: "main")
     result = CliRunner().invoke(
         repomatic,
         ["pr-sync", "--template", "format-python", "--label", "🍉 special"],

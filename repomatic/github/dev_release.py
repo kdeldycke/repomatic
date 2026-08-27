@@ -118,7 +118,7 @@ def sync_dev_release(
                 names = ", ".join(f.name for f in files)
                 logging.info(f"[dry-run] Would upload {len(files)} assets: {names}")
             else:
-                logging.info("[dry-run] No matching assets found in %s.", asset_dir)
+                logging.info(f"[dry-run] No matching assets found in {asset_dir}.")
         return True
 
     # Delete stale dev releases from previous versions, preserving the current one.

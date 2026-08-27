@@ -414,5 +414,5 @@ def validate_classic_pat_scope(required_scope: str) -> list[str]:
         )
         raise RuntimeError(msg)
 
-    logging.info("Token validated: scopes='%s'.", scopes_header)
+    logging.info(f"Token validated: scopes='{scopes_header}'.")
     return scope_list

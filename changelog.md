@@ -22,6 +22,8 @@
 - The `lint-repo` stale gh-pages check now passes only on a confirmed `404`: any other API failure reports as skipped instead of green.
 - Fix `lint-repo` flagging every `test-matrix.exclude` entry as stale on a `full-include` matrix, and the finding now names the missing axis values.
 - Fix `lint-deps` missing a dependency floor declared with `>` when checking floors against the cooldown window.
+- Fix `metadata` leaving the checkout on a past commit with changes stashed when a mid-scan git command fails.
+- `ci-status` locates every workflow's newest run through one branch-wide listing instead of one query per workflow.
 - Fix the `sample-metrics` chart crashing on a series whose peak is `0` or `1`.
 - Dependency-update pull requests no longer list yanked or pre-release versions in their intermediate release notes.
 - Fix `show-test-matrix` leaving a cell bare when several jobs share it: every state of a `stable, unstable` cell now carries its own glyph.

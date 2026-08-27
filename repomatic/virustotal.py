@@ -54,12 +54,12 @@ import vt
 from packaging.version import Version
 
 from .hashing import compute_file_sha256
-from .tabular import read_csv, render_csv, write_csv
+from .tabular import load_records, read_csv, render_csv, write_csv
 from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterator, Mapping
     from typing import Any
 
 FREE_TIER_RATE_LIMIT = 4
@@ -452,16 +452,25 @@ def load_scan_records(path: Path) -> list[ScanRecord]:
         purpose: a corrupt history must never be silently clobbered by the
         next {func}`upsert_scan_records` write.
     """
-    try:
-        rows: list[Mapping[str, Any]] = list(read_csv(path))
-        if not rows:
-            legacy = path.with_suffix(".json")
-            if legacy.exists():
-                logging.info(f"Reading legacy scan records from {legacy}.")
-                rows = json.loads(legacy.read_text(encoding="UTF-8"))
-        return [ScanRecord.from_row(row) for row in rows]
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        raise ValueError(f"Malformed scan records file {path}: {exc}") from exc
+    return load_records(
+        path, ScanRecord.from_row, "scan records file", rows=_scan_rows(path)
+    )
+
+
+def _scan_rows(path: Path) -> Iterator[Mapping[str, Any]]:
+    """Yield store rows, falling back to the pre-CSV legacy JSON sibling.
+
+    A generator on purpose: the reads then execute inside
+    {func}`~repomatic.tabular.load_records`' guarded parse, so a truncated
+    CSV and a corrupt legacy JSON both fail with the store's own message.
+    """
+    rows: list[Mapping[str, Any]] = list(read_csv(path))
+    if not rows:
+        legacy = path.with_suffix(".json")
+        if legacy.exists():
+            logging.info(f"Reading legacy scan records from {legacy}.")
+            rows = json.loads(legacy.read_text(encoding="UTF-8"))
+    yield from rows
 
 
 def upsert_scan_records(path: Path, new_records: list[ScanRecord]) -> bool:

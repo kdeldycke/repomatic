@@ -178,10 +178,16 @@ def test_monitored_workflows_skips_unparsable_file(tmp_path):
 # -- Reading runs -------------------------------------------------------------
 
 
-def _gh(listing, jobs):
-    """A `run_gh_command` double serving one listing then one job payload."""
+def _gh(listing, jobs, catalog=()):
+    """A `run_gh_command` double serving the three read shapes.
+
+    A workflow catalog for `workflow list`, a run listing for `run list`
+    (batched or per-workflow alike), and one job payload for `run view`.
+    """
 
     def dispatch(args):
+        if args[0] == "workflow":
+            return json.dumps(list(catalog))
         if args[1] == "list":
             return json.dumps(listing)
         return json.dumps({"jobs": jobs})
@@ -229,3 +235,54 @@ def test_read_ci_status_skips_workflows_without_a_run():
     assert status.runs == []
     assert status.blocking == []
     assert status.settled is True
+
+
+def test_read_ci_status_batches_the_branch_listing():
+    """One branch-wide listing serves every workflow the window covers."""
+    catalog = [
+        {"id": 7, "path": ".github/workflows/tests.yaml"},
+        {"id": 8, "path": ".github/workflows/lint.yaml"},
+    ]
+    listing = [
+        {
+            "databaseId": 42,
+            "workflowDatabaseId": 7,
+            "workflowName": "🔬 Tests",
+            "status": "completed",
+            "conclusion": "success",
+            "headSha": "abc1234def",
+        },
+        # An older run of the same workflow, which the newest-first scan skips.
+        {
+            "databaseId": 41,
+            "workflowDatabaseId": 7,
+            "workflowName": "🔬 Tests",
+            "status": "completed",
+            "conclusion": "failure",
+            "headSha": "0ld4sha00",
+        },
+        {
+            "databaseId": 40,
+            "workflowDatabaseId": 8,
+            "workflowName": "Lint",
+            "status": "completed",
+            "conclusion": "success",
+            "headSha": "abc1234def",
+        },
+    ]
+    jobs = [
+        {
+            "name": "✅ ubuntu-26.04 / py3.10",
+            "status": "completed",
+            "conclusion": "success",
+        }
+    ]
+    with patch(
+        "repomatic.github.gh.run_gh_command", side_effect=_gh(listing, jobs, catalog)
+    ) as mock:
+        status = read_ci_status(["tests.yaml", "lint.yaml"], "main")
+    assert [run.run_id for run in status.runs] == [42, 40]
+    assert [run.workflow for run in status.runs] == ["🔬 Tests", "Lint"]
+    # One workflow catalog, one branch listing, two job views: no
+    # per-workflow listings at all.
+    assert mock.call_count == 4

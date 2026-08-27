@@ -778,6 +778,70 @@ def check_pat_stale_statuses_permission(repo: str) -> CheckResult:
     )
 
 
+@dataclass(frozen=True)
+class RepoSettingProbe:
+    """One repository setting to read, and how its values map to verdicts.
+
+    The repo-setting checks share one shape: read one API endpoint through
+    `gh`, inspect one field, and map its value onto a pass, a failure naming
+    the settings page, or an indeterminate skip. What varies is declared
+    here; {func}`_check_repo_setting` runs it. A probe with no *passing* set
+    reads its field as a boolean toggle and never skips on an unknown value.
+    """
+
+    label: str
+    """Check name opening every skip message."""
+
+    endpoint: str
+    """API path under `repos/{repo}/` to read."""
+
+    field: str
+    """Response field carrying the setting."""
+
+    pass_message: str
+    """Success message; `{value}` interpolates the field's value."""
+
+    fail_message: str
+    """Failure message; `{repo}` interpolates the repository slug."""
+
+    passing: frozenset[str] | None = None
+    """Values that pass; `None` reads the field as a boolean toggle."""
+
+    failing: frozenset[str] = frozenset()
+    """Values that fail explicitly; anything in neither set skips."""
+
+    unknown: str = "unknown value {value!r}"
+    """Skip reason for a value in neither set; `{value}` interpolates it."""
+
+    unavailable: str = "could not query API"
+    """Skip reason when the endpoint cannot be read."""
+
+
+def _check_repo_setting(probe: RepoSettingProbe, repo: str) -> CheckResult:
+    """Run one {class}`RepoSettingProbe` against *repo*.
+
+    :param probe: The setting to read and its verdict map.
+    :param repo: Repository in 'owner/repo' format.
+    :return: A `CheckResult`. `passed` is `None` when the check could not run.
+    """
+    data = gh_api_json(["api", f"repos/{repo}/{probe.endpoint}"])
+    if data is None:
+        return CheckResult(None, f"{probe.label}: skipped ({probe.unavailable}).")
+
+    value = data.get(probe.field, "")
+    if probe.passing is None:
+        if value:
+            return CheckResult(True, probe.pass_message)
+        return CheckResult(False, probe.fail_message.format(repo=repo))
+    if value in probe.passing:
+        return CheckResult(True, probe.pass_message.format(value=value))
+    if value in probe.failing:
+        return CheckResult(False, probe.fail_message.format(repo=repo))
+    return CheckResult(
+        None, f"{probe.label}: skipped ({probe.unknown.format(value=value)})."
+    )
+
+
 def check_fork_pr_approval_policy(repo: str) -> CheckResult:
     """Check that fork PR workflows require approval for first-time contributors.
 
@@ -811,33 +875,23 @@ def check_fork_pr_approval_policy(repo: str) -> CheckResult:
     :return: A `CheckResult`. `passed` is `None` when the check could not run
         (API inaccessible, unparsable, or unknown policy).
     """
-    data = gh_api_json([
-        "api",
-        f"repos/{repo}/actions/permissions/fork-pr-contributor-approval",
-    ])
-    if data is None:
-        return CheckResult(
-            None, "Fork PR approval policy check: skipped (could not query API)."
-        )
-
-    policy = data.get("approval_policy", "")
-    if policy in {"first_time_contributors", "all_external_contributors"}:
-        return CheckResult(True, f"Fork PR approval policy: {policy}.")
-
-    if policy == "first_time_contributors_new_to_github":
-        msg = (
+    probe = RepoSettingProbe(
+        label="Fork PR approval policy check",
+        endpoint="actions/permissions/fork-pr-contributor-approval",
+        field="approval_policy",
+        pass_message="Fork PR approval policy: {value}.",
+        fail_message=(
             "Fork PR approval policy is 'first_time_contributors_new_to_github',"
             " which only catches brand-new GitHub accounts."
             " Set it to 'first_time_contributors' (or stricter) under"
-            f" https://github.com/{repo}/settings/actions"
+            " https://github.com/{repo}/settings/actions"
             " to require approval for any first-time contributor."
-        )
-        return CheckResult(False, msg)
-
-    return CheckResult(
-        None,
-        f"Fork PR approval policy check: skipped (unknown policy '{policy}').",
+        ),
+        passing=frozenset({"first_time_contributors", "all_external_contributors"}),
+        failing=frozenset({"first_time_contributors_new_to_github"}),
+        unknown="unknown policy {value!r}",
     )
+    return _check_repo_setting(probe, repo)
 
 
 def check_sha_pinning_required(repo: str) -> CheckResult:
@@ -867,24 +921,21 @@ def check_sha_pinning_required(repo: str) -> CheckResult:
     :return: A `CheckResult`. `passed` is `None` when the check could not run
         (API inaccessible or unparsable).
     """
-    data = gh_api_json(["api", f"repos/{repo}/actions/permissions"])
-    if data is None:
-        return CheckResult(
-            None, "SHA pinning required check: skipped (could not query API)."
-        )
-
-    if data.get("sha_pinning_required"):
-        return CheckResult(True, "SHA pinning required: enabled.")
-
-    msg = (
-        "SHA pinning is not required for GitHub Actions in this repository."
-        " Enable it under"
-        f" https://github.com/{repo}/settings/actions"
-        " (Actions permissions → Require actions to be pinned to a"
-        " full-length commit SHA) so GitHub rejects any unpinned action"
-        " reference, not just the ones zizmor happens to catch."
+    probe = RepoSettingProbe(
+        label="SHA pinning required check",
+        endpoint="actions/permissions",
+        field="sha_pinning_required",
+        pass_message="SHA pinning required: enabled.",
+        fail_message=(
+            "SHA pinning is not required for GitHub Actions in this repository."
+            " Enable it under"
+            " https://github.com/{repo}/settings/actions"
+            " (Actions permissions → Require actions to be pinned to a"
+            " full-length commit SHA) so GitHub rejects any unpinned action"
+            " reference, not just the ones zizmor happens to catch."
+        ),
     )
-    return CheckResult(False, msg)
+    return _check_repo_setting(probe, repo)
 
 
 def check_tag_protection_rules(repo: str) -> CheckResult:
@@ -1049,16 +1100,14 @@ def check_immutable_releases(repo: str) -> CheckResult:
     :return: A `CheckResult`. `passed` is `None` when the check could not run
         (API inaccessible or unparsable).
     """
-    data = gh_api_json(["api", f"repos/{repo}/immutable-releases"])
-    if data is None:
-        return CheckResult(
-            None,
-            "Immutable releases check: skipped (could not query API).",
-        )
-
-    if data.get("enabled"):
-        return CheckResult(True, "Immutable releases are enabled.")
-    return CheckResult(False, "Immutable releases are not enabled.")
+    probe = RepoSettingProbe(
+        label="Immutable releases check",
+        endpoint="immutable-releases",
+        field="enabled",
+        pass_message="Immutable releases are enabled.",
+        fail_message="Immutable releases are not enabled.",
+    )
+    return _check_repo_setting(probe, repo)
 
 
 def check_pages_deployment_source(repo: str) -> CheckResult:
@@ -1083,31 +1132,23 @@ def check_pages_deployment_source(repo: str) -> CheckResult:
     :return: A `CheckResult`. `passed` is `None` when the check could not run
         (Pages not configured, or API inaccessible).
     """
-    data = gh_api_json(["api", f"repos/{repo}/pages"])
-    if data is None:
-        return CheckResult(
-            None,
-            "Pages deployment source check: skipped (Pages not configured or API"
-            " inaccessible).",
-        )
-
-    build_type = data.get("build_type")
-    if build_type == "workflow":
-        return CheckResult(
-            True, "GitHub Pages deployment source is set to GitHub Actions."
-        )
-    if build_type == "legacy":
-        msg = (
+    probe = RepoSettingProbe(
+        label="Pages deployment source check",
+        endpoint="pages",
+        field="build_type",
+        pass_message="GitHub Pages deployment source is set to GitHub Actions.",
+        fail_message=(
             "GitHub Pages deployment source is set to 'Deploy from a branch'."
             " Change it to 'GitHub Actions' under"
-            f" https://github.com/{repo}/settings/pages"
+            " https://github.com/{repo}/settings/pages"
             " so the docs.yaml workflow can deploy."
-        )
-        return CheckResult(False, msg)
-    return CheckResult(
-        None,
-        f"Pages deployment source check: skipped (unknown build_type '{build_type}').",
+        ),
+        passing=frozenset({"workflow"}),
+        failing=frozenset({"legacy"}),
+        unknown="unknown build_type {value!r}",
+        unavailable="Pages not configured or API inaccessible",
     )
+    return _check_repo_setting(probe, repo)
 
 
 def check_pages_redirect_preserved(repo: str, docs_url: str | None) -> CheckResult:
@@ -1366,10 +1407,7 @@ def check_workflow_permissions(
         workflows = _load_workflows()
 
     for wf_path, data in workflows.items():
-        jobs = data["jobs"]
-        has_custom_steps = any(
-            "steps" in job for job in jobs.values() if isinstance(job, dict)
-        )
+        has_custom_steps = any("steps" in job for _name, job in _jobs_of(data))
         # Reusable-workflow-calling jobs (a job-level `uses:`) that would
         # inherit an empty top-level `permissions: {}` because they declare no
         # `permissions:` of their own. `data.get("permissions") == {}` matches
@@ -1378,10 +1416,8 @@ def check_workflow_permissions(
         starved_calls = (
             sorted(
                 name
-                for name, job in jobs.items()
-                if isinstance(job, dict)
-                and job.get("uses")
-                and "permissions" not in job
+                for name, job in _jobs_of(data)
+                if job.get("uses") and "permissions" not in job
             )
             if data.get("permissions") == {}
             else []
@@ -1522,6 +1558,49 @@ def _load_workflows(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, dict]:
     return _parse_workflow_texts(_workflow_texts(workflow_dir))
 
 
+def _jobs_of(data: dict) -> Iterator[tuple[str, dict]]:
+    """Yield `(job_id, job)` for every job mapping of one workflow.
+
+    The one place the "a job is a mapping" guard lives: a malformed job (a
+    string, a list) is skipped here, so no walker trips over it.
+
+    :param data: One parsed workflow document.
+    """
+    for job_id, job in data.get("jobs", {}).items():
+        if isinstance(job, dict):
+            yield job_id, job
+
+
+def _steps_of(job: dict) -> Iterator[dict]:
+    """Yield every step mapping of one job, same guard policy as {func}`_jobs_of`.
+
+    :param job: One job mapping.
+    """
+    for step in job.get("steps", []) or ():
+        if isinstance(step, dict):
+            yield step
+
+
+def iter_jobs(workflows: Mapping[Path, dict]) -> Iterator[tuple[Path, str, dict]]:
+    """Yield `(path, job_id, job)` for every job across *workflows*.
+
+    :param workflows: Parsed workflow documents, keyed by path.
+    """
+    for path, data in workflows.items():
+        for job_id, job in _jobs_of(data):
+            yield path, job_id, job
+
+
+def iter_steps(workflows: Mapping[Path, dict]) -> Iterator[tuple[Path, str, dict]]:
+    """Yield `(path, job_id, step)` for every step across *workflows*.
+
+    :param workflows: Parsed workflow documents, keyed by path.
+    """
+    for path, job_id, job in iter_jobs(workflows):
+        for step in _steps_of(job):
+            yield path, job_id, step
+
+
 def _advertised_python_versions(metadata: Metadata) -> list[tuple[int, int]]:
     """`(major, minor)` pairs from the project's Python version classifiers.
 
@@ -1554,16 +1633,13 @@ def _literal_python_axes(workflows: Mapping[Path, dict]) -> dict[str, list[str]]
     :return: A mapping of `<file>:<job>` to the versions that job names.
     """
     axes: dict[str, list[str]] = {}
-    for path, data in workflows.items():
-        for job_id, job in data["jobs"].items():
-            if not isinstance(job, dict):
-                continue
-            matrix = job.get("strategy", {}).get("matrix")
-            if not isinstance(matrix, dict):
-                continue
-            versions = matrix.get("python-version")
-            if isinstance(versions, list) and versions:
-                axes[f"{path.name}:{job_id}"] = [str(v) for v in versions]
+    for path, job_id, job in iter_jobs(workflows):
+        matrix = job.get("strategy", {}).get("matrix")
+        if not isinstance(matrix, dict):
+            continue
+        versions = matrix.get("python-version")
+        if isinstance(versions, list) and versions:
+            axes[f"{path.name}:{job_id}"] = [str(v) for v in versions]
     return axes
 
 
@@ -1706,14 +1782,13 @@ def literal_runners(
     if workflows is None:
         workflows = _load_workflows(workflow_dir)
     seen: dict[str, list[str]] = {}
-    for path, data in workflows.items():
-        for job_id, job in data["jobs"].items():
-            if not isinstance(job, dict) or "steps" not in job:
-                continue
-            runner = job.get("runs-on")
-            if not isinstance(runner, str) or "${{" in runner:
-                continue
-            seen.setdefault(runner, []).append(f"{path.name}:{job_id}")
+    for path, job_id, job in iter_jobs(workflows):
+        if "steps" not in job:
+            continue
+        runner = job.get("runs-on")
+        if not isinstance(runner, str) or "${{" in runner:
+            continue
+        seen.setdefault(runner, []).append(f"{path.name}:{job_id}")
     return seen
 
 
@@ -1992,15 +2067,11 @@ def _collect_conditions(
     """
     job_pairs: list[tuple[str, str]] = []
     step_pairs: list[tuple[str, str]] = []
-    for job in workflow.get("jobs", {}).values():
-        if not isinstance(job, dict):
-            continue
+    for _job_id, job in _jobs_of(workflow):
         job_name = job.get("name", "")
         if isinstance(job_name, str):
             job_pairs.append((job_name, str(job.get("if", ""))))
-        for step in job.get("steps", []) or ():
-            if not isinstance(step, dict):
-                continue
+        for step in _steps_of(job):
             step_name = step.get("name")
             if isinstance(step_name, str):
                 step_pairs.append((step_name, str(step.get("if", ""))))
@@ -2175,23 +2246,17 @@ def _setup_uv_steps(
 
     :param workflows: Parsed workflow documents, keyed by path.
     """
-    for path, data in workflows.items():
-        for job in data["jobs"].values():
-            if not isinstance(job, dict):
-                continue
-            for step in job.get("steps", []) or ():
-                if not isinstance(step, dict):
-                    continue
-                uses = str(step.get("uses", ""))
-                if not uses.startswith(f"{SETUP_UV_SLUG}@"):
-                    continue
-                inputs = step.get("with")
-                version = inputs.get("version") if isinstance(inputs, dict) else None
-                yield (
-                    path,
-                    uses.partition("@")[2],
-                    None if version is None else str(version),
-                )
+    for path, _job_id, step in iter_steps(workflows):
+        uses = str(step.get("uses", ""))
+        if not uses.startswith(f"{SETUP_UV_SLUG}@"):
+            continue
+        inputs = step.get("with")
+        version = inputs.get("version") if isinstance(inputs, dict) else None
+        yield (
+            path,
+            uses.partition("@")[2],
+            None if version is None else str(version),
+        )
 
 
 def check_setup_uv_version_pin(
@@ -2431,44 +2496,38 @@ def check_metadata_keys(
 
     valid = all_metadata_keys()
     results: list[CheckResult] = []
-    for path, data in workflows.items():
-        for job_id, job in data["jobs"].items():
-            if not isinstance(job, dict):
-                continue
-            for step in job.get("steps", []) or ():
-                if not isinstance(step, dict):
-                    continue
-                command = step.get("run")
-                if not isinstance(command, str):
-                    continue
-                requested = requested_metadata_keys(command, package)
-                if not requested:
-                    continue
-                where = f"{path.name}:{job_id}"
-                unknown = sorted(set(requested) - valid)
-                if unknown:
-                    names = ", ".join(f"`{key}`" for key in unknown)
-                    results.append(
-                        CheckResult(
-                            False,
-                            f"{where} asks `{package} metadata` for {names}, which"
-                            f" no longer exists. The command rejects an unknown"
-                            f" key outright, so this job fails on its next run,"
-                            f" and every job gated on it through `needs:` with"
-                            f" it. Run `{package} metadata --list-keys` for the"
-                            f" current set.",
-                        )
-                    )
-                else:
-                    count = len(requested)
-                    plural = "" if count == 1 else "s"
-                    results.append(
-                        CheckResult(
-                            True,
-                            f"{where}: {count} requested metadata key{plural}"
-                            f" exist{'s' if count == 1 else ''}.",
-                        )
-                    )
+    for path, job_id, step in iter_steps(workflows):
+        command = step.get("run")
+        if not isinstance(command, str):
+            continue
+        requested = requested_metadata_keys(command, package)
+        if not requested:
+            continue
+        where = f"{path.name}:{job_id}"
+        unknown = sorted(set(requested) - valid)
+        if unknown:
+            names = ", ".join(f"`{key}`" for key in unknown)
+            results.append(
+                CheckResult(
+                    False,
+                    f"{where} asks `{package} metadata` for {names}, which"
+                    f" no longer exists. The command rejects an unknown"
+                    f" key outright, so this job fails on its next run,"
+                    f" and every job gated on it through `needs:` with"
+                    f" it. Run `{package} metadata --list-keys` for the"
+                    f" current set.",
+                )
+            )
+        else:
+            count = len(requested)
+            plural = "" if count == 1 else "s"
+            results.append(
+                CheckResult(
+                    True,
+                    f"{where}: {count} requested metadata key{plural}"
+                    f" exist{'s' if count == 1 else ''}.",
+                )
+            )
 
     if not results:
         return [

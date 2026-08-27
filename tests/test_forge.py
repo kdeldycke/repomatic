@@ -23,6 +23,7 @@ import pytest
 from repomatic.forge import (
     FORGE_APIS,
     GITHUB_HOST,
+    Forge,
     ForgeMetrics,
     canonical_url,
     forge_of,
@@ -127,7 +128,7 @@ def test_forge_of_never_guesses_an_unknown_host():
     resolved = forge_of(
         "https://git.example.org/fruits/papaya", {"git.example.org": "gitlab"}
     )
-    assert resolved == "gitlab"
+    assert resolved is Forge.GITLAB
 
 
 def test_forge_of_rejects_an_unimplemented_forge():
@@ -138,9 +139,9 @@ def test_forge_of_rejects_an_unimplemented_forge():
 
 def test_known_forges_are_implemented():
     """Check every bundled host names a forge the reader actually speaks."""
-    assert set(FORGE_APIS.values()) <= {"forgejo", "github", "gitlab"}
+    assert set(FORGE_APIS.values()) <= set(Forge)
     assert FORGE_APIS == dict(sorted(FORGE_APIS.items()))
-    assert FORGE_APIS[GITHUB_HOST] == "github"
+    assert FORGE_APIS[GITHUB_HOST] is Forge.GITHUB
 
 
 @pytest.mark.parametrize(
