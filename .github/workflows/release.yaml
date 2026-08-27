@@ -177,7 +177,7 @@ jobs:
             || github.sha }}
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          version: "0.12.3"
+          version: "0.12.4"
       # No --output: its default is the same filename `release-assets` declares,
       # and spelling it here would push the line past yamllint's cap once the
       # release freeze splices the pinned invocation in.
