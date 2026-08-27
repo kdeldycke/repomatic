@@ -31,6 +31,21 @@ formatting must stay stable. The lint, autofix, and docs workflows key their
 tool caches on a hash of this file, so only a genuine version or checksum bump
 invalidates a cached tool download.
 ```
+
+```{todo}
+Drop the YAML-block fixup in the `mdformat` post-process callback once
+[executablebooks/mdformat-myst#49](https://github.com/executablebooks/mdformat-myst/pull/49)
+merges upstream. See `_DIRECTIVE_YAML_OPTIONS_RE` for the shape it repairs.
+```
+
+```{todo}
+Drop the colon-fence fixup in the same callback once `mdformat-myst` ships
+colon-fence support, via either
+[executablebooks/mdformat-myst#36](https://github.com/executablebooks/mdformat-myst/pull/36)
+or
+[executablebooks/mdformat-myst#48](https://github.com/executablebooks/mdformat-myst/pull/48).
+See `_ESCAPED_COLON_FENCE_RE` for the shape it repairs.
+```
 """
 
 from __future__ import annotations
@@ -924,11 +939,8 @@ Workaround for [executablebooks/mdformat-myst#21](https://github.com/executableb
 options to YAML blocks (`---` / `key: value` / `---`).
 ```
 
-```{todo}
-Remove this pattern and its post-process callback once
-[executablebooks/mdformat-myst#49](https://github.com/executablebooks/mdformat-myst/pull/49)
-merges upstream.
-```
+Retiring this pattern is tracked in the module docstring, where `autodoc`
+publishes it onto the todo list; a private name renders nowhere.
 """
 
 
@@ -957,13 +969,8 @@ Workaround for
 opening brace, leaving an uneditable ``\:::\{name}`` / ``\:option:`` / ``\:::`` block.
 ```
 
-```{todo}
-Remove this pattern and its post-process callback once `mdformat-myst` ships
-colon-fence support, via either
-[executablebooks/mdformat-myst#36](https://github.com/executablebooks/mdformat-myst/pull/36)
-or
-[executablebooks/mdformat-myst#48](https://github.com/executablebooks/mdformat-myst/pull/48).
-```
+Retiring this pattern is tracked in the module docstring, where `autodoc`
+publishes it onto the todo list; a private name renders nowhere.
 """
 
 
