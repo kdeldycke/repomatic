@@ -137,9 +137,12 @@ def plan_runner_changes(
       outright move to {func}`~repomatic.runner_catalog.successor_for`'s pick.
       Only literal `runs-on:` values are reachable: one built from an
       expression draws on a matrix axis, which is the axis owner's to move.
-    - **Upgrade.** A strictly newer *version* exists. It joins the full matrix
-      as a `continue-on-error` probe rather than replacing anything, so nothing
-      is bet on it while the suite starts exercising it.
+    - **Upgrade.** A strictly newer *version* exists, and nothing here runs it
+      yet. It joins the full matrix as a `continue-on-error` probe rather than
+      replacing anything, so nothing is bet on it while the suite starts
+      exercising it. A successor already in the fleet is skipped: the probe
+      would mark cells that gate today `continue-on-error`, which is how a
+      single job pinned to an older image can un-gate the current one.
 
     Strictly newer by **version** is what separates an upgrade from a flavour.
     `Windows 11 Arm64 with Visual Studio 2026` sits at the same version as
@@ -161,10 +164,11 @@ def plan_runner_changes(
         return []
 
     declined = frozenset(ignore)
+    running = frozenset(tracked)
     indexed = by_label(catalog)
     changes: list[RunnerChange] = []
 
-    for label in sorted(frozenset(tracked) - declined):
+    for label in sorted(running - declined):
         current = indexed.get(label)
 
         if current is None:
@@ -196,17 +200,25 @@ def plan_runner_changes(
             continue
 
         newer = newer_version_than(label, catalog)
-        if newer and newer.preferred_label not in declined:
-            changes.append(
-                RunnerChange(
-                    kind="upgrade",
-                    label=label,
-                    successor=newer.preferred_label,
-                    locations=(),
-                    reason=f"{newer.display_name} supersedes {current.display_name}",
-                    alternative="",
-                )
+        if not newer or newer.preferred_label in declined:
+            continue
+        if running.intersection(newer.labels):
+            # Already in the fleet, so there is nothing left to start
+            # exercising. Proposing it anyway is not merely redundant: the
+            # `unstable` entry a probe writes marks *every* cell on that image
+            # `continue-on-error`, so a repository keeping one job pinned to an
+            # older image would stop gating on the image it runs today.
+            continue
+        changes.append(
+            RunnerChange(
+                kind="upgrade",
+                label=label,
+                successor=newer.preferred_label,
+                locations=(),
+                reason=f"{newer.display_name} supersedes {current.display_name}",
+                alternative="",
             )
+        )
 
     # Retirements first: one carries a deadline, the other an opportunity.
     changes.sort(key=lambda change: (change.kind != "retirement", change.label))

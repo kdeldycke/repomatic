@@ -84,6 +84,22 @@ def test_a_strictly_newer_version_is_proposed_as_a_probe() -> None:
     assert "supersedes" in change.reason
 
 
+def test_a_successor_already_in_the_fleet_is_never_probed() -> None:
+    """One job pinned to an older image must not un-gate the current one.
+
+    A repository whose matrix already runs `ubuntu-26.04`, and which keeps a
+    single job on `ubuntu-24.04` for a reason of its own, is running the
+    successor already: there is nothing left to start exercising. Proposing the
+    probe anyway writes an `unstable` entry marking *every* `ubuntu-26.04` cell
+    `continue-on-error`, turning the repository's own gating column advisory.
+    """
+    assert not plan_runner_changes(
+        {"ubuntu-24.04": ["check-deps.yaml:build"]},
+        {"ubuntu-24.04", "ubuntu-26.04"},
+        CATALOG,
+    )
+
+
 def test_running_the_newest_proposes_nothing() -> None:
     """The quiet steady state: nothing to say about a current fleet."""
     assert not plan_runner_changes({}, {"ubuntu-26.04", "macos-26-intel"}, CATALOG)
