@@ -28,7 +28,7 @@ import pytest
 from repomatic.runner_catalog import RunnerImage
 from repomatic.runner_images import (
     apply_axes_retirement,
-    apply_retirement,
+    apply_literal_rewrite,
     apply_upgrade,
     plan_runner_changes,
     render_change_table,
@@ -84,20 +84,40 @@ def test_a_strictly_newer_version_is_proposed_as_a_probe() -> None:
     assert "supersedes" in change.reason
 
 
-def test_a_successor_already_in_the_fleet_is_never_probed() -> None:
-    """One job pinned to an older image must not un-gate the current one.
+def test_an_upgrade_moves_the_jobs_naming_the_old_image() -> None:
+    """A literal is the one `runs-on:` no probe reaches, so the upgrade moves it."""
+    (change,) = plan_runner_changes(
+        {"ubuntu-24.04": ["check-deps.yaml:build"]}, {"ubuntu-24.04"}, CATALOG
+    )
+    assert change.kind == "upgrade"
+    assert change.successor == "ubuntu-26.04"
+    assert change.locations == ("check-deps.yaml:build",)
+    assert change.probe
+
+
+def test_a_successor_already_in_the_fleet_is_moved_onto_but_never_probed(
+    tmp_path,
+) -> None:
+    """One job left behind still moves, without un-gating the current image.
 
     A repository whose matrix already runs `ubuntu-26.04`, and which keeps a
-    single job on `ubuntu-24.04` for a reason of its own, is running the
-    successor already: there is nothing left to start exercising. Proposing the
-    probe anyway writes an `unstable` entry marking *every* `ubuntu-26.04` cell
+    single job on `ubuntu-24.04`, gets that job moved: it is the half no probe
+    can do. The probe half is dropped, since writing an `unstable` entry for an
+    image already in the matrix marks *every* `ubuntu-26.04` cell
     `continue-on-error`, turning the repository's own gating column advisory.
     """
-    assert not plan_runner_changes(
+    (change,) = plan_runner_changes(
         {"ubuntu-24.04": ["check-deps.yaml:build"]},
         {"ubuntu-24.04", "ubuntu-26.04"},
         CATALOG,
     )
+    assert change.locations == ("check-deps.yaml:build",)
+    assert not change.probe
+
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "papaya"\n', encoding="UTF-8")
+    assert not apply_upgrade(change, pyproject)
+    assert "test-matrix" not in pyproject.read_text(encoding="UTF-8")
 
 
 def test_running_the_newest_proposes_nothing() -> None:
@@ -133,7 +153,7 @@ def test_a_withdrawn_label_is_left_to_actionlint() -> None:
     assert not plan_runner_changes({}, {"ubuntu-18.04"}, CATALOG)
 
 
-def test_apply_retirement_rewrites_literals_only(tmp_path) -> None:
+def test_apply_literal_rewrite_touches_literals_only(tmp_path) -> None:
     """Quoting survives, expressions are left alone, and a re-run is a no-op."""
     workflows = tmp_path / "workflows"
     workflows.mkdir()
@@ -148,12 +168,12 @@ def test_apply_retirement_rewrites_literals_only(tmp_path) -> None:
         {"ubuntu-22.04": ["tests.yaml:a"]}, {"ubuntu-22.04"}, CATALOG
     )
 
-    assert [p.name for p in apply_retirement(change, workflows)] == ["tests.yaml"]
+    assert [p.name for p in apply_literal_rewrite(change, workflows)] == ["tests.yaml"]
     written = (workflows / "tests.yaml").read_text(encoding="UTF-8")
     assert "runs-on: ubuntu-24.04" in written
     assert 'runs-on: "ubuntu-24.04"' in written
     assert "runs-on: ${{ matrix.os }}" in written
-    assert not apply_retirement(change, workflows), "second run should be a no-op"
+    assert not apply_literal_rewrite(change, workflows), "second run should be a no-op"
 
 
 def test_apply_upgrade_writes_sections_not_inline_tables(tmp_path) -> None:
@@ -226,9 +246,19 @@ def test_change_table_carries_the_reasoning() -> None:
     )
     table = render_change_table(changes)
     # Retirements first: one carries a deadline, the other an opportunity.
-    assert table.index("🔴 retirement") < table.index("🆕 probe")
+    assert table.index("🔴 retirement") < table.index("🆕 upgrade")
     assert "is deprecated" in table
     assert "`ubuntu-26.04` (preview)" in table
+
+
+def test_change_table_names_both_halves_of_an_upgrade() -> None:
+    """A reviewer sees the jobs that move and the cell that joins the matrix."""
+    (change,) = plan_runner_changes(
+        {"ubuntu-24.04": ["check-deps.yaml:build"]}, {"ubuntu-24.04"}, CATALOG
+    )
+    row = render_change_table([change])
+    assert "`ubuntu-24.04` → `ubuntu-26.04` in `check-deps.yaml:build`" in row
+    assert "joins the matrix as `continue-on-error`" in row
 
 
 @pytest.mark.parametrize("kind", ["retirement", "upgrade"])

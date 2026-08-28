@@ -14,6 +14,7 @@
 - The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
 - The `sync-runner-images` pull request body is now shorter and uses simpler sentences.
 - Trim the prose of the `bump-version`, `detect-squash-merge`, `prepare-release`, `sample-metrics`, `setup-guide-cloudflare-pages`, `setup-guide-token` and `sync-dep-sources` templates.
+- `sync-runner-images` now rewrites a literal `runs-on:` as soon as a newer image supersedes it, instead of waiting for the old one to be deprecated.
 - Fix `repomatic run` printing a Python traceback for an unknown tool name. It is now a usage error listing every registered tool.
 - Fix the `plugin` component rewriting a settings file `format-json` had already settled, which kept `sync-repomatic` and the autofix lane undoing each other. The wiring now compares the parsed document, not its text.
 - Fix the generated `release.yaml` ending on a stray blank line, alone among the workflow callers.

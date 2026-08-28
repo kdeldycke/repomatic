@@ -116,7 +116,7 @@ from ..metadata.core import (
 from ..runner_catalog import fetch_catalog
 from ..runner_images import (
     apply_axes_retirement,
-    apply_retirement,
+    apply_literal_rewrite,
     apply_upgrade,
     close_legacy_issue,
     plan_runner_changes,
@@ -516,9 +516,12 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
             echo(f"  passed over: {change.alternative} (preview)")
         if dry_run:
             continue
+        # Both kinds move the jobs naming the image outright: a retirement
+        # because the image is going away, an upgrade because a literal
+        # `runs-on:` is the one the matrix probe below cannot reach.
+        for path in apply_literal_rewrite(change, WORKFLOW_DIR):
+            echo(f"  rewrote {path.name}")
         if change.kind == "retirement":
-            for path in apply_retirement(change, WORKFLOW_DIR):
-                echo(f"  rewrote {path.name}")
             # Only here do the curated axes exist to move. Downstream they
             # arrive through the pin, so a repo consuming repomatic picks the
             # new matrix up when it adopts a release.

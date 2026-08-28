@@ -101,7 +101,12 @@ class RunnerChange:
     """Label to move onto, or to probe."""
 
     locations: tuple[str, ...]
-    """`file.yaml:job-id` entries naming {attr}`label`, for a retirement."""
+    """`file.yaml:job-id` entries whose literal `runs-on:` names {attr}`label`.
+
+    Rewritten onto {attr}`successor` for either kind. A retirement moves them
+    because the image is going away; an upgrade because nothing else ever will,
+    a literal being the one `runs-on:` no probe can reach.
+    """
 
     reason: str
     """Why the table says this change is warranted."""
@@ -113,10 +118,19 @@ class RunnerChange:
     a capacity judgement, and the pull request exists to host exactly that.
     """
 
+    probe: bool = False
+    """Whether the test matrix gains a `continue-on-error` cell on {attr}`successor`.
+
+    An upgrade sets this only when the fleet does not run the successor yet.
+    Probing one it already runs writes an `unstable` entry marking *every* cell
+    on that image `continue-on-error`, so a single job left behind would stop
+    the current image from gating the build.
+    """
+
     @property
     def summary(self) -> str:
         """One line naming the change, for a commit subject or a table row."""
-        if self.kind == "upgrade":
+        if self.kind == "upgrade" and not self.locations:
             return f"probe `{self.successor}` alongside `{self.label}`"
         return f"`{self.label}` → `{self.successor}`"
 
@@ -135,14 +149,16 @@ def plan_runner_changes(
     - **Retirement.** The row is badged deprecated, or the label is absent from
       the table entirely, which means the image is already gone. Jobs naming it
       outright move to {func}`~repomatic.runner_catalog.successor_for`'s pick.
-      Only literal `runs-on:` values are reachable: one built from an
-      expression draws on a matrix axis, which is the axis owner's to move.
-    - **Upgrade.** A strictly newer *version* exists, and nothing here runs it
-      yet. It joins the full matrix as a `continue-on-error` probe rather than
-      replacing anything, so nothing is bet on it while the suite starts
-      exercising it. A successor already in the fleet is skipped: the probe
-      would mark cells that gate today `continue-on-error`, which is how a
-      single job pinned to an older image can un-gate the current one.
+    - **Upgrade.** A strictly newer *version* exists. Jobs naming the old image
+      outright move onto it, and the matrix gains it as a `continue-on-error`
+      probe, so nothing is bet on it there while the suite starts exercising
+      it. The probe half is dropped when the fleet already runs the successor,
+      per {attr}`RunnerChange.probe`; the rewrite half is what moves a job no
+      probe can reach.
+
+    Only literal `runs-on:` values are rewritten, for either kind: one built
+    from an expression draws on a matrix axis, which is the axis owner's to
+    move.
 
     Strictly newer by **version** is what separates an upgrade from a flavour.
     `Windows 11 Arm64 with Visual Studio 2026` sits at the same version as
@@ -202,21 +218,25 @@ def plan_runner_changes(
         newer = newer_version_than(label, catalog)
         if not newer or newer.preferred_label in declined:
             continue
-        if running.intersection(newer.labels):
-            # Already in the fleet, so there is nothing left to start
-            # exercising. Proposing it anyway is not merely redundant: the
-            # `unstable` entry a probe writes marks *every* cell on that image
-            # `continue-on-error`, so a repository keeping one job pinned to an
-            # older image would stop gating on the image it runs today.
+        # Already in the fleet leaves nothing to start exercising, and probing
+        # it anyway is worse than redundant: the `unstable` entry marks *every*
+        # cell on that image `continue-on-error`, so one job left behind would
+        # stop the image this repository runs today from gating the build.
+        # The literal rewrite below still applies, which is how that job stops
+        # being left behind.
+        locations = tuple(literal.get(label, ()))
+        probe = not running.intersection(newer.labels)
+        if not locations and not probe:
             continue
         changes.append(
             RunnerChange(
                 kind="upgrade",
                 label=label,
                 successor=newer.preferred_label,
-                locations=(),
+                locations=locations,
                 reason=f"{newer.display_name} supersedes {current.display_name}",
                 alternative="",
+                probe=probe,
             )
         )
 
@@ -237,17 +257,22 @@ def render_change_table(changes: Sequence[RunnerChange]) -> str:
     """
     rows = []
     for change in changes:
-        if change.kind == "retirement":
-            kind = "🔴 retirement"
-            where = f"`{change.label}` → `{change.successor}`"
-            if change.locations:
-                where += " in " + ", ".join(f"`{loc}`" for loc in change.locations)
-        else:
-            kind = "🆕 probe"
-            where = (
+        kind = "🔴 retirement" if change.kind == "retirement" else "🆕 upgrade"
+        halves = []
+        if change.locations:
+            halves.append(
+                f"`{change.label}` → `{change.successor}` in "
+                + ", ".join(f"`{loc}`" for loc in change.locations)
+            )
+        if change.probe:
+            halves.append(
                 f"`{change.successor}` joins the matrix as `continue-on-error`, "
                 f"beside `{change.label}`"
             )
+        # A retirement with neither half is still worth a row: the image is
+        # going away, and the label lives in a matrix axis this repository
+        # inherits rather than in any `runs-on:` it could rewrite.
+        where = ", and ".join(halves) or f"`{change.label}` → `{change.successor}`"
         alternative = f"`{change.alternative}` (preview)" if change.alternative else "—"
         rows.append((kind, where, change.reason, alternative))
     table = render_markdown_table(
@@ -292,13 +317,27 @@ The optional quote group is carried through so a quoted value stays quoted.
 """
 
 
-def apply_retirement(change: RunnerChange, workflow_dir: Path) -> list[Path]:
-    """Rewrite every literal `runs-on:` naming a retiring label.
+def apply_literal_rewrite(change: RunnerChange, workflow_dir: Path) -> list[Path]:
+    """Rewrite every literal `runs-on:` naming the label being moved off.
+
+    Serves both kinds. A retirement rewrites because the image is going away; an
+    upgrade rewrites because a literal is the one `runs-on:` a matrix probe
+    cannot reach, so without this it sits on its image until a retirement
+    forces the move, at the moment there is least runway to handle a break.
+
+    ```{caution}
+    An upgrade rewrite is a bet rather than an experiment: a job has one image,
+    so there is no `continue-on-error` half to fall back on. The pull request
+    is where that bet is taken or declined, and its own CI run is the evidence
+    only for a job the pull request actually runs. A workflow triggered by
+    `schedule` or `workflow_dispatch` alone shows nothing on the proposal, so
+    read the diff for those rather than the checkmark.
+    ```
 
     Idempotent: a file already on the successor matches nothing and is left
     untouched, so a re-run after a merge is a no-op rather than a second edit.
 
-    :param change: A `retirement` change from {func}`plan_runner_changes`.
+    :param change: Any change from {func}`plan_runner_changes`.
     :param workflow_dir: Directory holding the workflow files.
     :return: The files actually rewritten.
     """
@@ -376,11 +415,14 @@ def apply_upgrade(change: RunnerChange, pyproject_path: Path) -> bool:
     Idempotent: an image already probed is detected in both keys and nothing is
     written.
 
-    :param change: An `upgrade` change from {func}`plan_runner_changes`.
+    :param change: An `upgrade` change from {func}`plan_runner_changes`. One
+        carrying {attr}`~RunnerChange.probe` unset writes nothing: its
+        successor is already in the fleet, so the `unstable` entry would mark
+        cells that gate today `continue-on-error`.
     :param pyproject_path: The project file to edit.
     :return: Whether the file was modified.
     """
-    if not pyproject_path.is_file():
+    if not change.probe or not pyproject_path.is_file():
         return False
     doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
     # Seeded through `Table` rather than a bare dict, which `setdefault` would
