@@ -7,6 +7,9 @@
 
 ## [`7.14.0` (2026-08-27)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...v7.14.0)
 
+> [!NOTE]
+> `7.14.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.14.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.14.0).
+
 - **Breaking:** the `agent` component is gone, with the `agent.location` config key and the bundled `claude.md` reference document. `repomatic init` no longer writes to a repository's instructions file, which each repository now owns outright.
 - **Breaking:** `CLOUDFLARE_ACCOUNT_ID` is gone: the account derives from `CLOUDFLARE_API_TOKEN` alone. `cloudflare-pages --account-id` and `lint-repo --has-cloudflare-account-id` are removed with it.
 - **Breaking:** the `debug.yaml` workflow is now opt-in, gated by a new `[tool.repomatic] debug.sync` key. A repository already carrying it keeps it by setting `debug.sync = true`.
