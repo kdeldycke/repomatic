@@ -27,14 +27,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from click_extra import Context
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 
 from repomatic.cli.main import (
     JOB_COUNT_MARK,
     TEST_MATRIX_STATE_DISPLAY,
+    MatrixAxis,
+    discoverable_axis_keys,
     flat_matrix_table,
     format_matrix_cell,
+    matrix_axis_keys,
     repomatic,
 )
 from repomatic.config import (
@@ -1284,6 +1288,41 @@ def test_show_test_matrix_rejects_an_unknown_axis():
     assert result.exit_code != 0
     assert "papaya" in result.output
     assert PYTHON_VERSION_AXIS in result.output
+
+
+@pytest.mark.parametrize("axis_option", ("--row-axis", "--col-axis"))
+def test_show_test_matrix_help_lists_the_axis_keys(axis_option):
+    """Both axis options name the keys they accept, so `--help` teaches them."""
+    result = CliRunner().invoke(repomatic, ["show-test-matrix", "--help"])
+    assert result.exit_code == 0, result.output
+    # The help wraps its option column, so match on the unwrapped text.
+    flattened = " ".join(result.output.split())
+    assert axis_option in flattened
+    for key in matrix_axis_keys(Metadata().test_matrix):
+        assert key in flattened
+
+
+def test_show_test_matrix_help_and_validation_read_the_same_keys():
+    """The listing offered and the set enforced come from one source.
+
+    A hand-kept help string is what drifts: it would keep naming an axis the
+    matrix dropped, or miss the `[tool.repomatic.test-matrix]` variation this
+    project just added.
+    """
+    assert discoverable_axis_keys() == matrix_axis_keys(Metadata().test_matrix)
+
+
+def test_matrix_axis_completes_the_keys_it_lists():
+    """Shell completion offers the same keys, filtered on what is typed."""
+    command = repomatic.commands["show-test-matrix"]
+    param = next(p for p in command.params if "--row-axis" in p.opts)
+    assert isinstance(param.type, MatrixAxis)
+    with Context(command) as ctx:
+        completions = param.type.shell_complete(ctx, param, "python-")
+    assert [item.value for item in completions] == [
+        key for key in discoverable_axis_keys() if key.startswith("python-")
+    ]
+    assert completions, "the full matrix always carries a python-version axis"
 
 
 def test_show_test_matrix_rejects_unknown_name():

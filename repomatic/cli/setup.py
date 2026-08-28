@@ -96,6 +96,8 @@ from ..tooling import tool_registry
 from .main import (
     AXIS_HEADER_LABELS,
     ComponentSelector,
+    MatrixAxis,
+    MatrixAxisOption,
     _metadata_sort,
     _report_paths,
     _section_setup,
@@ -103,6 +105,7 @@ from .main import (
     flat_matrix_table,
     format_matrix_cell,
     log_output_target,
+    matrix_axis_keys,
     matrix_axis_sort_key,
     output_format_option,
     repomatic,
@@ -849,11 +852,15 @@ def show_config(ctx: Context) -> None:
 )
 @option(
     "--row-axis",
+    cls=MatrixAxisOption,
+    type=MatrixAxis(),
     default=PYTHON_VERSION_AXIS,
     help="Job key whose values become the grid's rows.",
 )
 @option(
     "--col-axis",
+    cls=MatrixAxisOption,
+    type=MatrixAxis(),
     default=OS_AXIS,
     help="Job key whose values become the grid's columns.",
 )
@@ -900,13 +907,15 @@ def show_test_matrix(
     meta = Metadata()
     matrix = meta.test_matrix if matrix_name == "full" else meta.test_matrix_pr
     # An axis no job carries pivots into an empty grid, which reads as a matrix
-    # with nothing in it rather than as the typo it is.
-    job_keys = {key for job in matrix.solve() for key in job}
+    # with nothing in it rather than as the typo it is. The `--help` listing
+    # offers the full matrix's keys, so a `pr` grid lands here on the few the
+    # reduced matrix drops.
+    job_keys = matrix_axis_keys(matrix)
     for hint, axis in (("--row-axis", row_axis), ("--col-axis", col_axis)):
         if axis not in job_keys:
             msg = (
                 f"{axis!r} is not a key of the {matrix_name} matrix. "
-                f"Pass {hint} one of: {', '.join(sorted(job_keys))}."
+                f"Pass {hint} one of: {', '.join(job_keys)}."
             )
             raise UsageError(msg)
     # Both layouts order on the same two axes, so the same matrix reads in one

@@ -36,6 +36,7 @@ from click_extra import (
     Choice,
     ClickException,
     Context,
+    Option,
     ParamType,
     Section,
     SortByOption,
@@ -133,6 +134,8 @@ if TYPE_CHECKING:
     # above: the `ParamType` overrides must accept any click context, or mypy
     # flags the narrowing as a Liskov violation.
     from click import Context as ClickContext, Parameter
+
+    from ..github.matrix import Matrix
 
 
 # ---------------------------------------------------------------------------
@@ -730,6 +733,93 @@ differently. `--no-emoji` sidesteps the whole question for a reader who wants
 a square grid, and a terminal on Unicode 9 widths never sees it.
 ```
 """
+
+
+def matrix_axis_keys(matrix: Matrix) -> tuple[str, ...]:
+    """Every job key one matrix carries, sorted.
+
+    Read off the solved job stream rather than off the declared axes, so a key
+    only an `include` directive contributes is listed and one whose directive
+    every `exclude` cancelled is not. That makes the listing exactly the set an
+    axis can pivot on: anything outside it yields an empty grid.
+    """
+    return tuple(sorted({key for job in matrix.solve() for key in job}))
+
+
+def discoverable_axis_keys() -> tuple[str, ...]:
+    """The full matrix's axis keys, for a help line or a completion list.
+
+    The full matrix is the superset: `[tool.repomatic.test-matrix] variations`
+    and `full-include` rows reach it alone, and every other directive reaches
+    both. So it is what a listing that cannot yet know which matrix the caller
+    will name should offer, and `show_test_matrix` re-checks against the one
+    they do name.
+
+    Nothing here may fail or speak: it runs while Click renders `--help` or a
+    completion list, where a traceback replaces the text the reader asked for,
+    and a `prune()` warning about a stale exclude prepends noise to it. Both
+    are worth a listing degraded to empty, which the caller renders as no
+    listing at all.
+    """
+    logging.disable(logging.CRITICAL)
+    try:
+        return matrix_axis_keys(Metadata().test_matrix)
+    except Exception:  # noqa: BLE001
+        # Deliberately not logged: this runs mid-render, so a report would
+        # land in the middle of the help text it is apologising for.
+        return ()
+    finally:
+        logging.disable(logging.NOTSET)
+
+
+class MatrixAxis(ParamType):
+    """A job key naming one axis of the `show-test-matrix` grid.
+
+    Carries no `convert` validation: the accepted keys depend on which matrix
+    the caller names, which is not parsed yet when a type converts, and
+    {func}`show_test_matrix` already refuses an unknown one against the right
+    matrix. What the type adds is discoverability, through the completion list
+    below and the help line {class}`MatrixAxisOption` renders.
+    """
+
+    name = "axis"
+
+    def get_metavar(self, param: Parameter, ctx: ClickContext) -> str:
+        return "AXIS"
+
+    def shell_complete(
+        self, ctx: ClickContext, param: Parameter, incomplete: str
+    ) -> list[CompletionItem]:
+        return [
+            CompletionItem(key)
+            for key in discoverable_axis_keys()
+            if key.startswith(incomplete)
+        ]
+
+
+class MatrixAxisOption(Option):
+    """An axis option whose help line names the keys the matrix carries.
+
+    The keys are the project's own: a repository varying its matrix on a
+    `click-version` can pivot on it, and a static list would omit exactly the
+    axis worth discovering. So the listing is computed while the help renders
+    rather than declared at import, which also keeps the matrix out of every
+    other command's startup.
+    """
+
+    def get_help_record(self, ctx: ClickContext) -> tuple[str, str] | None:
+        keys = discoverable_axis_keys()
+        if not keys:
+            return super().get_help_record(ctx)
+        # Swap the help in for the render alone: appending to the record
+        # `super()` returns would land the listing after the `[default: …]`
+        # suffix it stamps on the end.
+        declared = self.help
+        self.help = f"{declared} One of: {', '.join(keys)}."
+        try:
+            return super().get_help_record(ctx)
+        finally:
+            self.help = declared
 
 
 def matrix_axis_sort_key(axis: str, matrix_name: str) -> Callable[[str], Any] | None:

@@ -37,7 +37,7 @@ The reduced pull-request matrix keeps one runner per OS and two Python versions,
 invoke(repomatic, args=['show-test-matrix', 'pr'])
 ```
 
-A grid has two axes and a matrix may vary on more: a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. To break them apart, lay the grid out on the axes you care about with `--row-axis` and `--col-axis`, naming any job key the matrix carries:
+A grid has two axes and a matrix may vary on more: a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. To break them apart, lay the grid out on the axes you care about with `--row-axis` and `--col-axis`, naming any job key the matrix carries. Both options list the keys of your own matrix in `--help`, so a repository varying on a `click-version` sees that axis offered:
 
 ```{click:run}
 invoke(repomatic, args=['show-test-matrix', '--row-axis', 'os', '--col-axis', 'python-version'])
