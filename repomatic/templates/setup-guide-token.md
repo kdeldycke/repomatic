@@ -21,7 +21,7 @@ Some jobs create PRs touching `.github/workflows/`, which needs a **fine-grained
    | **Pull requests**     | Read and Write          |
    | **Workflows**         | Read and Write          |
 
-4. Set an expiration, and a reminder that outlives it: an expired token fails jobs silently.
+4. Set an expiration, and a calendar reminder for that date: an expired token fails jobs silently.
 
 5. Click **Generate token**, then store it:
 

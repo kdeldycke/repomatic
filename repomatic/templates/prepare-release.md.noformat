@@ -7,7 +7,7 @@ labels: [🆙 changelog]
 draft: true
 ---
 
-${release_readiness}See the [`prepare-release` job documentation](https://repomatic.net/workflows#github-workflows-changelog-yaml-jobs) for details. The [merge event will trigger](https://repomatic.net/workflows#github-workflows-release-yaml-jobs) the:
+${release_readiness}See the [`prepare-release` job documentation](https://repomatic.net/workflows#github-workflows-changelog-yaml-jobs) for details. Merging this pull request triggers the [release pipeline](https://repomatic.net/workflows#github-workflows-release-yaml-jobs):
 
 1. Creation of a `v$version` tag on `main` branch
 2. Build and release of the Python package to [PyPI](https://pypi.org)
@@ -16,8 +16,8 @@ ${release_readiness}See the [`prepare-release` job documentation](https://repoma
 
 ## How-to release `v$version`
 
-${dev_release_review}${changes_review}1. **Click `Ready for review`** button below, to get this PR out of `Draft` mode
-1. **Click `Rebase and merge`** button below
+${dev_release_review}${changes_review}1. **Click `Ready for review`** below
+1. **Click `Rebase and merge`** below
 
 > [!CAUTION]
-> Do not `Squash and merge`: [we need the 2 distinct commits](https://github.com/kdeldycke/repomatic/blob/main/docs/workflows.md#freeze-and-unfreeze-commits) in this PR.
+> Do not `Squash and merge`: the release needs the [2 distinct commits](https://github.com/kdeldycke/repomatic/blob/main/docs/workflows.md#freeze-and-unfreeze-commits) in this PR.

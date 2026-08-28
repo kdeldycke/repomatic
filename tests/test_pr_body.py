@@ -338,7 +338,7 @@ def test_load_template_frontmatter():
     meta, body = load_template("bump-version")
 
     assert meta["args"] == ["version", "part"]
-    assert body.startswith("Ready to be merged")
+    assert body.startswith("Merge this pull request")
 
 
 def test_load_template_title_only_frontmatter():

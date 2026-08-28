@@ -7,10 +7,10 @@ labels: [🆙 changelog]
 draft: true
 ---
 
-Ready to be merged into `main` branch, at the discretion of the maintainers, to bump the \$part part of the version number. Version bumps are scheduled daily and also triggered after releases. See the [`bump-version` job documentation](https://repomatic.net/workflows#github-workflows-changelog-yaml-jobs) for details.
+Merge this pull request to bump the \$part part of the version number. Version bumps run on a daily schedule and after each release. See the [`bump-version` job documentation](https://repomatic.net/workflows#github-workflows-changelog-yaml-jobs) for details.
 
 ## To bump version to `v\$version`
 
-1. **Click `Ready for review`** button below, to get this PR out of `Draft` mode
+1. **Click `Ready for review`** below
 
-2. **Click `Rebase and merge`** button below
+2. **Click `Rebase and merge`** below

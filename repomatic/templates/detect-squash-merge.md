@@ -12,19 +12,19 @@ footer: false
 
 ## What happened
 
-The release process requires the freeze and unfreeze commits to land as **separate commits** via "Rebase and merge". A squash merge combines them into one, preventing the tagging pipeline from identifying the freeze commit.
+The release needs the freeze and unfreeze commits as **separate commits**, landed with "Rebase and merge". A squash merge combines them into one, so the tagging pipeline cannot find the freeze commit.
 
-Existing safeguards prevented the release from being published:
+Existing safeguards stopped the release:
 
 - No git tag was created.
 - No PyPI package was published.
 - No GitHub release was created.
 
-The merged changes are the net effect of freeze + unfreeze, which leaves `main` in a valid state for the next development cycle. The skipped version appears in the changelog but was never published.
+Freeze and unfreeze cancel out, so `main` stays valid for the next cycle. The skipped version appears in the changelog but was never published.
 
 ## Recovery
 
-No immediate action is required. To release:
+No action is required. To release:
 
 1. Make any pending changes (or wait for the next one).
 2. Let `prepare-release` create a new release PR for the next version.
