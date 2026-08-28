@@ -599,6 +599,14 @@ def check_topics_subset_of_keywords(
 ) -> CheckResult:
     """Check that GitHub repo topics are a subset of pyproject.toml keywords.
 
+    ```{note}
+    The comparison is case-insensitive. GitHub lowercases every topic it
+    stores, while `[project] keywords` carries the spelling the package
+    publishes. A project keywording an acronym (`CLI`, `EML`, `MMDF`) would
+    otherwise be told to add topics it already declares, with no spelling of
+    the keyword able to satisfy both sides.
+    ```
+
     :param repo: Repository in 'owner/repo' format.
     :param keywords: Keywords from pyproject.toml. If `None`, check is skipped.
     :return: A `CheckResult`.
@@ -620,7 +628,8 @@ def check_topics_subset_of_keywords(
     if not topics:
         return CheckResult(None, "Topics check: skipped (no GitHub topics set)")
 
-    extra = sorted(topics - set(keywords))
+    declared = {keyword.strip().lower() for keyword in keywords}
+    extra = sorted(topic for topic in topics if topic.lower() not in declared)
     if extra:
         msg = (
             f"GitHub topics not in pyproject.toml keywords: {', '.join(extra)}. "

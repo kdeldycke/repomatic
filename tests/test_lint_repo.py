@@ -814,6 +814,16 @@ def test_topics_extra_not_in_keywords():
         assert "unknown-topic" in result.message
 
 
+def test_topics_match_keywords_case_insensitively():
+    """GitHub lowercases topics, so a capitalized keyword still counts."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.return_value = "cli\nmmdf\nbabyl\n"
+        result = check_topics_subset_of_keywords(
+            "owner/repo", keywords=["CLI", "MMDF", "Babyl"]
+        )
+        assert result.passed is True
+
+
 def test_topics_api_failure():
     """Skip gracefully when API call fails."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
