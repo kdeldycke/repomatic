@@ -245,7 +245,9 @@ $ repomatic run mdformat
 The first resolves to `repomatic run yamllint -- .`; the second walks every Markdown file in the repository and formats each one in turn, matching what the `format-markdown` job runs. A tool with no declared defaults runs bare, exactly as before.
 
 ```{note}
-This only fires on a **bare** invocation. Passing any argument after `--`, even one that overlaps with the tool's defaults, hands control to you entirely: nothing is injected on top of it. Splicing repomatic's defaults into a caller-driven command could otherwise build something like `biome format … check .`, which is not a command anyone meant to run.
+This only fires on a **bare** invocation. Passing any argument after `--` suppresses the tool's default arguments and paths, handing the command line to you. Splicing repomatic's defaults into a caller-driven command could otherwise build something like `biome format … check .`, which is not a command anyone meant to run.
+
+Managed configuration is not suppressed with them. A tool's default flags and its resolved config file are still applied on top of whatever you pass, so repeating one yourself produces a duplicate the tool then rejects: `repomatic run zizmor -- --offline .` fails because `--offline` is already a zizmor default flag.
 ```
 
 When a tool's defaults are file-driven and the repository holds no matching file, the tool is skipped rather than invoked with no path: a formatter handed zero paths does not no-op, it walks the entire tree in write mode.
@@ -256,7 +258,7 @@ Everything after `--` is forwarded to the tool:
 
 ```shell-session
 $ repomatic run ruff -- check --fix .
-$ repomatic run zizmor -- --offline .github/workflows/
+$ repomatic run zizmor -- --persona auditor .github/workflows/
 $ repomatic run biome -- format --write src/
 ```
 

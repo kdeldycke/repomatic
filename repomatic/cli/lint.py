@@ -911,7 +911,7 @@ def run_cmd(
     \b
     Pass extra arguments to the tool after --:
         repomatic run yamllint -- --strict .
-        repomatic run zizmor -- --offline .
+        repomatic run zizmor -- --persona auditor .
 
     \b
     Report what a formatter would rewrite, leaving the tree alone:
