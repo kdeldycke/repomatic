@@ -30,6 +30,7 @@ from repomatic.github.ci_status import (
     latest_run,
     monitored_workflows,
     read_ci_status,
+    workflow_files,
 )
 
 
@@ -286,3 +287,27 @@ def test_read_ci_status_batches_the_branch_listing():
     # One workflow catalog, one branch listing, two job views: no
     # per-workflow listings at all.
     assert mock.call_count == 4
+
+
+def test_workflow_files_keeps_everything_with_runs_of_its_own(tmp_path):
+    """Every trigger counts except `workflow_call`, which creates no run.
+
+    `monitored_workflows` answers "what does a push start", which is a
+    narrower question than "what may I name": a schedule-only workflow has
+    runs worth reading, and a reusable one never does.
+    """
+    (tmp_path / "tests.yaml").write_text(
+        "name: Tests\non:\n  push:\n    branches: [main]\n", encoding="UTF-8"
+    )
+    (tmp_path / "_engine.yaml").write_text(
+        "name: Engine\non:\n  workflow_call:\n", encoding="UTF-8"
+    )
+    (tmp_path / "nightly.yaml").write_text(
+        "name: Nightly\non:\n  schedule:\n    - cron: '0 0 * * *'\n", encoding="UTF-8"
+    )
+    assert workflow_files(tmp_path) == ("nightly.yaml", "tests.yaml")
+
+
+def test_workflow_files_missing_directory(tmp_path):
+    """A repository with no workflow directory offers no workflow."""
+    assert workflow_files(tmp_path / "absent") == ()

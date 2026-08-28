@@ -31,13 +31,11 @@ from click_extra import Context
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 
-from repomatic.cli import main as cli_main
 from repomatic.cli.main import (
     JOB_COUNT_MARK,
     TEST_MATRIX_STATE_DISPLAY,
     UNIVERSAL_AXIS_KEYS,
     MatrixAxis,
-    discoverable_axis_keys,
     flat_matrix_table,
     format_matrix_cell,
     matrix_axis_keys,
@@ -1337,7 +1335,7 @@ def test_show_test_matrix_help_and_validation_read_the_same_keys():
     matrix dropped, or miss the `[tool.repomatic.test-matrix]` variation this
     project just added.
     """
-    assert discoverable_axis_keys() == matrix_axis_keys(Metadata().test_matrix)
+    assert MatrixAxis().choices == matrix_axis_keys(Metadata().test_matrix)
 
 
 def test_matrix_axis_falls_back_to_the_universal_keys(monkeypatch):
@@ -1346,8 +1344,8 @@ def test_matrix_axis_falls_back_to_the_universal_keys(monkeypatch):
     Empty choices would refuse this option's own default, so a matrix that
     failed to compute would take the whole command down with it.
     """
-    assert set(UNIVERSAL_AXIS_KEYS) <= set(discoverable_axis_keys())
-    monkeypatch.setattr(cli_main, "discoverable_axis_keys", lambda: ())
+    assert set(UNIVERSAL_AXIS_KEYS) <= set(MatrixAxis().choices)
+    monkeypatch.setattr(MatrixAxis, "resolve", lambda self: (), raising=True)
     assert MatrixAxis().choices == UNIVERSAL_AXIS_KEYS
 
 
@@ -1359,7 +1357,7 @@ def test_matrix_axis_completes_the_keys_it_lists():
     with Context(command) as ctx:
         completions = param.type.shell_complete(ctx, param, "python-")
     assert [item.value for item in completions] == [
-        key for key in discoverable_axis_keys() if key.startswith("python-")
+        key for key in MatrixAxis().choices if key.startswith("python-")
     ]
     assert completions, "the full matrix always carries a python-version axis"
 

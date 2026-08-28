@@ -96,7 +96,9 @@ from ..tooling import tool_registry
 from .main import (
     AXIS_HEADER_LABELS,
     ComponentSelector,
+    DependencyGroup,
     MatrixAxis,
+    ProjectExtra,
     _metadata_sort,
     _report_paths,
     _section_setup,
@@ -130,9 +132,9 @@ TYPE_CHECKING = False
         "-g",
         "--group",
         "groups",
+        type=DependencyGroup(),
         multiple=True,
-        help="Include dependencies from the specified group (e.g., test, typing). "
-        "Can be repeated.",
+        help="Include dependencies from the specified group. Can be repeated.",
     ),
     option(
         "--all-groups",
@@ -143,6 +145,7 @@ TYPE_CHECKING = False
     option(
         "--no-group",
         "excluded_groups",
+        type=DependencyGroup(),
         multiple=True,
         help="Exclude the specified group. Takes precedence over --all-groups "
         "and --group. Can be repeated.",
@@ -150,6 +153,7 @@ TYPE_CHECKING = False
     option(
         "--only-group",
         "only_groups",
+        type=DependencyGroup(),
         multiple=True,
         help="Only include dependencies from the specified group, excluding main "
         "dependencies. Can be repeated.",
@@ -161,9 +165,9 @@ TYPE_CHECKING = False
         "-e",
         "--extra",
         "extras",
+        type=ProjectExtra(),
         multiple=True,
-        help="Include dependencies from the specified extra (e.g., xml, json5). "
-        "Can be repeated.",
+        help="Include dependencies from the specified extra. Can be repeated.",
     ),
     option(
         "--all-extras",
@@ -174,6 +178,7 @@ TYPE_CHECKING = False
     option(
         "--no-extra",
         "excluded_extras",
+        type=ProjectExtra(),
         multiple=True,
         help="Exclude the specified extra, if --all-extras is supplied. "
         "Can be repeated.",
@@ -181,6 +186,7 @@ TYPE_CHECKING = False
     option(
         "--only-extra",
         "only_extras",
+        type=ProjectExtra(),
         multiple=True,
         help="Only include dependencies from the specified extra, excluding main "
         "dependencies. Can be repeated.",

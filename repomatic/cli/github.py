@@ -124,6 +124,7 @@ from ..runner_images import (
 )
 from ..setup_guide import manage_setup_guide
 from .main import (
+    WorkflowFile,
     _ci_status_sort,
     _job_timings_sort,
     _render_pr_content,
@@ -356,6 +357,11 @@ def broken_links(
 @option(
     "--workflow",
     "workflows",
+    type=WorkflowFile(),
+    # A dozen file names spelled into the choice metavar overflow the help
+    # column. The help text below points at the directory holding them, the
+    # shell completes them, and a rejected value lists every one.
+    metavar="WORKFLOW",
     multiple=True,
     help=(
         "Workflow file to read, repeatable. Defaults to every workflow a push"
@@ -535,9 +541,11 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
 )
 @option(
     "--workflow",
+    type=WorkflowFile(),
+    metavar="WORKFLOW",
     default="tests.yaml",
     show_default=True,
-    help="Workflow file whose runs to sample.",
+    help="Workflow file whose runs to sample, from .github/workflows/.",
 )
 @option(
     "--branch",

@@ -18,9 +18,13 @@
 
 from __future__ import annotations
 
+from textwrap import dedent
+
 import pytest
 
 from repomatic.pyproject import (
+    dependency_group_names,
+    extra_names,
     get_project_name,
     is_python_package,
     is_python_project,
@@ -188,3 +192,39 @@ def test_read_pyproject_toml_survives_file_vanishing_after_check(tmp_path, monke
 
     monkeypatch.setattr("pathlib.Path.read_text", vanish)
     assert read_pyproject_toml(tmp_path) == {}
+
+
+def test_dependency_group_names_reads_the_declared_groups(tmp_path):
+    """Groups come off `[dependency-groups]`, sorted."""
+    (tmp_path / "pyproject.toml").write_text(
+        dedent("""\
+            [dependency-groups]
+            test = ["pytest"]
+            docs = ["sphinx"]
+            """),
+        encoding="UTF-8",
+    )
+    assert dependency_group_names(tmp_path) == ("docs", "test")
+
+
+def test_extra_names_reads_the_declared_extras(tmp_path):
+    """Extras come off `[project.optional-dependencies]`, sorted."""
+    (tmp_path / "pyproject.toml").write_text(
+        dedent("""\
+            [project]
+            name = "papaya"
+            version = "1.0.0"
+
+            [project.optional-dependencies]
+            xml = ["lxml"]
+            csv = ["pandas"]
+            """),
+        encoding="UTF-8",
+    )
+    assert extra_names(tmp_path) == ("csv", "xml")
+
+
+def test_group_and_extra_names_are_empty_without_a_pyproject(tmp_path):
+    """A directory holding no project declares neither."""
+    assert dependency_group_names(tmp_path) == ()
+    assert extra_names(tmp_path) == ()

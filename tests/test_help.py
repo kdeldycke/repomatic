@@ -35,8 +35,9 @@ from pathlib import Path
 import click
 import pytest
 import tomlrt
+from click_extra.testing import CliRunner
 
-from repomatic.cli.main import repomatic
+from repomatic.cli.main import LazyChoice, repomatic
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -150,3 +151,51 @@ def test_every_preformatted_block_carries_its_own_marker() -> None:
     assert not offenders, "Indented --help blocks Click will rewrap: " + "; ".join(
         f"{name} ({', '.join(blocks)})" for name, blocks in sorted(offenders.items())
     )
+
+
+def _lazy_choice_types() -> list[type[LazyChoice]]:
+    """Every concrete `LazyChoice` in the package, for the checks below."""
+    return [cls for cls in LazyChoice.__subclasses__()]
+
+
+@pytest.mark.parametrize("choice_type", _lazy_choice_types(), ids=lambda c: c.__name__)
+def test_lazy_choice_degrades_instead_of_refusing_everything(choice_type, monkeypatch):
+    """A type that cannot resolve accepts anything, rather than nothing.
+
+    An empty `Choice` refuses every value including the option's own default,
+    so a project the type cannot read would take the whole command down. Each
+    subclass either declares a `fallback` it can always offer, or passes the
+    value through untouched.
+    """
+    monkeypatch.setattr(choice_type, "resolve", lambda self: (), raising=True)
+    instance = choice_type()
+    assert instance.choices == choice_type.fallback
+    if not instance.choices:
+        # No values means "cannot tell": convert passes through, and the
+        # metavar falls back to the plain name rather than an empty `[]`.
+        assert instance.convert("papaya", None, None) == "papaya"
+        assert instance.get_metavar(None, None) is None
+
+
+@pytest.mark.parametrize("choice_type", _lazy_choice_types(), ids=lambda c: c.__name__)
+def test_lazy_choice_survives_a_resolver_that_raises(choice_type, monkeypatch):
+    """Resolution runs while Click renders, where a traceback replaces the help."""
+
+    def boom(self):
+        raise RuntimeError("papaya")
+
+    monkeypatch.setattr(choice_type, "resolve", boom, raising=True)
+    assert choice_type().choices == choice_type.fallback
+
+
+@pytest.mark.once
+def test_every_command_renders_its_help_outside_a_project(tmp_path, monkeypatch):
+    """`--help` must render anywhere, whatever the lazy types can resolve.
+
+    Every one of them reads the working directory, so a directory holding no
+    `pyproject.toml` and no `.github/` is where an unguarded resolver shows up.
+    """
+    monkeypatch.chdir(tmp_path)
+    for path, _cmd in _collect_commands(repomatic):
+        result = CliRunner().invoke(repomatic, [*path, "--help"])
+        assert result.exit_code == 0, f"{' '.join(path)}: {result.output}"

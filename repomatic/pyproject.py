@@ -92,6 +92,28 @@ def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
     return data
 
 
+def dependency_group_names(project_root: Path | None = None) -> tuple[str, ...]:
+    """Every group name declared in `[dependency-groups]`, sorted.
+
+    :param project_root: Directory holding `pyproject.toml`. Defaults to the
+        current working directory.
+    :return: Group names, empty when the project declares none.
+    """
+    groups = read_pyproject_toml(project_root).get("dependency-groups") or {}
+    return tuple(sorted(groups))
+
+
+def extra_names(project_root: Path | None = None) -> tuple[str, ...]:
+    """Every extra declared in `[project.optional-dependencies]`, sorted.
+
+    :param project_root: Directory holding `pyproject.toml`. Defaults to the
+        current working directory.
+    :return: Extra names, empty when the project declares none.
+    """
+    project = read_pyproject_toml(project_root).get("project") or {}
+    return tuple(sorted(project.get("optional-dependencies") or {}))
+
+
 def derive_source_paths(
     pyproject_data: dict[str, Any] | None = None,
 ) -> list[str]:

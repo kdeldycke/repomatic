@@ -78,6 +78,7 @@ from ..github.ci_status import (
     CI_STATUS_HEADER_DEFS,
     STABLE_GLYPH,
     UNSTABLE_GLYPH,
+    workflow_files,
 )
 from ..github.job_timings import (
     JOB_TIMINGS_HEADER_DEFS,
@@ -110,6 +111,10 @@ from ..matrix_axes import (
 from ..metadata.core import (
     METADATA_KEYS_HEADER_DEFS,
     Metadata,
+)
+from ..pyproject import (
+    dependency_group_names,
+    extra_names,
 )
 from ..registry import (
     ALL_COMPONENTS,
@@ -755,33 +760,71 @@ def matrix_axis_keys(matrix: Matrix) -> tuple[str, ...]:
     return tuple(sorted({key for job in matrix.solve() for key in job}))
 
 
-def discoverable_axis_keys() -> tuple[str, ...]:
-    """The full matrix's axis keys, for a help line or a completion list.
+class LazyChoice(Choice):
+    """A `Choice` whose accepted values are the project's, read at render time.
 
-    The full matrix is the superset: `[tool.repomatic.test-matrix] variations`
-    and `full-include` rows reach it alone, and every other directive reaches
-    both. So it is what a listing that cannot yet know which matrix the caller
-    will name should offer, and `show_test_matrix` re-checks against the one
-    they do name.
+    A `Choice` declared at import can only carry what every repository has in
+    common, which for most of these options is nothing: the dependency groups,
+    the workflow files and the matrix axes are all the project's own. Resolving
+    them when Click renders the help (or a completion list) is what lets the
+    option name them, and keeps the lookup out of every other command's
+    startup.
 
-    Nothing here may fail or speak: it runs while Click renders `--help` or a
-    completion list, where a traceback replaces the text the reader asked for,
-    and a `prune()` warning about a stale exclude prepends noise to it. Both
-    are worth a listing degraded to empty, which the caller renders as no
-    listing at all.
+    Two rules make that safe to do mid-render:
+
+    - **Nothing may fail or speak.** A traceback replaces the text the reader
+      asked for, and a warning prepends noise to it, so `resolve` runs with
+      logging off and any exception degrades to no values at all.
+    - **No values means "cannot tell", not "nothing is valid".** An empty
+      `Choice` refuses every value including the option's own default, so a
+      project this type cannot read would take the whole command down with it.
+      The type accepts anything instead, and renders the plain metavar its
+      `name` gives rather than an empty `[]`.
+
+    A subclass that knows a floor its project cannot go below declares it as
+    `fallback`, and never reaches the pass-through above.
     """
-    logging.disable(logging.CRITICAL)
-    try:
-        return matrix_axis_keys(Metadata().test_matrix)
-    except Exception:  # noqa: BLE001
-        # Deliberately not logged: this runs mid-render, so a report would
-        # land in the middle of the help text it is apologising for.
-        return ()
-    finally:
-        logging.disable(logging.NOTSET)
+
+    fallback: tuple[str, ...] = ()
+    """Values to offer when `resolve` finds none. Empty means accept anything."""
+
+    def __init__(self) -> None:
+        # `Choice.__init__` assigns to `choices`, read-only here. Set the rest
+        # of the state it owns directly rather than working around that.
+        self.case_sensitive = True
+
+    def resolve(self) -> tuple[str, ...]:
+        """The values this type accepts, read from the project."""
+        raise NotImplementedError
+
+    @property
+    def choices(self) -> tuple[str, ...]:  # type: ignore[override]
+        """Resolve the values, degrading to `fallback` on any failure."""
+        logging.disable(logging.CRITICAL)
+        try:
+            resolved = self.resolve()
+        except Exception:  # noqa: BLE001
+            # Deliberately not logged: this runs mid-render, so a report would
+            # land in the middle of the help text it is apologising for.
+            resolved = ()
+        finally:
+            logging.disable(logging.NOTSET)
+        return resolved or self.fallback
+
+    def convert(self, value: Any, param: Parameter | None, ctx: ClickContext | None):
+        if not self.choices:
+            return value
+        return super().convert(value, param, ctx)
+
+    def get_metavar(self, param: Parameter, ctx: ClickContext) -> str | None:
+        # `None` falls back to Click's plain rendering of `name`, which beats
+        # the empty `[]` an unresolved Choice would otherwise print.
+        if not self.choices:
+            return None
+        return super().get_metavar(param, ctx)
 
 
-class MatrixAxis(Choice):
+class MatrixAxis(LazyChoice):
     """A job key naming one axis of the `show-test-matrix` grid.
 
     A `Choice` rather than a bare type, so the accepted keys reach the reader
@@ -799,21 +842,50 @@ class MatrixAxis(Choice):
     matrix they did name, and refuses the few keys `pr` drops.
     """
 
-    def __init__(self) -> None:
-        # `Choice.__init__` assigns to `choices`, read-only here. Set the rest
-        # of the state it owns directly rather than working around that.
-        self.case_sensitive = True
+    name = "axis"
 
-    @property
-    def choices(self) -> tuple[str, ...]:  # type: ignore[override]
-        """The full matrix's keys, falling back to the ones every matrix has.
+    fallback = UNIVERSAL_AXIS_KEYS
+    """Every matrix carries these three, so an unreadable one still pivots."""
 
-        Empty choices would refuse every value including this option's own
-        default, turning a matrix that failed to compute into a command that
-        cannot run at all. The fallback keeps `--help` and the defaults
-        working, and the caller still gets a real error from the grid itself.
-        """
-        return discoverable_axis_keys() or UNIVERSAL_AXIS_KEYS
+    def resolve(self) -> tuple[str, ...]:
+        return matrix_axis_keys(Metadata().test_matrix)
+
+
+class WorkflowFile(LazyChoice):
+    """A workflow file name, as `.github/workflows/` spells it.
+
+    Both commands taking one read the current repository's own CI, so the
+    checkout is the authority on what may be named. Every file counts, not
+    just the ones {func}`~repomatic.github.ci_status.monitored_workflows`
+    watches by default: a schedule-only workflow has runs worth reading too.
+    """
+
+    name = "workflow"
+
+    def resolve(self) -> tuple[str, ...]:
+        return workflow_files(Path(WORKFLOW_TARGET_ROOT))
+
+
+class DependencyGroup(LazyChoice):
+    """A group declared in the project's `[dependency-groups]`.
+
+    `uv` refuses an undeclared group, so the set is closed and naming one it
+    does not hold is always a typo.
+    """
+
+    name = "group"
+
+    def resolve(self) -> tuple[str, ...]:
+        return dependency_group_names()
+
+
+class ProjectExtra(LazyChoice):
+    """An extra declared in the project's `[project.optional-dependencies]`."""
+
+    name = "extra"
+
+    def resolve(self) -> tuple[str, ...]:
+        return extra_names()
 
 
 def matrix_axis_sort_key(axis: str, matrix_name: str) -> Callable[[str], Any] | None:

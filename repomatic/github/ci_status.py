@@ -216,6 +216,48 @@ class CIStatus:
         return all(not run.running_jobs for run in self.runs)
 
 
+def _workflow_triggers(workflow_dir: Path) -> list[tuple[str, set[str]]]:
+    """Pair each workflow file in the directory with the triggers it declares.
+
+    Both public readers below select on those triggers, and neither should
+    parse the tree twice or disagree on which files count as workflows.
+
+    :param workflow_dir: Directory holding the workflow files.
+    :return: `(filename, triggers)` pairs, sorted by filename. Empty when the
+        directory is missing. A file that does not parse is skipped.
+    """
+    if not workflow_dir.is_dir():
+        return []
+    pairs = []
+    for path in sorted(workflow_dir.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(path.read_text(encoding="UTF-8"))
+        except yaml.YAMLError:
+            logging.warning(f"Could not parse {path}, skipping.")
+            continue
+        pairs.append((path.name, set(workflow_triggers(data))))
+    return pairs
+
+
+def workflow_files(workflow_dir: Path) -> tuple[str, ...]:
+    """Every workflow in the directory that has runs of its own.
+
+    {func}`monitored_workflows` narrows this to the ones a push starts, which
+    is the right default for a status report and the wrong set to *accept*: a
+    schedule-only or dispatch-only workflow has runs worth reading too. A
+    reusable workflow is excluded for the reason it is there, since its jobs
+    only ever appear under a caller's run.
+
+    :param workflow_dir: Directory holding the workflow files.
+    :return: Workflow filenames, sorted.
+    """
+    return tuple(
+        name
+        for name, triggers in _workflow_triggers(workflow_dir)
+        if triggers - {"workflow_call"}
+    )
+
+
 def monitored_workflows(workflow_dir: Path) -> list[str]:
     """Every workflow a push to the default branch can start.
 
@@ -227,19 +269,11 @@ def monitored_workflows(workflow_dir: Path) -> list[str]:
     :param workflow_dir: Directory holding the workflow files.
     :return: Workflow filenames, sorted.
     """
-    if not workflow_dir.is_dir():
-        return []
-    names = []
-    for path in sorted(workflow_dir.glob("*.yaml")):
-        try:
-            data = yaml.safe_load(path.read_text(encoding="UTF-8"))
-        except yaml.YAMLError:
-            logging.warning(f"Could not parse {path}, skipping.")
-            continue
-        triggers = workflow_triggers(data)
-        if "push" in triggers:
-            names.append(path.name)
-    return names
+    return [
+        name
+        for name, triggers in _workflow_triggers(workflow_dir)
+        if "push" in triggers
+    ]
 
 
 def _run_status(entry: dict, workflow: str) -> RunStatus:
