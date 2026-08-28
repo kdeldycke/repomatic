@@ -12,6 +12,7 @@
 - `update-dep-graph --group`, `--no-group` and `--only-group` now list the project's own `[dependency-groups]` in `--help`, and their `--extra` counterparts its `[project.optional-dependencies]`.
 - `ci-status --workflow` and `job-timings --workflow` now accept only a workflow the repository has, and complete them in the shell.
 - The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
+- The `sync-runner-images` pull request body is now shorter and uses simpler sentences.
 - Fix `repomatic run` printing a Python traceback for an unknown tool name. It is now a usage error listing every registered tool.
 - Fix the `plugin` component rewriting a settings file `format-json` had already settled, which kept `sync-repomatic` and the autofix lane undoing each other. The wiring now compares the parsed document, not its text.
 - Fix the generated `release.yaml` ending on a stray blank line, alone among the workflow callers.

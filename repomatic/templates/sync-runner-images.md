@@ -5,20 +5,18 @@ docs: https://repomatic.net/workflows#sync-runner-images-sync-runner-images
 labels: [🤖 ci]
 ---
 
-A runner image this repository runs has moved in GitHub's [available-images table](https://github.com/actions/runner-images#available-images). This pull request carries the mechanical half of the response; deciding whether to take it is the point of opening it rather than committing it.
+A runner image this repository uses has changed in GitHub's [available-images table](https://github.com/actions/runner-images#available-images). This pull request makes the mechanical changes. Review the CI run and decide whether to keep them.
 
 \$proposal
 
-**A 🔴 retirement moves jobs onto released ground.** A released successor always wins over a preview: a forced move should not trade a known deadline for an unknown one. Where a newer preview was passed over, it is named under **Passed over** so you can take it instead if the capacity risk is worth the freshness.
+**A 🔴 retirement moves jobs to a released image.** A released successor always wins over a preview. The **Passed over** column names any newer preview not taken: take it instead if you accept the preview's risks.
 
-**A 🆕 probe changes nothing you depend on.** The image joins the full test matrix as a `continue-on-error` cell, so it cannot fail the build. The point is to start exercising it now: a dependency that breaks on a new image surfaces here months before the image is one you have to be on, while there is still time to report it upstream.
-
-Only a strictly newer *version* is proposed as a probe. A same-version variant carrying a different toolchain is a different image rather than a newer one, and is left alone.
+**A 🆕 probe adds a `continue-on-error` cell to the test matrix.** It cannot fail the build. It exercises the new image early, while any break can still be reported upstream.
 
 > [!IMPORTANT]
-> The CI run on this pull request is the evidence. Read it before merging, and check `repomatic job-timings` for what the image costs in whole-job wall-clock, not just whether it passes.
+> Read the CI run before you merge. Check `repomatic job-timings` for the image's cost in whole-job wall-clock time, not just whether it passes.
 
-To decline a proposal permanently, name the label in `pyproject.toml` rather than closing this pull request, which only brings it back on the next push:
+To decline a proposal permanently, add its label to `pyproject.toml`. Closing this pull request does not work: the next run brings the proposal back.
 
 ```toml
 [tool.repomatic.sync-runner-images]
