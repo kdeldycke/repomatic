@@ -7,6 +7,7 @@
 
 - **Breaking:** `show-test-matrix` now lists one row per job by default, and `--flat` is gone. Pass the new `--grid` for the compact two-axis pivot the command used to print.
 - `show-test-matrix --row-axis` and `--col-axis` now list the job keys of your own matrix in `--help`, and complete them in the shell.
+- Add a `runner_arch` metadata key, mapping every runner label in the full test matrix to its CPU architecture.
 - `pr-body --part` and `pr-sync --part` now accept only `minor` or `major`, and name both in `--help`.
 - `update-dep-graph --group`, `--no-group` and `--only-group` now list the project's own `[dependency-groups]` in `--help`, and their `--extra` counterparts its `[project.optional-dependencies]`.
 - `ci-status --workflow` and `job-timings --workflow` now accept only a workflow the repository has, and complete them in the shell.

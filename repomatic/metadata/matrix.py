@@ -50,6 +50,7 @@ from ..release.binary import (
     NUITKA_BUILD_TARGETS,
     binary_name,
 )
+from ..runner_catalog import runner_architecture
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -431,6 +432,35 @@ class MatrixMetadata:
         matrix.add_includes({JOB_STATE_KEY: "stable"})
         self._apply_test_matrix_config(matrix, full=False)
         return matrix
+
+    @cached_property
+    def runner_arch(self) -> dict[str, str]:
+        """Architecture of every runner image the full test matrix can land on.
+
+        A repository whose suite asserts on the architecture it detects needs
+        to know which of its cells are ARM. Reading it from here rather than
+        restating it locally is what keeps that knowledge from going stale when
+        {data}`~repomatic.matrix_axes.TEST_RUNNERS_FULL` moves to a newer image:
+        a hard-coded runner list keeps matching the images it was written for,
+        and the new one quietly takes whichever branch the test left as its
+        default.
+
+        Covers the `include` directives as well as the `os` axis, so the
+        single-runner build-flavor cells (see
+        {data}`~repomatic.matrix_axes.SINGLE_RUNNER_PYTHON_VERSIONS`) are
+        described too, and the per-project `variations.os` images along with
+        them. Architectures are emitted as
+        [Extra Platforms](https://kdeldycke.github.io/extra-platforms) ids
+        (`aarch64`, `x86_64`), matching the `arch` field of
+        {attr}`build_targets`.
+
+        :return: Runner label to architecture id, sorted by label.
+        """
+        axes = self._test_matrix_base.all_variations(with_includes=True)
+        return {
+            label: runner_architecture(label).id
+            for label in sorted(axes.get(OS_AXIS, ()))
+        }
 
     @cached_property
     def stale_test_matrix_excludes(

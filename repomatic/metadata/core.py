@@ -211,6 +211,7 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "release_commits_matrix": "Matrix of release commits with long and short SHA values.",
     "build_targets": "List of Nuitka build targets for all platforms.",
     "nuitka_matrix": "Matrix for Nuitka compilation workflows.",
+    "runner_arch": "Architecture of each runner image in the full test matrix.",
     "test_matrix": "Full test matrix for non-PR events.",
     "test_matrix_pr": "Reduced test matrix for pull requests.",
     "minor_bump_allowed": "Minor version bump is allowed by commit history.",
@@ -535,10 +536,19 @@ class Metadata(
         - `Iterable` of mixed strings and `Path` into a serialized space-separated
           string, where `Path` items are double-quoted
         - other `Iterable` into a JSON string
+        - `dict[str, str]` into a JSON object string
+
+        A mapping serializes as a JSON object so a workflow can index it by key
+        (`fromJSON(...).runner_arch[matrix.os]`), which an array of pairs cannot
+        do in a GitHub expression. Only a flat string-to-string mapping is
+        accepted: a nested one is almost always a `Matrix` or a config
+        dataclass, and the assertion below keeps it from serializing into a
+        shape no consumer expects.
 
         ```{todo}
-        Widen the JSON branch beyond an iterable of `dict[str, str]`, the only
-        shape it asserts on today, when a metadata key needs a richer one.
+        Widen the JSON branch beyond an iterable of `dict[str, str]` and a flat
+        `dict[str, str]`, the two shapes it asserts on today, when a metadata
+        key needs a richer one.
         ```
         """
         # Structured metadata to be rendered as JSON.
@@ -557,11 +567,15 @@ class Metadata(
                 value = str(value)
 
             elif isinstance(value, dict):
-                raise NotImplementedError(
-                    f"GitHub formatting for mapping: {value!r}. Wrap it in a "
-                    "Matrix, or expose it to its subcommand directly through "
-                    "SUBCOMMAND_CONFIG_FIELDS instead of as a metadata key."
+                assert all(
+                    isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+                ), (
+                    f"Unsupported mapping value: {value!r}. Only a flat "
+                    "string-to-string mapping serializes as a JSON object; "
+                    "wrap a richer one in a Matrix, or expose it to its "
+                    "subcommand through SUBCOMMAND_CONFIG_FIELDS instead."
                 )
+                value = json.dumps(value)
 
             elif isinstance(value, Iterable):
                 # Cast all items to strings, wrapping Path items with double-quotes.

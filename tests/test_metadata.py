@@ -817,6 +817,17 @@ expected: dict[str, Any] = {
             },
         ]),
     },
+    # Every runner the full matrix can land on, keyed by its `runs-on:` label.
+    # Sorted by label, which is why this does not follow the `os` axis order
+    # below.
+    "runner_arch": {
+        "macos-26": "aarch64",
+        "macos-26-intel": "x86_64",
+        "ubuntu-26.04": "x86_64",
+        "ubuntu-26.04-arm": "aarch64",
+        "windows-11-arm": "aarch64",
+        "windows-2025": "x86_64",
+    },
     "test_matrix": {
         "os": [
             "ubuntu-26.04-arm",

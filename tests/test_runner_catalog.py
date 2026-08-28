@@ -27,10 +27,13 @@ from __future__ import annotations
 
 import pytest
 
+from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.runner_catalog import (
+    CATALOG_ARCHITECTURES,
     RunnerImage,
     newer_version_than,
     parse_catalog,
+    runner_architecture,
     successor_for,
 )
 
@@ -200,3 +203,86 @@ def test_parse_fails_closed(readme: str) -> None:
     job in the repository; a missing one costs a cycle of not noticing.
     """
     assert parse_catalog(readme) == []
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        # Bare images: x64 everywhere but macOS from its 14th generation on.
+        ("ubuntu-26.04", "x86_64"),
+        ("ubuntu-24.04", "x86_64"),
+        ("ubuntu-slim", "x86_64"),
+        ("windows-2025", "x86_64"),
+        ("windows-2022", "x86_64"),
+        ("macos-13", "x86_64"),
+        ("macos-14", "aarch64"),
+        ("macos-15", "aarch64"),
+        ("macos-26", "aarch64"),
+        # `-arm` reaches both Linux and Windows, and survives an infix.
+        ("ubuntu-26.04-arm", "aarch64"),
+        ("ubuntu-22.04-arm", "aarch64"),
+        ("windows-11-arm", "aarch64"),
+        ("windows-11-vs2026-arm", "aarch64"),
+        # An infix that is not `-arm` leaves the image x64.
+        ("windows-2025-vs2026", "x86_64"),
+        # The macOS suffixes that invert what their names suggest.
+        ("macos-15-large", "x86_64"),
+        ("macos-15-xlarge", "aarch64"),
+        ("macos-26-intel", "x86_64"),
+        ("macos-latest-large", "x86_64"),
+        # Floating aliases and the Xcode images, all Apple silicon today.
+        ("macos-latest", "aarch64"),
+        ("xcode-27", "aarch64"),
+        ("xcode-27-xlarge", "aarch64"),
+    ],
+)
+def test_runner_architecture(label: str, expected: str) -> None:
+    """Every label shape the published table lists resolves to its own column.
+
+    Transcribed from the *Available Images* table rather than derived from the
+    rule under test, so a rule that starts guessing fails here instead of
+    agreeing with itself.
+    """
+    assert runner_architecture(label).id == expected
+
+
+def test_runner_architecture_matches_the_catalog(catalog) -> None:
+    """The offline derivation agrees with the table it stands in for.
+
+    {func}`~repomatic.runner_catalog.runner_architecture` exists because
+    nothing running inside a job can wait on a network fetch, which makes it a
+    second answer to a question the catalog already answers. This is what keeps
+    the two from drifting: a label shape GitHub introduces that the rule reads
+    wrong fails here, on the fixture, with no network involved.
+    """
+    mismatches = {
+        label: (
+            runner_architecture(label).id,
+            CATALOG_ARCHITECTURES[image.architecture].id,
+        )
+        for image in catalog
+        for label in image.labels
+        if runner_architecture(label) is not CATALOG_ARCHITECTURES[image.architecture]
+    }
+    assert not mismatches, (
+        f"derived architecture disagrees with the table: {mismatches}"
+    )
+
+
+def test_runner_architecture_matches_the_build_targets() -> None:
+    """The derivation agrees with the hand-written Nuitka target table.
+
+    {data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS` pairs a runner image
+    with an architecture by hand, for the six images release binaries are
+    compiled on. Deriving the same pairing from the label is the cross-check:
+    the two are written independently, so a repointed image breaks one of them
+    loudly rather than shipping a binary built for the wrong architecture.
+    """
+    mismatches = {
+        target.runner: (runner_architecture(target.runner).id, target.arch.id)
+        for target in NUITKA_BUILD_TARGETS.values()
+        if runner_architecture(target.runner) is not target.arch
+    }
+    assert not mismatches, (
+        f"derived architecture disagrees with the targets: {mismatches}"
+    )

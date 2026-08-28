@@ -49,11 +49,16 @@ import logging
 import re
 from dataclasses import dataclass
 
+from extra_platforms import AARCH64, X86_64
+
 from .github.gh import gh_api_json
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Final
+
+    from extra_platforms import Architecture
 
 CATALOG_REPO = "actions/runner-images"
 """Repository whose readme carries the *Available Images* table."""
@@ -101,6 +106,42 @@ against `macos-26-xlarge`, `macos-26-intel` against `macos-26-large`). The
 sized ones are the paid larger runners, so they are never the default. Note
 that `-intel` is *not* a size variant: it is the x64 half of a macOS
 generation, and the label this project runs.
+"""
+
+CATALOG_ARCHITECTURES: Final[dict[str, Architecture]] = {
+    "arm64": AARCH64,
+    "x64": X86_64,
+}
+"""The *Architecture* column's own spelling, mapped to extra-platforms.
+
+{attr}`RunnerImage.architecture` keeps the table's wording, so a comparison
+against anything else in this project has to come through here.
+"""
+
+ARCH_SUFFIXES: Final[tuple[tuple[str, Architecture], ...]] = (
+    ("-arm", AARCH64),
+    ("-xlarge", AARCH64),
+    ("-large", X86_64),
+    ("-intel", X86_64),
+)
+"""Label suffixes that settle an architecture on their own.
+
+The macOS size suffixes are why this cannot be one rule: they invert what the
+names suggest, since `macos-15-large` is x64 while `macos-15-xlarge` is Arm64.
+`-intel` names the x64 half of a generation ({data}`SIZED_SUFFIXES` says why it
+is not a size), and `-arm` covers the Linux (`ubuntu-26.04-arm`) and Windows
+(`windows-11-arm`) Arm images alike.
+
+Order is for reading only: `-large` cannot match a label ending in `-xlarge`,
+because the two differ in the character before `large`.
+"""
+
+APPLE_SILICON_MACOS_FLOOR: Final[int] = 14
+"""First macOS generation whose bare label is Apple silicon.
+
+GitHub moved the default macOS image to Apple silicon at `macos-14`, so a bare
+label from this generation on is Arm64 and an older one is x64. A suffixed
+label never reaches this comparison: {data}`ARCH_SUFFIXES` settles it first.
 """
 
 
@@ -366,3 +407,48 @@ def newer_version_than(
         if image.version > current.version
     ]
     return max(newer, key=lambda image: image.version, default=None)
+
+
+def runner_architecture(label: str) -> Architecture:
+    """Returns the architecture a `runs-on:` label runs on, without the catalog.
+
+    The table above is the authority, but reading it costs a network call, so
+    nothing that runs inside a job can wait on it. This derives the same answer
+    from the label's own shape, which is fixed enough to state: a suffix from
+    {data}`ARCH_SUFFIXES`, else Apple silicon for a macOS generation at or above
+    {data}`APPLE_SILICON_MACOS_FLOOR`, else x64.
+
+    Answering from the shape is also what lets it speak for a label this project
+    has never listed, which a fixed table cannot: a downstream repository adds
+    its own images through `[tool.repomatic.test-matrix] variations.os`.
+
+    ```{caution}
+    Unlike every parse in this module, this one does not fail closed: an
+    unrecognized label reads as x64 rather than as "unknown", because there is
+    no third answer a caller could act on. `tests/test_runner_catalog.py` pins
+    the derivation against the published table, so a new label shape GitHub
+    introduces fails the suite instead of being guessed at silently.
+    ```
+
+    :param label: A `runs-on:` label, like `ubuntu-26.04-arm` or `macos-15`.
+    :return: The [Extra Platforms](https://kdeldycke.github.io/extra-platforms)
+        architecture, matching how {mod}`repomatic.release.binary` names one.
+    """
+    for suffix, arch in ARCH_SUFFIXES:
+        if label.endswith(suffix):
+            return arch
+
+    family, _, generation = label.partition("-")
+    # Every Xcode image is Apple silicon.
+    if family == "xcode":
+        return AARCH64
+    # A Linux or Windows image is x64 unless a suffix above said otherwise.
+    if family != "macos":
+        return X86_64
+    major = generation.split(".")[0]
+    # `macos-latest` tracks GitHub's current default, Apple silicon since
+    # `macos-14`. Filtered out of the catalog by LATEST_TOKEN, but reachable
+    # here because a caller may pass any label it finds in a workflow.
+    if not major.isdigit():
+        return AARCH64
+    return AARCH64 if int(major) >= APPLE_SILICON_MACOS_FLOOR else X86_64
