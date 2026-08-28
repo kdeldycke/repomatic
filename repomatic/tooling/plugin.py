@@ -428,11 +428,17 @@ def merge_plugin_settings(target: Path, root: Path | None = None) -> bool:
     """Write the plugin wiring into *target*, creating the file if absent.
 
     Idempotent: re-running against an already-wired document rewrites nothing
-    and returns `False`, so `repomatic init` reports it as unchanged. That holds
-    only while the rendered indent matches the repository's own, which is why
-    *root* is read rather than assumed: a repository declaring spaces would
-    otherwise see this and `format-json` rewrite the file past each other on
-    every run, each opening a pull request undoing the other's.
+    and returns `False`, so `repomatic init` reports it as unchanged. The
+    comparison is made on the parsed documents, not the rendered text, because
+    the two serializers disagree on more than the indent *root* negotiates:
+    {func}`json.dumps` expands every array one item per line, while Biome
+    collapses one that fits its line width. Comparing the text reported drift on
+    a file `format-json` had already settled, and the two rewrote it past each
+    other on every run, each opening a pull request undoing the other's.
+
+    A first write still lands in this module's own style, which `format-json`
+    then settles once. That is the same one-reformat cost
+    {func}`_biome_json_indent` accepts when it has to guess.
 
     :param target: Path to the Claude Code settings file to update.
     :param root: Repository root whose Biome config sets the indent. Defaults to
@@ -443,7 +449,9 @@ def merge_plugin_settings(target: Path, root: Path | None = None) -> bool:
     merged = render_plugin_settings(
         existing, _biome_json_indent(root if root is not None else target.parent)
     )
-    if merged == existing:
+    # `existing` parsed cleanly above, or `render_plugin_settings` would have
+    # raised, so only the empty-file case needs guarding here.
+    if existing.strip() and json.loads(existing) == json.loads(merged):
         return False
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(merged, encoding="UTF-8")

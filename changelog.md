@@ -5,7 +5,9 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `show-test-matrix --row-axis` and `--col-axis` now list the job keys of your own matrix in `--help`, and complete them in the shell.
 - The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
+- Fix the `plugin` component rewriting a settings file `format-json` had already settled, which kept `sync-repomatic` and the autofix lane undoing each other. The wiring now compares the parsed document, not its text.
 
 ## [`7.14.0` (2026-08-27)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...v7.14.0)
 

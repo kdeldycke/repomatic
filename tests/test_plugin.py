@@ -506,6 +506,43 @@ def test_merge_plugin_settings_converges_under_the_declared_style(
     assert target.read_text(encoding="UTF-8") == written
 
 
+def test_merge_plugin_settings_leaves_a_biome_formatted_document_alone(
+    tmp_path: Path,
+) -> None:
+    """A collapsed short array is not drift, so the wiring rewrites nothing.
+
+    `json.dumps` expands every array one item per line, while Biome collapses one
+    that fits its line width. Comparing the rendered text reported a difference
+    on a document `format-json` had already settled, so the two rewrote each
+    other on every run. Matching the indent alone never closed that gap.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.biome.formatter]\nindentStyle = "space"\nindentWidth = 2\n',
+        encoding="UTF-8",
+    )
+    target = tmp_path / "dotfiles" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        json.dumps(
+            {"permissions": {"allow": ["Bash(git status)"]}},
+            indent="  ",
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="UTF-8",
+    )
+    assert merge_plugin_settings(target, tmp_path) is True
+
+    # Stand in for `format-json`, which collapses an array that fits the line.
+    expanded = target.read_text(encoding="UTF-8")
+    settled = re.sub(r'\[\s+("Bash\(git status\)")\s+\]', r"[\1]", expanded)
+    assert settled != expanded, "fixture must differ from the rendered form"
+    target.write_text(settled, encoding="UTF-8")
+
+    assert merge_plugin_settings(target, tmp_path) is False
+    assert target.read_text(encoding="UTF-8") == settled
+
+
 @pytest.mark.parametrize(
     ("prior", "survivor"),
     (
