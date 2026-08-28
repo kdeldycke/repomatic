@@ -32,6 +32,15 @@ import re
 
 from packaging.version import InvalidVersion, Version
 
+BUMP_PARTS = ("minor", "major")
+"""The version parts a bump-version job may propose.
+
+The `changelog.yaml` bump matrix runs one job per entry, and
+{func}`~repomatic.metadata.project.is_version_bump_allowed` gates each against
+the last release. A patch bump is absent by design: the post-release commit
+already writes the next `.dev0` floor, so nothing has to propose one.
+"""
+
 DEV_SUFFIX_RE = re.compile(r"\.dev\d*$")
 """Match the trailing PEP 440 developmental-release segment of a version."""
 

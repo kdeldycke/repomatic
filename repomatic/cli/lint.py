@@ -841,7 +841,16 @@ def cloudflare_pages(
     context_settings={"ignore_unknown_options": True},
     params=[_run_sort],
 )
-@argument("tool_name", required=False, default=None)
+@argument(
+    "tool_name",
+    required=False,
+    default=None,
+    type=Choice(sorted(TOOL_REGISTRY)),
+    # Nineteen tools spelled into the usage line wrap it over three lines, and
+    # Click names the offending parameter by its metavar, so a bare Choice
+    # prints the whole roster twice in one error. `--list` is the roster.
+    metavar="[TOOL]",
+)
 @argument("extra_args", nargs=-1, type=UNPROCESSED)
 @option("--list", "list_tools", is_flag=True, help="List all managed tools.")
 @option(
@@ -925,9 +934,7 @@ def run_cmd(
         ctx.exit(0)
 
     if tool_name is None:
-        raise UsageError(
-            "Missing argument 'TOOL_NAME'. Use --list to see available tools."
-        )
+        raise UsageError("Missing argument 'TOOL'. Use --list to see available tools.")
 
     if verify:
         exit_code, drifted = verify_via_write_path(

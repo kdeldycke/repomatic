@@ -121,7 +121,7 @@ from ..registry import (
 from ..tooling.tool_registry import (
     TOOL_LIST_HEADER_DEFS,
 )
-from ..versions import strip_dev_suffix
+from ..versions import BUMP_PARTS, strip_dev_suffix
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -291,8 +291,9 @@ template_version_option = option(
 )
 template_part_option = option(
     "--part",
+    type=Choice(BUMP_PARTS, case_sensitive=False),
     default=None,
-    help="Version part passed to the bump-version template (e.g. minor, major).",
+    help="Version part passed to the bump-version template.",
 )
 
 

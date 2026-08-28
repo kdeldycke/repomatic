@@ -36,7 +36,8 @@ from urllib.error import URLError
 import pytest
 import tomlrt
 import yaml
-from click_extra import ClickException
+from click_extra import Choice, ClickException
+from click_extra.testing import CliRunner
 from extra_platforms import (
     AARCH64,
     ALL_PLATFORMS,
@@ -52,6 +53,7 @@ from extra_platforms import (
 )
 
 from repomatic.cache import cached_binary_path
+from repomatic.cli.main import repomatic
 from repomatic.file_inventory import FileInventory
 from repomatic.images import _check_tool
 from repomatic.matrix_axes import (
@@ -3126,3 +3128,25 @@ def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monke
 
     assert exit_code == TOOL_CRASH_EXIT_CODE
     assert drifted == []
+
+
+def test_run_rejects_an_unknown_tool_as_a_usage_error():
+    """An unknown tool name is refused at parse time, naming the registry.
+
+    It used to reach `run_tool` and raise a bare `ValueError`, so a typo
+    printed a Python traceback instead of a usage error.
+    """
+    result = CliRunner().invoke(repomatic, ["run", "papaya"])
+    assert result.exit_code == 2, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "papaya" in result.output
+    for tool in ("ruff", "mypy"):
+        assert tool in result.output
+
+
+def test_run_offers_every_registered_tool():
+    """The argument's choices are the registry, so neither can drift."""
+    command = repomatic.commands["run"]
+    param = next(p for p in command.params if p.name == "tool_name")
+    assert isinstance(param.type, Choice)
+    assert tuple(param.type.choices) == tuple(sorted(TOOL_REGISTRY))

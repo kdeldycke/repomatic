@@ -51,6 +51,7 @@ from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.release.prepare_release import LOCAL_CLI_INVOCATION
 from repomatic.release.version_sync import find_workflow_literals
 from repomatic.tooling.plugin import ARCHIVE_NAME
+from repomatic.versions import BUMP_PARTS
 from tests.conftest import (
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
@@ -724,6 +725,22 @@ def test_version_bump_branches_match_changelog_workflow() -> None:
     assert created_branches == set(VERSION_BUMP_BRANCHES), (
         f"changelog.yaml creates {sorted(created_branches)!r} but "
         f"VERSION_BUMP_BRANCHES is {sorted(VERSION_BUMP_BRANCHES)!r}"
+    )
+
+
+def test_bump_matrix_parts_are_the_ones_the_cli_accepts() -> None:
+    """`changelog.yaml`'s bump matrix may only name a part the CLI takes.
+
+    The matrix value reaches `pr-sync --part` and `close-stale-bump-pr --part`,
+    both typed on {data}`~repomatic.versions.BUMP_PARTS`. Adding a third part
+    to the YAML alone would leave the job failing on a rejected value, in a
+    workflow that only runs on a schedule.
+    """
+    jobs = load_workflow("changelog.yaml").get("jobs", {})
+    parts = jobs.get("bump-version", {}).get("strategy", {}).get("matrix", {})
+    assert set(parts.get("part", ())) == set(BUMP_PARTS), (
+        f"changelog.yaml bumps {sorted(parts.get('part', ()))!r} but the CLI "
+        f"accepts {sorted(BUMP_PARTS)!r}"
     )
 
 

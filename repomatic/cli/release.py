@@ -86,6 +86,7 @@ from ..release.virustotal import (
     upsert_scan_records,
 )
 from ..tooling.plugin import ARCHIVE_NAME, pack_plugin
+from ..versions import BUMP_PARTS
 from .main import (
     _section_release,
     exit_if_disabled,
@@ -144,7 +145,7 @@ def changelog(
 @repomatic.command(short_help="Close a stale version-bump PR", section=_section_release)
 @option(
     "--part",
-    type=Choice(["minor", "major"], case_sensitive=False),
+    type=Choice(BUMP_PARTS, case_sensitive=False),
     required=True,
     help="The version part whose bump PR should be reconciled.",
 )

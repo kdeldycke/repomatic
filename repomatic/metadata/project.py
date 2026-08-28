@@ -46,6 +46,7 @@ from ..pyproject import (
 )
 from ..release.binary import NUITKA_BUILD_TARGETS
 from ..tooling.tool_registry import MYPY_VERSION_MIN
+from ..versions import BUMP_PARTS
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -106,8 +107,9 @@ def is_version_bump_allowed(part: Literal["minor", "major"]) -> bool:
     :return: `True` if the bump should proceed, `False` if it should be skipped.
     """
     # Validate part argument early.
-    if part not in ("minor", "major"):
-        raise ValueError(f"Invalid version part: {part!r}. Must be 'minor' or 'major'.")
+    if part not in BUMP_PARTS:
+        expected = " or ".join(repr(p) for p in BUMP_PARTS)
+        raise ValueError(f"Invalid version part: {part!r}. Must be {expected}.")
 
     current_version_str = ProjectMetadata.get_current_version()
     if not current_version_str:
