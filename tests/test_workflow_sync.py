@@ -250,6 +250,28 @@ def test_no_python_literals_in_yaml(filename: str) -> None:
     assert "'}" not in content, f"{filename}: Python dict literal found in output"
 
 
+@pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
+def test_generated_caller_ends_with_one_newline(filename: str) -> None:
+    """Every generated caller ends with exactly one trailing newline.
+
+    Nothing downstream of the generator collapses trailing whitespace:
+    {func}`~repomatic.init_project._write_file` writes callers with
+    `normalize=False`, because their exact bytes carry downstream-owned jobs
+    verbatim. A stray blank line therefore reaches every consuming repository.
+
+    `release.yaml` shipped one for exactly that reason, alone among the callers:
+    its release lane already ends with the blank separator that
+    `_generate_release_caller` then appended a second time, so the file ended
+    `}}\\n\\n`.
+    """
+    content = generate_thin_caller(filename)
+    trailing = len(content) - len(content.rstrip("\n"))
+    assert trailing == 1, (
+        f"{filename}: generated caller ends with {trailing} trailing newlines, "
+        "expected exactly 1"
+    )
+
+
 PINNED_CALLER_SHA = "0" * 40
 """Placeholder commit SHA for the pinned `uses:` rendering.
 

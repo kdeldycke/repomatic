@@ -14,6 +14,7 @@
 - The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
 - Fix `repomatic run` printing a Python traceback for an unknown tool name. It is now a usage error listing every registered tool.
 - Fix the `plugin` component rewriting a settings file `format-json` had already settled, which kept `sync-repomatic` and the autofix lane undoing each other. The wiring now compares the parsed document, not its text.
+- Fix the generated `release.yaml` ending on a stray blank line, alone among the workflow callers.
 - Fix `lint-repo` asking for GitHub topics a project already declares: topics now match `[project] keywords` case-insensitively, since GitHub lowercases every topic it stores.
 
 ## [`7.14.0` (2026-08-27)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...v7.14.0)

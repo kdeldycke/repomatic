@@ -624,6 +624,27 @@ def _substitute_source_paths(
     return result
 
 
+def _as_workflow_file(lines: list[str]) -> str:
+    """Join generated workflow lines into file content ending in one newline.
+
+    Every job block is emitted followed by a blank separator line, so a lane that
+    already carries its own leaves the last separator behind as a trailing blank
+    line. `release.yaml` is the one caller shaped that way, and it shipped that
+    stray line to every downstream repository.
+
+    Nothing further down collapses it: {func}`~repomatic.init_project._write_file`
+    writes generated callers with `normalize=False`, because their exact bytes
+    carry downstream-owned jobs verbatim. So the generator has to settle its own
+    trailing whitespace, the way the extras path does before grafting a fragment
+    on (see {data}`EXTRA_JOBS_SEPARATOR`).
+
+    Only whole-file generators may use this. The fragment renderers
+    ({func}`_render_triggers` and friends) return blocks that get embedded, where
+    a forced trailing newline would corrupt the layout.
+    """
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
 def generate_thin_caller(
     filename: str,
     repo: str = DEFAULT_REPO,
@@ -766,7 +787,7 @@ def generate_thin_caller(
     # Trailing newline.
     lines.append("")
 
-    return "\n".join(lines)
+    return _as_workflow_file(lines)
 
 
 EXTRA_JOBS_SEPARATOR: Final[str] = "\n\n"
@@ -1260,7 +1281,7 @@ def _generate_release_caller(
     )
     lines.append("")
 
-    return "\n".join(lines)
+    return _as_workflow_file(lines)
 
 
 def identify_canonical_workflow(
