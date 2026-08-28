@@ -36,7 +36,6 @@ from click_extra import (
     Choice,
     ClickException,
     Context,
-    Option,
     ParamType,
     Section,
     SortByOption,
@@ -699,6 +698,15 @@ A key absent from here heads its column under the raw name a matrix declares
 it as, which is also how a caller names it on the command line.
 """
 
+UNIVERSAL_AXIS_KEYS = (OS_AXIS, PYTHON_VERSION_AXIS, JOB_STATE_KEY)
+"""The job keys every test matrix carries, whatever a project configures.
+
+The base cross-product declares the first two and the state include stamps the
+third, so no `[tool.repomatic.test-matrix]` directive can leave a matrix
+without them. That makes them the safe answer when the real matrix cannot be
+read at all, which is the only time {class}`MatrixAxis` needs one.
+"""
+
 JOB_COUNT_MARK = "×"
 """Introduces the job count of a cell standing for more than one job.
 
@@ -772,54 +780,39 @@ def discoverable_axis_keys() -> tuple[str, ...]:
         logging.disable(logging.NOTSET)
 
 
-class MatrixAxis(ParamType):
+class MatrixAxis(Choice):
     """A job key naming one axis of the `show-test-matrix` grid.
 
-    Carries no `convert` validation: the accepted keys depend on which matrix
-    the caller names, which is not parsed yet when a type converts, and
-    {func}`show_test_matrix` already refuses an unknown one against the right
-    matrix. What the type adds is discoverability, through the completion list
-    below and the help line {class}`MatrixAxisOption` renders.
+    A `Choice` rather than a bare type, so the accepted keys reach the reader
+    through Click's own `[a|b|c]` metavar and click-extra's choice styling,
+    and the shell completes them: a hand-written help line would render none
+    of that. Its values are read at render time rather than declared at
+    import, because they are the project's own. A repository varying its
+    matrix on a `click-version` can pivot on it, and that is exactly the axis
+    a fixed list would omit.
+
+    The listing is the full matrix's, the superset: `variations` and
+    `full-include` rows reach it alone, while every other directive reaches
+    both matrices. Which one the caller names is not parsed yet when a type
+    converts, so {func}`show_test_matrix` re-checks the axis against the
+    matrix they did name, and refuses the few keys `pr` drops.
     """
 
-    name = "axis"
+    def __init__(self) -> None:
+        # `Choice.__init__` assigns to `choices`, read-only here. Set the rest
+        # of the state it owns directly rather than working around that.
+        self.case_sensitive = True
 
-    def get_metavar(self, param: Parameter, ctx: ClickContext) -> str:
-        return "AXIS"
+    @property
+    def choices(self) -> tuple[str, ...]:  # type: ignore[override]
+        """The full matrix's keys, falling back to the ones every matrix has.
 
-    def shell_complete(
-        self, ctx: ClickContext, param: Parameter, incomplete: str
-    ) -> list[CompletionItem]:
-        return [
-            CompletionItem(key)
-            for key in discoverable_axis_keys()
-            if key.startswith(incomplete)
-        ]
-
-
-class MatrixAxisOption(Option):
-    """An axis option whose help line names the keys the matrix carries.
-
-    The keys are the project's own: a repository varying its matrix on a
-    `click-version` can pivot on it, and a static list would omit exactly the
-    axis worth discovering. So the listing is computed while the help renders
-    rather than declared at import, which also keeps the matrix out of every
-    other command's startup.
-    """
-
-    def get_help_record(self, ctx: ClickContext) -> tuple[str, str] | None:
-        keys = discoverable_axis_keys()
-        if not keys:
-            return super().get_help_record(ctx)
-        # Swap the help in for the render alone: appending to the record
-        # `super()` returns would land the listing after the `[default: …]`
-        # suffix it stamps on the end.
-        declared = self.help
-        self.help = f"{declared} One of: {', '.join(keys)}."
-        try:
-            return super().get_help_record(ctx)
-        finally:
-            self.help = declared
+        Empty choices would refuse every value including this option's own
+        default, turning a matrix that failed to compute into a command that
+        cannot run at all. The fallback keeps `--help` and the defaults
+        working, and the caller still gets a real error from the grid itself.
+        """
+        return discoverable_axis_keys() or UNIVERSAL_AXIS_KEYS
 
 
 def matrix_axis_sort_key(axis: str, matrix_name: str) -> Callable[[str], Any] | None:

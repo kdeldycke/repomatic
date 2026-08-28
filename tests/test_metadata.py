@@ -31,9 +31,11 @@ from click_extra import Context
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 
+from repomatic.cli import main as cli_main
 from repomatic.cli.main import (
     JOB_COUNT_MARK,
     TEST_MATRIX_STATE_DISPLAY,
+    UNIVERSAL_AXIS_KEYS,
     MatrixAxis,
     discoverable_axis_keys,
     flat_matrix_table,
@@ -1123,8 +1125,8 @@ def test_python_version_sort_key_orders_by_release(versions, expected):
 
 
 def test_show_test_matrix_renders_full_grid():
-    """`repomatic show-test-matrix` renders the full matrix as a labelled grid."""
-    result = CliRunner().invoke(repomatic, ["show-test-matrix"])
+    """`--grid` renders the full matrix as a labelled grid."""
+    result = CliRunner().invoke(repomatic, ["show-test-matrix", "--grid"])
     assert result.exit_code == 0, result.output
     assert "Python" in result.output
     assert "ubuntu-26.04-arm" in result.output
@@ -1132,10 +1134,11 @@ def test_show_test_matrix_renders_full_grid():
     assert "✅ stable" in result.output
 
 
-def test_show_test_matrix_rows_sorted_by_release():
-    """Grid rows order Python versions by release, flavors after their base."""
+@pytest.mark.parametrize("view", ([], ["--grid"]))
+def test_show_test_matrix_rows_sorted_by_release(view):
+    """Both views order Python rows by release, flavors after their base."""
     result = CliRunner().invoke(
-        repomatic, ["--table-format", "json", "show-test-matrix", "full"]
+        repomatic, ["--table-format", "json", "show-test-matrix", "full", *view]
     )
     assert result.exit_code == 0, result.output
     versions = [row["Python"] for row in json.loads(result.output)]
@@ -1147,12 +1150,14 @@ def test_show_test_matrix_rows_sorted_by_release():
     [("full", TEST_RUNNERS_FULL), ("pr", TEST_RUNNERS_PR)],
 )
 def test_show_test_matrix_columns_follow_canonical_order(matrix_name, canonical):
-    """OS columns follow the runner order of the axis constants."""
+    """Grid OS columns follow the runner order of the axis constants."""
     result = CliRunner().invoke(
-        repomatic, ["--table-format", "json", "show-test-matrix", matrix_name]
+        repomatic,
+        ["--table-format", "json", "show-test-matrix", matrix_name, "--grid"],
     )
     assert result.exit_code == 0, result.output
     columns = [key for key in json.loads(result.output)[0] if key != "Python"]
+    assert set(columns) <= set(canonical), "the grid heads columns with runners"
     # Canonical runners keep their declared order; any runner the config added
     # trails them in first-seen order.
     expected = [runner for runner in canonical if runner in columns]
@@ -1163,10 +1168,10 @@ def test_show_test_matrix_columns_follow_canonical_order(matrix_name, canonical)
 def test_show_test_matrix_pr_is_reduced():
     """The `pr` argument selects a grid with fewer rows and columns than `full`."""
     full = CliRunner().invoke(
-        repomatic, ["--table-format", "json", "show-test-matrix", "full"]
+        repomatic, ["--table-format", "json", "show-test-matrix", "full", "--grid"]
     )
     pr = CliRunner().invoke(
-        repomatic, ["--table-format", "json", "show-test-matrix", "pr"]
+        repomatic, ["--table-format", "json", "show-test-matrix", "pr", "--grid"]
     )
     assert full.exit_code == 0, full.output
     assert pr.exit_code == 0, pr.output
@@ -1180,9 +1185,10 @@ def test_show_test_matrix_pr_is_reduced():
 def test_show_test_matrix_no_emoji_uses_plain_words():
     """`--no-emoji` renders bare state words, deriving the expectation from config."""
     plain = CliRunner().invoke(
-        repomatic, ["--table-format", "json", "show-test-matrix", "--no-emoji"]
+        repomatic,
+        ["--table-format", "json", "show-test-matrix", "--no-emoji", "--grid"],
     )
-    fancy = CliRunner().invoke(repomatic, ["show-test-matrix"])
+    fancy = CliRunner().invoke(repomatic, ["show-test-matrix", "--grid"])
     assert plain.exit_code == 0, plain.output
     assert fancy.exit_code == 0, fancy.output
     for state, label in TEST_MATRIX_STATE_DISPLAY.items():
@@ -1226,7 +1232,7 @@ def test_format_matrix_cell_keeps_the_empty_intersection_placeholder():
 def test_show_test_matrix_pivots_on_the_chosen_axes():
     """--row-axis and --col-axis transpose the grid onto the named job keys."""
     default = CliRunner().invoke(
-        repomatic, ["--table-format", "json", "show-test-matrix"]
+        repomatic, ["--table-format", "json", "show-test-matrix", "--grid"]
     )
     transposed = CliRunner().invoke(
         repomatic,
@@ -1234,6 +1240,7 @@ def test_show_test_matrix_pivots_on_the_chosen_axes():
             "--table-format",
             "json",
             "show-test-matrix",
+            "--grid",
             "--row-axis",
             OS_AXIS,
             "--col-axis",
@@ -1269,10 +1276,10 @@ def test_flat_matrix_table_leads_with_the_keys_it_is_given():
     assert headers == ("city", "fruit", "State")
 
 
-def test_show_test_matrix_flat_lists_every_job():
-    """--flat renders one row per solved job, collapsing nothing."""
+def test_show_test_matrix_lists_every_job_by_default():
+    """With no --grid, the command renders one row per solved job."""
     result = CliRunner().invoke(
-        repomatic, ["--table-format", "json", "show-test-matrix", "--flat"]
+        repomatic, ["--table-format", "json", "show-test-matrix"]
     )
     assert result.exit_code == 0, result.output
     rows = json.loads(result.output)
@@ -1280,6 +1287,30 @@ def test_show_test_matrix_flat_lists_every_job():
     # The two axes the listing sorts on lead; the outcome trails.
     assert tuple(rows[0])[:2] == ("Python", "OS")
     assert tuple(rows[0])[-1] == "State"
+
+
+def test_show_test_matrix_grid_collapses_the_listing():
+    """--grid trades the one-row-per-job listing for the two-axis pivot.
+
+    The listing is lossless and the grid is not, so the grid never has more
+    rows than there are values on its row axis.
+    """
+    listing = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix"]
+    )
+    grid = CliRunner().invoke(
+        repomatic, ["--table-format", "json", "show-test-matrix", "--grid"]
+    )
+    assert listing.exit_code == 0, listing.output
+    assert grid.exit_code == 0, grid.output
+    listing_rows = json.loads(listing.output)
+    grid_rows = json.loads(grid.output)
+    assert len(grid_rows) < len(listing_rows)
+    # A grid heads its columns with the column axis' values, not its key.
+    assert set(grid_rows[0]) - {"Python"} <= set(TEST_RUNNERS_FULL)
+    assert {row["Python"] for row in grid_rows} == {
+        row["Python"] for row in listing_rows
+    }
 
 
 def test_show_test_matrix_rejects_an_unknown_axis():
@@ -1292,14 +1323,11 @@ def test_show_test_matrix_rejects_an_unknown_axis():
 
 @pytest.mark.parametrize("axis_option", ("--row-axis", "--col-axis"))
 def test_show_test_matrix_help_lists_the_axis_keys(axis_option):
-    """Both axis options name the keys they accept, so `--help` teaches them."""
+    """Both axis options render the keys they accept as a Choice metavar."""
     result = CliRunner().invoke(repomatic, ["show-test-matrix", "--help"])
     assert result.exit_code == 0, result.output
-    # The help wraps its option column, so match on the unwrapped text.
-    flattened = " ".join(result.output.split())
-    assert axis_option in flattened
-    for key in matrix_axis_keys(Metadata().test_matrix):
-        assert key in flattened
+    metavar = "[" + "|".join(matrix_axis_keys(Metadata().test_matrix)) + "]"
+    assert f"{axis_option} {metavar}" in result.output
 
 
 def test_show_test_matrix_help_and_validation_read_the_same_keys():
@@ -1310,6 +1338,17 @@ def test_show_test_matrix_help_and_validation_read_the_same_keys():
     project just added.
     """
     assert discoverable_axis_keys() == matrix_axis_keys(Metadata().test_matrix)
+
+
+def test_matrix_axis_falls_back_to_the_universal_keys(monkeypatch):
+    """An unreadable matrix leaves the keys every matrix carries, never none.
+
+    Empty choices would refuse this option's own default, so a matrix that
+    failed to compute would take the whole command down with it.
+    """
+    assert set(UNIVERSAL_AXIS_KEYS) <= set(discoverable_axis_keys())
+    monkeypatch.setattr(cli_main, "discoverable_axis_keys", lambda: ())
+    assert MatrixAxis().choices == UNIVERSAL_AXIS_KEYS
 
 
 def test_matrix_axis_completes_the_keys_it_lists():

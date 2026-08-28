@@ -97,7 +97,6 @@ from .main import (
     AXIS_HEADER_LABELS,
     ComponentSelector,
     MatrixAxis,
-    MatrixAxisOption,
     _metadata_sort,
     _report_paths,
     _section_setup,
@@ -851,23 +850,21 @@ def show_config(ctx: Context) -> None:
     help="Decorate cells with a status emoji. Use --no-emoji for plain words.",
 )
 @option(
+    "--grid/--no-grid",
+    default=False,
+    help="Collapse the listing into a two-axis grid, one cell per intersection.",
+)
+@option(
     "--row-axis",
-    cls=MatrixAxisOption,
     type=MatrixAxis(),
     default=PYTHON_VERSION_AXIS,
-    help="Job key whose values become the grid's rows.",
+    help="Job key sorted on first, heading the grid's rows.",
 )
 @option(
     "--col-axis",
-    cls=MatrixAxisOption,
     type=MatrixAxis(),
     default=OS_AXIS,
-    help="Job key whose values become the grid's columns.",
-)
-@option(
-    "--flat/--no-flat",
-    default=False,
-    help="List one row per job and one column per axis, collapsing nothing.",
+    help="Job key sorted on next, heading the grid's columns.",
 )
 @argument(
     "matrix_name",
@@ -880,28 +877,32 @@ def show_config(ctx: Context) -> None:
 def show_test_matrix(
     ctx: Context,
     emoji: bool,
+    grid: bool,
     row_axis: str,
     col_axis: str,
-    flat: bool,
     matrix_name: str,
 ) -> None:
-    """Render the computed CI test matrix as a two-axis grid.
+    """List every job of the computed CI test matrix, one row per job.
 
-    Each cell shows whether that combination runs as a stable or unstable
-    (continue-on-error) job, or is absent from the matrix. A grid has two axes
-    and a matrix may vary on more, so a cell standing for several jobs states
-    how many: pivot on the axis you care about with --row-axis or --col-axis,
-    or drop the grid entirely with --flat, which lists every job under a
-    column per axis. Pass "full" for the push and schedule matrix (the
-    default), or "pr" for the reduced pull-request matrix. Respects the global
+    Each row carries one column per axis and states whether that job runs
+    stable or unstable (continue-on-error), which is the job list CI
+    schedules. Sort it on the axes you care about with --row-axis and
+    --col-axis. Pass "full" for the push and schedule matrix (the default), or
+    "pr" for the reduced pull-request matrix. Respects the global
     --table-format option.
+
+    --grid trades that listing for a two-axis grid: the two axes head the
+    sides and every other axis collapses into the cells. It is the compact
+    read of the same jobs, and it is lossy, so a cell standing for several
+    jobs states how many.
 
     \b
     Examples:
         repomatic show-test-matrix
         repomatic show-test-matrix pr --no-emoji
         repomatic show-test-matrix --col-axis click-version
-        repomatic show-test-matrix --flat
+        repomatic show-test-matrix --grid
+        repomatic show-test-matrix --grid --row-axis os --col-axis python-version
         repomatic --table-format github show-test-matrix full
     """
     meta = Metadata()
@@ -923,7 +924,7 @@ def show_test_matrix(
     # them in, which only matches the canonical one for a cross-product matrix.
     row_key = matrix_axis_sort_key(row_axis, matrix_name)
     col_key = matrix_axis_sort_key(col_axis, matrix_name)
-    if flat:
+    if not grid:
         # Stable sorts compose: the secondary key first, the primary over it.
         jobs = list(matrix.solve())
         if col_key:

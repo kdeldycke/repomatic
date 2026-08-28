@@ -18,7 +18,7 @@ A separate `unstable` pass (full matrix only) flags matching combinations `conti
 
 ## Inspect the computed matrix
 
-To see the matrix your configuration actually produces, render it as a grid with [`repomatic show-test-matrix`](cli.md): one row per Python version, one column per runner, each cell flagging whether that job runs `stable`, `unstable` (continue-on-error), or is absent (`—`).
+To see the matrix your configuration actually produces, list it with [`repomatic show-test-matrix`](cli.md): one row per job, one column per axis, and a `State` column flagging whether that job runs `stable` or `unstable` (continue-on-error). This is the job list CI schedules, and nothing in it is collapsed.
 
 ```{click:source}
 :hide-source:
@@ -37,19 +37,27 @@ The reduced pull-request matrix keeps one runner per OS and two Python versions,
 invoke(repomatic, args=['show-test-matrix', 'pr'])
 ```
 
-A grid has two axes and a matrix may vary on more: a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. To break them apart, lay the grid out on the axes you care about with `--row-axis` and `--col-axis`, naming any job key the matrix carries. Both options list the keys of your own matrix in `--help`, so a repository varying on a `click-version` sees that axis offered:
+Rows sort on `--row-axis` first and `--col-axis` next, and those two axes lead the columns. Both options accept any job key the matrix carries, and list your own matrix's keys in `--help`, so a repository varying on a `click-version` sees that axis offered.
+
+### The compact grid
+
+`--grid` trades the listing for a two-axis pivot: `--row-axis` and `--col-axis` head the sides, and every other axis collapses into the cells. It is the fastest way to answer "does 3.10 run on Windows", at the cost of being lossy.
 
 ```{click:run}
-invoke(repomatic, args=['show-test-matrix', '--row-axis', 'os', '--col-axis', 'python-version'])
+invoke(repomatic, args=['show-test-matrix', 'pr', '--grid'])
 ```
 
-Or drop the grid entirely: `--flat` lists one row per job under a column per axis, collapsing nothing, which is the closest view to the job list CI schedules. Shown here on the smaller pull-request matrix:
+Because a grid has two axes and a matrix may vary on more, a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. To break them apart, pivot onto the axes you care about:
 
 ```{click:run}
-invoke(repomatic, args=['show-test-matrix', 'pr', '--flat'])
+invoke(repomatic, args=['show-test-matrix', '--grid', '--row-axis', 'os', '--col-axis', 'python-version'])
 ```
 
-The grid honors the global `--table-format` option, so the same view renders as GitHub-flavored Markdown, CSV, JSON, and the rest. For the raw GitHub Actions matrix the [`metadata` job](workflows.md) hands to CI: the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them, request the `test_matrix` (or `test_matrix_pr`) key from [`repomatic metadata`](cli.md):
+Both views honor the global `--table-format` option, so the same jobs render as GitHub-flavored Markdown, CSV, JSON, and the rest.
+
+### The raw GitHub Actions matrix
+
+For the matrix the [`metadata` job](workflows.md) hands to CI: the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them, request the `test_matrix` (or `test_matrix_pr`) key from [`repomatic metadata`](cli.md):
 
 ```{click:run}
 invoke(repomatic, args=['metadata', 'test_matrix', '--format', 'json'])
