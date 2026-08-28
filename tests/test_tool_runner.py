@@ -3130,6 +3130,27 @@ def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monke
     assert drifted == []
 
 
+def test_verify_via_write_path_accepts_the_working_directory(tmp_path, monkeypatch):
+    """A path resolving to the working directory verifies the default set.
+
+    The scratch root is created inside the working directory, so mirroring `.`
+    under it makes the scratch its own copy destination and `shutil.copytree`
+    dies on it as an existing path. It reached users as a bare
+    `FileExistsError: .repomatic-verify-<rand>`, which reads as a repository
+    problem rather than a rejected argument.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "harvest.md").write_text("# Mango\n\nRipe.\n", encoding="UTF-8")
+
+    exit_code, drifted = verify_via_write_path("mdformat", extra_args=(".",))
+
+    assert exit_code == 0
+    assert drifted == []
+    # The scratch directory is the thing that used to collide: nothing of it
+    # may outlive the call, or the next one collides with the leftover.
+    assert not list(tmp_path.glob(".repomatic-verify-*"))
+
+
 def test_run_rejects_an_unknown_tool_as_a_usage_error():
     """An unknown tool name is refused at parse time, naming the registry.
 

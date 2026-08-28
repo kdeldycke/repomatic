@@ -20,6 +20,7 @@
 - Fix the generated `release.yaml` ending on a stray blank line, alone among the workflow callers.
 - Fix `lint-repo` asking for GitHub topics a project already declares: topics now match `[project] keywords` case-insensitively, since GitHub lowercases every topic it stores.
 - Fix `sync-runner-images` proposing a probe for a runner image the repository already runs, which marked every test-matrix cell on that image `continue-on-error`.
+- Fix `run {tool} --verify` crashing with a `FileExistsError` on a path resolving to the working directory, which now verifies the tool's own default file set.
 
 ## [`7.14.0` (2026-08-27)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...v7.14.0)
 

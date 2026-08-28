@@ -1328,6 +1328,19 @@ def verify_via_write_path(
         yields its own exit code and no drift, since it measured nothing.
     """
     spec = TOOL_REGISTRY[name]
+    # An argument resolving to the working directory means "every file the tool
+    # handles", which is exactly what the default batches below answer, and
+    # answer cheaply. Copying the tree instead cannot work: the scratch root is
+    # created *inside* the working directory (see the note above), so it is its
+    # own copy destination, and `copytree` fails on it as an existing path.
+    # Letting it through with `dirs_exist_ok` would be worse, recursing into
+    # `.git`, the virtualenv, and the copy in progress.
+    working_dir = Path.cwd().resolve()
+    extra_args = tuple(
+        arg
+        for arg in extra_args
+        if not (Path(arg).exists() and Path(arg).resolve() == working_dir)
+    )
     if not extra_args:
         batches = resolve_default_args(spec)
         if batches is None:
