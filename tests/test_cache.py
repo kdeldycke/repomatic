@@ -257,7 +257,7 @@ def test_store_binary_unwritable_cache_returns_none(tmp_path, cache_env):
     source.parent.mkdir()
     source.write_bytes(b"data")
 
-    with patch("repomatic.cache._atomic_write", side_effect=OSError("read-only")):
+    with patch("repomatic.cache.atomic_write", side_effect=OSError("read-only")):
         assert store_binary("ruff", "0.11.0", "linux-x64", source) is None
 
 

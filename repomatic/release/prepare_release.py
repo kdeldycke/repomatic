@@ -71,6 +71,7 @@ from pathlib import Path
 
 from ..changelog import Changelog, resolved_changelog_path
 from ..config import load_repomatic_config
+from ..file_ops import write_if_changed
 from ..metadata.core import Metadata
 from ..registry import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE, WORKFLOW_TARGET_ROOT
 from ..tooling.plugin import MARKETPLACE_PATH, REPO_MANIFEST_PATH
@@ -227,14 +228,24 @@ class PrepareRelease:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def _update_file(self, path: Path, content: str, original: str) -> bool:
-        """Write content to file if it changed. Return True if modified."""
-        if content != original:
-            path.write_text(content, encoding="UTF-8")
-            self.modified_files.append(path)
-            logging.info(f"Updated {path}")
-            return True
-        logging.debug(f"No changes to {path}")
-        return False
+        """Write *content* to *path* when it differs, and record the change.
+
+        The bookkeeping half of a freeze pass: {attr}`modified_files` is what the
+        caller commits, so every write has to pass through here. The write
+        itself is {func}`~repomatic.file_ops.write_if_changed`, handed the text
+        already in hand so it compares in memory rather than reading the file
+        back.
+
+        :param path: File to write.
+        :param content: The transformed text.
+        :param original: What the pass read before transforming it.
+        :return: True if the file was modified.
+        """
+        if not write_if_changed(path, content, previous=original):
+            return False
+        self.modified_files.append(path)
+        logging.info(f"Updated {path}")
+        return True
 
     def _rewrite_file(
         self,

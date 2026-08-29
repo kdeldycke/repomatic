@@ -40,13 +40,13 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
-from shutil import rmtree
 
 import tomlrt
 import yaml
 
 from . import __git_tag_sha__, __version__
 from .config import Config, load_repomatic_config, location_path
+from .file_ops import unlink_with_empty_parents
 from .github.releases import resolve_tag_to_sha
 from .github.workflow_sync import (
     PathsSpec,
@@ -830,25 +830,6 @@ def _write_managed(
     return "created"
 
 
-def _unlink_with_empty_parents(target: Path, root: Path) -> None:
-    """Delete `target`, then prune now-empty parent directories up to `root`.
-
-    A skill is a whole folder, so *target* may be a directory: remove it and
-    everything it carries (`scripts/`, `references/`, `assets/`) in one go.
-    """
-    if target.is_dir():
-        rmtree(target)
-    else:
-        target.unlink()
-    parent = target.parent
-    while parent != root:
-        try:
-            parent.rmdir()
-        except OSError:
-            break
-        parent = parent.parent
-
-
 def prune_paths(
     paths: Sequence[str] | Sequence[tuple[str, str]],
     output_dir: Path,
@@ -875,7 +856,7 @@ def prune_paths(
         path = entry[0] if isinstance(entry, tuple) else entry
         target = output_dir / path
         if prune_parents:
-            _unlink_with_empty_parents(target, output_dir)
+            unlink_with_empty_parents(target, output_dir)
         else:
             target.unlink()
 

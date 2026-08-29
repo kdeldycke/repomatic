@@ -46,7 +46,6 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +55,7 @@ from click_extra import ColumnSpec
 from extra_platforms import is_macos, is_windows
 
 from .config import load_repomatic_config
+from .file_ops import atomic_write
 from .humanize import SECONDS_PER_DAY, format_age, format_file_size
 
 TYPE_CHECKING = False
@@ -74,26 +74,6 @@ CACHE_LIST_HEADER_DEFS: tuple[ColumnSpec, ...] = (
 Lives beside the entry dataclasses it renders; the CLI derives its
 `--sort-by` choices from it.
 """
-
-
-def _atomic_write(dest: Path, prefix: str, write: Callable[[Path], object]) -> None:
-    """Write *dest* atomically: temp file in the target directory, then rename.
-
-    The rename is atomic on POSIX (same-filesystem rename) and safe on Windows
-    (`Path.replace` overwrites atomically). *write* receives the temp path and
-    fills it (its return value is ignored, so `write_text`/`write_bytes` pass
-    straight through); partial writes are cleaned up on any failure.
-    """
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=prefix, suffix=".tmp")
-    try:
-        os.close(fd)
-        write(Path(tmp))
-        Path(tmp).replace(dest)
-    except BaseException:
-        # Clean up partial writes on any failure.
-        Path(tmp).unlink(missing_ok=True)
-        raise
 
 
 @dataclass(frozen=True)
@@ -374,7 +354,7 @@ def store_binary(
         os.utime(tmp_path)
 
     try:
-        _atomic_write(dest, f".{source.name}.", fill)
+        atomic_write(dest, f".{source.name}.", fill)
     except OSError as exc:
         logging.warning(f"Cannot cache {name} at {dest}: {exc}")
         return None
@@ -495,7 +475,7 @@ def store_response(
     """
     dest = _http_dir() / namespace / f"{key}.json"
     try:
-        _atomic_write(dest, ".response.", lambda tmp_path: tmp_path.write_bytes(data))
+        atomic_write(dest, ".response.", lambda tmp_path: tmp_path.write_bytes(data))
     except OSError:
         logging.debug(f"Failed to cache HTTP response: {namespace}/{key}.")
         return None
@@ -588,7 +568,7 @@ def store_config(
     """
     dest = _config_dir() / tool_name / filename
     try:
-        _atomic_write(
+        atomic_write(
             dest,
             f".{filename}.",
             lambda tmp_path: tmp_path.write_text(content, encoding="UTF-8"),
