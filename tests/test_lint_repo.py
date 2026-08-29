@@ -38,6 +38,7 @@ from repomatic.lint_repo import (
     check_immutable_releases,
     check_inline_pins_match_upstream,
     check_install_guide_downloads,
+    check_manpages_toolchain,
     check_metadata_keys,
     check_package_name_vs_repo,
     check_pages_redirect_preserved,
@@ -582,6 +583,68 @@ def test_pages_redirect_check_follows_the_deploy_target():
     )
     # Without a repository there is no Pages API to ask.
     assert not check.applies(LintContext(site_deploy="cloudflare-pages"))
+
+
+def _lock_with(tmp_path: Path, *packages: tuple[str, str]) -> Path:
+    """A minimal `uv.lock` holding one `[[package]]` entry per name/version pair."""
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "version = 1\n"
+        + "".join(
+            f'\n[[package]]\nname = "{name}"\nversion = "{version}"\n'
+            for name, version in packages
+        ),
+        encoding="UTF-8",
+    )
+    return lock
+
+
+@pytest.mark.parametrize(
+    ("version", "passed"),
+    (
+        # 8.9.1 is the release the manpages job broke on: `wrap --man` stopped
+        # writing roff in 9.0.0.
+        ("8.9.1", False),
+        ("9.0.0", True),
+        ("9.1.0", True),
+        ("10.0.0.dev1", True),
+    ),
+)
+def test_manpages_toolchain_reads_the_locked_click_extra(tmp_path, version, passed):
+    """The floor is checked against `uv.lock`, which the job installs from."""
+    lock = _lock_with(tmp_path, ("click-extra", version), ("cherry", "1.0"))
+    result = check_manpages_toolchain("basket.cli:basket", lock_path=lock)
+    assert result.passed is passed
+    assert version in result.message
+
+
+def test_manpages_toolchain_matches_a_non_canonical_lock_name(tmp_path):
+    """A lock spelling the package `Click_Extra` names the same project."""
+    lock = _lock_with(tmp_path, ("Click_Extra", "9.0.0"))
+    assert check_manpages_toolchain("basket.cli:basket", lock_path=lock).passed is True
+
+
+@pytest.mark.parametrize("packages", ((), (("cherry", "1.0"),)))
+def test_manpages_toolchain_is_indeterminate_without_click_extra(tmp_path, packages):
+    """A lock that never mentions click-extra answers neither pass nor fail."""
+    lock = _lock_with(tmp_path, *packages)
+    assert check_manpages_toolchain("basket.cli:basket", lock_path=lock).passed is None
+
+
+def test_manpages_toolchain_is_indeterminate_without_a_lock(tmp_path):
+    """A project with no lockfile is reported as unknown, not broken."""
+    result = check_manpages_toolchain(
+        "basket.cli:basket", lock_path=tmp_path / "uv.lock"
+    )
+    assert result.passed is None
+    assert "missing" in result.message
+
+
+def test_manpages_toolchain_only_applies_to_an_opted_in_project():
+    """The roster entry stays silent until `manpages.script` is set."""
+    check = next(c for c in REPO_CHECKS if c.name == "manpages-toolchain")
+    assert check.applies(LintContext(manpages_script="")) is False
+    assert check.applies(LintContext(manpages_script="basket.cli:basket")) is True
 
 
 def _lint_context_in(tmp_path, monkeypatch, **kwargs) -> LintContext:

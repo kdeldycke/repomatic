@@ -38,8 +38,11 @@ from urllib.parse import urlsplit
 import tomlrt
 import yaml
 from click_extra import echo
+from packaging.utils import canonicalize_name
+from packaging.version import Version
 
 from .config import Config, deploys_to
+from .deps.uv import LockFile
 from .file_inventory import FileInventory
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
@@ -2062,6 +2065,73 @@ def check_release_path(
     return results
 
 
+MANPAGES_RENDERER = canonicalize_name("click-extra")
+"""The package whose `wrap` CLI the `manpages` release job renders through."""
+
+MANPAGES_RENDERER_FLOOR = Version("9")
+"""Lowest {data}`MANPAGES_RENDERER` the `manpages` release job can render with.
+
+`9.0.0` moved the roff source from `wrap --man` to `wrap --help-format man`
+and gave `--man` the paged manual instead, which writes no file. The job runs
+in the consumer's own environment, so the floor is a property of that project's
+lock rather than of repomatic's dependencies.
+"""
+
+
+def check_manpages_toolchain(script: str, lock_path: Path | None = None) -> CheckResult:
+    """Whether a project opting into man pages locks a click-extra that can render.
+
+    The `manpages` job is release-only: it first runs on the commit that tags
+    and publishes, where a failure costs the release its man-page asset for
+    good, since a published release locks its asset list. Reading the floor off
+    `uv.lock` on every ordinary push is what moves that answer forward of the
+    one run nothing rehearses.
+
+    `uv.lock` is the subject rather than the `pyproject.toml` floor because the
+    job installs with `uv sync --frozen`: the lock is what it gets. A project
+    with no lock, or one whose lock never mentions click-extra, is
+    indeterminate rather than failing, the same way a PAT-gated check reports a
+    scope it could not read.
+
+    :param script: The `[tool.repomatic] manpages.script` value.
+    :param lock_path: Path to `uv.lock`, defaulting to the repository root's.
+    :return: A `CheckResult`.
+    """
+    lock_path = Path("uv.lock") if lock_path is None else lock_path
+    if not lock_path.is_file():
+        return CheckResult(
+            None,
+            f"Man pages: `{lock_path}` is missing, so the click-extra version"
+            f" the release job would render with is unknown.",
+        )
+
+    locked = {
+        canonicalize_name(name): version
+        for name, version in LockFile.load(lock_path).versions.items()
+    }
+    version = locked.get(MANPAGES_RENDERER)
+    if version is None:
+        return CheckResult(
+            None,
+            f"Man pages: `{lock_path}` locks no {MANPAGES_RENDERER}, so the"
+            f" release job has nothing to render `{script}` with.",
+        )
+
+    if Version(version) < MANPAGES_RENDERER_FLOOR:
+        return CheckResult(
+            False,
+            f"Man pages: {MANPAGES_RENDERER} `{version}` is locked, below"
+            f" `{MANPAGES_RENDERER_FLOOR}`. The release job renders with"
+            f" `wrap --help-format man`, which that release introduced, so it"
+            f" fails on the commit that publishes. Re-lock {MANPAGES_RENDERER}.",
+        )
+
+    return CheckResult(
+        True,
+        f"Man pages: {MANPAGES_RENDERER} `{version}` renders `{script}`.",
+    )
+
+
 def _collect_conditions(
     workflow: dict,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
@@ -2751,6 +2821,13 @@ class LintContext:
     unsubscribe_active: bool = False
     """Whether the unsubscribe workflow is opted in."""
 
+    manpages_script: str = ""
+    """Click target the `manpages` release job renders, per `manpages.script`.
+
+    Empty means the project never opted in, which is what
+    {func}`check_manpages_toolchain` gates on.
+    """
+
     @cached_property
     def repo_metadata(self) -> dict[str, str | None]:
         """The repository's GitHub-side description and homepage.
@@ -2862,6 +2939,7 @@ class LintContext:
             nuitka_active=config.nuitka_enabled and bool(metadata.script_entries),
             has_notifications_pat=has_notifications_pat,
             unsubscribe_active=config.notification_unsubscribe,
+            manpages_script=config.manpages_script,
         )
 
 
@@ -3242,6 +3320,11 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     ),
     RepoCheck("runner-images", lambda ctx: check_runner_images(ctx.workflows)),
     RepoCheck("release-path", lambda ctx: check_release_path(ctx.workflows)),
+    RepoCheck(
+        "manpages-toolchain",
+        lambda ctx: check_manpages_toolchain(ctx.manpages_script),
+        applies=lambda ctx: bool(ctx.manpages_script),
+    ),
     RepoCheck(
         "inline-pins-match-upstream",
         lambda ctx: check_inline_pins_match_upstream(texts=ctx.workflow_texts),

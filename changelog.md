@@ -7,6 +7,7 @@
 
 - **Breaking:** the `manpages` release job now renders through `click-extra wrap --help-format man`, so a project opting into man pages needs `click-extra >= 9`. The `--man` flag it used no longer writes roff.
 - **Breaking:** `show-test-matrix` now lists one row per job by default, and `--flat` is gone. Pass the new `--grid` for the compact two-axis pivot the command used to print.
+- `lint-repo` gains a `manpages-toolchain` check, warning when a project opting into man pages locks a `click-extra` its release job cannot render with.
 - `show-test-matrix --row-axis` and `--col-axis` now list the job keys of your own matrix in `--help`, and complete them in the shell.
 - Add a `runner_arch` metadata key, mapping every runner label in the full test matrix to its CPU architecture.
 - `pr-body --part` and `pr-sync --part` now accept only `minor` or `major`, and name both in `--help`.
