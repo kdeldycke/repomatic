@@ -160,9 +160,11 @@ RECORDING_HOLD = 10.0
 """Seconds the final screen stays up before the animation loops.
 
 The closing report runs several tables long, so the reader gets a proper
-pause on the result instead of losing it to the restart. Hand-picked to match
-what click-extra's unreleased `hold="auto"` computes for this screen: switch
-to that sentinel when the release carrying it ships, and this constant goes.
+pause on the result instead of losing it to the restart. Approximates what
+click-extra's unreleased `hold="auto"` computes for this screen (a quarter
+second per populated line, so 9.75s for the 39 lines a recent take ended on):
+switch to that sentinel when the release carrying it ships, and this constant
+goes along with the shim above.
 """
 
 RECORDING_BLANK = 1.0
