@@ -20,6 +20,7 @@
 - The Claude Code plugin marketplace now installs `.claude/` through a `git-subdir` source, which Claude Desktop and Cowork accept where the previous `archive` source failed to sync.
 - The marketplace entry now tracks the default branch between releases, so an installed plugin picks up skill fixes as they land instead of at the next release. Adding the catalog at a tag still installs that release.
 - The plugin manifest moved to `.claude/.claude-plugin/plugin.json`, so `claude --plugin-dir .claude` loads the plugin straight from a checkout.
+- Help screens now list each section's subcommands alphabetically.
 - Render each command's worked examples in a dedicated `Examples` section of its help screen and man page, with the command lines highlighted.
 - Illustrate the readme with a capture of the CLI help screen, refreshed by the `update-docs` lane and following the reader's color scheme.
 - Fix `repomatic run` printing a Python traceback for an unknown tool name. It is now a usage error listing every registered tool.

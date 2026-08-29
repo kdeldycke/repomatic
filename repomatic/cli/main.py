@@ -345,12 +345,14 @@ def repomatic() -> None:
     pass
 
 
-_section_github = Section("GitHub issues & PRs")
-_section_lint = Section("Linting & checks")
-_section_release = Section("Release & versioning")
-_section_sample = Section("Forge sampling")
-_section_setup = Section("Project setup")
-_section_sync = Section("Sync")
+# Every section lists its subcommands alphabetically, whatever order the
+# modules register them in, matching the house ordering convention.
+_section_github = Section("GitHub issues & PRs", is_sorted=True)
+_section_lint = Section("Linting & checks", is_sorted=True)
+_section_release = Section("Release & versioning", is_sorted=True)
+_section_sample = Section("Forge sampling", is_sorted=True)
+_section_setup = Section("Project setup", is_sorted=True)
+_section_sync = Section("Sync", is_sorted=True)
 
 
 class ComponentSelector(ParamType):
