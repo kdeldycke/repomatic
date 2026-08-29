@@ -52,6 +52,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
+from click_extra import ColumnSpec
 from extra_platforms import is_macos, is_windows
 
 from .config import load_repomatic_config
@@ -61,12 +62,12 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-CACHE_LIST_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Type", "type"),
-    ("Name", "name"),
-    ("Detail", "detail"),
-    ("Size", "size"),
-    ("Age", "age"),
+CACHE_LIST_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("type", "Type"),
+    ColumnSpec("name", "Name"),
+    ColumnSpec("detail", "Detail"),
+    ColumnSpec("size", "Size"),
+    ColumnSpec("age", "Age"),
 )
 """Column definitions for the `repomatic cache show` table.
 

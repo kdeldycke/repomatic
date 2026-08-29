@@ -52,6 +52,8 @@ import logging
 import statistics
 from dataclasses import dataclass
 
+from click_extra import ColumnSpec
+
 from ..humanize import parse_iso_datetime
 from ..lint_repo import KNOWN_RUNNERS
 from ..tabular import render_markdown_table
@@ -69,12 +71,12 @@ they never had a choice of one. Keeping them visible rather than dropping them
 is what stops the report reading as though it covered the whole workflow.
 """
 
-JOB_TIMINGS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Runner", "runner"),
-    ("Jobs", "jobs"),
-    ("Median", "median"),
-    ("Slowest job", "slowest-job"),
-    ("Slowest", "slowest"),
+JOB_TIMINGS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("runner", "Runner"),
+    ColumnSpec("jobs", "Jobs"),
+    ColumnSpec("median", "Median"),
+    ColumnSpec("slowest-job", "Slowest job"),
+    ColumnSpec("slowest", "Slowest"),
 )
 """Column definitions for the `job-timings` table."""
 
@@ -258,7 +260,7 @@ def render_markdown(reports: Sequence[RunnerReport], workflow: str, runs: int) -
     :return: A Markdown table, newline-terminated.
     """
     table = render_markdown_table(
-        tuple(label for label, _key in JOB_TIMINGS_HEADER_DEFS),
+        tuple(col.label for col in JOB_TIMINGS_HEADER_DEFS),
         (
             (
                 f"`{report.runner}`",

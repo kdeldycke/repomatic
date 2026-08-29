@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from click_extra import ColumnSpec
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
@@ -69,12 +70,12 @@ from .uv import (
     uv_lock_command,
 )
 
-AUDIT_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Package", "package"),
-    ("Version", "version"),
-    ("Advisory", "advisory"),
-    ("Fixed", "fixed"),
-    ("Sources", "sources"),
+AUDIT_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("package", "Package"),
+    ColumnSpec("version", "Version"),
+    ColumnSpec("advisory", "Advisory"),
+    ColumnSpec("fixed", "Fixed"),
+    ColumnSpec("sources", "Sources"),
 )
 """Column definitions for the `repomatic audit` table.
 

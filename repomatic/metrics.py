@@ -79,6 +79,8 @@ from datetime import date, datetime, timezone
 from enum import Enum, auto
 from itertools import accumulate
 
+from click_extra import ColumnSpec
+
 from .forge import GITHUB_HOST, canonical_url, repo_metrics, split_repo_url
 from .github.gh import run_gh_command
 from .tabular import load_records, read_csv, render_csv, write_csv
@@ -122,13 +124,13 @@ letting the collectors and the renderer address the extra one through the same
 code paths.
 """
 
-SAMPLE_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Subject", "subject"),
-    ("Phase", "phase"),
-    ("Repository", "repository"),
-    ("Stars", "stars"),
-    ("Rows", "rows"),
-    ("Note", "note"),
+SAMPLE_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("subject", "Subject"),
+    ColumnSpec("phase", "Phase"),
+    ColumnSpec("repository", "Repository"),
+    ColumnSpec("stars", "Stars"),
+    ColumnSpec("rows", "Rows"),
+    ColumnSpec("note", "Note"),
 )
 """Column definitions for the `repomatic sample-metrics` table.
 

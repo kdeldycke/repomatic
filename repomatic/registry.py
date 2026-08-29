@@ -31,6 +31,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from click_extra import ColumnSpec
+
 from .config import Config, location_path
 from .frontmatter import split_frontmatter
 from .tooling.bundle import get_data_content
@@ -1251,10 +1253,10 @@ SKILL_PHASE_ORDER: tuple[str, ...] = (
 )
 """Canonical display order for lifecycle phases in `list-skills` output."""
 
-SKILL_LIST_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Phase", "phase"),
-    ("Skill", "skill"),
-    ("Description", "description"),
+SKILL_LIST_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("phase", "Phase"),
+    ColumnSpec("skill", "Skill"),
+    ColumnSpec("description", "Description", max_width=60),
 )
 """Column definitions for the `repomatic list-skills` table.
 

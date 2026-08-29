@@ -51,6 +51,7 @@ import logging
 from dataclasses import dataclass, field
 
 import yaml
+from click_extra import ColumnSpec
 
 from .gh import gh_api_json
 from .workflow_sync import workflow_triggers
@@ -82,11 +83,11 @@ it can: see `claude.md` on the genuinely-green goal.
 TERMINAL_STATUSES = frozenset({"completed"})
 """Job statuses meaning the job will not change again."""
 
-CI_STATUS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Workflow", "workflow"),
-    ("Commit", "commit"),
-    ("Run status", "run-status"),
-    ("Verdict", "verdict"),
+CI_STATUS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("workflow", "Workflow"),
+    ColumnSpec("commit", "Commit"),
+    ColumnSpec("run-status", "Run status"),
+    ColumnSpec("verdict", "Verdict"),
 )
 """Column definitions for the `ci-status` table."""
 

@@ -41,6 +41,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from operator import itemgetter
 
+from click_extra import ColumnSpec
+
 from ..metadata.core import Metadata
 from .gh import parse_create_output, run_gh_command
 from .pr_body import (
@@ -107,11 +109,11 @@ what `dessant/lock-threads` defaulted to, and it is the only one of the four
 that describes a thread locked for age rather than for conduct.
 """
 
-LOCK_THREADS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Kind", "kind"),
-    ("Thread", "thread"),
-    ("Title", "title"),
-    ("Outcome", "outcome"),
+LOCK_THREADS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("kind", "Kind"),
+    ColumnSpec("thread", "Thread"),
+    ColumnSpec("title", "Title"),
+    ColumnSpec("outcome", "Outcome"),
 )
 """Column definitions for the `repomatic lock-threads` table.
 

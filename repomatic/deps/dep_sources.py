@@ -63,6 +63,7 @@ from datetime import date
 from pathlib import Path
 
 import tomlrt
+from click_extra import ColumnSpec
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
@@ -90,11 +91,11 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-LINT_DEPS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Package", "package"),
-    ("Source", "kind"),
-    ("Declared in", "location"),
-    ("Verdict", "verdict"),
+LINT_DEPS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("package", "Package"),
+    ColumnSpec("kind", "Source"),
+    ColumnSpec("location", "Declared in"),
+    ColumnSpec("verdict", "Verdict"),
 )
 """Column definitions for the `repomatic lint-deps` table.
 

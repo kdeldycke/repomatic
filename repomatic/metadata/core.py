@@ -63,7 +63,7 @@ from dataclasses import fields
 from functools import cached_property, partial
 from pathlib import Path
 
-from click_extra import field_docstrings
+from click_extra import ColumnSpec, field_docstrings
 from extra_platforms import is_github_ci
 
 from ..changelog import (
@@ -221,9 +221,9 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
 """One-liner descriptions for each metadata key produced by {meth}`Metadata.dump`."""
 
 
-METADATA_KEYS_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Key", "key"),
-    ("Description", "description"),
+METADATA_KEYS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("key", "Key"),
+    ColumnSpec("description", "Description"),
 )
 """Column definitions for the metadata keys reference table."""
 

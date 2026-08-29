@@ -62,7 +62,7 @@ from pathlib import Path
 
 import tomlrt
 import yaml
-from click_extra import TableFormat, render_table
+from click_extra import ColumnSpec, TableFormat, render_table
 from extra_platforms import (
     AARCH64,
     ALL_PLATFORMS,
@@ -522,10 +522,10 @@ older floor would otherwise hand mypy a version it rejects outright.
 [Sourced from Mypy's own defaults](https://github.com/python/mypy/blob/master/mypy/defaults.py).
 """
 
-TOOL_LIST_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Tool", "tool"),
-    ("Version", "version"),
-    ("Config source", "config-source"),
+TOOL_LIST_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("tool", "Tool"),
+    ColumnSpec("version", "Version"),
+    ColumnSpec("config-source", "Config source"),
 )
 """Column definitions for the `repomatic run --list` table.
 

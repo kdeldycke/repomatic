@@ -706,7 +706,7 @@ def list_skills(ctx: Context) -> None:
     # A skill description is written for a model deciding whether to invoke it,
     # so it runs to a few sentences and would otherwise set the table's width on
     # its own. A format unable to render a wrapped cell drops the cap itself.
-    ctx.print_table(rows, SKILL_LIST_HEADER_DEFS, max_column_widths=(None, None, 60))
+    ctx.print_table(rows, SKILL_LIST_HEADER_DEFS)
 
 
 @repomatic.command(
@@ -840,9 +840,7 @@ def show_config(ctx: Context) -> None:
     # description running past a hundred characters. `Option` stays uncapped,
     # because wrapping a dotted key splits an identifier mid-token. A format
     # unable to render a wrapped cell drops the caps on its own.
-    ctx.print_table(
-        rows, CONFIG_REFERENCE_HEADER_DEFS, max_column_widths=(None, 24, 24, 60)
-    )
+    ctx.print_table(rows, CONFIG_REFERENCE_HEADER_DEFS)
 
 
 @repomatic.command(

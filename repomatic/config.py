@@ -30,6 +30,7 @@ from textwrap import dedent
 from click_extra import (
     CONFIG_PATH_METADATA_KEY,
     NORMALIZE_KEYS_METADATA_KEY,
+    ColumnSpec,
     make_schema_callable,
     schema_field_infos,
 )
@@ -1620,11 +1621,11 @@ def escape_type_for_gfm_table(ftype: str) -> str:
     return ftype
 
 
-CONFIG_REFERENCE_HEADER_DEFS: tuple[tuple[str, str], ...] = (
-    ("Option", "option"),
-    ("Type", "type"),
-    ("Default", "default"),
-    ("Description", "description"),
+CONFIG_REFERENCE_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("option", "Option"),
+    ColumnSpec("type", "Type", max_width=24),
+    ColumnSpec("default", "Default", max_width=24),
+    ColumnSpec("description", "Description", max_width=60),
 )
 """Column definitions for the `[tool.repomatic]` configuration reference table."""
 
