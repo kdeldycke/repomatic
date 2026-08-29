@@ -1248,7 +1248,20 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     project_dir = lock_path.parent
     lock_cmd = uv_lock_command(pyproject_path, "--upgrade")
     logging.info(f"Running {' '.join(lock_cmd)} in {project_dir}...")
-    subprocess.run(lock_cmd, check=True, cwd=project_dir)
+    # Captured rather than streamed: this runs under the sync trail, and uv's
+    # resolution summary would land on the spinner's own row.
+    result = subprocess.run(
+        lock_cmd,
+        check=False,
+        capture_output=True,
+        encoding="UTF-8",
+        cwd=project_dir,
+    )
+    if result.returncode:
+        logging.error(result.stderr.strip())
+        raise subprocess.CalledProcessError(
+            result.returncode, lock_cmd, result.stdout, result.stderr
+        )
 
     # Step 4: Compute version diff.
     post = LockFile.load(lock_path)

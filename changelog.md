@@ -25,6 +25,7 @@
 - Illustrate the readme with a capture of the CLI help screen, refreshed by the `update-docs` lane and following the reader's color scheme.
 - Animate the readme's `sync-deps --dry-run` example with a recorded terminal session.
 - Illustrate the docs with a capture of the test-matrix grid and a syntax-highlighted configuration example.
+- Fix uv's resolution summary scribbling over the `sync-deps` progress trail.
 - Fix `repomatic run` printing a Python traceback for an unknown tool name. It is now a usage error listing every registered tool.
 - Fix the `plugin` component rewriting a settings file `format-json` had already settled, which kept `sync-repomatic` and the autofix lane undoing each other. The wiring now compares the parsed document, not its text.
 - Fix the generated `release.yaml` ending on a stray blank line, alone among the workflow callers.

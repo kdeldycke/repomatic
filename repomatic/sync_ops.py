@@ -614,14 +614,21 @@ def _resolve_dep_sources(rc: ResolveContext) -> SyncPlan:
                 pyproject_path,
                 {swap.name: swap.freeze_cutoff for swap in swaps},
             )
+            # Captured rather than streamed: this runs under the sync trail,
+            # and uv's resolution summary would land on the spinner's own row.
             subprocess.run(
-                uv_lock_command(pyproject_path), check=True, cwd=lockfile.parent
+                uv_lock_command(pyproject_path),
+                check=True,
+                capture_output=True,
+                encoding="UTF-8",
+                cwd=lockfile.parent,
             )
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as error:
             # A conflicting constraint elsewhere in the tree: not this run's
             # call to untangle. Leave the project as found and report nothing.
             restore()
             logging.warning("Dependency source swap failed to resolve; skipped.")
+            logging.debug(str(error.stderr).strip())
             return plan
         except BaseException:
             restore()
