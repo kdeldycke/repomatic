@@ -43,6 +43,8 @@ Rows sort on `--row-axis` first and `--col-axis` next, and those two axes lead t
 
 `--grid` trades the listing for a two-axis pivot: `--row-axis` and `--col-axis` head the sides, and every other axis collapses into the cells. It is the fastest way to answer "does 3.10 run on Windows", at the cost of being lossy.
 
+![This repository's own matrix, pivoted into the compact grid](assets/matrix-grid-screen.svg)
+
 ```{click:run}
 invoke(repomatic, args=['show-test-matrix', 'pr', '--grid'])
 ```

@@ -65,6 +65,8 @@ $ uvx -- repomatic sync-deps --dry-run
 $ uvx -- repomatic run ruff -- check
 ```
 
+![Animated terminal recording of a sync-deps dry run](https://raw.githubusercontent.com/kdeldycke/repomatic/main/docs/assets/sync-deps-trail-screen.svg)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kdeldycke/repomatic/main/docs/assets/help-dark-screen.svg"/>
   <img alt="repomatic help screen, listing every subcommand" src="https://raw.githubusercontent.com/kdeldycke/repomatic/main/docs/assets/help-light-screen.svg"/>

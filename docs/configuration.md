@@ -8,6 +8,8 @@ Downstream projects can customize workflow behavior by adding a `[tool.repomatic
 
 The `[tool.repomatic]` section is powered by [Click Extra's `pyproject.toml` configuration](https://kdeldycke.github.io/click-extra/config.html#pyproject-toml). Click Extra handles [CWD-first discovery](https://kdeldycke.github.io/click-extra/config.html#cwd-first-discovery) (walking up to the VCS root), [key normalization](https://kdeldycke.github.io/click-extra/config.html#key-normalization) (kebab-case to snake_case), and [typed dataclass schemas](https://kdeldycke.github.io/click-extra/config.html#typed-configuration-schema) (nested sub-tables, opaque dict fields, strict validation).
 
+![A minimal tool.repomatic section, syntax-highlighted](assets/config-snippet-screen.svg)
+
 ```toml
 [tool.repomatic]
 pypi-package-history = ["old-name", "older-name"]
