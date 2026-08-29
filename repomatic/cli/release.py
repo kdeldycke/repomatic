@@ -142,7 +142,20 @@ def changelog(
     echo(content, file=prep_path(changelog_path))
 
 
-@repomatic.command(short_help="Close a stale version-bump PR", section=_section_release)
+@repomatic.command(
+    short_help="Close a stale version-bump PR",
+    section=_section_release,
+    examples=(
+        (
+            "Close a stale minor-bump pull request",
+            "repomatic close-stale-bump-pr --part minor",
+        ),
+        (
+            "Close a stale major-bump pull request",
+            "repomatic close-stale-bump-pr --part major",
+        ),
+    ),
+)
 @option(
     "--part",
     type=Choice(BUMP_PARTS, case_sensitive=False),
@@ -164,11 +177,6 @@ def close_stale_bump_pr(part: str) -> None:
     allowed, it leaves the PR alone so the standard bump flow can update it.
 
     Idempotent: a no-op when no open PR exists on the target branch.
-
-    \b
-    Examples:
-        repomatic close-stale-bump-pr --part minor
-        repomatic close-stale-bump-pr --part major
     """
     if is_version_bump_allowed(part):  # type: ignore[arg-type]
         logging.info(f"{part} bump still allowed, leaving any open PR untouched.")
@@ -190,6 +198,16 @@ def close_stale_bump_pr(part: str) -> None:
     name="git-commit-push",
     short_help="Commit files and push, rebasing on rejection",
     section=_section_release,
+    examples=(
+        (
+            "Commit two files and push",
+            'repomatic git-commit-push --message "Record v1.2.3 binaries" docs/binaries.md docs/assets/virustotal-scans.csv',
+        ),
+        (
+            "Commit every change in the tree",
+            'repomatic git-commit-push --message "Sample star counts" --all-changes',
+        ),
+    ),
 )
 @option(
     "--message",
@@ -238,14 +256,6 @@ def git_commit_push(
     With --all-changes, everything the working tree carries is staged rather
     than a named list. Reserved for a job whose writers are the steps right
     before it and whose output paths only its configuration knows.
-
-    \b
-    Examples:
-        repomatic git-commit-push --message "Record v1.2.3 binaries" \\
-            docs/binaries.md docs/assets/virustotal-scans.csv
-
-    \b
-        repomatic git-commit-push --message "Sample star counts" --all-changes
     """
     if bool(paths) == all_changes:
         raise UsageError("Pass either PATHS or --all-changes, not both or neither.")
@@ -267,7 +277,20 @@ def git_commit_push(
         echo("No changes to commit.")
 
 
-@repomatic.command(short_help="Create and push a Git tag", section=_section_release)
+@repomatic.command(
+    short_help="Create and push a Git tag",
+    section=_section_release,
+    examples=(
+        ("Create and push a tag", "repomatic git-tag --tag v1.2.3"),
+        ("Tag a specific commit", "repomatic git-tag --tag v1.2.3 --commit abc123def"),
+        ("Create tag without pushing", "repomatic git-tag --tag v1.2.3 --no-push"),
+        ("Fail if tag exists", "repomatic git-tag --tag v1.2.3 --error-existing"),
+        (
+            "Output result for GitHub Actions",
+            'repomatic git-tag --tag v1.2.3 --output "$GITHUB_OUTPUT"',
+        ),
+    ),
+)
 @option(
     "--tag",
     required=True,
@@ -307,27 +330,6 @@ def git_tag(
     This command is idempotent: if the tag already exists and --skip-existing
     is used, it exits successfully without making changes. This allows safe
     re-runs of workflows interrupted after tag creation.
-
-    \b
-    Examples:
-        # Create and push a tag
-        repomatic git-tag --tag v1.2.3
-
-    \b
-        # Tag a specific commit
-        repomatic git-tag --tag v1.2.3 --commit abc123def
-
-    \b
-        # Create tag without pushing
-        repomatic git-tag --tag v1.2.3 --no-push
-
-    \b
-        # Fail if tag exists
-        repomatic git-tag --tag v1.2.3 --error-existing
-
-    \b
-        # Output result for GitHub Actions
-        repomatic git-tag --tag v1.2.3 --output "$GITHUB_OUTPUT"
     """
     try:
         created = create_and_push_tag(
@@ -356,6 +358,16 @@ def git_tag(
 @repomatic.command(
     short_help="Name an attestation bundle after the asset it attests",
     section=_section_release,
+    examples=(
+        (
+            "Single asset, named papaya.tar.gz.attestation.json",
+            'repomatic pack-attestation --bundle "${BUNDLE_PATH}"',
+        ),
+        (
+            "A glob's worth of assets, all covered by one bundle",
+            "repomatic pack-attestation --bundle b.json --dir dist --name papaya-set",
+        ),
+    ),
 )
 @option(
     "--bundle",
@@ -392,15 +404,6 @@ def pack_attestation_cmd(
     --name to name the set instead.
 
     Idempotent: re-running copies the same bytes over the same name.
-
-    \b
-    Examples:
-        # Single asset, named papaya.tar.gz.attestation.json
-        repomatic pack-attestation --bundle "${BUNDLE_PATH}"
-
-    \b
-        # A glob's worth of assets, all covered by one bundle
-        repomatic pack-attestation --bundle b.json --dir dist --name papaya-set
     """
     for path in pack_attestation(bundle_path, asset_dir, set_name):
         echo(path)
@@ -409,6 +412,12 @@ def pack_attestation_cmd(
 @repomatic.command(
     short_help="Pack compiled binaries and their versionless aliases",
     section=_section_release,
+    examples=(
+        (
+            "Pack the binaries a build run downloaded",
+            "repomatic pack-binaries --version 1.2.3 --dir ./compile-assets",
+        ),
+    ),
 )
 @option(
     "--version",
@@ -434,10 +443,6 @@ def pack_binaries(version_str: str, dist_dir: Path) -> None:
     uploaded them.
 
     Idempotent: re-running overwrites the same aliases with the same bytes.
-
-    \b
-    Examples:
-        repomatic pack-binaries --version 1.2.3 --dir ./compile-assets
     """
     for path in pack_binary_assets(dist_dir, version_str):
         echo(path)
@@ -446,6 +451,16 @@ def pack_binaries(version_str: str, dist_dir: Path) -> None:
 @repomatic.command(
     short_help="Pack the skills and agents as a Claude Code plugin",
     section=_section_release,
+    examples=(
+        (
+            "Pack into the default ./repomatic-claude-plugin.zip",
+            "repomatic pack-plugin",
+        ),
+        (
+            "Pack for a local install, without a marketplace",
+            "repomatic pack-plugin --output /tmp/repomatic-claude-plugin.zip",
+        ),
+    ),
 )
 @option(
     "--output",
@@ -463,22 +478,24 @@ def pack_plugin_cmd(output: Path) -> None:
     byte-deterministic, so re-packing an unchanged tree produces an identical
     file.
 
-    \b
-    Examples:
-        # Pack into the default ./repomatic-claude-plugin.zip
-        repomatic pack-plugin
-
-    \b
-        # Install the packed plugin locally, without a marketplace
-        repomatic pack-plugin --output /tmp/repomatic-claude-plugin.zip
-        unzip /tmp/repomatic-claude-plugin.zip -d /tmp/plugin
-        claude --plugin-dir /tmp/plugin/repomatic
+    To load a packed plugin without a marketplace, unzip the archive and point
+    `claude --plugin-dir` at the extracted folder.
     """
     members = pack_plugin(Path.cwd(), output)
     echo(f"Packed {len(members)} files into {output}")
 
 
-@repomatic.command(short_help="Prepare files for a release", section=_section_release)
+@repomatic.command(
+    short_help="Prepare files for a release",
+    section=_section_release,
+    examples=(
+        ("Prepare release (changelog + citation)", "repomatic prepare-release"),
+        (
+            "Post-release: retarget workflows to main branch",
+            "repomatic prepare-release --post-release",
+        ),
+    ),
+)
 @option(
     "--changelog",
     "changelog_path",
@@ -544,13 +561,6 @@ def prepare_release(
 
     For post-release (after the release commit), use --post-release to retarget
     workflow URLs back to the default branch.
-
-    \b
-    Examples:
-        # Prepare release (changelog + citation)
-        repomatic prepare-release
-        # Post-release: retarget workflows to main branch
-        repomatic prepare-release --post-release
     """
     # Auto-detect --update-workflows from CI context.
     if update_workflows is None:
@@ -590,6 +600,16 @@ def prepare_release(
     name="scan-virustotal",
     short_help="Upload release binaries to VirusTotal",
     section=_section_release,
+    examples=(
+        (
+            "Scan the binaries attached to a tag",
+            "repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries",
+        ),
+        (
+            "Wait for verdicts and record them",
+            "repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries --poll --records docs/assets/virustotal-scans.csv",
+        ),
+    ),
 )
 @option(
     "--tag",
@@ -663,14 +683,6 @@ def scan_virustotal(
     flagged / total verdict counts. With --records, the polled snapshots are
     merged into a CSV history, which sync-binaries renders into the binaries
     catalog page.
-
-    \b
-    Examples:
-        repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries
-
-    \b
-        repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries \\
-            --poll --records docs/assets/virustotal-scans.csv
     """
     if records and not poll:
         raise UsageError("--records requires --poll.")
@@ -721,6 +733,16 @@ def scan_virustotal(
     name="sync-binaries",
     short_help="Regenerate the binaries catalog page",
     section=_section_release,
+    examples=(
+        (
+            "Regenerate the binaries catalog page",
+            "repomatic sync-binaries --repo owner/repo",
+        ),
+        (
+            "Backfill the scan records store first",
+            "repomatic sync-binaries --repo owner/repo --records docs/assets/virustotal-scans.csv --backfill-records",
+        ),
+    ),
 )
 @option(
     "--repo",
@@ -768,14 +790,6 @@ def sync_binaries(
     VirusTotal tables that release notes carried before the history file
     existed, and merged into the records file. Release notes are immutable,
     so the backfill converges and is safe to leave enabled.
-
-    \b
-    Examples:
-        repomatic sync-binaries --repo owner/repo
-
-    \b
-        repomatic sync-binaries --repo owner/repo \\
-            --records docs/assets/virustotal-scans.csv --backfill-records
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.binaries_sync, "binaries.sync")

@@ -152,6 +152,17 @@ TYPE_CHECKING = False
     name="apply-labels",
     short_help="Label an issue or PR from its content and changed files",
     section=_section_github,
+    examples=(
+        (
+            "Preview what the current event's issue or PR would earn",
+            "repomatic apply-labels",
+        ),
+        ("Apply them, as the labeller job does", "repomatic apply-labels --live"),
+        (
+            "Manual invocation against one pull request",
+            "repomatic apply-labels --live --pr --number 42",
+        ),
+    ),
 )
 @option(
     "--number",
@@ -193,19 +204,6 @@ def apply_labels_cmd(
     one is noise on every issue that trips it.
 
     Requires the gh CLI to be authenticated.
-
-    \b
-    Examples:
-        # Preview what the current event's issue or PR would earn
-        repomatic apply-labels
-
-    \b
-        # Apply them, as the labeller job does
-        repomatic apply-labels --live
-
-    \b
-        # Manual invocation against one pull request
-        repomatic apply-labels --live --pr --number 42
     """
     config = get_tool_config(ctx)
 
@@ -266,7 +264,18 @@ def apply_labels_cmd(
 
 
 @repomatic.command(
-    short_help="Manage broken links issue lifecycle", section=_section_github
+    short_help="Manage broken links issue lifecycle",
+    section=_section_github,
+    examples=(
+        (
+            "In GitHub Actions, with every default auto-detected",
+            "repomatic broken-links --lychee-exit-code 2",
+        ),
+        (
+            "Explicit options",
+            'repomatic broken-links --lychee-exit-code 2 --body-file ./lychee/out.md --repo-name "my-repo"',
+        ),
+    ),
 )
 @option(
     "--lychee-exit-code",
@@ -320,18 +329,6 @@ def broken_links(
     - --output-json defaults to ./docs/_linkcheck/output.json if it exists.
     - --source-url is composed from $GITHUB_SERVER_URL, $GITHUB_REPOSITORY,
       and $GITHUB_SHA when --output-json is set.
-
-    \b
-    Examples:
-        # In GitHub Actions (auto-detection)
-        repomatic broken-links --lychee-exit-code 2
-
-    \b
-        # Explicit options
-        repomatic broken-links \\
-            --lychee-exit-code 2 \\
-            --body-file ./lychee/out.md \\
-            --repo-name "my-repo"
     """
     manage_combined_broken_links_issue(
         repo_name=repo_name,
@@ -347,6 +344,13 @@ def broken_links(
     short_help="Report which CI jobs are red, and which of them gate a merge",
     section=_section_github,
     params=[_ci_status_sort],
+    examples=(
+        ("What is red on main right now", "repomatic ci-status"),
+        (
+            "One workflow, without failing the shell",
+            "repomatic ci-status --workflow tests.yaml --no-fatal",
+        ),
+    ),
 )
 @option(
     "--branch",
@@ -386,15 +390,6 @@ def ci_status(
     A job whose name carries the unstable glyph anywhere is allowed to fail
     and never affects the exit code. Every other job is required, including
     the non-matrix ones that carry no glyph at all.
-
-    \b
-    Examples:
-        # What is red on main right now
-        repomatic ci-status
-
-    \b
-        # One workflow, without failing the shell
-        repomatic ci-status --workflow tests.yaml --no-fatal
     """
     names = list(workflows) or monitored_workflows(WORKFLOW_DIR)
     if not names:
@@ -444,6 +439,12 @@ def ci_status(
     name="sync-runner-images",
     short_help="Move runner images forward as GitHub retires and supersedes them",
     section=_section_github,
+    examples=(
+        (
+            "What would change, without touching the tree",
+            "repomatic sync-runner-images --dry-run",
+        ),
+    ),
 )
 @option(
     # Same spelling as the shared `dry_run_option`, so `--live` works on every
@@ -481,11 +482,6 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
     To decline a proposal for good, name the label in
     `[tool.repomatic.sync-runner-images] ignore`: closing the pull request
     alone brings it back on the next run.
-
-    \b
-    Examples:
-        # What would change, without touching the tree
-        repomatic sync-runner-images --dry-run
     """
     config = load_repomatic_config()
     # Retires the issue the announcement feed used to maintain. Harmless where
@@ -541,6 +537,13 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
     short_help="Measure how long each runner image takes, from finished runs",
     section=_section_github,
     params=[_job_timings_sort],
+    examples=(
+        ("Which image is holding the matrix up", "repomatic job-timings"),
+        (
+            "A wider sample, written out for documentation",
+            "repomatic job-timings --limit 10 --output timings.md",
+        ),
+    ),
 )
 @option(
     "--workflow",
@@ -584,15 +587,6 @@ def job_timings(
     and time where the failure landed rather than what the image costs. The
     figure is a median across several runs, which is what turns a queue stall
     into noise instead of a verdict.
-
-    \b
-    Examples:
-        # Which image is holding the matrix up
-        repomatic job-timings
-
-    \b
-        # A wider sample, written out for documentation
-        repomatic job-timings --limit 10 --output timings.md
     """
     timings = fetch_job_timings(workflow, branch, limit)
     if not timings:
@@ -626,6 +620,12 @@ def job_timings(
     name="cancel-runs",
     short_help="Cancel in-progress workflow runs for a branch",
     section=_section_github,
+    examples=(
+        (
+            "From the cancel-runs workflow, sparing its own run",
+            'repomatic cancel-runs --branch "$BRANCH"',
+        ),
+    ),
 )
 @option(
     "--branch",
@@ -645,11 +645,6 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
     runs on close, so the branch's live runs would burn CI minutes to
     completion. The repository is resolved by the gh CLI from GH_REPO or
     the current checkout.
-
-    \b
-    Examples:
-        # From the cancel-runs workflow, sparing its own run
-        repomatic cancel-runs --branch "$BRANCH"
     """
     cancelled = cancel_superseded_runs(branch, current_run_id)
     echo(f"Cancelled {cancelled} run(s) for branch {branch!r}.")
@@ -658,6 +653,14 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
 @repomatic.command(
     short_help="Lock closed, inactive issues and PRs",
     section=_section_github,
+    examples=(
+        ("Preview what a run would lock", "repomatic lock-threads"),
+        ("Lock them, as the autolock workflow does", "repomatic lock-threads --live"),
+        (
+            "Lock silently after six months, sparing triaged threads",
+            'repomatic lock-threads --live --inactive-days 180 --issue-comment "" --exclude-label "🚧 needs triage"',
+        ),
+    ),
 )
 @option(
     "--inactive-days",
@@ -723,20 +726,6 @@ def lock_threads(
     to reopen when their condition recurs, which a lock would block.
 
     Requires the gh CLI to be authenticated.
-
-    \b
-    Examples:
-        # Preview what a run would lock
-        repomatic lock-threads
-
-    \b
-        # Lock them, as the autolock workflow does
-        repomatic lock-threads --live
-
-    \b
-        # Lock silently after six months, sparing triaged threads
-        repomatic lock-threads --live --inactive-days 180 \\
-            --issue-comment "" --exclude-label "🚧 needs triage"
     """
     if repo is None:
         repo = Metadata().repo_slug
@@ -760,7 +749,27 @@ def lock_threads(
 
 
 @repomatic.command(
-    short_help="Generate PR body with workflow metadata", section=_section_github
+    short_help="Generate PR body with workflow metadata",
+    section=_section_github,
+    examples=(
+        ("Preview metadata block locally", "repomatic pr-body"),
+        (
+            "CI: write as GitHub Actions step outputs",
+            'repomatic pr-body --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+        (
+            "Use a built-in template",
+            "repomatic pr-body --template bump-version --version 1.2.0 --part minor",
+        ),
+        (
+            "Use a downstream-shipped template with custom variables",
+            "repomatic pr-body --template-file path/to/template.md --template-arg fruit=mango --template-arg crate=10",
+        ),
+        (
+            "With a prefix via environment variable",
+            'GHA_PR_BODY_PREFIX="Fix formatting" repomatic pr-body',
+        ),
+    ),
 )
 @option(
     "--prefix",
@@ -845,30 +854,6 @@ def pr_body(
     (the same content read from a file, also via GHA_PR_BODY_PREFIX_FILE). If
     a template and a prefix are both given, the prefix is prepended before the
     rendered template content.
-
-    \b
-    Examples:
-        # Preview metadata block locally
-        repomatic pr-body
-
-    \b
-        # CI: write as GitHub Actions step outputs
-        repomatic pr-body --output "$GITHUB_OUTPUT" \\
-            --output-format github-actions
-
-    \b
-        # Use a built-in template
-        repomatic pr-body --template bump-version \\
-            --version 1.2.0 --part minor
-
-    \b
-        # Use a downstream-shipped template with custom variables
-        repomatic pr-body --template-file path/to/template.md \\
-            --template-arg fruit=mango --template-arg crate=10
-
-    \b
-        # With a prefix via environment variable
-        GHA_PR_BODY_PREFIX="Fix formatting" repomatic pr-body
     """
 
     if template and template_file:
@@ -903,7 +888,22 @@ def pr_body(
 
 
 @repomatic.command(
-    short_help="Create, refresh or retire an automation PR", section=_section_github
+    short_help="Create, refresh or retire an automation PR",
+    section=_section_github,
+    examples=(
+        (
+            "Refresh an autofix job's pull request",
+            "repomatic pr-sync --template format-python",
+        ),
+        (
+            "Open a version-bump PR on its conventional branch",
+            "repomatic pr-sync --template bump-version --part minor --branch minor-version-increment",
+        ),
+        (
+            "A one-off PR with explicit content",
+            'repomatic pr-sync --branch my-fix --title "Fix" --body "…" --commit-message "Fix the thing"',
+        ),
+    ),
 )
 @option(
     "--template",
@@ -1033,14 +1033,6 @@ def pr_sync(
     its own linter into the checkout, or runs a package manager that rewrites
     a lock file on the way past, wants the narrow form: those writes are not
     what the pull request is for.
-
-    \b
-    Examples:
-        repomatic pr-sync --template format-python
-        repomatic pr-sync --template bump-version --part minor \\
-            --branch minor-version-increment
-        repomatic pr-sync --branch my-fix --title "Fix" --body "…" \\
-            --commit-message "Fix the thing"
     """
     if template and template_file:
         msg = "--template and --template-file are mutually exclusive."
@@ -1105,7 +1097,15 @@ def pr_sync(
 
 
 @repomatic.command(
-    short_help="Manage setup guide issue lifecycle", section=_section_github
+    short_help="Manage setup guide issue lifecycle",
+    section=_section_github,
+    examples=(
+        ("No secret: create or reopen the setup issue", "repomatic setup-guide"),
+        (
+            "Secret configured: close the issue if all checks pass",
+            "repomatic setup-guide --has-pat",
+        ),
+    ),
 )
 @has_cloudflare_api_token_option
 @has_notifications_pat_option
@@ -1136,15 +1136,6 @@ def setup_guide(
     The issue closes only when all verifiable steps pass.
 
     Requires the gh CLI to be authenticated.
-
-    \b
-    Examples:
-        # No secret: create or reopen the setup issue
-        repomatic setup-guide
-
-    \b
-        # Secret configured: close the issue if all checks pass
-        repomatic setup-guide --has-pat
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.setup_guide, "setup-guide")
@@ -1160,7 +1151,19 @@ def setup_guide(
 
 
 @repomatic.command(
-    short_help="Label issues/PRs from GitHub sponsors", section=_section_github
+    short_help="Label issues/PRs from GitHub sponsors",
+    section=_section_github,
+    examples=(
+        (
+            "In GitHub Actions, with every default auto-detected",
+            "repomatic sponsor-label",
+        ),
+        ("Override specific values", 'repomatic sponsor-label --label "sponsor"'),
+        (
+            "Manual invocation with all values",
+            "repomatic sponsor-label --owner kdeldycke --author some-user --repo kdeldycke/repomatic --number 123 --issue",
+        ),
+    ),
 )
 @option(
     "--owner",
@@ -1213,20 +1216,6 @@ def sponsor_label(
     variables ($GITHUB_REPOSITORY_OWNER, $GITHUB_REPOSITORY) and the event payload
     ($GITHUB_EVENT_PATH). You can override any auto-detected value by passing it
     explicitly.
-
-    \b
-    Examples:
-        # In GitHub Actions (all defaults auto-detected)
-        repomatic sponsor-label
-
-    \b
-        # Override specific values
-        repomatic sponsor-label --label "sponsor"
-
-    \b
-        # Manual invocation with all values
-        repomatic sponsor-label --owner kdeldycke --author some-user \\
-            --repo kdeldycke/repomatic --number 123 --issue
     """
     # Apply defaults from GitHub Actions environment.
     if owner is None:
@@ -1270,6 +1259,20 @@ def sponsor_label(
 @repomatic.command(
     short_help="Unsubscribe from closed, inactive notification threads",
     section=_section_github,
+    examples=(
+        (
+            "Dry run to preview what would be unsubscribed",
+            "repomatic unsubscribe-threads --dry-run",
+        ),
+        (
+            "Unsubscribe from threads inactive for 6+ months",
+            "repomatic unsubscribe-threads --months 6",
+        ),
+        (
+            "Process at most 50 threads per phase",
+            "repomatic unsubscribe-threads --batch-size 50",
+        ),
+    ),
 )
 @option(
     "--months",
@@ -1299,19 +1302,6 @@ def unsubscribe_threads(months: int, batch_size: int, dry_run: bool) -> None:
     Phase 2, GraphQL threadless subscriptions:
       Searches for closed issues/PRs the user is involved in and
       unsubscribes via the updateSubscription mutation.
-
-    \b
-    Examples:
-        # Dry run to preview what would be unsubscribed
-        repomatic unsubscribe-threads --dry-run
-
-    \b
-        # Unsubscribe from threads inactive for 6+ months
-        repomatic unsubscribe-threads --months 6
-
-    \b
-        # Process at most 50 threads per phase
-        repomatic unsubscribe-threads --batch-size 50
     """
     result = _unsubscribe_threads(months, batch_size, dry_run)
     echo(_render_report(result))

@@ -63,6 +63,17 @@ TYPE_CHECKING = False
     name="sample-metrics",
     short_help="Record what forges say about the repositories this project tracks",
     section=_section_sample,
+    examples=(
+        ("Record today's readings", "repomatic sample-metrics"),
+        (
+            "Skip reconstruction and backfill from the Wayback Machine",
+            "repomatic sample-metrics --no-reconstruct --backfill-wayback",
+        ),
+        (
+            "Import a star-history.com CSV export",
+            "repomatic sample-metrics --import-csv star-history-export.csv",
+        ),
+    ),
 )
 @option(
     "--store",
@@ -138,16 +149,6 @@ def sample_metrics(
     reconstructed exactly from the timestamp of every star it still holds; the
     rest are sampled forward, and backfilled from archived pages or from a
     star-history.com export.
-
-    \b
-    Examples:
-        repomatic sample-metrics
-
-    \b
-        repomatic sample-metrics --no-reconstruct --backfill-wayback
-
-    \b
-        repomatic sample-metrics --import-csv star-history-export.csv
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.metrics.sync, "metrics.sync")

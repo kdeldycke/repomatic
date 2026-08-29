@@ -613,7 +613,15 @@ def show(ctx: Context) -> None:
     echo(f"\nTotal: {len(rows)} file(s), {format_file_size(total_size)}")
 
 
-@cache.command(short_help="Remove cached entries")
+@cache.command(
+    short_help="Remove cached entries",
+    examples=(
+        ("Drop every cached download", "repomatic cache clean"),
+        ("Only one tool's entries", "repomatic cache clean --tool ruff"),
+        ("Only one namespace", "repomatic cache clean --namespace pypi"),
+        ("Only entries older than a week", "repomatic cache clean --max-age 7"),
+    ),
+)
 @option(
     "--tool",
     default=None,
@@ -642,13 +650,6 @@ def clean(
     Without options, removes everything. Use --tool to target a specific
     binary tool and its cached config, --namespace for a specific HTTP
     namespace, or --max-age for entries older than a threshold.
-
-    \b
-    Examples:
-        repomatic cache clean
-        repomatic cache clean --tool ruff
-        repomatic cache clean --namespace pypi
-        repomatic cache clean --max-age 7
     """
     # Each scoping option only reaches the cache kinds it applies to: a
     # --namespace clean leaves binaries and configs alone, a --tool clean
@@ -1006,7 +1007,17 @@ def workflow() -> None:
     """
 
 
-@workflow.command(short_help="Lint workflow files for common issues")
+@workflow.command(
+    short_help="Lint workflow files for common issues",
+    examples=(
+        ("Lint workflows in default location", "repomatic workflow lint"),
+        ("Lint with fatal mode (exit 1 on issues)", "repomatic workflow lint --fatal"),
+        (
+            "Lint a custom directory",
+            "repomatic workflow lint --workflow-dir ./my-workflows",
+        ),
+    ),
+)
 @option(
     "--workflow-dir",
     type=dir_path(exists=True, resolve_path=True),
@@ -1036,19 +1047,6 @@ def lint(ctx: Context, workflow_dir: Path, repo: str, fatal: bool) -> None:
     - Thin callers with triggers that diverge from the canonical workflow
       (missing or extra entries).
     - Thin callers missing required secrets.
-
-    \b
-    Examples:
-        # Lint workflows in default location
-        repomatic workflow lint
-
-    \b
-        # Lint with fatal mode (exit 1 on issues)
-        repomatic workflow lint --fatal
-
-    \b
-        # Lint a custom directory
-        repomatic workflow lint --workflow-dir ./my-workflows
     """
     exit_code = run_workflow_lint(
         workflow_dir=workflow_dir,

@@ -120,6 +120,39 @@ TYPE_CHECKING = False
     name="update-dep-graph",
     short_help="Generate dependency graph from uv lockfile",
     section=_section_setup,
+    examples=(
+        ("Generate Mermaid graph", "repomatic update-dep-graph"),
+        ("Include test dependencies", "repomatic update-dep-graph --group test"),
+        (
+            "Include all groups and extras",
+            "repomatic update-dep-graph --all-groups --all-extras",
+        ),
+        (
+            "Include all groups except typing",
+            "repomatic update-dep-graph --all-groups --no-group typing",
+        ),
+        (
+            "Include all extras except one",
+            "repomatic update-dep-graph --all-extras --no-extra json5",
+        ),
+        (
+            "Show only test group dependencies (no main deps)",
+            "repomatic update-dep-graph --only-group test",
+        ),
+        (
+            "Show only a specific extra's dependencies",
+            "repomatic update-dep-graph --only-extra xml",
+        ),
+        (
+            "Focus on a specific package",
+            "repomatic update-dep-graph --package click-extra",
+        ),
+        ("Limit graph depth to 2 levels", "repomatic update-dep-graph --level 2"),
+        (
+            "Save to file",
+            "repomatic update-dep-graph --output ./docs/assets/dependencies.mmd",
+        ),
+    ),
 )
 @option(
     "-p",
@@ -231,47 +264,6 @@ def dep_graph(
     Parses the CycloneDX SBOM export from uv and renders it as a Mermaid
     flowchart for documentation. Version specifiers from uv.lock are shown
     as edge labels.
-
-    \b
-    Examples:
-        # Generate Mermaid graph
-        repomatic update-dep-graph
-
-    \b
-        # Include test dependencies
-        repomatic update-dep-graph --group test
-
-    \b
-        # Include all groups and extras
-        repomatic update-dep-graph --all-groups --all-extras
-
-    \b
-        # Include all groups except typing
-        repomatic update-dep-graph --all-groups --no-group typing
-
-    \b
-        # Include all extras except one
-        repomatic update-dep-graph --all-extras --no-extra json5
-
-    \b
-        # Show only test group dependencies (no main deps)
-        repomatic update-dep-graph --only-group test
-
-    \b
-        # Show only a specific extra's dependencies
-        repomatic update-dep-graph --only-extra xml
-
-    \b
-        # Focus on a specific package
-        repomatic update-dep-graph --package click-extra
-
-    \b
-        # Limit graph depth to 2 levels
-        repomatic update-dep-graph --level 2
-
-    \b
-        # Save to file
-        repomatic update-dep-graph --output ./docs/assets/dependencies.mmd
     """
     config = get_tool_config()
 
@@ -330,6 +322,17 @@ def dep_graph(
 @repomatic.command(
     short_help="Format images with lossless optimization",
     section=_section_setup,
+    examples=(
+        ("Format images and print summary", "repomatic format-images"),
+        (
+            "CI: write as a GitHub Actions step output",
+            'repomatic format-images --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+        (
+            "Use a 10% minimum savings threshold",
+            "repomatic format-images --min-savings 10",
+        ),
+    ),
 )
 @option(
     "--min-savings",
@@ -367,20 +370,6 @@ def format_images_cmd(
         oxipng is downloaded and checksum-verified from the pinned tool
         registry, once per run. jpegoptim has to be on $PATH:
         sudo apt-get install jpegoptim
-
-    \b
-    Examples:
-        # Format images and print summary
-        repomatic format-images
-
-    \b
-        # CI: write as a GitHub Actions step output
-        repomatic format-images \\
-            --output "$GITHUB_OUTPUT" --output-format github-actions
-
-    \b
-        # Use a 10% minimum savings threshold
-        repomatic format-images --min-savings 10
     """
     image_files = Metadata().image_files
     if not image_files:
@@ -404,6 +393,18 @@ def format_images_cmd(
     name="init",
     short_help="Bootstrap a repository to use reusable workflows",
     section=_section_setup,
+    examples=(
+        ("Full bootstrap (workflows + labels + changelog)", "repomatic init"),
+        ("Pin to a specific version", "repomatic init --version v5.9.1"),
+        (
+            "Adopt the running version now, skipping the release-age cooldown",
+            "repomatic init --no-cooldown",
+        ),
+        ("Install a single skill", "repomatic init skills/repomatic-topics"),
+        ("One workflow + all labels", "repomatic init workflows/autofix.yaml labels"),
+        ("Only merge ruff config into pyproject.toml", "repomatic init ruff"),
+        ("Multiple components", "repomatic init ruff bumpversion"),
+    ),
 )
 @argument(
     "components",
@@ -507,36 +508,6 @@ def init_project(
         workflows/autofix.yaml    A single workflow
         skills/repomatic-topics   A single skill
         labels/labels.toml        A single label config file
-
-    \b
-    Examples:
-        # Full bootstrap (workflows + labels + changelog)
-        repomatic init
-
-    \b
-        # Pin to a specific version
-        repomatic init --version v5.9.1
-
-    \b
-        # Adopt the running version now, skipping the release-age cooldown
-        repomatic init --no-cooldown
-
-    \b
-        # Install a single skill
-        repomatic init skills/repomatic-topics
-
-    \b
-        # One workflow + all labels
-        repomatic init workflows/autofix.yaml labels
-
-    \b
-        # Only merge ruff config into pyproject.toml
-        repomatic init ruff
-
-    \b
-        # Multiple components
-        repomatic init ruff bumpversion
-
     """
     if keep_removed and delete_removed_modified:
         raise UsageError(
@@ -713,6 +684,14 @@ def list_skills(ctx: Context) -> None:
     short_help="Output project metadata",
     section=_section_setup,
     params=[_metadata_sort],
+    examples=(
+        ("Print two keys", "repomatic metadata current_version is_python_project"),
+        ("List every key", "repomatic metadata --list-keys"),
+        (
+            "CI: write as GitHub Actions step outputs",
+            'repomatic metadata --format github-json --output "$GITHUB_OUTPUT" current_version is_python_project',
+        ),
+    ),
 )
 @option(
     "--format",
@@ -754,13 +733,6 @@ def metadata(
 
     Prints all metadata keys to stdout by default. Use --output to write to
     a file. Pass key names as arguments to filter output.
-
-    \b
-    Examples:
-        repomatic metadata current_version is_python_project
-        repomatic metadata --list-keys
-        repomatic metadata --format github-json --output "$GITHUB_OUTPUT" \\
-            current_version is_python_project
     """
     if list_keys:
         ctx.print_table(metadata_keys_reference(), METADATA_KEYS_HEADER_DEFS)
@@ -847,6 +819,23 @@ def show_config(ctx: Context) -> None:
     name="show-test-matrix",
     short_help="Render the CI test matrix as a grid",
     section=_section_setup,
+    examples=(
+        ("One row per job", "repomatic show-test-matrix"),
+        ("The PR subset, in plain words", "repomatic show-test-matrix pr --no-emoji"),
+        (
+            "Pivot columns on a custom axis",
+            "repomatic show-test-matrix --col-axis click-version",
+        ),
+        ("The compact two-axis grid", "repomatic show-test-matrix --grid"),
+        (
+            "Choose both grid axes",
+            "repomatic show-test-matrix --grid --row-axis os --col-axis python-version",
+        ),
+        (
+            "The full matrix as a GitHub-flavored table",
+            "repomatic --table-format github show-test-matrix full",
+        ),
+    ),
 )
 @option(
     "--emoji/--no-emoji",
@@ -899,15 +888,6 @@ def show_test_matrix(
     sides and every other axis collapses into the cells. It is the compact
     read of the same jobs, and it is lossy, so a cell standing for several
     jobs states how many.
-
-    \b
-    Examples:
-        repomatic show-test-matrix
-        repomatic show-test-matrix pr --no-emoji
-        repomatic show-test-matrix --col-axis click-version
-        repomatic show-test-matrix --grid
-        repomatic show-test-matrix --grid --row-axis os --col-axis python-version
-        repomatic --table-format github show-test-matrix full
     """
     meta = Metadata()
     matrix = meta.test_matrix if matrix_name == "full" else meta.test_matrix_pr
@@ -969,6 +949,9 @@ def show_test_matrix(
 @repomatic.command(
     short_help="Recompute SHA-256 checksums for the binary tool registry",
     section=_section_setup,
+    examples=(
+        ("Recompute every checksum in the tool registry", "repomatic update-checksums"),
+    ),
 )
 def update_checksums_cmd() -> None:
     """Recompute SHA-256 checksums for the binary tool registry.
@@ -980,10 +963,6 @@ def update_checksums_cmd() -> None:
     \b
     A repair path for a manual version edit: sync-tool-versions already
     refreshes checksums when it bumps a version.
-
-    \b
-    Example:
-        repomatic update-checksums
     """
     registry_path = Path(tool_registry.__file__)
     updated = update_registry_checksums(registry_path)

@@ -115,6 +115,18 @@ TYPE_CHECKING = False
     short_help="Report (and optionally fix) vulnerable dependencies",
     section=_section_lint,
     params=[_audit_sort],
+    examples=(
+        ("Report known vulnerabilities (read-only)", "repomatic audit"),
+        ("Machine-readable output", "repomatic --table-format json audit"),
+        (
+            "Upgrade fixable packages (mutates uv.lock and pyproject.toml)",
+            "repomatic audit --fix",
+        ),
+        (
+            "CI autofix job: write the markdown report as a step output",
+            'repomatic audit --fix --repo owner/name --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+    ),
 )
 @lockfile_option
 @option(
@@ -175,24 +187,6 @@ def audit(
       - bypasses the exclude-newer cooldown for security fixes
       - persists exclude-newer-package entries in pyproject.toml
       - prints a markdown report of vulnerabilities and version changes
-
-    \b
-    Examples:
-        # Report known vulnerabilities (read-only)
-        repomatic audit
-
-    \b
-        # Machine-readable output
-        repomatic --table-format json audit
-
-    \b
-        # Upgrade fixable packages (mutates uv.lock and pyproject.toml)
-        repomatic audit --fix
-
-    \b
-        # CI autofix job: write the markdown report as a step output
-        repomatic audit --fix --repo owner/name \\
-            --output "$GITHUB_OUTPUT" --output-format github-actions
     """
     config = get_tool_config(ctx)
 
@@ -265,6 +259,9 @@ def audit(
 @repomatic.command(
     short_help="Remove the ToC entries awesome-lint forbids",
     section=_section_lint,
+    examples=(
+        ("Fix the readme and every translation beside it", "repomatic fix-awesome-toc"),
+    ),
 )
 def fix_awesome_toc_cmd() -> None:
     """Remove the table-of-contents entries awesome-lint forbids.
@@ -281,10 +278,6 @@ def fix_awesome_toc_cmd() -> None:
     \b
     Run it right after mdformat regenerates the ToC: mdformat-toc lists every
     heading it finds and has no way to leave one out.
-
-    \b
-    Example:
-        repomatic fix-awesome-toc
     """
     report = fix_awesome_toc()
     if not report:
@@ -298,6 +291,13 @@ def fix_awesome_toc_cmd() -> None:
 @repomatic.command(
     short_help="Check same-page doc links against the built site",
     section=_section_lint,
+    examples=(
+        ("Defaults, straight after a Sphinx build", "repomatic lint-anchors"),
+        (
+            "A tree built elsewhere",
+            "repomatic lint-anchors --docs-dir ./docs --build-dir /tmp/site",
+        ),
+    ),
 )
 @option(
     "--docs-dir",
@@ -329,15 +329,6 @@ def lint_anchors(ctx: Context, docs_dir: Path, build_dir: Path) -> None:
 
     Run it against a site that has just been built: an out-of-date build
     directory answers for the pages it was made from.
-
-    \b
-    Examples:
-        # Defaults, straight after a Sphinx build
-        repomatic lint-anchors
-
-    \b
-        # A tree built elsewhere
-        repomatic lint-anchors --docs-dir ./docs --build-dir /tmp/site
     """
     report = check_anchors(docs_dir, build_dir)
 
@@ -357,7 +348,16 @@ def lint_anchors(ctx: Context, docs_dir: Path, build_dir: Path) -> None:
 
 
 @repomatic.command(
-    short_help="Check changelog dates against release dates", section=_section_lint
+    short_help="Check changelog dates against release dates",
+    section=_section_lint,
+    examples=(
+        (
+            "Check the default changelog.md (auto-detects PyPI package)",
+            "repomatic lint-changelog",
+        ),
+        ("Fix dates and add admonitions", "repomatic lint-changelog --fix"),
+        ("Explicit package name", "repomatic lint-changelog --package repomatic"),
+    ),
 )
 @option(
     "--changelog",
@@ -433,19 +433,6 @@ def lint_changelog(
            GitHub Releases) looks unhealthy and the existing changelog
            has substantial coverage that would be silently stripped.
            Re-run when the API is reachable.
-
-    \b
-    Examples:
-        # Check the default changelog.md (auto-detects PyPI package)
-        repomatic lint-changelog
-
-    \b
-        # Fix dates and add admonitions
-        repomatic lint-changelog --fix
-
-    \b
-        # Explicit package name
-        repomatic lint-changelog --package repomatic
     """
     config = get_tool_config(ctx)
     if changelog_path is None:
@@ -468,6 +455,17 @@ def lint_changelog(
     short_help="Check dependencies resolve from the public index",
     section=_section_lint,
     params=[_lint_deps_sort],
+    examples=(
+        ("Check the current project", "repomatic lint-deps"),
+        (
+            "Report without failing, for an ordinary CI push",
+            "repomatic lint-deps --no-fatal",
+        ),
+        (
+            "Emit a markdown report for a PR body",
+            "repomatic lint-deps --no-fatal --output report.md",
+        ),
+    ),
 )
 @option(
     "--pyproject",
@@ -540,19 +538,6 @@ def lint_deps(
     Exit codes:
         0  Nothing blocks a release, or --no-fatal was passed.
         1  At least one finding blocks a release.
-
-    \b
-    Examples:
-        # Check the current project
-        repomatic lint-deps
-
-    \b
-        # Report without failing, for an ordinary CI push
-        repomatic lint-deps --no-fatal
-
-    \b
-        # Emit a markdown report for a PR body
-        repomatic lint-deps --no-fatal --output report.md
     """
     config = get_tool_config(ctx)
     findings = scan_project(
@@ -617,7 +602,19 @@ def lint_deps(
 
 
 @repomatic.command(
-    short_help="Run repository consistency checks", section=_section_lint
+    short_help="Run repository consistency checks",
+    section=_section_lint,
+    examples=(
+        (
+            "In GitHub Actions (reads pyproject.toml automatically)",
+            "repomatic lint-repo --repo-name my-package",
+        ),
+        (
+            "Local run (derives repo from $GITHUB_REPOSITORY or --repo)",
+            "repomatic lint-repo --repo owner/repo",
+        ),
+        ("With PAT capability checks", "repomatic lint-repo --has-pat"),
+    ),
 )
 @repo_name_option
 @repo_slug_option
@@ -679,19 +676,6 @@ def lint_repo(
       - Pull requests permission (error).
       - Dependabot alerts permission and alerts enabled (error).
       - Workflows permission (error).
-
-    \b
-    Examples:
-        # In GitHub Actions (reads pyproject.toml automatically)
-        repomatic lint-repo --repo-name my-package
-
-    \b
-        # Local run (derives repo from $GITHUB_REPOSITORY or --repo)
-        repomatic lint-repo --repo owner/repo
-
-    \b
-        # With PAT capability checks
-        repomatic lint-repo --has-pat
     """
 
     # Everything the checkout can answer is derived inside the context
@@ -711,7 +695,26 @@ def lint_repo(
 
 
 @repomatic.command(
-    short_help="Reconcile the Cloudflare Pages project", section=_section_lint
+    short_help="Reconcile the Cloudflare Pages project",
+    section=_section_lint,
+    examples=(
+        (
+            "In CI: fail the job when the live project drifted",
+            "repomatic cloudflare-pages --check",
+        ),
+        (
+            "Write the declared compatibility date and placement back",
+            "repomatic cloudflare-pages --apply",
+        ),
+        (
+            "Create the project if missing; an existing one is reconciled, not re-created",
+            "repomatic cloudflare-pages --create --project my-site",
+        ),
+        (
+            "Serve the project at a custom domain, DNS record included",
+            "repomatic cloudflare-pages --attach-domain example.com",
+        ),
+    ),
 )
 @option(
     "--project",
@@ -778,24 +781,6 @@ def cloudflare_pages(
     Credentials come from CLOUDFLARE_API_TOKEN, falling back to the OAuth
     token a local `wrangler login` stored. The account is derived from the
     credential at run time, never declared beside it.
-
-    \b
-    Examples:
-        # In CI: fail the job when the live project drifted
-        repomatic cloudflare-pages --check
-
-    \b
-        # Write the declared compatibility date and placement back
-        repomatic cloudflare-pages --apply
-
-    \b
-        # Rebuild from nothing: create the project if missing, then configure
-        # it. An existing project is reconciled, not re-created.
-        repomatic cloudflare-pages --create --project my-site
-
-    \b
-        # Serve the project at a custom domain, DNS record included
-        repomatic cloudflare-pages --attach-domain example.com
     """
     modes = {
         "--apply": apply_,
@@ -961,7 +946,18 @@ def run_cmd(
 
 
 @repomatic.command(
-    short_help="Verify binary architecture and OS floor", section=_section_lint
+    short_help="Verify binary architecture and OS floor",
+    section=_section_lint,
+    examples=(
+        (
+            "Verify a Linux ARM64 binary",
+            "repomatic verify-binary --target linux-arm64 --binary ./mpm-linux-arm64.bin",
+        ),
+        (
+            "Verify a Windows x64 binary",
+            "repomatic verify-binary --target windows-x64 --binary ./mpm-windows-x64.exe",
+        ),
+    ),
 )
 @option(
     "--target",
@@ -992,15 +988,6 @@ def verify_binary(target: str, binary_path: Path, dist_dirs: tuple[Path, ...]) -
     glibc floor on Linux and the deployment target on macOS are measured
     over the binary plus the Nuitka dist directories whose content its
     onefile payload repacks.
-
-    \b
-    Examples:
-        # Verify a Linux ARM64 binary
-        repomatic verify-binary --target linux-arm64 --binary ./mpm-linux-arm64.bin
-
-    \b
-        # Verify a Windows x64 binary
-        repomatic verify-binary --target windows-x64 --binary ./mpm-windows-x64.exe
     """
     verify_binary_arch(target, binary_path)
     echo(f"Binary architecture verified for {target}: {binary_path}")

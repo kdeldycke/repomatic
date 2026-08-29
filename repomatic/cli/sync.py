@@ -109,6 +109,12 @@ TYPE_CHECKING = False
 @repomatic.command(
     short_help="Bump SHA-pinned GitHub Actions to their latest release",
     section=_section_sync,
+    examples=(
+        (
+            "Bump every SHA-pinned action past the cooldown",
+            "repomatic sync-action-pins",
+        ),
+    ),
 )
 @version_report_output_option
 @sync_release_notes_option
@@ -130,10 +136,6 @@ def sync_action_pins(
     release passing the [tool.repomatic] minimum-release-age cooldown to its
     commit SHA, and rewrites the SHA and version comment. repomatic's own
     reusable-workflow refs are left to `repomatic init`.
-
-    \b
-    Example:
-        repomatic sync-action-pins
     """
     exit_if_disabled(ctx, get_tool_config(ctx).action_pins_sync, "action-pins.sync")
     run_version_sync(
@@ -180,6 +182,13 @@ def sync_bumpversion(ctx: Context) -> None:
     name="sync-dep-sources",
     short_help="Swap git-tracked dependencies to their released versions",
     section=_section_sync,
+    examples=(
+        ("Swap whatever is ready and show changes", "repomatic sync-dep-sources"),
+        (
+            "CI: write markdown report as a GitHub Actions step output",
+            'repomatic sync-dep-sources --no-table --release-notes --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+    ),
 )
 @lockfile_option
 @sync_table_option
@@ -215,16 +224,6 @@ def sync_dep_sources(
     Overrides outside the idiom (path or workspace sources, rev/tag pins,
     floor-less branch tracks) are never touched. A resolution conflict or a
     lock landing on an unexpected version restores the project untouched.
-
-    \b
-    Examples:
-        # Swap whatever is ready and show changes
-        repomatic sync-dep-sources
-
-    \b
-        # CI: write markdown report as a GitHub Actions step output
-        repomatic sync-dep-sources --no-table --release-notes \\
-            --output "$GITHUB_OUTPUT" --output-format github-actions
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.dep_sources_sync, "dep-sources.sync")
@@ -266,6 +265,14 @@ def sync_dep_sources(
 @repomatic.command(
     short_help="Update dependencies, all or a named subset",
     section=_section_sync,
+    examples=(
+        ("Update everything enabled", "repomatic sync-deps"),
+        (
+            "Only the lockfile and action pins",
+            "repomatic sync-deps sync-uv-lock sync-action-pins",
+        ),
+        ("Preview without writing", "repomatic sync-deps --dry-run"),
+    ),
 )
 @argument(
     "operations",
@@ -319,19 +326,6 @@ def sync_deps(
     \b
     Each updater still opens its own PR in CI; this is the local one-shot, and
     the shared engine the consolidated autofix job drives.
-
-    \b
-    Examples:
-        # Update everything enabled
-        repomatic sync-deps
-
-    \b
-        # Only the lockfile and action pins
-        repomatic sync-deps sync-uv-lock sync-action-pins
-
-    \b
-        # Preview without writing
-        repomatic sync-deps --dry-run
     """
     config = get_tool_config(ctx)
     selected = selected_operations(config, names=list(operations) or None)
@@ -379,6 +373,21 @@ def sync_deps(
 @repomatic.command(
     short_help="Sync rolling dev pre-release on GitHub",
     section=_section_sync,
+    examples=(
+        (
+            "Dry run to preview what would be synced",
+            "repomatic sync-dev-release --dry-run",
+        ),
+        ("Create or update the dev pre-release", "repomatic sync-dev-release --live"),
+        (
+            "Create or update with asset upload",
+            "repomatic sync-dev-release --live --upload-assets release_assets/",
+        ),
+        (
+            "Delete the dev pre-release, as a real release does",
+            "repomatic sync-dev-release --live --delete",
+        ),
+    ),
 )
 @dry_run_option
 @option(
@@ -407,23 +416,6 @@ def sync_dev_release(
 
     In --delete mode, removes the dev pre-release without recreating
     it. This is used during real releases to clean up.
-
-    \b
-    Examples:
-        # Dry run to preview what would be synced
-        repomatic sync-dev-release --dry-run
-
-    \b
-        # Create or update the dev pre-release
-        repomatic sync-dev-release --live
-
-    \b
-        # Create or update with asset upload
-        repomatic sync-dev-release --live --upload-assets release_assets/
-
-    \b
-        # Delete the dev pre-release (e.g. during a real release)
-        repomatic sync-dev-release --live --delete
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.dev_release_sync, "dev-release.sync")
@@ -462,6 +454,13 @@ def sync_dev_release(
 @repomatic.command(
     short_help="Sync GitHub release notes from changelog",
     section=_section_sync,
+    examples=(
+        (
+            "Dry run to preview what would be updated",
+            "repomatic sync-github-releases --dry-run",
+        ),
+        ("Update drifted release notes", "repomatic sync-github-releases --live"),
+    ),
 )
 @dry_run_option
 def sync_github_releases(dry_run: bool) -> None:
@@ -469,15 +468,6 @@ def sync_github_releases(dry_run: bool) -> None:
 
     Compares each GitHub release body against the corresponding
     changelog.md section and updates any that have drifted.
-
-    \b
-    Examples:
-        # Dry run to preview what would be updated
-        repomatic sync-github-releases --dry-run
-
-    \b
-        # Update drifted release notes
-        repomatic sync-github-releases --live
     """
     loaded = load_changelog_repo(get_tool_config())
     if loaded is None:
@@ -489,7 +479,19 @@ def sync_github_releases(dry_run: bool) -> None:
 
 
 @repomatic.command(
-    short_help="Sync .gitignore from gitignore.io templates", section=_section_sync
+    short_help="Sync .gitignore from gitignore.io templates",
+    section=_section_sync,
+    examples=(
+        (
+            "Generate .gitignore using config from pyproject.toml",
+            "repomatic sync-gitignore",
+        ),
+        (
+            "Write to custom location",
+            "repomatic sync-gitignore --output ./custom/.gitignore",
+        ),
+        ("Preview on stdout", "repomatic sync-gitignore --output -"),
+    ),
 )
 @option(
     "--output",
@@ -519,19 +521,6 @@ def sync_gitignore(ctx: Context, output_path: Path | None, drop_orphans: bool) -
     disk. A rule added there by hand is therefore dropped on the next sync, so
     the write aborts when it would lose one. Move the rule into
     gitignore-extra-content to keep it, or pass --drop-orphans to let it go.
-
-    \b
-    Examples:
-        # Generate .gitignore using config from pyproject.toml
-        repomatic sync-gitignore
-
-    \b
-        # Write to custom location
-        repomatic sync-gitignore --output ./custom/.gitignore
-
-    \b
-        # Preview on stdout
-        repomatic sync-gitignore --output -
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.gitignore.sync, "gitignore.sync")
@@ -706,6 +695,13 @@ def sync_mailmap(
 @repomatic.command(
     short_help="Bump registry tool versions from upstream releases",
     section=_section_sync,
+    examples=(
+        ("Bump every registry tool past the cooldown", "repomatic sync-tool-versions"),
+        (
+            "CI: write a markdown report as a GitHub Actions step output",
+            'repomatic sync-tool-versions --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+    ),
 )
 @version_report_output_option
 @sync_release_notes_option
@@ -731,15 +727,6 @@ def sync_tool_versions(
     \b
     Upstream-only: it rewrites repomatic's own package source, so invoke it with
     `uv run` (editable), never `uvx` (whose isolated wheel is discarded).
-
-    \b
-    Examples:
-        repomatic sync-tool-versions
-
-    \b
-        # CI: write a markdown report as a GitHub Actions step output
-        repomatic sync-tool-versions \\
-            --output "$GITHUB_OUTPUT" --output-format github-actions
     """
     exit_if_disabled(ctx, get_tool_config(ctx).tool_versions_sync, "tool-versions.sync")
     run_version_sync(
@@ -756,6 +743,19 @@ def sync_tool_versions(
 @repomatic.command(
     short_help="Re-lock dependencies and roll cooldown overrides forward",
     section=_section_sync,
+    examples=(
+        ("Upgrade and show changes", "repomatic sync-uv-lock"),
+        ("With release notes", "repomatic sync-uv-lock --release-notes"),
+        (
+            "Render the report as a GitHub-flavored table",
+            "repomatic --table-format github sync-uv-lock",
+        ),
+        ("Render the report as JSON", "repomatic --table-format json sync-uv-lock"),
+        (
+            "CI: write markdown report as a GitHub Actions step output",
+            'repomatic sync-uv-lock --no-table --release-notes --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+    ),
 )
 @lockfile_option
 @sync_table_option
@@ -794,25 +794,6 @@ def sync_uv_lock_cmd(
     \b
     The table respects the global --table-format option (github, json,
     csv, etc.). Release notes are always rendered as markdown.
-
-    \b
-    Examples:
-        # Upgrade and show changes
-        repomatic sync-uv-lock
-
-    \b
-        # With release notes
-        repomatic sync-uv-lock --release-notes
-
-    \b
-        # Machine-readable formats
-        repomatic --table-format github sync-uv-lock
-        repomatic --table-format json sync-uv-lock
-
-    \b
-        # CI: write markdown report as a GitHub Actions step output
-        repomatic sync-uv-lock --no-table --release-notes \\
-            --output "$GITHUB_OUTPUT" --output-format github-actions
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.uv_lock_sync, "uv-lock.sync")
@@ -862,6 +843,12 @@ def sync_uv_lock_cmd(
 @repomatic.command(
     short_help="Bump npm/PyPI version literals in workflow YAML",
     section=_section_sync,
+    examples=(
+        (
+            "Bump every workflow version literal past the cooldown",
+            "repomatic sync-workflow-pins",
+        ),
+    ),
 )
 @version_report_output_option
 @sync_release_notes_option
@@ -881,10 +868,6 @@ def sync_workflow_pins(
     Scans workflow and composite-action files for `npm install pkg@x` and
     `uvx '<pkg>==x'` pins, resolves each to its latest release passing the
     [tool.repomatic] minimum-release-age cooldown, and rewrites the literal.
-
-    \b
-    Example:
-        repomatic sync-workflow-pins
     """
     exit_if_disabled(ctx, get_tool_config(ctx).workflow_pins_sync, "workflow-pins.sync")
     run_version_sync(
