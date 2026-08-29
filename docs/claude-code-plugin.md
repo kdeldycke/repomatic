@@ -143,6 +143,8 @@ Adding and installing needs no GitHub App, on a public repository. Keeping the p
 
 ![A warning reading "Auto-sync requires the Claude GitHub App to have access to this repository", with a Grant access link](assets/desktop-autosync-warning.png)
 
-The same refusal reaches the log as `Automatic sync on push requires the Claude GitHub App to be installed on this repository`, with error code `github_repo_not_accessible`. Install it from the link in that warning, or from [https://github.com/apps/claude/installations/new](https://github.com/apps/claude/installations/new), and scope it to the repositories whose catalogs you sync. Without it the plugin still installs and still updates when you ask it to; it just will not notice a push on its own.
+The same refusal reaches the log as `Automatic sync on push requires the Claude GitHub App to be installed on this repository`, with error code `github_repo_not_accessible`. Install it from the link in that warning, or from [https://github.com/apps/claude/installations/new](https://github.com/apps/claude/installations/new), and scope it to the repositories whose catalogs you sync.
+
+Weigh that grant before taking it. The app is the Claude Code GitHub teammate, and marketplace auto-sync reuses its installation rather than asking for anything narrower, so it arrives holding **read and write** access to actions, checks, code, discussions, issues, pull requests, repository hooks and workflows. Without it the plugin still installs and still updates when you ask it to; all you lose is the app noticing a push on its own.
 
 This supersedes the per-skill archives [`.claude/package-skills.sh`](https://github.com/kdeldycke/repomatic/blob/main/.claude/package-skills.sh) builds for the **Customize > Skills** panel: one plugin upload carries every skill *and* every agent, which separate skill archives cannot do. See [kdeldycke/repomatic#2540](https://github.com/kdeldycke/repomatic/issues/2540).
