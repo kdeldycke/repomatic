@@ -457,7 +457,7 @@ def pack_binaries(version_str: str, dist_dir: Path) -> None:
 def pack_plugin_cmd(output: Path) -> None:
     """Pack the bundled skills and agents into a Claude Code plugin archive.
 
-    Assembles `.claude-plugin/plugin.json` and every skill and agent the
+    Assembles `.claude/.claude-plugin/plugin.json` and every skill and agent the
     component registry declares into a zip holding a single top-level folder,
     which the release lane attaches to each GitHub release. The archive is
     byte-deterministic, so re-packing an unchanged tree produces an identical

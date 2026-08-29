@@ -26,11 +26,11 @@ identity constants:
   the plugin instead of carrying copied skill files.
 
 ```{caution}
-{func}`pack_plugin` **relocates** each asset into the spec's default `skills/`
-and `agents/` directories, rather than mirroring the `.claude/` layout it reads
-them from, and the manifest therefore declares no component paths at all.
+Every asset sits at the spec's default `skills/` and `agents/` location *within*
+{data}`PLUGIN_ROOT`, and the manifest therefore declares no component paths at
+all.
 
-That asymmetry is not a stylistic choice. A manifest naming individual agent
+That layout is not a stylistic choice. A manifest naming individual agent
 files (`"agents": ["./.claude/agents/qa-engineer.md", ...]`, the only form the
 [published
 schema](https://json.schemastore.org/claude-code-plugin-manifest.json) accepts,
@@ -40,51 +40,62 @@ the directory instead fails validation outright. The default location is the onl
 shape that actually works, verified against Claude Code 2.1.220 by loading the
 packed archive and counting components with `claude plugin details`. `skills`
 does honor a custom directory, but there is no reason to keep one half on the
-mechanism that misbehaves, so both travel to their defaults and the manifest
-stays metadata-only.
+mechanism that misbehaves, so both stay at their defaults and the manifest
+remains metadata-only.
 ```
 
 ```{note}
-`.claude/skills/` and `.claude/agents/` remain the single source of truth: the
-relocation happens only inside the archive, so there is no symlink anywhere and
-no second copy of any skill in the tree. The trade-off is that the repository
-root is not itself an installable plugin: test a change by packing it and
-pointing `claude --plugin-dir` at the unpacked archive.
+{data}`PLUGIN_ROOT` is the single source of truth, and it is directly
+installable: `claude --plugin-dir .claude` loads the same components a consumer
+gets, with no packing step in between. {func}`pack_plugin` mirrors that tree into
+the archive rather than rearranging it, so there is no symlink anywhere and no
+second copy of any skill.
 ```
 
 ```{note}
-The checked-in manifest carries no `version`: {func}`pack_plugin` injects the
-running `__version__` into the copy it writes to the archive.
+Three copies of the version travel with this plugin, and none is maintained by
+hand. {func}`pack_plugin` injects the running `__version__` into the manifest it
+writes to the archive, while the checked-in manifest and the catalog entry are
+both stamped by the release freeze
+({meth}`.PrepareRelease.freeze_plugin_manifest_version` and
+{meth}`.PrepareRelease.freeze_marketplace_pin`).
+
 Claude Code compares that string against a user's installed copy to decide
-whether an update is due, so a hand-maintained value that went stale would
-silently strand everyone on the plugin they already had. Deriving it at pack time
-makes it impossible to forget, and keeps the one repomatic-specific
-`[[tool.bumpversion.files]]` entry out of a `[tool.bumpversion]` block that
-`sync-bumpversion` regenerates from a bundled template shared with every
-downstream repository.
+whether an update is due, so a value that went stale would silently strand
+everyone on the plugin they already had. Deriving each one keeps the single
+repomatic-specific `[[tool.bumpversion.files]]` entry out of a
+`[tool.bumpversion]` block that `sync-bumpversion` regenerates from a bundled
+template shared with every downstream repository, and keeps the post-release
+`.devN` bump from advertising a release that does not exist.
 ```
 
 ```{note}
-The marketplace entry is an `archive` source pointing at the release asset, and
-its URL **ratchets forward**: {meth}`.PrepareRelease.freeze_marketplace_archive_url`
-rewrites it to `/releases/download/v{X.Y.Z}/` on each release commit, and nothing
-walks it back. So the default branch always names the newest published release,
-and a catalog added at a tag installs that tag's plugin. The URL is never a
-`latest` redirect except before the very first release, and never a `.devN` tag.
+The marketplace entry is a `git-subdir` source naming {data}`PLUGIN_ROOT` in this
+repository, pinned to a release tag that **ratchets forward**:
+{meth}`.PrepareRelease.freeze_marketplace_pin` rewrites its `ref` and `version` on
+each release commit, and nothing walks them back. So the default branch always
+names the newest published release, never a `.devN` tag that was never created.
+
+An `archive` source pointing at the release asset was the previous shape, and it
+worked in the CLI alone. The claude.ai ingester behind the Desktop and Cowork
+plugin panels rejects it with `External plugin source type 'archive' is not
+supported. Supported types: git-subdir, github, url`, surfaced in the app as a
+bare "Marketplace sync failed" naming no cause. `git-subdir` is the narrowest
+supported type: it clones this one directory through a partial clone rather than
+the whole repository.
 ```
 
 ```{caution}
-The entry still carries no `sha256`. The archive is byte-deterministic, so a
-digest could in principle be committed alongside the pin, but only if the release
-runner reproduces those bytes exactly: `ZIP_DEFLATED` output depends on the zlib
-build behind CPython, and a one-byte difference would fail *every* install with
-`Plugin archive integrity check failed` rather than degrading. Integrity comes
-from the attestation the engine's `extra-assets` job generates instead. Switching
-to `ZIP_STORED` would make a committed digest safe, at the cost of a larger asset.
+The entry pins a tag through `ref`, not a commit through `sha`, so it inherits
+whatever the tag points at. A tag is movable and a `sha` is not, which is the
+stronger guarantee of the two; the tag is kept because it is what
+{meth}`.PrepareRelease.freeze_marketplace_pin` can write from the version it is
+already freezing, where a SHA is only knowable after the freeze commit exists.
 
-Independently of that: a release that publishes without this asset breaks
-`/plugin install` until the next one, which is why a failed `extra-assets` now
-blocks `publish-release`.
+The release asset is no longer what a marketplace install fetches, so a release
+publishing without it leaves `/plugin install` working. It still strands the
+manual Desktop and Cowork upload, the only route for anyone not syncing this
+catalog, which is why a failed `extra-assets` keeps blocking `publish-release`.
 ```
 """
 
@@ -106,13 +117,27 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from typing import Any, Final
 
-MANIFEST_PATH = ".claude-plugin/plugin.json"
-"""Location of the plugin manifest.
+PLUGIN_ROOT = ".claude"
+"""Directory that *is* the plugin, relative to the repository root.
 
-The same path in both places it appears: relative to the repository root, where
-{func}`pack_plugin` reads it, and relative to the plugin root inside the archive,
-where Claude Code looks for it.
+It already holds `skills/` and `agents/` at the locations the plugin spec scans,
+so naming it as the marketplace entry's `path` publishes the tree as-is. The
+whole directory is what a consumer clones, which is wider than the archive: a
+file {func}`pack_plugin` would never admit, like `package-skills.sh`, still
+travels with a `git-subdir` install.
 """
+
+MANIFEST_PATH = ".claude-plugin/plugin.json"
+"""Location of the plugin manifest, relative to the plugin root.
+
+The same path in both places it appears: under {data}`PLUGIN_ROOT` in the tree,
+where {func}`pack_plugin` reads it and a marketplace install finds it, and at the
+top of the archive, where Claude Code looks for it. Join it onto the repository
+root through {data}`REPO_MANIFEST_PATH`, never on its own.
+"""
+
+REPO_MANIFEST_PATH = f"{PLUGIN_ROOT}/{MANIFEST_PATH}"
+"""Location of the plugin manifest, relative to the repository root."""
 
 MARKETPLACE_PATH = ".claude-plugin/marketplace.json"
 """Location of the marketplace catalog, relative to the repository root."""
@@ -160,10 +185,9 @@ filename announces a plugin *for* repomatic on a release page, which is also wha
 Also the default `--output` of `repomatic pack-plugin`, so the release job never
 spells it. It still appears in `[tool.repomatic] release-assets` and in the
 `release-asset-` run-artifact name the engine matches, which TOML and YAML cannot
-read from here; `tests/test_workflows.py` holds all three equal.
-{meth}`~repomatic.release.prepare_release.PrepareRelease.freeze_marketplace_archive_url`
-rewrites the marketplace URL's trailing filename from here too, so a rename
-reaches every consumer through one constant.
+read from here; `tests/test_workflows.py` holds all three equal. Nothing else
+names it: the marketplace stopped pointing at the asset when it moved to a
+`git-subdir` source, so renaming it now reaches only the upload instructions.
 """
 
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -200,10 +224,13 @@ def _plugin_assets(repo_root: Path) -> Iterator[tuple[Path, Path]]:
     skill's optional `references/`, `scripts/` and `assets/` subdirectories once
     one grows them.
 
-    Each asset is re-rooted from the `.claude/` layout it lives in onto the
-    plugin spec's default {data}`AGENTS_DIR` and {data}`SKILLS_DIR`, for the
-    reason the module docstring gives: a manifest pointing at a custom agents
-    path loads nothing.
+    Each asset is placed under the plugin spec's default {data}`AGENTS_DIR` and
+    {data}`SKILLS_DIR`, for the reason the module docstring gives: a manifest
+    pointing at a custom agents path loads nothing. That is where
+    {data}`PLUGIN_ROOT` already holds them, so the mapping is an identity for this
+    repository; it is written out rather than derived, because a downstream
+    `[tool.repomatic] skills.location` may move the source without moving where
+    the spec scans.
 
     :param repo_root: Repository root.
     :return: Iterator of `(source relative to repo_root, path inside the plugin)`.
@@ -233,20 +260,20 @@ def _plugin_assets(repo_root: Path) -> Iterator[tuple[Path, Path]]:
 def _stamped_manifest(repo_root: Path, version: str = __version__) -> bytes:
     """Read the manifest and stamp the packaged version into it.
 
-    :param repo_root: Repository root, which is also the plugin root.
+    :param repo_root: Repository root holding {data}`PLUGIN_ROOT`.
     :param version: Version string to stamp.
     :return: The manifest as UTF-8 JSON bytes, ready to write into the archive.
     :raises FileNotFoundError: If the manifest is absent.
     :raises TypeError: If the manifest is not a JSON object.
     """
-    manifest_path = repo_root / MANIFEST_PATH
+    manifest_path = repo_root / REPO_MANIFEST_PATH
     if not manifest_path.is_file():
-        msg = f"Plugin manifest {MANIFEST_PATH} is missing."
+        msg = f"Plugin manifest {REPO_MANIFEST_PATH} is missing."
         raise FileNotFoundError(msg)
 
     manifest = json.loads(manifest_path.read_text(encoding="UTF-8"))
     if not isinstance(manifest, dict):
-        msg = f"{MANIFEST_PATH} must be a JSON object."
+        msg = f"{REPO_MANIFEST_PATH} must be a JSON object."
         raise TypeError(msg)
 
     manifest["version"] = version
@@ -260,9 +287,9 @@ def pack_plugin(repo_root: Path, output: Path, version: str = __version__) -> li
 
     The archive holds a single top-level folder named after the plugin. That is
     one of the two layouts Claude Code accepts, and the one that makes `unzip &&
-    claude --plugin-dir repomatic` work on the downloaded asset. Inside it, assets
-    sit at the spec's default locations rather than the `.claude/` paths they are
-    read from: see the module docstring for why.
+    claude --plugin-dir repomatic` work on the downloaded asset. Inside it, the
+    layout mirrors {data}`PLUGIN_ROOT`, minus everything the component registry
+    does not declare: see the module docstring for why.
 
     :param repo_root: Repository root the assets are read from.
     :param output: Destination `.zip` path. Parent directories are created.

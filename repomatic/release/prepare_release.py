@@ -73,7 +73,7 @@ from ..changelog import Changelog, resolved_changelog_path
 from ..config import load_repomatic_config
 from ..metadata.core import Metadata
 from ..registry import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE, WORKFLOW_TARGET_ROOT
-from ..tooling.plugin import ARCHIVE_NAME, MARKETPLACE_PATH
+from ..tooling.plugin import MARKETPLACE_PATH, REPO_MANIFEST_PATH
 from .binary import binary_filename_re
 from .version_sync import frozen_cli_invocation
 
@@ -150,6 +150,7 @@ class PrepareRelease:
         workflow_dir: Path | None = None,
         install_path: Path | None = None,
         marketplace_path: Path | None = None,
+        plugin_manifest_path: Path | None = None,
         default_branch: str = "main",
     ) -> None:
         self.changelog_path = changelog_path or resolved_changelog_path(
@@ -159,6 +160,9 @@ class PrepareRelease:
         self.workflow_dir = workflow_dir or Path(WORKFLOW_TARGET_ROOT).resolve()
         self.install_path = install_path or Path(INSTALL_GUIDE_PATH).resolve()
         self.marketplace_path = marketplace_path or Path(MARKETPLACE_PATH).resolve()
+        self.plugin_manifest_path = (
+            plugin_manifest_path or Path(REPO_MANIFEST_PATH).resolve()
+        )
         self.default_branch = default_branch
         self.modified_files: list[Path] = []
 
@@ -417,43 +421,39 @@ class PrepareRelease:
 
         return self._update_file(self.install_path, content, original)
 
-    def freeze_marketplace_archive_url(self, version: str) -> bool:
-        """Pin the plugin marketplace's archive URL to this release.
+    def freeze_marketplace_pin(self, version: str) -> bool:
+        """Pin the plugin marketplace's `git-subdir` source to this release.
 
-        This is part of the **freeze** step. The `archive` source in
-        `.claude-plugin/marketplace.json` points at the release asset named by
-        {data}`~repomatic.tooling.plugin.ARCHIVE_NAME`, and pinning the tag is what makes
-        a marketplace ref meaningful: adding the catalog at
-        `kdeldycke/repomatic@v6.0.0` then installs v6.0.0's plugin, where a
-        `latest` redirect would hand over whatever shipped most recently
-        regardless of the ref asked for.
+        This is part of the **freeze** step. The entry in
+        `.claude-plugin/marketplace.json` publishes
+        {data}`~repomatic.tooling.plugin.PLUGIN_ROOT` straight from this repository, and
+        pinning the tag is what makes a marketplace ref meaningful: adding the
+        catalog at `kdeldycke/repomatic@v6.0.0` then installs v6.0.0's plugin,
+        where an unpinned entry would hand over whatever the default branch holds
+        at install time.
 
-        Handles the same two input forms as
-        {meth}`freeze_install_download_urls`:
+        Two values move together, and both are rewritten in place:
 
-        - **Initial** (never frozen):
-          `/releases/latest/download/repomatic-claude-plugin.zip`
-        - **Previously frozen**:
-          `/releases/download/v6.0.0/repomatic-claude-plugin.zip`
+        - `ref`, the git tag the plugin directory is read from, in the `vX.Y.Z`
+          tag namespace.
+        - `version`, the bare `X.Y.Z` the app compares against an installed copy
+          to decide whether an update is due. Bumping `ref` alone leaves the
+          Update button greyed out, because detection reads the catalog entry
+          rather than the plugin manifest it points at.
 
         ```{note}
-        The trailing filename is rewritten too, not just the tag, so
-        {data}`~repomatic.tooling.plugin.ARCHIVE_NAME` is the single source of truth for
-        the whole URL. Renaming the asset would otherwise leave the checked-in URL
-        naming a file the next release no longer publishes, and the mismatch would
-        only surface as a failed `/plugin install`. Rewriting both together also
-        keeps the default branch installable across the rename: the URL still
-        names the asset the *last published* release actually carries until this
-        method flips tag and filename in the same commit.
+        An entry carrying neither key is left alone, which is the never-released
+        state: it tracks the default branch until a first release gives the
+        freeze a tag to write.
         ```
 
         ```{note}
-        No unfreeze method, for the same reason download URLs have none: the URL
+        No unfreeze method, for the same reason download URLs have none: the pin
         ratchets forward. The post-release `.devN` bump leaves it alone, so the
-        default branch keeps pointing at the newest *published* release rather
-        than at a `vX.Y.Z.dev0` tag that was never created. That is what makes
-        every state of this file installable, which a bump-my-version entry
-        rewriting it on both commits could not achieve.
+        default branch keeps naming the newest *published* release rather than a
+        `vX.Y.Z.dev0` tag that was never created. That is what makes every state
+        of this file installable, which a bump-my-version entry rewriting it on
+        both commits could not achieve.
         ```
 
         :param version: The release version to freeze to.
@@ -465,11 +465,44 @@ class PrepareRelease:
 
         original = self.marketplace_path.read_text(encoding="UTF-8")
         content = re.sub(
-            r"/releases/(?:latest/download|download/v[\d.]+)/[\w.-]+\.zip",
-            f"/releases/download/v{version}/{ARCHIVE_NAME}",
+            r'("ref":\s*")v[\d.]+(")',
+            rf"\g<1>v{version}\g<2>",
             original,
         )
+        content = re.sub(
+            r'("version":\s*")[\d.]+(")',
+            rf"\g<1>{version}\g<2>",
+            content,
+        )
         return self._update_file(self.marketplace_path, content, original)
+
+    def freeze_plugin_manifest_version(self, version: str) -> bool:
+        """Stamp the release version into the Claude Code plugin manifest.
+
+        This is part of the **freeze** step. A `git-subdir` marketplace source
+        publishes {data}`~repomatic.tooling.plugin.PLUGIN_ROOT` verbatim, so the manifest
+        a consumer installs is the checked-in one rather than the copy
+        {func}`~repomatic.tooling.plugin.pack_plugin` stamps at pack time. Left version-free
+        it fails `claude plugin validate --strict` on `No version specified`.
+
+        Written here rather than by hand or by bump-my-version, for the reason
+        {meth}`freeze_marketplace_pin` gives: it ratchets forward with the tag it
+        belongs to, and the post-release `.devN` bump leaves it alone.
+
+        :param version: The release version to freeze to.
+        :return: True if the file was modified.
+        """
+        if not self.plugin_manifest_path.exists():
+            logging.debug(f"Plugin manifest not found: {self.plugin_manifest_path}")
+            return False
+
+        original = self.plugin_manifest_path.read_text(encoding="UTF-8")
+        content = re.sub(
+            r'("version":\s*")[\d.]+(")',
+            rf"\g<1>{version}\g<2>",
+            original,
+        )
+        return self._update_file(self.plugin_manifest_path, content, original)
 
     def freeze_install_cli_version(self, version: str) -> bool:
         """Pin the install guide's versioned CLI examples to the release.
@@ -637,7 +670,8 @@ class PrepareRelease:
             self.freeze_workflow_urls()
             self.freeze_cli_version(self.current_version)
             self.freeze_install_download_urls(self.current_version)
-            self.freeze_marketplace_archive_url(self.current_version)
+            self.freeze_marketplace_pin(self.current_version)
+            self.freeze_plugin_manifest_version(self.current_version)
 
         return self.modified_files
 

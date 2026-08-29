@@ -19,5 +19,6 @@
 	],
 	"license": "GPL-2.0-or-later",
 	"name": "repomatic",
-	"repository": "https://github.com/kdeldycke/repomatic"
+	"repository": "https://github.com/kdeldycke/repomatic",
+	"version": "7.14.0"
 }

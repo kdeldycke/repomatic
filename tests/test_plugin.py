@@ -53,6 +53,8 @@ from repomatic.tooling.plugin import (
     MARKETPLACE_PATH,
     MARKETPLACE_REPO,
     PLUGIN_NAME,
+    PLUGIN_ROOT,
+    REPO_MANIFEST_PATH,
     SKILLS_DIR,
     _biome_json_indent,
     merge_plugin_settings,
@@ -98,6 +100,13 @@ ARCHIVE_VERSION = "1.2.3"
 """Stand-in version for the packing tests, distinct from the package's own
 `__version__` so a stamped manifest cannot pass by coincidence."""
 
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+"""A released version, bare because it names a package rather than a tag.
+
+Both the manifest and the catalog entry carry one, and both are written by the
+release freeze, so neither may hold a `.devN` suffix.
+"""
+
 
 def _load(relative: str) -> dict[str, Any]:
     """Parse a checked-in JSON document at *relative*."""
@@ -110,7 +119,7 @@ def _load(relative: str) -> dict[str, Any]:
 @pytest.fixture
 def manifest() -> dict[str, Any]:
     """The checked-in plugin manifest, parsed."""
-    return _load(MANIFEST_PATH)
+    return _load(REPO_MANIFEST_PATH)
 
 
 @pytest.fixture
@@ -130,35 +139,36 @@ def test_manifest_identity(manifest) -> None:
     assert manifest["name"] == PLUGIN_NAME
 
 
-def test_manifest_declares_no_version(manifest) -> None:
-    """The version is stamped at pack time, never committed.
+def test_manifest_pins_the_last_released_version(manifest) -> None:
+    """The manifest names a release, written by the freeze and never by hand.
 
-    A committed value is one more thing to bump, and Claude Code treats it as the
-    update signal: left stale it strands every user on the plugin they already
-    have.
+    A `git-subdir` marketplace source publishes this file as it stands, and
+    `claude plugin validate --strict` fails a manifest with no version at all.
+    Claude Code treats the string as the update signal, so a hand-maintained one
+    left stale would strand every user on the plugin they already have.
     """
-    assert "version" not in manifest
+    assert VERSION_RE.match(manifest["version"])
 
 
 def test_manifest_fields_are_recognized(manifest) -> None:
     """No manifest field is one Claude Code would silently ignore."""
     unknown = set(manifest) - MANIFEST_FIELDS
-    assert not unknown, f"{MANIFEST_PATH} has unrecognized fields: {unknown}"
+    assert not unknown, f"{REPO_MANIFEST_PATH} has unrecognized fields: {unknown}"
 
 
 @pytest.mark.parametrize("field", ("agents", "commands", "skills"))
 def test_manifest_declares_no_component_paths(manifest, field: str) -> None:
     """The manifest carries metadata only, never a component path.
 
-    `pack_plugin` relocates every asset onto the spec's default directories
-    precisely so these fields are unnecessary. Re-introducing one is a regression
-    rather than a refactor: an `agents` path passes `claude plugin validate
-    --strict` and then loads zero agents.
+    Every asset already sits at the spec's default location, precisely so these
+    fields are unnecessary. Re-introducing one is a regression rather than a
+    refactor: an `agents` path passes `claude plugin validate --strict` and then
+    loads zero agents.
     """
     assert field not in manifest, (
-        f"{MANIFEST_PATH} declares {field!r}. The archive places assets at the "
-        "spec's default locations, so a component path is unnecessary here, and "
-        "an `agents` path silently loads no agents at all."
+        f"{REPO_MANIFEST_PATH} declares {field!r}. Every asset already sits at "
+        "the spec's default location, so a component path is unnecessary here, "
+        "and an `agents` path silently loads no agents at all."
     )
 
 
@@ -168,66 +178,80 @@ def test_marketplace_identity(marketplace) -> None:
     assert [entry["name"] for entry in marketplace["plugins"]] == [PLUGIN_NAME]
 
 
-def test_marketplace_declares_no_plugin_version(marketplace) -> None:
-    """The entry carries no version, which the manifest's would mask anyway."""
-    for entry in marketplace["plugins"]:
-        assert "version" not in entry
+RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
+"""The only shape the entry's `ref` is ever allowed to take.
 
-
-ARCHIVE_URL_RE = re.compile(
-    r"^https://github\.com/(?P<repo>[\w.-]+/[\w.-]+)"
-    r"/releases/(?:latest/download|download/v\d+\.\d+\.\d+)"
-    r"/(?P<asset>[\w.-]+)$"
-)
-"""The two shapes the marketplace archive URL is ever allowed to take.
-
-`latest/download` is the never-yet-frozen state; `download/vX.Y.Z` is what
-`PrepareRelease.freeze_marketplace_archive_url` ratchets it to on every release.
-Anything else, notably a `vX.Y.Z.devN` tag that was never created, would leave
-`/plugin install` broken.
+A released tag in the `v`-prefixed tag namespace, which is what
+`PrepareRelease.freeze_marketplace_pin` ratchets it to on every release. A
+`vX.Y.Z.devN` tag was never created, so an entry naming one would leave every
+install resolving against nothing.
 """
 
 
-def test_marketplace_installs_from_the_release_archive(marketplace) -> None:
-    """The single entry fetches the archive the release lane attaches.
+def test_marketplace_installs_from_the_plugin_root(marketplace) -> None:
+    """The single entry publishes {data}`PLUGIN_ROOT` from a pinned tag.
 
-    Ties the marketplace URL to the repository and pins it to a shape that always
-    resolves, so the catalog cannot point at a `.devN` tag that was never created.
+    An `archive` source was the previous shape here, and it syncs only in the
+    CLI: the claude.ai ingester rejects the type outright, which is what made
+    every Desktop and Cowork marketplace sync fail. `git-subdir` is one of the
+    three types it does accept, and the narrowest of them.
     """
     source = marketplace["plugins"][0]["source"]
-    assert source["source"] == "archive"
-
-    match = ARCHIVE_URL_RE.match(source["url"])
-    assert match, (
-        f"{source['url']!r} is not a release-asset URL that resolves. Expected "
-        "either the /releases/latest/download/ form or a /releases/download/"
-        "vX.Y.Z/ pin, never a .devN tag."
+    assert source["source"] == "git-subdir"
+    assert source["url"] == f"https://github.com/{MARKETPLACE_REPO}"
+    assert source["path"] == PLUGIN_ROOT
+    assert RELEASE_TAG_RE.match(source["ref"]), (
+        f"{source['ref']!r} is not a released tag. Expected vX.Y.Z, never a "
+        ".devN tag that was never created."
     )
-    assert match["repo"] == MARKETPLACE_REPO
 
 
-def test_marketplace_url_converges_on_the_current_archive_name(
+def test_marketplace_entry_carries_a_version(marketplace) -> None:
+    """The entry pins a version, which is what update detection reads.
+
+    Bumping `ref` alone leaves the app's Update button greyed out: detection
+    compares this string, not the manifest the source resolves to. Hand-writing
+    it would strand everyone on the plugin they already had, so the freeze writes
+    it beside the `ref` it is already moving.
+    """
+    for entry in marketplace["plugins"]:
+        assert VERSION_RE.match(entry["version"]), (
+            f"{entry['version']!r} is not a bare X.Y.Z package version."
+        )
+
+
+def test_marketplace_pin_moves_on_the_next_freeze(
     tmp_path: Path, marketplace_raw: str
 ) -> None:
-    """The next release freeze lands the URL on {data}`ARCHIVE_NAME`.
+    """The next release freeze lands both halves of the pin on that release.
 
     Asserted by running the freeze rather than by comparing against the
-    checked-in filename, because the two legitimately differ for exactly one
-    cycle after the asset is renamed: the URL pins the *last published* release,
-    which still carries the old filename, and only the next freeze can move both
-    together. Comparing the literal here would force a choice between a red test
-    and a URL that 404s until the next release.
+    checked-in values, which legitimately name the *last published* release
+    rather than the version under development.
     """
     target = tmp_path / "marketplace.json"
     target.write_text(marketplace_raw, encoding="UTF-8")
 
-    PrepareRelease(marketplace_path=target).freeze_marketplace_archive_url("9.9.9")
+    assert PrepareRelease(marketplace_path=target).freeze_marketplace_pin("9.9.9")
 
-    match = ARCHIVE_URL_RE.match(
-        json.loads(target.read_text(encoding="UTF-8"))["plugins"][0]["source"]["url"]
-    )
-    assert match
-    assert match["asset"] == ARCHIVE_NAME
+    entry = json.loads(target.read_text(encoding="UTF-8"))["plugins"][0]
+    assert entry["source"]["ref"] == "v9.9.9"
+    assert entry["version"] == "9.9.9"
+
+
+def test_plugin_root_is_installable_as_it_stands(marketplace) -> None:
+    """The directory the entry names really is a plugin root.
+
+    A `git-subdir` source publishes the tree verbatim, with no packing step to
+    rearrange it, so the manifest and both component directories have to be
+    exactly where the spec scans for them. Moving any of the three without
+    moving the marketplace `path` would ship a catalog entry resolving to a
+    directory Claude Code loads nothing from.
+    """
+    root = PROJECT_ROOT / marketplace["plugins"][0]["source"]["path"]
+    assert (root / MANIFEST_PATH).is_file()
+    assert (root / AGENTS_DIR).is_dir()
+    assert (root / SKILLS_DIR).is_dir()
 
 
 def test_pack_plugin_layout(tmp_path: Path) -> None:
@@ -292,8 +316,8 @@ def test_archive_skill_folders_keep_their_subdirectories(tmp_path: Path) -> None
     out in a release.
     """
     repo = tmp_path / "repo"
-    (repo / ".claude-plugin").mkdir(parents=True)
-    (repo / ".claude-plugin/plugin.json").write_text(
+    (repo / REPO_MANIFEST_PATH).parent.mkdir(parents=True)
+    (repo / REPO_MANIFEST_PATH).write_text(
         json.dumps({"name": PLUGIN_NAME}), encoding="UTF-8"
     )
     for entry in COMPONENTS_BY_NAME["subagents"].files:
@@ -360,7 +384,7 @@ def test_pack_plugin_creates_missing_parents(tmp_path: Path) -> None:
 
 def test_pack_plugin_without_a_manifest(tmp_path: Path) -> None:
     """A tree with no manifest fails loudly instead of packing a broken plugin."""
-    with pytest.raises(FileNotFoundError, match=MANIFEST_PATH):
+    with pytest.raises(FileNotFoundError, match=REPO_MANIFEST_PATH):
         pack_plugin(tmp_path, tmp_path / ARCHIVE_NAME)
 
 

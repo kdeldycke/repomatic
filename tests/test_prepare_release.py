@@ -35,7 +35,7 @@ from repomatic.release.version_sync import (
     apply_self_pin_exemption,
     frozen_cli_invocation,
 )
-from repomatic.tooling.plugin import ARCHIVE_NAME
+from repomatic.tooling.plugin import PLUGIN_ROOT
 from tests.conftest import PROJECT_ROOT
 
 TYPE_CHECKING = False
@@ -713,91 +713,132 @@ def test_freeze_install_missing_file(tmp_path: Path) -> None:
     assert result is False
 
 
-def _marketplace(tmp_path: Path, url_path: str, archive: str = ARCHIVE_NAME) -> Path:
-    """Write a minimal plugin marketplace whose archive URL uses *url_path*."""
+def _marketplace(
+    tmp_path: Path,
+    ref: str | None = "v1.2.2",
+    version: str | None = "1.2.2",
+) -> Path:
+    """Write a minimal plugin marketplace pinned to *ref* and *version*.
+
+    Either half is omitted when passed `None`, which is the never-released state:
+    an entry tracking the default branch, with no pin for the freeze to move.
+    """
+    source = {
+        "path": PLUGIN_ROOT,
+        "source": "git-subdir",
+        "url": "https://github.com/kdeldycke/repomatic",
+    }
+    if ref is not None:
+        source["ref"] = ref
+    entry = {"name": "repomatic", "source": source}
+    if version is not None:
+        entry["version"] = version
+
     target = tmp_path / "marketplace.json"
     target.write_text(
         json.dumps({
             "name": "kdeldycke",
             "owner": {"name": "Kevin Deldycke"},
-            "plugins": [
-                {
-                    "name": "repomatic",
-                    "source": {
-                        "source": "archive",
-                        "url": (
-                            "https://github.com/kdeldycke/repomatic"
-                            f"/releases/{url_path}/{archive}"
-                        ),
-                    },
-                }
-            ],
+            "plugins": [entry],
         }),
         encoding="UTF-8",
     )
     return target
 
 
-@pytest.mark.parametrize(
-    ("url_path", "archive", "stale"),
-    (
-        pytest.param(
-            "latest/download", ARCHIVE_NAME, "latest/download", id="never-frozen"
-        ),
-        pytest.param("download/v1.2.2", ARCHIVE_NAME, "v1.2.2", id="already-frozen"),
-        # A release that renames the asset: the freeze must move the filename too,
-        # or the pinned URL keeps naming a file the new tag no longer publishes.
-        pytest.param(
-            "download/v1.2.2",
-            "repomatic-plugin.zip",
-            "repomatic-plugin.zip",
-            id="renamed-archive",
-        ),
-    ),
-)
-def test_freeze_marketplace_archive_url(
-    tmp_path: Path,
-    url_path: str,
-    archive: str,
-    stale: str,
-) -> None:
-    """Both the initial and the already-frozen URL ratchet to the new release."""
-    target = _marketplace(tmp_path, url_path, archive)
+def test_freeze_marketplace_pin(tmp_path: Path) -> None:
+    """Both halves of an already-pinned entry ratchet to the new release."""
+    target = _marketplace(tmp_path)
 
     prep = PrepareRelease(marketplace_path=target)
-    assert prep.freeze_marketplace_archive_url("1.2.3") is True
+    assert prep.freeze_marketplace_pin("1.2.3") is True
 
     content = target.read_text(encoding="UTF-8")
-    assert stale not in content
-    assert (
-        "https://github.com/kdeldycke/repomatic"
-        f"/releases/download/v1.2.3/{ARCHIVE_NAME}"
-    ) in content
-    # Still valid JSON, and only the URL moved.
+    assert "1.2.2" not in content
+    # Still valid JSON, and only the pin moved.
     entry = json.loads(content)["plugins"][0]
     assert entry["name"] == "repomatic"
-    assert entry["source"]["source"] == "archive"
+    assert entry["version"] == "1.2.3"
+    assert entry["source"]["source"] == "git-subdir"
+    assert entry["source"]["ref"] == "v1.2.3"
+    assert entry["source"]["path"] == PLUGIN_ROOT
 
 
-def test_freeze_marketplace_archive_url_missing_file(tmp_path: Path) -> None:
+def test_freeze_marketplace_pin_leaves_an_unpinned_entry_alone(tmp_path: Path) -> None:
+    """A never-released catalog tracks the default branch until a tag exists."""
+    target = _marketplace(tmp_path, ref=None, version=None)
+    before = target.read_text(encoding="UTF-8")
+
+    prep = PrepareRelease(marketplace_path=target)
+    assert prep.freeze_marketplace_pin("1.2.3") is False
+    assert target.read_text(encoding="UTF-8") == before
+
+
+def test_freeze_marketplace_pin_missing_file(tmp_path: Path) -> None:
     """A repository with no plugin marketplace is left alone."""
     prep = PrepareRelease(marketplace_path=tmp_path / "nonexistent.json")
-    assert prep.freeze_marketplace_archive_url("1.2.3") is False
+    assert prep.freeze_marketplace_pin("1.2.3") is False
 
 
-def test_post_release_leaves_the_marketplace_url_pinned(
+def test_freeze_plugin_manifest_version(tmp_path: Path) -> None:
+    """The manifest a `git-subdir` source publishes names the new release."""
+    target = tmp_path / "plugin.json"
+    target.write_text(
+        json.dumps({"name": "repomatic", "version": "1.2.2"}), encoding="UTF-8"
+    )
+
+    prep = PrepareRelease(plugin_manifest_path=target)
+    assert prep.freeze_plugin_manifest_version("1.2.3") is True
+    assert json.loads(target.read_text(encoding="UTF-8"))["version"] == "1.2.3"
+
+
+def test_freeze_plugin_manifest_version_missing_file(tmp_path: Path) -> None:
+    """A repository shipping no plugin is left alone."""
+    prep = PrepareRelease(plugin_manifest_path=tmp_path / "nonexistent.json")
+    assert prep.freeze_plugin_manifest_version("1.2.3") is False
+
+
+def test_post_release_leaves_the_plugin_manifest_version(
     tmp_path: Path,
     temp_changelog: Path,
     temp_citation: Path,
     temp_workflows: Path,
 ) -> None:
-    """The unfreeze must not walk the archive URL back to a `.devN` tag.
+    """The unfreeze must not walk the manifest back to a `.devN` version.
 
-    The ratchet is the whole reason this URL is not a bump-my-version entry: the
+    This is why the version is written here rather than by bump-my-version, which
+    runs on both release commits: the post-release bump would leave the published
+    manifest advertising a `X.Y.Z.devN` release that was never tagged.
+    """
+    target = tmp_path / "plugin.json"
+    target.write_text(
+        json.dumps({"name": "repomatic", "version": "1.2.3"}), encoding="UTF-8"
+    )
+
+    prep = PrepareRelease(
+        changelog_path=temp_changelog,
+        citation_path=temp_citation,
+        workflow_dir=temp_workflows,
+        plugin_manifest_path=target,
+    )
+    prep.post_release(update_workflows=True)
+
+    assert json.loads(target.read_text(encoding="UTF-8"))["version"] == "1.2.3"
+
+
+def test_post_release_leaves_the_marketplace_pin(
+    tmp_path: Path,
+    temp_changelog: Path,
+    temp_citation: Path,
+    temp_workflows: Path,
+) -> None:
+    """The unfreeze must not walk the pin back to a `.devN` tag.
+
+    The ratchet is the whole reason this pin is not a bump-my-version entry: the
     post-release bump would rewrite it to a `vX.Y.Z.devN` tag that never exists,
     breaking `/plugin install` for the entire development cycle.
     """
-    target = _marketplace(tmp_path, "download/v1.2.3")
+    target = _marketplace(tmp_path, ref="v1.2.3", version="1.2.3")
 
     prep = PrepareRelease(
         changelog_path=temp_changelog,
@@ -807,9 +848,9 @@ def test_post_release_leaves_the_marketplace_url_pinned(
     )
     prep.post_release(update_workflows=True)
 
-    assert "/releases/download/v1.2.3/repomatic-claude-plugin.zip" in target.read_text(
-        encoding="UTF-8"
-    )
+    entry = json.loads(target.read_text(encoding="UTF-8"))["plugins"][0]
+    assert entry["source"]["ref"] == "v1.2.3"
+    assert entry["version"] == "1.2.3"
 
 
 def test_prepare_release_freezes_install(

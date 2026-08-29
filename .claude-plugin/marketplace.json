@@ -13,8 +13,10 @@
 			"description": "Skills and agents to automate repository maintenance, releases, and CI/CD workflows",
 			"name": "repomatic",
 			"source": {
-				"source": "archive",
-				"url": "https://github.com/kdeldycke/repomatic/releases/download/v7.14.0/repomatic-claude-plugin.zip"
+				"path": ".claude",
+				"ref": "v7.14.0",
+				"source": "git-subdir",
+				"url": "https://github.com/kdeldycke/repomatic"
 			},
 			"tags": [
 				"changelog",
@@ -22,7 +24,8 @@
 				"dependencies",
 				"github-actions",
 				"release-automation"
-			]
+			],
+			"version": "7.14.0"
 		}
 	]
 }

@@ -564,8 +564,9 @@ metrics.sync = true
 pypi-package-history = [ "gha-utils", "repokit" ]
 # Claude Code plugin archive packed by release.yaml's pack-plugin job and
 # attached to every GitHub release by the engine's extra-assets job. The
-# marketplace at .claude-plugin/marketplace.json installs the plugin straight
-# from this asset, so a release missing it breaks `/plugin install`.
+# marketplace reads the plugin from the repository instead, so a release missing
+# this asset still installs; what it strands is the offline install and the
+# Claude Desktop upload, the only route to Cowork and claude.ai.
 release-assets = [ "repomatic-claude-plugin.zip" ]
 # Migration in progress: this repository dogfoods its own Cloudflare Pages lane
 # on repomatic.net, so the feature reaches a release proven rather than
