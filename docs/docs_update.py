@@ -322,8 +322,10 @@ def record_frames(args: tuple[str, ...], columns: int, rows: int) -> tuple:
     it ends.
 
     ```{todo}
-    Drop this shim and call `record_command` once click-extra ships the
-    incremental pty decoding and the deferred carriage-return redraw.
+    Drop this shim, {class}`DeferredReturnScreen` and the whole
+    {func}`capture_recording` pipeline once click-extra ships
+    `click-extra screenshot --record`: one CLI call then covers the pty
+    recording, the prompt line and the auto-scaled hold.
     ```
 
     :param args: The command line to record.
