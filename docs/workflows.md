@@ -691,12 +691,12 @@ flowchart TD
 
 #### 📖 Man pages (`manpages`)
 
-- Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
+- Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --help-format man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
 - Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release **draft** via `gh release upload --clobber`, before `publish-release` publishes and locks the release
 - The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as an `<asset-name>.tar.gz.attestation.json` asset, named by [`repomatic pack-attestation`](cli.md) after the file it covers, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`
 - **Requires**:
-  - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra wrap --man SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
-  - The consumer's `click-extra` floor is `>= 8`: the `--output-dir DIR` option to `click-extra wrap --man` writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing
+  - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra wrap SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
+  - The consumer's `click-extra` floor is `>= 9`: `--help-format man` renders the roff source, and its `--output-dir DIR` option writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing. On `8.x` the roff came from `wrap --man`, which `9.0` repurposed to page the typeset manual instead, so a consumer still on `8.x` fails this job until it upgrades
   - Successful `create-release` job (the draft must exist; the asset must be attached before `publish-release` locks the release: see [§ Immutable releases](#immutable-releases))
 - The tarball stem defaults to `<package-name>-manpages`; override with `manpages.asset-name` in `[tool.repomatic]` to publish under a different name
 - **Skipped if**:

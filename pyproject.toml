@@ -222,8 +222,12 @@ exclude-newer = "1 week"
 # bypasses at that date and prunes each entry once its held version ages past
 # `exclude-newer`, returning the package to the normal cooldown. repomatic is
 # pinned to git main (no PyPI release to freeze), so it keeps a permanent
-# "0 day" span.
-exclude-newer-package = { repomatic = "0 day" }
+# "0 day" span. click-extra carries a frozen cutoff instead, and a temporary
+# one: the `manpages` release job renders with `click-extra wrap --help-format
+# man`, an invocation 9.0.0 introduced, so this repository's own release lane
+# needs 9.0.0 locked before that release ages out of the window. The entry
+# prunes itself once it does.
+exclude-newer-package = { click-extra = "2026-08-31T00:00:00Z", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 

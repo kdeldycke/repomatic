@@ -587,8 +587,9 @@ jobs:
   # tarball asset to the GitHub release draft. The upload must land before `publish-release` flips the draft to a
   # published release: GitHub immutable releases lock a published release's assets, so a post-publish upload fails
   # with HTTP 422. Opt-in: silently skipped when `manpages.script` is empty in the consumer's pyproject.toml. Shells
-  # out to the `click-extra wrap --man --output-dir` CLI (click-extra 8.0+), against the consumer's already-synced
-  # venv, so repomatic stays out of the resolution graph.
+  # out to the `click-extra wrap --help-format man --output-dir` CLI, against the consumer's already-synced venv, so
+  # repomatic stays out of the resolution graph. The consumer's click-extra floor is 9.0: that release moved the roff
+  # source to `--help-format man` and gave `--man` the paged manual a reader wants, which writes no file.
   manpages:
     name: 📖 Man pages (${{ matrix.short_sha }})
     needs:
@@ -621,7 +622,7 @@ jobs:
           SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).manpages_script }}
         run: >
           uv --no-progress run --frozen --
-          click-extra wrap --man --output-dir man "${SCRIPT}"
+          click-extra wrap --help-format man --output-dir man "${SCRIPT}"
       - name: Bundle as tarball
         env:
           ASSET_NAME: >-
