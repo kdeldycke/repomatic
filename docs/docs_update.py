@@ -54,7 +54,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from click_extra import args_cleanup
+from click_extra import args_cleanup, format_cli_prompt
 from click_extra.color import forced_color
 from click_extra.recording import (
     ERASE_IN_LINE,
@@ -155,6 +155,22 @@ terminal wraps them, exactly as a real one would.
 
 RECORDING_ROWS = 28
 """Terminal height the recording runs at."""
+
+RECORDING_HOLD = 10.0
+"""Seconds the final screen stays up before the animation loops.
+
+The closing report runs several tables long, so the reader gets a proper
+pause on the result instead of losing it to the restart. Hand-picked to match
+what click-extra's unreleased `hold="auto"` computes for this screen: switch
+to that sentinel when the release carrying it ships, and this constant goes.
+"""
+
+RECORDING_BLANK = 1.0
+"""Seconds of empty screen closing the cycle.
+
+Marks the loop boundary: after the long hold above, an instant jump back to
+the first frame would read as a glitch rather than a restart.
+"""
 
 RECORDING_MIN_FRAMES = 8
 """Fewest frames an acceptable take holds.
@@ -379,6 +395,12 @@ def capture_recording(target: Path) -> None:
         print("Recording needs a pseudo-terminal: skipped on this platform.")
         return
 
+    # The invocation is drawn above the output as a shell prompt on every
+    # frame, exactly as the `click-extra screenshot` stills draw theirs, so
+    # the animation shows what to type to reproduce it.
+    with forced_color():
+        prompt_line = format_cli_prompt(RECORDING_ARGS)
+
     for take in range(1, RECORDING_TAKES + 1):
         frames = quantize(
             record_frames(
@@ -387,7 +409,7 @@ def capture_recording(target: Path) -> None:
                 rows=RECORDING_ROWS,
             )
         )
-        texts = tuple(frame.text for frame in frames)
+        texts = tuple(f"{prompt_line}\n{frame.text}" for frame in frames)
         degraded = any("�" in text or "rate limit exceeded" in text for text in texts)
         if len(frames) < RECORDING_MIN_FRAMES or degraded:
             print(f"Take {take} rejected (short, mangled or degraded), retrying.")
@@ -396,9 +418,9 @@ def capture_recording(target: Path) -> None:
             texts[-1],
             frames=texts,
             interval=tuple(frame.duration for frame in frames),
-            hold=2.0,
+            hold=RECORDING_HOLD,
+            blank=RECORDING_BLANK,
             columns=RECORDING_COLUMNS,
-            title="repomatic sync-deps --dry-run",
             unique_id=target.stem,
         )
         target.write_text(svg, encoding="UTF-8")
