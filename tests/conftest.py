@@ -238,6 +238,23 @@ def _isolate_user_config(isolated_app_dir):
     return isolated_app_dir
 
 
+@pytest.fixture(autouse=True)
+def _neutral_terminal(monkeypatch):
+    """Hide the developer's terminal from every table the suite renders.
+
+    click-extra reads `$TERM_PROGRAM` to decide how wide the running terminal
+    paints an emoji-presentation sequence, and pads the cell to match. Apple
+    Terminal advances one column where the Unicode rule says two, so a
+    `⁉️ unstable` cell gains a space there and nowhere else: an assertion on
+    the rendered string passes on Linux CI and fails on the maintainer's Mac.
+
+    Clearing the variable picks the standards-conforming branch, which is what
+    every runner in the matrix already takes. A test asserting on the padded
+    rendering sets the variable back for its own duration.
+    """
+    monkeypatch.delenv("TERM_PROGRAM", raising=False)
+
+
 class FakeResponse:
     """Minimal `urlopen` response double: a byte body behind a context manager.
 
