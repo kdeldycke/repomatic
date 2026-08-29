@@ -23,7 +23,7 @@ import logging
 import re
 import subprocess
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -512,7 +512,11 @@ def _tracked_inventory(
             seen.add(resolved.relative_to(repo_root).as_posix())
         except ValueError:
             seen.add(line)
-    return sorted(seen)
+    # Ordered like `glob_files`, which sorts `Path` objects: that compares parts
+    # rather than whole strings, so a directory sorts before a sibling file whose
+    # name merely starts with it (`.claude/` before `.claude-plugin/`, where a
+    # plain string sort puts `-` ahead of `/`).
+    return sorted(seen, key=lambda path: PurePosixPath(path).parts)
 
 
 MARKDOWN_EXTENSIONS = (
@@ -991,7 +995,7 @@ def test_file_inventories_are_not_vacuous():
     assert ".github/workflows/tests.yaml" in expected["workflow_files"]
     assert ".github/workflows/autofix.yaml" in expected["yaml_files"]
     assert expected["pyproject_files"] == ["pyproject.toml"]
-    assert ".claude-plugin/plugin.json" in expected["json_files"]
+    assert ".claude-plugin/marketplace.json" in expected["json_files"]
     assert "changelog.md" in MARKDOWN_INVENTORY
     assert "readme.md" in MARKDOWN_INVENTORY
     assert "docs/assets/icon.png" in expected["image_files"]
