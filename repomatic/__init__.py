@@ -19,3 +19,9 @@ from __future__ import annotations
 
 __version__ = "7.15.0.dev0"
 __git_tag_sha__ = ""
+# Empty placeholders `click-extra prebake all` fills at binary build time, so a
+# compiled artifact can report when, where and for what target it was built.
+__build_time__ = ""
+__build_os__ = ""
+__build_target__ = ""
+__build_target_arch__ = ""
