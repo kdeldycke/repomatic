@@ -1036,7 +1036,7 @@ The [`prepare-release`](#github-workflows-changelog-yaml-jobs) job creates a PR 
 1. **Freeze commit** (`[changelog] Release vX.Y.Z`): finalizes the changelog date and comparison URL, removes the "unreleased" warning, freezes workflow action references to `@vX.Y.Z`, freezes CLI invocations to a PyPI version, and re-locks `uv.lock` so the tag carries a lock entry matching its own version.
 2. **Unfreeze commit** (`[changelog] Post-release bump`): reverts action references back to `@main`, reverts CLI invocations to local source, adds a new unreleased changelog section, bumps the version to the next patch, and re-locks again.
 
-Not everything the freeze pins is reverted. Release pins (the binary download URLs in `docs/install.md`, the plugin marketplace entry in `.claude-plugin/marketplace.json`) **ratchet forward** instead: the freeze moves them to the new tag and the unfreeze leaves them there, so `main` names the newest published release rather than a tag that does not exist yet.
+Not everything the freeze pins is reverted. Release pins (the binary download URLs in `docs/install.md`, the plugin marketplace entry's `version` in `.claude-plugin/marketplace.json`) **ratchet forward** instead: the freeze moves them to the new tag and the unfreeze leaves them there, so `main` names the newest published release rather than a tag that does not exist yet. That marketplace entry's `ref` beside it round-trips like a workflow reference, since a tag pin would freeze the plugin's content for a whole cycle.
 
 The auto-tagging job depends on these being **separate commits**: it uses `release_commits_matrix` to identify and tag only the freeze commit. Squashing would merge both into one, breaking the tagging logic.
 

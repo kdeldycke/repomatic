@@ -746,6 +746,42 @@ def _marketplace(
     return target
 
 
+RATCHETING_FREEZES = frozenset({
+    "freeze_install_download_urls",
+    "freeze_install_cli_version",
+    "freeze_marketplace_pin",
+    "freeze_plugin_manifest_version",
+})
+"""Freeze passes that deliberately have no `unfreeze_` counterpart.
+
+Each one writes a value that must keep naming the last *published* release
+between cycles, so walking it back would leave `main` advertising a
+`vX.Y.Z.devN` tag that was never created.
+"""
+
+
+def test_every_freeze_declares_its_direction() -> None:
+    """A freeze pass either round-trips or is named as ratcheting, never neither.
+
+    Which of the two a pin follows is a decision, and it was prose-only until
+    this test: a new `freeze_` method simply omitted from `post_release` looked
+    exactly like one that ratchets on purpose. This guards additions from here
+    on and claims no coverage of the ones already in place.
+    """
+    freezes = {name for name in dir(PrepareRelease) if name.startswith("freeze_")}
+    undeclared = {
+        name
+        for name in freezes - RATCHETING_FREEZES
+        if not hasattr(PrepareRelease, name.replace("freeze_", "unfreeze_", 1))
+    }
+    assert not undeclared, (
+        f"{sorted(undeclared)} have no unfreeze counterpart and are not listed in "
+        "RATCHETING_FREEZES. Add the unfreeze, or declare the ratchet and say in "
+        "the method's docstring what breaks if the value is walked back."
+    )
+    assert not RATCHETING_FREEZES - freezes, "RATCHETING_FREEZES names a stale method."
+
+
 def test_freeze_marketplace_pin(tmp_path: Path) -> None:
     """Both halves of an already-pinned entry ratchet to the new release."""
     target = _marketplace(tmp_path)
@@ -832,11 +868,13 @@ def test_post_release_leaves_the_marketplace_pin(
     temp_citation: Path,
     temp_workflows: Path,
 ) -> None:
-    """The unfreeze must not walk the pin back to a `.devN` tag.
+    """The unfreeze splits the entry: the ref tracks main, the version does not.
 
-    The ratchet is the whole reason this pin is not a bump-my-version entry: the
-    post-release bump would rewrite it to a `vX.Y.Z.devN` tag that never exists,
-    breaking `/plugin install` for the entire development cycle.
+    Pointing `ref` back at the default branch is what lets the app's
+    `Sync automatically` see a change at all, since a tag never moves. The
+    `version` beside it keeps naming the last release rather than following the
+    post-release bump, which would advertise a `X.Y.Z.devN` release nobody can
+    install.
     """
     target = _marketplace(tmp_path, ref="v1.2.3", version="1.2.3")
 
@@ -849,8 +887,31 @@ def test_post_release_leaves_the_marketplace_pin(
     prep.post_release(update_workflows=True)
 
     entry = json.loads(target.read_text(encoding="UTF-8"))["plugins"][0]
-    assert entry["source"]["ref"] == "v1.2.3"
+    assert entry["source"]["ref"] == "main"
     assert entry["version"] == "1.2.3"
+
+
+def test_freeze_unfreeze_round_trips_the_marketplace_ref(tmp_path: Path) -> None:
+    """The ref returns to the default branch it started on, and the file with it."""
+    target = _marketplace(tmp_path, ref="main", version="1.2.2")
+    before = target.read_text(encoding="UTF-8")
+
+    prep = PrepareRelease(marketplace_path=target)
+    assert prep.freeze_marketplace_pin("1.2.3") is True
+    assert json.loads(target.read_text(encoding="UTF-8"))["plugins"][0] == {
+        "name": "repomatic",
+        "source": {
+            "path": PLUGIN_ROOT,
+            "ref": "v1.2.3",
+            "source": "git-subdir",
+            "url": "https://github.com/kdeldycke/repomatic",
+        },
+        "version": "1.2.3",
+    }
+
+    assert prep.unfreeze_marketplace_ref() is True
+    # Only the version stayed behind, which is the half that ratchets.
+    assert target.read_text(encoding="UTF-8") == before.replace("1.2.2", "1.2.3")
 
 
 def test_prepare_release_freezes_install(

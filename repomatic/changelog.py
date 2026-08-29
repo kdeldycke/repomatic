@@ -138,6 +138,7 @@ from .pypi import (
     get_release_dates as get_pypi_release_dates,
 )
 from .pyproject import get_project_name
+from .tabular import write_if_changed
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -537,9 +538,7 @@ class Changelog:
             logging.debug(f"No changes to {path}")
             return False
 
-        path.write_text(changelog.content.rstrip() + "\n", encoding="UTF-8")
-        logging.info(f"Updated {path}")
-        return True
+        return write_if_changed(path, changelog.content.rstrip() + "\n")
 
     def extract_repo_url(self) -> str:
         """Extract the repository URL from changelog comparison links.

@@ -71,10 +71,18 @@ template shared with every downstream repository, and keeps the post-release
 
 ```{note}
 The marketplace entry is a `git-subdir` source naming {data}`PLUGIN_ROOT` in this
-repository, pinned to a release tag that **ratchets forward**:
-{meth}`.PrepareRelease.freeze_marketplace_pin` rewrites its `ref` and `version` on
-each release commit, and nothing walks them back. So the default branch always
-names the newest published release, never a `.devN` tag that was never created.
+repository, and its two halves move differently.
+{meth}`.PrepareRelease.freeze_marketplace_pin` writes both on a release commit;
+{meth}`.PrepareRelease.unfreeze_marketplace_ref` then walks the `ref` back to the
+default branch and leaves the `version` on the release. So a released tree
+installs exactly that release, while the default branch tracks itself, which is
+the only state the app's `Sync automatically` can ever observe a change in.
+
+That split is why the tag is not simply pinned everywhere: a tag never moves, so
+an entry frozen to one turns automatic sync into a no-op until the next release.
+It also survives a layout change, where a pin naming the last release cannot: the
+plugin root moved into {data}`PLUGIN_ROOT` in this very cycle, and a catalog
+pinned to the previous tag pointed at a tree with no manifest in it.
 
 An `archive` source pointing at the release asset was the previous shape, and it
 worked in the CLI alone. The claude.ai ingester behind the Desktop and Cowork

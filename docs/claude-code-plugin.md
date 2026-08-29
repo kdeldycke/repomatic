@@ -49,13 +49,12 @@ Do not add an `agents` path to the manifest to publish the assets from somewhere
 
 ## How the pin moves
 
-The catalog entry names a release tag through `ref`, never a branch, and **ratchets forward**: each release's freeze commit rewrites `ref` and the entry's `version` together, and nothing walks either back. Three consequences worth knowing:
+The entry's two halves move differently, and the difference is the point:
 
-- The default branch always names the newest *published* release, so `/plugin marketplace add kdeldycke/repomatic` is always installable.
-- Adding the catalog at a tag installs that tag's plugin: `/plugin marketplace add kdeldycke/repomatic@vX.Y.Z` gives you `vX.Y.Z`'s skills and agents. Tags older than the release that introduced the plugin carry no marketplace entry.
-- `version` moves with `ref` because that is the string update detection compares. Bumping the tag alone leaves an installed copy reporting no update available.
+- **`ref` round-trips.** A release commit's freeze writes `vX.Y.Z`; the post-release unfreeze walks it back to `main`. So `/plugin marketplace add kdeldycke/repomatic` tracks the default branch and gets each skill fix as it lands, while `/plugin marketplace add kdeldycke/repomatic@vX.Y.Z` installs exactly that release. Tags older than the release that introduced the plugin carry no marketplace entry.
+- **`version` ratchets forward.** It names the last published release and is never walked back, because it is the string update detection compares. Left on a `.devN` value it would advertise a release nobody can install.
 
-The entry pins a tag rather than a commit `sha`, which would be the stronger of the two: the freeze can write a tag from the version it is already freezing, where a SHA only exists once the freeze commit does.
+Pinning the tag everywhere would be the tidier-looking choice and is the wrong one twice over. A tag never moves, so an entry frozen to one makes the app's `Sync automatically` a no-op between releases. And a pin naming the last release breaks outright whenever the plugin's own layout changes, which is what happened when the manifest moved into `.claude/`: the previous tag's tree has no manifest for the catalog to find.
 
 ## Where the archive comes from
 

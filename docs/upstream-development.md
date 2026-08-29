@@ -18,7 +18,7 @@ The following documentation artifacts must stay in sync with the code in this re
 - **CLI parameters** in `docs/cli.md`: rendered live at build time from Click via the `{click:tree}` directive.
 - **Configuration table** in `docs/configuration.md`: rendered live at build time from the `Config` dataclass via the `{click:config}` directive.
 - **Binary download URLs and `Specific version` CLI pin** in `docs/install.md`: both version-pinned, both ratcheted forward to the new release automatically by `prepare-release`'s `freeze_install_download_urls` and `freeze_install_cli_version`. No manual bump needed.
-- **Plugin marketplace pin** in `.claude-plugin/marketplace.json`: the entry's `ref` and `version`, both ratcheted forward to the release tag by `prepare-release`'s `freeze_marketplace_pin`. No manual bump needed, and deliberately not a `[[tool.bumpversion.files]]` entry: that would rewrite them on the post-release bump too, leaving the default branch pointing at a `vX.Y.Z.devN` tag that never exists.
+- **Plugin marketplace pin** in `.claude-plugin/marketplace.json`: `prepare-release`'s `freeze_marketplace_pin` writes both the entry's `ref` and its `version` on the release commit, then `unfreeze_marketplace_ref` returns the `ref` to the default branch and leaves the `version` on the release. No manual bump needed, and deliberately not a `[[tool.bumpversion.files]]` entry: that would rewrite the version on the post-release bump too, advertising a `vX.Y.Z.devN` release that never exists.
 
 ## Tool runner: flags vs config
 

@@ -81,6 +81,21 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+MARKETPLACE_REF_RE = re.compile(r'("ref":\s*")[^"]*(")')
+"""The git ref the plugin marketplace entry reads its plugin directory from.
+
+Matches any value rather than a tag shape, because this pin round-trips: the
+freeze writes `vX.Y.Z` and the unfreeze writes the default branch back.
+"""
+
+MARKETPLACE_VERSION_RE = re.compile(r'("version":\s*")[\d.]+(")')
+"""The version the plugin marketplace entry advertises.
+
+Ratchets forward on release, unlike {data}`MARKETPLACE_REF_RE` beside it: it
+names the last release rather than the ref serving the content, and it is the
+string the app compares to decide whether an update is due.
+"""
+
 SELF_PIN_COOLDOWN_EXEMPTION = f"--exclude-newer-package {UPSTREAM_PACKAGE}=P0D"
 """uv escape hatch letting a just-published repomatic install under the cooldown.
 
@@ -206,24 +221,78 @@ class PrepareRelease:
         logging.debug(f"No changes to {path}")
         return False
 
+    def _rewrite_file(
+        self,
+        path: Path,
+        label: str,
+        *rules: tuple[str | re.Pattern[str], str],
+    ) -> bool:
+        """Apply every substitution in *rules* to *path*, writing back on a change.
+
+        The shared body of every single-file freeze below, which were
+        near-identical copies of an absent-file guard, a read, a chain of
+        {func}`re.sub` calls and a compare-then-write. Each caller keeps its
+        docstring and its rules, which is the part that carries meaning.
+
+        :param path: File to rewrite. A missing one is not an error: a
+            downstream repository need not carry every artifact the freeze
+            knows how to pin.
+        :param label: What the file is, for the skipped-file log line.
+        :param rules: `(pattern, replacement)` pairs applied in order. A
+            pattern may be a string or a compiled {class}`re.Pattern`.
+        :return: True if the file was modified.
+        """
+        if not path.exists():
+            logging.debug(f"{label} not found: {path}")
+            return False
+
+        original = path.read_text(encoding="UTF-8")
+        content = original
+        for pattern, replacement in rules:
+            content = re.sub(pattern, replacement, content)
+
+        return self._update_file(path, content, original)
+
+    def _rewrite_workflows(self, transform: Callable[[str], str]) -> int:
+        """Apply *transform* to every workflow file, writing back on a change.
+
+        The shared body of the three multi-file rewriters below. Counting
+        modified files rather than returning a boolean is what separates these
+        from {meth}`_rewrite_file`: a freeze touching four of nine workflows is
+        worth reporting as such.
+
+        :param transform: Maps a workflow's current content to its new content.
+        :return: Number of files modified.
+        """
+        if not self.workflow_dir.exists():
+            logging.debug(f"Workflow directory not found: {self.workflow_dir}")
+            return 0
+
+        count = 0
+        for workflow_file in self._workflow_files():
+            original = workflow_file.read_text(encoding="UTF-8")
+            if self._update_file(workflow_file, transform(original), original):
+                count += 1
+
+        return count
+
     def set_citation_release_date(self) -> bool:
         """Update the `date-released` field in citation.cff.
 
         :return: True if the file was modified.
         """
-        if not self.citation_path.exists():
-            logging.debug(f"Citation file not found: {self.citation_path}")
-            return False
-
-        original = self.citation_path.read_text(encoding="UTF-8")
-        content = re.sub(
-            r"date-released: \d{4}-\d{2}-\d{2}",
-            f"date-released: {self.release_date}",
-            original,
-            count=1,
+        return self._rewrite_file(
+            self.citation_path,
+            "Citation file",
+            # Anchored to a line start, which is what keeps a nested
+            # `preferred-citation` block's own `date-released` out of scope. It
+            # replaces the `count=1` this pass used before being shared, and is
+            # the stricter of the two: position rather than ordinal.
+            (
+                r"(?m)^date-released: \d{4}-\d{2}-\d{2}",
+                f"date-released: {self.release_date}",
+            ),
         )
-
-        return self._update_file(self.citation_path, content, original)
 
     def _workflow_files(self) -> list[Path]:
         """Enumerate the workflow files under {attr}`workflow_dir`.
@@ -272,10 +341,6 @@ class PrepareRelease:
         :param dst_ref: The git ref to point at instead.
         :return: Number of files modified.
         """
-        if not self.workflow_dir.exists():
-            logging.debug(f"Workflow directory not found: {self.workflow_dir}")
-            return 0
-
         pairs = [
             (f"/{UPSTREAM_PACKAGE}/{src_ref}/", f"/{UPSTREAM_PACKAGE}/{dst_ref}/"),
         ]
@@ -287,16 +352,12 @@ class PrepareRelease:
             for name in self.composite_action_names
         )
 
-        count = 0
-        for yaml_file in self._workflow_files():
-            original = yaml_file.read_text(encoding="UTF-8")
-            content = original
+        def retarget(content: str) -> str:
             for search, replace in pairs:
                 content = content.replace(search, replace)
-            if self._update_file(yaml_file, content, original):
-                count += 1
+            return content
 
-        return count
+        return self._rewrite_workflows(retarget)
 
     def freeze_workflow_urls(self) -> int:
         """Replace workflow URLs from default branch to versioned tag.
@@ -397,29 +458,23 @@ class PrepareRelease:
         :param version: The release version to freeze to.
         :return: True if the file was modified.
         """
-        if not self.install_path.exists():
-            logging.debug(f"Install guide not found: {self.install_path}")
-            return False
-
-        original = self.install_path.read_text(encoding="UTF-8")
-
-        # Pass 1: Rewrite URL paths from /releases/latest/download/ or
-        # /releases/download/vX.Y.Z/ to /releases/download/v{version}/.
-        content = re.sub(
-            r"/releases/(?:latest/download|download/v[\d.]+)/",
-            f"/releases/download/v{version}/",
-            original,
+        return self._rewrite_file(
+            self.install_path,
+            "Install guide",
+            # Pass 1: Rewrite URL paths from /releases/latest/download/ or
+            # /releases/download/vX.Y.Z/ to /releases/download/v{version}/.
+            (
+                r"/releases/(?:latest/download|download/v[\d.]+)/",
+                f"/releases/download/v{version}/",
+            ),
+            # Pass 2: Rewrite binary filenames (in both URL and display text)
+            # from repomatic-target.ext or repomatic-X.Y.Z-target.ext to
+            # repomatic-{version}-target.ext, through the shared naming pattern.
+            (
+                binary_filename_re(UPSTREAM_PACKAGE),
+                rf"{UPSTREAM_PACKAGE}-{version}-\g<target>.\g<ext>",
+            ),
         )
-
-        # Pass 2: Rewrite binary filenames (in both URL and display text)
-        # from repomatic-target.ext or repomatic-X.Y.Z-target.ext to
-        # repomatic-{version}-target.ext, through the shared naming pattern.
-        content = binary_filename_re(UPSTREAM_PACKAGE).sub(
-            rf"{UPSTREAM_PACKAGE}-{version}-\g<target>.\g<ext>",
-            content,
-        )
-
-        return self._update_file(self.install_path, content, original)
 
     def freeze_marketplace_pin(self, version: str) -> bool:
         """Pin the plugin marketplace's `git-subdir` source to this release.
@@ -459,22 +514,35 @@ class PrepareRelease:
         :param version: The release version to freeze to.
         :return: True if the file was modified.
         """
-        if not self.marketplace_path.exists():
-            logging.debug(f"Plugin marketplace not found: {self.marketplace_path}")
-            return False
+        return self._rewrite_file(
+            self.marketplace_path,
+            "Plugin marketplace",
+            (MARKETPLACE_REF_RE, rf"\g<1>v{version}\g<2>"),
+            (MARKETPLACE_VERSION_RE, rf"\g<1>{version}\g<2>"),
+        )
 
-        original = self.marketplace_path.read_text(encoding="UTF-8")
-        content = re.sub(
-            r'("ref":\s*")v[\d.]+(")',
-            rf"\g<1>v{version}\g<2>",
-            original,
+    def unfreeze_marketplace_ref(self) -> bool:
+        """Point the plugin marketplace's source back at the default branch.
+
+        This is part of the **unfreeze** step, and it is what separates this pin
+        from the ratcheting ones. A tag is immutable, so an entry left pinned to
+        one can never pick up a change: the app's `Sync automatically` toggle,
+        which exists to "keep plugins up to date when the repository changes on
+        GitHub", would have nothing to observe. Tracking the default branch is
+        what makes that toggle mean anything between releases.
+
+        The entry's `version` stays on the last release, since it names the
+        release the plugin most closely corresponds to and is the string update
+        detection compares. A released tree keeps the tag its freeze wrote, so
+        adding the catalog at `@vX.Y.Z` still installs that release exactly.
+
+        :return: True if the file was modified.
+        """
+        return self._rewrite_file(
+            self.marketplace_path,
+            "Plugin marketplace",
+            (MARKETPLACE_REF_RE, rf"\g<1>{self.default_branch}\g<2>"),
         )
-        content = re.sub(
-            r'("version":\s*")[\d.]+(")',
-            rf"\g<1>{version}\g<2>",
-            content,
-        )
-        return self._update_file(self.marketplace_path, content, original)
 
     def freeze_plugin_manifest_version(self, version: str) -> bool:
         """Stamp the release version into the Claude Code plugin manifest.
@@ -492,17 +560,11 @@ class PrepareRelease:
         :param version: The release version to freeze to.
         :return: True if the file was modified.
         """
-        if not self.plugin_manifest_path.exists():
-            logging.debug(f"Plugin manifest not found: {self.plugin_manifest_path}")
-            return False
-
-        original = self.plugin_manifest_path.read_text(encoding="UTF-8")
-        content = re.sub(
-            r'("version":\s*")[\d.]+(")',
-            rf"\g<1>{version}\g<2>",
-            original,
+        return self._rewrite_file(
+            self.plugin_manifest_path,
+            "Plugin manifest",
+            (MARKETPLACE_VERSION_RE, rf"\g<1>{version}\g<2>"),
         )
-        return self._update_file(self.plugin_manifest_path, content, original)
 
     def freeze_install_cli_version(self, version: str) -> bool:
         """Pin the install guide's versioned CLI examples to the release.
@@ -522,17 +584,12 @@ class PrepareRelease:
         :param version: The release version to pin the examples to.
         :return: True if the file was modified.
         """
-        if not self.install_path.exists():
-            logging.debug(f"Install guide not found: {self.install_path}")
-            return False
         if not self.package_name:
             logging.warning(
                 "No package name found in pyproject.toml: "
                 "skipping install guide CLI version pinning.",
             )
             return False
-
-        original = self.install_path.read_text(encoding="UTF-8")
 
         # Match `{package}@X.Y.Z` (uvx pin) and `{package}==X.Y.Z` (PEP 508
         # pin), leaving `@main`, git refs, and other packages' pins untouched.
@@ -542,9 +599,12 @@ class PrepareRelease:
             rf"(?<![\w-])({re.escape(self.package_name)}(?:@|==))"
             rf"\d+(?:\.\d+)*(?:\.dev\d+)?",
         )
-        content = pattern.sub(rf"\g<1>{version}", original)
 
-        return self._update_file(self.install_path, content, original)
+        return self._rewrite_file(
+            self.install_path,
+            "Install guide",
+            (pattern, rf"\g<1>{version}"),
+        )
 
     def freeze_cli_version(self, version: str) -> int:
         """Replace local source CLI invocations with a frozen PyPI version.
@@ -574,23 +634,15 @@ class PrepareRelease:
         :param version: The PyPI version to freeze to.
         :return: Number of files modified.
         """
-        if not self.workflow_dir.exists():
-            logging.debug(f"Workflow directory not found: {self.workflow_dir}")
-            return 0
-
-        count = 0
-        search = LOCAL_CLI_INVOCATION
         yaml_replace = frozen_cli_invocation(
             UPSTREAM_PACKAGE, version, SELF_PIN_COOLDOWN_EXEMPTION
         )
 
-        for workflow_file in self._workflow_files():
-            original = workflow_file.read_text(encoding="UTF-8")
-            content = self._replace_skip_comments(original, search, yaml_replace)
-            if self._update_file(workflow_file, content, original):
-                count += 1
-
-        return count
+        return self._rewrite_workflows(
+            lambda content: self._replace_skip_comments(
+                content, LOCAL_CLI_INVOCATION, yaml_replace
+            )
+        )
 
     def unfreeze_cli_version(self) -> int:
         """Replace frozen PyPI CLI invocations with local source.
@@ -609,25 +661,17 @@ class PrepareRelease:
 
         :return: Number of files modified.
         """
-        if not self.workflow_dir.exists():
-            logging.debug(f"Workflow directory not found: {self.workflow_dir}")
-            return 0
-
-        count = 0
         yaml_pattern = re.compile(
             r"uvx --no-progress "
             rf"(?:{re.escape(SELF_PIN_COOLDOWN_EXEMPTION)} )?"
             rf"'{re.escape(UPSTREAM_PACKAGE)}==[\d.]+'"
         )
-        replace = LOCAL_CLI_INVOCATION
 
-        for workflow_file in self._workflow_files():
-            original = workflow_file.read_text(encoding="UTF-8")
-            content = self._sub_skip_comments(original, yaml_pattern, replace)
-            if self._update_file(workflow_file, content, original):
-                count += 1
-
-        return count
+        return self._rewrite_workflows(
+            lambda content: self._sub_skip_comments(
+                content, yaml_pattern, LOCAL_CLI_INVOCATION
+            )
+        )
 
     def unfreeze_workflow_urls(self) -> int:
         """Replace workflow URLs from versioned tag back to default branch.
@@ -687,5 +731,6 @@ class PrepareRelease:
         if update_workflows:
             self.unfreeze_workflow_urls()
             self.unfreeze_cli_version()
+            self.unfreeze_marketplace_ref()
 
         return self.modified_files

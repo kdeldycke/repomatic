@@ -178,13 +178,14 @@ def test_marketplace_identity(marketplace) -> None:
     assert [entry["name"] for entry in marketplace["plugins"]] == [PLUGIN_NAME]
 
 
-RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
-"""The only shape the entry's `ref` is ever allowed to take.
+MARKETPLACE_REFS = ("main", re.compile(r"^v\d+\.\d+\.\d+$"))
+"""The two shapes the entry's `ref` is ever allowed to take.
 
-A released tag in the `v`-prefixed tag namespace, which is what
-`PrepareRelease.freeze_marketplace_pin` ratchets it to on every release. A
-`vX.Y.Z.devN` tag was never created, so an entry naming one would leave every
-install resolving against nothing.
+The default branch is the unfrozen state, which is what lets the app's
+`Sync automatically` observe a change at all. A `v`-prefixed release tag is what
+`PrepareRelease.freeze_marketplace_pin` writes for the release commit, and it is
+the state this test sees when the suite runs from a released tree. Never a
+`vX.Y.Z.devN` tag, which was never created and would resolve against nothing.
 """
 
 
@@ -200,9 +201,10 @@ def test_marketplace_installs_from_the_plugin_root(marketplace) -> None:
     assert source["source"] == "git-subdir"
     assert source["url"] == f"https://github.com/{MARKETPLACE_REPO}"
     assert source["path"] == PLUGIN_ROOT
-    assert RELEASE_TAG_RE.match(source["ref"]), (
-        f"{source['ref']!r} is not a released tag. Expected vX.Y.Z, never a "
-        ".devN tag that was never created."
+
+    branch, tag_re = MARKETPLACE_REFS
+    assert source["ref"] == branch or tag_re.match(source["ref"]), (
+        f"{source['ref']!r} is neither the default branch nor a released tag."
     )
 
 

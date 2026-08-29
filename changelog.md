@@ -16,6 +16,7 @@
 - Trim the prose of the `bump-version`, `detect-squash-merge`, `prepare-release`, `sample-metrics`, `setup-guide-cloudflare-pages`, `setup-guide-token` and `sync-dep-sources` templates.
 - `sync-runner-images` now rewrites a literal `runs-on:` as soon as a newer image supersedes it, instead of waiting for the old one to be deprecated.
 - The Claude Code plugin marketplace now installs `.claude/` through a `git-subdir` source, which Claude Desktop and Cowork accept where the previous `archive` source failed to sync.
+- The marketplace entry now tracks the default branch between releases, so an installed plugin picks up skill fixes as they land instead of at the next release. Adding the catalog at a tag still installs that release.
 - The plugin manifest moved to `.claude/.claude-plugin/plugin.json`, so `claude --plugin-dir .claude` loads the plugin straight from a checkout.
 - Fix `repomatic run` printing a Python traceback for an unknown tool name. It is now a usage error listing every registered tool.
 - Fix the `plugin` component rewriting a settings file `format-json` had already settled, which kept `sync-repomatic` and the autofix lane undoing each other. The wiring now compares the parsed document, not its text.
