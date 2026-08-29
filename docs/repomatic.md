@@ -38,6 +38,7 @@
    repomatic.config
    repomatic.docs
    repomatic.file_inventory
+   repomatic.file_ops
    repomatic.forge
    repomatic.frontmatter
    repomatic.git_ops

@@ -88,13 +88,14 @@ Matches any value rather than a tag shape, because this pin round-trips: the
 freeze writes `vX.Y.Z` and the unfreeze writes the default branch back.
 """
 
-MARKETPLACE_VERSION_RE = re.compile(r'("version":\s*")[\d.]+(")')
-"""The version the plugin marketplace entry advertises.
+JSON_VERSION_RE = re.compile(r'("version":\s*")[\d.]+(")')
+"""A JSON `version` field holding a release version.
 
 Ratchets forward on release, unlike {data}`MARKETPLACE_REF_RE` beside it: it
 names the last release rather than the ref serving the content, and it is the
 string the app compares to decide whether an update is due.
 """
+
 
 SELF_PIN_COOLDOWN_EXEMPTION = f"--exclude-newer-package {UPSTREAM_PACKAGE}=P0D"
 """uv escape hatch letting a just-published repomatic install under the cooldown.
@@ -153,6 +154,20 @@ deliberate: `--locked` would fail every job the moment `pyproject.toml` drifted
 ahead of `uv.lock`, including the `sync-uv-lock` job whose whole purpose is to
 close that gap.
 """
+
+
+def json_version_rule(version: str) -> tuple[re.Pattern[str], str]:
+    """The rewrite landing *version* in a JSON `version` field.
+
+    Shared by the plugin manifest and the marketplace entry that resolves to it,
+    which carry the same field and must never disagree: a catalog advertising a
+    version the manifest does not declare is what leaves an installed copy
+    reporting an update that changes nothing.
+
+    :param version: The release version to write.
+    :return: A `(pattern, replacement)` rule for {meth}`.PrepareRelease._rewrite_file`.
+    """
+    return (JSON_VERSION_RE, rf"\g<1>{version}\g<2>")
 
 
 class PrepareRelease:
@@ -518,7 +533,7 @@ class PrepareRelease:
             self.marketplace_path,
             "Plugin marketplace",
             (MARKETPLACE_REF_RE, rf"\g<1>v{version}\g<2>"),
-            (MARKETPLACE_VERSION_RE, rf"\g<1>{version}\g<2>"),
+            json_version_rule(version),
         )
 
     def unfreeze_marketplace_ref(self) -> bool:
@@ -563,7 +578,7 @@ class PrepareRelease:
         return self._rewrite_file(
             self.plugin_manifest_path,
             "Plugin manifest",
-            (MARKETPLACE_VERSION_RE, rf"\g<1>{version}\g<2>"),
+            json_version_rule(version),
         )
 
     def freeze_install_cli_version(self, version: str) -> bool:

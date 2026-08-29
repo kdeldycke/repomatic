@@ -37,8 +37,8 @@ from html import escape
 from math import floor, log10
 from pathlib import Path
 
+from .file_ops import write_if_changed
 from .metrics import CHARTABLE_METRICS, METRICS_BY_ID, PREDECESSOR_SUFFIX
-from .tabular import write_if_changed
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

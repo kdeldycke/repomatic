@@ -572,9 +572,11 @@ expected: dict[str, Any] = {
     "doc_files": MARKDOWN_INVENTORY,
     "markdown_files": MARKDOWN_INVENTORY,
     "image_files": _tracked_inventory("jpeg", "jpg", "png", "webp", "avif"),
-    "shfmt_files": [".claude/package-skills.sh"],
-    # Empty: the repository's only shell script is bash, and a `.sh` file
-    # joins zsh_files only when its shebang names zsh.
+    # Empty since the per-skill packaging script retired: this repository
+    # carries no shell script of its own any more.
+    "shfmt_files": [],
+    # Empty: a `.sh` file joins zsh_files only when its shebang names zsh, and
+    # there is no `.sh` file left here either way.
     "zsh_files": [],
     "is_python_project": True,
     "is_python_package": True,

@@ -22,7 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.tabular import read_csv, render_csv, write_csv, write_if_changed
+from repomatic.file_ops import write_if_changed
+from repomatic.tabular import read_csv, render_csv, write_csv
 
 REPO_ROOT = Path(__file__).parent.parent
 

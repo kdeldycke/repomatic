@@ -45,7 +45,8 @@ from __future__ import annotations
 
 import csv
 import io
-import logging
+
+from .file_ops import write_if_changed
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -167,30 +168,6 @@ def load_records(
     except (KeyError, TypeError, ValueError) as error:
         msg = f"Malformed {kind} {path}: {error}"
         raise ValueError(msg) from error
-
-
-def write_if_changed(path: Path, content: str) -> bool:
-    """Write *content* to *path*, leaving an already-matching file alone.
-
-    Creates the parent directories when missing. Comparing before writing is
-    what every generator in the package leans on: one that rewrote its output
-    unconditionally would turn each scheduled run into a commit, and a sync
-    job that opens a pull request would open one forever.
-
-    Format-neutral despite sitting beside the CSV helpers, because what it
-    encodes is the write rather than the bytes. The SVG charts in
-    {mod}`repomatic.metric_chart` route through it too.
-
-    :param path: File to write.
-    :param content: The full text the file should hold.
-    :return: `True` when the file was created or its content changed.
-    """
-    if path.exists() and path.read_text(encoding="UTF-8") == content:
-        logging.debug(f"{path} already up to date.")
-        return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="UTF-8")
-    return True
 
 
 def write_csv(path: Path, content: str) -> bool:

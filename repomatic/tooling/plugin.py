@@ -129,10 +129,14 @@ PLUGIN_ROOT = ".claude"
 """Directory that *is* the plugin, relative to the repository root.
 
 It already holds `skills/` and `agents/` at the locations the plugin spec scans,
-so naming it as the marketplace entry's `path` publishes the tree as-is. The
-whole directory is what a consumer clones, which is wider than the archive: a
-file {func}`pack_plugin` would never admit, like `package-skills.sh`, still
-travels with a `git-subdir` install.
+so naming it as the marketplace entry's `path` publishes the tree as-is.
+
+```{caution}
+The whole directory is what a consumer clones, which is wider than the archive:
+{func}`pack_plugin` admits only what the component registry declares, while a
+`git-subdir` install carries every file sitting here. Anything added under this
+path ships to every consumer, so keep it to the components themselves.
+```
 """
 
 MANIFEST_PATH = ".claude-plugin/plugin.json"

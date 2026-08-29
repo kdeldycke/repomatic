@@ -123,6 +123,7 @@ from typing import NamedTuple
 
 from packaging.version import Version
 
+from .file_ops import write_if_changed
 from .git_ops import get_all_version_tags
 from .github.actions import AnnotationLevel, emit_annotation
 from .github.pr_body import render_template
@@ -138,7 +139,6 @@ from .pypi import (
     get_release_dates as get_pypi_release_dates,
 )
 from .pyproject import get_project_name
-from .tabular import write_if_changed
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
