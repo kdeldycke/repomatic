@@ -56,9 +56,16 @@ from pathlib import Path
 
 from click_extra import args_cleanup
 from click_extra.color import forced_color
-from click_extra.recording import ScreenRecorder, quantize
+from click_extra.recording import (
+    ERASE_IN_LINE,
+    SELECT_GRAPHIC_RENDITION,
+    ScreenRecorder,
+    TerminalScreen,
+    quantize,
+)
 from click_extra.screenshot import CAPTURE_TERMINAL_HINTS, CaptureBackground, render
 from extra_platforms import is_unix
+from wcwidth import wcswidth
 
 # A pseudo-terminal needs termios, which Windows does not ship: the recording
 # below guards on `is_unix` before reaching these.
@@ -236,19 +243,69 @@ def run_capture_tool(*args: str) -> None:
         sys.exit(f"Capture failed with exit code {result.returncode}: {cmd}")
 
 
+class DeferredReturnScreen(TerminalScreen):
+    """A screen whose carriage return defers its redraw until something lands.
+
+    The released `TerminalScreen` clears the row the moment a `\r` arrives.
+    Under a pseudo-terminal every newline travels as `\r\n`, so each
+    completed line is erased by its own terminator and the frames keep only
+    the line drawn last. Deferring the clear to the next landing text or
+    styling keeps a finished line while still letting an animation redraw its
+    row in place. Part of the {func}`record_frames` shim, and dropped with it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pending_return = False
+
+    def _land(self) -> None:
+        """Apply a deferred carriage return, just before something lands."""
+        if self._pending_return:
+            self.rows[-1] = ""
+            self._pending_return = False
+
+    def _control(self, sequence: str) -> None:
+        final = sequence[-1]
+        if final == SELECT_GRAPHIC_RENDITION:
+            self._land()
+            self.rows[-1] += sequence
+        elif final == ERASE_IN_LINE and not self._column:
+            self.rows[-1] = ""
+            self._pending_return = False
+
+    def _write(self, text: str) -> None:
+        for line_index, line in enumerate(text.split("\n")):
+            if line_index:
+                # A newline settles any return before it without a redraw.
+                self.rows.append("")
+                self._column = 0
+                self._pending_return = False
+            for chunk_index, chunk in enumerate(line.split("\r")):
+                if chunk_index:
+                    self._column = 0
+                    self._pending_return = True
+                if not chunk:
+                    continue
+                self._land()
+                self.rows[-1] += chunk
+                self._column += max(wcswidth(chunk), 0)
+
+
 def record_frames(args: tuple[str, ...], columns: int, rows: int) -> tuple:
     """Run *args* under a pseudo-terminal and record the screens it draws.
 
     A local stand-in for `click_extra.recording.record_command`, differing in
-    one behavior: the pty stream is decoded *incrementally*. A pseudo-terminal
+    two behaviors. The pty stream is decoded *incrementally*: a pseudo-terminal
     hands bytes back in kernel-buffer-sized reads, so a multi-byte glyph
     regularly straddles two of them, and the released `record_command` decodes
-    each chunk on its own, mangling every straddling glyph into `U+FFFD`: a
-    box-drawing-heavy trail never survives a take.
+    each chunk on its own, mangling every straddling glyph into `U+FFFD`. And
+    the screens rebuild through {class}`DeferredReturnScreen`, so the `\r\n`
+    the pseudo-terminal substitutes for every newline stops erasing the line
+    it ends.
 
     ```{todo}
     Drop this shim and call `record_command` once click-extra ships the
-    incremental decoding of the pty stream.
+    incremental pty decoding and the deferred carriage-return redraw.
     ```
 
     :param args: The command line to record.
@@ -264,6 +321,10 @@ def record_frames(args: tuple[str, ...], columns: int, rows: int) -> tuple:
     environment.pop("TERM_PROGRAM", None)
 
     recorder = ScreenRecorder()
+    # Part of the shim above: the recorder's own screen erases a line the
+    # moment its `\r\n` terminator arrives, so every completed row of the
+    # trail would vanish from the frames.
+    recorder._screen = DeferredReturnScreen()
     decoder = codecs.getincrementaldecoder("UTF-8")(errors="replace")
     parent, child = pty.openpty()
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
@@ -327,8 +388,9 @@ def capture_recording(target: Path) -> None:
             )
         )
         texts = tuple(frame.text for frame in frames)
-        if len(frames) < RECORDING_MIN_FRAMES or any("�" in t for t in texts):
-            print(f"Take {take} rejected (short or mangled), retrying.")
+        degraded = any("�" in text or "rate limit exceeded" in text for text in texts)
+        if len(frames) < RECORDING_MIN_FRAMES or degraded:
+            print(f"Take {take} rejected (short, mangled or degraded), retrying.")
             continue
         svg = render(
             texts[-1],
