@@ -41,7 +41,9 @@ Every skill and agent, and nothing else: the 17 skills listed on the [skills pag
 └── skills/{name}/SKILL.md
 ```
 
-That directory is what the marketplace publishes and what the archive mirrors, so `claude --plugin-dir .claude` in a checkout loads exactly what an install gives you.
+That directory is what the marketplace publishes and what the archive mirrors, so `claude --plugin-dir .claude` in a checkout loads exactly what an install gives you. A marketplace install shows that tree back to you, read-only:
+
+![The installed plugin's Contents tab, listing plugin.json, three agents and seventeen skill folders](assets/desktop-plugin-contents.png)
 
 ```{warning}
 Do not add an `agents` path to the manifest to publish the assets from somewhere else. `claude plugin validate --strict` accepts one and Claude Code then loads **zero** agents, with no error anywhere. This was measured against Claude Code 2.1.220: `claude plugin details` reported `Agents (0)` for the custom-path layout and `Agents (3)` for the default one.
@@ -125,12 +127,22 @@ Grab the asset from a release, then in the app open **Customize > Plugins** and 
 $ gh release download --repo kdeldycke/repomatic --pattern repomatic-claude-plugin.zip
 ```
 
-Every skill and agent arrives in that single upload, listed under the plugin's **Skills** and **Agents** tabs and invocable by typing `/` in chat.
+Every skill and agent arrives in that single upload, listed under the plugin's **Skills** and **Agents** tabs and invocable by typing `/` in chat. The marketplace route below populates the same two tabs:
+
+![The Skills tab listing seventeen slash commands](assets/desktop-plugin-skills.png)
+
+![The Agents tab listing grunt-qa, qa-engineer and sphinx-docs](assets/desktop-plugin-agents.png)
 
 ```{note}
 An uploaded plugin carries no update channel: its `⋮` menu offers `Disable` and `Remove` and nothing else, with no version shown and no way to check for one, so each new release needs a fresh upload and a stale copy announces itself nowhere. That is the cost of this route compared to the marketplace one, which Claude Code keeps current on its own.
 ```
 
-The app's **Add > Add marketplace** flow takes the same `kdeldycke/repomatic` catalog. It rejects an `archive` source outright, with `External plugin source type 'archive' is not supported. Supported types: git-subdir, github, url` in `~/Library/Logs/Claude/main.log` behind a bare "Marketplace sync failed" in the dialog, which is why this catalog publishes a `git-subdir` source.
+The app's **Add > Add marketplace** flow takes the same `kdeldycke/repomatic` catalog, and is the better route: it carries the version, the update check and the source listing an upload has none of. It rejects an `archive` source outright, with `External plugin source type 'archive' is not supported. Supported types: git-subdir, github, url` in `~/Library/Logs/Claude/main.log` behind a bare "Marketplace sync failed" in the dialog, which is why this catalog publishes a `git-subdir` source.
+
+Adding and installing needs no GitHub App, on a public repository. Keeping the plugin current on every push does:
+
+![A warning reading "Auto-sync requires the Claude GitHub App to have access to this repository", with a Grant access link](assets/desktop-autosync-warning.png)
+
+The same refusal reaches the log as `Automatic sync on push requires the Claude GitHub App to be installed on this repository`, with error code `github_repo_not_accessible`. Install it from the link in that warning, or from [https://github.com/apps/claude/installations/new](https://github.com/apps/claude/installations/new), and scope it to the repositories whose catalogs you sync. Without it the plugin still installs and still updates when you ask it to; it just will not notice a push on its own.
 
 This supersedes the per-skill archives [`.claude/package-skills.sh`](https://github.com/kdeldycke/repomatic/blob/main/.claude/package-skills.sh) builds for the **Customize > Skills** panel: one plugin upload carries every skill *and* every agent, which separate skill archives cannot do. See [kdeldycke/repomatic#2540](https://github.com/kdeldycke/repomatic/issues/2540).
