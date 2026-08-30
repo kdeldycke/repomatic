@@ -1043,53 +1043,53 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "bf593f7955e3a437fb8056b255142b50872baa3e81371cda2c3fce9239af1890",
+        ): "fb1238183c5dcfe9bb48772922c2ab62fa54158bfdc78352fa2851f41a71fa5a",
         (
             LINUX,
             X86_64,
-        ): "013eb5158b9e53235dbbf31255cb3b776fb9338b32fa6ff4a44ee1ceed65ee63",
+        ): "511592536991d4b07179d063b93ff0c092ccedba556a4b1ea70d12d46ea0785a",
         (
             MACOS,
             AARCH64,
-        ): "7d8b51dec857ffa8aa35ce5eaa3a4476cd62bed013adc2896bf43cac0a67a79b",
+        ): "828bc29680765b656b6a354de01d9a7f9f5111e6af99b04cefe06d09c6d2dbda",
         (
             MACOS,
             X86_64,
-        ): "df2b50ee283634cdd6f7570b7da06bc3c9cd7ec0590ecbbaf986c7590bef3289",
+        ): "3d87fe407532d708650be535573b159293e5c0176b51f8065eb45cc6e6861f48",
         (
             WINDOWS,
             AARCH64,
-        ): "d6845ff075043300551d4ad74985814e4e4c56b49ffa87b3724ddf5055a2efe9",
+        ): "58707afd02cc8522324e8f83906f44c9a78ceb4953c01e86def94bcd47fed0f9",
         (
             WINDOWS,
             X86_64,
-        ): "f8474a0f9f457df176c10be3f0e82be890e8986ff2805d4a7f3c5a4cba5962ca",
+        ): "65125b8689718242c5e86aef43a9099e3313bec2c3fecb7a1bade02018b85acb",
     },
     "gh": {
         (
             LINUX,
             AARCH64,
-        ): "73ea440ecad9c9e284429997ee6f93577bc6f7bc6fba357ef62c53ad8fb641a5",
+        ): "cf689084f3a3618f7eae4a2420d335d74626d65f5e594b9828d125d69f800d86",
         (
             LINUX,
             X86_64,
-        ): "a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112",
+        ): "3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de",
         (
             MACOS,
             AARCH64,
-        ): "a58b8fd77b417a38f47a0b54d1370c59b0fcdb324ccc9ca002b0998f7c4c999e",
+        ): "8cfb027cc5310675f2b830eac8f9865c1155a45ffcf9757f699fdd5a22046ca4",
         (
             MACOS,
             X86_64,
-        ): "63298c998cc2a924c9e254c6af6a1caad6ece281122687a91f079bc0a462700e",
+        ): "734c7bbd0bc56a3974500ee9aea74d60f0e5b89be09e92b9d9148939a3a1e0e6",
         (
             WINDOWS,
             AARCH64,
-        ): "3e2d4a166da4ee5020c592737b65eec0e724946d5d5b962f5fe59d99116dc4bf",
+        ): "79e53db4e50b5c9594890a1c4d9dc941f6d19f7c3ca6d1f50982eda624607b9b",
         (
             WINDOWS,
             X86_64,
-        ): "35d7fe05c4dd1411ffda1e73dfc7c6f44b75c936ca51fa6595c657fdc0350cec",
+        ): "c28c7b3b584967a05b74d9eaf7481bff24ddc34930bf2d6e442c148236561eb1",
     },
     "gitleaks": {
         (
@@ -1234,8 +1234,8 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.5.9",
-    "gh": "2.97.0",
+    "biome": "2.5.10",
+    "gh": "2.98.0",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
@@ -1361,7 +1361,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         ),
         default_paths="json_files",
         display_name="Biome",
-        version="2.5.9",
+        version="2.5.10",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
@@ -1452,7 +1452,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "gh": ToolSpec(
         name="gh",
         display_name="GitHub CLI",
-        version="2.97.0",
+        version="2.98.0",
         source_url="https://github.com/cli/cli",
         cli_docs_url="https://cli.github.com/manual/",
         binary=BinarySpec(
@@ -1884,7 +1884,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.16.3",
+        version="0.16.4",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
