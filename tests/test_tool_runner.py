@@ -23,7 +23,9 @@ import io
 import json
 import logging
 import os
+import platform
 import re
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -3130,6 +3132,13 @@ def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monke
     assert drifted == []
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("linux") and platform.machine() in ("aarch64", "arm64"),
+    reason=(
+        "mdformat-config pulls taplo, which ships no linux-aarch64 wheel and "
+        "has a broken 0.9.3 sdist (see docs/test-matrix.md)"
+    ),
+)
 def test_verify_via_write_path_accepts_the_working_directory(tmp_path, monkeypatch):
     """A path resolving to the working directory verifies the default set.
 
@@ -3140,7 +3149,12 @@ def test_verify_via_write_path_accepts_the_working_directory(tmp_path, monkeypat
     problem rather than a rejected argument.
     """
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "harvest.md").write_text("# Mango\n\nRipe.\n", encoding="UTF-8")
+    # Explicit LF: `write_text`'s default newline translation would otherwise
+    # write CRLF on Windows, and mdformat normalizes to LF, so the untouched
+    # original would drift from its own formatted copy on line endings alone.
+    (tmp_path / "harvest.md").write_text(
+        "# Mango\n\nRipe.\n", encoding="UTF-8", newline="\n"
+    )
 
     exit_code, drifted = verify_via_write_path("mdformat", extra_args=(".",))
 
