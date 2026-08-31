@@ -1919,14 +1919,14 @@ wheels = [
 
 [[package]]
 name = "tomlrt"
-version = "2.2.3"
+version = "2.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions", marker = "python_full_version < '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ef/d7/35f81ebae33cf51ad7e30f4d232bde4584dd00860d9f3487bfd28dc83131/tomlrt-2.2.3.tar.gz", hash = "sha256:a0ab3834348b3f47859c1306ae282bcda7c780e8270455a4c0c2dbd4b424c089", size = 410753, upload-time = "2026-08-17T21:19:26.689Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/52/047f13baf6e7d66960d06233937564faba983cbd75826661ef65734a110c/tomlrt-2.2.4.tar.gz", hash = "sha256:3cb50c7bd858c6936242a3dc23fd432e9a298355f7619e078dc544d955b96f95", size = 413435, upload-time = "2026-08-23T12:03:48.679Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/9b/c45482961dcf250eaf6dc44735f01ce0abbab1d8537009c03bd24122a9a7/tomlrt-2.2.3-py3-none-any.whl", hash = "sha256:8b2ac46bee4186ea0e85f20cdd9a0f2ab432dcd65a2b06e416c872102787163e", size = 144771, upload-time = "2026-08-17T21:19:25.263Z" },
+    { url = "https://files.pythonhosted.org/packages/90/e2/49ece6f1d2c4b4f5f1651b2720b0d1bddff5afd87f02cb3d91aedbc791c4/tomlrt-2.2.4-py3-none-any.whl", hash = "sha256:d492f53324ebe6fc346a78a1cd90c0d306b8c804dabac198f9d679bf7d2e973f", size = 146134, upload-time = "2026-08-23T12:03:47.458Z" },
 ]
 
 [[package]]
