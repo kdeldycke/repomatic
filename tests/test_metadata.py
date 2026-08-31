@@ -23,7 +23,7 @@ import logging
 import re
 import subprocess
 from collections import Counter
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import pytest
@@ -249,6 +249,16 @@ def _matches_pattern(item: Any, pattern: dict) -> bool:
     return True
 
 
+def _windows_path_sort_key(path: str) -> tuple[str, ...]:
+    """Match `WindowsPath.__lt__`: parts compared case-folded, not the joined string.
+
+    A plain case-folded string sort puts `.claude-plugin` before `.claude`,
+    since `-` sorts before `\\`. `Path` ordering compares parts instead, so a
+    directory sorts before a sibling file whose name merely starts with it.
+    """
+    return tuple(part.casefold() for part in PureWindowsPath(path).parts)
+
+
 def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
     """Recursively iterate over expected content and check it matches in metadata."""
 
@@ -417,7 +427,7 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
                 if isinstance(value, list):
                     value = sorted(
                         (v.replace("/", "\\") for v in value),
-                        key=str.casefold,
+                        key=_windows_path_sort_key,
                     )
                 # Path are space-separated quoted strings in GitHub format.
                 # Re-sort to match Windows case-insensitive Path ordering.
@@ -426,7 +436,7 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
                     # Strip outer quotes from first/last, sort, re-quote.
                     paths[0] = paths[0].lstrip('"')
                     paths[-1] = paths[-1].rstrip('"')
-                    paths.sort(key=str.casefold)
+                    paths.sort(key=_windows_path_sort_key)
                     value = " ".join(f'"{p}"' for p in paths)
                 else:
                     value = value.replace("/", "\\")
