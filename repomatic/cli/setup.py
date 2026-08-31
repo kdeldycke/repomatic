@@ -103,6 +103,7 @@ from .main import (
     _report_paths,
     _section_setup,
     _show_config_sort,
+    deprecated_alias,
     flat_matrix_table,
     format_matrix_cell,
     log_output_target,
@@ -681,15 +682,16 @@ def list_skills(ctx: Context) -> None:
 
 
 @repomatic.command(
-    short_help="Output project metadata",
+    name="show-metadata",
+    short_help="Print repository and CI state as key/value pairs for workflows",
     section=_section_setup,
     params=[_metadata_sort],
     examples=(
-        ("Print two keys", "repomatic metadata current_version is_python_project"),
-        ("List every key", "repomatic metadata --list-keys"),
+        ("Print two keys", "repomatic show-metadata current_version is_python_project"),
+        ("List every key", "repomatic show-metadata --list-keys"),
         (
             "CI: write as GitHub Actions step outputs",
-            'repomatic metadata --format github-json --output "$GITHUB_OUTPUT" current_version is_python_project',
+            'repomatic show-metadata --format github-json --output "$GITHUB_OUTPUT" current_version is_python_project',
         ),
     ),
 )
@@ -721,7 +723,7 @@ def list_skills(ctx: Context) -> None:
 )
 @argument("keys", nargs=-1)
 @pass_context
-def metadata(
+def show_metadata(
     ctx: Context,
     format: Dialect,
     overwrite: bool,
@@ -748,7 +750,7 @@ def metadata(
                 "Use --list-keys to see all available keys."
             )
 
-    log_output_target("metadata", output)
+    log_output_target("show-metadata", output)
     if is_stdout(output):
         # The overwrite flag is moot for stdout. Warn only when the user set it
         # explicitly: firing on the default value warns on every bare stdout run.
@@ -787,6 +789,17 @@ def metadata(
         echo(content, err=True)
 
     echo(content, file=prep_path(output))
+
+
+# Deprecated spelling of `show-metadata`, kept invocable for one release cycle.
+repomatic.add_command(
+    deprecated_alias(
+        "metadata",
+        show_metadata,
+        replacement="show-metadata",
+        removed_in="8.0.0",
+    )
+)
 
 
 @repomatic.command(

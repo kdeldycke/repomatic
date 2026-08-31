@@ -898,7 +898,7 @@ def test_dump_factories_match_key_descriptions():
     `Metadata.dump_factories` (what the command emits) and
     `all_metadata_keys` (what the command accepts as an argument) are three
     hand-maintained lists sitting far apart in the module. A description
-    without a factory makes `repomatic metadata <key>` accept the key and then
+    without a factory makes `repomatic show-metadata <key>` accept the key and then
     emit nothing; a factory without a description drops the key from
     `--list-keys` and the rendered docs.
     """
@@ -927,7 +927,7 @@ def test_config_defaults_render_as_github_values(field_name):
     """Every config field exposed as metadata must survive GitHub encoding.
 
     A nested config dataclass has no GitHub encoding, so adding one without
-    listing it in `SUBCOMMAND_CONFIG_FIELDS` makes `repomatic metadata` raise
+    listing it in `SUBCOMMAND_CONFIG_FIELDS` makes `repomatic show-metadata` raise
     `NotImplementedError` on every run. Checking the dataclass defaults rather
     than this repository's own values keeps the guard on the declared surface.
     """
@@ -1108,7 +1108,7 @@ def test_metadata_github_format():
 
 
 def test_metadata_command_renders_under_captured_runner():
-    """`repomatic metadata` renders to a captured stdout that has no descriptor.
+    """`repomatic show-metadata` renders to a captured stdout that has no descriptor.
 
     The docs `{click:run}` directive live-renders this command through click-extra's
     in-memory runner, which is Click's default `capture="sys"` mode: its stdout has
@@ -1117,7 +1117,7 @@ def test_metadata_command_renders_under_captured_runner():
     warning) so the rendered block is pure JSON. See `repomatic.cli.main.prep_path`.
     """
     result = CliRunner().invoke(
-        repomatic, ["metadata", "test_matrix", "--format", "json"]
+        repomatic, ["show-metadata", "test_matrix", "--format", "json"]
     )
     assert result.exit_code == 0, result.output
     # A `prep_path` crash (exit 1) or a leaked warning line both break this parse.

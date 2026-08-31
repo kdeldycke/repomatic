@@ -25,7 +25,7 @@ from unittest.mock import patch
 import pytest
 
 from repomatic import lint_repo
-from repomatic.cli.setup import metadata as metadata_command
+from repomatic.cli.setup import show_metadata as metadata_command
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
     REPO_CHECKS,
@@ -2175,17 +2175,23 @@ def _metadata_step(command):
     [
         # Upstream spelling: the CLI comes from the project's own lockfile.
         pytest.param(
-            "uv --no-progress run --frozen -- repomatic metadata --format github-json"
+            "uv --no-progress run --frozen -- repomatic show-metadata --format github-json"
             ' --output "$GITHUB_OUTPUT" cli_scripts package_name',
             ["cli_scripts", "package_name"],
             id="uv-run",
         ),
         # Downstream spelling: the CLI comes from a pinned uvx environment.
         pytest.param(
-            "uvx --no-progress 'repomatic==7.11.0' metadata --format github-json"
+            "uvx --no-progress 'repomatic==7.11.0' show-metadata --format github-json"
             ' --output "$GITHUB_OUTPUT" cli_scripts package_name',
             ["cli_scripts", "package_name"],
             id="uvx-pinned",
+        ),
+        # The deprecated spelling stays readable for one release cycle.
+        pytest.param(
+            "repomatic metadata --format github-json current_version",
+            ["current_version"],
+            id="deprecated-spelling",
         ),
         # An option's value is never a key, whether attached or separate.
         pytest.param(

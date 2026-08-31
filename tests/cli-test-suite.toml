@@ -55,12 +55,12 @@ stdout_contains = [
 
 # Test metadata output.
 [[cases]]
-cli_parameters = "--verbosity INFO metadata"
+cli_parameters = "--verbosity INFO show-metadata"
 # XXX This command fails on Windows as it tries to print emojis to the console:
 # UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f64f' in
 # position 39913: character maps to <undefined>
 skip_platforms = "windows"
-stderr_contains = ["info: Print metadata to <stdout>"]
+stderr_contains = ["info: Print show-metadata to <stdout>"]
 # Note: new_commits and new_commits_matrix are empty locally, but contain commit
 # SHAs when running in GitHub Actions CI. Use stdout_contains for key checks
 # instead of fullmatch since release_notes content varies.
@@ -265,6 +265,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic lint-repo"
 
 [[cases]]
+cli_parameters = "lint-workflows --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic lint-workflows"
+
+[[cases]]
 cli_parameters = "cloudflare-pages --help"
 exit_code = 0
 strip_ansi = true
@@ -296,6 +302,19 @@ cli_parameters = "metadata --help"
 exit_code = 0
 strip_ansi = true
 stdout_contains = "Usage: repomatic metadata"
+
+# The deprecated alias still runs the command, warning on stderr.
+[[cases]]
+cli_parameters = "metadata --list-keys"
+exit_code = 0
+strip_ansi = true
+stderr_contains = "repomatic metadata is deprecated and will be removed in 8.0.0. Use repomatic show-metadata."
+
+[[cases]]
+cli_parameters = "show-metadata --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic show-metadata"
 
 [[cases]]
 cli_parameters = "pack-attestation --help"

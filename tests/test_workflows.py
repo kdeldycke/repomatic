@@ -1256,7 +1256,7 @@ def test_binary_build_targets_are_the_test_axes() -> None:
 def test_prerelease_python_label_reaches_the_job_name() -> None:
     """The test job titles itself from `python-label`, falling back to the version.
 
-    `repomatic metadata` attaches `python-label` to the cells whose Python is
+    `repomatic show-metadata` attaches `python-label` to the cells whose Python is
     unreleased and to no others (see
     {data}`~repomatic.matrix_axes.PRERELEASE_LABEL_SUFFIX`), so the fallback is
     not decoration: on every released cell the key resolves to an empty string,

@@ -2483,16 +2483,24 @@ _SHELL_OPERATORS = frozenset(("&&", "||", ";", "|", ">", ">>", "<", "&"))
 metadata keys.
 """
 
+_METADATA_SUBCOMMANDS = frozenset(("metadata", "show-metadata"))
+"""Spellings the metadata-dumping subcommand has carried.
+
+The bare `metadata` spelling is deprecated and will be removed in `8.0.0`, but
+a downstream job body still invokes it, so both stay readable until then.
+"""
+
 
 def requested_metadata_keys(command: str, package: str) -> list[str]:
-    """Positional keys a shell command passes to `<package> metadata`.
+    """Positional keys a shell command passes to the metadata subcommand.
 
     Reads the tail of the invocation the way Click would: options are dropped
     along with the value each one consumes, and what remains are the positional
     key arguments. Handles both spellings in use, the upstream
-    `uv run -- repomatic metadata …` and the downstream
-    `uvx 'repomatic==1.2.3' metadata …`, by looking for the subcommand after
-    any token naming the package.
+    `uv run -- repomatic show-metadata …` and the downstream
+    `uvx 'repomatic==1.2.3' show-metadata …`, by looking for the subcommand
+    after any token naming the package. The deprecated `metadata` spelling is
+    read too, for job bodies that still call it.
 
     Shared with {mod}`repomatic.init_project`, which asks the same question of
     a downstream checkout at sync time rather than of this repository at lint
@@ -2521,7 +2529,7 @@ def requested_metadata_keys(command: str, package: str) -> list[str]:
                 if token in _SHELL_OPERATORS:
                     break
                 tail.append(token)
-            elif token == "metadata" and seen_package:
+            elif token in _METADATA_SUBCOMMANDS and seen_package:
                 tail = []
             elif token == package or token.startswith(f"{package}=="):
                 seen_package = True

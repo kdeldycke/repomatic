@@ -15,9 +15,9 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 """GitHub issue and pull request commands of the `repomatic` CLI.
 
-One module per help section: every command here registers onto the
-`repomatic` group through the section object both import from
-{mod}`repomatic.cli.main`, which pulls this module in at startup.
+Every command here registers onto the `repomatic` group through a
+section object imported from {mod}`repomatic.cli.main`, which pulls this
+module in at startup.
 """
 
 from __future__ import annotations
@@ -128,6 +128,7 @@ from .main import (
     _ci_status_sort,
     _job_timings_sort,
     _render_pr_content,
+    _section_ci,
     _section_github,
     dry_run_option,
     exit_if_disabled,
@@ -342,7 +343,7 @@ def broken_links(
 @repomatic.command(
     name="ci-status",
     short_help="Report which CI jobs are red, and which of them gate a merge",
-    section=_section_github,
+    section=_section_ci,
     params=[_ci_status_sort],
     examples=(
         ("What is red on main right now", "repomatic ci-status"),
@@ -438,7 +439,7 @@ def ci_status(
 @repomatic.command(
     name="sync-runner-images",
     short_help="Move runner images forward as GitHub retires and supersedes them",
-    section=_section_github,
+    section=_section_ci,
     examples=(
         (
             "What would change, without touching the tree",
@@ -535,7 +536,7 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
 @repomatic.command(
     name="job-timings",
     short_help="Measure how long each runner image takes, from finished runs",
-    section=_section_github,
+    section=_section_ci,
     params=[_job_timings_sort],
     examples=(
         ("Which image is holding the matrix up", "repomatic job-timings"),
@@ -619,7 +620,7 @@ def job_timings(
 @repomatic.command(
     name="cancel-runs",
     short_help="Cancel in-progress workflow runs for a branch",
-    section=_section_github,
+    section=_section_ci,
     examples=(
         (
             "From the cancel-runs workflow, sparing its own run",

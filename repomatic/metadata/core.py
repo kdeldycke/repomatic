@@ -49,7 +49,7 @@ not a JSON array: workflow `if:` conditions test membership with a padded
 for the encoding, and {class}`Dialect` for the other output formats.
 
 The full key inventory is generated from this module rather than listed here, so
-it cannot go stale: run `repomatic metadata --list-keys`, or read the rendered
+it cannot go stale: run `repomatic show-metadata --list-keys`, or read the rendered
 table in [the workflows documentation](https://repomatic.net/workflows).
 """
 
@@ -285,7 +285,7 @@ METADATA_VALUE_OPTIONS: frozenset[str] = frozenset((
     "--output",
     "--sort-by",
 ))
-"""Options on the `metadata` command consuming the token that follows them.
+"""Options on the `show-metadata` command consuming the token that follows them.
 
 Needed by {func}`repomatic.lint_repo.check_metadata_keys` to tell a positional
 key from an option's value while reading a workflow's `run:` line. The command

@@ -25,11 +25,13 @@ small helpers command bodies lean on.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import sys
 from pathlib import Path
 
+from click import Command
 from click.shell_completion import CompletionItem
 from click_extra import (
     STDOUT_SENTINEL,
@@ -302,6 +304,42 @@ template_part_option = option(
 )
 
 
+def deprecated_alias(
+    name: str, command: Command, *, replacement: str, removed_in: str
+) -> Command:
+    """Build a hidden alias for a renamed command, warning on each run.
+
+    The alias shares the renamed command's parameters, so both spellings parse
+    the same command line; it only swaps the callback for one that logs the
+    deprecation first. The copy is shallow, which is safe here: a Click command
+    holds no state between invocations.
+
+    :param name: The old command name to keep answering to.
+    :param command: The renamed command to delegate to.
+    :param replacement: The new command name, spelled for the log line.
+    :param removed_in: The release the alias will be removed in.
+    :return: The alias, ready to register on the group.
+    """
+    alias = copy.copy(command)
+    alias.name = name
+    alias.hidden = True
+    alias.short_help = f"Deprecated: use {replacement}"
+    if command.callback is None:
+        msg = f"Cannot alias {command.name!r} without a callback."
+        raise ValueError(msg)
+    original_callback = command.callback
+
+    def warn_and_delegate(**kwargs: Any) -> None:
+        logging.warning(
+            f"repomatic {name} is deprecated and will be removed in {removed_in}."
+            f" Use repomatic {replacement}."
+        )
+        original_callback(**kwargs)
+
+    alias.callback = warn_and_delegate
+    return alias
+
+
 def exit_if_disabled(ctx: Context, enabled: bool, key: str) -> None:
     """Exit successfully when a `[tool.repomatic]` feature flag is off.
 
@@ -347,6 +385,7 @@ def repomatic() -> None:
 
 # Every section lists its subcommands alphabetically, whatever order the
 # modules register them in, matching the house ordering convention.
+_section_ci = Section("CI & runners", is_sorted=True)
 _section_github = Section("GitHub issues & PRs", is_sorted=True)
 _section_lint = Section("Linting & checks", is_sorted=True)
 _section_release = Section("Release & versioning", is_sorted=True)
@@ -589,7 +628,7 @@ def _render_pr_content(
 _audit_sort = SortByOption(*AUDIT_HEADER_DEFS, default="package")
 
 
-@repomatic.group(short_help="Manage the download cache", section=_section_lint)
+@repomatic.group(short_help="Manage the download cache")
 def cache() -> None:
     """Manage the local download cache.
 
@@ -997,26 +1036,16 @@ def format_matrix_cell(
     return PIVOT_CELL_SEPARATOR.join(labels)
 
 
-@repomatic.group(
-    short_help="Lint downstream workflow caller files", section=_section_setup
-)
-def workflow() -> None:
-    """Lint downstream workflow caller files.
-
-    Check thin caller workflows that delegate to the canonical reusable
-    workflows in kdeldycke/repomatic. Use repomatic init workflows
-    to generate or sync workflow files.
-    """
-
-
-@workflow.command(
-    short_help="Lint workflow files for common issues",
+@repomatic.command(
+    name="lint-workflows",
+    short_help="Lint downstream workflow caller files",
+    section=_section_lint,
     examples=(
-        ("Lint workflows in default location", "repomatic workflow lint"),
-        ("Lint with fatal mode (exit 1 on issues)", "repomatic workflow lint --fatal"),
+        ("Lint workflows in default location", "repomatic lint-workflows"),
+        ("Lint with fatal mode (exit 1 on issues)", "repomatic lint-workflows --fatal"),
         (
             "Lint a custom directory",
-            "repomatic workflow lint --workflow-dir ./my-workflows",
+            "repomatic lint-workflows --workflow-dir ./my-workflows",
         ),
     ),
 )
@@ -1038,10 +1067,12 @@ def workflow() -> None:
     help="Exit with code 1 if issues are found (default: warning only).",
 )
 @pass_context
-def lint(ctx: Context, workflow_dir: Path, repo: str, fatal: bool) -> None:
+def lint_workflows(ctx: Context, workflow_dir: Path, repo: str, fatal: bool) -> None:
     """Lint workflow files for common issues.
 
-    Checks all YAML files in the workflow directory for:
+    Check thin caller workflows that delegate to the canonical reusable
+    workflows in kdeldycke/repomatic. Use repomatic init workflows
+    to generate or sync workflow files.
 
     \b
     - Standalone workflows missing the workflow_dispatch trigger.
@@ -1056,6 +1087,30 @@ def lint(ctx: Context, workflow_dir: Path, repo: str, fatal: bool) -> None:
         fatal=fatal,
     )
     ctx.exit(exit_code)
+
+
+# Deprecated spelling of `lint-workflows`, kept invocable for one release cycle.
+@repomatic.group(
+    name="workflow",
+    hidden=True,
+    short_help="Deprecated: use lint-workflows",
+)
+def workflow() -> None:
+    """Deprecated entry point for `repomatic lint-workflows`.
+
+    `workflow lint` still runs the lint, printing a deprecation warning.
+    It will be removed in `8.0.0`.
+    """
+
+
+workflow.add_command(
+    deprecated_alias(
+        "lint",
+        lint_workflows,
+        replacement="lint-workflows",
+        removed_in="8.0.0",
+    )
+)
 
 
 # Populate the group: each module registers its commands onto

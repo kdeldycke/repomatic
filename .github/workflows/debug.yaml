@@ -49,10 +49,10 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.4"
-      - name: Run repomatic metadata
+      - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic --verbosity DEBUG metadata
+          uv --no-progress run --frozen -- repomatic --verbosity DEBUG show-metadata
           --format github-json --output "$GITHUB_OUTPUT"
           build_targets
       # Unwraps the nested JSON string the metadata output carries. Every job

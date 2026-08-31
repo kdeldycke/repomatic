@@ -15,9 +15,9 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 """Linting and verification commands of the `repomatic` CLI.
 
-One module per help section: every command here registers onto the
-`repomatic` group through the section object both import from
-{mod}`repomatic.cli.main`, which pulls this module in at startup.
+Every command here registers onto the `repomatic` group through a
+section object imported from {mod}`repomatic.cli.main`, which pulls this
+module in at startup.
 """
 
 from __future__ import annotations
@@ -95,6 +95,7 @@ from .main import (
     _lint_deps_sort,
     _run_sort,
     _section_lint,
+    _section_release,
     exit_if_disabled,
     has_cloudflare_api_token_option,
     has_notifications_pat_option,
@@ -257,7 +258,7 @@ def audit(
 
 
 @repomatic.command(
-    short_help="Remove the ToC entries awesome-lint forbids",
+    short_help="Remove the table-of-contents entries awesome-lint rejects",
     section=_section_lint,
     examples=(
         ("Fix the readme and every translation beside it", "repomatic fix-awesome-toc"),
@@ -602,7 +603,7 @@ def lint_deps(
 
 
 @repomatic.command(
-    short_help="Run repository consistency checks",
+    short_help="Check repository files against repomatic conventions",
     section=_section_lint,
     examples=(
         (
@@ -646,7 +647,7 @@ def lint_repo(
       - Inline upstream pins match the version the uses: refs name (error).
       - Inline upstream pins resolving under a cooldown carry their
         --exclude-newer-package exemption (error).
-      - Workflows only ask repomatic metadata for keys it still emits (error).
+      - Workflows only ask repomatic show-metadata for keys it still emits (error).
       - Every astral-sh/setup-uv step pins one uv version (warning).
       - The pinned uv carries a checksum in the pinned astral-sh/setup-uv
         (warning).
@@ -695,7 +696,7 @@ def lint_repo(
 
 
 @repomatic.command(
-    short_help="Reconcile the Cloudflare Pages project",
+    short_help="Create, check or update the Cloudflare Pages project",
     section=_section_lint,
     examples=(
         (
@@ -821,8 +822,7 @@ def cloudflare_pages(
 
 @repomatic.command(
     name="run",
-    short_help="Run an external tool with managed config",
-    section=_section_lint,
+    short_help="Run a registered external tool, pinned and checksum-verified",
     context_settings={"ignore_unknown_options": True},
     params=[_run_sort],
 )
@@ -947,7 +947,7 @@ def run_cmd(
 
 @repomatic.command(
     short_help="Verify binary architecture and OS floor",
-    section=_section_lint,
+    section=_section_release,
     examples=(
         (
             "Verify a Linux ARM64 binary",

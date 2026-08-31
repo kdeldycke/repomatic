@@ -486,7 +486,7 @@ def pack_plugin_cmd(output: Path) -> None:
 
 
 @repomatic.command(
-    short_help="Prepare files for a release",
+    short_help="Freeze version, changelog and pins for a release",
     section=_section_release,
     examples=(
         ("Prepare release (changelog + citation)", "repomatic prepare-release"),

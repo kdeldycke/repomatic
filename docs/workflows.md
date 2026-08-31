@@ -28,7 +28,7 @@ GitHub Actions has several design limitations that the workflows work around:
 
 | Limitation                                                                                                                                                                       | Status             | Addressed by                                                                                                                                                                                                                            |
 | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [No conditional step groups](https://github.com/orgs/community/discussions/43467)                                                                                                | ✅ Addressed       | [`metadata` job](#what-is-this-metadata-job) + [`repomatic metadata`](cli.md)                                                                                                                                                           |
+| [No conditional step groups](https://github.com/orgs/community/discussions/43467)                                                                                                | ✅ Addressed       | [`metadata` job](#what-is-this-metadata-job) + [`repomatic show-metadata`](cli.md)                                                                                                                                                      |
 | [Workflow inputs only accept strings](https://github.com/actions/runner/issues/1483)                                                                                             | ✅ Addressed       | String parsing in [`repomatic`](cli.md)                                                                                                                                                                                                 |
 | [Matrix outputs not cumulative](https://github.com/actions/runner/issues/1835)                                                                                                   | ✅ Addressed       | [`metadata`](#what-is-this-metadata-job) pre-computes matrices                                                                                                                                                                          |
 | [Static matrix can't express conditional dimensions](https://github.com/orgs/community/discussions/9044) or [array excludes](https://github.com/orgs/community/discussions/7835) | ✅ Addressed       | [Dynamic test matrices](#dynamic-test-matrices) via [`[tool.repomatic.test-matrix]`](configuration.md)                                                                                                                                  |
@@ -40,7 +40,7 @@ GitHub Actions has several design limitations that the workflows work around:
 | [`GITHUB_TOKEN` can't modify workflow files](https://github.com/orgs/community/discussions/26583)                                                                                | ✅ Addressed       | [`REPOMATIC_PAT` fine-grained PAT](security.md#permissions-and-token)                                                                                                                                                                   |
 | [Tag pushes from Actions don't trigger workflows](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow)                | ✅ Addressed       | [Custom PAT](security.md#permissions-and-token) for tag operations                                                                                                                                                                      |
 | [Default input values not propagated across events](https://github.com/orgs/community/discussions/29242)                                                                         | ✅ Addressed       | Manual defaults in `env:` section                                                                                                                                                                                                       |
-| [`head_commit` only has latest commit in multi-commit pushes](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push)                                              | ✅ Addressed       | [`repomatic metadata`](#what-is-this-metadata-job) extracts full commit range                                                                                                                                                           |
+| [`head_commit` only has latest commit in multi-commit pushes](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push)                                              | ✅ Addressed       | [`repomatic show-metadata`](#what-is-this-metadata-job) extracts full commit range                                                                                                                                                      |
 | [`actions/checkout` uses merge commit for PRs](https://github.com/actions/checkout/issues/426)                                                                                   | ✅ Addressed       | Explicit `ref: github.event.pull_request.head.sha`                                                                                                                                                                                      |
 | [Multiline output encoding fragile](https://github.com/orgs/community/discussions/26288)                                                                                         | ✅ Addressed       | Random delimiters in `repomatic/github/actions.py`                                                                                                                                                                                      |
 | [`workflow_run.head_sha` stale after upstream commits](https://github.com/actions/checkout/issues/1425)                                                                          | ✅ Addressed       | Always use `github.sha` in [`changelog.yaml`](#github-workflows-changelog-yaml-jobs) checkout; see `repomatic/github/actions.py` for rationale                                                                                          |
@@ -477,7 +477,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Warns when an `astral-sh/setup-uv` step declares no `version:` input, or when steps across the repository pin more than one uv version. `[tool.uv] required-version` is only a floor; left unpinned, `setup-uv` installs whatever uv release is newest the moment the job runs, seconds after publication, making the one tool that enforces every cooldown the one tool carrying none of its own
 - Warns when the pinned uv is absent from the checksum table bundled into the pinned `astral-sh/setup-uv` release. That table is the only thing `setup-uv` verifies a download against, and a version missing from it is not refused: it installs unverified, on a debug line no CI log shows by default. Since uv ships weekly against the action's monthly cadence, and `sync-action-pins` and `sync-workflow-pins` walk the two pins independently, a repository drifts into holding two perfectly good pins that together verify nothing. Bumping the action pin is the repair; `sync-workflow-pins` stops widening the gap on its own by never adopting a uv the pinned action cannot verify. Reported as skipped rather than failed when the table cannot be read
 - Warns when a project setting `[tool.repomatic] manpages.script` locks a `click-extra` older than `9`. The `manpages` release job renders with `click-extra wrap --help-format man`, an invocation `9.0.0` introduced, and the job first runs on the commit that tags and publishes. Since a published release locks its asset list, a failure there costs that version its man pages for good rather than being repairable afterwards. The subject is `uv.lock`, which is what `uv sync --frozen` installs; a project with no lockfile, or one whose lockfile never mentions `click-extra`, is reported as skipped
-- Fails when a workflow's `run:` line asks `repomatic metadata` for a key that no longer exists, reading the invocation the way Click does so an option's value is never mistaken for a positional key. `repomatic init` syncs a header-only workflow's header and its `uses:` pins and leaves the job bodies to the repository, so a key retired upstream stays in a `run:` line nothing sweeps. The command answers an unknown key with a `UsageError`, and every job reaching the metadata job through `needs:` dies with it, which turns a retired key into a whole workflow failing at its first job on the next push. Fatal, like the inline-pin checks above: all three describe a workflow that is already broken rather than one that might age badly
+- Fails when a workflow's `run:` line asks `repomatic show-metadata` for a key that no longer exists, reading the invocation the way Click does so an option's value is never mistaken for a positional key. `repomatic init` syncs a header-only workflow's header and its `uses:` pins and leaves the job bodies to the repository, so a key retired upstream stays in a `run:` line nothing sweeps. The command answers an unknown key with a `UsageError`, and every job reaching the metadata job through `needs:` dies with it, which turns a retired key into a whole workflow failing at its first job on the next push. Fatal, like the inline-pin checks above: all three describe a workflow that is already broken rather than one that might age badly
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
 
@@ -680,12 +680,12 @@ flowchart TD
 - Creates a Git tag for the release version
 - **Requires**:
   - Push to `main` branch
-  - Release commits matrix from [`repomatic metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)
+  - Release commits matrix from [`repomatic show-metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)
 
 #### 🐙 Create release draft (`create-release`)
 
 - Creates a GitHub release **draft** with the Python package attached using `gh release create`
-- The draft notes carry the PyPI availability admonition from the start (baked in via [`repomatic metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)'s `release_notes_with_admonition`), so it never depends on a later cross-lane edit; non-PyPI projects fall back to the plain release notes
+- The draft notes carry the PyPI availability admonition from the start (baked in via [`repomatic show-metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)'s `release_notes_with_admonition`), so it never depends on a later cross-lane edit; non-PyPI projects fall back to the plain release notes
 - Binaries are attached independently by each `compile-binaries` matrix entry as they complete (uploading to drafts is allowed)
 - **Requires**:
   - Successful `create-tag` job
@@ -868,14 +868,14 @@ This expands the capabilities of GitHub Actions, since it allows to:
 - Allow for runner introspection
 - Fix quirks (like missing environment variables, events/commits mismatch, merge commits, etc.)
 
-This job relies on the [`repomatic metadata` command](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py) to gather data from multiple sources:
+This job relies on the [`repomatic show-metadata` command](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py) to gather data from multiple sources:
 
 - **Git**: current branch, latest tag, commit messages, changed files
 - **GitHub**: event type, actor, PR labels
 - **Environment**: OS, architecture
 - **`pyproject.toml`**: project name, version, entry points
 
-To see the full set of keys it exposes to downstream jobs, run `repomatic metadata --list-keys`:
+To see the full set of keys it exposes to downstream jobs, run `repomatic show-metadata --list-keys`:
 
 ```{click:source}
 :hide-source:
@@ -883,7 +883,7 @@ from repomatic.cli.main import repomatic
 ```
 
 ```{click:run}
-invoke(repomatic, args=['metadata', '--list-keys'])
+invoke(repomatic, args=['show-metadata', '--list-keys'])
 ```
 
 > [!IMPORTANT]

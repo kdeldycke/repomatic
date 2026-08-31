@@ -130,7 +130,7 @@ class MatrixMetadata:
         ```{note}
         Every value comes from {data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS`
         and the project's own `pyproject.toml`, so no literal is repeated here:
-        run `repomatic metadata nuitka_matrix` against a project to see the
+        run `repomatic show-metadata nuitka_matrix` against a project to see the
         matrix it computes, or `repomatic show-test-matrix` for the test one.
         ```
 

@@ -232,7 +232,7 @@ while a real ecosystem repomatic has not implemented says so plainly:
 Unsupported [tool.repomatic] flavor.ci = 'gitlab_ci'. repomatic targets: github_ci.
 ```
 
-`flavor.agent` drives where assets land: leave `skills.location`, `subagents.location` and `settings.location` unset and each follows the agent's own layout, while setting one explicitly overrides it for that asset alone. Defaults are static and never auto-detected: deriving them from the running agent would make a repository's effective configuration depend on which tool last invoked repomatic, and `repomatic metadata` would stop being reproducible.
+`flavor.agent` drives where assets land: leave `skills.location`, `subagents.location` and `settings.location` unset and each follows the agent's own layout, while setting one explicitly overrides it for that asset alone. Defaults are static and never auto-detected: deriving them from the running agent would make a repository's effective configuration depend on which tool last invoked repomatic, and `repomatic show-metadata` would stop being reproducible.
 
 ### Repository scope
 

@@ -8,6 +8,12 @@
 - **Breaking:** the `manpages` release job now renders through `click-extra wrap --help-format man`, so a project opting into man pages needs `click-extra >= 9`. The `--man` flag it used no longer writes roff.
 - **Breaking:** `show-test-matrix` now lists one row per job by default, and `--flat` is gone. Pass the new `--grid` for the compact two-axis pivot the command used to print.
 - **Breaking:** `.claude/package-skills.sh` is gone. It packaged one ZIP per skill for the Claude Desktop **Customize > Skills** panel, which a plugin supersedes by carrying every skill and agent at once.
+- **Deprecated:** `repomatic metadata` prints a deprecation warning and will be removed in `8.0.0`. Use `show-metadata`.
+- **Deprecated:** `repomatic workflow lint` prints a deprecation warning and will be removed in `8.0.0`. Use `lint-workflows`.
+- Add `show-metadata`, the renamed `metadata` command, joining `show-config` and `show-test-matrix`.
+- Add `lint-workflows`, a flat command replacing the `workflow` group and its single `lint` subcommand.
+- Help-screen sections regroup: `ci-status`, `sync-runner-images`, `job-timings` and `cancel-runs` move to a new "CI & runners" section; `cache` and `run` to "Other commands"; `verify-binary` to "Release & versioning".
+- Sharpen the one-line help descriptions of `show-metadata`, `prepare-release`, `lint-repo`, `run`, `fix-awesome-toc` and `cloudflare-pages`.
 - `lint-repo` gains a `manpages-toolchain` check, warning when a project opting into man pages locks a `click-extra` its release job cannot render with.
 - `show-test-matrix --row-axis` and `--col-axis` now list the job keys of your own matrix in `--help`, and complete them in the shell.
 - Add a `runner_arch` metadata key, mapping every runner label in the full test matrix to its CPU architecture.

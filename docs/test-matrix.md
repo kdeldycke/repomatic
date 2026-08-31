@@ -59,10 +59,10 @@ Both views honor the global `--table-format` option, so the same jobs render as 
 
 ### The raw GitHub Actions matrix
 
-For the matrix the [`metadata` job](workflows.md) hands to CI: the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them, request the `test_matrix` (or `test_matrix_pr`) key from [`repomatic metadata`](cli.md):
+For the matrix the [`metadata` job](workflows.md) hands to CI: the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them, request the `test_matrix` (or `test_matrix_pr`) key from [`repomatic show-metadata`](cli.md):
 
 ```{click:run}
-invoke(repomatic, args=['metadata', 'test_matrix', '--format', 'json'])
+invoke(repomatic, args=['show-metadata', 'test_matrix', '--format', 'json'])
 ```
 
 ## Choosing what to test

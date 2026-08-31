@@ -84,10 +84,10 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.4"
-      - name: Run repomatic metadata
+      - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic metadata
+          uv --no-progress run --frozen -- repomatic show-metadata
           --format github-json --output "$GITHUB_OUTPUT"
           build_targets cli_scripts package_name
           test_matrix test_matrix_pr
@@ -99,13 +99,13 @@ jobs:
       # Info-gathering matrix with per-cell continue-on-error deciding what
       # fails the workflow: see docs/workflows.md "Matrix fail-fast strategy".
       fail-fast: false
-      # Matrix is pre-computed by repomatic metadata. PRs get a reduced matrix
+      # Matrix is pre-computed by repomatic show-metadata. PRs get a reduced matrix
       # (fewer OS variants and Python versions) to save CI minutes.
       matrix: >-
         ${{ github.event_name != 'pull_request'
         && fromJSON(needs.metadata.outputs.metadata).test_matrix
         || fromJSON(needs.metadata.outputs.metadata).test_matrix_pr }}
-    # `python-label` is set by repomatic metadata only where the plain version
+    # `python-label` is set by repomatic show-metadata only where the plain version
     # would hide why a cell is continue-on-error (a prerelease reads `3.15-dev`);
     # every other cell falls back to the version itself. See
     # repomatic/matrix_axes.py for why the label never replaces the axis value.
@@ -172,7 +172,7 @@ jobs:
         # built-in tomllib so no extra is needed). `--jobs max` runs cases across every
         # logical core. The outer `uv run` provides the environment, avoiding per-case
         # uv lock contention between parallel workers. The target is this repo's own
-        # console script (from repomatic metadata), so the self-test stays correct when
+        # console script (from repomatic show-metadata), so the self-test stays correct when
         # this workflow is synced to downstream repos.
         # Skipped for repos that ship no console script (nothing to self-test).
         # `!cancelled()` keeps this running after a failed pytest step: the two

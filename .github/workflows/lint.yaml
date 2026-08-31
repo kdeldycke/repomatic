@@ -85,10 +85,10 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.4"
-      - name: Run repomatic metadata
+      - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic metadata
+          uv --no-progress run --frozen -- repomatic show-metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_bot is_python_project python_files
           yaml_changed zsh_changed zsh_files

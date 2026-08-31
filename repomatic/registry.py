@@ -910,7 +910,7 @@ COMPONENTS_BY_NAME: dict[str, Component] = {c.name: c for c in COMPONENTS}
 # pointing at the same replacement.
 _NOW_IN_AUTOFIX = "now handled by autofix.yaml on every push"
 _NOW_IN_LINT = "now handled by lint.yaml on every push"
-_NOW_IN_METADATA_CMD = "now handled by the repomatic metadata CLI command"
+_NOW_IN_METADATA_CMD = "now handled by the repomatic show-metadata CLI command"
 _NOW_IN_TESTS = "now handled by tests.yaml on every push"
 _REPLACED_BY_SHIP = "replaced by repomatic-ship"
 

@@ -322,7 +322,7 @@ class FlavorConfig:
     ```{caution}
     Defaults are static, never detected. Deriving them from `current_agent()`
     would make a repository's effective configuration depend on which tool
-    happened to invoke `repomatic` last, so `repomatic metadata` would stop
+    happened to invoke `repomatic` last, so `repomatic show-metadata` would stop
     being reproducible.
     ```
     """
