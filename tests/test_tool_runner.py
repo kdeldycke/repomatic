@@ -3133,10 +3133,11 @@ def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monke
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("linux") and platform.machine() in ("aarch64", "arm64"),
+    not sys.platform.startswith("darwin")
+    and platform.machine().lower() in ("aarch64", "arm64"),
     reason=(
-        "mdformat-config pulls taplo, which ships no linux-aarch64 wheel and "
-        "has a broken 0.9.3 sdist (see docs/test-matrix.md)"
+        "mdformat-config pulls taplo, which has no prebuilt wheel and a broken "
+        "0.9.3 sdist on Linux and Windows ARM64; only macOS ARM64 ships one"
     ),
 )
 def test_verify_via_write_path_accepts_the_working_directory(tmp_path, monkeypatch):
