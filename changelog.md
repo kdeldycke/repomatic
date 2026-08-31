@@ -10,6 +10,7 @@
 - **Breaking:** `.claude/package-skills.sh` is gone. It packaged one ZIP per skill for the Claude Desktop **Customize > Skills** panel, which a plugin supersedes by carrying every skill and agent at once.
 - **Deprecated:** `repomatic metadata` prints a deprecation warning and will be removed in `8.0.0`. Use `show-metadata`.
 - **Deprecated:** `repomatic workflow lint` prints a deprecation warning and will be removed in `8.0.0`. Use `lint-workflows`.
+- Add the `probe-workflow` skill: validate a claim about real-host behavior with a temporary GitHub Actions workflow, then retire it with its findings recorded in the retirement commit.
 - Add `show-metadata`, the renamed `metadata` command, joining `show-config` and `show-test-matrix`.
 - Add `lint-workflows`, a flat command replacing the `workflow` group and its single `lint` subcommand.
 - `lint-repo` gains a `manpages-toolchain` check, warning when a project opting into man pages locks a `click-extra` its release job cannot render with.

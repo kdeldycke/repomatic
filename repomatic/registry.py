@@ -736,6 +736,7 @@ COMPONENTS: tuple[Component, ...] = (
             _skill_entry("brand-assets", "Development"),
             _skill_entry("file-bug-report", "Maintenance"),
             _skill_entry("github-housekeeping", "Maintenance"),
+            _skill_entry("probe-workflow", "Quality"),
             _skill_entry("repomatic-audit", "Maintenance"),
             _skill_entry("repomatic-changelog", "Release"),
             _skill_entry("repomatic-deps", "Development"),
