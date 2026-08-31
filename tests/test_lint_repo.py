@@ -25,7 +25,7 @@ from unittest.mock import patch
 import pytest
 
 from repomatic import lint_repo
-from repomatic.cli.setup import show_metadata as metadata_command
+from repomatic.cli.setup import show_metadata
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.lint_repo import (
     REPO_CHECKS,
@@ -2275,7 +2275,7 @@ def test_metadata_value_options_match_the_command():
     """
     declared = {
         opt
-        for param in metadata_command.params
+        for param in show_metadata.params
         if not getattr(param, "is_flag", False)
         for opt in (*param.opts, *param.secondary_opts)
         if opt.startswith("-")

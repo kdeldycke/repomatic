@@ -155,7 +155,7 @@ def test_every_preformatted_block_carries_its_own_marker() -> None:
 
 def _lazy_choice_types() -> list[type[LazyChoice]]:
     """Every concrete `LazyChoice` in the package, for the checks below."""
-    return [cls for cls in LazyChoice.__subclasses__()]
+    return list(LazyChoice.__subclasses__())
 
 
 @pytest.mark.parametrize("choice_type", _lazy_choice_types(), ids=lambda c: c.__name__)

@@ -190,7 +190,8 @@ the state this test sees when the suite runs from a released tree. Never a
 
 
 def test_marketplace_installs_from_the_plugin_root(marketplace) -> None:
-    """The single entry publishes {data}`PLUGIN_ROOT` from a pinned tag.
+    """The single entry publishes {data}`~repomatic.tooling.plugin.PLUGIN_ROOT`
+    from a pinned tag.
 
     An `archive` source was the previous shape here, and it syncs only in the
     CLI: the claude.ai ingester rejects the type outright, which is what made

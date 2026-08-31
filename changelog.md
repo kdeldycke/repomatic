@@ -5,33 +5,27 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** the `manpages` release job now renders through `click-extra wrap --help-format man`, so a project opting into man pages needs `click-extra >= 9`. The `--man` flag it used no longer writes roff.
+- **Breaking:** the `manpages` release job now renders through `click-extra wrap --help-format man`. The `--man` flag it used no longer writes roff.
 - **Breaking:** `show-test-matrix` now lists one row per job by default, and `--flat` is gone. Pass the new `--grid` for the compact two-axis pivot the command used to print.
 - **Breaking:** `.claude/package-skills.sh` is gone. It packaged one ZIP per skill for the Claude Desktop **Customize > Skills** panel, which a plugin supersedes by carrying every skill and agent at once.
 - **Deprecated:** `repomatic metadata` prints a deprecation warning and will be removed in `8.0.0`. Use `show-metadata`.
 - **Deprecated:** `repomatic workflow lint` prints a deprecation warning and will be removed in `8.0.0`. Use `lint-workflows`.
 - Add `show-metadata`, the renamed `metadata` command, joining `show-config` and `show-test-matrix`.
 - Add `lint-workflows`, a flat command replacing the `workflow` group and its single `lint` subcommand.
-- Help-screen sections regroup: `ci-status`, `sync-runner-images`, `job-timings` and `cancel-runs` move to a new "CI & runners" section; `cache` and `run` to "Other commands"; `verify-binary` to "Release & versioning".
-- Sharpen the one-line help descriptions of `show-metadata`, `prepare-release`, `lint-repo`, `run`, `fix-awesome-toc` and `cloudflare-pages`.
 - `lint-repo` gains a `manpages-toolchain` check, warning when a project opting into man pages locks a `click-extra` its release job cannot render with.
-- `show-test-matrix --row-axis` and `--col-axis` now list the job keys of your own matrix in `--help`, and complete them in the shell.
 - Add a `runner_arch` metadata key, mapping every runner label in the full test matrix to its CPU architecture.
-- `pr-body --part` and `pr-sync --part` now accept only `minor` or `major`, and name both in `--help`.
-- `update-dep-graph --group`, `--no-group` and `--only-group` now list the project's own `[dependency-groups]` in `--help`, and their `--extra` counterparts its `[project.optional-dependencies]`.
-- `ci-status --workflow` and `job-timings --workflow` now accept only a workflow the repository has, and complete them in the shell.
-- The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
-- The `sync-runner-images` pull request body is now shorter and uses simpler sentences.
-- Trim the prose of the `bump-version`, `detect-squash-merge`, `prepare-release`, `sample-metrics`, `setup-guide-cloudflare-pages`, `setup-guide-token` and `sync-dep-sources` templates.
+- Render each command's worked examples in a dedicated `Examples` section of its help screen and man page, with the command lines highlighted.
+- Options taking a project-specific value now validate it, list the choices in `--help` and complete them in the shell: `show-test-matrix`, `pr-body`, `pr-sync`, `update-dep-graph`, `ci-status` and `job-timings`.
+- Help-screen sections regroup around a new "CI & runners" section, and each section now lists its subcommands alphabetically.
+- Sharpen the one-line help descriptions of `show-metadata`, `prepare-release`, `lint-repo`, `run`, `fix-awesome-toc` and `cloudflare-pages`.
 - `sync-runner-images` now rewrites a literal `runs-on:` as soon as a newer image supersedes it, instead of waiting for the old one to be deprecated.
+- The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
+- Trim the prose of the `bump-version`, `detect-squash-merge`, `prepare-release`, `sample-metrics`, `setup-guide-cloudflare-pages`, `setup-guide-token`, `sync-dep-sources` and `sync-runner-images` pull request templates.
 - The Claude Code plugin marketplace now installs `.claude/` through a `git-subdir` source, which Claude Desktop and Cowork accept where the previous `archive` source failed to sync.
 - The marketplace entry now tracks the default branch between releases, so an installed plugin picks up skill fixes as they land instead of at the next release. Adding the catalog at a tag still installs that release.
 - The plugin manifest moved to `.claude/.claude-plugin/plugin.json`, so `claude --plugin-dir .claude` loads the plugin straight from a checkout.
-- Help screens now list each section's subcommands alphabetically.
-- Render each command's worked examples in a dedicated `Examples` section of its help screen and man page, with the command lines highlighted.
-- Illustrate the readme with a capture of the CLI help screen, refreshed by the `update-docs` lane and following the reader's color scheme.
-- Animate the readme's `sync-deps --dry-run` example with a recorded terminal session.
-- Illustrate the docs with a capture of the test-matrix grid and a syntax-highlighted configuration example.
+- Illustrate the readme and docs with live captures: the CLI help screen, an animated `sync-deps --dry-run` session, the test-matrix grid and a configuration example.
+- Raise the `click-extra` floor to `9`, required by the new `Examples` help sections and the `manpages` release job.
 - Fix uv's resolution summary scribbling over the `sync-deps` progress trail.
 - Fix `repomatic run` printing a Python traceback for an unknown tool name. It is now a usage error listing every registered tool.
 - Fix the `plugin` component rewriting a settings file `format-json` had already settled, which kept `sync-repomatic` and the autofix lane undoing each other. The wiring now compares the parsed document, not its text.
@@ -39,6 +33,7 @@
 - Fix `lint-repo` asking for GitHub topics a project already declares: topics now match `[project] keywords` case-insensitively, since GitHub lowercases every topic it stores.
 - Fix `sync-runner-images` proposing a probe for a runner image the repository already runs, which marked every test-matrix cell on that image `continue-on-error`.
 - Fix `run {tool} --verify` crashing with a `FileExistsError` on a path resolving to the working directory, which now verifies the tool's own default file set.
+- Fix dangling `claude.md` pointers and stale workflow references in the bundled `repomatic-ship`, `repomatic-changelog` and `repomatic-test-matrix` skills.
 
 ## [`7.14.0` (2026-08-27)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...v7.14.0)
 

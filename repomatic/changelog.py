@@ -538,7 +538,9 @@ class Changelog:
             logging.debug(f"No changes to {path}")
             return False
 
-        return write_if_changed(path, changelog.content.rstrip() + "\n")
+        return write_if_changed(
+            path, changelog.content.rstrip() + "\n", previous=original
+        )
 
     def extract_repo_url(self) -> str:
         """Extract the repository URL from changelog comparison links.

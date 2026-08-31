@@ -452,7 +452,7 @@ class MatrixMetadata:
         them. Architectures are emitted as
         [Extra Platforms](https://kdeldycke.github.io/extra-platforms) ids
         (`aarch64`, `x86_64`), matching the `arch` field of
-        {attr}`build_targets`.
+        {data}`~repomatic.release.binary.FLAT_BUILD_TARGETS`.
 
         :return: Runner label to architecture id, sorted by label.
         """

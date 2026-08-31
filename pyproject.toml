@@ -91,10 +91,10 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 8.9 added the `max_column_widths` argument of `print_table`,
-  # which caps the description column of `show-config` and `list-skills`
-  # instead of letting one long cell push the whole table off the terminal.
-  "click-extra>=8.9",
+  # click-extra 9 introduced the typed `examples=` parameter the CLI's commands
+  # declare to render their `Examples` help section, and the
+  # `wrap --help-format man` invocation the `manpages` release job renders with.
+  "click-extra>=9",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.

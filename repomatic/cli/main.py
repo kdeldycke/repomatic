@@ -880,7 +880,7 @@ class MatrixAxis(LazyChoice):
     The listing is the full matrix's, the superset: `variations` and
     `full-include` rows reach it alone, while every other directive reaches
     both matrices. Which one the caller names is not parsed yet when a type
-    converts, so {func}`show_test_matrix` re-checks the axis against the
+    converts, so `show-test-matrix` re-checks the axis against the
     matrix they did name, and refuses the few keys `pr` drops.
     """
 

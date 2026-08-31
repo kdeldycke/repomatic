@@ -97,7 +97,6 @@ names the last release rather than the ref serving the content, and it is the
 string the app compares to decide whether an update is due.
 """
 
-
 SELF_PIN_COOLDOWN_EXEMPTION = f"--exclude-newer-package {UPSTREAM_PACKAGE}=P0D"
 """uv escape hatch letting a just-published repomatic install under the cooldown.
 
