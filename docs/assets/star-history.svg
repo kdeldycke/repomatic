@@ -20,25 +20,25 @@
   </style>
   <line class="grid" x1="58" y1="414.0" x2="792" y2="414.0"/>
   <text class="tick" x="48" y="418.0" text-anchor="end">0</text>
-  <line class="grid" x1="58" y1="317.5" x2="792" y2="317.5"/>
-  <text class="tick" x="48" y="321.5" text-anchor="end">15</text>
+  <line class="grid" x1="58" y1="314.7" x2="792" y2="314.7"/>
+  <text class="tick" x="48" y="318.7" text-anchor="end">18</text>
   <line class="grid" x1="58" y1="221.0" x2="792" y2="221.0"/>
-  <text class="tick" x="48" y="225.0" text-anchor="end">30</text>
-  <line class="grid" x1="58" y1="124.5" x2="792" y2="124.5"/>
-  <text class="tick" x="48" y="128.5" text-anchor="end">45</text>
+  <text class="tick" x="48" y="225.0" text-anchor="end">35</text>
+  <line class="grid" x1="58" y1="127.3" x2="792" y2="127.3"/>
+  <text class="tick" x="48" y="131.3" text-anchor="end">52</text>
   <line class="grid" x1="58" y1="28.0" x2="792" y2="28.0"/>
-  <text class="tick" x="48" y="32.0" text-anchor="end">60</text>
+  <text class="tick" x="48" y="32.0" text-anchor="end">70</text>
   <line class="grid" x1="67.8" y1="28" x2="67.8" y2="414"/>
   <text class="tick" x="67.8" y="434" text-anchor="middle">2022</text>
-  <line class="grid" x1="223.6" y1="28" x2="223.6" y2="414"/>
-  <text class="tick" x="223.6" y="434" text-anchor="middle">2023</text>
-  <line class="grid" x1="379.3" y1="28" x2="379.3" y2="414"/>
-  <text class="tick" x="379.3" y="434" text-anchor="middle">2024</text>
-  <line class="grid" x1="535.5" y1="28" x2="535.5" y2="414"/>
-  <text class="tick" x="535.5" y="434" text-anchor="middle">2025</text>
-  <line class="grid" x1="691.3" y1="28" x2="691.3" y2="414"/>
-  <text class="tick" x="691.3" y="434" text-anchor="middle">2026</text>
-  <polyline class="s-repomatic" points="58.0,414.0 69.5,407.6 99.4,401.1 118.2,394.7 132.3,388.3 291.0,375.4 293.1,362.5 294.4,356.1 347.3,349.7 348.2,343.2 395.1,336.8 400.2,330.4 413.9,323.9 420.7,317.5 473.6,311.1 481.8,304.6 486.9,298.2 501.4,291.8 544.5,285.3 550.0,278.9 554.3,272.5 565.0,266.0 587.6,259.6 601.7,253.2 602.1,246.7 608.1,240.3 623.4,233.9 624.3,227.4 674.6,221.0 693.8,214.6 699.4,208.1 703.7,201.7 705.8,195.3 706.2,188.8 714.3,182.4 728.8,176.0 732.3,169.5 733.1,143.8 735.2,130.9 735.7,124.5 737.0,118.1 739.1,111.6 742.1,105.2 749.8,98.8 752.3,92.3 754.4,85.9 756.6,79.5 762.1,73.0 771.5,66.6 775.8,60.2 778.8,47.3 788.2,40.9 789.0,40.9 792.0,40.9"/>
-  <text class="lbl s-repomatic" x="804" y="44.9">repomatic · 58</text>
-  <text class="axis" x="58" y="450">Stars, 2021-12-09 to 2026-08-25 · sampled on 2026-08-25</text>
+  <line class="grid" x1="222.9" y1="28" x2="222.9" y2="414"/>
+  <text class="tick" x="222.9" y="434" text-anchor="middle">2023</text>
+  <line class="grid" x1="378.0" y1="28" x2="378.0" y2="414"/>
+  <text class="tick" x="378.0" y="434" text-anchor="middle">2024</text>
+  <line class="grid" x1="533.6" y1="28" x2="533.6" y2="414"/>
+  <text class="tick" x="533.6" y="434" text-anchor="middle">2025</text>
+  <line class="grid" x1="688.7" y1="28" x2="688.7" y2="414"/>
+  <text class="tick" x="688.7" y="434" text-anchor="middle">2026</text>
+  <polyline class="s-repomatic" points="58.0,414.0 69.5,408.5 99.2,403.0 117.9,397.5 132.0,391.9 290.1,380.9 292.2,369.9 293.5,364.4 346.2,358.9 347.0,353.3 393.8,347.8 398.9,342.3 412.5,336.8 419.3,331.3 472.0,325.8 480.0,320.3 485.1,314.7 499.6,309.2 542.5,303.7 548.0,298.2 552.3,292.7 562.9,287.2 585.4,281.7 599.5,276.1 599.9,270.6 605.8,265.1 621.1,259.6 622.0,254.1 672.1,248.6 691.3,243.1 696.8,237.5 701.0,232.0 703.2,226.5 703.6,221.0 711.7,215.5 726.1,210.0 729.5,204.5 730.4,182.4 732.5,171.4 732.9,165.9 734.2,160.3 736.3,154.8 739.3,149.3 746.9,143.8 749.5,138.3 751.6,132.8 753.7,127.3 759.3,121.7 768.6,116.2 772.9,110.7 775.8,99.7 785.2,94.2 786.0,94.2 789.0,94.2 790.3,83.1 792.0,83.1"/>
+  <text class="lbl s-repomatic" x="804" y="87.1">repomatic · 60</text>
+  <text class="axis" x="58" y="450">Stars, 2021-12-09 to 2026-09-01 · sampled on 2026-09-01</text>
 </svg>
