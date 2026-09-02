@@ -374,6 +374,20 @@ NUITKA_BUILD_TARGETS: Final[dict[str, BuildTarget]] = {
 The roster is closed: every entry compiles on a runner the test matrix already
 covers, and the key doubles as the compiled binary's published identifier. See
 {class}`BuildTarget` for what each field means and which of them are frozen.
+
+```{note} A target leaves the roster when its runner image does
+A published binary needs a runner to compile on, so GitHub's *Available
+Images* table sets how long an architecture lives here. `macos-x64` therefore
+ships for as long as that table offers an Intel macOS label, on GitHub's
+schedule rather than Apple's. The two diverge: Apple lets Mac App Store apps
+go arm64-only and drops Intel in macOS 27, while an Intel Mac stays on
+macOS 26 Tahoe and keeps running it, so those users still want the binary.
+
+Drop the target once `sync-runner-images` reports the image deprecated, and
+not before. Removing one is a single change across two files: this roster and
+{data}`~repomatic.matrix_axes.TEST_RUNNERS_FULL` are held equal by
+`tests/test_workflows.py::test_binary_build_targets_are_the_test_axes`.
+```
 """
 
 

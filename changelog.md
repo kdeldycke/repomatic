@@ -23,6 +23,7 @@
 - The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
 - Trim the prose of the `bump-version`, `detect-squash-merge`, `prepare-release`, `sample-metrics`, `setup-guide-cloudflare-pages`, `setup-guide-token`, `sync-dep-sources` and `sync-runner-images` pull request templates.
 - The Claude Code plugin marketplace now installs `.claude/` through a `git-subdir` source, which Claude Desktop and Cowork accept where the previous `archive` source failed to sync.
+- Document the Intel macOS support policy: `macos-x64` binaries ship for as long as GitHub Actions offers an Intel runner image to build them.
 - The marketplace entry now tracks the default branch between releases, so an installed plugin picks up skill fixes as they land instead of at the next release. Adding the catalog at a tag still installs that release.
 - The plugin manifest moved to `.claude/.claude-plugin/plugin.json`, so `claude --plugin-dir .claude` loads the plugin straight from a checkout.
 - Illustrate the readme and docs with live captures: the CLI help screen, an animated `sync-deps --dry-run` session, the test-matrix grid and a configuration example.

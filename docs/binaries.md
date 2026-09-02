@@ -23,6 +23,8 @@ Binaries are dynamically linked against the C runtime of the environment they ar
 
 Systems below these floors (CentOS and RHEL 7 with glibc `2.17`, Ubuntu 18.04 with `2.27`, Amazon Linux 2 with `2.26`) and musl-based distributions like Alpine are not covered by the pre-built binaries. Install the package with [`uv`](https://docs.astral.sh/uv/) instead: `uv tool install <package>` works down to glibc `2.17`, on musl, and without any system Python.
 
+The `macos-x64` row stays for as long as GitHub Actions offers an Intel macOS runner image to compile it on. That is a separate schedule from Apple's: an Intel Mac stops at macOS 26 Tahoe and keeps running it, so these builds outlast the Mac App Store accepting Intel apps.
+
 ## Development builds
 
 Fresh binaries are compiled by the [release workflow](https://github.com/kdeldycke/repomatic/actions/workflows/release.yaml). A push to the default branch only rebuilds the canary subset (`linux-arm64` by default); every target is compiled on release commits, on the weekly Monday schedule, and on manual dispatch, so a given platform is at most a week behind. See [](nuitka.md#build-cadence) for the full cadence. To try the latest development build: open the most recent successful run covering your platform and download its artifact (a GitHub account is required, and the binary comes wrapped in a zip). The same builds are also attached to a rolling dev pre-release, a draft only visible to repository maintainers.
