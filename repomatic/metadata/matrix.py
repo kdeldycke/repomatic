@@ -191,14 +191,12 @@ class MatrixMetadata:
         for cli_id, module_id, callable_id in self.script_entries:
             if cli_id not in selected:
                 continue
-            # Derive CLI module path from its ID. Nuitka 4.1's
-            # `--main-entry-point` flag is unusable on its own: it skips
-            # populating `_main_paths` in `nuitka.importing.Importing` and
-            # crashes with `NuitkaCodeDeficit: Error, cannot locate modules
-            # before import mechanism is setup` inside
-            # `setStandardLibraryModules`. Falling back to a positional module
-            # path keeps `_main_paths` initialized via
-            # `addMainScriptDirectory`.
+            # Derive CLI module path from its ID. `--main-entry-point` is
+            # unusable on its own: 4.1 crashed with `NuitkaCodeDeficit: Error,
+            # cannot locate modules before import mechanism is setup` inside
+            # `setStandardLibraryModules`, and 4.2 exits asking for a project
+            # name. Falling back to a positional module path keeps
+            # `_main_paths` initialized via `addMainScriptDirectory`.
             module_path = Path(f"{module_id.replace('.', '/')}.py")
             # That positional path is resolved from the repository root, which
             # a src-layout project does not expose: `mypkg.__main__` lives at
