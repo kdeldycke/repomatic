@@ -139,6 +139,9 @@ class MatrixMetadata:
         and compile a `__main__.py` entry point through Nuitka's own
         `--main-entry-point`, once
         [Nuitka#3879](https://github.com/Nuitka/Nuitka/issues/3879) ships.
+        [Nuitka#4024](https://github.com/Nuitka/Nuitka/issues/4024) gates this too: the entry point derived from
+        `[project.scripts]` usually carries its package's name, and Nuitka's
+        generated launcher then shadows that package.
         ```
         """
         # Only produce a matrix if the project is providing CLI entry points.
