@@ -23,6 +23,7 @@
 - The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
 - Trim the prose of the `bump-version`, `detect-squash-merge`, `prepare-release`, `sample-metrics`, `setup-guide-cloudflare-pages`, `setup-guide-token`, `sync-dep-sources` and `sync-runner-images` pull request templates.
 - The bundled `file-bug-report` skill now states when a GitHub permalink renders as a code snippet, and how to read a line range off the commit it pins.
+- The bundled `babysit-ci` and `repomatic-ship` skills now treat a wall-clock budget failing on a shared runner as a test defect to fix, not transient infra to re-run.
 - The Claude Code plugin marketplace now installs `.claude/` through a `git-subdir` source, which Claude Desktop and Cowork accept where the previous `archive` source failed to sync.
 - Document the Intel macOS support policy: `macos-x64` binaries ship for as long as GitHub Actions offers an Intel runner image to build them.
 - The marketplace entry now tracks the default branch between releases, so an installed plugin picks up skill fixes as they land instead of at the next release. Adding the catalog at a tag still installs that release.
