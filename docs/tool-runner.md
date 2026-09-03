@@ -276,6 +276,28 @@ It runs the write path against throwaway copies of the targets and diffs the res
 
 With no arguments after the tool name, `--verify` resolves the same defaults a bare `repomatic run <tool>` would, so `repomatic run mdformat --verify` checks every Markdown file in the repository.
 
+## A known mdformat defect
+
+mdformat deletes the content of a backtick code span inside the alt-text of a Markdown image. It keeps the words around it and leaves a double space:
+
+```text
+![A pear's `ripen` stage in a crate](pear.svg)
+```
+
+becomes:
+
+```text
+![A pear's  stage in a crate](pear.svg)
+```
+
+The same code span in ordinary link text is kept, so the defect belongs to the image-alt path alone.
+
+This is mdformat itself, not a plugin that repomatic bundles: it occurs with a bare `mdformat` and no plugins loaded. `repomatic run mdformat` therefore cannot prevent it, and the `format-markdown` job carries it into every consuming repository. The loss is silent, it applies to prose that is already committed, and no check reports it.
+
+mdformat tracks the defect as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414), where the maintainer records that a proper fix needs `markdown-it-py` synced with markdown-it `14.0.0`. It is still present in mdformat `1.0.0`.
+
+Write image alt-text without code spans until mdformat corrects this. Removing the backticks is the stable repair: a restored code span is deleted again by the next `format-markdown` run.
+
 ## Tool details
 
 ```{python:render}

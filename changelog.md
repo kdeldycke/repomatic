@@ -37,6 +37,8 @@
 - Fix `sync-runner-images` proposing a probe for a runner image the repository already runs, which marked every test-matrix cell on that image `continue-on-error`.
 - Fix `run {tool} --verify` crashing with a `FileExistsError` on a path resolving to the working directory, which now verifies the tool's own default file set.
 - Fix dangling `claude.md` pointers and stale workflow references in the bundled `repomatic-ship`, `repomatic-changelog` and `repomatic-test-matrix` skills.
+- The bundled `babysit-ci` and `repomatic-ship` skills now read CI runs through the GitHub API, after `gh run list` reported month-old runs as the newest.
+- Document the mdformat defect that silently deletes a backtick code span inside a Markdown image's alt-text.
 
 ## [`7.14.0` (2026-08-27)](https://github.com/kdeldycke/repomatic/compare/v7.13.0...v7.14.0)
 
