@@ -29,6 +29,7 @@
 - The plugin manifest moved to `.claude/.claude-plugin/plugin.json`, so `claude --plugin-dir .claude` loads the plugin straight from a checkout.
 - Illustrate the readme and docs with live captures: the CLI help screen, an animated `sync-deps --dry-run` session, the test-matrix grid and a configuration example.
 - Raise the `click-extra` floor to `9`, required by the new `Examples` help sections and the `manpages` release job.
+- Bump Nuitka from `4.1.3` to `4.2`.
 - Fix uv's resolution summary scribbling over the `sync-deps` progress trail.
 - Fix `repomatic run` printing a Python traceback for an unknown tool name. It is now a usage error listing every registered tool.
 - Fix the `plugin` component rewriting a settings file `format-json` had already settled, which kept `sync-repomatic` and the autofix lane undoing each other. The wiring now compares the parsed document, not its text.

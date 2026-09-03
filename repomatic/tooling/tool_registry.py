@@ -1768,7 +1768,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "nuitka": ToolSpec(
         name="nuitka",
         display_name="Nuitka",
-        version="4.1.3",
+        version="4.2",
         package="nuitka[onefile]",
         source_url="https://github.com/Nuitka/Nuitka",
         config_docs_url="https://nuitka.net/doc/user-manual.html",
@@ -1799,7 +1799,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             output-dir = "build"
             ```
 
-            repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka does not read `[tool.nuitka]` natively yet ([Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)); repomatic's bridge fills the gap until it does.
+            repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka `4.2` reads the section itself, but only under `--project` ([Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)). That mode takes its entry points from the project configuration, not from the command line, so repomatic keeps its own bridge.
 
             Binaries skip `tkinter` by default, via the `nuitka.nofollow-imports` setting of [`[tool.repomatic]`](configuration.md): set it to `[]` to bundle Tcl/Tk in a GUI project.
             """),
