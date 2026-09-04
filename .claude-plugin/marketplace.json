@@ -14,7 +14,7 @@
 			"name": "repomatic",
 			"source": {
 				"path": ".claude",
-				"ref": "main",
+				"ref": "v7.15.0",
 				"source": "git-subdir",
 				"url": "https://github.com/kdeldycke/repomatic"
 			},
@@ -25,7 +25,7 @@
 				"github-actions",
 				"release-automation"
 			],
-			"version": "7.14.0"
+			"version": "7.15.0"
 		}
 	]
 }

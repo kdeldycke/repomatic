@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.15.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.14.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.15.0` (2026-09-04)](https://github.com/kdeldycke/repomatic/compare/v7.14.0...v7.15.0)
 
 - **Breaking:** the `manpages` release job now renders through `click-extra wrap --help-format man`. The `--man` flag it used no longer writes roff.
 - **Breaking:** `show-test-matrix` now lists one row per job by default, and `--flat` is gone. Pass the new `--grid` for the compact two-axis pivot the command used to print.
