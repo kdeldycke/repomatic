@@ -182,7 +182,7 @@ jobs:
       # and spelling it here would push the line past yamllint's cap once the
       # release freeze splices the pinned invocation in.
       - name: Pack plugin
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.15.0' pack-plugin
+        run: uv --no-progress run --frozen -- repomatic pack-plugin
       - name: Upload plugin artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
