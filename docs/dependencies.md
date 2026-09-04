@@ -144,7 +144,7 @@ Four layers, ordered by how cheap the failure is:
 
    A dated countdown and the `sync-uv-lock` pull request's `❄️ Cooldown bypasses` table forecast the same day from the same two numbers: the locked release's `upload-time`, and the `exclude-newer` span. The two populations differ, though. That table lists every active `exclude-newer-package` freeze, including one whose floor was never raised, which does not block a release. The banner lists every floor demanding a version inside the window.
 
-   The link is a search over the job's pull request branch rather than a pull request number. `sync-uv-lock` opened eight pull requests in the 24 days to 2026-09-04 and closed seven, so a number would go stale within days, and resolving one at render time would cost an API call in a check that is otherwise offline.
+   The link is a search over the job's open pull requests on that branch, rather than a pull request number. `sync-uv-lock` opened eight pull requests in the 24 days to 2026-09-04 and closed seven, so a number would go stale within days, and resolving one at render time would cost an API call in a check that is otherwise offline. A merged pull request is filtered out on purpose: it carries the forecast it computed on its last push, and that date can have moved since.
 
 3. **The release lane**, as `_release-build.yaml`'s `lint-deps` job. Fatal only on a release commit, so test-driving a git branch mid-cycle stays frictionless. `build-package` depends on it, so a failure skips the wheel build, which leaves `package_built` false and skips `publish-pypi`, and fails the lane, which skips the engine's tag, release and publish jobs with it.
 

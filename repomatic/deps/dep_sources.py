@@ -606,7 +606,7 @@ release ships.
 
 
 def clearing_queue_url(repo_url: str, branch: str) -> str:
-    """Link to the pull requests an updater has opened on its own branch.
+    """Link to the open pull request an updater has on its own branch.
 
     A search over the branch rather than a pull request number, because the
     number changes every cycle: `sync-uv-lock` opened eight in the 24 days to
@@ -614,14 +614,16 @@ def clearing_queue_url(repo_url: str, branch: str) -> str:
     body is stale within days. The branch never moves, and the query costs no
     API call to build, which keeps {func}`scan_project` offline.
 
-    `is:open` is left out on purpose: with nothing pending the query then lands
-    on an empty list, where without it the reader gets the last one merged.
+    Restricted to open pull requests, because a merged one carries the cooldown
+    forecast it computed on its last push, and the date can have moved since. An
+    empty result answers the reader instead: nothing is pending on that branch,
+    so the lock has converged.
 
     :param repo_url: Repository homepage, without a trailing slash.
     :param branch: The updater's fixed pull request branch.
     :return: A GitHub pull request search URL.
     """
-    return f"{repo_url}/pulls?q={quote_plus(f'is:pr head:{branch}')}"
+    return f"{repo_url}/pulls?q={quote_plus(f'is:pr is:open head:{branch}')}"
 
 
 class SourceKind(StrEnum):

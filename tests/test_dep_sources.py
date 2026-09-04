@@ -773,7 +773,7 @@ def test_countdown_links_the_job_that_lifts_each_blocker(tmp_path: Path) -> None
     banner = build_release_readiness(
         pyproject, tmp_path / "uv.lock", "1 week", repo_url="https://x/repo"
     )
-    swap_queue = f"https://x/repo/pulls?q=is%3Apr+head%3A{SWAP_PR_BRANCH}"
+    swap_queue = f"https://x/repo/pulls?q=is%3Apr+is%3Aopen+head%3A{SWAP_PR_BRANCH}"
     assert f"[🚧 *{BYPASS_NEEDS_RELEASE}*]({swap_queue})" in banner
     # Nothing opens a pull request for a path source, so its cell stays plain
     # rather than linking somewhere that will never answer.
