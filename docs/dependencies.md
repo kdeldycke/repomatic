@@ -134,13 +134,17 @@ Four layers, ordered by how cheap the failure is:
 
 2. **The release PR body**, regenerated on every push to `main`. A blocker replaces the checklist's "This PR is ready to be merged" opener with a `[!CAUTION]` block, one row per offending dependency, each linked to the line that declares it. This is the layer that matters: it reaches the maintainer at the moment they decide to merge, which is why it also carries the countdown below and why the checklist's other alert, the `Squash and merge` safeguard, ranks one level lower: `detect-squash-merge` catches that mistake after the fact, where merging a blocked release has no backstop.
 
-   The `Clears` column says what the reader is waiting on, in the vocabulary the `sync-uv-lock` cooldown tables already use:
+   The `Clears` column says what the reader is waiting on, in the vocabulary the `sync-uv-lock` cooldown tables already use, and links to the pull request queue of the job that lifts it:
 
-   | Countdown                | What lifts the block                                                                                                   |
-   | :----------------------- | :--------------------------------------------------------------------------------------------------------------------- |
-   | `2026-09-07 (in 3 days)` | The clock. A floor inside the cooldown clears the day its locked release ages out of the window.                       |
-   | 🚧 *needs release*       | Upstream. The git track sits inside the managed idiom, so `sync-dep-sources` opens the swap PR once the release ships. |
-   | ✋ *needs an edit*       | A maintainer. Nothing watches this one; the `lint-deps` report names the edit.                                         |
+   | Countdown                | What lifts the block                                                                                                   | Links to           |
+   | :----------------------- | :--------------------------------------------------------------------------------------------------------------------- | :----------------- |
+   | `2026-09-07 (in 3 days)` | The clock. A floor inside the cooldown clears the day its locked release ages out of the window.                       | `sync-uv-lock`     |
+   | 🚧 *needs release*       | Upstream. The git track sits inside the managed idiom, so `sync-dep-sources` opens the swap PR once the release ships. | `sync-dep-sources` |
+   | ✋ *needs an edit*       | A maintainer. Nothing watches this one; the `lint-deps` report names the edit.                                         | nothing            |
+
+   A dated countdown and the `sync-uv-lock` pull request's `❄️ Cooldown bypasses` table forecast the same day from the same two numbers: the locked release's `upload-time`, and the `exclude-newer` span. The two populations differ, though. That table lists every active `exclude-newer-package` freeze, including one whose floor was never raised, which does not block a release. The banner lists every floor demanding a version inside the window.
+
+   The link is a search over the job's pull request branch rather than a pull request number. `sync-uv-lock` opened eight pull requests in the 24 days to 2026-09-04 and closed seven, so a number would go stale within days, and resolving one at render time would cost an API call in a check that is otherwise offline.
 
 3. **The release lane**, as `_release-build.yaml`'s `lint-deps` job. Fatal only on a release commit, so test-driving a git branch mid-cycle stays frictionless. `build-package` depends on it, so a failure skips the wheel build, which leaves `package_built` false and skips `publish-pypi`, and fails the lane, which skips the engine's tag, release and publish jobs with it.
 

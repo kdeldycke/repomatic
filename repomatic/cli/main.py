@@ -569,6 +569,7 @@ def _render_pr_content(
             config.minimum_release_age,
             allow=config.lint_deps.allow,
             source_url=blob_url,
+            repo_url=md.repo_url or None,
         )
 
     arg_sources: dict[str, str | None | Callable[[], str | None]] = {

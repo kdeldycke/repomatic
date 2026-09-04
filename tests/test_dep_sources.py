@@ -28,7 +28,9 @@ from repomatic.deps.dep_report import BYPASS_NEEDS_RELEASE
 from repomatic.deps.dep_sources import (
     BLOCKER_NEEDS_EDIT,
     BLOCKER_SECTION_NOTE,
+    COOLDOWN_PR_BRANCH,
     RELEASE_READY_SENTENCE,
+    SWAP_PR_BRANCH,
     UNSHIPPABLE_BANNER_LEAD,
     ReleaseSwap,
     SourceKind,
@@ -42,7 +44,7 @@ from repomatic.deps.dep_sources import (
     strip_dev_bounds,
     tracked_git_overrides,
 )
-from repomatic.github.pr_body import render_template
+from repomatic.github.pr_body import get_template_names, render_template
 from repomatic.pypi import PyPIRelease
 
 PYPROJECT = """\
@@ -737,6 +739,50 @@ def test_release_readiness_flips_the_pr_opening(tmp_path: Path) -> None:
         pyproject, lock, "1 week", source_url="https://x/repo/blob/deadbeef"
     )
     assert f"[`cherry`](https://x/repo/blob/deadbeef/{declaration})" in linked
+
+
+@pytest.mark.parametrize("branch", (COOLDOWN_PR_BRANCH, SWAP_PR_BRANCH))
+def test_countdown_links_a_job_that_still_exists(branch: str) -> None:
+    """Each countdown link points at a job that still opens pull requests.
+
+    The link is a search over the job's pull request branch, and that branch
+    is the template name. Renaming or dropping a template would leave the
+    banner pointing at a query nothing ever matches, which reads as "nothing
+    is coming" rather than as a broken link.
+    """
+    assert branch in get_template_names()
+
+
+def test_countdown_links_the_job_that_lifts_each_blocker(tmp_path: Path) -> None:
+    """A dated blocker points at `sync-uv-lock`, an awaited one at the swap.
+
+    Both jobs report the same clearing date from the same two numbers the
+    banner reads: the locked release's upload time, and the `exclude-newer`
+    span. The link is what takes the reader from the verdict to that report.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        SHIPPABLE_PYPROJECT.replace(
+            'test = [ "mango>=2" ]', 'test = [ "mango>=2.dev0" ]'
+        )
+        + "[tool.uv.sources]\n"
+        + 'cherry = { path = "../cherry" }\n'
+        + 'mango = { git = "https://x/mango", branch = "main" }\n',
+        encoding="UTF-8",
+    )
+    banner = build_release_readiness(
+        pyproject, tmp_path / "uv.lock", "1 week", repo_url="https://x/repo"
+    )
+    swap_queue = f"https://x/repo/pulls?q=is%3Apr+head%3A{SWAP_PR_BRANCH}"
+    assert f"[🚧 *{BYPASS_NEEDS_RELEASE}*]({swap_queue})" in banner
+    # Nothing opens a pull request for a path source, so its cell stays plain
+    # rather than linking somewhere that will never answer.
+    assert f"✋ *{BLOCKER_NEEDS_EDIT}*" in banner
+    assert f"[✋ *{BLOCKER_NEEDS_EDIT}*]" not in banner
+    # A caller with no repository to point at renders every cell plain.
+    assert "pulls?q=" not in build_release_readiness(
+        pyproject, tmp_path / "uv.lock", "1 week"
+    )
 
 
 def test_release_pr_reserves_caution_for_the_unguarded_step(tmp_path: Path) -> None:

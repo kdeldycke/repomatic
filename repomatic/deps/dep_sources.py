@@ -61,6 +61,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import tomlrt
 from click_extra import ColumnSpec
@@ -586,6 +587,42 @@ date. Naming that beats an empty cell, which reads as a date the report failed
 to compute. {attr}`DepFinding.remedy` names the edit.
 """
 
+COOLDOWN_PR_BRANCH = "sync-uv-lock"
+"""Branch of the pull request that reports a cooldown clearing.
+
+Its `❄️ Cooldown bypasses` table forecasts the same day from the same two
+numbers a blocking floor does: the locked release's `upload-time`, plus the
+`exclude-newer` span. So a dated blocker and that table always agree, and the
+banner links one to the other.
+"""
+
+SWAP_PR_BRANCH = "sync-dep-sources"
+"""Branch of the pull request that lands a git-to-release swap.
+
+Where a {data}`~repomatic.deps.dep_report.BYPASS_NEEDS_RELEASE` blocker
+resolves: the job watches the index and opens the swap once the awaited
+release ships.
+"""
+
+
+def clearing_queue_url(repo_url: str, branch: str) -> str:
+    """Link to the pull requests an updater has opened on its own branch.
+
+    A search over the branch rather than a pull request number, because the
+    number changes every cycle: `sync-uv-lock` opened eight in the 24 days to
+    2026-09-04 and closed seven of them, so a number written into a release PR
+    body is stale within days. The branch never moves, and the query costs no
+    API call to build, which keeps {func}`scan_project` offline.
+
+    `is:open` is left out on purpose: with nothing pending the query then lands
+    on an empty list, where without it the reader gets the last one merged.
+
+    :param repo_url: Repository homepage, without a trailing slash.
+    :param branch: The updater's fixed pull request branch.
+    :return: A GitHub pull request search URL.
+    """
+    return f"{repo_url}/pulls?q={quote_plus(f'is:pr head:{branch}')}"
+
 
 class SourceKind(StrEnum):
     """Where a dependency is resolved from.
@@ -685,6 +722,21 @@ class DepFinding:
         if self.clears == BYPASS_NEEDS_RELEASE:
             return f"🚧 *{self.clears}*"
         return self.clears
+
+    @property
+    def clearing_job(self) -> str:
+        """Pull request branch of the job that lifts this finding.
+
+        Empty for a finding waiting on a maintainer, since no job opens a pull
+        request for it. Keyed off {attr}`clears` rather than off
+        {attr}`kind`, so the job and the marker a reader sees can never
+        disagree about who they are waiting for.
+        """
+        if not self.clears:
+            return ""
+        if self.clears == BYPASS_NEEDS_RELEASE:
+            return SWAP_PR_BRANCH
+        return COOLDOWN_PR_BRANCH
 
     @property
     def verdict(self) -> str:
@@ -1324,6 +1376,7 @@ def build_release_readiness(
     window: str,
     allow: dict[str, str] | None = None,
     source_url: str | None = None,
+    repo_url: str | None = None,
 ) -> str:
     """Build the release PR's opening verdict.
 
@@ -1356,6 +1409,9 @@ def build_release_readiness(
         slash (like ``{repo_url}/blob/{sha}``). Each package links into it. A
         caller with no commit to point at passes nothing, and the packages
         render with their file and line as plain text instead.
+    :param repo_url: Repository homepage, without a trailing slash. Each dated
+        or awaited countdown links to the pull request queue of the job that
+        clears it. Omitted, the countdowns render as plain text.
     :return: {data}`RELEASE_READY_SENTENCE`, or a GitHub-flavored markdown
         `[!CAUTION]` blockquote naming what blocks the release and when each
         blocker lifts.
@@ -1383,7 +1439,11 @@ def build_release_readiness(
             if source_url
             else f"`{finding.package}` ({anchor})"
         )
-        rows.append((name, finding.countdown))
+        countdown = finding.countdown
+        if repo_url and finding.clearing_job:
+            queue = clearing_queue_url(repo_url, finding.clearing_job)
+            countdown = f"[{countdown}]({queue})"
+        rows.append((name, countdown))
     table = markdown_section("", "", BANNER_COLUMNS, rows)
     # Every line quoted, or GitHub renders the table outside the admonition.
     quoted = "\n".join(f"> {line}" for line in table.splitlines())

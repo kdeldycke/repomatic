@@ -22,6 +22,7 @@
 - `sync-runner-images` now rewrites a literal `runs-on:` as soon as a newer image supersedes it, instead of waiting for the old one to be deprecated.
 - The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
 - The release pull request's unshippable-dependency alert now tables each blocker with a `Clears` countdown: a date for a cooldown, `needs release` for a swap `sync-dep-sources` watches, `needs an edit` otherwise.
+- Each countdown links to the pull request queue of the job that lifts it, so a cooldown date lands on the `sync-uv-lock` report forecasting the same day.
 - The release pull request's `Squash and merge` alert drops from caution to warning, leaving caution for the blocker banner the release lane cannot catch in time.
 - `lint-deps` gains a `Clears` column, and its blocker links now skip a comment naming the package to land on the declaration itself.
 - Trim the prose of the `bump-version`, `detect-squash-merge`, `prepare-release`, `sample-metrics`, `setup-guide-cloudflare-pages`, `setup-guide-token`, `sync-dep-sources` and `sync-runner-images` pull request templates.
