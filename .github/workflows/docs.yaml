@@ -235,7 +235,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
         run: >
-          npx --yes wrangler@4.126.0 pages deploy ./docs/_build
+          npx --yes wrangler@4.127.0 pages deploy ./docs/_build
           --project-name "$PROJECT_NAME"
           --branch "$REF_NAME"
           --commit-hash "$COMMIT_SHA"
