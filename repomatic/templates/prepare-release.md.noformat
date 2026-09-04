@@ -19,5 +19,5 @@ ${release_readiness}See the [`prepare-release` job documentation](https://repoma
 ${dev_release_review}${changes_review}1. **Click `Ready for review`** below
 1. **Click `Rebase and merge`** below
 
-> [!CAUTION]
+> [!WARNING]
 > Do not `Squash and merge`: the release needs the [2 distinct commits](https://github.com/kdeldycke/repomatic/blob/main/docs/workflows.md#freeze-and-unfreeze-commits) in this PR.

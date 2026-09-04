@@ -59,7 +59,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import tomlrt
@@ -74,6 +74,8 @@ from ..humanize import parse_iso_datetime
 from ..pypi import get_release_dates, is_pypi_url
 from ..versions import safe_version
 from .dep_report import (
+    BYPASS_NEEDS_RELEASE,
+    format_eligible,
     format_released,
     link_name,
     markdown_section,
@@ -84,6 +86,7 @@ from .uv import (
     load_lock_data,
     load_pyproject_doc,
     resolve_exclude_newer_cutoff,
+    resolve_exclude_newer_span,
     uv_table,
 )
 
@@ -303,11 +306,28 @@ def dev_floor(pyproject_path: Path, name: str) -> str | None:
     return str(max(floors)) if floors else None
 
 
+@dataclass(frozen=True)
+class StaleFloor:
+    """A dependency floor no cooldown-gated resolution can satisfy.
+
+    What {func}`floors_inside_cooldown` reports: the offending bound, and the
+    day the clock alone lifts it.
+    """
+
+    floor: str
+    """The offending lower bound, as the requirement writes it."""
+
+    clears: str
+    """Date the locked release ages past the cooldown, with a countdown
+    (`2026-09-07 (in 3 days)`), or empty when the window is an absolute cutoff
+    nothing ages past on its own."""
+
+
 def floors_inside_cooldown(
     pyproject_path: Path,
     lock_path: Path,
     window: str,
-) -> dict[str, str]:
+) -> dict[str, StaleFloor]:
     """Dependency floors that no cooldown-gated resolution can satisfy.
 
     A floor naming a version published inside the cooldown window makes the
@@ -339,12 +359,14 @@ def floors_inside_cooldown(
     :param lock_path: Path to the `uv.lock` file.
     :param window: Cooldown window, in any form `[tool.uv] exclude-newer`
         accepts.
-    :return: Mapping of canonical package name to the offending floor version,
-        empty when every floor resolves without an exemption.
+    :return: Mapping of canonical package name to the offending floor and the
+        day it clears, empty when every floor resolves without an exemption.
     """
     cutoff = resolve_exclude_newer_cutoff(window)
     if cutoff is None or not pyproject_path.exists():
         return {}
+    span = resolve_exclude_newer_span(window)
+    today = datetime.now(timezone.utc).date()
 
     lock = LockFile.load(lock_path)
     locked = {
@@ -355,7 +377,7 @@ def floors_inside_cooldown(
     }
 
     doc = load_pyproject_doc(pyproject_path)
-    offenders: dict[str, str] = {}
+    offenders: dict[str, StaleFloor] = {}
     for _location, array in requirement_arrays(doc):
         for item in array:
             requirement = parse_requirement(item)
@@ -374,12 +396,20 @@ def floors_inside_cooldown(
             locked_parsed = safe_version(locked_version)
             if locked_parsed is None:
                 continue
+            # The locked release ages out of a rolling window on its own, which
+            # is the whole remedy for this finding. An absolute cutoff never
+            # moves, so it leaves no date to wait for.
+            clears = (
+                format_eligible((upload_dt + span).date(), today)
+                if span is not None
+                else ""
+            )
             for spec in requirement.specifier:
                 if spec.operator not in LOWER_BOUND_OPERATORS | PIN_OPERATOR:
                     continue
                 floor = safe_version(spec.version)
                 if floor is not None and floor >= locked_parsed:
-                    offenders[name] = str(floor)
+                    offenders[name] = StaleFloor(str(floor), clears)
     return offenders
 
 
@@ -546,6 +576,17 @@ def format_swap_section(
 # ---------------------------------------------------------------------------
 
 
+BLOCKER_NEEDS_EDIT = "needs an edit"
+"""Countdown placeholder for a blocker no automation ever lifts.
+
+The counterpart to {data}`~repomatic.deps.dep_report.BYPASS_NEEDS_RELEASE`,
+and what most failure classes get: a path source, a workspace member, a direct
+reference and a floor-less git track all wait on a maintainer rather than on a
+date. Naming that beats an empty cell, which reads as a date the report failed
+to compute. {attr}`DepFinding.remedy` names the edit.
+"""
+
+
 class SourceKind(StrEnum):
     """Where a dependency is resolved from.
 
@@ -615,10 +656,35 @@ class DepFinding:
     package. A non-empty reason downgrades the finding to a notice that still
     renders, so an accepted exception stays visible instead of disappearing."""
 
+    clears: str = ""
+    """When this finding lifts without anyone touching `pyproject.toml`.
+
+    Either a date with a countdown (`2026-09-07 (in 3 days)`) for a cooldown
+    the clock ages out, or {data}`~repomatic.deps.dep_report.BYPASS_NEEDS_RELEASE`
+    for a swap `sync-dep-sources` opens once upstream publishes. Empty when no
+    automation clears it and a maintainer has to edit the declaration.
+    {attr}`countdown` renders it.
+    """
+
     @property
     def blocking(self) -> bool:
         """Whether this finding stops a release."""
         return self.level is AnnotationLevel.ERROR and not self.allowed
+
+    @property
+    def countdown(self) -> str:
+        """{attr}`clears` as a table cell, marked with what the reader waits on.
+
+        Three states, and the reader's next move differs for each: wait for a
+        date, wait for someone else's release, or go edit the declaration. The
+        two undated ones carry the marker the `sync-uv-lock` cooldown tables
+        already use for them, italicized so a marker never reads as a date.
+        """
+        if not self.clears:
+            return f"✋ *{BLOCKER_NEEDS_EDIT}*"
+        if self.clears == BYPASS_NEEDS_RELEASE:
+            return f"🚧 *{self.clears}*"
+        return self.clears
 
     @property
     def verdict(self) -> str:
@@ -852,6 +918,11 @@ def _finding(
         remedy=_remedy(kind, package, floor),
         level=level,
         allowed=allow.get(package, ""),
+        # The one class of finding another job already watches: a git track
+        # inside the managed idiom clears when upstream ships the release the
+        # floor names, and `sync-dep-sources` opens the swap PR on sight of it.
+        # The condition mirrors `_remedy`, which routes on the same pair.
+        clears=BYPASS_NEEDS_RELEASE if kind is SourceKind.GIT and floor else "",
     )
 
 
@@ -1079,13 +1150,13 @@ def scan_project(
     ]
 
     stale_floors = floors_inside_cooldown(pyproject_path, lock_path, window)
-    for name, floor in stale_floors.items():
+    for name, stale in stale_floors.items():
         findings.append(
             DepFinding(
                 package=name,
                 kind=SourceKind.REGISTRY,
                 location="project dependency floor",
-                detail=f"`{name}>={floor}`",
+                detail=f"`{name}>={stale.floor}`",
                 consequence=(
                     f"The release satisfying this floor is younger than the"
                     f" {window} cooldown, so anyone installing from an index"
@@ -1095,6 +1166,7 @@ def scan_project(
                 ),
                 remedy="Wait for that release to age out of the window.",
                 allowed=allow.get(name, ""),
+                clears=stale.clears,
             )
         )
 
@@ -1133,12 +1205,13 @@ def format_blocker_section(
     return markdown_section(
         heading,
         BLOCKER_SECTION_NOTE,
-        ("Package", "Source", "Declared in", "Why it cannot ship"),
+        ("Package", "Source", "Declared in", "Clears", "Why it cannot ship"),
         [
             (
                 f"`{finding.package}`",
                 f"`{finding.kind}`",
                 f"`{finding.location}`",
+                finding.countdown,
                 f"{finding.consequence} {finding.remedy}",
             )
             for finding in blocking
@@ -1190,6 +1263,13 @@ def declaration_anchor(
         header = TOML_TABLE_HEADER.match(line)
         if header:
             table = header["path"]
+        # A comment naming the package does not declare it, and a floor
+        # comment is required to name the version it demands, so it matches
+        # everything the declaration matches. It also sits directly above it,
+        # which is enough to take the first match and send the reader a few
+        # lines short of the line to edit.
+        if line.lstrip().startswith("#"):
+            continue
         if not pattern.search(line):
             continue
         if not first:
@@ -1220,11 +1300,21 @@ UNSHIPPABLE_BANNER_LEAD = (
 )
 """Opening of the blocked form of the release PR's verdict.
 
-The banner is a verdict, not a report: it says what is wrong and names what to
-open. Everything else the finding carries (why the source is unshippable, what
-to do about it, the general rule) reads as chatter in a pull request whose
-body is otherwise a five-step checklist, and it is one click away in the
-`lint-deps` report {func}`format_blocker_section` renders.
+The banner is a verdict, not a report: it says what is wrong, names what to
+open, and says when the block lifts. Everything else the finding carries (why
+the source is unshippable, what to do about it, the general rule) reads as
+chatter in a pull request whose body is otherwise a five-step checklist, and it
+is one click away in the `lint-deps` report {func}`format_blocker_section`
+renders.
+"""
+
+BANNER_COLUMNS = ("Package", "Clears")
+"""Columns of the release PR's blocker table.
+
+Two, where {func}`format_blocker_section` renders five. The banner answers the
+one question a maintainer has while looking at a merge button: is this still
+blocked, and until when. Nothing else on the page answers either half; the
+diagnosis stays in the `lint-deps` report that section renders.
 """
 
 
@@ -1266,8 +1356,9 @@ def build_release_readiness(
         slash (like ``{repo_url}/blob/{sha}``). Each package links into it. A
         caller with no commit to point at passes nothing, and the packages
         render with their file and line as plain text instead.
-    :return: {data}`RELEASE_READY_SENTENCE`, or a one-line GitHub-flavored
-        markdown `[!CAUTION]` blockquote naming what blocks the release.
+    :return: {data}`RELEASE_READY_SENTENCE`, or a GitHub-flavored markdown
+        `[!CAUTION]` blockquote naming what blocks the release and when each
+        blocker lifts.
     """
     blocking = [
         finding
@@ -1276,20 +1367,24 @@ def build_release_readiness(
     ]
     if not blocking:
         return RELEASE_READY_SENTENCE
-    # One link per package: a floor and a source override on the same package
-    # send the reader to the same file, and a name repeated in a one-line
-    # banner reads as two separate problems. Findings arrive sorted by package
+    # One row per package: a floor and a source override on the same package
+    # send the reader to the same file, and a name repeated down a two-column
+    # table reads as two separate problems. Findings arrive sorted by package
     # then location, so the first one kept is the one nearest to an edit.
-    anchors: dict[str, str] = {}
+    rows: list[tuple[str, ...]] = []
+    seen: set[str] = set()
     for finding in blocking:
-        if finding.package not in anchors:
-            anchors[finding.package] = declaration_anchor(
-                finding, pyproject_path, lock_path
-            )
-    links = ", ".join(
-        f"[`{package}`]({source_url}/{anchor})"
-        if source_url
-        else f"`{package}` ({anchor})"
-        for package, anchor in anchors.items()
-    )
-    return f"> [!CAUTION]\n> **{UNSHIPPABLE_BANNER_LEAD}** {links}\n\n"
+        if finding.package in seen:
+            continue
+        seen.add(finding.package)
+        anchor = declaration_anchor(finding, pyproject_path, lock_path)
+        name = (
+            f"[`{finding.package}`]({source_url}/{anchor})"
+            if source_url
+            else f"`{finding.package}` ({anchor})"
+        )
+        rows.append((name, finding.countdown))
+    table = markdown_section("", "", BANNER_COLUMNS, rows)
+    # Every line quoted, or GitHub renders the table outside the admonition.
+    quoted = "\n".join(f"> {line}" for line in table.splitlines())
+    return f"> [!CAUTION]\n> **{UNSHIPPABLE_BANNER_LEAD}**\n>\n{quoted}\n\n"

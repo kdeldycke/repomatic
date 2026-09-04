@@ -24,7 +24,9 @@ import pytest
 
 from repomatic.config import Config
 from repomatic.deps import dep_sources
+from repomatic.deps.dep_report import BYPASS_NEEDS_RELEASE
 from repomatic.deps.dep_sources import (
+    BLOCKER_NEEDS_EDIT,
     BLOCKER_SECTION_NOTE,
     RELEASE_READY_SENTENCE,
     UNSHIPPABLE_BANNER_LEAD,
@@ -40,6 +42,7 @@ from repomatic.deps.dep_sources import (
     strip_dev_bounds,
     tracked_git_overrides,
 )
+from repomatic.github.pr_body import render_template
 from repomatic.pypi import PyPIRelease
 
 PYPROJECT = """\
@@ -352,7 +355,14 @@ def test_floors_inside_cooldown(
     )
 
     offenders = floors_inside_cooldown(pyproject, lock, "8 days")
-    assert (offenders == {"cherry": floor}) is flagged
+    assert (set(offenders) == {"cherry"}) is flagged
+    if flagged:
+        stale = offenders["cherry"]
+        assert stale.floor == floor
+        # A rolling window lifts the floor on its own, on the day the locked
+        # release turns 8 days old.
+        expected = (upload + timedelta(days=8)).date()
+        assert stale.clears.startswith(expected.isoformat())
 
 
 def test_dependency_floors_clear_the_cooldown() -> None:
@@ -375,7 +385,10 @@ def test_dependency_floors_clear_the_cooldown() -> None:
         REPO_ROOT / "uv.lock",
         Config.minimum_release_age,
     )
-    listed = ", ".join(f"{name}>={floor}" for name, floor in sorted(offenders.items()))
+    listed = ", ".join(
+        f"{name}>={stale.floor} (clears {stale.clears or 'never'})"
+        for name, stale in sorted(offenders.items())
+    )
     assert not offenders, (
         f"Dependency floor(s) inside the {Config.minimum_release_age} cooldown: "
         f"{listed}. Releasing now ships a package that downstream repos and "
@@ -678,23 +691,36 @@ def test_release_readiness_flips_the_pr_opening(tmp_path: Path) -> None:
     pyproject.write_text(SHIPPABLE_PYPROJECT, encoding="UTF-8")
     assert build_release_readiness(pyproject, lock, "1 week") == RELEASE_READY_SENTENCE
 
+    # Two blockers, so the banner has to scale past one package: `mango`
+    # tracks a branch under the managed idiom (a `.dev` floor names the
+    # awaited release), `cherry` tracks one without.
     pyproject.write_text(
-        SHIPPABLE_PYPROJECT
-        + '[tool.uv.sources]\ncherry = { git = "https://x/cherry", branch = "main" }\n',
+        SHIPPABLE_PYPROJECT.replace(
+            'test = [ "mango>=2" ]', 'test = [ "mango>=2.dev0" ]'
+        )
+        + "[tool.uv.sources]\n"
+        + 'cherry = { git = "https://x/cherry", branch = "main" }\n'
+        + 'mango = { git = "https://x/mango", branch = "main" }\n',
         encoding="UTF-8",
     )
     banner = build_release_readiness(pyproject, lock, "1 week")
     assert banner.startswith("> [!CAUTION]")
     assert UNSHIPPABLE_BANNER_LEAD in banner
-    # A verdict, not a report: the alert marker and one line naming the
-    # package, with none of the prose or the table `lint-deps` renders.
-    lines = [line for line in banner.strip().splitlines() if line.strip()]
-    assert len(lines) == 2
+    # A verdict, not a report: the alert marker, the lead, and a table of one
+    # row per package, with none of the prose or diagnosis `lint-deps` renders.
     assert BLOCKER_SECTION_NOTE not in banner
-    assert "| Package |" not in banner
-    # Both lines stay quoted, or GitHub renders half of it outside the
+    assert "| Package | Clears |" in banner
+    assert "Why it cannot ship" not in banner
+    rows = [line for line in banner.splitlines() if line.startswith("> | `")]
+    assert len(rows) == 2
+    # Every line stays quoted, or GitHub renders the table outside the
     # admonition.
-    assert all(line.startswith(">") for line in lines)
+    assert all(line.startswith(">") for line in banner.strip().splitlines())
+    # Each row says what the reader is waiting on. A git track paired with a
+    # dev floor is what `sync-dep-sources` watches, so it names a release;
+    # one without has nothing watching it, so it names an edit.
+    assert f"🚧 *{BYPASS_NEEDS_RELEASE}*" in banner
+    assert f"✋ *{BLOCKER_NEEDS_EDIT}*" in banner
 
     # The package points at the line declaring it, linked when the caller
     # supplies a commit to hang the blob URL off, plain text otherwise.
@@ -711,6 +737,36 @@ def test_release_readiness_flips_the_pr_opening(tmp_path: Path) -> None:
         pyproject, lock, "1 week", source_url="https://x/repo/blob/deadbeef"
     )
     assert f"[`cherry`](https://x/repo/blob/deadbeef/{declaration})" in linked
+
+
+def test_release_pr_reserves_caution_for_the_unguarded_step(tmp_path: Path) -> None:
+    """The release PR's two alerts rank by what else would catch the mistake.
+
+    `Squash and merge` is a warning because the release lane catches it
+    anyway: `detect-squash-merge` in `_release-build.yaml` fires on the
+    collapsed history and files the recovery. Merging a blocked release has no
+    such backstop on the merge itself, and by the time `lint-deps` fails in the
+    release lane the freeze commit is on `main` and the version has to be
+    burned. So the caution is spent on the step nothing else guards, and the
+    template must not spend it anywhere else.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        SHIPPABLE_PYPROJECT + '[tool.uv.sources]\ncherry = { path = "../cherry" }\n',
+        encoding="UTF-8",
+    )
+    blocked = render_template(
+        "prepare-release",
+        version="1.2.3",
+        dev_release_review="",
+        changes_review="",
+        release_readiness=build_release_readiness(
+            pyproject, tmp_path / "uv.lock", "1 week"
+        ),
+    )
+    assert blocked.count("[!CAUTION]") == 1
+    assert blocked.index(UNSHIPPABLE_BANNER_LEAD) < blocked.index("[!WARNING]")
+    assert "> [!WARNING]\n> Do not `Squash and merge`" in blocked
 
 
 def test_project_ships_only_released_dependencies() -> None:

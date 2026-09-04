@@ -513,7 +513,10 @@ def test_render_prepare_release():
     assert "Review the full changes" in result
     assert result.index("GitHub release]") < result.index("Ready for review")
     assert result.index("Review the full changes") < result.index("Ready for review")
-    assert "[!CAUTION]" in result
+    # The template owns the squash-merge safeguard alone, at warning level;
+    # `[!CAUTION]` is reserved for the readiness banner, which is absent here.
+    assert "[!WARNING]" in result
+    assert "[!CAUTION]" not in result
     assert "Squash and merge" in result
     assert "PyPI" in result
     assert "prepare-release" in result

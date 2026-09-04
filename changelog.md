@@ -21,6 +21,9 @@
 - Sharpen the one-line help descriptions of `show-metadata`, `prepare-release`, `lint-repo`, `run`, `fix-awesome-toc` and `cloudflare-pages`.
 - `sync-runner-images` now rewrites a literal `runs-on:` as soon as a newer image supersedes it, instead of waiting for the old one to be deprecated.
 - The `scan-virustotal` pull request is now titled `Update released binaries database`, with a one-line body replacing its scan-records commentary.
+- The release pull request's unshippable-dependency alert now tables each blocker with a `Clears` countdown: a date for a cooldown, `needs release` for a swap `sync-dep-sources` watches, `needs an edit` otherwise.
+- The release pull request's `Squash and merge` alert drops from caution to warning, leaving caution for the blocker banner the release lane cannot catch in time.
+- `lint-deps` gains a `Clears` column, and its blocker links now skip a comment naming the package to land on the declaration itself.
 - Trim the prose of the `bump-version`, `detect-squash-merge`, `prepare-release`, `sample-metrics`, `setup-guide-cloudflare-pages`, `setup-guide-token`, `sync-dep-sources` and `sync-runner-images` pull request templates.
 - The bundled `file-bug-report` skill now states when a GitHub permalink renders as a code snippet, and how to read a line range off the commit it pins.
 - The bundled `babysit-ci` and `repomatic-ship` skills now treat a wall-clock budget failing on a shared runner as a test defect to fix, not transient infra to re-run.

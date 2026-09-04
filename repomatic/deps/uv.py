@@ -149,6 +149,24 @@ def _build_inline_table(entries: dict[str, str]) -> Table:
     return Table.inline({k: entries[k] for k in sorted(entries)})
 
 
+def resolve_exclude_newer_span(value: str) -> timedelta | None:
+    """Resolve a `[tool.uv].exclude-newer` value to the width of its window.
+
+    The rolling half of {func}`resolve_exclude_newer_cutoff`. Two of the three
+    forms uv accepts name a *span*, so the cutoff moves with every resolution
+    and a release inside the window ages out of it on a date anyone can
+    compute: that date is what the cooldown forecasts report. The third form,
+    an absolute timestamp, names a fixed instant no release ever ages past, so
+    it has no span and nothing to forecast.
+
+    :param value: The string read from `[tool.uv].exclude-newer`.
+    :return: The window width, or `None` when *value* is empty or absolute.
+    """
+    if not value:
+        return None
+    return parse_friendly_duration(value) or parse_iso8601_duration(value)
+
+
 def resolve_exclude_newer_cutoff(value: str) -> datetime | None:
     """Resolve a `[tool.uv].exclude-newer` value to an absolute cutoff datetime.
 
@@ -172,7 +190,7 @@ def resolve_exclude_newer_cutoff(value: str) -> datetime | None:
     """
     if not value:
         return None
-    duration = parse_friendly_duration(value) or parse_iso8601_duration(value)
+    duration = resolve_exclude_newer_span(value)
     if duration is not None:
         return datetime.now(timezone.utc) - duration
     return parse_iso_datetime(value)

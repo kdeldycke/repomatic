@@ -131,8 +131,19 @@ The report says which of these applies to each finding, because the remedies dif
 Four layers, ordered by how cheap the failure is:
 
 1. **Locally**, through the `/repomatic-ship` pre-push gate.
-2. **The release PR body**, regenerated on every push to `main`. A blocker replaces the checklist's "This PR is ready to be merged" opener with a `[!CAUTION]` block naming each offending dependency. This is the layer that matters: it reaches the maintainer at the moment they decide to merge.
+
+2. **The release PR body**, regenerated on every push to `main`. A blocker replaces the checklist's "This PR is ready to be merged" opener with a `[!CAUTION]` block, one row per offending dependency, each linked to the line that declares it. This is the layer that matters: it reaches the maintainer at the moment they decide to merge, which is why it also carries the countdown below and why the checklist's other alert, the `Squash and merge` safeguard, ranks one level lower: `detect-squash-merge` catches that mistake after the fact, where merging a blocked release has no backstop.
+
+   The `Clears` column says what the reader is waiting on, in the vocabulary the `sync-uv-lock` cooldown tables already use:
+
+   | Countdown                | What lifts the block                                                                                                   |
+   | :----------------------- | :--------------------------------------------------------------------------------------------------------------------- |
+   | `2026-09-07 (in 3 days)` | The clock. A floor inside the cooldown clears the day its locked release ages out of the window.                       |
+   | 🚧 *needs release*       | Upstream. The git track sits inside the managed idiom, so `sync-dep-sources` opens the swap PR once the release ships. |
+   | ✋ *needs an edit*       | A maintainer. Nothing watches this one; the `lint-deps` report names the edit.                                         |
+
 3. **The release lane**, as `_release-build.yaml`'s `lint-deps` job. Fatal only on a release commit, so test-driving a git branch mid-cycle stays frictionless. `build-package` depends on it, so a failure skips the wheel build, which leaves `package_built` false and skips `publish-pypi`, and fails the lane, which skips the engine's tag, release and publish jobs with it.
+
 4. **The test suite**, upstream only, as a millisecond-latency copy of the same check.
 
 Layer 3 is a backstop that should never fire. By the time it does, the freeze commit is already on `main` and the recovery is to burn the version per the skip-and-move-forward rule.
