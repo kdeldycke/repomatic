@@ -1043,27 +1043,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "fb1238183c5dcfe9bb48772922c2ab62fa54158bfdc78352fa2851f41a71fa5a",
+        ): "b1e422c4cf5de788553f612b3952deadd6cb7669b35659197af14c4b1f763fab",
         (
             LINUX,
             X86_64,
-        ): "511592536991d4b07179d063b93ff0c092ccedba556a4b1ea70d12d46ea0785a",
+        ): "629a72d30e5b625b70723a651c510c0c2d4adc7c9b7334a690afe848ba4426ce",
         (
             MACOS,
             AARCH64,
-        ): "828bc29680765b656b6a354de01d9a7f9f5111e6af99b04cefe06d09c6d2dbda",
+        ): "7a067b00fdf8eeefb7f5f5f247b7dac1bb23adfeaea380a91293353b8e2eba2b",
         (
             MACOS,
             X86_64,
-        ): "3d87fe407532d708650be535573b159293e5c0176b51f8065eb45cc6e6861f48",
+        ): "74f6d1845e5c1a47ebafd42ba4a90ed174b4bb7a669d70acc1fd925894dbb168",
         (
             WINDOWS,
             AARCH64,
-        ): "58707afd02cc8522324e8f83906f44c9a78ceb4953c01e86def94bcd47fed0f9",
+        ): "e7db8b25ed9ddc602d0f0809643a0f1006ae10e67229d5e5de2926085c858b2c",
         (
             WINDOWS,
             X86_64,
-        ): "65125b8689718242c5e86aef43a9099e3313bec2c3fecb7a1bade02018b85acb",
+        ): "8bdf679275458a444f7befb8dacc38001625645cc498facf3cc114d77239f1cd",
     },
     "gh": {
         (
@@ -1183,45 +1183,45 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "32d92acaa5cd8abb29fc49dac123dc412442d5713967819d8af2c29f1b3857c7",
+        ): "8029959a945b5c6f2bc92ce53fca5cf0384c811cc0884b25b196a093a005657a",
         (
             LINUX,
             X86_64,
-        ): "fb096c5d1ac6beabbdbaa2874d025badb03ee07929f0c9ff67563ce8c75398b1",
+        ): "fe42021c7272ef2d67ea36cbc3031683c625d0badec733ef3a57b567246a0b66",
         (
             MACOS,
             AARCH64,
-        ): "9680526be4a66ea1ffe988ed08af58e1400fe1e4f4aef5bd88b20bb9b3da33f8",
+        ): "4710ba8074a74334069719d5b82f8cb97532e5623bfe43ef7cdb3442101b9cb2",
         (
             MACOS,
             X86_64,
-        ): "6feedafc72915794163114f512348e2437d080d0047ef8b8fa2ec63b575f12af",
+        ): "74255a8087d74a79f5c1307db807e7efa8f062c429e3a05c075550392e0dcfa1",
         (
             WINDOWS,
             X86_64,
-        ): "60cd368533d0ad73fa86d93d5bbf95ef40587245ce684ed138c1b31557b5fe97",
+        ): "6738a3e155fbfec3bedc70962f9cd1610197587a43b5d7100f405239d8e11375",
     },
     "typos": {
         (
             LINUX,
             AARCH64,
-        ): "85c8b87b22a0fb1da130cd4d495e0beba7f1225eb580933184509e146ec4c509",
+        ): "a520651f52199efc91a27aa2b82362e93d50e7d96386d3d48b28c2ad06b9ae4e",
         (
             LINUX,
             X86_64,
-        ): "48bd2d58e02ce713b8c0f1aa239e68ee4f7d8c551013135806e6aed3938d9e10",
+        ): "a1497c9626ba0bab731b3e37c12ac9051bbfa2a253463d4d574c28f190b5497b",
         (
             MACOS,
             AARCH64,
-        ): "8c0e7bd40b2b60c0b0cfe9f74dd814b4d4385c956ce86860f7da9e62d91fdc73",
+        ): "3c9e3cdc20fbed3812c1f2060650398e88af0c0a251bbe069398752dd71513ed",
         (
             MACOS,
             X86_64,
-        ): "4cecbf653a9fc45f023abf57f4e2e2f6b138c2d2387b09289beacdd3f0ea7bfd",
+        ): "ab88faa54ab9ceac55c6fc2a9841ceab8ef883ed46522dbcbde2ec7a110350b0",
         (
             WINDOWS,
             X86_64,
-        ): "06d3a1b71c282e021671070696a72696d5c60ea485b47dc4f8f1fbcf90144d02",
+        ): "a48abe229e6fd48729ee891b2c410c41bfa9dc15ca77815e723c4b66c311c53c",
     },
 }
 """Tool name to platform-keyed SHA-256 hex digest mapping.
@@ -1234,14 +1234,14 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.5.10",
+    "biome": "2.5.11",
     "gh": "2.98.0",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
     "oxipng": "10.2.0",
-    "shfmt": "3.13.1",
-    "typos": "1.49.0",
+    "shfmt": "3.14.0",
+    "typos": "1.50.0",
 }
 """Tool name to the version each checksum set was computed for.
 
@@ -1361,7 +1361,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         ),
         default_paths="json_files",
         display_name="Biome",
-        version="2.5.10",
+        version="2.5.11",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
@@ -1855,7 +1855,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
         default_paths="pyproject_files",
-        version="2.28.1",
+        version="2.28.2",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
@@ -1884,7 +1884,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.16.4",
+        version="0.16.5",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
@@ -1913,7 +1913,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "shfmt": ToolSpec(
         name="shfmt",
         default_paths="shfmt_files",
-        version="3.13.1",
+        version="3.14.0",
         source_url="https://github.com/mvdan/sh",
         config_docs_url="https://github.com/mvdan/sh/blob/master/cmd/shfmt/shfmt.1.scd",
         cli_docs_url="https://github.com/mvdan/sh#shfmt",
@@ -1958,7 +1958,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "typos": ToolSpec(
         name="typos",
-        version="1.49.0",
+        version="1.50.0",
         source_url="https://github.com/crate-ci/typos",
         config_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
         cli_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
