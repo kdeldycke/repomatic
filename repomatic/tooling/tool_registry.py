@@ -1043,53 +1043,53 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "b1e422c4cf5de788553f612b3952deadd6cb7669b35659197af14c4b1f763fab",
+        ): "4c1c9908e5cfd5d327e4ac3205baa13b1d3dfd24f184ed289a0c0ef1b2e0274f",
         (
             LINUX,
             X86_64,
-        ): "629a72d30e5b625b70723a651c510c0c2d4adc7c9b7334a690afe848ba4426ce",
+        ): "e2475688799c9e78dd25ba5cf676676ffe74caf182a35082b1d22039151fdf63",
         (
             MACOS,
             AARCH64,
-        ): "7a067b00fdf8eeefb7f5f5f247b7dac1bb23adfeaea380a91293353b8e2eba2b",
+        ): "0e8d513eb6c612236b47ccf0e218ac3917d863d41f853c65c38410774daa26ed",
         (
             MACOS,
             X86_64,
-        ): "74f6d1845e5c1a47ebafd42ba4a90ed174b4bb7a669d70acc1fd925894dbb168",
+        ): "0680097ec839fadc82451634680e39b9b7e48cc4334ef920525850b4d8f54a8b",
         (
             WINDOWS,
             AARCH64,
-        ): "e7db8b25ed9ddc602d0f0809643a0f1006ae10e67229d5e5de2926085c858b2c",
+        ): "e0148babfa207b79bc9ed50c22479722e314ae07e989c9bdae9611cd3c6511bf",
         (
             WINDOWS,
             X86_64,
-        ): "8bdf679275458a444f7befb8dacc38001625645cc498facf3cc114d77239f1cd",
+        ): "59f88d04ab25f8634639c337ef70a79927504b6379a1ec3ff4e87f7c15dd5dce",
     },
     "gh": {
         (
             LINUX,
             AARCH64,
-        ): "564eff56a61e8caf193efde16937fba879eb62a3a479c9dd6be2001e7647680b",
+        ): "ea4e7a581a32ccad6cc7923cb1576ac5859ba4b9a16ab22eb8f8a96e78e2e961",
         (
             LINUX,
             X86_64,
-        ): "ed4960225d2833e04a61590d9fa2b5773d147f3aa375459e5466a40c102f3832",
+        ): "e4d4bb4498e8d007abe545b6568926793ace1b6447da598294a610018cb164be",
         (
             MACOS,
             AARCH64,
-        ): "94d4bd7e88563a9cb414e651e88acc4f1728a87476752460906d824230748d37",
+        ): "45f9a62da2f6e641a7fad57e2ce39656dfd7ef331372d80a2a2aed65abb01642",
         (
             MACOS,
             X86_64,
-        ): "70c05750c75df9465bc73b994e8bc379243bb494271f1b51f54ead2e19e45471",
+        ): "fcd7799e85eb575f3c7d2b1679bfbfedaefa1269d4bc7d096b51e10939b4812b",
         (
             WINDOWS,
             AARCH64,
-        ): "59878454cbcb67efb6d2cff0652d14fc6938c459fcfae23aafcfa01ee5af7068",
+        ): "7beaeb4743cf255809a8e574a2724c685b566545e04eabea284fe38a56c15b02",
         (
             WINDOWS,
             X86_64,
-        ): "ea040d0ba03176440d13481caf67f742236c3b38ce1d4442a9da37e9bb98d8f2",
+        ): "227e35230b25db3fa1b997bab7cf4d67df0470a3b75b99e4ee66bce1a7cd4e72",
     },
     "gitleaks": {
         (
@@ -1161,23 +1161,23 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "97d168c6c0d1dbcb36e7438eb489804748a2ba40d94fe21aa7dab7372e9efe9b",
+        ): "f51bb7c9836202da52a8181549641940662aa87ec2e3ae68115d822d893015b3",
         (
             LINUX,
             X86_64,
-        ): "b33f84c73d42cb592bea5d84c431030b1e97784817693380dfcec7d9575f871e",
+        ): "46e3c4beb9aae57290ad809dd3374b07153579d3322a3778c53900633618b7c6",
         (
             MACOS,
             AARCH64,
-        ): "9aad3927d095b6ade2aacb92b89ebaca442483c1f7cde5d7a2486b283c2ed5f9",
+        ): "7039fcfc78e8aa1ed2b57d848057a0296f082e92b3e1807ac65402d10d926764",
         (
             MACOS,
             X86_64,
-        ): "c45acf40a70cc02539c55555ac240bf5ef24544b7ea9959d22da19f606cec205",
+        ): "111883bbe42b25e01cb1ca41f39f8094e4830b173f0e42be342ecc4ca48f3131",
         (
             WINDOWS,
             X86_64,
-        ): "a5ad52c9c288dc99c2eae90dcad73dee64e39bf3f5aa5303c0fb55ac9c5f069b",
+        ): "7e940f83ee46874b73f53031f96a15834cb70b220af27391fb06fe7b4dd798e1",
     },
     "shfmt": {
         (
@@ -1234,12 +1234,12 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.5.11",
-    "gh": "2.99.0",
+    "biome": "2.5.12",
+    "gh": "2.100.0",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
-    "oxipng": "10.2.0",
+    "oxipng": "10.2.1",
     "shfmt": "3.14.0",
     "typos": "1.50.1",
 }
@@ -1361,7 +1361,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         ),
         default_paths="json_files",
         display_name="Biome",
-        version="2.5.11",
+        version="2.5.12",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
@@ -1452,7 +1452,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "gh": ToolSpec(
         name="gh",
         display_name="GitHub CLI",
-        version="2.99.0",
+        version="2.100.0",
         source_url="https://github.com/cli/cli",
         cli_docs_url="https://cli.github.com/manual/",
         binary=BinarySpec(
@@ -1807,7 +1807,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "oxipng": ToolSpec(
         name="oxipng",
         display_name="Oxipng",
-        version="10.2.0",
+        version="10.2.1",
         source_url="https://github.com/shssoichiro/oxipng",
         cli_docs_url="https://github.com/shssoichiro/oxipng#usage",
         binary=BinarySpec(
@@ -1884,7 +1884,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.16.5",
+        version="0.16.6",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
