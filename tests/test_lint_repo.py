@@ -23,6 +23,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from repomatic import lint_repo
 from repomatic.cli.setup import show_metadata
 from repomatic.config import Config
@@ -73,7 +74,6 @@ from repomatic.metadata.core import METADATA_VALUE_OPTIONS
 from repomatic.pypi import TrustedPublisher
 from repomatic.registry import INSTALL_GUIDE_PATH
 from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
-
 from tests.conftest import metadata_from_pyproject, pat_results
 
 
