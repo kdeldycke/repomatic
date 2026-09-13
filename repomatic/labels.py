@@ -449,7 +449,7 @@ def _names_in_labelmaker_config(text: str) -> set[str]:
     try:
         data = tomlrt.loads(text).to_dict()
     except tomlrt.TOMLParseError:
-        logging.warning("Skipping unparseable label config.")
+        logging.warning("Skipping unparsable label config.")
         return set()
     names: set[str] = set()
     for profile in (data.get("profiles") or {}).values():

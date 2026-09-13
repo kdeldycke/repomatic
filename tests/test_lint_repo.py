@@ -2631,6 +2631,6 @@ def test_declared_label_names_excludes_rename_sources():
     assert names == {"🔗 dependencies"}
 
 
-def test_declared_label_names_survives_an_unparseable_extra_file():
+def test_declared_label_names_survives_an_unparsable_extra_file():
     """One broken label file never empties the declared set."""
     assert _names_in_labelmaker_config("this is not = valid = toml") == set()
