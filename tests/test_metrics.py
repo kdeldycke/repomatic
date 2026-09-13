@@ -80,6 +80,7 @@ OLD_PAPAYA = "https://github.com/old-fruits/papaya"
 SUBJECTS = {"apricot": "fruits/apricot", "papaya": "fruits/papaya"}
 PREDECESSORS = {"papaya": "old-fruits/papaya"}
 
+
 def repo_config() -> Config:
     """Load this repository's own `[tool.repomatic]` section."""
     return load_repomatic_config(read_pyproject_toml(REPO_ROOT))
@@ -467,7 +468,10 @@ def test_reconstruct_replaces_the_rows_it_wrote_before(monkeypatch):
     elsewhere = MetricRecord(APRICOT, "stars", "2019-06-01", "97", "github")
     records = {r.key: r for r in (stale, kept, elsewhere)}
 
-    pages = [json.dumps([star_week("2021-12-05", [0, 0, 0, 0, 2, 0, 0])]), json.dumps([])]
+    pages = [
+        json.dumps([star_week("2021-12-05", [0, 0, 0, 0, 2, 0, 0])]),
+        json.dumps([]),
+    ]
     monkeypatch.setattr("repomatic.metrics.run_gh_command", lambda args: pages.pop(0))
     reconstruct_from_github(records, "papaya", PAPAYA)
 
@@ -507,9 +511,7 @@ def test_reconstruct_reports_a_repository_that_is_gone(monkeypatch):
 
 def test_reconstruct_reports_a_repository_with_no_star(monkeypatch):
     """Check an unstarred repository is a note, not an empty curve."""
-    monkeypatch.setattr(
-        "repomatic.metrics.run_gh_command", lambda args: json.dumps([])
-    )
+    monkeypatch.setattr("repomatic.metrics.run_gh_command", lambda args: json.dumps([]))
     records: dict[tuple[str, str, str], MetricRecord] = {}
     outcome = reconstruct_from_github(records, "papaya", PAPAYA)
     assert outcome.note == "no star on record"
