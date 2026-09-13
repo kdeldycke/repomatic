@@ -44,35 +44,17 @@ committing it.
 from __future__ import annotations
 
 import argparse
-import codecs
 import os
-import select
-import struct
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
-from click_extra import args_cleanup, format_cli_prompt
+from click_extra import format_cli_prompt
 from click_extra.color import forced_color
-from click_extra.recording import (
-    ERASE_IN_LINE,
-    SELECT_GRAPHIC_RENDITION,
-    ScreenRecorder,
-    TerminalScreen,
-    quantize,
-)
-from click_extra.screenshot import CAPTURE_TERMINAL_HINTS, CaptureBackground, render
+from click_extra.recording import quantize, record_command
+from click_extra.screenshot import AUTO_HOLD, CaptureBackground, render
 from extra_platforms import is_unix
-from wcwidth import wcswidth
-
-# A pseudo-terminal needs termios, which Windows does not ship: the recording
-# below guards on `is_unix` before reaching these.
-if is_unix():
-    import fcntl
-    import pty
-    import termios
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 """Where the committed captures live, beside the other readme illustrations."""
@@ -156,17 +138,6 @@ terminal wraps them, exactly as a real one would.
 RECORDING_ROWS = 28
 """Terminal height the recording runs at."""
 
-RECORDING_HOLD = 10.0
-"""Seconds the final screen stays up before the animation loops.
-
-The closing report runs several tables long, so the reader gets a proper
-pause on the result instead of losing it to the restart. Approximates what
-click-extra's unreleased `hold="auto"` computes for this screen (a quarter
-second per populated line, so 9.75s for the 39 lines a recent take ended on):
-switch to that sentinel when the release carrying it ships, and this constant
-goes along with the shim above.
-"""
-
 RECORDING_BLANK = 1.0
 """Seconds of empty screen closing the cycle.
 
@@ -186,9 +157,12 @@ RECORDING_TAKES = 3
 
 
 def capture_env() -> dict[str, str]:
-    """The environment every capture runs with.
+    """The environment the `click-extra` capture CLIs run with.
 
-    See the module docstring for why `TERM_PROGRAM` is scrubbed.
+    See the module docstring for why `TERM_PROGRAM` is scrubbed. The recording
+    needs none of this: {func}`~click_extra.recording.record_command` hides the
+    same variables through
+    {data}`~click_extra.screenshot.CAPTURE_HIDDEN_TERMINAL_VARS`.
     """
     env = dict(os.environ)
     env.pop("TERM_PROGRAM", None)
@@ -261,129 +235,6 @@ def run_capture_tool(*args: str) -> None:
         sys.exit(f"Capture failed with exit code {result.returncode}: {cmd}")
 
 
-class DeferredReturnScreen(TerminalScreen):
-    """A screen whose carriage return defers its redraw until something lands.
-
-    The released `TerminalScreen` clears the row the moment a `\r` arrives.
-    Under a pseudo-terminal every newline travels as `\r\n`, so each
-    completed line is erased by its own terminator and the frames keep only
-    the line drawn last. Deferring the clear to the next landing text or
-    styling keeps a finished line while still letting an animation redraw its
-    row in place. Part of the {func}`record_frames` shim, and dropped with it.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._pending_return = False
-
-    def _land(self) -> None:
-        """Apply a deferred carriage return, just before something lands."""
-        if self._pending_return:
-            self.rows[-1] = ""
-            self._pending_return = False
-
-    def _control(self, sequence: str) -> None:
-        final = sequence[-1]
-        if final == SELECT_GRAPHIC_RENDITION:
-            self._land()
-            self.rows[-1] += sequence
-        elif final == ERASE_IN_LINE and not self._column:
-            self.rows[-1] = ""
-            self._pending_return = False
-
-    def _write(self, text: str) -> None:
-        for line_index, line in enumerate(text.split("\n")):
-            if line_index:
-                # A newline settles any return before it without a redraw.
-                self.rows.append("")
-                self._column = 0
-                self._pending_return = False
-            for chunk_index, chunk in enumerate(line.split("\r")):
-                if chunk_index:
-                    self._column = 0
-                    self._pending_return = True
-                if not chunk:
-                    continue
-                self._land()
-                self.rows[-1] += chunk
-                self._column += max(wcswidth(chunk), 0)
-
-
-def record_frames(args: tuple[str, ...], columns: int, rows: int) -> tuple:
-    """Run *args* under a pseudo-terminal and record the screens it draws.
-
-    A local stand-in for `click_extra.recording.record_command`, differing in
-    two behaviors. The pty stream is decoded *incrementally*: a pseudo-terminal
-    hands bytes back in kernel-buffer-sized reads, so a multi-byte glyph
-    regularly straddles two of them, and the released `record_command` decodes
-    each chunk on its own, mangling every straddling glyph into `U+FFFD`. And
-    the screens rebuild through {class}`DeferredReturnScreen`, so the `\r\n`
-    the pseudo-terminal substitutes for every newline stops erasing the line
-    it ends.
-
-    ```{todo}
-    Drop this shim, {class}`DeferredReturnScreen` and the whole
-    {func}`capture_recording` pipeline once click-extra ships
-    `click-extra screenshot --record`: one CLI call then covers the pty
-    recording, the prompt line and the auto-scaled hold.
-    ```
-
-    :param args: The command line to record.
-    :param columns: Width of the terminal it runs in, in characters.
-    :param rows: Height of that terminal, in characters.
-    :return: The frames the terminal held, in order.
-    """
-    with forced_color():
-        environment = capture_env()
-    environment.update(CAPTURE_TERMINAL_HINTS[CaptureBackground.DARK])
-    environment["COLUMNS"] = str(columns)
-    environment["LINES"] = str(rows)
-    environment.pop("TERM_PROGRAM", None)
-
-    recorder = ScreenRecorder()
-    # Part of the shim above: the recorder's own screen erases a line the
-    # moment its `\r\n` terminator arrives, so every completed row of the
-    # trail would vanish from the frames.
-    recorder._screen = DeferredReturnScreen()
-    decoder = codecs.getincrementaldecoder("UTF-8")(errors="replace")
-    parent, child = pty.openpty()
-    fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
-    process = subprocess.Popen(
-        args_cleanup(args),
-        stdin=child,
-        stdout=child,
-        stderr=child,
-        env=environment,
-        close_fds=True,
-    )
-    os.close(child)
-    try:
-        while True:
-            readable, _, _ = select.select([parent], [], [], 0.02)
-            if not readable:
-                if process.poll() is not None:
-                    break
-                continue
-            try:
-                written = os.read(parent, 65536)
-            except OSError:
-                # The child closed its end, which a pseudo-terminal reports
-                # as an error rather than as the end of a file.
-                break
-            if not written:
-                break
-            recorder.write(decoder.decode(written))
-    finally:
-        tail = decoder.decode(b"", final=True)
-        if tail:
-            recorder.write(tail)
-        os.close(parent)
-        if process.poll() is None:
-            process.terminate()
-        process.wait()
-    return recorder.frames(end=time.monotonic())
-
-
 def capture_recording(target: Path) -> None:
     """Record {data}`RECORDING_ARGS` under a pseudo-terminal and write *target*.
 
@@ -407,10 +258,11 @@ def capture_recording(target: Path) -> None:
 
     for take in range(1, RECORDING_TAKES + 1):
         frames = quantize(
-            record_frames(
+            record_command(
                 RECORDING_ARGS,
                 columns=RECORDING_COLUMNS,
                 rows=RECORDING_ROWS,
+                background=CaptureBackground.DARK,
             )
         )
         texts = tuple(f"{prompt_line}\n{frame.text}" for frame in frames)
@@ -422,7 +274,7 @@ def capture_recording(target: Path) -> None:
             texts[-1],
             frames=texts,
             interval=tuple(frame.duration for frame in frames),
-            hold=RECORDING_HOLD,
+            hold=AUTO_HOLD,
             blank=RECORDING_BLANK,
             columns=RECORDING_COLUMNS,
             unique_id=target.stem,

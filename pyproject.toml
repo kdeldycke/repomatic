@@ -91,10 +91,11 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 9 introduced the typed `examples=` parameter the CLI's commands
-  # declare to render their `Examples` help section, and the
-  # `wrap --help-format man` invocation the `manpages` release job renders with.
-  "click-extra>=9",
+  # click-extra 9.1 fixed the two pseudo-terminal recording bugs
+  # docs/docs_update.py worked around: record_command now decodes the pty stream
+  # incrementally, and TerminalScreen defers a carriage return so the `\r\n` a
+  # pseudo-terminal substitutes for every newline stops erasing the line it ends.
+  "click-extra>=9.1",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.
@@ -150,8 +151,11 @@ test = [
   # pytest-github-actions-annotate-failures 0.2 requires Python >= 3.8; CI annotation
   # API stable since 0.1.x.
   "pytest-github-actions-annotate-failures>=0.2",
-  # pytest-randomly 3.x is the modern API; basic test randomization compatible with pytest >= 9.
-  "pytest-randomly>=3",
+  # pytest-randomly 5 turned the shuffle into a hook wrapper, so it runs before
+  # every other plugin's pytest_collection_modifyitems. Below it, plugin
+  # registration order decided who shuffled first, and the same seed replayed a
+  # different order on another machine.
+  "pytest-randomly>=5",
   # pytest-xdist < 3.7 fails on Python 3.14 (no requires-python guard in older releases);
   # [psutil] extra needed for --numprocesses=auto.
   "pytest-xdist[psutil]>=3.7",
