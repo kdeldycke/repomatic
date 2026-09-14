@@ -22,15 +22,18 @@ import json
 import logging
 from datetime import datetime, timezone
 from functools import partial
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+import repomatic
 from repomatic.github.actions import ReportAction
 from repomatic.github.unsubscribe import (
     GRAPHQL_PAGE_SIZE,
     NOTIFICATION_PAGE_SIZE,
     THREADLESS_SEARCH_QUERY,
+    UNSUBSCRIBE_WORKFLOW,
     DetailRow,
     UnsubscribeResult,
     _compute_cutoff,
@@ -397,6 +400,51 @@ def test_render_report_backlog_warning(oldest_updated, threads_total, expect_war
     p1.oldest_updated = oldest_updated
     report = render_report(result)
     assert ("Oldest activity seen in this batch" in report) is expect_warning
+
+
+def _backlog_report(repo_url: str | None = None) -> str:
+    """A report whose batch never reached an old-enough candidate."""
+    result = UnsubscribeResult(dry_run=False, months=3)
+    p1 = result.phase1
+    p1.cutoff = CUTOFF
+    p1.batch_size = 200
+    p1.threads_total = 100
+    p1.threads_inspected = 10
+    p1.oldest_updated = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    return render_report(result, repo_url)
+
+
+def test_render_report_backlog_warning_links_the_workflow():
+    """The manual-run advice links the workflow whose run carries the report."""
+    url = "https://example.com/orchard/papaya"
+    assert (
+        f"[run it manually]({url}/actions/workflows/{UNSUBSCRIBE_WORKFLOW})"
+        in _backlog_report(url)
+    )
+    # No repository in hand: the advice stays, the link goes.
+    assert "run it manually with a larger batch" in _backlog_report()
+
+
+def test_backlog_warning_breaks_only_between_sentences():
+    """A job summary renders every newline as a line break.
+
+    Wrapping the prose to a source column therefore leaks those wraps into the
+    rendered warning, which is what made this one read as randomly broken. Each
+    line has to end a sentence instead.
+    """
+    warning = [
+        line
+        for line in _backlog_report().splitlines()
+        if line.startswith(">") and line != "> [!WARNING]"
+    ]
+    assert warning
+    assert all(line.endswith(".") for line in warning), warning
+
+
+def test_unsubscribe_workflow_constant_names_a_bundled_workflow():
+    """The link is only worth rendering while repomatic ships that workflow."""
+    bundled = Path(repomatic.__file__).parent / "data" / UNSUBSCRIBE_WORKFLOW
+    assert bundled.is_file()
 
 
 def test_render_report_phase2_skipped():

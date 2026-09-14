@@ -99,6 +99,16 @@ mutation($id: ID!) {
 """
 
 
+UNSUBSCRIBE_WORKFLOW = "unsubscribe.yaml"
+"""Workflow file the backlog warning links to for a manual, larger-batch run.
+
+The report renders inside that workflow's own run, so the reader is one click
+from the `Run workflow` form the warning tells them to use. Kept equal to the
+filename {data}`repomatic.registry.COMPONENTS` ships, since a link to a
+workflow a repository does not have is worse than no link.
+"""
+
+
 @dataclass(frozen=True)
 class DetailRow:
     """Per-item detail for the markdown report table."""
@@ -423,9 +433,13 @@ def _phase_summary_line(
 
 
 def _render_phase1_fragments(
-    p1: Phase1Result, months: int, dry_run: bool
+    p1: Phase1Result, months: int, dry_run: bool, repo_url: str | None = None
 ) -> dict[str, str]:
-    """Build the phase-1 fragments of the report template."""
+    """Build the phase-1 fragments of the report template.
+
+    :param repo_url: Repository the run belongs to, used to link the backlog
+        warning to its workflow. The warning degrades to plain text without it.
+    """
     cutoff_str = p1.cutoff.isoformat() if p1.cutoff else "-"
     summary_line = _phase_summary_line(
         len(p1.rows),
@@ -467,23 +481,28 @@ def _render_phase1_fragments(
         and remaining > 0
         and p1.oldest_updated >= p1.cutoff
     ):
+        manual_run = "run it manually"
+        if repo_url:
+            workflow_url = f"{repo_url}/actions/workflows/{UNSUBSCRIBE_WORKFLOW}"
+            manual_run = f"[{manual_run}]({workflow_url})"
+        # One line per sentence, never wrapped to a column: a job summary
+        # renders each newline as a line break, so a source-width wrap becomes
+        # a visible one.
         backlog_warning = "\n".join([
             "> [!WARNING]",
             (
                 "> Oldest activity seen in this batch:"
                 f" `{oldest_str}` (cutoff: `{cutoff_str}`)."
             ),
-            ("> The notification API does not sort by issue activity, so the current"),
             (
-                f"> batch of {p1.threads_inspected} threads did not reach"
-                " any old-enough candidates."
+                "> The notification API does not sort by issue activity, so this"
+                f" batch of {p1.threads_inspected} threads reached no candidate old"
+                " enough."
             ),
             (
-                f"> Consider increasing `batch-size`"
-                f" (currently {p1.batch_size})"
-                " or running manually"
+                f"> Raise `batch-size` (currently {p1.batch_size}), or {manual_run}"
+                " with a larger batch, to clear the backlog faster."
             ),
-            "> with a larger batch to clear the backlog faster.",
         ])
 
     # Details section (includes --- separator).
@@ -534,13 +553,17 @@ def _render_phase2_content(p2: Phase2Result, months: int, dry_run: bool) -> str:
     return "\n".join(parts)
 
 
-def render_report(result: UnsubscribeResult) -> str:
+def render_report(result: UnsubscribeResult, repo_url: str | None = None) -> str:
     """Render a markdown report from unsubscribe results.
 
     Pure function that produces the same markdown structure as the
-    downstream `unsubscribe.yaml` workflow's `$GITHUB_STEP_SUMMARY`.
+    downstream `unsubscribe.yaml` workflow's `$GITHUB_STEP_SUMMARY`. The
+    repository is passed in rather than probed, so the renderer stays pure and
+    the caller keeps the one environment lookup.
 
     :param result: Structured results from both phases.
+    :param repo_url: Repository the run belongs to, linking the backlog warning
+        to its workflow. Omitted, that warning renders as plain text.
     :return: Markdown report string.
     """
     return render_template(
@@ -550,7 +573,9 @@ def render_report(result: UnsubscribeResult) -> str:
         phase2_content=_render_phase2_content(
             result.phase2, result.months, result.dry_run
         ),
-        **_render_phase1_fragments(result.phase1, result.months, result.dry_run),
+        **_render_phase1_fragments(
+            result.phase1, result.months, result.dry_run, repo_url
+        ),
     )
 
 

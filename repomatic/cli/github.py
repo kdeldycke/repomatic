@@ -1305,4 +1305,4 @@ def unsubscribe_threads(months: int, batch_size: int, dry_run: bool) -> None:
       unsubscribes via the updateSubscription mutation.
     """
     result = _unsubscribe_threads(months, batch_size, dry_run)
-    echo(_render_report(result))
+    echo(_render_report(result, Metadata().repo_url))
