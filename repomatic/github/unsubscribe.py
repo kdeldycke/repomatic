@@ -417,8 +417,19 @@ def _unsubscribe_rest_thread(thread_id: str) -> bool:
 
     Performs two API calls:
 
-    1. ``DELETE /notifications/threads/{id}/subscription``
-    2. ``PATCH /notifications/threads/{id}``
+    1. `DELETE /notifications/threads/{id}/subscription`
+    2. `PATCH /notifications/threads/{id}`
+
+    ```{note}
+    The second call marks the thread read rather than done. `DELETE
+    /notifications/threads/{id}` marks it done instead, for the same two calls,
+    and the tempting reason to prefer it is that a done thread might leave the
+    candidate pool for good. It does not. Marking one done left it in
+    `GET /notifications?all=true` and in the `before`-filtered pool, with the
+    list the same size either side (measured against 1640 real threads,
+    2026-09-14). `all=true` answers with a thread whatever its inbox state, so
+    done costs the same, changes nothing here, and no endpoint undoes it.
+    ```
 
     :param thread_id: The notification thread ID.
     :return: `True` if both calls succeeded, `False` otherwise.
