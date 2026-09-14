@@ -1271,8 +1271,8 @@ def sponsor_label(
             "repomatic unsubscribe-threads --months 6",
         ),
         (
-            "Process at most 50 threads per phase",
-            "repomatic unsubscribe-threads --batch-size 50",
+            "Unsubscribe from at most 50 threads per phase",
+            "repomatic unsubscribe-threads --max-unsubscribes 50",
         ),
     ),
 )
@@ -1283,14 +1283,14 @@ def sponsor_label(
     help="Inactivity threshold in months. Threads updated more recently are kept.",
 )
 @option(
-    "--batch-size",
+    "--max-unsubscribes",
     type=IntRange(min=1),
-    default=Config.notification_batch_size,
-    help="Maximum number of threads/items to process per phase.",
+    default=Config.notification_max_unsubscribes,
+    help="Maximum unsubscribes per phase. Inspection is not capped.",
 )
 @dry_run_option
 @require_token(_unsub_mod, "_validate_notifications_token")
-def unsubscribe_threads(months: int, batch_size: int, dry_run: bool) -> None:
+def unsubscribe_threads(months: int, max_unsubscribes: int, dry_run: bool) -> None:
     """Unsubscribe from closed, inactive GitHub notification threads.
 
     Processes notifications in two phases:
@@ -1305,5 +1305,5 @@ def unsubscribe_threads(months: int, batch_size: int, dry_run: bool) -> None:
       Searches for closed issues/PRs the user is involved in and
       unsubscribes via the updateSubscription mutation.
     """
-    result = _unsubscribe_threads(months, batch_size, dry_run)
+    result = _unsubscribe_threads(months, max_unsubscribes, dry_run)
     echo(_render_report(result, Metadata().repo_url))

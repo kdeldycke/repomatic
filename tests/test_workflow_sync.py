@@ -164,14 +164,14 @@ def test_unsubscribe_has_secrets() -> None:
 def test_unsubscribe_has_call_inputs() -> None:
     """Verify unsubscribe.yaml exposes its dispatch inputs to callers."""
     info = extract_trigger_info("unsubscribe.yaml")
-    assert set(info.call_inputs) == {"batch-size", "dry-run", "months"}
+    assert set(info.call_inputs) == {"max-unsubscribes", "dry-run", "months"}
 
 
 # The complete workflow_call input surface every thin-caller-deployed reusable
 # workflow forwards. Only unsubscribe.yaml (config-gated, off by default) carries
 # any; the rest forward nothing.
 EXPECTED_THIN_CALLER_CALL_INPUTS: dict[str, set[str]] = {
-    "unsubscribe.yaml": {"batch-size", "dry-run", "months"},
+    "unsubscribe.yaml": {"max-unsubscribes", "dry-run", "months"},
 }
 
 
@@ -208,7 +208,7 @@ def test_unsubscribe_caller_forwards_inputs() -> None:
     data = yaml.safe_load(content)
     assert data["jobs"]["unsubscribe"]["with"] == {
         "months": "${{ inputs.months }}",
-        "batch-size": "${{ inputs.batch-size }}",
+        "max-unsubscribes": "${{ inputs.max-unsubscribes }}",
         "dry-run": "${{ inputs.dry-run == true }}",
     }
 
@@ -2357,9 +2357,9 @@ def test_configured_input_reaches_the_generated_caller() -> None:
     literal, so a manual run still overrides the configured default.
     """
     caller = generate_thin_caller(
-        "unsubscribe.yaml", config=Config(notification_batch_size=600)
+        "unsubscribe.yaml", config=Config(notification_max_unsubscribes=600)
     )
-    assert "batch-size: ${{ inputs.batch-size || '600' }}" in caller
+    assert "max-unsubscribes: ${{ inputs.max-unsubscribes || '600' }}" in caller
     # Untouched inputs keep the plain passthrough.
     assert "months: ${{ inputs.months }}" in caller
 

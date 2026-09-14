@@ -431,29 +431,29 @@ def test_render_report_phase1_live_summary():
 
 
 @pytest.mark.parametrize(
-    ("threads_total", "expect_warning"),
+    ("threads_deferred", "expect_warning"),
     [
-        pytest.param(100, True, id="candidates-left"),
-        pytest.param(10, False, id="fully-inspected"),
+        pytest.param(12, True, id="cap-reached"),
+        pytest.param(0, False, id="backlog-cleared"),
     ],
 )
-def test_render_report_backlog_warning(threads_total, expect_warning):
-    """The warning fires while candidates the batch could not reach remain.
+def test_render_report_backlog_warning(threads_deferred, expect_warning):
+    """The warning fires on work the cap deferred, and on nothing else.
 
-    The fetch now filters on the cutoff, so every uninspected thread is a real
-    candidate and raising the batch reaches more of them. That is what the
-    warning advises, and what it could not honestly promise while the batch was
-    drawn from every notification.
+    Inspection is no longer capped, so an uninspected thread is not a thing
+    that exists: what a run leaves behind is eligible threads it declined to
+    act on. That is a remainder a higher cap really does clear, which is what
+    the warning advises.
     """
     result = UnsubscribeResult(dry_run=False, months=3)
     p1 = result.phase1
     p1.cutoff = CUTOFF
-    p1.batch_size = 200
-    p1.threads_total = threads_total
-    p1.threads_inspected = 10
+    p1.max_unsubscribes = 200
+    p1.threads_total = 100
+    p1.threads_deferred = threads_deferred
     p1.oldest_updated = datetime(2026, 5, 1, tzinfo=timezone.utc)
     report = render_report(result)
-    assert ("last updated before the cutoff" in report) is expect_warning
+    assert ("eligible threads were left alone" in report) is expect_warning
 
 
 def _backlog_report(repo_url: str | None = None) -> str:
@@ -461,9 +461,9 @@ def _backlog_report(repo_url: str | None = None) -> str:
     result = UnsubscribeResult(dry_run=False, months=3)
     p1 = result.phase1
     p1.cutoff = CUTOFF
-    p1.batch_size = 200
+    p1.max_unsubscribes = 200
     p1.threads_total = 100
-    p1.threads_inspected = 10
+    p1.threads_deferred = 12
     p1.oldest_updated = datetime(2026, 5, 1, tzinfo=timezone.utc)
     return render_report(result, repo_url)
 
@@ -476,7 +476,7 @@ def test_render_report_backlog_warning_links_the_workflow():
         in _backlog_report(url)
     )
     # No repository in hand: the advice stays, the link goes.
-    assert "run it manually with a larger batch" in _backlog_report()
+    assert "run it manually with a higher cap" in _backlog_report()
 
 
 def test_backlog_warning_breaks_only_between_sentences():
@@ -517,9 +517,9 @@ def test_render_report_phase2_content():
     result = UnsubscribeResult(dry_run=True, months=3)
     p2 = result.phase2
     p2.cutoff = CUTOFF
-    p2.batch_size = 200
-    p2.graphql_total = 3
-    p2.graphql_not_subscribed = 1
+    p2.max_unsubscribes = 200
+    p2.items_total = 3
+    p2.items_not_subscribed = 1
     p2.search_query = "involves:fruitbot is:closed updated:<2026-04-16"
     p2.rows = [_make_row(action=ReportAction.DRY_RUN)]
     report = render_report(result)
@@ -543,8 +543,8 @@ def test_render_report_empty_result():
 # -- _fetch_notification_threads ----------------------------------------------
 
 
-def test_fetch_notification_threads_sorts_oldest_first_and_truncates():
-    """The batch is the oldest threads by `updated_at`, cut to the batch size.
+def test_fetch_notification_threads_sorts_oldest_first():
+    """The pool comes back oldest first, whatever order the API used.
 
     The order is imposed here, not inherited: the endpoint calls itself sorted
     by most recent update, and a probe against 1637 real threads found the
@@ -569,9 +569,8 @@ def test_fetch_notification_threads_sorts_oldest_first_and_truncates():
         }),
     ]
     with patch_gh(return_value="\n".join(lines)):
-        total, batch = _fetch_notification_threads(2, CUTOFF)
-    assert total == 3
-    assert [t["id"] for t in batch] == ["t1", "t2"]
+        threads = _fetch_notification_threads(CUTOFF)
+    assert [t["id"] for t in threads] == ["t1", "t2", "t0"]
 
 
 def test_fetch_notification_threads_skips_malformed_lines():
@@ -583,21 +582,20 @@ def test_fetch_notification_threads_skips_malformed_lines():
         json.dumps({"id": "t1", "subject_url": "u1"}),
     ]
     with patch_gh(return_value="\n".join(lines)):
-        total, batch = _fetch_notification_threads(10, CUTOFF)
-    assert total == 2
-    assert {t["id"] for t in batch} == {"t0", "t1"}
+        threads = _fetch_notification_threads(CUTOFF)
+    assert {t["id"] for t in threads} == {"t0", "t1"}
 
 
 def test_fetch_notification_threads_gh_failure_returns_empty():
     """A gh failure degrades to a zero total and an empty batch."""
     with patch_gh(side_effect=RuntimeError("boom")):
-        assert _fetch_notification_threads(10, CUTOFF) == (0, [])
+        assert _fetch_notification_threads(CUTOFF) == []
 
 
 def test_fetch_notification_threads_query_args():
     """The fetch requests both subject types, paginated, gated on the cutoff."""
     with patch_gh(return_value="") as mock_gh:
-        _fetch_notification_threads(10, CUTOFF)
+        _fetch_notification_threads(CUTOFF)
     args = mock_gh.call_args.args[0]
     assert args[:4] == ["api", "--method", "GET", "/notifications"]
     assert "--paginate" in args
@@ -620,7 +618,7 @@ def test_fetch_notification_threads_sends_the_cutoff_in_utc():
     """
     elsewhere = timezone(timedelta(hours=5))
     with patch_gh(return_value="") as mock_gh:
-        _fetch_notification_threads(10, datetime(2026, 4, 16, 2, tzinfo=elsewhere))
+        _fetch_notification_threads(datetime(2026, 4, 16, 2, tzinfo=elsewhere))
     assert "before=2026-04-15T21:00:00Z" in mock_gh.call_args.args[0]
 
 
@@ -725,10 +723,10 @@ def test_get_authenticated_username_propagates_error():
 
 
 def test_iter_closed_items_delegates_to_paginator():
-    """The search wraps the shared paginator with the batch as node budget."""
+    """The search wraps the shared paginator, bounded by GitHub's own ceiling."""
     with patch(f"{_MODULE}.iter_graphql_nodes") as mock_iter:
         mock_iter.return_value = iter([{"id": "n1"}])
-        _iter_closed_items("involves:fruitbot is:closed", 42)
+        _iter_closed_items("involves:fruitbot is:closed")
     mock_iter.assert_called_once()
     pos_args = mock_iter.call_args.args
     kw_args = mock_iter.call_args.kwargs
@@ -737,7 +735,9 @@ def test_iter_closed_items_delegates_to_paginator():
     assert pos_args[2] == {"searchQuery": "involves:fruitbot is:closed"}
     assert kw_args["page_size_var"] == "pageSize"
     assert kw_args["page_size"] == GRAPHQL_PAGE_SIZE
-    assert kw_args["max_nodes"] == 42
+    # No node budget: the cap counts unsubscribes, and GitHub's search stops at
+    # a thousand results on its own.
+    assert "max_nodes" not in kw_args
 
 
 # -- _validate_notifications_token --------------------------------------------
@@ -795,10 +795,9 @@ def test_phase1_live_unsubscribes_closed_stale():
         patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=False)
     p1 = result.phase1
     assert p1.threads_total == 1
-    assert p1.threads_inspected == 1
     assert p1.threads_unsubscribed == 1
     assert p1.threads_failed == 0
     assert p1.rows[0].action == ReportAction.UNSUBSCRIBED
@@ -817,7 +816,7 @@ def test_phase1_dry_run_records_candidate_without_mutations():
         patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=True)
     assert result.phase1.threads_unsubscribed == 1
     assert result.phase1.rows[0].action == ReportAction.DRY_RUN
     assert _gh_calls_matching(mock_gh, ["api", "--method", "DELETE"]) == []
@@ -857,7 +856,7 @@ def test_phase1_skip_scenarios(detail, counter):
         patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=False)
     assert getattr(result.phase1, counter) == 1
     assert result.phase1.threads_unsubscribed == 0
     assert _gh_calls_matching(mock_gh, ["api", "--method", "DELETE"]) == []
@@ -871,7 +870,7 @@ def test_phase1_inaccessible_subject_skipped():
         patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=False)
     assert result.phase1.threads_skipped_unknown == 1
     assert result.phase1.threads_unsubscribed == 0
 
@@ -888,7 +887,7 @@ def test_phase1_delete_failure_records_failed():
         patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=False)
     p1 = result.phase1
     assert p1.threads_failed == 1
     assert p1.threads_unsubscribed == 0
@@ -907,10 +906,11 @@ def test_phase1_batch_size_truncates_but_reports_total():
         patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
-        result = unsubscribe_threads(months=3, batch_size=2, dry_run=True)
+        result = unsubscribe_threads(months=3, max_unsubscribes=2, dry_run=True)
+    # Every candidate is inspected; the cap only stops the acting.
     assert result.phase1.threads_total == 5
-    assert result.phase1.threads_inspected == 2
     assert result.phase1.threads_unsubscribed == 2
+    assert result.phase1.threads_deferred == 3
 
 
 def test_phase1_fetch_failure_skips_phase():
@@ -920,9 +920,9 @@ def test_phase1_fetch_failure_skips_phase():
         patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=True)
     assert result.phase1.threads_total == 0
-    assert result.phase1.threads_inspected == 0
+    assert result.phase1.threads_unsubscribed == 0
     assert result.phase2.skipped is False
 
 
@@ -941,11 +941,11 @@ def test_phase2_filters_non_subscribed_items():
         patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=True)
     p2 = result.phase2
-    assert p2.graphql_total == 3
-    assert p2.graphql_not_subscribed == 2
-    assert p2.graphql_unsubscribed == 1
+    assert p2.items_total == 3
+    assert p2.items_not_subscribed == 2
+    assert p2.items_unsubscribed == 1
     assert p2.skipped is False
 
 
@@ -965,11 +965,11 @@ def test_phase2_skips_items_active_since_cutoff():
         patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=True)
     p2 = result.phase2
-    assert p2.graphql_total == 3
-    assert p2.graphql_skipped_recent == 2
-    assert p2.graphql_unsubscribed == 1
+    assert p2.items_total == 3
+    assert p2.items_skipped_recent == 2
+    assert p2.items_unsubscribed == 1
 
 
 def test_phase2_dry_run_no_mutation_calls():
@@ -980,8 +980,8 @@ def test_phase2_dry_run_no_mutation_calls():
         patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
-    assert result.phase2.graphql_unsubscribed == 1
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=True)
+    assert result.phase2.items_unsubscribed == 1
     assert result.phase2.rows[0].action == ReportAction.DRY_RUN
     assert _gh_calls_matching(mock_gh, ["api", "graphql"]) == []
 
@@ -994,8 +994,8 @@ def test_phase2_live_unsubscribes_subscribed():
         patch_gh(side_effect=run) as mock_gh,
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
-    assert result.phase2.graphql_unsubscribed == 1
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=False)
+    assert result.phase2.items_unsubscribed == 1
     assert result.phase2.rows[0].action == ReportAction.UNSUBSCRIBED
     gql_calls = _gh_calls_matching(mock_gh, ["api", "graphql"])
     assert len(gql_calls) == 1
@@ -1010,9 +1010,9 @@ def test_phase2_mutation_failure_records_failed():
         patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes", return_value=items),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=False)
-    assert result.phase2.graphql_failed == 1
-    assert result.phase2.graphql_unsubscribed == 0
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=False)
+    assert result.phase2.items_failed == 1
+    assert result.phase2.items_unsubscribed == 0
     assert result.phase2.rows[0].action == ReportAction.FAILED
 
 
@@ -1023,7 +1023,7 @@ def test_phase2_username_failure_skips_search():
         patch_gh(side_effect=run),
         patch(f"{_MODULE}.iter_graphql_nodes") as mock_iter,
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=True)
     assert result.phase2.skipped is True
     assert "authenticated username" in result.phase2.skip_reason
     mock_iter.assert_not_called()
@@ -1039,7 +1039,7 @@ def test_phase2_search_failure_skips():
             side_effect=RuntimeError("no graphql"),
         ),
     ):
-        result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
+        result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=True)
     assert result.phase2.skipped is True
     assert "GraphQL search" in result.phase2.skip_reason
 
@@ -1053,7 +1053,7 @@ def test_phase2_search_query_built():
             patch_gh(side_effect=run),
             patch(f"{_MODULE}.iter_graphql_nodes", return_value=[]),
         ):
-            result = unsubscribe_threads(months=3, batch_size=200, dry_run=True)
+            result = unsubscribe_threads(months=3, max_unsubscribes=200, dry_run=True)
     assert result.phase2.search_query == (
         "involves:fruitbot is:closed updated:<2026-04-16"
     )
@@ -1138,8 +1138,8 @@ def test_phase1_batches_every_subject_into_one_round_trip():
     with patch_gh(
         side_effect=_dispatch_gh(notifications="\n".join(threads), details=details)
     ) as mock_gh:
-        result = unsubscribe_threads(months=3, batch_size=10, dry_run=True)
-    assert result.phase1.threads_inspected == 3
+        result = unsubscribe_threads(months=3, max_unsubscribes=10, dry_run=True)
+    assert result.phase1.threads_total == 3
     graphql_calls = [
         call
         for call in mock_gh.call_args_list

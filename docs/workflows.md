@@ -846,7 +846,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 #### 🔕 Unsubscribe from closed threads (`unsubscribe-threads`)
 
 - Unsubscribes from notification threads of closed issues and pull requests after a configurable inactivity period (default: 3 months)
-- Asks the API for the threads last updated before the cutoff, then inspects them oldest-first in batches (default: 200 per run, set with `[tool.repomatic] notification.batch-size`) to stay within API rate limits
+- Asks the API for the threads last updated before the cutoff and inspects them all, oldest first. Only the unsubscribes are capped (default: 200 per run, set with `[tool.repomatic] notification.max-unsubscribes`), since each one costs two REST calls where fifty inspections cost one GraphQL point
 - Supports dry-run mode via `workflow_dispatch` to preview candidates without acting
 - Streams per-thread progress to the job log; the markdown report lands in the step summary
 - **Requires**:

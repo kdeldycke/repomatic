@@ -12,6 +12,7 @@
 - Raise the `click-extra` floor to `9.1`, required by the recording API the `update-docs` job captures the readme animation with.
 - Cooldown countdowns (`Held until`, `Eligible`, `Clears`) now read `in 5 hours` when the window lifts later the same day, instead of `just now`, which read as already cleared.
 - Add `[tool.repomatic] notification.batch-size` and `notification.months`. `repomatic init` bakes them into the generated unsubscribe caller, the only place they can reach a job that checks out nothing.
+- **Breaking:** `unsubscribe-threads` replaces `--batch-size` with `--max-unsubscribes`, which caps unsubscribes instead of inspections. The `[tool.repomatic] notification.batch-size` key and the workflow's `batch-size` input are renamed to match.
 - `unsubscribe-threads` now resolves subject states in batches of 50 through GraphQL, where it spent one REST call per thread. A run falls back to the per-thread calls if a batch fails.
 - `unsubscribe-threads` now sorts its batch by notification age itself. The endpoint calls itself sorted by most recent update and is not, so the batch was an arbitrary slice rather than the oldest one.
 - `unsubscribe-threads` now asks GitHub for only the notifications last updated before the cutoff, so a batch inspects candidates instead of threads that are still active.

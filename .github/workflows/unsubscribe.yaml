@@ -11,7 +11,7 @@ name: "\U0001F515 Unsubscribe closed threads"
       months:
         default: "3"
         type: string
-      batch-size:
+      max-unsubscribes:
         default: "200"
         type: string
       dry-run:
@@ -26,8 +26,8 @@ name: "\U0001F515 Unsubscribe closed threads"
         description: "Unsubscribe from closed issues/PRs inactive for more than this many months"
         default: "3"
         type: string
-      batch-size:
-        description: "Max threads to inspect per run (backlog clears over successive runs)"
+      max-unsubscribes:
+        description: "Max threads to unsubscribe from per run (the rest defer to a later run)"
         default: "200"
         type: string
       dry-run:
@@ -81,7 +81,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}
           MONTHS: ${{ inputs.months || '3' }}
-          BATCH_SIZE: ${{ inputs.batch-size || '200' }}
+          MAX_UNSUBSCRIBES: ${{ inputs.max-unsubscribes || '200' }}
         # Skip silently when REPOMATIC_NOTIFICATIONS_PAT is not configured.
         # GitHub Actions does not allow secrets.* in job-level if: conditions,
         # so the check is done here at step level via the env var.
@@ -92,7 +92,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic --verbosity INFO
           unsubscribe-threads
           --months "$MONTHS"
-          --batch-size "$BATCH_SIZE"
+          --max-unsubscribes "$MAX_UNSUBSCRIBES"
           ${{ github.event_name == 'workflow_dispatch'
           && inputs.dry-run != false
           && '--dry-run' || '--live' }}

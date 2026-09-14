@@ -79,7 +79,7 @@ if TYPE_CHECKING:
 
 CALLER_INPUT_DEFAULTS: Final[dict[str, dict[str, str]]] = {
     "unsubscribe.yaml": {
-        "batch-size": "notification_batch_size",
+        "max-unsubscribes": "notification_max_unsubscribes",
         "months": "notification_months",
     },
 }
@@ -96,7 +96,7 @@ manual run still wins:
 
 ```yaml
     with:
-      batch-size: ${{ inputs.batch-size || '600' }}
+      max-unsubscribes: ${{ inputs.max-unsubscribes || '600' }}
 ```
 
 A repository leaving the default alone gets the plain passthrough, so adding a

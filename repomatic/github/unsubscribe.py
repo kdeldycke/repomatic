@@ -153,13 +153,13 @@ class DetailRow:
 class Phase1Result:
     """Accumulated counts and details from REST notification phase."""
 
-    batch_size: int = 0
     cutoff: datetime | None = None
+    max_unsubscribes: int = 0
     newest_updated: datetime | None = None
     oldest_updated: datetime | None = None
     rows: list[DetailRow] = field(default_factory=list)
+    threads_deferred: int = 0
     threads_failed: int = 0
-    threads_inspected: int = 0
     threads_skipped_open: int = 0
     threads_skipped_recent: int = 0
     threads_skipped_unknown: int = 0
@@ -171,13 +171,14 @@ class Phase1Result:
 class Phase2Result:
     """Accumulated counts and details from GraphQL threadless phase."""
 
-    batch_size: int = 0
     cutoff: datetime | None = None
-    graphql_failed: int = 0
-    graphql_not_subscribed: int = 0
-    graphql_skipped_recent: int = 0
-    graphql_total: int = 0
-    graphql_unsubscribed: int = 0
+    items_deferred: int = 0
+    items_failed: int = 0
+    items_not_subscribed: int = 0
+    items_skipped_recent: int = 0
+    items_total: int = 0
+    items_unsubscribed: int = 0
+    max_unsubscribes: int = 0
     rows: list[DetailRow] = field(default_factory=list)
     search_query: str = ""
     skipped: bool = False
@@ -219,10 +220,7 @@ def _format_link(row: DetailRow) -> str:
     return row.repo
 
 
-def _fetch_notification_threads(
-    batch_size: int,
-    cutoff: datetime,
-) -> tuple[int, list[dict[str, Any]]]:
+def _fetch_notification_threads(cutoff: datetime) -> list[dict[str, Any]]:
     """Fetch Issue/PullRequest notification threads last moved before *cutoff*.
 
     The `before` parameter of `GET /notifications` narrows the list to what is
@@ -241,10 +239,8 @@ def _fetch_notification_threads(
     subject's own state and `updated_at`.
     ```
 
-    :param batch_size: Maximum number of threads to return.
     :param cutoff: Inactivity boundary, passed to the API as `before`.
-    :return: Tuple of `(candidate_count, oldest_batch)`, where the count covers
-        every thread the filter returned, not every notification. Each thread
+    :return: Every candidate the filter returned, oldest first. Each thread
         dict contains `id`, `updated_at`, `subject_url`, `subject_type`,
         `repo`, `title`.
     """
@@ -277,7 +273,7 @@ def _fetch_notification_threads(
         ])
     except RuntimeError as exc:
         logging.warning(f"Failed to fetch notification threads: {exc}")
-        return 0, []
+        return []
 
     threads = []
     for line in output.strip().splitlines():
@@ -289,7 +285,6 @@ def _fetch_notification_threads(
         except json.JSONDecodeError:
             logging.warning(f"Skipping malformed notification line: {line!r}")
 
-    total = len(threads)
     # Sorted here rather than trusted from the response. The endpoint documents
     # itself as "sorted by most recently updated", and a probe against 1637 real
     # threads found the list ordered by neither `updated_at` nor thread id, in
@@ -298,7 +293,7 @@ def _fetch_notification_threads(
     # carries is what makes the batch the deepest end of the backlog, so a run
     # that cannot clear the whole pool leaves the next one where it stopped.
     threads.sort(key=lambda thread: thread.get("updated_at") or "")
-    return total, threads[:batch_size]
+    return threads
 
 
 def _get_thread_details(subject_url: str) -> dict[str, Any] | None:
@@ -481,17 +476,13 @@ def _get_authenticated_username() -> str:
     return run_gh_command(["api", "/user", "--jq", ".login"]).strip()
 
 
-def _iter_closed_items(
-    search_query: str,
-    batch_size: int,
-) -> Iterator[dict[str, Any]]:
+def _iter_closed_items(search_query: str) -> Iterator[dict[str, Any]]:
     """Iterate over closed issues/PRs matching a GraphQL search query.
 
     Uses cursor-based GraphQL pagination. Yields all items regardless
     of `viewerSubscription`; callers filter as needed.
 
     :param search_query: The GitHub search query string.
-    :param batch_size: Maximum total items to yield.
     :yields: Dicts with `id`, `number`, `title`, `repository`,
         `updatedAt`, `url`, `viewerSubscription`.
     """
@@ -501,7 +492,6 @@ def _iter_closed_items(
         {"searchQuery": search_query},
         page_size_var="pageSize",
         page_size=GRAPHQL_PAGE_SIZE,
-        max_nodes=batch_size,
     )
 
 
@@ -597,14 +587,12 @@ def _render_phase1_fragments(
     )
 
     # Batch details rows.
-    remaining = p1.threads_total - p1.threads_inspected
     oldest_str = p1.oldest_updated.isoformat() if p1.oldest_updated else "-"
     newest_str = p1.newest_updated.isoformat() if p1.newest_updated else "-"
     batch_details_rows = "\n".join([
         f"| \U0001f514 Threads before cutoff | {p1.threads_total} |",
-        f"| \U0001f4e6 Batch size | {p1.batch_size} |",
-        f"| \U0001f50e Inspected | {p1.threads_inspected} |",
-        f"| \U0001f4cb Remaining backlog | {remaining} |",
+        f"| \U0001f4e6 Max unsubscribes | {p1.max_unsubscribes} |",
+        f"| \U0001f4cb Deferred to a later run | {p1.threads_deferred} |",
         f"| \u23ea Oldest activity | {oldest_str} |",
         f"| \u23e9 Newest activity | {newest_str} |",
         f"| \u2702\ufe0f Cutoff | {cutoff_str} |",
@@ -621,7 +609,7 @@ def _render_phase1_fragments(
 
     # Backlog warning (empty string if not applicable).
     backlog_warning = ""
-    if remaining > 0:
+    if p1.threads_deferred:
         manual_run = "run it manually"
         if repo_url:
             workflow_url = f"{repo_url}/actions/workflows/{UNSUBSCRIBE_WORKFLOW}"
@@ -632,12 +620,12 @@ def _render_phase1_fragments(
         backlog_warning = "\n".join([
             "> [!WARNING]",
             (
-                f"> Inspected {p1.threads_inspected} of {p1.threads_total} threads"
-                f" last updated before the cutoff (`{cutoff_str}`)."
+                f"> {p1.threads_deferred} eligible threads were left alone: this"
+                f" run reached its cap of {p1.max_unsubscribes} unsubscribes."
             ),
             (
-                f"> Raise `batch-size` (currently {p1.batch_size}), or {manual_run}"
-                " with a larger batch, to clear the rest."
+                f"> Raise `max-unsubscribes`, or {manual_run} with a higher cap,"
+                " to clear the rest in one go."
             ),
         ])
 
@@ -661,24 +649,25 @@ def _render_phase2_content(p2: Phase2Result, months: int, dry_run: bool) -> str:
 
     summary_line = _phase_summary_line(
         len(p2.rows),
-        p2.graphql_unsubscribed,
-        p2.graphql_failed,
+        p2.items_unsubscribed,
+        p2.items_failed,
         p2.cutoff,
         months,
         dry_run,
     )
 
     # Search details table.
-    subscribed_count = p2.graphql_unsubscribed + p2.graphql_failed
+    subscribed_count = p2.items_unsubscribed + p2.items_failed
     search_table = "### \U0001f4ca Search details\n\n" + render_markdown_table(
         ("Metric", "Value"),
         (
             ("\U0001f50e Search query", f"`{p2.search_query}`"),
-            ("\U0001f514 Total results", p2.graphql_total),
-            ("\U0001f4e6 Batch size", p2.batch_size),
+            ("\U0001f514 Total results", p2.items_total),
+            ("\U0001f4e6 Max unsubscribes", p2.max_unsubscribes),
+            ("\U0001f4cb Deferred to a later run", p2.items_deferred),
             ("\u2705 Still subscribed", subscribed_count),
-            ("\u23ed\ufe0f Not subscribed", p2.graphql_not_subscribed),
-            ("\U0001f7e1 Active since cutoff", p2.graphql_skipped_recent),
+            ("\u23ed\ufe0f Not subscribed", p2.items_not_subscribed),
+            ("\U0001f7e1 Active since cutoff", p2.items_skipped_recent),
         ),
     )
 
@@ -717,27 +706,33 @@ def render_report(result: UnsubscribeResult, repo_url: str | None = None) -> str
 
 def _run_rest_phase(
     cutoff: datetime,
-    batch_size: int,
+    max_unsubscribes: int,
     dry_run: bool,
 ) -> Phase1Result:
     """Phase 1: inspect REST notification threads, unsubscribing stale ones.
 
+    Every candidate the cutoff filter returns is inspected, and the cap bounds
+    the unsubscribes alone. Inspection costs one GraphQL point per fifty
+    subjects, where each unsubscribe is two REST calls and about a second of
+    wall clock, so the cap sits where the cost is. Eligible threads past it are
+    counted as deferred and left for the next run.
+
     :param cutoff: Inactivity boundary; only threads whose subject closed and
         last moved before it are acted on.
-    :param batch_size: Maximum threads to inspect.
-    :param dry_run: If `True`, record what would be done without acting.
+    :param max_unsubscribes: Maximum threads to unsubscribe from.
+    :param dry_run: If `True`, record what would be done without acting. The
+        cap still applies, so a dry run forecasts the live one.
     :return: The phase's structured result.
     """
     logging.info("Phase 1: Processing REST notification threads...")
     prefix = "[dry-run] " if dry_run else ""
-    p1 = Phase1Result(cutoff=cutoff, batch_size=batch_size)
+    p1 = Phase1Result(cutoff=cutoff, max_unsubscribes=max_unsubscribes)
 
-    total, threads = _fetch_notification_threads(batch_size, cutoff)
-    p1.threads_total = total
+    threads = _fetch_notification_threads(cutoff)
+    p1.threads_total = len(threads)
     subject_details = _fetch_subject_details([t["subject_url"] for t in threads])
 
     for thread in threads:
-        p1.threads_inspected += 1
         thread_id = thread["id"]
         subject_url = thread["subject_url"]
         thread_repo = thread.get("repo", "")
@@ -774,8 +769,15 @@ def _run_rest_phase(
             logging.info(f"  Thread {thread_id}: updated recently, skipping.")
             continue
 
-        # Closed + stale: candidate for unsubscription. The three outcomes below
-        # differ only in the action recorded, so the row is built once here.
+        # Closed and stale: this one is eligible. Everything past the cap is
+        # counted rather than acted on, so the report can say how much a later
+        # run still owes.
+        if p1.threads_unsubscribed + p1.threads_failed >= max_unsubscribes:
+            p1.threads_deferred += 1
+            continue
+
+        # The three outcomes below differ only in the action recorded, so the
+        # row is built once here.
         html_url = details.get("html_url", subject_url)
         row = partial(
             DetailRow,
@@ -804,21 +806,22 @@ def _run_rest_phase(
 
 def _run_graphql_phase(
     cutoff: datetime,
-    batch_size: int,
+    max_unsubscribes: int,
     dry_run: bool,
 ) -> Phase2Result:
     """Phase 2: unsubscribe from threadless subscriptions found by search.
 
     :param cutoff: Inactivity boundary; only items closed and last moved
         before it are acted on.
-    :param batch_size: Maximum search results to inspect.
+    :param max_unsubscribes: Maximum items to unsubscribe from. The search walk
+        itself is bounded by GitHub's own thousand-result ceiling.
     :param dry_run: If `True`, record what would be done without acting.
     :return: The phase's structured result, marked skipped when the account
         or the search cannot be read.
     """
     logging.info("Phase 2: Processing GraphQL threadless subscriptions...")
     prefix = "[dry-run] " if dry_run else ""
-    p2 = Phase2Result(cutoff=cutoff, batch_size=batch_size)
+    p2 = Phase2Result(cutoff=cutoff, max_unsubscribes=max_unsubscribes)
 
     try:
         username = _get_authenticated_username()
@@ -834,15 +837,15 @@ def _run_graphql_phase(
     p2.search_query = f"involves:{username} is:closed updated:<{cutoff_date}"
 
     try:
-        for item in _iter_closed_items(p2.search_query, batch_size):
-            p2.graphql_total += 1
+        for item in _iter_closed_items(p2.search_query):
+            p2.items_total += 1
             node_id = item["id"]
             repo = item.get("repository", {}).get("nameWithOwner", "unknown")
             number = item.get("number")
 
             # Filter: only act on items the user is subscribed to.
             if item.get("viewerSubscription") != "SUBSCRIBED":
-                p2.graphql_not_subscribed += 1
+                p2.items_not_subscribed += 1
                 continue
 
             # Parse updatedAt and url from GraphQL result.
@@ -854,7 +857,11 @@ def _run_graphql_phase(
             # could unsubscribe an item phase 1's stricter check would
             # keep. An unparsable timestamp is not a green light either.
             if gql_updated_at is None or gql_updated_at >= cutoff:
-                p2.graphql_skipped_recent += 1
+                p2.items_skipped_recent += 1
+                continue
+
+            if p2.items_unsubscribed + p2.items_failed >= max_unsubscribes:
+                p2.items_deferred += 1
                 continue
 
             row = partial(
@@ -868,15 +875,15 @@ def _run_graphql_phase(
 
             logging.info(f"  {prefix}Unsubscribing from {repo}#{number} (GraphQL).")
             if dry_run:
-                p2.graphql_unsubscribed += 1
+                p2.items_unsubscribed += 1
                 p2.rows.append(row(action=ReportAction.DRY_RUN))
                 continue
 
             if _graphql_unsubscribe(node_id):
-                p2.graphql_unsubscribed += 1
+                p2.items_unsubscribed += 1
                 p2.rows.append(row(action=ReportAction.UNSUBSCRIBED))
             else:
-                p2.graphql_failed += 1
+                p2.items_failed += 1
                 p2.rows.append(row(action=ReportAction.FAILED))
     except RuntimeError as exc:
         logging.warning(
@@ -893,7 +900,7 @@ def _run_graphql_phase(
 
 def unsubscribe_threads(
     months: int,
-    batch_size: int,
+    max_unsubscribes: int,
     dry_run: bool,
 ) -> UnsubscribeResult:
     """Unsubscribe from closed, inactive notification threads.
@@ -908,7 +915,7 @@ def unsubscribe_threads(
        unsubscribes via mutation.
 
     :param months: Inactivity threshold in months.
-    :param batch_size: Maximum threads/items to process per phase.
+    :param max_unsubscribes: Maximum unsubscribes per phase.
     :param dry_run: If `True`, report what would be done without acting.
     :return: Structured results from both phases.
     """
@@ -917,6 +924,6 @@ def unsubscribe_threads(
     return UnsubscribeResult(
         dry_run=dry_run,
         months=months,
-        phase1=_run_rest_phase(cutoff, batch_size, dry_run),
-        phase2=_run_graphql_phase(cutoff, batch_size, dry_run),
+        phase1=_run_rest_phase(cutoff, max_unsubscribes, dry_run),
+        phase2=_run_graphql_phase(cutoff, max_unsubscribes, dry_run),
     )

@@ -1160,15 +1160,16 @@ class Config:
     `36 hours`). Set to `0 days` to adopt releases immediately.
     """
 
-    notification_batch_size: int = field(
+    notification_max_unsubscribes: int = field(
         default=200,
-        metadata={CONFIG_PATH_METADATA_KEY: "notification.batch-size"},
+        metadata={CONFIG_PATH_METADATA_KEY: "notification.max-unsubscribes"},
     )
-    """Threads the unsubscribe workflow inspects per scheduled run.
+    """Threads the unsubscribe workflow unsubscribes from per scheduled run.
 
-    Each one costs an API call, so the ceiling is a rate-limit budget rather
-    than a preference. Raise it where a repository's notification backlog needs
-    more than one run to drain.
+    Inspection is not capped: the cutoff filter bounds what is fetched, and a
+    batched lookup resolves fifty subjects per request. Each unsubscribe is two
+    REST calls and about a second of wall clock, so this is where the budget
+    goes. Raise it where a backlog needs more than one run to drain.
 
     Read at `repomatic init` time, not at run time: the unsubscribe job checks
     out nothing, so no `pyproject.toml` is on the runner to read. The value is
@@ -1184,7 +1185,7 @@ class Config:
     acts on it.
 
     Baked into the generated thin caller for the reason
-    {attr}`notification_batch_size` is.
+    {attr}`notification_max_unsubscribes` is.
     """
 
     notification_unsubscribe: bool = field(
@@ -1571,7 +1572,7 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "mailmap_sync",
     "metrics",
     "minimum_release_age",
-    "notification_batch_size",
+    "notification_max_unsubscribes",
     "notification_months",
     "notification_unsubscribe",
     "nuitka_enabled",
