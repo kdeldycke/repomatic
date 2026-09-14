@@ -31,13 +31,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
-
-import arrow
+from datetime import date, datetime, timedelta
 
 from ..github.pr_body import demote_markdown_headings, sanitize_markdown_mentions
 from ..github.releases import get_github_release_body
-from ..humanize import parse_iso_datetime
+from ..humanize import (
+    format_countdown,
+    format_elapsed,
+    parse_iso_datetime,
+    utc_midnight,
+)
 from ..pypi import (
     PYPI_PACKAGE_URL,
     get_changelog_url as get_pypi_changelog_url,
@@ -119,11 +122,22 @@ def format_upload_date(iso_datetime: str) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-def format_released(raw_upload: str, reference: date | None) -> str:
+def format_released(raw_upload: str, reference: date | datetime | None) -> str:
     """Format an upload time as a date, optionally with a relative hint.
 
+    The report-level wrapper around {func}`~repomatic.humanize.format_elapsed`,
+    adding the conventions a table cell needs: an empty input renders empty, an
+    unparsable one renders verbatim, and an absent reference drops the hint.
+
+    It also pairs the precisions, which is the one thing a caller must not get
+    wrong. An upload instant measured against a midnight reference understates
+    its age by up to a day, so a date reference truncates the upload to match
+    it. Pass the instant wherever the caller holds one: a release published
+    earlier today then reads `6 hours ago`, where two dates can only say
+    `just now`.
+
     :param raw_upload: ISO 8601 upload-time string, or empty.
-    :param reference: Date to measure the relative offset from. When `None`,
+    :param reference: Instant, or day, to measure the offset from. When `None`,
         only the absolute date is returned.
     :return: A string like `2026-06-24 (2 days ago)`, the bare date when
         *reference* is `None`, or empty when *raw_upload* is empty.
@@ -133,24 +147,11 @@ def format_released(raw_upload: str, reference: date | None) -> str:
     dt = parse_iso_datetime(raw_upload)
     if dt is None:
         return format_upload_date(raw_upload)
-    iso = dt.strftime("%Y-%m-%d")
     if reference is None:
-        return iso
-    return f"{iso} ({arrow.get(dt.date()).humanize(arrow.get(reference))})"
-
-
-def format_eligible(eligible: date, today: date) -> str:
-    """Render an eligibility date with a human-readable countdown.
-
-    :param eligible: The date a release leaves the cooldown window.
-    :param today: The current date, for the relative offset.
-    :return: A string like `2026-06-25 (in 4 days)`, `... (today)`, or the
-        bare date once the window has elapsed.
-    """
-    iso = eligible.strftime("%Y-%m-%d")
-    if eligible < today:
-        return iso
-    return f"{iso} ({arrow.get(eligible).humanize(arrow.get(today))})"
+        return dt.strftime("%Y-%m-%d")
+    if isinstance(reference, datetime):
+        return format_elapsed(dt, reference)
+    return format_elapsed(utc_midnight(dt.date()), utc_midnight(reference))
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +360,9 @@ def build_held_back(
     eligible = ""
     upload_dt = parse_iso_datetime(available_date)
     if upload_dt is not None:
-        eligible = format_eligible((upload_dt + min_age).date(), today)
+        # The datasource sweeps report a release date and no time of day, so
+        # this countdown stays day-granular.
+        eligible = format_countdown(upload_dt + min_age, utc_midnight(today))
     return HeldBackPackage(name, pinned, available, released, eligible)
 
 

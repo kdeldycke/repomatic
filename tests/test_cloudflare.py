@@ -696,6 +696,24 @@ def test_token_expiry_warning_counts_down(days_away, warns):
         assert warning is None
 
 
+def test_token_expiry_warning_counts_the_hours_of_a_last_day():
+    """A token dying today is hours away: whole days would floor that to zero."""
+    # A minute of slack: arrow truncates, so a bare 5 hours renders as 4 by
+    # the time the warning is built.
+    expires = (datetime.now(timezone.utc) + timedelta(hours=5, minutes=1)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+    def call(path, token, method="GET", body=None):
+        return {"id": "token-id", "expires_on": expires}
+
+    with patch.object(cloudflare, "_call", side_effect=call):
+        warning = _token_expiry_warning("token", "orchard")
+    assert warning is not None
+    assert "expires" in warning
+    assert "in 5 hours" in warning
+
+
 def test_token_expiry_warning_never_fails_the_run():
     """A credential that verifies nowhere still deploys fine: silence, not error."""
 

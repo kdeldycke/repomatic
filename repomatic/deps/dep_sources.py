@@ -71,12 +71,11 @@ from packaging.version import Version
 
 from ..compat import StrEnum
 from ..github.actions import AnnotationLevel
-from ..humanize import parse_iso_datetime
+from ..humanize import format_countdown, parse_iso_datetime
 from ..pypi import get_release_dates, is_pypi_url
 from ..versions import safe_version
 from .dep_report import (
     BYPASS_NEEDS_RELEASE,
-    format_eligible,
     format_released,
     link_name,
     markdown_section,
@@ -367,7 +366,7 @@ def floors_inside_cooldown(
     if cutoff is None or not pyproject_path.exists():
         return {}
     span = resolve_exclude_newer_span(window)
-    today = datetime.now(timezone.utc).date()
+    now = datetime.now(timezone.utc)
 
     lock = LockFile.load(lock_path)
     locked = {
@@ -400,11 +399,7 @@ def floors_inside_cooldown(
             # The locked release ages out of a rolling window on its own, which
             # is the whole remedy for this finding. An absolute cutoff never
             # moves, so it leaves no date to wait for.
-            clears = (
-                format_eligible((upload_dt + span).date(), today)
-                if span is not None
-                else ""
-            )
+            clears = format_countdown(upload_dt + span, now) if span is not None else ""
             for spec in requirement.specifier:
                 if spec.operator not in LOWER_BOUND_OPERATORS | PIN_OPERATOR:
                     continue

@@ -108,6 +108,7 @@ from .deps.uv import (
 from .github.actions import emit_report
 from .github.pr_body import template_docs_url
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
+from .humanize import format_countdown, utc_midnight
 from .init_project import init_config, is_source_repo
 from .npm import NPM_PACKAGE_URL
 from .pypi import PYPI_PACKAGE_URL, get_source_url
@@ -1120,11 +1121,14 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         # no per-package exemption, so it fails every job that installs it.
         stuck = pin_inside_cooldown(candidates, current_version, min_age, today)
         if stuck:
+            clears = format_countdown(
+                utc_midnight(stuck + min_age), utc_midnight(today)
+            )
             logging.warning(
                 f"{package}=={current_version} is pinned inside the"
                 f" {rc.config.minimum_release_age} cooldown (published"
                 f" {stuck.isoformat()}). Installs resolving it from an index"
-                " will fail until it ages out."
+                f" fail until it ages out on {clears}."
             )
         package_url = (
             NPM_PACKAGE_URL.format(package=package)

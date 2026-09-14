@@ -28,7 +28,7 @@ drift a `in x` assertion sails past.
 from __future__ import annotations
 
 import ast
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -42,7 +42,6 @@ from repomatic.deps.dep_report import (
     build_held_back,
     format_bypass_section,
     format_diff_table,
-    format_eligible,
     format_exclude_newer_note,
     format_held_back_table,
     format_release_notes,
@@ -100,25 +99,20 @@ def test_format_upload_date(value, expected):
     (
         ("", date(2026, 6, 26), ""),
         ("2026-06-24T10:00:00Z", None, "2026-06-24"),
+        # A day reference truncates the upload to match it. Measuring the
+        # 10:00 instant against midnight would call these 38 hours "a day".
         ("2026-06-24T10:00:00Z", date(2026, 6, 26), "2026-06-24 (2 days ago)"),
+        # An instant reference keeps the hours a day reference cannot carry.
+        (
+            "2026-06-24T10:00:00Z",
+            datetime(2026, 6, 24, 16, tzinfo=timezone.utc),
+            "2026-06-24 (6 hours ago)",
+        ),
         ("not-a-date", date(2026, 6, 26), "not-a-date"),
     ),
 )
 def test_format_released(raw_upload, reference, expected):
     assert format_released(raw_upload, reference) == expected
-
-
-@pytest.mark.parametrize(
-    ("eligible", "today", "expected"),
-    (
-        (date(2026, 6, 25), date(2026, 6, 21), "2026-06-25 (in 4 days)"),
-        (date(2026, 6, 21), date(2026, 6, 21), "2026-06-21 (just now)"),
-        # Already elapsed: the countdown would read as noise, so it is dropped.
-        (date(2026, 6, 20), date(2026, 6, 21), "2026-06-20"),
-    ),
-)
-def test_format_eligible(eligible, today, expected):
-    assert format_eligible(eligible, today) == expected
 
 
 # ---------------------------------------------------------------------------

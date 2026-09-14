@@ -35,13 +35,12 @@ import tomlrt
 from click_extra import parse_friendly_duration, parse_iso8601_duration
 from tomlrt import Table
 
-from ..humanize import parse_iso_datetime
+from ..humanize import format_countdown, parse_iso_datetime
 from ..versions import is_newer
 from .dep_report import (
     BYPASS_NEEDS_RELEASE,
     BypassForecast,
     HeldBackPackage,
-    format_eligible,
     format_released,
 )
 
@@ -1057,23 +1056,25 @@ def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
         if old_version == new_version or not is_newer(new_version, old_version):
             continue
         raw_upload = uploads.get(name, "")
-        released = format_released(raw_upload, now.date())
+        released = format_released(raw_upload, now)
         eligible = ""
         if raw_upload and span is not None:
             upload_dt = parse_iso_datetime(raw_upload)
             if upload_dt is not None:
-                eligible = format_eligible((upload_dt + span).date(), now.date())
+                eligible = format_countdown(upload_dt + span, now)
         held.append(HeldBackPackage(name, old_version, new_version, released, eligible))
     return held
 
 
-def _forecast_expiry(upload_str: str, span: timedelta | None, today: date) -> str:
+def _forecast_expiry(upload_str: str, span: timedelta | None, now: datetime) -> str:
     """Format the date a held version ages past the rolling cooldown cutoff.
 
     :param upload_str: The held version's `upload-time` from `uv.lock`.
     :param span: The rolling `exclude-newer` span, or `None` when the cutoff
         is absolute.
-    :param today: Reference date for the relative hint.
+    :param now: Reference instant for the relative hint. The prune it
+        forecasts compares instants, so a freeze lifting later today is hours
+        away, not a day.
     :return: The humanized expiry, {data}`repomatic.deps.dep_report.BYPASS_NEEDS_RELEASE`
         when the version has no upload time, or empty when *span* is absent.
     """
@@ -1082,7 +1083,7 @@ def _forecast_expiry(upload_str: str, span: timedelta | None, today: date) -> st
         return BYPASS_NEEDS_RELEASE
     if span is None:
         return ""
-    return format_eligible((upload_dt + span).date(), today)
+    return format_countdown(upload_dt + span, now)
 
 
 def compute_bypass_forecasts(
@@ -1118,7 +1119,7 @@ def compute_bypass_forecasts(
     versions = lock.versions
     uploads = lock.upload_times
     span = lock.cooldown_span
-    today = datetime.now(timezone.utc).date()
+    now = datetime.now(timezone.utc)
     forecasts = []
     for pkg, value in sorted(_bypass_entries(pyproject_path).items()):
         if _is_relative_span(value):
@@ -1126,7 +1127,7 @@ def compute_bypass_forecasts(
         held_version = versions.get(pkg, "")
         if not held_version:
             continue
-        expires = _forecast_expiry(uploads.get(pkg, ""), span, today)
+        expires = _forecast_expiry(uploads.get(pkg, ""), span, now)
         forecasts.append(BypassForecast(pkg, held_version, expires))
     return forecasts
 
@@ -1155,12 +1156,12 @@ def compute_pruned_forecasts(
         return []
     if lock is None:
         lock = LockFile.load(lock_path)
-    today = datetime.now(timezone.utc).date()
+    now = datetime.now(timezone.utc)
     return [
         BypassForecast(
             pkg,
             lock.versions.get(pkg, ""),
-            _forecast_expiry(lock.upload_times.get(pkg, ""), lock.cooldown_span, today),
+            _forecast_expiry(lock.upload_times.get(pkg, ""), lock.cooldown_span, now),
         )
         for pkg in sorted(names)
     ]

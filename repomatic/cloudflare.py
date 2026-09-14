@@ -63,13 +63,13 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import tomlrt
 from click_extra import echo
 
-from .humanize import parse_iso_datetime
+from .humanize import format_countdown, parse_iso_datetime
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -392,13 +392,16 @@ def _token_expiry_warning(token: str, account: str) -> str | None:
         expiry = _parse_timestamp(expires_on)
         if expiry is None:
             return None
-        remaining = expiry - datetime.now(timezone.utc)
-        if remaining.days < EXPIRY_WARNING_DAYS:
+        now = datetime.now(timezone.utc)
+        if expiry - now < timedelta(days=EXPIRY_WARNING_DAYS):
+            # A countdown drops its relative phrase once the deadline passes,
+            # so a token already dead needs the other verb to read right.
+            verb = "expires" if expiry > now else "expired on"
             return (
-                f"WARN  the API token expires {expires_on} ({remaining.days} "
-                "days away), and Cloudflare will not warn anyone. Rotate now: "
-                "create the replacement, update the CLOUDFLARE_API_TOKEN "
-                "secret, verify with a real deploy, then revoke the old token."
+                f"WARN  the API token {verb} {format_countdown(expiry, now)},"
+                " and Cloudflare will not warn anyone. Rotate now: create the"
+                " replacement, update the CLOUDFLARE_API_TOKEN secret, verify"
+                " with a real deploy, then revoke the old token."
             )
         return None
     return None
