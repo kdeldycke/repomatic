@@ -10,11 +10,11 @@ hide-toc: true
 :hidden:
 install
 cli
+man
 configuration
 dependencies
 tool-runner
 workflows
-cloudflare
 test-matrix
 nuitka
 security
@@ -34,24 +34,43 @@ claude-code-plugin
 ```
 
 ```{toctree}
-:caption: Development
+:caption: Contributing
 :maxdepth: 2
 :hidden:
 contributing
 commit-messages
 upstream-development
 operation-contracts
-API <repomatic>
-tests
 packaging
-binaries
+code-of-conduct
+```
+
+```{toctree}
+:caption: API reference
+:maxdepth: 2
+:hidden:
+repomatic
+tests
 genindex
 modindex
+```
+
+```{toctree}
+:caption: Release and hosting
+:maxdepth: 2
+:hidden:
+binaries
+cloudflare
+```
+
+```{toctree}
+:caption: Project
+:maxdepth: 2
+:hidden:
 changelog
 changelog-archive
 history
 todolist
-code-of-conduct
 license
 GitHub repository <https://github.com/kdeldycke/repomatic>
 Funding <https://github.com/sponsors/kdeldycke>

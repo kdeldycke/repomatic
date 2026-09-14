@@ -16,7 +16,7 @@ $ git push
 
 Works for both new and existing repositories. Run `repomatic init --help` to see available components and options: the workflows then take it from there, opening issues and PRs to guide any remaining setup.
 
-## Try it
+## Try it now
 
 Thanks to `uv`, you can run it in one command, without installation or venv:
 
@@ -47,7 +47,7 @@ $ uvx --from "repomatic @ git+https://github.com/kdeldycke/repomatic" -- repomat
 
 `````
 
-## Install methods
+## Installation methods
 
 `repomatic` is available on a couple of package managers:
 
@@ -114,7 +114,7 @@ The table below shows which Python versions each `repomatic` release range suppo
 
 <!-- matrix-end -->
 
-## Executables
+## Binaries
 
 To ease deployment, standalone executables of `repomatic`'s latest version are available as direct downloads for several platforms and architectures:
 
@@ -139,3 +139,34 @@ $ gh attestation verify repomatic-7.15.0-linux-x64.bin --repo kdeldycke/repomati
 `--signer-repo kdeldycke/repomatic` is required because the release runs from the reusable `_release-engine.yaml` workflow whose signing identity is `kdeldycke/repomatic`. Downstream projects that build binaries through the same reusable workflow verify with their own `--repo` but keep `--signer-repo kdeldycke/repomatic`.
 
 The PyPI distributions carry their own [PEP 740](https://peps.python.org/pep-0740/) attestations, visible and verifiable on the [PyPI project page](https://pypi.org/project/repomatic/).
+
+## Man pages
+
+`repomatic` exposes a `--man` option on every (sub)command, which typesets the corresponding manual and pages it, the way `man` does:
+
+```{code-block} shell-session
+$ repomatic --man
+```
+
+```{code-block} shell-session
+$ repomatic sync-labels --man
+```
+
+To get the roff source instead, ask for the `man` rendering of `--help-format`:
+
+```{code-block} shell-session
+$ repomatic --help-format man
+```
+
+The full command tree is also pre-rendered as static `.1` files:
+
+- Bundled as `repomatic-manpages.tar.gz` on every [GitHub release](https://github.com/kdeldycke/repomatic/releases). Download, extract, and copy to `${MANPATH%%:*}/man1/` (typically `/usr/local/share/man/man1/`).
+- Rendered as browser-viewable HTML siblings under [https://repomatic.net/man/](man.md), which indexes the whole set.
+
+Downstream packagers can regenerate them from source as part of their build phase:
+
+```{code-block} shell-session
+$ click-extra wrap --help-format man --output-dir /usr/share/man/man1/ repomatic.cli.main:repomatic
+```
+
+The generator honors `SOURCE_DATE_EPOCH` for reproducible builds. See the [`click-extra` man-page reference](https://kdeldycke.github.io/click-extra/man-page.html#generating-man-pages) for other invocation forms (uvx for build sandboxes, `.py` file paths, and the programmatic API).

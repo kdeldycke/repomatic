@@ -23,6 +23,10 @@
 - The bundled `repomatic-ship` skill now warns that `ruff -- check` fixes findings repo-wide where the config enables it, and recommends `--no-fix` for a read-only pass.
 - The bundled `repomatic-ship` skill now checks hand-maintained blocks enumerating a registry, like a readme pasting a whole collection or a `mirror-src` diagram, which its version-sample rules did not reach.
 - The bundled `babysit-ci` skill now caps a commit body at two lines and 25 words, and keeps diagnostic measurements out of it.
+- Add a man-page index to the documentation, and cover `--man`, the release tarball and regeneration on the installation page.
+- Rename the installation page's `Try it`, `Install methods` and `Executables` sections to `Try it now`, `Installation methods` and `Binaries`. Their old anchors no longer resolve.
+- Publish a sitemap, a `robots.txt` and a custom 404 page, and stop publishing a copy of every documentation source under `_sources/`.
+- Split the `Development` sidebar section into `Contributing`, `API reference`, `Release and hosting` and `Project`.
 
 ## [`7.15.0` (2026-09-07)](https://github.com/kdeldycke/repomatic/compare/v7.14.0...v7.15.0)
 

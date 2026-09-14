@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import tomllib  # type: ignore[import-not-found]
@@ -18,8 +19,25 @@ project_id = toml_config["project"]["name"]
 version = release = toml_config["project"]["version"]
 author = ", ".join(a["name"] for a in toml_config["project"]["authors"])
 
+# Canonical origin of the published site, read from the one place that declares
+# it. The trailing slash is mandatory: Sphinx joins page paths onto this verbatim
+# to build each `<link rel="canonical">`, and sphinx-sitemap concatenates it with
+# every page link (its own normalization line discards its result), so a
+# slash-less value yields sitemap URLs with the host glued to the first path
+# segment.
+docs_site_url = toml_config["project"]["urls"]["Documentation"].rstrip("/") + "/"
+
 # Title-case each word of the project ID.
 project = " ".join(word.title() for word in project_id.split("-"))
+
+# GitHub account owning the project. Factored out so a rename touches one line
+# instead of every URL built from it below (repository, sponsors, social card).
+github_user = "kdeldycke"
+
+# Whole years since `0.0.1` (2021-12-11), the oldest entry of the changelog, for
+# the announcement banner below. Floored, so the figure is never ahead of the
+# anniversary it claims.
+maintained_years = (datetime.now(tz=timezone.utc).date() - date(2021, 12, 11)).days // 365
 
 # Addons.
 extensions = [
@@ -31,6 +49,9 @@ extensions = [
     # Adds a copy button to code blocks.
     "sphinx_copybutton",
     "sphinx_design",
+    # Emits sitemap.xml from html_baseurl, so crawlers get the API reference as
+    # a list instead of having to discover it by following links.
+    "sphinx_sitemap",
     "sphinxext.opengraph",
     "myst_parser",
     # myst_docstrings hooks autodoc-process-docstring at priority 400 (vs default
@@ -57,7 +78,6 @@ myst_enable_extensions = [
     "attrs_inline",
     "colon_fence",
     "deflist",
-    "fieldlist",
     "replacements",
     "smartquotes",
     "strikethrough",
@@ -200,8 +220,6 @@ autodoc_default_options = {
 # If true, `todo` and `todoList` produce output.
 todo_include_todos = True
 
-github_user = "kdeldycke"
-
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "click": (
@@ -228,7 +246,7 @@ autosectionlabel_prefix_document = True
 # No trailing `.html` anywhere in the emitted URLs is not something to fix
 # here: Cloudflare Pages strips the extension itself and redirects `page.html`
 # to `page`, so `html_baseurl` names the origin and the host settles the shape.
-html_baseurl = "https://repomatic.net"
+html_baseurl = docs_site_url
 
 # Theme config.
 html_theme = "furo"
@@ -248,22 +266,21 @@ html_theme_options = {
     "source_repository": f"https://github.com/{github_user}/{project_id}",
     "source_branch": "main",
     "source_directory": "docs/",
+    # Sits atop every page, so it stays a single line and leads with the track
+    # record rather than pleading scarcity: how thin the maintenance is says
+    # nothing to a reader who has not yet decided the project is worth funding.
+    # The age is recomputed at build time, so the claim never goes stale. Each
+    # call to action opens on its emoji, which gives the eye two markers to land
+    # on in a line that is otherwise unbroken prose.
     "announcement": (
-        f"{project} works fine, but is"
-        " <em>maintained by only one person</em>"
-        " 😶‍🌫️.<br/>You can help if"
-        " you <strong>"
-        "<a class='reference external'"
-        f" href='https://github.com/sponsors/"
-        f"{github_user}'>"
-        "purchase business support"
-        " 🤝</a></strong> or"
-        " <strong>"
-        "<a class='reference external'"
-        f" href='https://github.com/sponsors/"
-        f"{github_user}'>"
-        "sponsor the project"
-        " 🫶</a></strong>."
+        f"{project} has been maintained for {maintained_years}+ years, and is "
+        "free to use. You can help if you "
+        "<strong><a class='reference external' "
+        f"href='https://github.com/sponsors/{github_user}'>"
+        "🤝 purchase business support</a></strong> or "
+        "<strong><a class='reference external' "
+        f"href='https://github.com/sponsors/{github_user}'>"
+        "🫶 sponsor the project</a></strong>."
     ),
 }
 
@@ -334,42 +351,86 @@ linkcheck_ignore = [
 ]
 
 # OpenGraph / social previews.
-# Social-card image (og:image), served from the GitHub raw host: docs/assets/
-# is not copied into the built site (only the two sidebar logos are named in
-# html_static_path, and no doc body references the banner, so Sphinx's image
-# collector never picks it up),
-# which means a site-relative `assets/...` path resolves against ogp_site_url
-# to a URL that 404s for social crawlers. The absolute raw URL points at the
-# committed file on `main`, mirroring the readme banner and screenshots.
-ogp_image = (
-    f"https://raw.githubusercontent.com/{github_user}/"
-    f"{project_id}/main/docs/assets/banner-social-light.png"
-)
-# Absolute base URL for OpenGraph (used for og:url and other page-level tags).
-# Derived from html_baseurl so the og:url a crawler reads can never name a
-# different host than the canonical link beside it.
-ogp_site_url = f"{html_baseurl}/"
+# Absolute base URL for OpenGraph. sphinxext.opengraph resolves og:image
+# against it, so social crawlers can follow the image instead of a relative
+# path they cannot resolve.
+ogp_site_url = docs_site_url
+# Social-card image (og:image), named as a path relative to the site root:
+# sphinxext.opengraph joins it onto ogp_site_url, so every page emits the same
+# absolute URL whatever its depth. The card is the site's own copy rather than a
+# GitHub raw hotlink, which keeps one origin and refreshes it on every deploy.
+# Its html_static_path entry below is what puts the file there.
+ogp_image = "_static/banner-social-light.png"
+ogp_image_alt = project
 
 # Footer content.
 html_last_updated_fmt = "%Y-%m-%d"
 copyright = f"{author} and contributors"
 html_show_sphinx = False
 
+# Do not publish a copy of every source document under `_sources/`. Nothing links
+# to it: no page this theme renders carries a source link, so the copy is tree
+# that only a hand-typed URL could reach. The sources themselves are not lost,
+# they are the repository. Both settings are named because they gate different
+# halves of the feature, `html_copy_source` the files and `html_show_sourcelink`
+# the link, and a theme reading only the second would otherwise offer a link to
+# files that are no longer there.
+html_copy_source = False
+html_show_sourcelink = False
+
 # Individual files are copied to the root of _static/, which is where Furo looks
-# for the light_logo/dark_logo pair. Listing docs/assets/ wholesale would drag
-# every other asset along.
+# for the light_logo/dark_logo pair. `banner-social-light.png` is read by no
+# theme and shown on no page: it is the og:image social crawlers fetch, and it
+# needs an entry here for the site to serve it at all. Listing docs/assets/
+# wholesale would drag every other asset along.
 html_static_path = [
     "_static",
+    "assets/banner-social-light.png",
     "assets/logo-square-dark.png",
     "assets/logo-square-light.png",
 ]
 html_css_files = ["custom.css"]
 
 # Copied verbatim to the root of the build, which is the directory
-# `wrangler pages deploy` uploads, so Cloudflare Pages reads the rules. An
-# entry here keeps its leading underscore, unlike html_static_path, whose
-# contents Sphinx re-roots under `_static/`. The file is inert on GitHub Pages.
-html_extra_path = ["_redirects"]
+# `wrangler pages deploy` uploads and the only place each of these means
+# anything: `html_static_path` would bury them under `_static/`, where a crawler
+# never looks for `robots.txt`, neither host looks for `404.html`, and Cloudflare
+# never reads `_redirects`. An entry here also keeps its leading underscore,
+# unlike html_static_path, whose contents Sphinx re-roots. `_redirects` is inert
+# on GitHub Pages.
+html_extra_path = ["404.html", "_redirects", "robots.txt"]
+# sphinx-sitemap defaults to a `{lang}{version}{link}` layout meant for sites
+# publishing several translations or versions side by side. This one publishes a
+# single tree, so anything but the bare link yields sitemap entries that 404.
+sitemap_url_scheme = "{link}"
+
+
+def prune_build_artifacts(app, exception):
+    """Delete what Sphinx leaves in the output tree that is not content.
+
+    `.buildinfo` records the configuration hash an incremental build compares
+    against, and `.buildinfo.bak` is the copy Sphinx keeps when that comparison
+    fails. Neither is content, and no setting suppresses them: the HTML builder
+    writes `.buildinfo` from a finish task unconditionally, so the only way to
+    keep them out of a published tree is to remove them once it has.
+
+    `_sources/` is created unconditionally too, before `html_copy_source` is
+    ever consulted, so switching that off empties the directory without
+    removing it. It is deleted here only while empty, which keeps this from
+    quietly discarding the sources of a build that does want to publish them.
+
+    The cost of dropping the markers is local and small: a subsequent
+    incremental build finds none and re-reads every document. CI builds are
+    always fresh, so they lose nothing at all.
+    """
+    if exception:
+        return
+    outdir = Path(app.outdir)
+    for marker in (".buildinfo", ".buildinfo.bak"):
+        (outdir / marker).unlink(missing_ok=True)
+    sources = outdir / "_sources"
+    if sources.is_dir() and not any(sources.iterdir()):
+        sources.rmdir()
 
 
 def setup(app):
@@ -380,3 +441,4 @@ def setup(app):
     so this registration wins.
     """
     app.add_directive("autoclasstree", NoZoomClassDiagram, override=True)
+    app.connect("build-finished", prune_build_artifacts)
