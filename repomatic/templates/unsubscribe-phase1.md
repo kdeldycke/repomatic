@@ -1,5 +1,5 @@
 ---
-args: [mode, summary_line, batch_details_rows, state_breakdown_rows, backlog_warning, details_section]
+args: [mode, summary_line, batch_details_table, state_breakdown_table, backlog_warning, details_section]
 footer: false
 ---
 
@@ -9,15 +9,11 @@ footer: false
 
 ### 📊 Batch details
 
-| Metric               | Value |
-| -------------------- | ----- |
-| \$batch_details_rows |       |
+\$batch_details_table
 
 ### 🏷️ Breakdown by state
 
-| State                  | Count |
-| ---------------------- | ----- |
-| \$state_breakdown_rows |       |
+\$state_breakdown_table
 
 \$backlog_warning
 

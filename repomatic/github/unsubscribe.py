@@ -586,26 +586,35 @@ def _render_phase1_fragments(
         dry_run,
     )
 
-    # Batch details rows.
+    # Whole tables, not rows spliced into a table the template opens: a
+    # multi-row value wrapped in one row's pipes gave the first row an empty
+    # leading cell and the last a pair of trailing ones. Rendering here also
+    # matches {func}`_render_phase2_content`, and puts the markup out of reach
+    # of the formatter that owns the template file.
     oldest_str = p1.oldest_updated.isoformat() if p1.oldest_updated else "-"
     newest_str = p1.newest_updated.isoformat() if p1.newest_updated else "-"
-    batch_details_rows = "\n".join([
-        f"| \U0001f514 Threads before cutoff | {p1.threads_total} |",
-        f"| \U0001f4e6 Max unsubscribes | {p1.max_unsubscribes} |",
-        f"| \U0001f4cb Deferred to a later run | {p1.threads_deferred} |",
-        f"| \u23ea Oldest activity | {oldest_str} |",
-        f"| \u23e9 Newest activity | {newest_str} |",
-        f"| \u2702\ufe0f Cutoff | {cutoff_str} |",
-    ])
+    batch_details_table = render_markdown_table(
+        ("Metric", "Value"),
+        (
+            ("\U0001f514 Threads before cutoff", p1.threads_total),
+            ("\U0001f4e6 Max unsubscribes", p1.max_unsubscribes),
+            ("\U0001f4cb Deferred to a later run", p1.threads_deferred),
+            ("\u23ea Oldest activity", oldest_str),
+            ("\u23e9 Newest activity", newest_str),
+            ("\u2702\ufe0f Cutoff", cutoff_str),
+        ),
+    )
 
-    # State breakdown rows.
     stale_count = p1.threads_unsubscribed + p1.threads_failed
-    state_breakdown_rows = "\n".join([
-        f"| \U0001f7e2 Open | {p1.threads_skipped_open} |",
-        (f"| \U0001f7e1 Closed (active since cutoff) | {p1.threads_skipped_recent} |"),
-        f"| \U0001f534 Closed (inactive, eligible) | {stale_count} |",
-        f"| \u26aa Unknown | {p1.threads_skipped_unknown} |",
-    ])
+    state_breakdown_table = render_markdown_table(
+        ("State", "Count"),
+        (
+            ("\U0001f7e2 Open", p1.threads_skipped_open),
+            ("\U0001f7e1 Closed (active since cutoff)", p1.threads_skipped_recent),
+            ("\U0001f534 Closed (inactive, eligible)", stale_count),
+            ("\u26aa Unknown", p1.threads_skipped_unknown),
+        ),
+    )
 
     # Backlog warning (empty string if not applicable).
     backlog_warning = ""
@@ -635,8 +644,8 @@ def _render_phase1_fragments(
 
     return {
         "summary_line": summary_line,
-        "batch_details_rows": batch_details_rows,
-        "state_breakdown_rows": state_breakdown_rows,
+        "batch_details_table": batch_details_table,
+        "state_breakdown_table": state_breakdown_table,
         "backlog_warning": backlog_warning,
         "details_section": details_section,
     }
