@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import partial
@@ -44,7 +45,7 @@ import arrow
 from ..humanize import parse_iso_datetime
 from ..tabular import render_markdown_table
 from .actions import ReportAction
-from .gh import gh_api_json, iter_graphql_nodes, run_gh_command
+from .gh import gh_api_json, gh_graphql, iter_graphql_nodes, run_gh_command
 from .pr_body import render_template
 from .token import validate_classic_pat_scope
 
@@ -61,6 +62,33 @@ NOTIFICATION_PAGE_SIZE = 50
 
 NOTIFICATION_SUBJECT_TYPES = frozenset({"Issue", "PullRequest"})
 """Notification subject types to process."""
+
+SUBJECT_BATCH_SIZE = 50
+"""Subjects looked up per GraphQL round trip.
+
+The whole cost of the REST phase is one detail call per thread. A batched
+lookup answers 50 in one request for a single rate-limit point, so a 113-thread
+pool costs three requests instead of 113.
+"""
+
+SUBJECT_STATES = {"OPEN": "open", "CLOSED": "closed", "MERGED": "closed"}
+"""GraphQL subject states, mapped onto the REST spelling the phase compares.
+
+REST reports a merged pull request as `closed`, where GraphQL distinguishes
+`MERGED`. Collapsing the two here keeps one vocabulary in the caller, and keeps
+the batched lookup a drop-in for {func}`_get_thread_details`.
+"""
+
+SUBJECT_URL_PATTERN = re.compile(
+    r"/repos/(?P<owner>[^/]+)/(?P<repo>[^/]+)/(?:issues|pulls)/(?P<number>\d+)$"
+)
+"""Owner, repository and number, read off a notification's subject URL.
+
+A subject URL is the only handle the notification list gives out. GraphQL
+addresses the same object by coordinates, and `issueOrPullRequest` covers both
+shapes, so the `issues`/`pulls` half of the path is read and discarded.
+"""
+
 
 THREADLESS_SEARCH_QUERY = """
 query($searchQuery: String!, $cursor: String, $pageSize: Int!) {
@@ -288,6 +316,104 @@ def _get_thread_details(subject_url: str) -> dict[str, Any] | None:
     ])
     if details is None:
         logging.debug(f"Subject inaccessible or malformed: {subject_url}")
+    return details
+
+
+def _subject_query(targets: dict[str, tuple[str, str, str]]) -> str:
+    """Render one aliased GraphQL query covering every subject in *targets*.
+
+    :param targets: Alias to `(owner, repo, number)`.
+    :return: A query selecting state and timestamps for each alias.
+    """
+    blocks = []
+    for alias, (owner, repo, number) in targets.items():
+        fields = "state updatedAt number url"
+        blocks.append(
+            f"  {alias}: repository("
+            f"owner: {json.dumps(owner)}, name: {json.dumps(repo)}) {{\n"
+            f"    issueOrPullRequest(number: {number}) {{\n"
+            f"      __typename\n"
+            f"      ... on Issue {{ {fields} }}\n"
+            f"      ... on PullRequest {{ {fields} }}\n"
+            f"    }}\n"
+            f"  }}"
+        )
+    return "{\n" + "\n".join(blocks) + "\n}"
+
+
+def _batch_subject_details(subject_urls: list[str]) -> dict[str, dict[str, Any]]:
+    """Look up many subjects in one GraphQL request.
+
+    The batched counterpart of {func}`_get_thread_details`, returning the same
+    four fields under the same names so either can feed the phase.
+
+    :param subject_urls: Subject URLs from the notification list.
+    :return: Subject URL to its detail dict. A subject GraphQL answered `null`
+        for (an inaccessible repository, a deleted issue) is absent, exactly as
+        the single lookup returns `None` for it.
+    :raises RuntimeError: When the `gh` invocation fails, leaving the caller to
+        fall back.
+    """
+    targets = {}
+    for index, url in enumerate(subject_urls):
+        match = SUBJECT_URL_PATTERN.search(url)
+        if match is None:
+            continue
+        targets[f"s{index}"] = (
+            match["owner"],
+            match["repo"],
+            match["number"],
+        )
+    if not targets:
+        return {}
+    data = gh_graphql(_subject_query(targets)) or {}
+
+    details = {}
+    for alias in targets:
+        node = (data.get(alias) or {}).get("issueOrPullRequest")
+        if not node:
+            continue
+        url = subject_urls[int(alias[1:])]
+        details[url] = {
+            "state": SUBJECT_STATES.get(node.get("state", ""), "unknown"),
+            "updated_at": node.get("updatedAt", ""),
+            "html_url": node.get("url", ""),
+            "number": node.get("number"),
+        }
+    return details
+
+
+def _fetch_subject_details(subject_urls: list[str]) -> dict[str, dict[str, Any]]:
+    """Resolve every subject's state, batched, with a per-subject fallback.
+
+    Defence in depth rather than a bet on one API: a batch that fails for any
+    reason (a `gh` error, a malformed envelope, a subject URL this code cannot
+    parse) is re-read one REST call at a time, which is what the phase did for
+    every thread before. The run then costs what it used to instead of
+    reporting a pool of inaccessible subjects.
+
+    :param subject_urls: Subject URLs from the notification list.
+    :return: Subject URL to its detail dict, omitting whatever neither route
+        could resolve.
+    """
+    details: dict[str, dict[str, Any]] = {}
+    pending: list[str] = []
+    for start in range(0, len(subject_urls), SUBJECT_BATCH_SIZE):
+        chunk = subject_urls[start : start + SUBJECT_BATCH_SIZE]
+        try:
+            resolved = _batch_subject_details(chunk)
+        except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+            logging.warning(f"Batched subject lookup failed ({exc}); falling back.")
+            resolved = {}
+            pending.extend(chunk)
+            continue
+        details.update(resolved)
+        pending.extend(url for url in chunk if url not in resolved)
+
+    for url in pending:
+        single = _get_thread_details(url)
+        if single is not None:
+            details[url] = single
     return details
 
 
@@ -608,6 +734,7 @@ def _run_rest_phase(
 
     total, threads = _fetch_notification_threads(batch_size, cutoff)
     p1.threads_total = total
+    subject_details = _fetch_subject_details([t["subject_url"] for t in threads])
 
     for thread in threads:
         p1.threads_inspected += 1
@@ -616,7 +743,7 @@ def _run_rest_phase(
         thread_repo = thread.get("repo", "")
         thread_title = thread.get("title", "")
 
-        details = _get_thread_details(subject_url)
+        details = subject_details.get(subject_url)
         if details is None:
             p1.threads_skipped_unknown += 1
             logging.info(f"  Thread {thread_id}: subject inaccessible, skipping.")

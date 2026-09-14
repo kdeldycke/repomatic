@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
@@ -36,8 +37,10 @@ from repomatic.github.unsubscribe import (
     UNSUBSCRIBE_WORKFLOW,
     DetailRow,
     UnsubscribeResult,
+    _batch_subject_details,
     _compute_cutoff,
     _fetch_notification_threads,
+    _fetch_subject_details,
     _format_link,
     _get_authenticated_username,
     _get_thread_details,
@@ -50,6 +53,10 @@ from repomatic.github.unsubscribe import (
     unsubscribe_threads,
 )
 from tests.conftest import patch_gh as shared_patch_gh
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from typing import Any
 
 _MODULE = "repomatic.github.unsubscribe"
 
@@ -141,6 +148,51 @@ def _gql_item(
     }
 
 
+_SUBJECT_ALIAS = re.compile(
+    r'(?P<alias>s\d+): repository\(owner: "(?P<owner>[^"]+)", name: "(?P<repo>[^"]+)"\)'
+    r"[^{]*\{\s*issueOrPullRequest\(number: (?P<number>\d+)\)"
+)
+"""Alias, coordinates and number, read back out of a batched subject query."""
+
+_REST_TO_GRAPHQL_STATE = {"open": "OPEN", "closed": "CLOSED"}
+"""The detail fixtures speak REST; the batched lookup answers in GraphQL."""
+
+
+def _subject_batch_response(query, detail_map):
+    """Answer a batched subject query from the REST-shaped detail fixtures.
+
+    Keeps one fixture vocabulary for both lookup routes: a test declares REST
+    details, and this renders whichever shape the code under test asked for.
+    An alias whose subject is not in *detail_map* answers `null`, which is how
+    GitHub reports a repository the token cannot see.
+    """
+    data: dict[str, dict[str, Any]] = {}
+    for match in _SUBJECT_ALIAS.finditer(query):
+        detail = None
+        for kind in ("issues", "pulls"):
+            url = (
+                f"https://api.github.com/repos/{match['owner']}"
+                f"/{match['repo']}/{kind}/{match['number']}"
+            )
+            if url in detail_map:
+                detail = detail_map[url]
+                break
+        if detail is None:
+            data[match["alias"]] = {"issueOrPullRequest": None}
+            continue
+        state = detail.get("state", "")
+        data[match["alias"]] = {
+            "issueOrPullRequest": {
+                "__typename": "Issue",
+                "state": _REST_TO_GRAPHQL_STATE.get(state, state),
+                "updatedAt": detail.get("updated_at", ""),
+                "number": detail.get("number"),
+                "url": detail.get("html_url", ""),
+            }
+        }
+    return data
+
+
 def _dispatch_gh(
     *,
     notifications="",
@@ -151,6 +203,7 @@ def _dispatch_gh(
     fail_delete=frozenset(),
     fail_patch=frozenset(),
     fail_mutation=frozenset(),
+    fail_subject_batch=False,
 ):
     """Build a `run_gh_command` side effect that answers by argument shape.
 
@@ -180,6 +233,11 @@ def _dispatch_gh(
                 raise RuntimeError("patch failed")
             return ""
         if args[:2] == ["api", "graphql"]:
+            query = next(a for a in args if a.startswith("query="))
+            if "issueOrPullRequest" in query:
+                if fail_subject_batch:
+                    raise RuntimeError("graphql unavailable")
+                return json.dumps({"data": _subject_batch_response(query, detail_map)})
             node_id = next(a[len("id=") :] for a in args if a.startswith("id="))
             if node_id in fail_mutation:
                 raise RuntimeError("mutation failed")
@@ -999,3 +1057,93 @@ def test_phase2_search_query_built():
     assert result.phase2.search_query == (
         "involves:fruitbot is:closed updated:<2026-04-16"
     )
+
+
+# --- Batched subject lookup ---
+
+
+def test_batch_subject_details_maps_graphql_onto_the_rest_vocabulary():
+    """One round trip answers many subjects, in the spelling the phase reads.
+
+    REST calls a merged pull request `closed`; GraphQL distinguishes `MERGED`.
+    The phase compares one vocabulary, so the batch collapses the two.
+    """
+    urls = [
+        "https://api.github.com/repos/fruits/apple/issues/1",
+        "https://api.github.com/repos/fruits/apple/pulls/2",
+        "https://api.github.com/repos/cities/lisbon/issues/3",
+    ]
+    response = {
+        "s0": {
+            "issueOrPullRequest": {
+                "state": "OPEN",
+                "updatedAt": STALE,
+                "number": 1,
+                "url": "https://github.com/fruits/apple/issues/1",
+            }
+        },
+        "s1": {
+            "issueOrPullRequest": {
+                "state": "MERGED",
+                "updatedAt": STALE,
+                "number": 2,
+                "url": "https://github.com/fruits/apple/pull/2",
+            }
+        },
+        # A repository the token cannot see answers null, not an error.
+        "s2": {"issueOrPullRequest": None},
+    }
+    with patch(f"{_MODULE}.gh_graphql", return_value=response) as mock_graphql:
+        details = _batch_subject_details(urls)
+
+    assert mock_graphql.call_count == 1
+    assert details[urls[0]]["state"] == "open"
+    assert details[urls[1]]["state"] == "closed"
+    assert details[urls[1]]["html_url"] == "https://github.com/fruits/apple/pull/2"
+    assert urls[2] not in details
+
+
+def test_fetch_subject_details_falls_back_to_one_call_each():
+    """A failed batch costs what the phase used to cost, never its results."""
+    urls = ["https://api.github.com/repos/fruits/apple/issues/1"]
+    detail = _closed_detail()
+    with (
+        patch(f"{_MODULE}.gh_graphql", side_effect=RuntimeError("graphql down")),
+        patch(f"{_MODULE}._get_thread_details", return_value=detail) as mock_single,
+    ):
+        details = _fetch_subject_details(urls)
+    assert details == {urls[0]: detail}
+    assert mock_single.call_count == 1
+
+
+def test_fetch_subject_details_falls_back_for_an_unparsable_url():
+    """A subject URL the pattern cannot read still gets resolved, one call."""
+    urls = ["https://api.github.com/repos/fruits/apple/discussions/1"]
+    detail = _closed_detail()
+    with (
+        patch(f"{_MODULE}.gh_graphql", return_value={}) as mock_graphql,
+        patch(f"{_MODULE}._get_thread_details", return_value=detail) as mock_single,
+    ):
+        details = _fetch_subject_details(urls)
+    assert details == {urls[0]: detail}
+    assert mock_graphql.call_count == 0
+    assert mock_single.call_count == 1
+
+
+def test_phase1_batches_every_subject_into_one_round_trip():
+    """The whole batch costs one request, not one per thread."""
+    root = "https://api.github.com/repos/fruits/apple/issues"
+    threads = [_thread_line(f"t{n}", f"{root}/{n}") for n in range(3)]
+    details = {f"{root}/{n}": _closed_detail(number=n) for n in range(3)}
+    with patch_gh(
+        side_effect=_dispatch_gh(notifications="\n".join(threads), details=details)
+    ) as mock_gh:
+        result = unsubscribe_threads(months=3, batch_size=10, dry_run=True)
+    assert result.phase1.threads_inspected == 3
+    graphql_calls = [
+        call
+        for call in mock_gh.call_args_list
+        if call.args[0][:2] == ["api", "graphql"]
+        and any("issueOrPullRequest" in arg for arg in call.args[0])
+    ]
+    assert len(graphql_calls) == 1
