@@ -1467,6 +1467,13 @@ DATA_DIR = REPO_ROOT / "repomatic" / "data"
 _UNBUNDLED_ENGINE_LANES = frozenset(RELEASE_ENGINE_WORKFLOWS) - set(
     WORKFLOW_SOURCES.values()
 )
+# Probe workflows are temporary measurements of real-host behavior, deleted once
+# their question is answered (see the `probe-workflow` skill). Nothing bundles or
+# reads one, so none carries a `repomatic/data/` symlink. Matched on the naming
+# convention rather than listed, so a probe comes and goes without editing this
+# file, and a retirement leaves no stale entry behind.
+PROBE_WORKFLOWS = frozenset(p.name for p in WORKFLOWS_DIR.glob("*-probe.yaml"))
+
 WORKFLOWS_WITHOUT_SYMLINKS = (
     frozenset((
         # repomatic's own release entry; downstreams get a generated release.yaml
@@ -1477,6 +1484,7 @@ WORKFLOWS_WITHOUT_SYMLINKS = (
     # Self-maintenance workflows patch this repo's own source and are invisible
     # downstream, so they are deliberately unbundled.
     | SELF_MAINTENANCE_WORKFLOWS
+    | PROBE_WORKFLOWS
 )
 
 

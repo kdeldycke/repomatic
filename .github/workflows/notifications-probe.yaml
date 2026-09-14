@@ -1,0 +1,144 @@
+# TEMPORARY probe workflow, to be deleted once the `/notifications` `before` filter is answered.
+#
+# Question: does `GET /notifications` honour the `before` parameter, and does it compose with
+# `all=true` and `gh api --paginate`? A parameter GitHub silently ignores is indistinguishable
+# from one it honours, unless a control proves the filter removes something.
+#
+# Privacy: this reads the account's notifications, which may name private repositories, into a
+# public repository's logs. Every step prints counts and timestamps only, never a repository
+# name, a thread title or a URL. Keep it that way.
+---
+name: "\U0001F52C Notifications before-filter probe"
+"on":
+  push:
+    paths:
+      - .github/workflows/notifications-probe.yaml
+      - repomatic/github/unsubscribe.py
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.event.head_commit.message, '[changelog] Release') }}
+
+# Supply-chain cooldown: no package published within the window can be resolved by
+# any command in this workflow. Set here, not per command, so it also covers the
+# `metadata` bootstrap and any step added later; a workflow-level `env:` cannot
+# reference `needs`, so the window is a literal kept equal to `[tool.repomatic]
+# minimum-release-age`. repomatic's own test suite enforces that upstream; a
+# synced copy is kept in step by hand. Deliberate bypasses are per-package CLI
+# flags (`--exclude-newer-package`, `--min-release-age-exclude`).
+# See claude.md for the rationale.
+env:
+  NPM_CONFIG_MIN_RELEASE_AGE: 7
+  UV_EXCLUDE_NEWER: "1 week"
+
+jobs:
+
+  probe-notifications:
+    name: "\U0001F52C Probe /notifications"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: false
+          version: "0.12.4"
+      - name: Probe the before parameter
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "FAIL  REPOMATIC_NOTIFICATIONS_PAT is not configured in this repository."
+            echo "      /notifications needs a classic PAT with the notifications scope;"
+            echo "      GITHUB_TOKEN and a fine-grained PAT are both rejected."
+            exit 1
+          fi
+          uv --no-progress run --frozen -- python - <<'PY'
+          """Measure what `before` does to `GET /notifications`.
+
+          Prints aggregates only: counts, timestamps, and pass/fail verdicts.
+          """
+          from datetime import datetime, timezone
+
+          from repomatic.github.gh import run_gh_command
+          from repomatic.github.unsubscribe import (
+              _compute_cutoff,
+              _fetch_notification_threads,
+          )
+
+          EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+          NOW = datetime.now(timezone.utc)
+          CUTOFF = _compute_cutoff(3)
+
+          failures = []
+
+          def gate(name, ok, detail=""):
+              print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}")
+              if not ok:
+                  failures.append(name)
+
+          def stamps(before=None):
+              """Every notification `updated_at`, optionally gated on `before`."""
+              args = [
+                  "api", "--method", "GET", "/notifications", "--paginate",
+                  "--jq", ".[].updated_at",
+                  "--raw-field", "all=true",
+                  "--raw-field", "per_page=50",
+              ]
+              if before is not None:
+                  args += [
+                      "--raw-field",
+                      f"before={before:%Y-%m-%dT%H:%M:%SZ}",
+                  ]
+              out = run_gh_command(args)
+              return [line.strip() for line in out.splitlines() if line.strip()]
+
+          print(f"gh: {run_gh_command(['--version']).splitlines()[0]}")
+          print(f"cutoff (3 months): {CUTOFF:%Y-%m-%dT%H:%M:%SZ}")
+
+          unfiltered = stamps()
+          filtered = stamps(CUTOFF)
+          epoch = stamps(EPOCH)
+          recent = stamps(NOW)
+
+          print(f"notifications, unfiltered:      {len(unfiltered)}")
+          print(f"notifications, before cutoff:   {len(filtered)}")
+          print(f"notifications, before now:      {len(recent)}")
+          print(f"notifications, before epoch:    {len(epoch)}")
+          if filtered:
+              print(f"filtered span: {min(filtered)} .. {max(filtered)}")
+
+          # The control that matters: an ignored parameter returns everything.
+          gate("before is honoured, not ignored", not epoch, f"epoch returned {len(epoch)}")
+          gate("before filters the set", len(filtered) < len(unfiltered),
+               f"{len(filtered)} < {len(unfiltered)}")
+          gate("before is monotonic in the cutoff", len(filtered) <= len(recent),
+               f"{len(filtered)} <= {len(recent)}")
+          gate("every result predates the cutoff",
+               all(s < f"{CUTOFF:%Y-%m-%dT%H:%M:%SZ}" for s in filtered),
+               f"max {max(filtered) if filtered else '-'}")
+          gate("the list arrives newest-first",
+               unfiltered == sorted(unfiltered, reverse=True))
+          if len(filtered) > 50:
+              gate("--paginate follows the filtered set past page one",
+                   len(filtered) > 50, f"{len(filtered)} > 50")
+          else:
+              print(f"SKIP  pagination gate: filtered set is one page ({len(filtered)})")
+
+          # The production path, end to end.
+          total, batch = _fetch_notification_threads(10, CUTOFF)
+          print(f"_fetch_notification_threads: total={total} batch={len(batch)}")
+          gate("the fetch sees no more than the raw filtered set", total <= len(filtered),
+               f"{total} <= {len(filtered)}")
+          gate("the batch caps at batch_size", len(batch) == min(10, total),
+               f"{len(batch)} == min(10, {total})")
+
+          if failures:
+              raise SystemExit(f"{len(failures)} gate(s) failed: {failures}")
+          print("all gates passed")
+          PY
