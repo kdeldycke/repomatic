@@ -77,6 +77,33 @@ if TYPE_CHECKING:
     from typing import Any, Final
 
 
+CALLER_INPUT_DEFAULTS: Final[dict[str, dict[str, str]]] = {
+    "unsubscribe.yaml": {
+        "batch-size": "notification_batch_size",
+        "months": "notification_months",
+    },
+}
+"""Caller inputs whose default a repository may set in `[tool.repomatic]`.
+
+Maps a canonical workflow to its configurable inputs, and each input to the
+{class}`~repomatic.config.Config` field that overrides it.
+
+`repomatic init` is the only moment the value can be applied: a reusable
+workflow runs on the caller's runner with no checkout of the caller's
+repository, so nothing downstream can read `pyproject.toml` at run time. The
+generated caller therefore carries the literal, behind the dispatch input so a
+manual run still wins:
+
+```yaml
+    with:
+      batch-size: ${{ inputs.batch-size || '600' }}
+```
+
+A repository leaving the default alone gets the plain passthrough, so adding a
+configurable input churns no existing caller.
+"""
+
+
 def cooldown_env_block() -> str:
     """Render the supply-chain cooldown `env:` block every workflow carries.
 
@@ -655,6 +682,36 @@ def _as_workflow_file(lines: list[str]) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
+def _configured_input_defaults(
+    filename: str,
+    call_inputs: dict[str, Any],
+    config: Config | None,
+) -> dict[str, str]:
+    """Caller inputs *config* moves off the canonical default, as literals.
+
+    Only a value that actually differs is reported, so a repository that
+    configures nothing keeps the plain passthrough its caller already has and a
+    new configurable input churns nobody's file.
+
+    :param filename: Canonical workflow filename.
+    :param call_inputs: The workflow's declared `workflow_call` inputs.
+    :param config: The target repository's configuration, or `None` to render
+        the canonical defaults.
+    :return: Input name to the literal to inline, empty when nothing differs.
+    """
+    if config is None:
+        return {}
+    overrides = {}
+    for input_name, field_name in CALLER_INPUT_DEFAULTS.get(filename, {}).items():
+        if input_name not in call_inputs:
+            continue
+        value = str(getattr(config, field_name))
+        canonical = str((call_inputs[input_name] or {}).get("default", ""))
+        if value != canonical:
+            overrides[input_name] = value
+    return overrides
+
+
 def generate_thin_caller(
     filename: str,
     repo: str = DEFAULT_REPO,
@@ -663,6 +720,7 @@ def generate_thin_caller(
     paths_spec: PathsSpec | None = None,
     with_permissions: bool = False,
     existing: str | None = None,
+    config: Config | None = None,
 ) -> str:
     """Generate a thin caller workflow for a reusable canonical workflow.
 
@@ -777,10 +835,17 @@ def generate_thin_caller(
     # (schedule, push) the caller's `inputs` context is null, and GitHub does
     # not document how a null passed to a boolean-typed input behaves.
     if info.call_inputs:
+        configured = _configured_input_defaults(filename, info.call_inputs, config)
         lines.append("    with:")
         for input_name, input_config in info.call_inputs.items():
             if (input_config or {}).get("type") == "boolean":
                 input_value = f"${{{{ inputs.{input_name} == true }}}}"
+            elif input_name in configured:
+                # The repository set this one in `[tool.repomatic]`. The literal
+                # has to travel in the caller: see CALLER_INPUT_DEFAULTS.
+                input_value = (
+                    f"${{{{ inputs.{input_name} || '{configured[input_name]}' }}}}"
+                )
             else:
                 input_value = f"${{{{ inputs.{input_name} }}}}"
             lines.append(f"      {input_name}: {input_value}")
@@ -821,6 +886,7 @@ def render_thin_caller_for_target(
     version: str = DEFAULT_VERSION,
     commit_sha: str | None = None,
     paths_spec: PathsSpec | None = None,
+    config: Config | None = None,
 ) -> tuple[str, str | None]:
     """Render the complete downstream content of *target*, extras included.
 
@@ -866,6 +932,7 @@ def render_thin_caller_for_target(
         commit_sha=commit_sha,
         with_permissions=extras_define_jobs(extra),
         existing=existing,
+        config=config,
     )
     if extra:
         content = content.rstrip("\n") + EXTRA_JOBS_SEPARATOR + extra.lstrip("\n")

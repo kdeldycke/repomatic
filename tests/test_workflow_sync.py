@@ -2341,3 +2341,62 @@ def test_thin_caller_rendering_has_a_single_seam() -> None:
     assert _thin_caller_call_sites() == {
         ("workflow_sync.py", "render_thin_caller_for_target")
     }
+
+
+# --- Configurable caller input defaults ---
+
+UNSUBSCRIBE_WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "unsubscribe.yaml"
+
+
+def test_configured_input_reaches_the_generated_caller() -> None:
+    """A `[tool.repomatic]` value lands in the caller, behind the dispatch input.
+
+    `repomatic init` is the only moment it can: the reusable workflow runs with
+    no checkout of the calling repository, so nothing downstream can read
+    `pyproject.toml` at run time. The dispatch input stays in front of the
+    literal, so a manual run still overrides the configured default.
+    """
+    caller = generate_thin_caller(
+        "unsubscribe.yaml", config=Config(notification_batch_size=600)
+    )
+    assert "batch-size: ${{ inputs.batch-size || '600' }}" in caller
+    # Untouched inputs keep the plain passthrough.
+    assert "months: ${{ inputs.months }}" in caller
+
+
+def test_default_config_leaves_the_caller_untouched() -> None:
+    """Configuring nothing churns no caller: the two renders are identical."""
+    assert generate_thin_caller("unsubscribe.yaml", config=Config()) == (
+        generate_thin_caller("unsubscribe.yaml")
+    )
+
+
+@pytest.mark.parametrize(
+    ("input_name", "field_name"),
+    sorted(ws.CALLER_INPUT_DEFAULTS["unsubscribe.yaml"].items()),
+)
+def test_canonical_input_defaults_match_the_config_field(
+    input_name: str, field_name: str
+) -> None:
+    """The canonical workflow and the config field declare the same default.
+
+    The literal is spelled four times in `unsubscribe.yaml`: the `workflow_call`
+    input, the `workflow_dispatch` input, and the `|| '...'` fallback each step
+    applies when a non-dispatch event leaves `inputs` null. A default that moves
+    in the config and not in the YAML would leave a repository configuring
+    nothing on a different value than the one the schema documents.
+    """
+    expected = str(getattr(Config, field_name))
+    workflow = yaml.safe_load(UNSUBSCRIBE_WORKFLOW_PATH.read_text(encoding="UTF-8"))
+    triggers = workflow["on"]
+    for trigger in ("workflow_call", "workflow_dispatch"):
+        declared = str(triggers[trigger]["inputs"][input_name]["default"])
+        assert declared == expected, (
+            f"unsubscribe.yaml {trigger}.inputs.{input_name} declares {declared},"
+            f" but Config.{field_name} is {expected}."
+        )
+    body = UNSUBSCRIBE_WORKFLOW_PATH.read_text(encoding="UTF-8")
+    assert f"inputs.{input_name} || '{expected}'" in body, (
+        f"unsubscribe.yaml has no `inputs.{input_name} || '{expected}'` fallback,"
+        f" so a scheduled run would not see Config.{field_name}."
+    )

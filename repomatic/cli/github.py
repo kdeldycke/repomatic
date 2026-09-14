@@ -40,6 +40,7 @@ from click_extra import (
 
 from ..broken_links import manage_combined_broken_links_issue
 from ..config import (
+    Config,
     load_repomatic_config,
 )
 from ..git_ops import current_branch
@@ -1278,13 +1279,13 @@ def sponsor_label(
 @option(
     "--months",
     type=IntRange(min=1),
-    default=3,
+    default=Config.notification_months,
     help="Inactivity threshold in months. Threads updated more recently are kept.",
 )
 @option(
     "--batch-size",
     type=IntRange(min=1),
-    default=200,
+    default=Config.notification_batch_size,
     help="Maximum number of threads/items to process per phase.",
 )
 @dry_run_option

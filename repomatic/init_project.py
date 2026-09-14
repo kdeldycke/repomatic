@@ -1334,6 +1334,7 @@ def _init_workflows(
             version=version,
             paths_spec=paths_spec,
             commit_sha=commit_sha,
+            config=config,
         )
         # A generated workflow is written byte-for-byte: its trailing layout is
         # the generator's business, not something to normalize here.
