@@ -485,17 +485,35 @@ def test_render_report_empty_result():
 # -- _fetch_notification_threads ----------------------------------------------
 
 
-def test_fetch_notification_threads_reverses_and_truncates():
-    """Threads are reversed to oldest-first, then cut to the batch size."""
+def test_fetch_notification_threads_sorts_oldest_first_and_truncates():
+    """The batch is the oldest threads by `updated_at`, cut to the batch size.
+
+    The order is imposed here, not inherited: the endpoint calls itself sorted
+    by most recent update, and a probe against 1637 real threads found the
+    response ordered by neither `updated_at` nor id. The arrival order below is
+    deliberately none of those.
+    """
     lines = [
-        json.dumps({"id": "t0", "subject_url": "u0"}),
-        json.dumps({"id": "t1", "subject_url": "u1"}),
-        json.dumps({"id": "t2", "subject_url": "u2"}),
+        json.dumps({
+            "id": "t0",
+            "subject_url": "u0",
+            "updated_at": "2026-08-01T00:00:00Z",
+        }),
+        json.dumps({
+            "id": "t1",
+            "subject_url": "u1",
+            "updated_at": "2026-06-01T00:00:00Z",
+        }),
+        json.dumps({
+            "id": "t2",
+            "subject_url": "u2",
+            "updated_at": "2026-07-01T00:00:00Z",
+        }),
     ]
     with patch_gh(return_value="\n".join(lines)):
         total, batch = _fetch_notification_threads(2, CUTOFF)
     assert total == 3
-    assert [t["id"] for t in batch] == ["t2", "t1"]
+    assert [t["id"] for t in batch] == ["t1", "t2"]
 
 
 def test_fetch_notification_threads_skips_malformed_lines():
@@ -529,6 +547,8 @@ def test_fetch_notification_threads_query_args():
     assert "before=2026-04-16T00:00:00Z" in args
     assert f"per_page={NOTIFICATION_PAGE_SIZE}" in args
     jq_filter = args[args.index("--jq") + 1]
+    # Without it the batch cannot be ordered: the response is not.
+    assert "updated_at" in jq_filter
     assert '"Issue"' in jq_filter
     assert '"PullRequest"' in jq_filter
 

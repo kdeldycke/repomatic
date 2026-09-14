@@ -197,25 +197,28 @@ def _fetch_notification_threads(
 ) -> tuple[int, list[dict[str, Any]]]:
     """Fetch Issue/PullRequest notification threads last moved before *cutoff*.
 
-    The `before` parameter of `GET /notifications` filters on notification
-    update time, so a thread that moved since *cutoff* never enters the batch
-    and never costs a detail call. That is what makes *batch_size* mean
-    something. Against the unfiltered list the batch is spent on whatever sits
-    at the oldest end of *every* notification, active ones included: a run of
-    600 inspected 600 threads and found no eligible candidate at all, 588 of
-    them still active and 12 still open.
+    The `before` parameter of `GET /notifications` narrows the list to what is
+    worth a detail call, which is what makes *batch_size* mean something.
+    Against the unfiltered list the batch is spent on whatever the response
+    happens to hold, active threads included: a run of 600 inspected 600 and
+    found no eligible candidate at all, 588 still active and 12 still open.
+    A probe measured the filter cutting 1637 threads to 113.
 
-    The filter is a pre-filter, never a verdict. It reads the notification
-    clock, while eligibility reads the subject's own state and `updated_at`,
-    both still fetched per thread by {func}`_get_thread_details`.
+    ```{note}
+    `before` is a pre-filter, never a verdict, and the same probe showed it
+    reads a clock of its own: of 113 threads it returned against a 90-day
+    cutoff, 104 predated that cutoff by `updated_at` and 112 by `last_read_at`.
+    So it over-returns rather than under-returns, which is the safe direction.
+    Eligibility is decided per thread by {func}`_get_thread_details`, on the
+    subject's own state and `updated_at`.
+    ```
 
     :param batch_size: Maximum number of threads to return.
-    :param cutoff: Inactivity boundary. Only threads whose notification last
-        moved before it are fetched.
-    :return: Tuple of `(candidate_count, truncated_batch)`, where the count
-        covers every thread older than *cutoff*, not every notification. Each
-        thread dict contains `id`, `subject_url`, `subject_type`, `repo`,
-        `title`.
+    :param cutoff: Inactivity boundary, passed to the API as `before`.
+    :return: Tuple of `(candidate_count, oldest_batch)`, where the count covers
+        every thread the filter returned, not every notification. Each thread
+        dict contains `id`, `updated_at`, `subject_url`, `subject_type`,
+        `repo`, `title`.
     """
     # The --jq filter selects Issue/PullRequest types and extracts fields.
     jq_filter = (
@@ -224,7 +227,7 @@ def _fetch_notification_threads(
             f'"{t}"' for t in sorted(NOTIFICATION_SUBJECT_TYPES)
         )
         + ")"
-        " | {id, repo: .repository.full_name,"
+        " | {id, updated_at, repo: .repository.full_name,"
         " subject_type: .subject.type, subject_url: .subject.url,"
         " title: .subject.title}"
     )
@@ -259,10 +262,14 @@ def _fetch_notification_threads(
             logging.warning(f"Skipping malformed notification line: {line!r}")
 
     total = len(threads)
-    # The list arrives most-recently-updated first, so a reverse walks the
-    # oldest candidates first: a run that cannot clear the whole pool clears
-    # its deepest end, and the next one resumes where this stopped.
-    threads.reverse()
+    # Sorted here rather than trusted from the response. The endpoint documents
+    # itself as "sorted by most recently updated", and a probe against 1637 real
+    # threads found the list ordered by neither `updated_at` nor thread id, in
+    # either direction, so the reverse this used to do walked an arbitrary slice
+    # and called it the oldest one. Sorting on the timestamp the payload already
+    # carries is what makes the batch the deepest end of the backlog, so a run
+    # that cannot clear the whole pool leaves the next one where it stopped.
+    threads.sort(key=lambda thread: thread.get("updated_at") or "")
     return total, threads[:batch_size]
 
 
