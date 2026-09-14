@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
 from unittest.mock import patch
@@ -373,33 +373,29 @@ def test_render_report_phase1_live_summary():
 
 
 @pytest.mark.parametrize(
-    ("oldest_updated", "threads_total", "expect_warning"),
+    ("threads_total", "expect_warning"),
     [
-        pytest.param(
-            datetime(2026, 5, 1, tzinfo=timezone.utc), 100, True, id="stale-backlog"
-        ),
-        pytest.param(
-            datetime(2026, 3, 1, tzinfo=timezone.utc),
-            100,
-            False,
-            id="oldest-below-cutoff",
-        ),
-        pytest.param(
-            datetime(2026, 5, 1, tzinfo=timezone.utc), 10, False, id="fully-inspected"
-        ),
+        pytest.param(100, True, id="candidates-left"),
+        pytest.param(10, False, id="fully-inspected"),
     ],
 )
-def test_render_report_backlog_warning(oldest_updated, threads_total, expect_warning):
-    """The backlog warning fires only for an unreached, still-recent batch."""
+def test_render_report_backlog_warning(threads_total, expect_warning):
+    """The warning fires while candidates the batch could not reach remain.
+
+    The fetch now filters on the cutoff, so every uninspected thread is a real
+    candidate and raising the batch reaches more of them. That is what the
+    warning advises, and what it could not honestly promise while the batch was
+    drawn from every notification.
+    """
     result = UnsubscribeResult(dry_run=False, months=3)
     p1 = result.phase1
     p1.cutoff = CUTOFF
     p1.batch_size = 200
     p1.threads_total = threads_total
     p1.threads_inspected = 10
-    p1.oldest_updated = oldest_updated
+    p1.oldest_updated = datetime(2026, 5, 1, tzinfo=timezone.utc)
     report = render_report(result)
-    assert ("Oldest activity seen in this batch" in report) is expect_warning
+    assert ("last updated before the cutoff" in report) is expect_warning
 
 
 def _backlog_report(repo_url: str | None = None) -> str:
@@ -497,7 +493,7 @@ def test_fetch_notification_threads_reverses_and_truncates():
         json.dumps({"id": "t2", "subject_url": "u2"}),
     ]
     with patch_gh(return_value="\n".join(lines)):
-        total, batch = _fetch_notification_threads(2)
+        total, batch = _fetch_notification_threads(2, CUTOFF)
     assert total == 3
     assert [t["id"] for t in batch] == ["t2", "t1"]
 
@@ -511,7 +507,7 @@ def test_fetch_notification_threads_skips_malformed_lines():
         json.dumps({"id": "t1", "subject_url": "u1"}),
     ]
     with patch_gh(return_value="\n".join(lines)):
-        total, batch = _fetch_notification_threads(10)
+        total, batch = _fetch_notification_threads(10, CUTOFF)
     assert total == 2
     assert {t["id"] for t in batch} == {"t0", "t1"}
 
@@ -519,21 +515,35 @@ def test_fetch_notification_threads_skips_malformed_lines():
 def test_fetch_notification_threads_gh_failure_returns_empty():
     """A gh failure degrades to a zero total and an empty batch."""
     with patch_gh(side_effect=RuntimeError("boom")):
-        assert _fetch_notification_threads(10) == (0, [])
+        assert _fetch_notification_threads(10, CUTOFF) == (0, [])
 
 
 def test_fetch_notification_threads_query_args():
-    """The fetch requests both subject types with pagination and all=true."""
+    """The fetch requests both subject types, paginated, gated on the cutoff."""
     with patch_gh(return_value="") as mock_gh:
-        _fetch_notification_threads(10)
+        _fetch_notification_threads(10, CUTOFF)
     args = mock_gh.call_args.args[0]
     assert args[:4] == ["api", "--method", "GET", "/notifications"]
     assert "--paginate" in args
     assert "all=true" in args
+    assert "before=2026-04-16T00:00:00Z" in args
     assert f"per_page={NOTIFICATION_PAGE_SIZE}" in args
     jq_filter = args[args.index("--jq") + 1]
     assert '"Issue"' in jq_filter
     assert '"PullRequest"' in jq_filter
+
+
+def test_fetch_notification_threads_sends_the_cutoff_in_utc():
+    """A cutoff from another zone must not stamp its wall clock with a `Z`.
+
+    The suffix is a claim about the instant, so formatting without converting
+    first would shift the window by the offset and silently fetch the wrong
+    threads.
+    """
+    elsewhere = timezone(timedelta(hours=5))
+    with patch_gh(return_value="") as mock_gh:
+        _fetch_notification_threads(10, datetime(2026, 4, 16, 2, tzinfo=elsewhere))
+    assert "before=2026-04-15T21:00:00Z" in mock_gh.call_args.args[0]
 
 
 # -- _get_thread_details ------------------------------------------------------

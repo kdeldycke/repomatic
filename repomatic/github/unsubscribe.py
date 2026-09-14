@@ -193,15 +193,28 @@ def _format_link(row: DetailRow) -> str:
 
 def _fetch_notification_threads(
     batch_size: int,
+    cutoff: datetime,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """Fetch Issue/PullRequest notification threads via REST API.
+    """Fetch Issue/PullRequest notification threads last moved before *cutoff*.
 
-    Returns the total count of matching threads and a batch sorted
-    oldest-first, truncated to `batch_size`.
+    The `before` parameter of `GET /notifications` filters on notification
+    update time, so a thread that moved since *cutoff* never enters the batch
+    and never costs a detail call. That is what makes *batch_size* mean
+    something. Against the unfiltered list the batch is spent on whatever sits
+    at the oldest end of *every* notification, active ones included: a run of
+    600 inspected 600 threads and found no eligible candidate at all, 588 of
+    them still active and 12 still open.
+
+    The filter is a pre-filter, never a verdict. It reads the notification
+    clock, while eligibility reads the subject's own state and `updated_at`,
+    both still fetched per thread by {func}`_get_thread_details`.
 
     :param batch_size: Maximum number of threads to return.
-    :return: Tuple of `(total_count, truncated_batch)`. Each thread dict
-        contains `id`, `subject_url`, `subject_type`, `repo`,
+    :param cutoff: Inactivity boundary. Only threads whose notification last
+        moved before it are fetched.
+    :return: Tuple of `(candidate_count, truncated_batch)`, where the count
+        covers every thread older than *cutoff*, not every notification. Each
+        thread dict contains `id`, `subject_url`, `subject_type`, `repo`,
         `title`.
     """
     # The --jq filter selects Issue/PullRequest types and extracts fields.
@@ -227,6 +240,8 @@ def _fetch_notification_threads(
             "--raw-field",
             "all=true",
             "--raw-field",
+            f"before={cutoff.astimezone(timezone.utc):%Y-%m-%dT%H:%M:%SZ}",
+            "--raw-field",
             f"per_page={NOTIFICATION_PAGE_SIZE}",
         ])
     except RuntimeError as exc:
@@ -244,11 +259,9 @@ def _fetch_notification_threads(
             logging.warning(f"Skipping malformed notification line: {line!r}")
 
     total = len(threads)
-    # The REST notifications list is documented to sort by most recently
-    # updated first, so a reverse yields oldest-first processing. Combined
-    # with the batch-size truncation this is best-effort: the render_report
-    # backlog warning covers the case where the oldest threads stay out of
-    # reach because the API sorts by notification update, not issue activity.
+    # The list arrives most-recently-updated first, so a reverse walks the
+    # oldest candidates first: a run that cannot clear the whole pool clears
+    # its deepest end, and the next one resumes where this stopped.
     threads.reverse()
     return total, threads[:batch_size]
 
@@ -455,7 +468,7 @@ def _render_phase1_fragments(
     oldest_str = p1.oldest_updated.isoformat() if p1.oldest_updated else "-"
     newest_str = p1.newest_updated.isoformat() if p1.newest_updated else "-"
     batch_details_rows = "\n".join([
-        f"| \U0001f514 Total notifications | {p1.threads_total} |",
+        f"| \U0001f514 Threads before cutoff | {p1.threads_total} |",
         f"| \U0001f4e6 Batch size | {p1.batch_size} |",
         f"| \U0001f50e Inspected | {p1.threads_inspected} |",
         f"| \U0001f4cb Remaining backlog | {remaining} |",
@@ -475,12 +488,7 @@ def _render_phase1_fragments(
 
     # Backlog warning (empty string if not applicable).
     backlog_warning = ""
-    if (
-        p1.oldest_updated is not None
-        and p1.cutoff is not None
-        and remaining > 0
-        and p1.oldest_updated >= p1.cutoff
-    ):
+    if remaining > 0:
         manual_run = "run it manually"
         if repo_url:
             workflow_url = f"{repo_url}/actions/workflows/{UNSUBSCRIBE_WORKFLOW}"
@@ -491,17 +499,12 @@ def _render_phase1_fragments(
         backlog_warning = "\n".join([
             "> [!WARNING]",
             (
-                "> Oldest activity seen in this batch:"
-                f" `{oldest_str}` (cutoff: `{cutoff_str}`)."
-            ),
-            (
-                "> The notification API does not sort by issue activity, so this"
-                f" batch of {p1.threads_inspected} threads reached no candidate old"
-                " enough."
+                f"> Inspected {p1.threads_inspected} of {p1.threads_total} threads"
+                f" last updated before the cutoff (`{cutoff_str}`)."
             ),
             (
                 f"> Raise `batch-size` (currently {p1.batch_size}), or {manual_run}"
-                " with a larger batch, to clear the backlog faster."
+                " with a larger batch, to clear the rest."
             ),
         ])
 
@@ -596,7 +599,7 @@ def _run_rest_phase(
     prefix = "[dry-run] " if dry_run else ""
     p1 = Phase1Result(cutoff=cutoff, batch_size=batch_size)
 
-    total, threads = _fetch_notification_threads(batch_size)
+    total, threads = _fetch_notification_threads(batch_size, cutoff)
     p1.threads_total = total
 
     for thread in threads:

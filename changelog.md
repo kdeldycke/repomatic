@@ -11,6 +11,7 @@
 - `sync-workflow-pins` now steps a uv pin back onto the checksum table of the pinned `astral-sh/setup-uv`, instead of leaving every job installing uv unverified until a newer action release exists.
 - Raise the `click-extra` floor to `9.1`, required by the recording API the `update-docs` job captures the readme animation with.
 - Cooldown countdowns (`Held until`, `Eligible`, `Clears`) now read `in 5 hours` when the window lifts later the same day, instead of `just now`, which read as already cleared.
+- `unsubscribe-threads` now asks GitHub for only the notifications last updated before the cutoff, so a batch inspects candidates instead of threads that are still active.
 - The `unsubscribe` backlog warning now links the workflow's manual-run page, and no longer wraps its prose to a source column, which a job summary rendered as line breaks.
 - The `Released` column of the `sync-uv-lock` held-back table now measures the upload instant, so a release published earlier today reads `6 hours ago` instead of `just now`.
 - The `cloudflare-pages` token-expiry warning now counts down like the dependency tables (`2026-10-14 (in 3 weeks)`), instead of rounding down to `0 days away` on the token's last day.
