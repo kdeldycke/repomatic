@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.15.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.15.1` (2026-09-15)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.15.1)
 
 - **Breaking:** `sample-metrics` drops `--backfill-wayback` and `--import-csv`. GitHub's new star-history endpoint rebuilds every subject's curve directly, so neither workaround has anything left to recover.
 - `sample-metrics` now rebuilds every GitHub subject's star curve from GitHub's star-history endpoint, one reading per week. It needs no token, so a tracked repository gets a curve complete from its first star, not only an administered one.
