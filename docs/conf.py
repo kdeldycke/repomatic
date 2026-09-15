@@ -37,7 +37,9 @@ github_user = "kdeldycke"
 # Whole years since `0.0.1` (2021-12-11), the oldest entry of the changelog, for
 # the announcement banner below. Floored, so the figure is never ahead of the
 # anniversary it claims.
-maintained_years = (datetime.now(tz=timezone.utc).date() - date(2021, 12, 11)).days // 365
+maintained_years = (
+    datetime.now(tz=timezone.utc).date() - date(2021, 12, 11)
+).days // 365
 
 # Addons.
 extensions = [
