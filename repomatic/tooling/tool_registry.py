@@ -1183,23 +1183,23 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "8029959a945b5c6f2bc92ce53fca5cf0384c811cc0884b25b196a093a005657a",
+        ): "5f2db09dae91fca848f7adbdd014632e921a383863a2ad7e0450ad3aba0c6489",
         (
             LINUX,
             X86_64,
-        ): "fe42021c7272ef2d67ea36cbc3031683c625d0badec733ef3a57b567246a0b66",
+        ): "76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea7bf",
         (
             MACOS,
             AARCH64,
-        ): "4710ba8074a74334069719d5b82f8cb97532e5623bfe43ef7cdb3442101b9cb2",
+        ): "b7c872db63553ccffc7253aba3ed7d4885a27d83f1ba567b1138c6315a5847e5",
         (
             MACOS,
             X86_64,
-        ): "74255a8087d74a79f5c1307db807e7efa8f062c429e3a05c075550392e0dcfa1",
+        ): "d33eee0da0f92835b3562e9767a05cee7e4eaeef47daa03bfd09da17b4b590a6",
         (
             WINDOWS,
             X86_64,
-        ): "6738a3e155fbfec3bedc70962f9cd1610197587a43b5d7100f405239d8e11375",
+        ): "13629ce28442ca80b6b5a819f7574ab39e1c28c6e26734ca816c9714e04851df",
     },
     "typos": {
         (
@@ -1240,7 +1240,7 @@ VERSIONS: dict[str, str] = {
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
     "oxipng": "10.2.1",
-    "shfmt": "3.14.0",
+    "shfmt": "3.14.1",
     "typos": "1.50.1",
 }
 """Tool name to the version each checksum set was computed for.
@@ -1855,7 +1855,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
         default_paths="pyproject_files",
-        version="2.29.3",
+        version="2.29.4",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
@@ -1913,7 +1913,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "shfmt": ToolSpec(
         name="shfmt",
         default_paths="shfmt_files",
-        version="3.14.0",
+        version="3.14.1",
         source_url="https://github.com/mvdan/sh",
         config_docs_url="https://github.com/mvdan/sh/blob/master/cmd/shfmt/shfmt.1.scd",
         cli_docs_url="https://github.com/mvdan/sh#shfmt",
