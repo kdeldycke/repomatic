@@ -13,6 +13,7 @@ allowed-tools: Bash Read Grep Glob Skill Agent
 !`git log --oneline -25 2>/dev/null`
 !`git status --short 2>/dev/null`
 !`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
+!`grep -rhoE 'kdeldycke/repomatic/[^@ ]+@[0-9a-f]{40} # v[0-9.]+' .github/workflows 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$' | sort -u | sed 's/^/WORKFLOW_PIN=/'`
 
 ## Instructions
 
@@ -23,7 +24,7 @@ The release is push-driven: the `prepare-release` job in `changelog.yaml` runs `
 ### How this skill runs
 
 - **The review gate is the permission system, not a behavioral stop.** Normal runs prompt on each `git commit`, `git push`, and subagent write; step 4 shows the consolidated changelog diff *before* the first commit prompt, so approving that commit is the review gate and denying it stops the run. `--dangerously-skip-permissions` mutes the prompts so the full sequence runs autonomously; the skill cannot detect the mode and does not need to.
-- **Invocation method.** When the context shows `CANONICAL_REPO`, use `uv run repomatic`. Otherwise use `uvx --exclude-newer '1 week' --exclude-newer-package repomatic=P0D -- repomatic`, which applies the supply-chain cooldown to repomatic's dependency tree while keeping a fresh release installable. References to `<cmd>` below resolve to one or the other.
+- **Invocation method.** When the context shows `CANONICAL_REPO`, use `uv run repomatic`. Otherwise use `uvx --exclude-newer '1 week' --exclude-newer-package repomatic=P0D --from 'repomatic==X.Y.Z' -- repomatic`, with `X.Y.Z` the `WORKFLOW_PIN` the context shows. This applies the supply-chain cooldown to repomatic's dependency tree while keeping a fresh release installable. The pin matters because the tool registry ships inside repomatic: a newer release pins newer `ruff`, `typos` or `mypy` than the ones CI runs, and a gate built on it stops reproducing CI. The archetype: a downstream repo on `7.14.0` resolved `7.15.0` unpinned, which moved `ruff` from `0.16.3` to `0.16.5` and `typos` from `1.49.0` to `1.50.0`. Drop the `--from` clause only when the context shows no `WORKFLOW_PIN`. References to `<cmd>` below resolve to one or the other.
 - **Delegate the substance edits, apply the changelog yourself.** The sweep agents own the code, docs and bundled-asset lanes, so leave those files to them even when you do hold `Edit`/`Write`. The changelog is the exception: a skill is instructions rather than an actor, and `/repomatic-changelog` tells whoever loaded it to apply the consolidation directly, so you write `changelog.md` inline.
 
 ### Sub-agent rules
