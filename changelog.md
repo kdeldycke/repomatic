@@ -23,6 +23,7 @@
 - The bundled `repomatic-ship` skill now warns that `ruff -- check` fixes findings repo-wide where the config enables it, and recommends `--no-fix` for a read-only pass.
 - The bundled `repomatic-ship` skill now checks hand-maintained blocks enumerating a registry, like a readme pasting a whole collection or a `mirror-src` diagram, which its version-sample rules did not reach.
 - The bundled `repomatic-ship` skill now runs a downstream repository's local checks on the `repomatic` version its workflows pin, so their tool versions match CI.
+- The bundled `repomatic-ship` skill now smoke-tests the `oxipng` pin with `--version`, where a bare run failed on missing file arguments.
 - The bundled `babysit-ci` skill now caps a commit body at two lines and 25 words, and keeps diagnostic measurements out of it.
 - Add a man-page index to the documentation, and cover `--man`, the release tarball and regeneration on the installation page.
 - Rename the installation page's `Try it`, `Install methods` and `Executables` sections to `Try it now`, `Installation methods` and `Binaries`. Their old anchors no longer resolve.
