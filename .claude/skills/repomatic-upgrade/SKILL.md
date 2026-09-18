@@ -56,6 +56,8 @@ For each bullet outside the skip bin, find what it touches here. Grep the source
 - **A dropped or renamed surface.** Grep `tests.yaml`, any other header-only workflow, and local scripts for the old name.
 - **An upstream fix.** Search comments and workflow steps for the workaround it retires: `work around`, `XXX`, `TODO`, version-guarded branches, and inline pins of the tool it fixed.
 - **A generator change**, like a thin caller gaining a trigger or a header gaining `paths:`. Read `git diff HEAD -- .github/workflows` against the changelog, so a diff the release explains is never reported as drift.
+- **A synced skill or subagent.** `repomatic init` rewrites every bundled copy verbatim, so the upgrade also reverts each local commit made to one since the last sync. Compare every copy under `skills.location` and `subagents.location` at `HEAD` with upstream's `.claude/skills/{name}/SKILL.md` or `.claude/agents/{name}.md` at `vOLD`. Read those paths, not `repomatic/data/skills/`: its entries are symlinks, and `git show` returns their target path. A copy that matches neither `vOLD` nor any upstream commit between the two tags carries local edits. The upgrade drops them, so report them as a `breaking` row.
+- **A new `lint-repo` check.** Run `<cmd> lint-repo --repo {owner}/{repo}` and read its line: a check that passes here offers nothing. Without `--repo`, a local run has no `$GITHUB_REPOSITORY`, so every API-backed check drops out of the output.
 
 Keep the two axes apart, as `/repomatic-audit` does: what the release offers is this skill, what the repository drifted from is that one. A local deviation the release does not touch belongs to the audit, not here.
 
@@ -68,10 +70,11 @@ In `review` mode, stop here.
 ### Apply (`fix` mode)
 
 1. **Apply one row at a time, breaking rows first.** Keep each change readable on its own in `git diff`.
-2. **Run the local checks after each row.** The project's tests, `mypy` and `ruff`, plus `<cmd> lint-repo` when the row touched `.github/` or `pyproject.toml`. A failing check vetoes the row: revert it and note it in the report. Never loosen a test to pass.
-3. **Send generator problems upstream, as edits in the sibling checkout.** When a row needs a change in `repomatic` itself (a generator writing something unwanted, a missing knob, a docs gap) and the context shows `SIBLING_CHECKOUT`, implement it in `../repomatic`: the code, the tests it breaks, and a changelog bullet. Verify it there. Leave every change uncommitted. Without a sibling checkout, describe the change in the report instead.
-4. **Never commit, push, or open an issue or pull request.** The user reviews the working tree and decides.
-5. **Report.** What was applied, per row. What sits uncommitted in `../repomatic`. What was skipped, and why.
+2. **Keep the local edits a synced copy carries.** Restore the file from `HEAD` when upstream left it unchanged between the two tags. Otherwise re-apply the local commits onto the new copy: `git apply -C1` gets past a context line upstream reworded. Then port the edits upstream, as step 4 describes, or the next sync reverts them again.
+3. **Run the local checks after each row.** The project's tests, `mypy` and `ruff`, plus `<cmd> lint-repo --repo {owner}/{repo}` when the row touched `.github/` or `pyproject.toml`. A failing check vetoes the row: revert it and note it in the report. Never loosen a test to pass.
+4. **Send generator problems upstream, as edits in the sibling checkout.** When a row needs a change in `repomatic` itself (a generator writing something unwanted, a missing knob, a docs gap, a lesson a synced copy carries) and the context shows `SIBLING_CHECKOUT`, implement it in `../repomatic`: the code, the tests it breaks, and a changelog bullet. Verify it there. `repomatic run typos` and `mdformat` rewrite files in place and print no findings, so judge them by `git diff`. Another session may share that checkout: edit only the files the row needs, and name them in the report so they can be committed by pathspec. Leave every change uncommitted. Without a sibling checkout, describe the change in the report instead.
+5. **Never commit, push, or open an issue or pull request.** The user reviews the working tree and decides.
+6. **Report.** What was applied, per row. What sits uncommitted in `../repomatic`. What was skipped, and why.
 
 ### What not to touch
 

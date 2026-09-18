@@ -8,6 +8,7 @@
 - Ship the test suite, and the repository files it reads, in the PyPI sdist.
 - Skip the tests that need a git checkout when the suite runs from the sdist, and mark the one test needing network access `network`.
 - The bundled `probe-workflow` skill now keeps findings out of the retirement commit, gives a side-branch probe a `push` trigger, and records two hosted `macos-26` traps.
+- The bundled `repomatic-upgrade` skill now catches local edits to synced skills and subagents that the upgrade reverts, and passes `--repo` to `lint-repo` so its API-backed checks run.
 - The bundled `sphinx-docs-sync` skill now builds the documentation and counts its warnings before auditing, and re-locks `uv.lock` when it adds a docs dependency.
 - The bundled `upstream-audit` skill now sweeps an author's issues and pull requests across GitHub, and resolves their states in one GraphQL query.
 
