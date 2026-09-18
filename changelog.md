@@ -11,6 +11,7 @@
 - The bundled `repomatic-upgrade` skill now catches local edits to synced skills and subagents that the upgrade reverts, and passes `--repo` to `lint-repo` so its API-backed checks run.
 - The bundled `sphinx-docs-sync` skill now builds the documentation and counts its warnings before auditing, and re-locks `uv.lock` when it adds a docs dependency.
 - The bundled `upstream-audit` skill now sweeps an author's issues and pull requests across GitHub, and resolves their states in one GraphQL query.
+- Remove anecdotes naming past releases or other projects' threads from the bundled skills and the `sphinx-docs` agent.
 
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)
 
