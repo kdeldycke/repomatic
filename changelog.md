@@ -24,6 +24,9 @@
 - The bundled `repomatic-ship` skill now checks hand-maintained blocks enumerating a registry, like a readme pasting a whole collection or a `mirror-src` diagram, which its version-sample rules did not reach.
 - The bundled `repomatic-ship` skill now runs a downstream repository's local checks on the `repomatic` version its workflows pin, so their tool versions match CI.
 - The bundled `repomatic-ship` skill now smoke-tests the `oxipng` pin with `--version`, where a bare run failed on missing file arguments.
+- The bundled `repomatic-ship` skill now adds the canary build's binary self-test to its red inventory, and filters run listings by creation date.
+- The bundled `repomatic-ship` skill now takes a `:mirror:` block from the `update-docs` pull request when a local regeneration differs from CI's.
+- The bundled `repomatic-ship` skill now reads the report of an agent that cannot send one, like `qa-engineer`, from its idle notification.
 - The bundled `babysit-ci` skill now caps a commit body at two lines and 25 words, and keeps diagnostic measurements out of it.
 - Add the `repomatic-upgrade` skill, which reviews what a newer `repomatic` release lets a downstream repository adopt, reuse or drop, then applies it.
 - `repomatic init` now closes with the command launching that review when it moved the upstream pin, followed by the one launching the drift audit.
