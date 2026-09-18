@@ -41,6 +41,7 @@ flowchart LR
     propcache(["`propcache`"])
     python_dateutil(["`python-dateutil`"])
     sphinx_basic_ng(["`sphinx-basic-ng`"])
+    sphinx_last_updated_by_git(["`sphinx-last-updated-by-git`"])
     tabulate(["`tabulate`"])
     wcwidth(["`wcwidth`"])
     aiofiles(["`aiofiles`"])
@@ -83,6 +84,7 @@ flowchart LR
         sphinx_autodoc_typehints{{"`sphinx-autodoc-typehints >=2.4`"}}
         sphinx_copybutton{{"`sphinx-copybutton >=0.5.2`"}}
         sphinx_design{{"`sphinx-design >=0.6`"}}
+        sphinx_sitemap{{"`sphinx-sitemap >=2.6`"}}
         sphinxext_opengraph{{"`sphinxext-opengraph >=0.13`"}}
     end
 
@@ -92,7 +94,7 @@ flowchart LR
         pytest_xdist{{"`pytest-xdist >=3.7`"}}
         coverage{{"`coverage >=7.11`"}}
         pytest_github_actions_annotate_failures{{"`pytest-github-actions-annotate-failures >=0.2`"}}
-        pytest_randomly{{"`pytest-randomly >=3`"}}
+        pytest_randomly{{"`pytest-randomly >=5`"}}
     end
 
     subgraph grp_typing [--group typing]
@@ -101,7 +103,7 @@ flowchart LR
         types_pyyaml{{"`types-pyyaml >=6.0.12.9`"}}
     end
 
-    repomatic ==>|" >=9 "| click_extra
+    repomatic ==>|" >=9.1 "| click_extra
     repomatic ==>|" >=17 "| packaging
     repomatic ==>|" >=1.3 "| arrow
     repomatic ==>|" >=6.0.3 "| pyyaml
@@ -187,6 +189,7 @@ flowchart LR
     sphinx_autodoc_typehints --> sphinx
     sphinx_copybutton --> sphinx
     sphinx_design --> sphinx
+    sphinx_sitemap --> sphinx_last_updated_by_git
     sphinxext_opengraph --> sphinx
     tomlrt --> typing_extensions
     aiohttp --> typing_extensions
@@ -213,6 +216,7 @@ flowchart LR
     mdit_py_plugins --> markdown_it_py
     python_dateutil --> six
     sphinx_basic_ng --> sphinx
+    sphinx_last_updated_by_git --> sphinx
     tabulate --> wcwidth
     yarl --> multidict
     yarl --> idna
@@ -290,6 +294,8 @@ flowchart LR
     click sphinx_copybutton "https://pypi.org/project/sphinx-copybutton/" _blank
     click sphinx_datatables "https://pypi.org/project/sphinx-datatables/" _blank
     click sphinx_design "https://pypi.org/project/sphinx-design/" _blank
+    click sphinx_last_updated_by_git "https://pypi.org/project/sphinx-last-updated-by-git/" _blank
+    click sphinx_sitemap "https://pypi.org/project/sphinx-sitemap/" _blank
     click sphinxcontrib_applehelp "https://pypi.org/project/sphinxcontrib-applehelp/" _blank
     click sphinxcontrib_devhelp "https://pypi.org/project/sphinxcontrib-devhelp/" _blank
     click sphinxcontrib_htmlhelp "https://pypi.org/project/sphinxcontrib-htmlhelp/" _blank
@@ -337,6 +343,7 @@ flowchart LR
     style sphinx_copybutton stroke-width:3px
     style sphinx_datatables stroke-width:3px
     style sphinx_design stroke-width:3px
+    style sphinx_sitemap stroke-width:3px
     style sphinxcontrib_jquery stroke-width:3px
     style sphinxcontrib_mermaid stroke-width:3px
     style sphinxext_opengraph stroke-width:3px
