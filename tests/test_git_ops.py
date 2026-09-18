@@ -260,6 +260,7 @@ def test_create_without_push():
         mock_push.assert_not_called()
 
 
+@pytest.mark.repo_maintenance
 def test_get_latest_tag_version():
     """Test that we can retrieve the latest Git tag version."""
     latest = get_latest_tag_version()
@@ -273,6 +274,7 @@ def test_get_latest_tag_version():
     assert latest.micro >= 0
 
 
+@pytest.mark.repo_maintenance
 def test_get_release_version_from_commits():
     """Test that get_release_version_from_commits returns expected type.
 
@@ -289,6 +291,7 @@ def test_get_release_version_from_commits():
         assert result.micro >= 0
 
 
+@pytest.mark.repo_maintenance
 def test_get_release_version_from_commits_max_count():
     """Test that max_count parameter limits commit search."""
     # With max_count=1, we only check the HEAD commit.
@@ -300,6 +303,7 @@ def test_get_release_version_from_commits_max_count():
     assert result is None
 
 
+@pytest.mark.repo_maintenance
 def test_is_version_bump_allowed_returns_bool():
     """Test that is_version_bump_allowed returns a boolean."""
     # Test minor check.
@@ -317,6 +321,7 @@ def test_is_version_bump_allowed_invalid_part():
         is_version_bump_allowed("patch")  # type: ignore[arg-type]
 
 
+@pytest.mark.repo_maintenance
 def test_is_version_bump_allowed_current_repo():
     """Test the version bump check logic against the current repository state.
 

@@ -331,6 +331,7 @@ def _pr_labels(step: dict) -> set[str]:
     return explicit or set(template_labels(_pr_template(step)))
 
 
+@pytest.mark.repo_maintenance
 def test_consolidated_job_covers_every_operation() -> None:
     """Every registered operation has a step group in the job hosting it.
 
@@ -356,6 +357,7 @@ def test_consolidated_job_covers_every_operation() -> None:
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
+@pytest.mark.repo_maintenance
 def test_consolidated_job_passes_ci_flags(op: SyncOperation) -> None:
     """Each operation's `ci_flags` reach its sync step in the autofix job.
 
@@ -384,6 +386,7 @@ def test_consolidated_job_uses_full_history() -> None:
     assert checkout.get("with", {}).get("fetch-depth") == 0
 
 
+@pytest.mark.repo_maintenance
 def test_consolidated_job_labels_every_pr_consistently() -> None:
     """Every PR the consolidated job opens carries the shared dependency label."""
     labels = set()

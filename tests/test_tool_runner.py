@@ -3140,6 +3140,7 @@ def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monke
         "0.9.3 sdist on Linux and Windows ARM64; only macOS ARM64 ships one"
     ),
 )
+@pytest.mark.network
 def test_verify_via_write_path_accepts_the_working_directory(tmp_path, monkeypatch):
     """A path resolving to the working directory verifies the default set.
 

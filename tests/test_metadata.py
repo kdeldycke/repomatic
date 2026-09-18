@@ -68,7 +68,7 @@ from repomatic.metadata.core import (
     metadata_keys_reference,
 )
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
-from tests.conftest import metadata_from_pyproject
+from tests.conftest import IN_GIT_CHECKOUT, metadata_from_pyproject
 
 
 def regex(pattern: str) -> re.Pattern:
@@ -469,16 +469,23 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
         assert type(metadata) is type(expected)
 
 
-_ALL_TRACKED = tuple(
-    subprocess.run(
-        ["git", "ls-files"],
-        capture_output=True,
-        text=True,
-        encoding="UTF-8",
-        check=True,
-    ).stdout.splitlines()
+_ALL_TRACKED = (
+    tuple(
+        subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True,
+            text=True,
+            encoding="UTF-8",
+            check=True,
+        ).stdout.splitlines()
+    )
+    if IN_GIT_CHECKOUT
+    else ()
 )
 """Every path in the git index, snapshotted once at collection time.
+
+Empty outside a git checkout, where the `repo_maintenance` tests comparing
+against it are skipped.
 
 The independent oracle behind the file-inventory expectations below:
 `Metadata.glob_files` walks the disk under gitignore filtering, while this
@@ -945,6 +952,7 @@ def test_config_defaults_render_as_github_values(field_name):
     assert isinstance(Metadata.format_github_value(value), str)
 
 
+@pytest.mark.repo_maintenance
 def test_metadata_github_json_format():
     raw = Metadata().dump(Dialect.github_json)
     assert isinstance(raw, str)
@@ -994,6 +1002,7 @@ def test_metadata_github_json_format_key_filtering():
     assert set(metadata.keys()) == {"is_python_project", "current_version"}
 
 
+@pytest.mark.repo_maintenance
 def test_file_inventories_are_not_vacuous():
     """The git-derived inventories really enumerate the tree.
 
@@ -1016,6 +1025,7 @@ def test_file_inventories_are_not_vacuous():
     assert "repomatic/data/agent-grunt-qa.md" not in MARKDOWN_INVENTORY
 
 
+@pytest.mark.repo_maintenance
 def test_metadata_json_format():
     metadata = Metadata().dump(Dialect.json)
     assert isinstance(metadata, str)
@@ -1023,6 +1033,7 @@ def test_metadata_json_format():
     iter_checks(json.loads(metadata), expected, metadata)
 
 
+@pytest.mark.repo_maintenance
 def test_metadata_github_format():
     raw_metadata = Metadata().dump()
     assert isinstance(raw_metadata, str)
@@ -1419,6 +1430,7 @@ nuitka.dev-targets = ["windows-x64", "himalaya"]
     assert "himalaya" in caplog.text
 
 
+@pytest.mark.repo_maintenance
 def test_nuitka_matrix_canary_on_push(monkeypatch):
     """An ordinary CI push compiles only the dev-targets canary subset."""
     monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
@@ -1431,6 +1443,7 @@ def test_nuitka_matrix_canary_on_push(monkeypatch):
     assert include_targets == {"linux-arm64"}
 
 
+@pytest.mark.repo_maintenance
 def test_nuitka_matrix_full_fleet_on_schedule(monkeypatch):
     """The weekly scheduled run rebuilds every target."""
     monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
@@ -1442,6 +1455,7 @@ def test_nuitka_matrix_full_fleet_on_schedule(monkeypatch):
     }
 
 
+@pytest.mark.repo_maintenance
 def test_nuitka_matrix_full_fleet_on_release_push(monkeypatch):
     """A push carrying a release commit rebuilds every target."""
     monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
@@ -1455,6 +1469,7 @@ def test_nuitka_matrix_full_fleet_on_release_push(monkeypatch):
     }
 
 
+@pytest.mark.repo_maintenance
 def test_nuitka_matrix_full_fleet_locally():
     """Outside CI (no event), the matrix keeps the full roster."""
     matrix = Metadata().nuitka_matrix

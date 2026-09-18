@@ -474,6 +474,7 @@ def test_release_caller_emits_concurrency() -> None:
 
 
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
+@pytest.mark.repo_maintenance
 def test_correct_uses_ref(filename: str) -> None:
     """Verify correct uses reference in job."""
     content = generate_thin_caller(filename)
@@ -743,6 +744,7 @@ def test_custom_version() -> None:
     assert f"{DEFAULT_REPO}/.github/workflows/lint.yaml@v5.8.0" in content
 
 
+@pytest.mark.repo_maintenance
 def test_custom_repo() -> None:
     """Verify custom repo in uses reference."""
     content = generate_thin_caller("lint.yaml", repo="myorg/myworkflows")

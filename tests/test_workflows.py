@@ -697,6 +697,7 @@ def test_changelog_prefix_is_the_machinery_invariant() -> None:
     assert RELEASE_COMMIT_PATTERN.fullmatch(f"{CHANGELOG_COMMIT_PREFIX}Release v1.2.3")
 
 
+@pytest.mark.repo_maintenance
 def test_version_bump_branches_match_changelog_workflow() -> None:
     """VERSION_BUMP_BRANCHES must equal the set of branches actually created
     by `changelog.yaml`'s `peter-evans/create-pull-request` steps.
@@ -900,6 +901,7 @@ def test_post_release_commit_in_changelog_workflow() -> None:
     )
 
 
+@pytest.mark.repo_maintenance
 def test_version_bump_commit_in_changelog_workflow() -> None:
     """Verify that changelog.yaml uses the correct version bump commit message."""
     workflow = load_workflow("changelog.yaml")
@@ -980,6 +982,7 @@ def test_pull_requests_are_opened_by_the_cli_not_an_action() -> None:
     assert found == [], f"still opening PRs with the action: {found}"
 
 
+@pytest.mark.repo_maintenance
 def test_pr_sync_steps_pass_everything_through_env() -> None:
     """Every `pr-sync` step names a branch and takes its values from `env:`."""
     steps = [
@@ -1026,6 +1029,7 @@ def test_pr_sync_templates_declare_their_labels() -> None:
         )
 
 
+@pytest.mark.repo_maintenance
 def test_sync_repomatic_routes_upgrades_to_one_branch() -> None:
     """`sync-repomatic` runs `init --upgrade`, and both outcomes share a branch.
 
@@ -1509,6 +1513,7 @@ WORKFLOWS_WITHOUT_SYMLINKS = (
 )
 
 
+@pytest.mark.repo_maintenance
 def test_all_workflows_have_symlinks_in_data() -> None:
     """Verify that every exportable workflow has a symlink in repomatic/data/."""
     workflows = {
@@ -1560,6 +1565,7 @@ def test_workflow_symlinks_resolve_correctly() -> None:
         )
 
 
+@pytest.mark.repo_maintenance
 def test_action_symlinks_resolve_correctly() -> None:
     """Verify that composite-action symlinks in repomatic/data/ resolve correctly.
 
@@ -1582,6 +1588,7 @@ def test_action_symlinks_resolve_correctly() -> None:
             )
 
 
+@pytest.mark.repo_maintenance
 def test_skill_symlinks_resolve_correctly() -> None:
     """Verify each bundled skill folder mirrors its `.claude/skills/` original.
 
@@ -1900,6 +1907,7 @@ LOCAL_CLI_JOBS = [
 ]
 
 
+@pytest.mark.repo_maintenance
 def test_local_cli_jobs_discovered() -> None:
     """The local-CLI matcher must find jobs (guards against a dead constant)."""
     assert LOCAL_CLI_JOBS, (

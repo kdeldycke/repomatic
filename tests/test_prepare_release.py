@@ -1067,6 +1067,7 @@ def _freeze_repo_workflows(tmp_path: Path, version: str = "1.2.3") -> Path:
     return frozen
 
 
+@pytest.mark.repo_maintenance
 def test_freeze_keeps_workflows_within_line_length(tmp_path: Path) -> None:
     """Freezing the real workflows must not breach yamllint's column cap.
 
@@ -1106,6 +1107,7 @@ def test_freeze_exempts_self_pin_from_cooldown(tmp_path: Path) -> None:
                 )
 
 
+@pytest.mark.repo_maintenance
 def test_freeze_unfreeze_round_trips(tmp_path: Path) -> None:
     """Unfreezing restores the source byte for byte, exemption included."""
     frozen = _freeze_repo_workflows(tmp_path)

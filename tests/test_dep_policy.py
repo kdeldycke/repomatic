@@ -483,6 +483,7 @@ def test_an_array_preamble_documenting_no_floor_is_not_measured(tmp_path):
     assert scan_policy(path, comment_word_threshold=40) == []
 
 
+@pytest.mark.repo_maintenance
 def test_this_repository_follows_its_own_policy():
     """The canonical reference has to pass the rules it ships.
 

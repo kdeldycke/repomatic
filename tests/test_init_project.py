@@ -2639,6 +2639,7 @@ def _tool_section(text: str, tool_section: str) -> str:
     return "\n".join(lines[start:end]).rstrip()
 
 
+@pytest.mark.repo_maintenance
 def test_bumpversion_template_is_pyproject_fmt_fixed_point(tmp_path: Path) -> None:
     """`sync-bumpversion` output must already be a fixed point of pyproject-fmt.
 

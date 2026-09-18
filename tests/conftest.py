@@ -50,6 +50,16 @@ if TYPE_CHECKING:
 PROJECT_ROOT = Path(__file__).parent.parent
 """Root of the repository."""
 
+IN_GIT_CHECKOUT = (PROJECT_ROOT / ".git").exists()
+"""Whether the suite runs from a git checkout, not from an sdist or a tag tarball.
+
+A packager's source carries no git history, holds a release's frozen workflows,
+and, for an sdist, a `pyproject.toml` rewritten and symlinks dereferenced by the
+build backend. The tests marked `repo_maintenance` check those properties of a
+development checkout, so {func}`pytest_collection_modifyitems` skips them
+everywhere else.
+"""
+
 PACKAGE_DIR = PROJECT_ROOT / "repomatic"
 """Root of the package whose sources the conformance tests scan."""
 
@@ -62,6 +72,38 @@ order, and `pytest-xdist` aborts a run whose workers disagree on them.
 
 WORKFLOWS_DIR = PROJECT_ROOT / ".github" / "workflows"
 """Directory holding this repository's own workflow files."""
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the markers local to this suite.
+
+    Not in `[tool.pytest] markers`, which must match the template bundled in
+    `repomatic/data/pytest.toml`.
+    """
+    config.addinivalue_line(
+        "markers",
+        "network: Tests that require network access (excluded with -m 'not network').",
+    )
+    config.addinivalue_line(
+        "markers",
+        "repo_maintenance: Tests checking this repository's own checkout (git history, "
+        "development-state workflows, symlinks), skipped outside a git checkout.",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip the `repo_maintenance` tests outside a git checkout.
+
+    See {data}`IN_GIT_CHECKOUT`.
+    """
+    if IN_GIT_CHECKOUT:
+        return
+    skip = pytest.mark.skip(reason="repo-maintenance test: not a git checkout")
+    for item in items:
+        if item.get_closest_marker("repo_maintenance"):
+            item.add_marker(skip)
 
 
 def _declares_concurrency(path: Path) -> bool:
