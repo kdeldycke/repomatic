@@ -6,6 +6,9 @@
 > This version is **not released yet** and is under active development.
 
 - Ship the test suite, and the repository files it reads, in the PyPI sdist.
+- The bundled `probe-workflow` skill now keeps findings out of the retirement commit, gives a side-branch probe a `push` trigger, and records two hosted `macos-26` traps.
+- The bundled `sphinx-docs-sync` skill now builds the documentation and counts its warnings before auditing, and re-locks `uv.lock` when it adds a docs dependency.
+- The bundled `upstream-audit` skill now sweeps an author's issues and pull requests across GitHub, and resolves their states in one GraphQL query.
 
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)
 
