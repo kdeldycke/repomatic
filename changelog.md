@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Ship the test suite, and the repository files it reads, in the PyPI sdist.
+
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)
 
 - **Breaking:** `sample-metrics` drops `--backfill-wayback` and `--import-csv`, since GitHub's star-history endpoint now rebuilds every curve. Readings they already wrote stay in the store.

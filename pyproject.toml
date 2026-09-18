@@ -237,6 +237,28 @@ exclude-newer = "1 week"
 exclude-newer-package = { repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
+build-backend.source-exclude = [
+  "**/.DS_Store",
+  "**/__pycache__",
+  "docs/_build",
+  "docs/_linkcheck",
+]
+# Ship the test suite, and the repository files it reads, in the sdist, so
+# distribution packagers can build and test straight from the PyPI sdist instead
+# of fetching a GitHub tag tarball. source-include feeds the sdist only: the
+# wheel stays module-only.
+build-backend.source-include = [
+  ".claude-plugin/**",
+  ".claude/**",
+  ".github/**",
+  ".gitignore",
+  ".mailmap",
+  "changelog.md",
+  "claude.md",
+  "docs/**",
+  "tests/**",
+  "uv.lock",
+]
 
 # Nuitka binary build options. repomatic translates this section to CLI flags
 # at build time via `repomatic run nuitka` (Nuitka itself only reads it when
