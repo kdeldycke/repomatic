@@ -29,6 +29,7 @@ from pathlib import Path
 from click_extra import (
     STDOUT_SENTINEL,
     Choice,
+    ClickException,
     Context,
     EnumChoice,
     FloatRange,
@@ -46,6 +47,7 @@ from click_extra import (
     pass_context,
     prep_path,
     style,
+    unstyle,
 )
 from extra_platforms import is_github_ci
 
@@ -74,7 +76,14 @@ from ..images import (
     generate_markdown_summary,
     optimize_images,
 )
-from ..init_project import prune_paths, run_init
+from ..init_project import (
+    prune_paths,
+    resolve_upgrade_target,
+    run_init,
+    run_upgrade,
+    upgrade_command,
+    upgrade_report,
+)
 from ..metadata.core import (
     METADATA_KEYS_HEADER_DEFS,
     Dialect,
@@ -116,10 +125,14 @@ from .main import (
     matrix_axis_sort_key,
     output_format_option,
     repomatic,
+    report_output_option,
     stdout_output_option,
 )
 
 TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from ..config import Config
+    from ..init_project import UpgradeTarget
 
 
 @repomatic.command(
@@ -395,6 +408,68 @@ def format_images_cmd(
     emit_report(markdown, output, output_format, key="markdown")
 
 
+def _hand_off_init(
+    target: UpgradeTarget,
+    config: Config,
+    *,
+    repo: str,
+    output_dir: Path,
+    flags: list[str],
+) -> str:
+    """Run `init` as the upgrade *target*, and return its output without styling.
+
+    The child's output is echoed as it came, so the log reads like a direct run,
+    and a failed child fails this command, naming the child's exit code.
+    """
+    command = upgrade_command(
+        target.version,
+        ["--upstream-repo", repo, "--output-dir", str(output_dir), *flags],
+        config=config,
+        repo=repo,
+    )
+    completed = run_upgrade(command, output_dir)
+    echo(completed.stdout, nl=False)
+    if completed.returncode:
+        msg = (
+            f"repomatic {target.version} init exited with code {completed.returncode}."
+        )
+        raise ClickException(msg)
+    return unstyle(completed.stdout)
+
+
+def _emit_upgrade_report(
+    target: UpgradeTarget,
+    config: Config,
+    *,
+    repo: str,
+    output_dir: Path,
+    init_output: str,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Write the upgrade report to `--output` when the run moved the pin.
+
+    With `--output-format github-actions`, the adopted version travels beside
+    the report as the `upgrade_version` step output, which picks the pull
+    request template and fills its title.
+    """
+    if output is None:
+        return
+    report = upgrade_report(
+        target, output_dir, config, init_output=init_output, repo=repo
+    )
+    if report is None:
+        return
+    adopted, body = report
+    emit_report(
+        body,
+        output,
+        output_format,
+        key="upgrade_report",
+        outputs={"upgrade_version": adopted},
+    )
+
+
 @repomatic.command(
     name="init",
     short_help="Bootstrap a repository to use reusable workflows",
@@ -405,6 +480,10 @@ def format_images_cmd(
         (
             "Adopt the running version now, skipping the release-age cooldown",
             "repomatic init --no-cooldown",
+        ),
+        (
+            "Upgrade to the newest release past the release-age cooldown",
+            "repomatic init --upgrade",
         ),
         ("Install a single skill", "repomatic init skills/repomatic-topics"),
         ("One workflow + all labels", "repomatic init workflows/autofix.yaml labels"),
@@ -471,6 +550,18 @@ def format_images_cmd(
     help="Also delete orphaned files of removed assets that were modified "
     "locally (normally reported for manual review, never deleted).",
 )
+@option(
+    "--upgrade",
+    is_flag=True,
+    default=False,
+    help="Run as the newest repomatic release past the [tool.repomatic] "
+    "minimum-release-age window, never below the release already pinned, so "
+    "the upstream pin and every managed file move together. Hands off to that "
+    "release through uvx when it is not the running one. Overrides --cooldown "
+    "when it picks a release, and takes no COMPONENTS and no --version.",
+)
+@report_output_option
+@output_format_option
 def init_project(
     components: tuple[str, ...],
     version_pin: str | None,
@@ -481,6 +572,9 @@ def init_project(
     delete_unmodified: bool,
     keep_removed: bool,
     delete_removed_modified: bool,
+    upgrade: bool,
+    output: Path | None,
+    output_format: str,
 ) -> None:
     """Bootstrap a repository to use reusable workflows from kdeldycke/repomatic.
 
@@ -505,6 +599,11 @@ def init_project(
     version leaves it untouched. Pass --no-cooldown to pin the running version
     immediately, or --version to pin an exact tag.
 
+    --upgrade runs init as the newest release past that window instead, and
+    hands off to it through uvx when it is not the running one: the upstream
+    pin and every managed file then move in one run. With --output, it writes a
+    report of the move for the upgrade pull request.
+
     \b
     Components:
     {component_table}
@@ -519,13 +618,46 @@ def init_project(
         raise UsageError(
             "--keep-removed and --delete-removed-modified are mutually exclusive."
         )
+    if upgrade and (components or version_pin):
+        raise UsageError(
+            "--upgrade moves every managed file to one release: it takes no"
+            " COMPONENTS and no --version."
+        )
 
     config = get_tool_config()
+    target = resolve_upgrade_target(config, output_dir, repo=repo) if upgrade else None
+    if target is not None and not target.in_process:
+        flags = [
+            flag
+            for flag, enabled in (
+                ("--delete-excluded", delete_excluded),
+                ("--delete-unmodified", delete_unmodified),
+                ("--keep-removed", keep_removed),
+                ("--delete-removed-modified", delete_removed_modified),
+            )
+            if enabled
+        ]
+        init_output = _hand_off_init(
+            target, config, repo=repo, output_dir=output_dir, flags=flags
+        )
+        _emit_upgrade_report(
+            target,
+            config,
+            repo=repo,
+            output_dir=output_dir,
+            init_output=init_output,
+            output=output,
+            output_format=output_format,
+        )
+        return
+
     result = run_init(
         output_dir=output_dir,
         components=components,
         version=version_pin,
-        cooldown=cooldown,
+        # An upgrade target already cleared the window. Judging it again could
+        # hold the pin back while the content moves.
+        cooldown=cooldown and target is None,
         repo=repo,
         config=config,
     )
@@ -654,9 +786,9 @@ def init_project(
         # A moved pin is the moment to read what the new release offers, and
         # the one this command knows both versions of. The launcher is spelled
         # by the registry, so the PR bodies inviting the same review agree.
-        upgrade = result.upgraded_pin()
-        if upgrade:
-            previous, adopted = upgrade
+        moved = result.upgraded_pin()
+        if moved:
+            previous, adopted = moved
             echo(
                 f"  {step}. Review what repomatic v{previous} to v{adopted} lets"
                 " this repository adopt or drop:"
@@ -677,6 +809,17 @@ def init_project(
                 )
             echo(f"     Then audit the drift against v{adopted}, in a fresh session:")
             echo(f"       {skill_launcher(AUDIT_SKILL)}")
+
+    if target is not None:
+        _emit_upgrade_report(
+            target,
+            config,
+            repo=repo,
+            output_dir=output_dir,
+            init_output="",
+            output=output,
+            output_format=output_format,
+        )
 
 
 assert init_project.help is not None

@@ -581,6 +581,9 @@ def _render_pr_content(
         "release_readiness": _release_readiness,
         # Callable, will be invoked if needed.
         "repo_url": lambda: md.repo_url,
+        # Step outputs of `init --upgrade`, relayed by the `sync-repomatic` job.
+        "upgrade_report": read_file_output("REPOMATIC_UPGRADE_REPORT"),
+        "upgrade_version": os.getenv("REPOMATIC_UPGRADE_VERSION"),
         "version": version if version is not None else _auto_version,
     }
     arg_sources.update(cli_extra_args)

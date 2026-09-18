@@ -1026,6 +1026,27 @@ def test_pr_sync_templates_declare_their_labels() -> None:
         )
 
 
+def test_sync_repomatic_routes_upgrades_to_one_branch() -> None:
+    """`sync-repomatic` runs `init --upgrade`, and both outcomes share a branch.
+
+    The `upgrade_version` output of the `init` step picks between the two
+    `pr-sync` steps, so exactly one runs, and both converge the same branch: a
+    plain sync and an upgrade never stand as two pull requests.
+    """
+    steps = load_workflow("autofix.yaml")["jobs"]["sync-repomatic"]["steps"]
+    init = next(step for step in steps if "repomatic init" in (step.get("run") or ""))
+    assert "--upgrade" in init["run"]
+    assert '--output "$GITHUB_OUTPUT" --output-format github-actions' in init["run"]
+    pr_steps = [
+        step for step in steps if "repomatic pr-sync" in (step.get("run") or "")
+    ]
+    assert {pr_sync_branch(step) for step in pr_steps} == {"sync-repomatic"}
+    assert {step["if"] for step in pr_steps} == {
+        f"steps.{init['id']}.outputs.upgrade_version == ''",
+        f"steps.{init['id']}.outputs.upgrade_version != ''",
+    }
+
+
 def test_pr_sync_steps_are_template_driven() -> None:
     """Every `pr-sync` step names a template rather than relaying rendered text.
 

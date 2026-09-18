@@ -18,7 +18,7 @@ argument-hint: '[review|fix] [vOLD vNEW]'
 
 You review what a newer `repomatic` release brings to a downstream repository once its upstream pin moved, and you apply what is worth taking. `/repomatic-audit` compares the repository against the release it already pins and files anything newer as an upgrade note: this skill is that note, worked through. `/repomatic-deps modernize` does the same job for Python dependencies.
 
-`repomatic init` prints the command launching this skill as its last next step when it moves the upstream pin, and the `sync-workflow-pins` pull request invites the maintainer to run it when a bump moves `repomatic`.
+`repomatic init` prints the command launching this skill as its last next step when it moves the upstream pin. The `sync-repomatic` upgrade pull request invites the maintainer to run it, and so does the `sync-workflow-pins` one when a bump moves `repomatic`.
 
 **This skill is for downstream repos only.** If the context shows `CANONICAL_REPO`, tell the user this skill is not applicable.
 

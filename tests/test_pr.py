@@ -463,6 +463,41 @@ def test_pr_sync_cli_resolves_everything_from_the_template(cli_upsert, monkeypat
     assert cli_upsert["commit_message"] == "Rendered message"
 
 
+def test_pr_sync_cli_renders_the_upgrade_template(tmp_path, monkeypatch):
+    """The `init --upgrade` step outputs reach the pull request title and body."""
+    captured = {}
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return PrSyncResult(PrOperation.NONE, kwargs["branch"])
+
+    monkeypatch.setattr("repomatic.cli.github.upsert_pr", spy)
+    monkeypatch.setattr("repomatic.cli.github.current_branch", lambda: "main")
+    report = tmp_path / "upgrade-report.md"
+    report.write_text("## 🆙 Upgraded release\n\nMango season.", encoding="UTF-8")
+    monkeypatch.setenv("REPOMATIC_UPGRADE_REPORT_FILE", str(report))
+    monkeypatch.setenv("REPOMATIC_UPGRADE_VERSION", "7.15.0")
+
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "pr-sync",
+            "--template",
+            "sync-repomatic-upgrade",
+            "--branch",
+            "sync-repomatic",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert captured["branch"] == "sync-repomatic"
+    assert captured["title"] == "Upgrade `repomatic` to `v7.15.0`"
+    assert captured["commit_message"] == captured["title"]
+    assert captured["labels"] == ("🤖 ci", "🔗 dependencies")
+    assert "Mango season." in captured["body"]
+
+
 def test_pr_sync_cli_reads_draft_from_frontmatter(cli_upsert, monkeypatch):
 
     monkeypatch.setattr("repomatic.cli.github.current_branch", lambda: "main")

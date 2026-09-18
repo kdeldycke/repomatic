@@ -27,6 +27,7 @@ from repomatic.github.actions import (
     MAX_STEP_OUTPUT_BYTES,
     ReportAction,
     cancel_superseded_runs,
+    emit_report,
     format_file_output,
     format_multiline_output,
     get_default_author,
@@ -328,3 +329,31 @@ def test_file_output_round_trips(tmp_path, monkeypatch):
     _, _, path = format_file_output("harvest", report).partition("=")
     monkeypatch.setenv("HARVEST_FILE", path)
     assert read_file_output("HARVEST") == report
+
+
+def test_emit_report_writes_scalar_outputs_beside_the_path(tmp_path, monkeypatch):
+    """Every output of the step lands in the one write the output file gets."""
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    output = tmp_path / "github-output"
+    emit_report(
+        "Ten crates of mango.",
+        output,
+        "github-actions",
+        key="harvest",
+        outputs={"season": "summer", "orchard": "Seville"},
+    )
+    lines = output.read_text(encoding="UTF-8").splitlines()
+    assert lines[0].startswith("harvest_file=")
+    assert Path(lines[0].partition("=")[2]).read_text(encoding="UTF-8") == (
+        "Ten crates of mango."
+    )
+    assert lines[1:] == ["season=summer", "orchard=Seville"]
+
+
+def test_emit_report_keeps_scalar_outputs_out_of_markdown(tmp_path):
+    """A markdown report is the report alone."""
+    output = tmp_path / "report.md"
+    emit_report(
+        "Ten crates of mango.", output, "markdown", outputs={"season": "summer"}
+    )
+    assert output.read_text(encoding="UTF-8") == "Ten crates of mango.\n"

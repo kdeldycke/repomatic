@@ -31,12 +31,14 @@ from click.testing import CliRunner
 from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__, init_project as ip
+from repomatic.cli import setup as cli_setup
 from repomatic.cli.main import repomatic
 from repomatic.cli.setup import init_project
 from repomatic.config import Config, WorkflowConfig, load_repomatic_config
 from repomatic.init_project import (
     EXPORTABLE_FILES,
     RUNTIME_FRAGMENTS,
+    UpgradeTarget,
     _detect_removed_assets,
     _highest_upstream_pin,
     _select_cooldown_pin,
@@ -47,7 +49,10 @@ from repomatic.init_project import (
     get_data_content,
     init_config,
     resolve_default_pin,
+    resolve_upgrade_target,
     run_init,
+    upgrade_command,
+    upgrade_report,
 )
 from repomatic.registry import (
     ALL_COMPONENTS,
@@ -1268,6 +1273,432 @@ def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch, pin_build)
         encoding="UTF-8"
     )
     assert "kdeldycke/repomatic/.github/workflows/autofix.yaml@v7.4.2" in autofix
+
+
+# --- `init --upgrade` ---
+
+# PyPI releases dated against 2026-09-18 and a one-week window (cutoff
+# 2026-09-11): 7.15.0 is the newest cleared release, 7.16.0 is still inside the
+# window, and the 8.0.0rc1 pre-release never counts.
+_UPGRADE_CANDIDATES = [
+    Candidate("7.11.0", "2026-08-13", "7.11.0"),
+    Candidate("7.15.0", "2026-09-07", "7.15.0"),
+    Candidate("7.16.0", "2026-09-15", "7.16.0"),
+    Candidate("8.0.0rc1", "2026-08-01", "8.0.0rc1"),
+]
+
+_UPGRADE_TODAY = date(2026, 9, 18)
+
+# The same releases, dated so the verdict holds whatever the real clock says,
+# for the tests driving the CLI, which exposes no `today` hook.
+_CLOCK_ROBUST_UPGRADE_CANDIDATES = [
+    Candidate("7.11.0", "2020-01-01", "7.11.0"),
+    Candidate("7.15.0", "2020-06-01", "7.15.0"),
+    Candidate("7.16.0", "2999-01-01", "7.16.0"),
+]
+
+_UPGRADE_NOTES = {
+    "repomatic": (
+        "https://github.com/kdeldycke/repomatic",
+        [
+            (
+                "v7.13.0",
+                (
+                    "- **Breaking:** the `mango` key is renamed `papaya`.\n"
+                    "- New `kiwi` command."
+                ),
+            ),
+            (
+                "v7.15.0",
+                (
+                    "- **Deprecated:** the `lime` alias, removed in `8.0.0`.\n"
+                    "- Faster `banana` sorting."
+                ),
+            ),
+        ],
+    )
+}
+
+
+@pytest.mark.parametrize(
+    ("floor", "version", "released", "previous", "held_back"),
+    [
+        # The usual CI run: the pin sits behind the newest cleared release.
+        pytest.param(
+            "7.11.0", "7.15.0", "2026-09-07", "7.11.0", "7.16.0", id="pin-behind"
+        ),
+        # Already on the newest cleared release: regenerate at the pin.
+        pytest.param(
+            "7.15.0", "7.15.0", "2026-09-07", "7.15.0", "7.16.0", id="pin-current"
+        ),
+        # A release pinned by hand inside the window is never moved back.
+        pytest.param("7.16.0", "7.16.0", "2026-09-15", "7.16.0", None, id="pin-ahead"),
+        # A first adoption takes the newest cleared release.
+        pytest.param(None, "7.15.0", "2026-09-07", None, "7.16.0", id="no-pin"),
+    ],
+)
+def test_resolve_upgrade_target(
+    tmp_path, monkeypatch, pin_build, floor, version, released, previous, held_back
+):
+    pin_build(version="7.11.0")
+    monkeypatch.setattr(ip, "pypi_candidates", lambda _package: _UPGRADE_CANDIDATES)
+    if floor:
+        _write_caller(tmp_path / ".github" / "workflows" / "lint.yaml", floor, "c" * 40)
+
+    target = resolve_upgrade_target(Config(), tmp_path, today=_UPGRADE_TODAY)
+
+    assert target is not None
+    assert target.version == version
+    assert target.released == released
+    assert target.previous == previous
+    assert (target.held_back.version if target.held_back else None) == held_back
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(Config(upstream_pin_sync=False), id="upstream-pin-sync-off"),
+        pytest.param(
+            Config(workflow=WorkflowConfig(sync=False)), id="workflow-sync-off"
+        ),
+    ],
+)
+def test_resolve_upgrade_target_opt_outs(tmp_path, monkeypatch, pin_build, config):
+    """Both opt-outs skip the upgrade before any datasource lookup."""
+    pin_build(version="7.11.0")
+    monkeypatch.setattr(
+        ip, "pypi_candidates", lambda _package: pytest.fail("opted out")
+    )
+    assert resolve_upgrade_target(config, tmp_path, today=_UPGRADE_TODAY) is None
+
+
+def test_resolve_upgrade_target_skips_development_builds(
+    tmp_path, monkeypatch, pin_build
+):
+    """A development build has no published release to compare against."""
+    pin_build(version="7.16.0.dev0")
+    monkeypatch.setattr(
+        ip, "pypi_candidates", lambda _package: pytest.fail("development build")
+    )
+    assert resolve_upgrade_target(Config(), tmp_path, today=_UPGRADE_TODAY) is None
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    [
+        pytest.param([], id="no-data"),
+        pytest.param([Candidate("7.16.0", "2026-09-15", "7.16.0")], id="all-fresh"),
+    ],
+)
+def test_resolve_upgrade_target_without_a_cleared_release(
+    tmp_path, monkeypatch, pin_build, candidates
+):
+    """No release past the window, or no release data, leaves the pin alone."""
+    pin_build(version="7.11.0")
+    monkeypatch.setattr(ip, "pypi_candidates", lambda _package: candidates)
+    _write_caller(tmp_path / ".github" / "workflows" / "lint.yaml", "7.11.0")
+    assert resolve_upgrade_target(Config(), tmp_path, today=_UPGRADE_TODAY) is None
+
+
+def test_upgrade_target_in_process(pin_build):
+    """Only a target naming the running release skips the hand-off."""
+    pin_build(version="7.15.0")
+    assert UpgradeTarget("7.15.0", "2026-09-07").in_process
+    assert not UpgradeTarget("7.16.0", "2026-09-15").in_process
+
+
+def test_upgrade_command():
+    """The child runs the target with the parent's verdict and the window."""
+    command = upgrade_command(
+        "7.15.0", ["--output-dir", "/orchard"], config=Config(), today=_UPGRADE_TODAY
+    )
+    assert command == [
+        "uvx",
+        "--no-progress",
+        "--exclude-newer",
+        "2026-09-11",
+        "--exclude-newer-package",
+        "repomatic=P0D",
+        "--from",
+        "repomatic==7.15.0",
+        "repomatic",
+        "init",
+        "--no-cooldown",
+        "--output-dir",
+        "/orchard",
+    ]
+
+
+def test_upgrade_command_without_a_window():
+    """A disabled window passes no cutoff, and the exemption keeps the target."""
+    command = upgrade_command(
+        "7.15.0", [], config=Config(minimum_release_age="0 days"), today=_UPGRADE_TODAY
+    )
+    assert "--exclude-newer" not in command
+    assert command[command.index("--exclude-newer-package") + 1] == "repomatic=P0D"
+
+
+def _upgraded_tree(tmp_path: Path, previous: str | None, adopted: str) -> UpgradeTarget:
+    """Pin the tree at *adopted* as a finished run would, and return its target."""
+    _write_caller(tmp_path / ".github" / "workflows" / "lint.yaml", adopted, "d" * 40)
+    return UpgradeTarget(
+        adopted,
+        "2026-09-07",
+        previous=previous,
+        held_back=Candidate("7.16.0", "2026-09-15", "7.16.0"),
+    )
+
+
+def test_upgrade_report(tmp_path, monkeypatch):
+    """The report reads top-down: the move, what breaks, the run, the notes."""
+    target = _upgraded_tree(tmp_path, "7.11.0", "7.15.0")
+    monkeypatch.setattr(ip, "fetch_github_release_notes", lambda _items: _UPGRADE_NOTES)
+    init_output = (
+        "warning: Unknown configuration option(s): mango. Valid options: kiwi, lime\n"
+        "warning: Unknown configuration option(s): mango. Valid options: kiwi, lime\n"
+        "Updated 6 existing file(s):\n"
+    )
+
+    report = upgrade_report(
+        target, tmp_path, Config(), init_output=init_output, today=_UPGRADE_TODAY
+    )
+
+    assert report is not None
+    adopted, body = report
+    assert adopted == "7.15.0"
+    headings = [
+        "## 🆙 Upgraded release",
+        "## 💥 Breaking changes and deprecations",
+        "## 📋 `repomatic init` output",
+        "### Release notes",
+        "## 🧭 Upgrade review",
+        "## ⏸️ Held back by cooldown",
+    ]
+    assert [body.index(heading) for heading in headings] == sorted(
+        body.index(heading) for heading in headings
+    )
+    assert "(https://github.com/kdeldycke/repomatic/compare/v7.11.0...v7.15.0)" in body
+    assert (
+        "- [`v7.13.0`](https://github.com/kdeldycke/repomatic/releases/tag/v7.13.0):"
+        " **Breaking:** the `mango` key is renamed `papaya`." in body
+    )
+    assert (
+        "- [`v7.15.0`](https://github.com/kdeldycke/repomatic/releases/tag/v7.15.0):"
+        " **Deprecated:** the `lime` alias, removed in `8.0.0`." in body
+    )
+    # Other bullets stay in the release notes only.
+    assert body.count("New `kiwi` command.") == 1
+    # The warnings are listed once each, cut after their first sentence, and
+    # the full output keeps every line.
+    assert "```text\nwarning: Unknown configuration option(s): mango.\n```" in body
+    assert body.count("Valid options: kiwi, lime") == 2
+    assert "/repomatic-upgrade v7.11.0 v7.15.0" in body
+    assert "`7.16.0`" in body
+
+
+@pytest.mark.parametrize(
+    ("previous", "adopted"),
+    [
+        pytest.param("7.15.0", "7.15.0", id="pin-unmoved"),
+        pytest.param(None, "7.15.0", id="first-adoption"),
+    ],
+)
+def test_upgrade_report_without_a_move(tmp_path, monkeypatch, previous, adopted):
+    """A run that moved no pin forward reports nothing, and fetches nothing."""
+    target = _upgraded_tree(tmp_path, previous, adopted)
+    monkeypatch.setattr(
+        ip, "fetch_github_release_notes", lambda _items: pytest.fail("no move")
+    )
+    assert upgrade_report(target, tmp_path, Config(), today=_UPGRADE_TODAY) is None
+
+
+@pytest.mark.parametrize(
+    ("notes", "expected"),
+    [
+        pytest.param(
+            {
+                "repomatic": (
+                    "https://github.com/kdeldycke/repomatic",
+                    [("v7.15.0", "- Faster `banana` sorting.")],
+                )
+            },
+            "No release between `v7.11.0` and `v7.15.0` has a `**Breaking:**`",
+            id="none-listed",
+        ),
+        # Unreadable notes must not read as a claim that nothing breaks.
+        pytest.param({}, None, id="notes-unavailable"),
+    ],
+)
+def test_upgrade_report_without_breaking_entries(
+    tmp_path, monkeypatch, notes, expected
+):
+    target = _upgraded_tree(tmp_path, "7.11.0", "7.15.0")
+    monkeypatch.setattr(ip, "fetch_github_release_notes", lambda _items: notes)
+
+    report = upgrade_report(target, tmp_path, Config(), today=_UPGRADE_TODAY)
+
+    assert report is not None
+    _adopted, body = report
+    if expected is None:
+        assert "Breaking changes" not in body
+    else:
+        assert expected in body
+
+
+def _upgrade_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the CLI from a project of its own, with release data served locally."""
+    (tmp_path / "pyproject.toml").write_text("[tool.repomatic]\n", encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setattr(
+        ip, "pypi_candidates", lambda _package: _CLOCK_ROBUST_UPGRADE_CANDIDATES
+    )
+    monkeypatch.setattr(ip, "fetch_github_release_notes", lambda _items: _UPGRADE_NOTES)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param(["workflows"], id="components"),
+        pytest.param(["--version", "v7.15.0"], id="version"),
+    ],
+)
+def test_init_upgrade_takes_the_whole_tree(extra):
+    result = CliRunner().invoke(repomatic, ["init", "--upgrade", *extra])
+    assert result.exit_code == 2
+    assert "--upgrade moves every managed file to one release" in result.output
+
+
+def test_init_upgrade_hands_off_to_the_newest_cleared_release(
+    tmp_path, monkeypatch, pin_build
+):
+    """A newer release runs as a child, and the report names both ends."""
+    _upgrade_project(tmp_path, monkeypatch)
+    pin_build(version="7.11.0", sha="c" * 40)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    commands: list[list[str]] = []
+
+    def child(command, output_dir):
+        # Stand in for the target release: regenerate the callers at it.
+        commands.append(list(command))
+        pin_build(version="7.15.0", sha="d" * 40)
+        run_init(output_dir=output_dir, components=("workflows",), cooldown=False)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="warning: Unknown configuration option(s): mango. Valid options:"
+            " kiwi\nUpdated 6 existing file(s):\n",
+        )
+
+    monkeypatch.setattr(cli_setup, "run_upgrade", child)
+    github_output = tmp_path / "github-output"
+
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "init",
+            "--upgrade",
+            "--delete-excluded",
+            "--output-dir",
+            str(tmp_path),
+            "--output",
+            str(github_output),
+            "--output-format",
+            "github-actions",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    command = commands[0]
+    assert command[command.index("--from") :] == [
+        "--from",
+        "repomatic==7.15.0",
+        "repomatic",
+        "init",
+        "--no-cooldown",
+        "--upstream-repo",
+        "kdeldycke/repomatic",
+        "--output-dir",
+        str(tmp_path.resolve()),
+        "--delete-excluded",
+    ]
+    # The child's output reaches the log as it came.
+    assert "Updated 6 existing file(s):" in result.output
+    outputs = dict(
+        line.split("=", 1)
+        for line in github_output.read_text(encoding="UTF-8").splitlines()
+    )
+    assert outputs["upgrade_version"] == "7.15.0"
+    report = Path(outputs["upgrade_report_file"]).read_text(encoding="UTF-8")
+    assert "`7.11.0` → `7.15.0`" in report
+    assert "warning: Unknown configuration option(s): mango." in report
+    assert "/repomatic-upgrade v7.11.0 v7.15.0" in report
+
+
+def test_init_upgrade_fails_with_the_child(tmp_path, monkeypatch, pin_build):
+    """A failed child fails the command, and no report claims an upgrade."""
+    _upgrade_project(tmp_path, monkeypatch)
+    pin_build(version="7.11.0", sha="c" * 40)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    monkeypatch.setattr(
+        cli_setup,
+        "run_upgrade",
+        lambda command, _output_dir: subprocess.CompletedProcess(
+            command, 1, stdout="No solution found.\n"
+        ),
+    )
+    github_output = tmp_path / "github-output"
+
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "init",
+            "--upgrade",
+            "--output-dir",
+            str(tmp_path),
+            "--output",
+            str(github_output),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "repomatic 7.15.0 init exited with code 1." in result.output
+    assert not github_output.exists()
+
+
+def test_init_upgrade_runs_in_process_on_the_target(tmp_path, monkeypatch, pin_build):
+    """On the target already: no child, and no second cooldown verdict."""
+    _upgrade_project(tmp_path, monkeypatch)
+    pin_build(version="7.11.0", sha="c" * 40)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    pin_build(version="7.15.0", sha="d" * 40)
+    monkeypatch.setattr(cli_setup, "run_upgrade", lambda *_args: pytest.fail("child"))
+    monkeypatch.setattr(
+        ip, "github_candidates", lambda _url: pytest.fail("second verdict")
+    )
+    report_path = tmp_path / "report.md"
+
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "init",
+            "--upgrade",
+            "--output-dir",
+            str(tmp_path),
+            "--output",
+            str(report_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
+        encoding="UTF-8"
+    )
+    assert f"autofix.yaml@{'d' * 40} # v7.15.0" in autofix
+    report = report_path.read_text(encoding="UTF-8")
+    assert "`7.11.0` → `7.15.0`" in report
+    # Nothing ran as a child, so there is no output to quote.
+    assert "`repomatic init` output" not in report
 
 
 _PACKER_JOB = """

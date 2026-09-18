@@ -68,7 +68,7 @@ from .gh import run_gh_command
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from typing import Any
 
 
@@ -357,6 +357,7 @@ def emit_report(
     output: Path | None,
     output_format: str,
     key: str = "diff_table",
+    outputs: Mapping[str, str] | None = None,
 ) -> None:
     """Write a markdown report to `--output`, optionally as a step output.
 
@@ -374,11 +375,17 @@ def emit_report(
     :param output_format: `markdown` or `github-actions`.
     :param key: The step output variable name, before the `_file` suffix, for
         the `github-actions` format.
+    :param outputs: Single-line step outputs written beside the report's path,
+        for the `github-actions` format only. `prep_path` truncates the file it
+        opens, so every output of a step has to go through this one write.
     """
     if output is None or not body:
         return
     if output_format == "github-actions":
-        content = format_file_output(key, body)
+        content = "\n".join((
+            format_file_output(key, body),
+            *(f"{name}={value}" for name, value in (outputs or {}).items()),
+        ))
     else:
         content = body
     echo(content, file=prep_path(output))

@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -46,8 +47,16 @@ import yaml
 
 from . import __git_tag_sha__, __version__
 from .config import Config, load_repomatic_config, location_path
+from .deps.dep_report import (
+    build_held_back,
+    format_diff_table,
+    format_held_back_table,
+    format_release_notes,
+)
+from .deps.uv import uvx_cmd
 from .file_ops import unlink_with_empty_parents
-from .github.releases import resolve_tag_to_sha
+from .github.pr_body import render_template, sanitize_markdown_mentions
+from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .github.workflow_sync import (
     PathsSpec,
     extract_extra_jobs,
@@ -58,6 +67,7 @@ from .github.workflow_sync import (
 from .http import get_bytes
 from .lint_repo import requested_metadata_keys
 from .metadata.core import Metadata, all_metadata_keys
+from .pypi import PYPI_PACKAGE_URL
 from .pyproject import (
     is_python_package,
     is_python_project,
@@ -72,6 +82,7 @@ from .registry import (
     NON_REUSABLE_WORKFLOWS,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
+    UPGRADE_SKILL,
     UPSTREAM_REPO_SLUGS,
     BundledComponent,
     GeneratedComponent,
@@ -85,15 +96,21 @@ from .registry import (
     is_awesome_repo,
     package_of,
     parse_component_entries,
+    skill_launcher,
 )
 from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .release.version_sync import (
+    MIN_AGE_HELD_BACK_NOTE,
     Candidate,
     UpstreamRefPin,
     apply_self_pin_exemption,
+    exclude_newer_cutoff,
     find_upstream_ref_pins,
+    format_cooldown_note,
     github_candidates,
     parse_min_age,
+    pypi_candidates,
+    select_held_back,
     select_latest,
 )
 from .tooling.bundle import get_data_content
@@ -112,6 +129,25 @@ if TYPE_CHECKING:
     else:
         from importlib.abc import Traversable
 
+
+BREAKING_BULLET_RE = re.compile(
+    r"^[ \t]*[-*][ \t]+(?P<bullet>\*\*(?:Breaking|Deprecated):\*\*.*)$",
+    re.MULTILINE,
+)
+"""A release-notes bullet announcing a breaking change or a deprecation.
+
+The changelog convention opens these bullets with a bold `**Breaking:**` or
+`**Deprecated:**` label, and each GitHub release body repeats its changelog
+section verbatim. The upgrade report lifts them above the full notes, because
+they are the entries a repository may have to act on.
+"""
+
+INIT_WARNING_RE = re.compile(r"^[ \t]*warning:.*$", re.IGNORECASE | re.MULTILINE)
+"""A warning line in the output of `repomatic init`.
+
+Matches the `warning:` lines the configuration loader logs, like an unknown
+`[tool.repomatic]` key, and the `Warning:` lines of the closing summary.
+"""
 
 RUNTIME_FRAGMENTS: tuple[str, ...] = (
     "release.yaml",
@@ -644,13 +680,15 @@ def resolve_default_pin(
     in {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`, and
     {data}`~repomatic.release.version_sync.ACTION_PIN_RE` does not even match a
     subpath-carrying reusable-workflow ref. So a downstream repository adopts a
-    new repomatic release exactly one way: a human moves the pin, by hand or by
-    running a newer `init`. Two things follow.
+    new repomatic release one way: a newer `init` runs. A maintainer runs one by
+    hand, and the CI `sync-repomatic` job runs one through `init --upgrade`,
+    which picks the release itself (see {func}`resolve_upgrade_target`) and
+    bypasses this function. Two things follow.
 
-    A pin equal to the running version is not a decision to gate. The CI
-    `sync-repomatic` job runs `init` at the pinned version itself, so `base`
-    equals *floor* on every sync; re-judging it there downgrades the repository
-    once a week after each hand-bump, and fights the only upgrade path there is.
+    A pin equal to the running version is not a decision to gate. Without a
+    newer release to adopt, the CI `sync-repomatic` job runs `init` at the
+    pinned version itself, so `base` equals *floor*; re-judging it there
+    downgrades the repository once a week after each hand-bump.
 
     A pin below the running version is a skew. `init` renders caller *content*
     from the running version, so a ref naming an older release ships that
@@ -725,6 +763,329 @@ def resolve_default_pin(
     )
     # Fall back to a bare tag pin when the SHA lookup fails.
     return f"v{stepped_back.version}", resolve_tag_to_sha(repo_url, stepped_back.ref)
+
+
+@dataclass(frozen=True)
+class UpgradeTarget:
+    """The release `init --upgrade` runs as, chosen before any file is written."""
+
+    version: str
+    """Bare version to run `init` as."""
+
+    released: str
+    """PyPI upload date of {attr}`version`, as `YYYY-MM-DD`. Empty when the
+    datasource does not list the release pinned on disk."""
+
+    previous: str | None = None
+    """Bare version of the highest upstream pin on disk before the run, or `None`
+    for a repository carrying none."""
+
+    held_back: Candidate | None = None
+    """The newest release above {attr}`version` that the `minimum-release-age`
+    window still holds back: the one a later run adopts."""
+
+    @property
+    def in_process(self) -> bool:
+        """Whether the running release is the target, so no hand-off is needed."""
+        return self.version == __version__
+
+
+def resolve_upgrade_target(
+    config: Config,
+    output_dir: Path,
+    *,
+    repo: str = DEFAULT_REPO,
+    today: date | None = None,
+) -> UpgradeTarget | None:
+    """Pick the release `init --upgrade` runs as.
+
+    That is the newest final, non-yanked release on PyPI older than the
+    `[tool.repomatic] minimum-release-age` window, and never one below the
+    upstream pin the repository already carries: a release pinned by hand inside
+    the window stays. PyPI is the datasource because `uvx` installs from it, so
+    a version whose publication failed, with a tag but no wheel, is never
+    picked.
+
+    :param config: Repomatic config supplying the window and both opt-outs.
+    :param output_dir: Root of the target repository, read for its current pin.
+    :param repo: Upstream `owner/repo`; its name is the PyPI package.
+    :param today: Reference date for the cooldown; defaults to the current UTC
+        date.
+    :return: The target, or `None` when the upgrade does not apply: turned off
+        by `upstream-pin.sync` or `workflow.sync`, run from a build that is not
+        a release, or no release has cleared the window.
+    """
+    if not config.upstream_pin_sync:
+        logging.info(
+            "[tool.repomatic] upstream-pin.sync is disabled. Skipping the upgrade."
+        )
+        return None
+    if not config.workflow.sync:
+        logging.info(
+            "[tool.repomatic] workflow.sync is disabled, so no upstream pin can"
+            " move. Skipping the upgrade."
+        )
+        return None
+    if is_source_repo(output_dir):
+        logging.info(
+            "The source repository runs from its lockfile. Skipping the upgrade."
+        )
+        return None
+    if _base_version() != __version__:
+        logging.info(
+            f"repomatic {__version__} is a development build. Skipping the upgrade."
+        )
+        return None
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+    package = package_of(repo)
+    min_age = parse_min_age(config.minimum_release_age)
+    candidates = pypi_candidates(package)
+    chosen = select_latest(candidates, min_age, today)
+    if chosen is None:
+        logging.warning(
+            f"No {package} release is older than the {config.minimum_release_age}"
+            " minimum-release-age window. Skipping the upgrade."
+        )
+        return None
+    floor = _highest_upstream_pin(output_dir, repo)
+    if floor is not None and is_newer(floor.version, chosen.version):
+        # A release pinned by hand inside the window. The upgrade never moves a
+        # pin backwards, so it regenerates the files at that release instead.
+        chosen = next(
+            (c for c in candidates if c.version == floor.version),
+            Candidate(floor.version, "", floor.version),
+        )
+    return UpgradeTarget(
+        version=chosen.version,
+        released=chosen.date,
+        previous=floor.version if floor is not None else None,
+        held_back=select_held_back(candidates, chosen.version, min_age, today),
+    )
+
+
+def upgrade_command(
+    version: str,
+    init_args: Sequence[str],
+    *,
+    config: Config,
+    repo: str = DEFAULT_REPO,
+    today: date | None = None,
+) -> list[str]:
+    """Build the command running `init` as another `repomatic` release.
+
+    `--no-cooldown` hands the child the decision {func}`resolve_upgrade_target`
+    already took. Left to judge the window again, the child reads GitHub release
+    dates where the parent read PyPI ones, and a split verdict near the limit
+    writes the new configs but leaves the callers at the old release.
+
+    The window reaches the resolution as `--exclude-newer`, which gates the
+    child's dependency tree like any other install. The package itself carries
+    the self-pin exemption, because it already cleared this repository's window:
+    with that window disabled, no cutoff is passed, and the workflow's own
+    `UV_EXCLUDE_NEWER` would refuse the release.
+
+    :param version: Bare version to run.
+    :param init_args: Arguments for the child `init`, after `--no-cooldown`.
+    :param config: Repomatic config supplying the `minimum-release-age` window.
+    :param repo: Upstream `owner/repo`; its name is the package and the command.
+    :param today: Reference date for the cutoff; defaults to the current UTC
+        date.
+    :return: The command line.
+    """
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+    package = package_of(repo)
+    cutoff = exclude_newer_cutoff(config.minimum_release_age, today)
+    return [
+        *uvx_cmd(exclude_newer=cutoff),
+        *SELF_PIN_COOLDOWN_EXEMPTION.split(),
+        "--from",
+        f"{package}=={version}",
+        package,
+        "init",
+        "--no-cooldown",
+        *init_args,
+    ]
+
+
+def run_upgrade(
+    command: Sequence[str], output_dir: Path
+) -> subprocess.CompletedProcess[str]:
+    """Run the `init` hand-off built by {func}`upgrade_command`.
+
+    Runs from *output_dir*, where the child finds `[tool.repomatic]` as the
+    parent did. Both output streams are merged in the order they were written,
+    then captured, because {func}`upgrade_report` quotes the warnings the child
+    printed: a config key the new release no longer knows shows up nowhere else.
+
+    :param command: The command line from {func}`upgrade_command`.
+    :param output_dir: Root of the target repository.
+    :return: The finished process, its merged output in `stdout`.
+    """
+    logging.info(f"Running: {' '.join(command)}")
+    return subprocess.run(
+        command,
+        cwd=output_dir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="UTF-8",
+        check=False,
+    )
+
+
+def _breaking_section(
+    notes: Mapping[str, tuple[str, list[tuple[str, str]]]],
+    previous: str,
+    adopted: str,
+) -> str:
+    """List the breaking and deprecation bullets of the fetched release notes.
+
+    Empty when no notes were fetched. Silence there means the notes could not
+    be read, which must not render as a claim that nothing breaks.
+    """
+    if not notes:
+        return ""
+    heading = "## 💥 Breaking changes and deprecations"
+    bullets = [
+        f"- [`{tag}`]({repo_url}/releases/tag/{tag}): "
+        f"{sanitize_markdown_mentions(match['bullet'].rstrip())}"
+        for repo_url, versions in notes.values()
+        for tag, body in versions
+        for match in BREAKING_BULLET_RE.finditer(body)
+    ]
+    if not bullets:
+        return (
+            f"{heading}\n\nNo release between `v{previous}` and `v{adopted}` has"
+            " a `**Breaking:**` or `**Deprecated:**` entry."
+        )
+    return "\n".join((heading, "", *bullets))
+
+
+def _first_sentence(line: str) -> str:
+    """Cut a log line after its first sentence, like a list of valid options."""
+    head, separator, _rest = line.partition(". ")
+    return f"{head}." if separator else line
+
+
+def _init_output_section(output: str, adopted: str) -> str:
+    """Show the warnings of a hand-off run, then its whole output, collapsed."""
+    if not output.strip():
+        return ""
+    warnings = list(
+        dict.fromkeys(
+            _first_sentence(match.group(0).strip())
+            for match in INIT_WARNING_RE.finditer(output)
+        )
+    )
+    lines = ["## 📋 `repomatic init` output", ""]
+    if warnings:
+        lines += ["The run printed these warnings:", "", "```text", *warnings, "```"]
+        lines.append("")
+    lines += [
+        "<details>",
+        (
+            "<summary>Full output of <code>repomatic init</code> at"
+            f" <code>v{adopted}</code></summary>"
+        ),
+        "",
+        "```text",
+        output.strip(),
+        "```",
+        "",
+        "</details>",
+    ]
+    return "\n".join(lines)
+
+
+def upgrade_report(
+    target: UpgradeTarget,
+    output_dir: Path,
+    config: Config,
+    *,
+    init_output: str = "",
+    repo: str = DEFAULT_REPO,
+    today: date | None = None,
+) -> tuple[str, str] | None:
+    """Describe the upgrade a run just applied, for its pull request body.
+
+    Reads the pin back from disk rather than trusting *target*, since what the
+    run wrote is what the pull request carries. The sections, in reading order:
+
+    - The version move, with its compare link and release date.
+    - Every `**Breaking:**` and `**Deprecated:**` bullet of the releases in
+      between.
+    - The warnings the run printed, then its whole output, collapsed.
+    - The release notes, one collapsed block per release.
+    - The invitation to run the `repomatic-upgrade` review.
+    - The newer release the window still holds back, if any.
+
+    :param target: The target {func}`resolve_upgrade_target` picked.
+    :param output_dir: Root of the target repository, read for the new pin.
+    :param config: Repomatic config supplying the `minimum-release-age` window.
+    :param init_output: The output of a hand-off run, empty for an in-process one.
+    :param repo: Upstream `owner/repo` whose releases are described.
+    :param today: Reference date for relative dates; defaults to the current
+        UTC date.
+    :return: `(adopted, markdown)`, or `None` when the run moved no pin forward.
+    """
+    pin = _highest_upstream_pin(output_dir, repo)
+    previous = target.previous
+    if previous is None or pin is None or not is_newer(pin.version, previous):
+        return None
+    adopted = pin.version
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+    package = package_of(repo)
+    repo_url = f"https://github.com/{repo}"
+    package_url = PYPI_PACKAGE_URL.format(package=package)
+    min_age = parse_min_age(config.minimum_release_age)
+    released = target.released if adopted == target.version else ""
+    diff_table = format_diff_table(
+        [(package, previous, adopted)],
+        upload_times={package: released} if released else None,
+        cooldown_note=(
+            format_cooldown_note(config.minimum_release_age, today - min_age)
+            if min_age
+            else ""
+        ),
+        comparison_urls={package: f"{repo_url}/compare/v{previous}...v{adopted}"},
+        reference_date=today,
+        name_urls={package: package_url},
+        heading="Upgraded release",
+    )
+    notes = fetch_github_release_notes([(package, repo_url, previous, adopted, None)])
+    held_back = ""
+    if target.held_back is not None:
+        held_back = format_held_back_table(
+            [
+                build_held_back(
+                    package,
+                    adopted,
+                    target.held_back.version,
+                    target.held_back.date,
+                    min_age,
+                    today,
+                )
+            ],
+            MIN_AGE_HELD_BACK_NOTE,
+            name_urls={package: package_url},
+        )
+    sections = (
+        diff_table,
+        _breaking_section(notes, previous, adopted),
+        _init_output_section(init_output, adopted),
+        format_release_notes(notes),
+        render_template(
+            "upgrade-invite",
+            previous=f"v{previous}",
+            adopted=f"v{adopted}",
+            command=skill_launcher(UPGRADE_SKILL, f"v{previous}", f"v{adopted}"),
+        ),
+        held_back,
+    )
+    return adopted, "\n\n".join(section for section in sections if section)
 
 
 @dataclass

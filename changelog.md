@@ -30,6 +30,8 @@
 - The bundled `babysit-ci` skill now caps a commit body at two lines and 25 words, and keeps diagnostic measurements out of it.
 - Add the `repomatic-upgrade` skill, which reviews what a newer `repomatic` release lets a downstream repository adopt, reuse or drop, then applies it.
 - `repomatic init` now closes with the command launching that review when it moved the upstream pin, followed by the one launching the drift audit.
+- Add `repomatic init --upgrade`, which runs as the newest release past the `minimum-release-age` cooldown, so the upstream pin and every managed file move together.
+- The `sync-repomatic` job now opens an `Upgrade repomatic to vX.Y.Z` pull request once a newer release clears the cooldown, listing the breaking changes it crosses. Opt out with `[tool.repomatic] upstream-pin.sync = false`.
 - The `sync-workflow-pins` pull request now invites the maintainer to run the upgrade review when a bump moves `repomatic`, and the `sync-repomatic` one points at the skill.
 - Add a man-page index to the documentation, and cover `--man`, the release tarball and regeneration on the installation page.
 - Rename the installation page's `Try it`, `Install methods` and `Executables` sections to `Try it now`, `Installation methods` and `Binaries`. Their old anchors no longer resolve.

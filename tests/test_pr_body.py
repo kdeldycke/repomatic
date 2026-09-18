@@ -617,6 +617,16 @@ def test_build_release_review_steps_unavailable(github_env, monkeypatch):
             id="sync-mailmap",
         ),
         pytest.param(
+            "sync-repomatic-upgrade",
+            (
+                "## ⚙️ Configuration",
+                "[tool.repomatic]",
+                "minimum-release-age",
+                "upstream-pin.sync",
+            ),
+            id="sync-repomatic-upgrade",
+        ),
+        pytest.param(
             "update-dep-graph",
             ("## ⚙️ Configuration", "[tool.repomatic]", "dependency-graph.output"),
             id="update-dep-graph",
@@ -655,6 +665,13 @@ def test_render_surfaces_the_config_surface(template: str, needles: tuple[str, .
     result = render_template(template)
     for needle in needles:
         assert needle in result, f"{template} body does not mention {needle!r}"
+
+
+def test_render_upgrade_title():
+    """The upgrade pull request is titled after the release it adopts."""
+    assert render_title("sync-repomatic-upgrade", upgrade_version="7.15.0") == (
+        "Upgrade `repomatic` to `v7.15.0`"
+    )
 
 
 def test_render_upgrade_invite():

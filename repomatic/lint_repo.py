@@ -2240,9 +2240,9 @@ def check_inline_pins_match_upstream(
 
     A workflow that pins the upstream toolkit in a `run:` shell command (like
     `uvx 'repomatic==1.2.3' metadata`) must keep that version in lockstep with
-    the SHA-pinned `uses:` refs. A manual workflow sync bumps the refs but not
-    the inline pin, and `sync-workflow-pins` only realigns it on its next
-    scheduled run, so the pin can lag in between. When the stale version drops
+    the SHA-pinned `uses:` refs. `init` realigns the inline pin whenever it
+    writes the refs, so the two drift apart only when a ref is edited by hand,
+    until the next `sync-workflow-pins` run. When the stale version drops
     a symbol the newer refs rely on, the metadata job fails and a release can
     publish to PyPI yet never tag (the toolkit chicken-and-egg). Flag the
     drift so the lint fails before a release does.

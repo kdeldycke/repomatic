@@ -437,17 +437,35 @@ jobs:
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.12.4"
+      # `--upgrade` moves the repository to the newest repomatic release past the
+      # cooldown, if any. See repomatic/init_project.py for rationale.
       - name: Sync repomatic-managed files
+        id: sync
+        env:
+          # The upgrade report reads release notes from the GitHub API.
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic init
+          uv --no-progress run --frozen -- repomatic init --upgrade
           --delete-unmodified --delete-excluded
+          --output "$GITHUB_OUTPUT" --output-format github-actions
       - name: Sync pull request
+        if: steps.sync.outputs.upgrade_version == ''
         env:
           # We need custom PAT with workflows permissions to update .github/workflows/*.yaml files.
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
           uv --no-progress run --frozen -- repomatic
           pr-sync --template sync-repomatic
+      - name: Sync upgrade pull request
+        if: steps.sync.outputs.upgrade_version != ''
+        env:
+          # We need custom PAT with workflows permissions to update .github/workflows/*.yaml files.
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+          REPOMATIC_UPGRADE_REPORT_FILE: ${{ steps.sync.outputs.upgrade_report_file }}
+          REPOMATIC_UPGRADE_VERSION: ${{ steps.sync.outputs.upgrade_version }}
+        run: >
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template sync-repomatic-upgrade --branch sync-repomatic
   format-images:
     name: 🖼️ Format images
     needs:
