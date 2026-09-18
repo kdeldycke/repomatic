@@ -28,6 +28,7 @@ this module.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -744,6 +745,7 @@ COMPONENTS: tuple[Component, ...] = (
             _skill_entry("repomatic-ship", "Release"),
             _skill_entry("repomatic-test-matrix", "Quality"),
             _skill_entry("repomatic-topics", "Development"),
+            _skill_entry("repomatic-upgrade", "Maintenance"),
             _skill_entry("sphinx-docs-sync", "Maintenance"),
             _skill_entry("translation-sync", "Maintenance", RepoScope.AWESOME_ONLY),
             _skill_entry("upstream-audit", "Maintenance"),
@@ -1400,6 +1402,48 @@ def skill_catalog() -> list[tuple[str, str, str]]:
         description = str(meta.get("description", "")).removesuffix(".")
         skills.append((SKILL_PHASES[entry.file_id], name, description))
     return skills
+
+
+AUDIT_SKILL: str = "repomatic-audit"
+"""The bundled skill auditing a repository against the release it pins."""
+
+UPGRADE_SKILL: str = "repomatic-upgrade"
+"""The bundled skill reviewing what a newer upstream release lets a repo adopt."""
+
+RECOMMENDED_MODEL_RE = re.compile(r"Recommended model: (?P<model>\w+)\.")
+"""The model recommendation a skill's `compatibility` field carries.
+
+The Agent Skills spec has no `model:` field, so the recommendation rides in
+`compatibility` as prose, and this is the one shape every bundled skill
+writes it in. `tests/test_skills.py` holds each skill to it.
+"""
+
+
+def skill_launcher(skill_id: str, *arguments: str) -> str:
+    """The shell command launching one bundled skill in a fresh Claude Code session.
+
+    Rendered wherever the toolkit hands a maintainer a next step to run
+    (`init`'s closing hint, a sync pull request body), so the invocation is
+    spelled once. The model comes off the skill's own `compatibility` field,
+    so a changed recommendation never leaves a stale `--model` behind.
+
+    ```{note}
+    Claude Code is the only agent the launcher targets today. The skill folder
+    itself follows the Agent Skills spec and loads in any agent honouring it;
+    only this one line is agent-specific, which keeps a second launcher a
+    config key away rather than a rewrite.
+    ```
+
+    :param skill_id: The registry `file_id` of a bundled skill.
+    :param arguments: Extra words passed to the skill as `$ARGUMENTS`.
+    :return: The command line, ready to paste into a shell.
+    """
+    content = get_data_content(f"{_skill_source(skill_id)}/{SKILL_FILENAME}")
+    meta, _body = split_frontmatter(content)
+    match = RECOMMENDED_MODEL_RE.search(str(meta.get("compatibility", "")))
+    model = f" --model {match['model'].lower()}" if match else ""
+    prompt = " ".join((f"/{skill_id}", *arguments))
+    return f"claude{model} '{prompt}'"
 
 
 FILE_SELECTOR_COMPONENTS: tuple[str, ...] = tuple(c.name for c in COMPONENTS if c.files)

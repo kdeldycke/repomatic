@@ -1163,6 +1163,98 @@ def test_run_init_keeps_a_fresh_pin_already_on_disk(tmp_path, monkeypatch, pin_b
     assert f"autofix.yaml@{'a' * 40} # v7.4.2" in autofix
 
 
+def test_run_init_records_the_pin_move(tmp_path, pin_build):
+    """The result carries both halves of a pin move, and only a forward move.
+
+    A first adoption has no previous release, a regeneration at the pinned
+    version moves nothing, and a rollback is deliberate: none of the three is
+    an upgrade to review, which is what the closing hint keys on.
+    """
+    pin_build(version="7.4.1", sha="c" * 40)
+    first = run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    assert first.previous_pin is None
+    assert first.adopted_pin == "7.4.1"
+    assert first.upgraded_pin() is None
+
+    pin_build(version="7.4.2", sha="a" * 40)
+    upgrade = run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    assert upgrade.upgraded_pin() == ("7.4.1", "7.4.2")
+
+    rerun = run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    assert rerun.previous_pin == "7.4.2"
+    assert rerun.upgraded_pin() is None
+
+    rollback = run_init(
+        output_dir=tmp_path, components=("workflows",), version="v7.4.1"
+    )
+    assert rollback.adopted_pin == "7.4.1"
+    assert rollback.upgraded_pin() is None
+
+
+def test_run_init_reads_no_pin_without_a_workflow(tmp_path, pin_build):
+    """A config-only run neither reads nor writes an upstream pin."""
+    pin_build()
+    result = run_init(output_dir=tmp_path, components=("skills",))
+    assert result.previous_pin is None
+    assert result.adopted_pin is None
+    assert result.upgraded_pin() is None
+
+
+def test_init_cli_prints_the_upgrade_launcher(tmp_path, pin_build):
+    """A moved pin ends the run with the command launching the upgrade review.
+
+    The launcher names both versions so the skill needs no discovery, and the
+    audit follows it because the two answer different questions: what the
+    release offers, then what the repository drifted from.
+    """
+    pin_build(version="7.4.1", sha="c" * 40)
+    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+
+    pin_build(version="7.4.2", sha="a" * 40)
+    cli_result = CliRunner().invoke(
+        repomatic,
+        ["init", "workflows", "--no-cooldown", "--output-dir", str(tmp_path)],
+    )
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert "Review what repomatic v7.4.1 to v7.4.2 lets" in cli_result.output
+    assert "claude --model opus '/repomatic-upgrade v7.4.1 v7.4.2'" in cli_result.output
+    assert "claude --model opus '/repomatic-audit'" in cli_result.output
+    # The skill is not on disk in a fresh tree, and the hint says so.
+    assert 'run "repomatic init skills/repomatic-upgrade" first' in cli_result.output
+
+
+def test_init_cli_skips_the_install_hint_once_the_skill_is_on_disk(tmp_path, pin_build):
+    """The install line is for repositories that never installed the skill."""
+    pin_build(version="7.4.1", sha="c" * 40)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows", "skills/repomatic-upgrade"),
+        cooldown=False,
+    )
+
+    pin_build(version="7.4.2", sha="a" * 40)
+    cli_result = CliRunner().invoke(
+        repomatic,
+        ["init", "workflows", "--no-cooldown", "--output-dir", str(tmp_path)],
+    )
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert "claude --model opus '/repomatic-upgrade v7.4.1 v7.4.2'" in cli_result.output
+    assert "not installed here" not in cli_result.output
+
+
+def test_init_cli_prints_no_launcher_without_a_pin_move(tmp_path, pin_build):
+    """A first adoption has no previous release to review against."""
+    pin_build(version="7.4.2", sha="a" * 40)
+    cli_result = CliRunner().invoke(
+        repomatic,
+        ["init", "workflows", "--no-cooldown", "--output-dir", str(tmp_path)],
+    )
+    assert cli_result.exit_code == 0, cli_result.output
+    assert "/repomatic-upgrade" not in cli_result.output
+
+
 def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch, pin_build):
     """--no-cooldown pins the running version and never consults the datasource."""
     pin_build(sha="")
@@ -1762,6 +1854,7 @@ def test_init_only_skills(tmp_path: Path):
         "repomatic-init",
         "repomatic-ship",
         "repomatic-topics",
+        "repomatic-upgrade",
         "sphinx-docs-sync",
         "translation-sync",
         "upstream-audit",

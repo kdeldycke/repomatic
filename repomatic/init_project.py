@@ -761,6 +761,30 @@ class InitResult:
     warnings: list[str] = field(default_factory=list)
     """Warning messages emitted during initialization."""
 
+    previous_pin: str | None = None
+    """Bare version of the highest upstream `uses:` pin the repository carried
+    before the run, read only when a workflow component was selected. `None`
+    for a first adoption, or for a run generating no workflow."""
+
+    adopted_pin: str | None = None
+    """Bare version the run wrote its thin callers at, or `None` when the
+    workflow sync was skipped."""
+
+    def upgraded_pin(self) -> tuple[str, str] | None:
+        """`(previous, adopted)` when the run moved the upstream pin forward.
+
+        The pair `init`'s closing hint and the upgrade review are keyed on. A
+        first adoption has no previous release to review against, a
+        regeneration at the pinned version moves nothing, and a rollback is a
+        deliberate step back no upgrade review should chase, so all three
+        answer `None`.
+        """
+        if self.previous_pin is None or self.adopted_pin is None:
+            return None
+        if not is_newer(self.adopted_pin, self.previous_pin):
+            return None
+        return self.previous_pin, self.adopted_pin
+
 
 def _relative_label(target: Path, output_dir: Path | None) -> str:
     """Render *target* for a log line, relative to the repository root.
@@ -1156,14 +1180,17 @@ def run_init(
     # and must not pay for the cooldown datasource lookup. An explicit --version
     # keeps its build-time SHA and bypasses the cooldown. The pin already on
     # disk is the floor: the cooldown gates an adoption, never a regeneration.
+    # It is also the previous half of the pair the closing hint prints when
+    # the run moves the pin, so it is read before any file is rewritten.
     commit_sha: str | None = __git_tag_sha__ or None
+    workflows_selected = any(
+        isinstance(COMPONENTS_BY_NAME.get(name), WorkflowComponent) for name in selected
+    )
+    floor = _highest_upstream_pin(output_dir, repo) if workflows_selected else None
+    if floor is not None:
+        result.previous_pin = floor.version
     if version is None:
-        workflows_selected = any(
-            isinstance(COMPONENTS_BY_NAME.get(name), WorkflowComponent)
-            for name in selected
-        )
         if cooldown and workflows_selected:
-            floor = _highest_upstream_pin(output_dir, repo)
             version, commit_sha = resolve_default_pin(
                 config,
                 repo=repo,
@@ -1308,6 +1335,7 @@ def _init_workflows(
             "[tool.repomatic] workflow.sync is disabled. Skipping workflow sync."
         )
         return
+    result.adopted_pin = version.removeprefix("v")
 
     # Exclude config-gated workflows whose toggle is off.
     for entry in COMPONENTS_BY_NAME["workflows"].files:

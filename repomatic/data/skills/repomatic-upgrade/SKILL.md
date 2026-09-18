@@ -1,0 +1,1 @@
+../../../../.claude/skills/repomatic-upgrade/SKILL.md

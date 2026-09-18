@@ -53,6 +53,7 @@ from ..config import (
     CONFIG_REFERENCE_HEADER_DEFS,
     config_reference,
     escape_type_for_gfm_table,
+    location_path,
 )
 from ..deps.dep_graph import (
     SubgraphKind,
@@ -83,13 +84,17 @@ from ..metadata.core import (
 )
 from ..pyproject import get_project_name
 from ..registry import (
+    AUDIT_SKILL,
     COMPONENT_HELP_TABLE,
     DEFAULT_REPO,
     EPHEMERAL_TARGETS,
     FILE_SELECTOR_COMPONENTS,
+    SKILL_FILENAME,
     SKILL_LIST_HEADER_DEFS,
     SKILL_PHASE_ORDER,
+    UPGRADE_SKILL,
     skill_catalog,
+    skill_launcher,
 )
 from ..release.checksums import update_registry_checksums
 from ..tooling import tool_registry
@@ -515,13 +520,14 @@ def init_project(
             "--keep-removed and --delete-removed-modified are mutually exclusive."
         )
 
+    config = get_tool_config()
     result = run_init(
         output_dir=output_dir,
         components=components,
         version=version_pin,
         cooldown=cooldown,
         repo=repo,
-        config=get_tool_config(),
+        config=config,
     )
 
     # Print summary. The exclude list is the one section that reads as a single
@@ -644,6 +650,33 @@ def init_project(
                 " configuration and open issues"
             )
             echo("     with setup instructions.")
+            step += 1
+        # A moved pin is the moment to read what the new release offers, and
+        # the one this command knows both versions of. The launcher is spelled
+        # by the registry, so the PR bodies inviting the same review agree.
+        upgrade = result.upgraded_pin()
+        if upgrade:
+            previous, adopted = upgrade
+            echo(
+                f"  {step}. Review what repomatic v{previous} to v{adopted} lets"
+                " this repository adopt or drop:"
+            )
+            echo(
+                f"       {skill_launcher(UPGRADE_SKILL, f'v{previous}', f'v{adopted}')}"
+            )
+            skill_file = (
+                output_dir
+                / location_path(config.skills_location)
+                / UPGRADE_SKILL
+                / SKILL_FILENAME
+            )
+            if not skill_file.is_file():
+                echo(
+                    f'     The skill is not installed here: run "repomatic init'
+                    f' skills/{UPGRADE_SKILL}" first, or use the Claude Code plugin.'
+                )
+            echo(f"     Then audit the drift against v{adopted}, in a fresh session:")
+            echo(f"       {skill_launcher(AUDIT_SKILL)}")
 
 
 assert init_project.help is not None

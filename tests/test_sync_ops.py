@@ -571,6 +571,28 @@ def test_render_plan_markdown_closes_on_the_held_back_section() -> None:
     )
 
 
+def test_render_plan_markdown_places_the_upgrade_invite_after_the_notes() -> None:
+    """The invitation follows the notes it asks the maintainer to work through."""
+    plan = SyncPlan(
+        operation="sync-workflow-pins",
+        subject="Package",
+        heading="Updated packages",
+        changes=[("repomatic", "7.14.0", "7.15.0")],
+        notes_section="## 📝 Release notes\n\nmango",
+        upgrade_section="## 🧭 Upgrade review\n\npapaya",
+        held_back=[
+            HeldBackPackage("cherry", "3.0.0", "3.1.0", "a day ago", "in a week")
+        ],
+    )
+    body = render_plan_markdown(plan)
+    assert (
+        body.index("## 🆙 Updated packages")
+        < body.index("## 📝 Release notes")
+        < body.index("## 🧭 Upgrade review")
+        < body.index("## ⏸️ Held back by cooldown")
+    )
+
+
 SWAP_PYPROJECT = """\
 [project]
 name = "basket"
@@ -1076,3 +1098,46 @@ def test_workflow_pins_step_a_uv_pin_back_onto_the_checksum_table(caplog):
     assert ("uv", "0.12.5", "0.12.4") in plan.changes
     assert 'version: "0.12.4"' in plan.file_writes[Path("tests.yaml")]
     assert "Stepping the uv pin back" in caplog.text
+
+
+def _lockstep_workflow(inline_pin: str) -> dict[Path, str]:
+    """A downstream job pinning the upstream refs at `7.15.0` beside an inline pin."""
+    return {
+        Path("tests.yaml"): (
+            "jobs:\n  build:\n    steps:\n"
+            "      - uses: kdeldycke/repomatic/.github/workflows/lint.yaml"
+            f"@{'a' * 40} # v7.15.0\n"
+            f"      - run: uvx 'repomatic=={inline_pin}' metadata\n"
+        )
+    }
+
+
+def test_workflow_pins_invite_the_upgrade_review_on_a_repomatic_bump() -> None:
+    """A lockstep bump of the upstream pin carries the review launcher.
+
+    The `uses:` refs already moved by hand, so realigning the inline pin is
+    the pull request where a maintainer learns the repository now runs a newer
+    release, and the one where both versions are known.
+    """
+    rc = ResolveContext(config=Config(), today=GATE_TODAY)
+    with patch(
+        "repomatic.sync_ops._pinnable_files", return_value=_lockstep_workflow("7.14.0")
+    ):
+        plan = _resolve_workflow_pins(rc)
+    assert ("repomatic", "7.14.0", "7.15.0") in plan.changes
+    assert "moves `repomatic` from `v7.14.0` to `v7.15.0`" in plan.upgrade_section
+    assert (
+        "claude --model opus '/repomatic-upgrade v7.14.0 v7.15.0'"
+        in plan.upgrade_section
+    )
+    assert plan.upgrade_section in render_plan_markdown(plan)
+
+
+def test_workflow_pins_invite_nothing_without_a_repomatic_bump() -> None:
+    """An inline pin already aligned with the refs leaves the section out."""
+    rc = ResolveContext(config=Config(), today=GATE_TODAY)
+    with patch(
+        "repomatic.sync_ops._pinnable_files", return_value=_lockstep_workflow("7.15.0")
+    ):
+        plan = _resolve_workflow_pins(rc)
+    assert plan.upgrade_section == ""

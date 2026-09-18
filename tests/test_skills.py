@@ -48,6 +48,7 @@ from repomatic.registry import (
     SKILL_FILENAME,
     _skill_dir,
     skill_catalog,
+    skill_launcher,
 )
 from repomatic.tooling.bundle import get_data_content
 
@@ -328,4 +329,26 @@ def test_docs_table_lists_every_bundled_skill():
         f"docs/agent-skills.md table drifted from the registry. "
         f"Missing rows: {sorted(bundled - documented) or 'none'}. "
         f"Rows with no bundled skill: {sorted(documented - bundled) or 'none'}."
+    )
+
+
+@skill_entries
+def test_skill_launcher_names_the_recommended_model(entry):
+    """The launcher `init` prints spells the model the skill recommends.
+
+    Read off `compatibility` rather than hard-coded, so a skill moving from
+    Opus to Sonnet moves its launcher with it.
+    """
+    hint = MODEL_HINT_RE.search(frontmatter(entry)["compatibility"])
+    assert hint is not None
+    model = hint.group().split()[-1].rstrip(".")
+    assert skill_launcher(entry.file_id) == (
+        f"claude --model {model.lower()} '/{entry.file_id}'"
+    )
+
+
+def test_skill_launcher_passes_arguments_through():
+    """Extra words land in the prompt, where the skill reads them as `$ARGUMENTS`."""
+    assert skill_launcher("repomatic-upgrade", "v7.14.0", "v7.15.0") == (
+        "claude --model opus '/repomatic-upgrade v7.14.0 v7.15.0'"
     )

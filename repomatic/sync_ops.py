@@ -106,7 +106,7 @@ from .deps.uv import (
     uv_lock_command,
 )
 from .github.actions import emit_report
-from .github.pr_body import template_docs_url
+from .github.pr_body import render_template, template_docs_url
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .humanize import format_countdown, utc_midnight
 from .init_project import init_config, is_source_repo
@@ -116,8 +116,10 @@ from .registry import (
     BUNDLED_VERBATIM_TARGETS,
     DEFAULT_REPO,
     GITHUB_YAML_PATTERNS,
+    UPGRADE_SKILL,
     UPSTREAM_PACKAGE,
     UPSTREAM_REPO_SLUGS,
+    skill_launcher,
 )
 from .release.checksums import update_registry_checksums
 from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
@@ -355,6 +357,9 @@ class SyncPlan:
 
     notes_section: str = ""
     """Pre-rendered release-notes markdown, or empty."""
+
+    upgrade_section: str = ""
+    """Pre-rendered invitation to review an upstream toolkit bump, or empty."""
 
     cooldown_note: str = ""
     """Pre-rendered cooldown-cutoff sentence shown above the diff table."""
@@ -1173,6 +1178,19 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         self_pin=(upstream_package, SELF_PIN_COOLDOWN_EXEMPTION),
     )
     _plan_file_rewrites(plan, rc, file_data, rewriter, resolved, min_age)
+    # A moved upstream pin is the one bump with a review to run behind it: the
+    # release notes list what changed, and the upgrade skill works them through
+    # against this repository. Rendered here rather than left to the template
+    # so the section exists only when the pin moved.
+    for name, old, new in plan.changes:
+        previous, adopted = old.removeprefix("v"), new.removeprefix("v")
+        if name == upstream_package and is_newer(adopted, previous):
+            plan.upgrade_section = render_template(
+                "upgrade-invite",
+                previous=f"v{previous}",
+                adopted=f"v{adopted}",
+                command=skill_launcher(UPGRADE_SKILL, f"v{previous}", f"v{adopted}"),
+            )
     if rc.release_notes:
         # Only PyPI literals resolve to a source repo, reusing sync-uv-lock's
         # path: PyPI `project_urls` to GitHub releases, with a changelog-link
@@ -1233,10 +1251,12 @@ def render_plan_markdown(plan: SyncPlan) -> str:
     """Render a plan as the markdown PR-body section every updater shares.
 
     Concatenates the source-swap section (when the plan carries one), the
-    diff table, any release notes, the uv cooldown-bypass section, and the
-    held-back section exactly as the individual `sync-*` commands do, so
-    `sync-deps` and the thin commands produce identical output for the same
-    plan.
+    diff table, any release notes, the upgrade-review invitation, the uv
+    cooldown-bypass section, and the held-back section exactly as the
+    individual `sync-*` commands do, so `sync-deps` and the thin commands
+    produce identical output for the same plan. The invitation follows the
+    release notes because those are what it asks the maintainer to work
+    through.
 
     Every other section reports what the run did to the working tree, so the
     held-back one closes the body: it is the only forward-looking section,
@@ -1301,6 +1321,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
             swap_section,
             diff_table,
             plan.notes_section,
+            plan.upgrade_section,
             bypass_section,
             exemption_section,
             held_back_section,

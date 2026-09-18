@@ -21,3 +21,6 @@ Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 - [`workflow.paths`](https://repomatic.net/configuration#workflow-paths)
 - [`workflow.source-paths`](https://repomatic.net/configuration#workflow-source-paths)
 - [`workflow.sync`](https://repomatic.net/configuration#workflow-sync)
+
+> [!TIP]
+> After adopting a newer `repomatic` release, run [`/repomatic-upgrade`](https://repomatic.net/agent-skills) in a fresh session to review what it lets this repository adopt, reuse or drop.

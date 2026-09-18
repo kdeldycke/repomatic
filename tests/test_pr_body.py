@@ -657,6 +657,23 @@ def test_render_surfaces_the_config_surface(template: str, needles: tuple[str, .
         assert needle in result, f"{template} body does not mention {needle!r}"
 
 
+def test_render_upgrade_invite():
+    """The invitation names both releases and hands over the launcher verbatim."""
+    body = render_template(
+        "upgrade-invite",
+        previous="v7.14.0",
+        adopted="v7.15.0",
+        command="claude --model opus '/repomatic-upgrade v7.14.0 v7.15.0'",
+    )
+    assert "## 🧭 Upgrade review" in body
+    assert "moves `repomatic` from `v7.14.0` to `v7.15.0`" in body
+    assert (
+        "```shell\nclaude --model opus '/repomatic-upgrade v7.14.0 v7.15.0'\n```"
+        in body
+    )
+    assert "Generated with" not in body
+
+
 # Config-option references in PR body templates, written as
 # ``- [`key`](…/configuration.html#anchor)`` bullets under "## ⚙️ Configuration".
 CONFIG_OPTION_BULLET = re.compile(
@@ -873,6 +890,7 @@ PROGRAMMATIC_TEMPLATES = frozenset({
     "unavailable-admonition",
     "unsubscribe-phase1",
     "unsubscribe-phase2",
+    "upgrade-invite",
     "yanked-admonition",
 })
 """Templates rendered from Python code, not via the ``--template`` CLI flag."""
