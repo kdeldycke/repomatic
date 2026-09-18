@@ -24,6 +24,7 @@
 - The bundled `repomatic-ship` skill now also checks hand-maintained registry blocks and the canary build's binary self-test, and filters run listings by creation date.
 - The bundled `repomatic-ship` skill now recommends `ruff -- check --no-fix` for a read-only pass, smoke-tests the `oxipng` pin with `--version`, and takes `:mirror:` blocks from the `update-docs` pull request.
 - The bundled `repomatic-ship` skill now reads a sub-agent's report from its idle notification when the agent cannot send one.
+- The bundled `repomatic-ship` skill now runs `pyproject-fmt` before `uv lock` when a release touches `pyproject.toml`.
 - The bundled `babysit-ci` skill now caps a commit body at two lines and 25 words, and filters per-workflow run listings by creation date.
 - Fix stale claims in the bundled `benchmark-update`, `brand-assets`, `github-housekeeping` and `sphinx-docs-sync` skills and the `sphinx-docs` agent about star-history curves, undeclared labels, and logo and `ogp_image` wiring.
 - Add a man-page index to the documentation, and cover `--man`, the release tarball and regeneration on the installation page.
