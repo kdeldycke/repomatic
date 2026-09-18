@@ -40,6 +40,7 @@ which is exactly what the schema now says and nothing more.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import subprocess
@@ -49,6 +50,7 @@ from http.client import HTTPException
 from pathlib import Path, PurePosixPath
 
 import tomlrt
+import yaml
 from wcmatch import glob
 
 from .github.gh import gh_env
@@ -446,30 +448,71 @@ def _extra_label_files(base: Path) -> dict[str, Path]:
     return extra_files
 
 
+class LabelConfigError(ValueError):
+    """A label definition file that {func}`declared_label_names` cannot read."""
+
+
+def _load_labelmaker_config(text: str, filename: str) -> dict[str, Any]:
+    """Parse a labelmaker config in the format its file extension names.
+
+    `labelmaker` picks the format from the extension, case-insensitively:
+    `.json`, `.json5`, `.toml`, `.yaml` or `.yml`, and it refuses any other.
+    No JSON5 parser ships with this package, so a `.json5` file is read as
+    JSON: plain JSON is valid JSON5, and anything beyond that subset is
+    reported as unreadable rather than guessed at.
+
+    :param text: Contents of the config file.
+    :param filename: Name of the file, whose extension selects the format.
+    :return: The top-level mapping of the config.
+    :raises LabelConfigError: When the extension names no format `labelmaker`
+        reads, or the text does not parse to a mapping in that format.
+    """
+    suffix = PurePosixPath(filename).suffix.lower()
+    if suffix not in {".json", ".json5", ".toml", ".yaml", ".yml"}:
+        msg = f"{filename}: labelmaker reads no {suffix or 'extensionless'} file."
+        raise LabelConfigError(msg)
+    # YAML and JSON can hold any top-level value, checked below.
+    data: Any
+    try:
+        if suffix == ".toml":
+            data = tomlrt.loads(text).to_dict()
+        elif suffix in {".yaml", ".yml"}:
+            data = yaml.safe_load(text)
+        else:
+            data = json.loads(text)
+    except (ValueError, yaml.YAMLError, tomlrt.TOMLParseError) as exc:
+        msg = f"{filename}: {exc}"
+        raise LabelConfigError(msg) from exc
+    if not isinstance(data, dict):
+        msg = f"{filename}: the top level is not a mapping."
+        raise LabelConfigError(msg)
+    return data
+
+
 def _names_in_labelmaker_config(
-    text: str, profiles: Sequence[str] | None = None
+    text: str, profiles: Sequence[str] | None = None, *, filename: str = "labels.toml"
 ) -> set[str]:
-    """Every label name a labelmaker TOML declares, across its profiles.
+    """Every label name a labelmaker config declares, across its profiles.
 
     Walks `profiles.*.labels[].name`, so the same reader serves the bundled
-    `labels.toml` (which carries `default` and `awesome`), a hand-written
-    `extra-labels/` file, and the inline block {func}`serialize_inline_labels`
-    emits.
+    `labels.toml` (which carries `default` and `awesome`), an `extra-labels/`
+    file in any format {func}`_load_labelmaker_config` reads, and the inline
+    block {func}`serialize_inline_labels` emits.
 
     A `rename-from` entry is deliberately **not** a declaration: it names a
     label expected to stop existing, so counting it would hide the very
     orphan {func}`~repomatic.lint_repo.check_undeclared_labels` looks for.
 
-    :param text: Contents of a labelmaker TOML config.
+    :param text: Contents of a labelmaker config.
     :param profiles: IDs of the profiles to read, like the `--profile` values
         {func}`apply_labels` passes. `None` reads every profile.
-    :return: The declared label names. Empty when the file cannot be parsed.
+    :param filename: Name of the file the text came from. Its extension
+        selects the format.
+    :return: The declared label names.
+    :raises LabelConfigError: When the text cannot be read, per
+        {func}`_load_labelmaker_config`.
     """
-    try:
-        data = tomlrt.loads(text).to_dict()
-    except tomlrt.TOMLParseError:
-        logging.warning("Skipping unparsable label config.")
-        return set()
+    data = _load_labelmaker_config(text, filename)
     names: set[str] = set()
     for profile_id, profile in (data.get("profiles") or {}).items():
         if profiles is not None and profile_id not in profiles:
@@ -477,6 +520,8 @@ def _names_in_labelmaker_config(
         if not isinstance(profile, dict):
             continue
         for label in profile.get("labels") or ():
+            if not isinstance(label, dict):
+                continue
             name = str(label.get("name", "")).strip()
             if name:
                 names.add(name)
@@ -511,6 +556,8 @@ def declared_label_names(
     :raises repomatic.http.FetchError: When a `labels.extra-files` URL cannot
         be fetched. The set would otherwise come back short, and every label
         only that file declares would read as an orphan.
+    :raises LabelConfigError: When an `extra-labels/` or `labels.extra-files`
+        definition cannot be read, for the same reason.
     """
     wanted = ("default", "awesome") if is_awesome else ("default",)
     names = _names_in_labelmaker_config(get_data_content("labels.toml"), wanted)
@@ -533,8 +580,8 @@ def declared_label_names(
             msg = f"{url}: {exc}"
             raise FetchError(msg) from exc
         texts[extra_label_filename(url)] = body.decode("UTF-8", errors="replace")
-    for label_text in texts.values():
-        names |= _names_in_labelmaker_config(label_text)
+    for filename, label_text in texts.items():
+        names |= _names_in_labelmaker_config(label_text, filename=filename)
 
     names |= _names_in_labelmaker_config(serialize_inline_labels(config.labels.extra))
     return names

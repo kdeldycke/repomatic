@@ -19,10 +19,12 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from repomatic import lint_repo
 from repomatic.cli.setup import show_metadata
@@ -30,6 +32,7 @@ from repomatic.config import Config, LabelsConfig
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.http import FetchError
 from repomatic.labels import (
+    LabelConfigError,
     _names_in_labelmaker_config,
     declared_label_names,
     serialize_inline_labels,
@@ -2633,9 +2636,69 @@ def test_declared_label_names_excludes_rename_sources():
     assert names == {"🔗 dependencies"}
 
 
-def test_declared_label_names_survives_an_unparsable_extra_file():
-    """One broken label file never empties the declared set."""
-    assert _names_in_labelmaker_config("this is not = valid = toml") == set()
+LEMON_CONFIG = {
+    "profiles": {"default": {"labels": [{"name": "🍋 lemon", "color": "fff44f"}]}}
+}
+"""One label definition, serialized below into each format `labelmaker` reads."""
+
+LEMON_YAML = yaml.safe_dump(LEMON_CONFIG, allow_unicode=True)
+
+
+@pytest.mark.parametrize(
+    ("filename", "text"),
+    [
+        pytest.param(
+            "citrus.toml", serialize_inline_labels([{"name": "🍋 lemon"}]), id="toml"
+        ),
+        pytest.param("citrus.json", json.dumps(LEMON_CONFIG), id="json"),
+        # Plain JSON is valid JSON5, the subset read without a JSON5 parser.
+        pytest.param("citrus.json5", json.dumps(LEMON_CONFIG), id="json5"),
+        pytest.param("citrus.yaml", LEMON_YAML, id="yaml"),
+        pytest.param("citrus.yml", LEMON_YAML, id="yml"),
+        # `labelmaker` matches the extension case-insensitively.
+        pytest.param("CITRUS.YAML", LEMON_YAML, id="uppercase"),
+    ],
+)
+def test_names_in_labelmaker_config_reads_every_labelmaker_format(filename, text):
+    """Each format `labelmaker` reads declares its labels.
+
+    `sync-labels` applies an extra label file in any of them, so a TOML-only
+    reader would call every label of a JSON or YAML file an orphan.
+    """
+    assert _names_in_labelmaker_config(text, filename=filename) == {"🍋 lemon"}
+
+
+@pytest.mark.parametrize(
+    ("filename", "text"),
+    [
+        pytest.param("citrus.toml", "this is not = valid = toml", id="broken-toml"),
+        # JSON5 beyond the JSON subset: a comment, unquoted keys, a trailing comma.
+        pytest.param(
+            "citrus.json5",
+            '// orchard\n{profiles: {default: {labels: [{name: "🍋 lemon"},]}}}',
+            id="json5-syntax",
+        ),
+        pytest.param("citrus.yaml", "- lemon\n- lime\n", id="not-a-mapping"),
+        pytest.param("citrus.cfg", "[profiles]", id="unknown-extension"),
+    ],
+)
+def test_names_in_labelmaker_config_rejects_an_unreadable_file(filename, text):
+    """A definition this module cannot read raises instead of declaring nothing.
+
+    An empty answer would call every label of that file an orphan.
+    """
+    with pytest.raises(LabelConfigError, match="citrus"):
+        _names_in_labelmaker_config(text, filename=filename)
+
+
+def test_declared_label_names_reads_a_yaml_extra_labels_file(tmp_path):
+    """A committed `extra-labels/` file counts whatever its format."""
+    extra_dir = tmp_path / "extra-labels"
+    extra_dir.mkdir()
+    (extra_dir / "citrus.yaml").write_text(LEMON_YAML, encoding="UTF-8")
+    names = declared_label_names(Config(), is_awesome=False, labels_dir=tmp_path)
+    assert "🍋 lemon" in names
+    assert "🐛 bug" in names
 
 
 REMOTE_LABELS_URL = "https://example.com/orchard/citrus.toml"
@@ -2660,23 +2723,40 @@ def test_declared_label_names_fetches_remote_extra_files():
 
 
 @pytest.mark.parametrize(
-    "failure",
+    ("url", "fetch", "error"),
     [
-        pytest.param(FetchError("HTTP Error 404: Not Found"), id="unreachable"),
+        pytest.param(
+            REMOTE_LABELS_URL,
+            {"side_effect": FetchError("HTTP Error 404: Not Found")},
+            FetchError,
+            id="unreachable",
+        ),
         # A malformed URL fails before any request, outside `FetchError`.
-        pytest.param(ValueError("unknown url type"), id="malformed"),
+        pytest.param(
+            REMOTE_LABELS_URL,
+            {"side_effect": ValueError("unknown url type")},
+            FetchError,
+            id="malformed",
+        ),
+        # JSON5 syntax, which `labelmaker` reads and this module has no parser for.
+        pytest.param(
+            "https://example.com/orchard/citrus.json5",
+            {"return_value": b'{profiles: {default: {labels: [{name: "lime"},]}}}'},
+            LabelConfigError,
+            id="unreadable",
+        ),
     ],
 )
-def test_undeclared_labels_skips_on_an_unfetchable_extra_file(failure):
-    """A failed fetch leaves the check indeterminate, never reporting orphans.
+def test_undeclared_labels_skips_on_an_unusable_extra_file(url, fetch, error):
+    """A definition that cannot be fetched or read leaves the check skipped.
 
-    A short declared set would call every label of the missing file an orphan.
-    The set resolves to unknown instead, and the check reports skipped without
-    reading the repository's labels.
+    A short declared set would call every label of that file an orphan. The set
+    resolves to unknown instead, and the check reports skipped without reading
+    the repository's labels.
     """
-    config = Config(labels=LabelsConfig(extra_files=[REMOTE_LABELS_URL]))
-    with patch("repomatic.labels.get_bytes", side_effect=failure):
-        with pytest.raises(FetchError, match=r"citrus\.toml"):
+    config = Config(labels=LabelsConfig(extra_files=[url]))
+    with patch("repomatic.labels.get_bytes", **fetch):
+        with pytest.raises(error, match="citrus"):
             declared_label_names(config, is_awesome=False)
         declared = _resolve_declared_labels(config, is_awesome=False)
     assert declared is None

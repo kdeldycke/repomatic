@@ -50,7 +50,7 @@ from .github.gh import gh_api_json, gh_graphql, run_gh_command
 from .github.matrix import PYTHON_VERSION_AXIS
 from .github.token import check_all_pat_permissions
 from .http import FetchError
-from .labels import declared_label_names
+from .labels import LabelConfigError, declared_label_names
 from .matrix_axes import (
     TEST_RUNNERS_FULL,
     TEST_RUNNERS_PR,
@@ -521,18 +521,19 @@ def _resolve_declared_labels(
 ) -> frozenset[str] | None:
     """Every label name the configured sources declare, or `None` if unknown.
 
-    A `labels.extra-files` definition that cannot be fetched leaves the set
-    unknown rather than short, so {func}`check_undeclared_labels` reports
-    skipped instead of calling that file's labels orphans.
+    A label definition that cannot be fetched or read leaves the set unknown
+    rather than short, so {func}`check_undeclared_labels` reports skipped
+    instead of calling that file's labels orphans.
 
     :param config: The resolved `[tool.repomatic]` configuration.
     :param is_awesome: Whether the repository is an `awesome-*` list.
-    :return: The declared names, or `None` when a definition is unreachable.
+    :return: The declared names, or `None` when a definition is unreachable
+        or unreadable.
     """
     try:
         return frozenset(declared_label_names(config, is_awesome=is_awesome))
-    except FetchError as exc:
-        logging.warning(f"Could not fetch a label definition: {exc}")
+    except (FetchError, LabelConfigError) as exc:
+        logging.warning(f"Could not read every label definition: {exc}")
         return None
 
 
@@ -555,14 +556,13 @@ def check_undeclared_labels(repo: str, declared: frozenset[str] | None) -> Check
 
     :param repo: Repository in 'owner/repo' format.
     :param declared: Every label name the configured sources declare, or
-        `None` when a `labels.extra-files` definition could not be fetched.
+        `None` when a label definition could not be fetched or read.
     :return: A `CheckResult`.
     """
     if declared is None:
         return CheckResult(
             None,
-            "Undeclared labels check: skipped (could not fetch every"
-            " labels.extra-files definition).",
+            "Undeclared labels check: skipped (could not read every label definition).",
         )
 
     # No `--jq` here: it is rejected alongside `--slurp`, and without `--slurp`
@@ -2920,8 +2920,8 @@ class LintContext:
 
     Resolved here rather than inside {func}`check_undeclared_labels` so the
     check reads its expectation from the same place the sync writes it.
-    `None` when a `labels.extra-files` definition could not be fetched: the
-    set is then unknown rather than short, and the check reports skipped.
+    `None` when a label definition could not be fetched or read: the set is
+    then unknown rather than short, and the check reports skipped.
     """
 
     @cached_property
