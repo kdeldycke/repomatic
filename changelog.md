@@ -5,34 +5,27 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** `sample-metrics` drops `--backfill-wayback` and `--import-csv`. GitHub's new star-history endpoint rebuilds every subject's curve directly, so neither workaround has anything left to recover.
-- `sample-metrics` now rebuilds every GitHub subject's star curve from GitHub's star-history endpoint, one reading per week. It needs no token, so a tracked repository gets a curve complete from its first star, not only an administered one.
-- `lint-repo` now reports labels a repository carries that no configured source declares, which `sync-labels` never deletes on its own.
-- `sync-workflow-pins` now steps a uv pin back onto the checksum table of the pinned `astral-sh/setup-uv`, instead of leaving every job installing uv unverified until a newer action release exists.
-- Raise the `click-extra` floor to `9.1`, required by the recording API the `update-docs` job captures the readme animation with.
-- Cooldown countdowns (`Held until`, `Eligible`, `Clears`) now read `in 5 hours` when the window lifts later the same day, instead of `just now`, which read as already cleared.
-- Add `[tool.repomatic] notification.batch-size` and `notification.months`. `repomatic init` bakes them into the generated unsubscribe caller, the only place they can reach a job that checks out nothing.
-- The unsubscribe report's two phase-1 tables render whole instead of splicing rows into a table the template opens, which gave the first row an empty leading cell and the last two trailing ones.
-- **Breaking:** `unsubscribe-threads` replaces `--batch-size` with `--max-unsubscribes`, which caps unsubscribes instead of inspections. The `[tool.repomatic] notification.batch-size` key and the workflow's `batch-size` input are renamed to match.
-- `unsubscribe-threads` now resolves subject states in batches of 50 through GraphQL, where it spent one REST call per thread. A run falls back to the per-thread calls if a batch fails.
-- `unsubscribe-threads` now sorts its batch by notification age itself. The endpoint calls itself sorted by most recent update and is not, so the batch was an arbitrary slice rather than the oldest one.
-- `unsubscribe-threads` now asks GitHub for only the notifications last updated before the cutoff, so a batch inspects candidates instead of threads that are still active.
-- The `unsubscribe` backlog warning now links the workflow's manual-run page, and no longer wraps its prose to a source column, which a job summary rendered as line breaks.
-- The `Released` column of the `sync-uv-lock` held-back table now measures the upload instant, so a release published earlier today reads `6 hours ago` instead of `just now`.
-- The `cloudflare-pages` token-expiry warning now counts down like the dependency tables (`2026-10-14 (in 3 weeks)`), instead of rounding down to `0 days away` on the token's last day.
-- The bundled `repomatic-ship` skill now warns that `ruff -- check` fixes findings repo-wide where the config enables it, and recommends `--no-fix` for a read-only pass.
-- The bundled `repomatic-ship` skill now checks hand-maintained blocks enumerating a registry, like a readme pasting a whole collection or a `mirror-src` diagram, which its version-sample rules did not reach.
-- The bundled `repomatic-ship` skill now runs a downstream repository's local checks on the `repomatic` version its workflows pin, so their tool versions match CI.
-- The bundled `repomatic-ship` skill now smoke-tests the `oxipng` pin with `--version`, where a bare run failed on missing file arguments.
-- The bundled `repomatic-ship` skill now adds the canary build's binary self-test to its red inventory, and filters run listings by creation date.
-- The bundled `repomatic-ship` skill now takes a `:mirror:` block from the `update-docs` pull request when a local regeneration differs from CI's.
-- The bundled `repomatic-ship` skill now reads the report of an agent that cannot send one, like `qa-engineer`, from its idle notification.
-- The bundled `babysit-ci` skill now caps a commit body at two lines and 25 words, and keeps diagnostic measurements out of it.
-- Add the `repomatic-upgrade` skill, which reviews what a newer `repomatic` release lets a downstream repository adopt, reuse or drop, then applies it.
-- `repomatic init` now closes with the command launching that review when it moved the upstream pin, followed by the one launching the drift audit.
+- **Breaking:** `sample-metrics` drops `--backfill-wayback` and `--import-csv`, since GitHub's star-history endpoint now rebuilds every curve. Readings they already wrote stay in the store.
+- **Breaking:** `unsubscribe-threads` replaces `--batch-size` with `--max-unsubscribes`, which caps unsubscribes instead of inspections. The `unsubscribe` workflow's `batch-size` input is renamed `max-unsubscribes` to match.
 - Add `repomatic init --upgrade`, which runs as the newest release past the `minimum-release-age` cooldown, so the upstream pin and every managed file move together.
 - The `sync-repomatic` job now opens an `Upgrade repomatic to vX.Y.Z` pull request once a newer release clears the cooldown, listing the breaking changes it crosses. Opt out with `[tool.repomatic] upstream-pin.sync = false`.
-- The `sync-workflow-pins` pull request now invites the maintainer to run the upgrade review when a bump moves `repomatic`, and the `sync-repomatic` one points at the skill.
+- Add the `repomatic-upgrade` skill, which reviews what a newer `repomatic` release lets a downstream repository adopt, reuse or drop, then applies it.
+- `repomatic init` and the `sync-workflow-pins` and `sync-repomatic` pull requests now suggest the upgrade review after they move the `repomatic` pin.
+- `sample-metrics` now rebuilds every GitHub subject's weekly star curve from GitHub's star-history endpoint, back to its first star, for any public repository rather than only administered ones.
+- `lint-repo` now warns about labels a repository carries that no configured source declares, which `sync-labels` never deletes on its own.
+- Add `[tool.repomatic] notification.max-unsubscribes` and `notification.months`, which `repomatic init` bakes into the generated unsubscribe caller.
+- `unsubscribe-threads` now fetches only notifications last updated before the cutoff, unsubscribes the oldest first, and resolves their states in GraphQL batches of 50.
+- `sync-workflow-pins` now steps a uv pin back onto the checksum table of the pinned `astral-sh/setup-uv`, so every job installs a verified uv.
+- Raise the `click-extra` floor to `9.1`.
+- Relative dates in the dependency tables and the `cloudflare-pages` token-expiry warning now count hours within the same day, instead of reading `just now` or `0 days away`.
+- Fix the unsubscribe report's phase-1 tables, whose first row carried an empty leading cell and last row two trailing ones.
+- The `unsubscribe` backlog warning now links the workflow's manual-run page, and no longer breaks its prose into short lines in the job summary.
+- The bundled `repomatic-ship` skill now runs a downstream repository's local checks on the `repomatic` version its workflows pin, so their tool versions match CI.
+- The bundled `repomatic-ship` skill now also checks hand-maintained registry blocks and the canary build's binary self-test, and filters run listings by creation date.
+- The bundled `repomatic-ship` skill now recommends `ruff -- check --no-fix` for a read-only pass, smoke-tests the `oxipng` pin with `--version`, and takes `:mirror:` blocks from the `update-docs` pull request.
+- The bundled `repomatic-ship` skill now reads a sub-agent's report from its idle notification when the agent cannot send one.
+- The bundled `babysit-ci` skill now caps a commit body at two lines and 25 words, and filters per-workflow run listings by creation date.
+- Fix stale claims in the bundled `benchmark-update`, `brand-assets`, `github-housekeeping` and `sphinx-docs-sync` skills and the `sphinx-docs` agent about star-history curves, undeclared labels, and logo and `ogp_image` wiring.
 - Add a man-page index to the documentation, and cover `--man`, the release tarball and regeneration on the installation page.
 - Rename the installation page's `Try it`, `Install methods` and `Executables` sections to `Try it now`, `Installation methods` and `Binaries`. Their old anchors no longer resolve.
 - Publish a sitemap, a `robots.txt` and a custom 404 page, and stop publishing a copy of every documentation source under `_sources/`.

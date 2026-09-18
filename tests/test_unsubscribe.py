@@ -440,10 +440,9 @@ def test_render_report_phase1_live_summary():
 def test_render_report_backlog_warning(threads_deferred, expect_warning):
     """The warning fires on work the cap deferred, and on nothing else.
 
-    Inspection is no longer capped, so an uninspected thread is not a thing
-    that exists: what a run leaves behind is eligible threads it declined to
-    act on. That is a remainder a higher cap really does clear, which is what
-    the warning advises.
+    Inspection is not capped, so no thread goes uninspected: what a run leaves
+    behind is eligible threads it declined to act on. That is a remainder a
+    higher cap really does clear, which is what the warning advises.
     """
     result = UnsubscribeResult(dry_run=False, months=3)
     p1 = result.phase1
@@ -457,7 +456,7 @@ def test_render_report_backlog_warning(threads_deferred, expect_warning):
 
 
 def _backlog_report(repo_url: str | None = None) -> str:
-    """A report whose batch never reached an old-enough candidate."""
+    """A report whose cap deferred a dozen eligible threads."""
     result = UnsubscribeResult(dry_run=False, months=3)
     p1 = result.phase1
     p1.cutoff = CUTOFF
@@ -587,7 +586,7 @@ def test_fetch_notification_threads_skips_malformed_lines():
 
 
 def test_fetch_notification_threads_gh_failure_returns_empty():
-    """A gh failure degrades to a zero total and an empty batch."""
+    """A gh failure degrades to an empty pool."""
     with patch_gh(side_effect=RuntimeError("boom")):
         assert _fetch_notification_threads(CUTOFF) == []
 
@@ -603,7 +602,7 @@ def test_fetch_notification_threads_query_args():
     assert "before=2026-04-16T00:00:00Z" in args
     assert f"per_page={NOTIFICATION_PAGE_SIZE}" in args
     jq_filter = args[args.index("--jq") + 1]
-    # Without it the batch cannot be ordered: the response is not.
+    # Without it the pool cannot be ordered: the response is not.
     assert "updated_at" in jq_filter
     assert '"Issue"' in jq_filter
     assert '"PullRequest"' in jq_filter
@@ -896,8 +895,8 @@ def test_phase1_delete_failure_records_failed():
     assert _gh_calls_matching(mock_gh, ["api", "--method", "PATCH"]) == []
 
 
-def test_phase1_batch_size_truncates_but_reports_total():
-    """Only batch-size threads are inspected, yet the full total is reported."""
+def test_phase1_cap_defers_but_reports_total():
+    """The cap bounds the unsubscribes, yet the full total is reported."""
     base = "https://api.github.com/repos/fruits/apple/issues"
     lines = "\n".join(_thread_line(f"t{i}", f"{base}/{i}") for i in range(5))
     details = {f"{base}/{i}": _closed_detail(number=i) for i in range(5)}
@@ -1104,7 +1103,7 @@ def test_batch_subject_details_maps_graphql_onto_the_rest_vocabulary():
 
 
 def test_fetch_subject_details_falls_back_to_one_call_each():
-    """A failed batch costs what the phase used to cost, never its results."""
+    """A failed batch falls back to one REST call per subject, losing no result."""
     urls = ["https://api.github.com/repos/fruits/apple/issues/1"]
     detail = _closed_detail()
     with (
@@ -1131,7 +1130,7 @@ def test_fetch_subject_details_falls_back_for_an_unparsable_url():
 
 
 def test_phase1_batches_every_subject_into_one_round_trip():
-    """The whole batch costs one request, not one per thread."""
+    """The whole pool costs one request, not one per thread."""
     root = "https://api.github.com/repos/fruits/apple/issues"
     threads = [_thread_line(f"t{n}", f"{root}/{n}") for n in range(3)]
     details = {f"{root}/{n}": _closed_detail(number=n) for n in range(3)}

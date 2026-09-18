@@ -99,11 +99,10 @@ run.
 """
 
 GITHUB_HOST = "github.com"
-"""The one host whose deep collectors exist.
+"""The one host whose deep collector exists.
 
-An exact star reconstruction reads per-star timestamps, and an archive backfill
-mines `github.com` pages: both are GitHub-only, so a subject elsewhere is
-skipped by them rather than failed.
+The star-curve reconstruction reads a star-history endpoint only GitHub
+serves, so a subject elsewhere is skipped by it rather than failed.
 """
 
 GITHUB_METRICS_QUERY = """

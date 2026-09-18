@@ -40,7 +40,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import tomlrt
 import yaml
@@ -65,6 +65,7 @@ from .github.workflow_sync import (
     render_thin_caller_for_target,
 )
 from .http import get_bytes
+from .labels import extra_label_filename
 from .lint_repo import requested_metadata_keys
 from .metadata.core import Metadata, all_metadata_keys
 from .pypi import PYPI_PACKAGE_URL
@@ -718,7 +719,7 @@ def resolve_default_pin(
     base = _base_version()
     build_sha = __git_tag_sha__ or None
     # Unreleased dev cuts never appear in a release datasource: pin as-is,
-    # sparing the source repo's own `--from .` runs a pointless lookup.
+    # sparing the source repo's own development builds a pointless lookup.
     if base != __version__:
         return f"v{base}", build_sha
     if floor is not None:
@@ -999,6 +1000,25 @@ def _init_output_section(output: str, adopted: str) -> str:
     return "\n".join(lines)
 
 
+def upgrade_invite(previous: str, adopted: str) -> str:
+    """Render the invitation to review a move of the upstream pin.
+
+    Shared by every pull request that moves the pin, the `init --upgrade`
+    report and a `sync-workflow-pins` lockstep bump, so both hand over the same
+    launcher.
+
+    :param previous: Bare version the pin moved from.
+    :param adopted: Bare version the pin moved to.
+    :return: The `upgrade-invite` section, ending on the skill launcher.
+    """
+    return render_template(
+        "upgrade-invite",
+        previous=f"v{previous}",
+        adopted=f"v{adopted}",
+        command=skill_launcher(UPGRADE_SKILL, f"v{previous}", f"v{adopted}"),
+    )
+
+
 def upgrade_report(
     target: UpgradeTarget,
     output_dir: Path,
@@ -1077,12 +1097,7 @@ def upgrade_report(
         _breaking_section(notes, previous, adopted),
         _init_output_section(init_output, adopted),
         format_release_notes(notes),
-        render_template(
-            "upgrade-invite",
-            previous=f"v{previous}",
-            adopted=f"v{adopted}",
-            command=skill_launcher(UPGRADE_SKILL, f"v{previous}", f"v{adopted}"),
-        ),
+        upgrade_invite(previous, adopted),
         held_back,
     )
     return adopted, "\n\n".join(section for section in sections if section)
@@ -2317,8 +2332,7 @@ def _fetch_extra_labels(
         url = url.strip()
         if not url:
             continue
-        filename = PurePosixPath(url).name
-        target = target_dir / filename
+        target = target_dir / extra_label_filename(url)
         rel = target.relative_to(output_dir).as_posix()
         logging.info(f"Downloading {url} -> {target}")
         target.write_bytes(get_bytes(url))

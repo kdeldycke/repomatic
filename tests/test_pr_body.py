@@ -692,10 +692,10 @@ def test_render_upgrade_invite():
 
 
 # Config-option references in PR body templates, written as
-# ``- [`key`](…/configuration.html#anchor)`` bullets under "## ⚙️ Configuration".
+# ``- [`key`](…/configuration#anchor)`` bullets under "## ⚙️ Configuration".
 CONFIG_OPTION_BULLET = re.compile(
     r"- \[`(?P<key>[^`]+)`\]"
-    r"\(https://kdeldycke\.github\.io/repomatic/configuration\.html#(?P<anchor>[^)]+)\)"
+    r"\(https://repomatic\.net/configuration#(?P<anchor>[^)]+)\)"
 )
 
 VALID_CONFIG_KEYS = frozenset(row[0].strip("`") for row in config_reference())
@@ -706,7 +706,7 @@ VALID_CONFIG_KEYS = frozenset(row[0].strip("`") for row in config_reference())
 def test_template_config_options_are_real_keys(name: str) -> None:
     """Every option a template lists is a real key, anchored and sorted.
 
-    Each ``- [`key`](…/configuration.html#anchor)`` bullet must name a live
+    Each ``- [`key`](…/configuration#anchor)`` bullet must name a live
     `[tool.repomatic]` key, link to its matching anchor, and appear in
     alphabetical order. Guards against a renamed or mistyped option silently
     surviving in a PR body template (the lone unenforced `workflow.sync` was

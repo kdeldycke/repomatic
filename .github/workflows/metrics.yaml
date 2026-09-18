@@ -70,10 +70,10 @@ jobs:
         with:
           version: "0.12.13"
 
-      # `gh` inherits this token to read the aggregate counts and the star
-      # history. Neither needs a scope beyond public data, so the default token
-      # is enough here; the PAT below is for opening the pull request. Every
-      # other forge is read anonymously.
+      # `gh` inherits this token to read the aggregate counts and the star history. Both are
+      # public, so any token can read them, but the PAT carries 5,000 requests an hour where
+      # the default token carries 1,000, and a store tracking over a hundred GitHub
+      # repositories spends more than that on one run. Every other forge is read anonymously.
       #
       # `--carry-from` names the branch below, so the store is read back from
       # the open pull request before this run appends to it: a reading cannot

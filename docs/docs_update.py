@@ -25,9 +25,9 @@ because a Sphinx block writes its image at *build* time and this lane runs no
 Sphinx build: these are the only capture paths that land the SVGs in the
 committed tree the readme and the docs pages link to.
 
-Every capture scrubs `TERM_PROGRAM` from the environment, so the emoji-width
-padding click-extra applies for Apple Terminal never reaches the committed
-bytes: whatever terminal runs this script, the capture renders the
+click-extra hides `TERM_PROGRAM` from every command it captures, so the
+emoji-width padding its tables apply for Apple Terminal never reaches the
+committed bytes: whatever terminal runs this script, the capture renders the
 standards-conforming layout the Linux runner produces.
 
 ```{note}
@@ -44,7 +44,6 @@ committing it.
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 import tempfile
@@ -141,8 +140,8 @@ RECORDING_ROWS = 28
 RECORDING_BLANK = 1.0
 """Seconds of empty screen closing the cycle.
 
-Marks the loop boundary: after the long hold above, an instant jump back to
-the first frame would read as a glitch rather than a restart.
+Marks the loop boundary: after the hold on the final screen, an instant jump
+back to the first frame would read as a glitch rather than a restart.
 """
 
 RECORDING_MIN_FRAMES = 8
@@ -154,19 +153,6 @@ it is retried rather than committed.
 
 RECORDING_TAKES = 3
 """How many takes to attempt before giving up on a clean recording."""
-
-
-def capture_env() -> dict[str, str]:
-    """The environment the `click-extra` capture CLIs run with.
-
-    See the module docstring for why `TERM_PROGRAM` is scrubbed. The recording
-    needs none of this: {func}`~click_extra.recording.record_command` hides the
-    same variables through
-    {data}`~click_extra.screenshot.CAPTURE_HIDDEN_TERMINAL_VARS`.
-    """
-    env = dict(os.environ)
-    env.pop("TERM_PROGRAM", None)
-    return env
 
 
 def capture_help(target: Path, background: str, theme: str) -> None:
@@ -230,7 +216,7 @@ def run_capture_tool(*args: str) -> None:
     :raises SystemExit: When the command fails.
     """
     cmd = ["click-extra", *args]
-    result = subprocess.run(cmd, check=False, env=capture_env())
+    result = subprocess.run(cmd, check=False)
     if result.returncode:
         sys.exit(f"Capture failed with exit code {result.returncode}: {cmd}")
 

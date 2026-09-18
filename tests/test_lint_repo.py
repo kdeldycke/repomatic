@@ -26,8 +26,9 @@ import pytest
 
 from repomatic import lint_repo
 from repomatic.cli.setup import show_metadata
-from repomatic.config import Config
+from repomatic.config import Config, LabelsConfig
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
+from repomatic.http import FetchError
 from repomatic.labels import (
     _names_in_labelmaker_config,
     declared_label_names,
@@ -37,6 +38,7 @@ from repomatic.lint_repo import (
     REPO_CHECKS,
     CheckResult,
     LintContext,
+    _resolve_declared_labels,
     check_branch_ruleset_on_default,
     check_classic_branch_protection,
     check_description_matches,
@@ -2634,3 +2636,56 @@ def test_declared_label_names_excludes_rename_sources():
 def test_declared_label_names_survives_an_unparsable_extra_file():
     """One broken label file never empties the declared set."""
     assert _names_in_labelmaker_config("this is not = valid = toml") == set()
+
+
+REMOTE_LABELS_URL = "https://example.com/orchard/citrus.toml"
+"""A `labels.extra-files` entry, served through a mocked `get_bytes`."""
+
+
+def test_declared_label_names_fetches_remote_extra_files():
+    """A `labels.extra-files` definition counts without a staged export.
+
+    `lint-repo` stages nothing, so the declared set reads the file from its URL.
+    Otherwise every label only that file declares would read as an orphan.
+    """
+    remote = serialize_inline_labels([{"name": "🍋 lemon", "color": "fff44f"}])
+    config = Config(labels=LabelsConfig(extra_files=[REMOTE_LABELS_URL]))
+    with patch(
+        "repomatic.labels.get_bytes", return_value=remote.encode("UTF-8")
+    ) as mock_fetch:
+        names = declared_label_names(config, is_awesome=False)
+    mock_fetch.assert_called_once_with(REMOTE_LABELS_URL)
+    assert "🍋 lemon" in names
+    assert "🐛 bug" in names
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(FetchError("HTTP Error 404: Not Found"), id="unreachable"),
+        # A malformed URL fails before any request, outside `FetchError`.
+        pytest.param(ValueError("unknown url type"), id="malformed"),
+    ],
+)
+def test_undeclared_labels_skips_on_an_unfetchable_extra_file(failure):
+    """A failed fetch leaves the check indeterminate, never reporting orphans.
+
+    A short declared set would call every label of the missing file an orphan.
+    The set resolves to unknown instead, and the check reports skipped without
+    reading the repository's labels.
+    """
+    config = Config(labels=LabelsConfig(extra_files=[REMOTE_LABELS_URL]))
+    with patch("repomatic.labels.get_bytes", side_effect=failure):
+        with pytest.raises(FetchError, match=r"citrus\.toml"):
+            declared_label_names(config, is_awesome=False)
+        declared = _resolve_declared_labels(config, is_awesome=False)
+    assert declared is None
+
+    check = next(c for c in REPO_CHECKS if c.name == "undeclared-labels")
+    ctx = LintContext(repo="owner/repo", declared_labels=declared)
+    assert check.applies(ctx)
+    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+        (result,) = check.results(ctx)
+    mock_gh.assert_not_called()
+    assert result.passed is None
+    assert "skipped" in result.message

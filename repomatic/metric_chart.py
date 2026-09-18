@@ -335,7 +335,7 @@ def build_chart_data(
         label = METRICS_BY_ID[spec.metric].label.lower()
         msg = (
             f"Chart {spec.output.name} has no {label} history to plot "
-            f"({plotted}). Run a sample or a backfill first."
+            f"({plotted}). Run a sample or a reconstruction first."
         )
         raise ValueError(msg)
 

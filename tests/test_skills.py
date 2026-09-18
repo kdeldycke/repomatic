@@ -45,6 +45,7 @@ from repomatic.frontmatter import split_frontmatter
 from repomatic.init_project import _copy_template_tree
 from repomatic.registry import (
     COMPONENTS_BY_NAME,
+    RECOMMENDED_MODEL_RE,
     SKILL_FILENAME,
     _skill_dir,
     skill_catalog,
@@ -84,9 +85,6 @@ MAX_DESCRIPTION_LENGTH = 1024
 
 MAX_NAME_LENGTH = 64
 """Spec ceiling on the `name` field."""
-
-MODEL_HINT_RE = re.compile(r"Recommended model: \w+\.")
-"""Shape of the model recommendation carried by `compatibility`."""
 
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 """Spec charset for `name`: lowercase alphanumerics and single inner hyphens.
@@ -181,7 +179,7 @@ def test_skill_compatibility_carries_the_model_hint(entry):
     """
     compatibility = frontmatter(entry).get("compatibility")
     assert compatibility, f"{entry.source} has no compatibility field"
-    assert MODEL_HINT_RE.search(compatibility), (
+    assert RECOMMENDED_MODEL_RE.search(compatibility), (
         f"{entry.source} names no recommended model: {compatibility!r}"
     )
 
@@ -339,11 +337,10 @@ def test_skill_launcher_names_the_recommended_model(entry):
     Read off `compatibility` rather than hard-coded, so a skill moving from
     Opus to Sonnet moves its launcher with it.
     """
-    hint = MODEL_HINT_RE.search(frontmatter(entry)["compatibility"])
+    hint = RECOMMENDED_MODEL_RE.search(frontmatter(entry)["compatibility"])
     assert hint is not None
-    model = hint.group().split()[-1].rstrip(".")
     assert skill_launcher(entry.file_id) == (
-        f"claude --model {model.lower()} '/{entry.file_id}'"
+        f"claude --model {hint['model'].lower()} '/{entry.file_id}'"
     )
 
 

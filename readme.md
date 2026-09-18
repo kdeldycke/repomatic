@@ -78,7 +78,7 @@ See `repomatic init --help` for available components and options.
 
 See the **[full documentation](https://repomatic.net/)** for:
 
-- [Installation methods and executables](https://repomatic.net/install)
+- [Installation methods and binaries](https://repomatic.net/install)
 - [`[tool.repomatic]` configuration reference](https://repomatic.net/configuration)
 - [CLI parameters](https://repomatic.net/cli)
 - [Reusable workflow reference](https://repomatic.net/workflows) (all 15 workflows with job descriptions)

@@ -45,13 +45,15 @@ import re
 import subprocess
 import tempfile
 from functools import cache
-from importlib.resources import files
-from pathlib import Path
+from http.client import HTTPException
+from pathlib import Path, PurePosixPath
 
 import tomlrt
 from wcmatch import glob
 
 from .github.gh import gh_env
+from .http import FetchError, get_bytes
+from .tooling.bundle import get_data_content
 from .tooling.tool_runner import ensure_binary
 
 TYPE_CHECKING = False
@@ -411,6 +413,19 @@ def serialize_inline_labels(entries: list[dict[str, Any]]) -> str:
     return tomlrt.dumps(doc)
 
 
+def extra_label_filename(url: str) -> str:
+    """The filename a `labels.extra-files` download is saved under.
+
+    Shared by the download and by {func}`declared_label_names`, which keys a
+    fetched definition the same way, so it shadows a committed `extra-labels/`
+    file of that name exactly as the download does.
+
+    :param url: One `labels.extra-files` entry.
+    :return: The last segment of the URL path.
+    """
+    return PurePosixPath(url.strip()).name
+
+
 def _extra_label_files(base: Path) -> dict[str, Path]:
     """Label definition files beside the exported `labels.toml`.
 
@@ -431,19 +446,23 @@ def _extra_label_files(base: Path) -> dict[str, Path]:
     return extra_files
 
 
-def _names_in_labelmaker_config(text: str) -> set[str]:
-    """Every label name a labelmaker TOML declares, across all its profiles.
+def _names_in_labelmaker_config(
+    text: str, profiles: Sequence[str] | None = None
+) -> set[str]:
+    """Every label name a labelmaker TOML declares, across its profiles.
 
-    Walks `profiles.*.labels[].name` rather than one named profile, so the
-    same reader serves the bundled `labels.toml` (which carries `default` and
-    `awesome`), a hand-written `extra-labels/` file, and the inline block
-    {func}`serialize_inline_labels` emits.
+    Walks `profiles.*.labels[].name`, so the same reader serves the bundled
+    `labels.toml` (which carries `default` and `awesome`), a hand-written
+    `extra-labels/` file, and the inline block {func}`serialize_inline_labels`
+    emits.
 
     A `rename-from` entry is deliberately **not** a declaration: it names a
     label expected to stop existing, so counting it would hide the very
     orphan {func}`~repomatic.lint_repo.check_undeclared_labels` looks for.
 
     :param text: Contents of a labelmaker TOML config.
+    :param profiles: IDs of the profiles to read, like the `--profile` values
+        {func}`apply_labels` passes. `None` reads every profile.
     :return: The declared label names. Empty when the file cannot be parsed.
     """
     try:
@@ -452,7 +471,9 @@ def _names_in_labelmaker_config(text: str) -> set[str]:
         logging.warning("Skipping unparsable label config.")
         return set()
     names: set[str] = set()
-    for profile in (data.get("profiles") or {}).values():
+    for profile_id, profile in (data.get("profiles") or {}).items():
+        if profiles is not None and profile_id not in profiles:
+            continue
         if not isinstance(profile, dict):
             continue
         for label in profile.get("labels") or ():
@@ -477,32 +498,43 @@ def declared_label_names(
     one and not the other makes that check report labels the sync itself
     creates.
 
-    The bundled definitions are read from the installed package rather than
-    from a staged export, so the answer does not depend on `sync-labels`
-    having run first.
+    The bundled definitions are read from the installed package, and the
+    `labels.extra-files` definitions fetched from their URLs, rather than from
+    a staged export, so the answer does not depend on `sync-labels` having run
+    first.
 
     :param config: The resolved `[tool.repomatic]` configuration.
     :param is_awesome: Whether the repository is an `awesome-*` list, which
         adds the `awesome` profile on top of `default`.
     :param labels_dir: Directory holding a staged export, per `apply_labels`.
+    :return: The declared label names.
+    :raises repomatic.http.FetchError: When a `labels.extra-files` URL cannot
+        be fetched. The set would otherwise come back short, and every label
+        only that file declares would read as an orphan.
     """
-    bundled = (
-        files("repomatic.data").joinpath("labels.toml").read_text(encoding="UTF-8")
-    )
-    data = tomlrt.loads(bundled).to_dict()
-    profiles = data.get("profiles") or {}
     wanted = ("default", "awesome") if is_awesome else ("default",)
-
-    names: set[str] = set()
-    for profile_id in wanted:
-        for label in (profiles.get(profile_id) or {}).get("labels") or ():
-            name = str(label.get("name", "")).strip()
-            if name:
-                names.add(name)
+    names = _names_in_labelmaker_config(get_data_content("labels.toml"), wanted)
 
     base = Path() if labels_dir is None else labels_dir
-    for label_file in _extra_label_files(base).values():
-        names |= _names_in_labelmaker_config(label_file.read_text(encoding="UTF-8"))
+    texts = {
+        name: label_file.read_text(encoding="UTF-8")
+        for name, label_file in _extra_label_files(base).items()
+    }
+    # Keyed like the downloads, so a fetched file shadows a committed one.
+    for entry in config.labels.extra_files:
+        url = entry.strip()
+        if not url:
+            continue
+        try:
+            body = get_bytes(url)
+        except (FetchError, HTTPException, OSError, ValueError) as exc:
+            # `get_bytes` wraps the usual failures in `FetchError`, but a
+            # malformed URL or a connection dropped mid-response escapes it.
+            msg = f"{url}: {exc}"
+            raise FetchError(msg) from exc
+        texts[extra_label_filename(url)] = body.decode("UTF-8", errors="replace")
+    for label_text in texts.values():
+        names |= _names_in_labelmaker_config(label_text)
 
     names |= _names_in_labelmaker_config(serialize_inline_labels(config.labels.extra))
     return names

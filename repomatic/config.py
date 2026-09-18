@@ -656,10 +656,9 @@ class MetricsConfig:
     papaya = "https://gitlab.com/papaya/papaya"
     ```
 
-    Every subject is read for every metric its forge answers. The two deep
-    collectors are GitHub-only and skip the rest with a note: an exact star
-    reconstruction reads per-star timestamps, and the archive backfill mines
-    `github.com` pages.
+    Every subject is read for every metric its forge answers. The star-curve
+    reconstruction is GitHub-only and skips the rest with a note: it reads a
+    star-history endpoint only GitHub serves.
     """
 
     sync: bool = False
@@ -1185,7 +1184,7 @@ class Config:
     acts on it.
 
     Baked into the generated thin caller for the reason
-    {attr}`notification_max_unsubscribes` is.
+    `notification.max-unsubscribes` is.
     """
 
     notification_unsubscribe: bool = field(

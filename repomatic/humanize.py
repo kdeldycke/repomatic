@@ -57,8 +57,8 @@ def parse_iso_datetime(value: str) -> datetime | None:
     which Python 3.10's stdlib `datetime.fromisoformat` rejects) parse cleanly;
     sub-microsecond precision is truncated to fit `datetime`.
 
-    arrow also supplies the `.humanize()` relative-time phrasing used in the
-    sync report.
+    arrow also supplies the `.humanize()` relative-time phrasing that
+    {func}`format_countdown` and {func}`format_elapsed` render.
 
     ```{todo}
     Switch this parser back to whenever, the prior implementation, once it

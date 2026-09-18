@@ -92,10 +92,10 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 9.1 fixed the two pseudo-terminal recording bugs
-  # docs/docs_update.py worked around: record_command now decodes the pty stream
-  # incrementally, and TerminalScreen defers a carriage return so the `\r\n` a
-  # pseudo-terminal substitutes for every newline stops erasing the line it ends.
+  # click-extra 9.1 is what docs/docs_update.py records the readme animation
+  # with: record_command decodes the pty stream incrementally and defers a
+  # carriage return, AUTO_HOLD scales the closing pause, and every capture hides
+  # TERM_PROGRAM from the command it runs.
   "click-extra>=9.1",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke

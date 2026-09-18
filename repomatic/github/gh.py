@@ -95,11 +95,11 @@ _TRANSIENT_THROTTLE_MARKERS = (
 Unlike the primary limit, which counts requests per hour, this one fires on
 the shape of the traffic: too many calls in too short a window. A
 `sample-metrics` forward pass reads a hundred-odd repositories back to back,
-and the star reconstruction pages through every stargazer a hundred at a
-time; either burst can trip it, which then refuses every remaining call of
-the run alike. The refusal lifts on its own within the minute, so the
-same-token retry spends its schedule sleeping rather than failing the tail
-of the run."""
+and the star reconstruction pages through each one's star history thirty
+weeks at a time; either burst can trip it, which then refuses every remaining
+call of the run alike. The refusal lifts on its own within the minute, so the
+same-token retry spends its schedule sleeping rather than failing the tail of
+the run."""
 
 _TRANSIENT_THROTTLE_BACKOFF_SECONDS = (15, 30, 60)
 """Sleep durations between bounded same-token retries on a secondary limit.

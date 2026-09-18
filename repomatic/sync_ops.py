@@ -106,20 +106,18 @@ from .deps.uv import (
     uv_lock_command,
 )
 from .github.actions import emit_report
-from .github.pr_body import render_template, template_docs_url
+from .github.pr_body import template_docs_url
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from .humanize import format_countdown, utc_midnight
-from .init_project import init_config, is_source_repo
+from .init_project import init_config, is_source_repo, upgrade_invite
 from .npm import NPM_PACKAGE_URL
 from .pypi import PYPI_PACKAGE_URL, get_source_url
 from .registry import (
     BUNDLED_VERBATIM_TARGETS,
     DEFAULT_REPO,
     GITHUB_YAML_PATTERNS,
-    UPGRADE_SKILL,
     UPSTREAM_PACKAGE,
     UPSTREAM_REPO_SLUGS,
-    skill_launcher,
 )
 from .release.checksums import update_registry_checksums
 from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
@@ -1061,8 +1059,9 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     it is aligned to the newest `uses:` ref version instead of the newest
     cooldown-eligible PyPI release. The refs are its source of truth: they are
     written by `repomatic init` alone, which weighs the cooldown itself (see
-    {func}`~repomatic.init_project.resolve_default_pin`) and is skipped here and
-    in :func:`_resolve_action_pins`. Re-judging their outcome against PyPI would
+    {func}`~repomatic.init_project.resolve_default_pin` and
+    {func}`~repomatic.init_project.resolve_upgrade_target`) and is skipped here
+    and in :func:`_resolve_action_pins`. Re-judging their outcome against PyPI would
     leave `lint-repo`'s lockstep check red for a full cooldown window after
     every refs bump.
     """
@@ -1185,12 +1184,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     for name, old, new in plan.changes:
         previous, adopted = old.removeprefix("v"), new.removeprefix("v")
         if name == upstream_package and is_newer(adopted, previous):
-            plan.upgrade_section = render_template(
-                "upgrade-invite",
-                previous=f"v{previous}",
-                adopted=f"v{adopted}",
-                command=skill_launcher(UPGRADE_SKILL, f"v{previous}", f"v{adopted}"),
-            )
+            plan.upgrade_section = upgrade_invite(previous, adopted)
     if rc.release_notes:
         # Only PyPI literals resolve to a source repo, reusing sync-uv-lock's
         # path: PyPI `project_urls` to GitHub releases, with a changelog-link

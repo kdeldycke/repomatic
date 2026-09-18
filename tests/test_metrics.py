@@ -175,7 +175,7 @@ def test_upsert_is_idempotent_within_a_day():
 @pytest.mark.parametrize(
     ("stored", "incoming", "wins"),
     (
-        # A backfill never degrades a stronger reading already on file.
+        # A weaker reading never degrades a stronger one already on file.
         ("github", "wayback", False),
         ("github", "star-history", False),
         ("sample", "wayback", False),

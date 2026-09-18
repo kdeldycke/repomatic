@@ -299,8 +299,6 @@ linkcheck_anchors_ignore = [
 # GitHub README anchors are JS-rendered and invisible to linkcheck.
 linkcheck_anchors_ignore_for_url = [
     r"https://github\.com/",
-    # star-history.com builds its chart and anchor with JavaScript.
-    r"https://star-history\.com/",
 ]
 
 # Some links time out the linkcheck bot intermittently (like biomejs.dev);

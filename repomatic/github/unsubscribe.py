@@ -18,11 +18,12 @@
 
 Processes notification threads in two phases:
 
-1. **REST notification threads** — Fetches all Issue/PullRequest notification
-   threads via `/notifications`, inspects each for closed + stale status,
-   and unsubscribes via `DELETE` + `PATCH`.
+1. **REST notification threads**: fetches the Issue/PullRequest notification
+   threads last moved before the cutoff via `/notifications`, resolves each
+   subject in batched GraphQL lookups, and unsubscribes the closed, stale ones
+   via `DELETE` + `PATCH`.
 
-2. **GraphQL threadless subscriptions** — Searches for closed issues/PRs the
+2. **GraphQL threadless subscriptions**: searches for closed issues/PRs the
    user is involved in but that lack notification threads, and unsubscribes
    via the `updateSubscription` mutation.
 
@@ -42,6 +43,7 @@ from functools import partial
 
 import arrow
 
+from ..config import Config
 from ..humanize import parse_iso_datetime
 from ..tabular import render_markdown_table
 from .actions import ReportAction
@@ -66,7 +68,7 @@ NOTIFICATION_SUBJECT_TYPES = frozenset({"Issue", "PullRequest"})
 SUBJECT_BATCH_SIZE = 50
 """Subjects looked up per GraphQL round trip.
 
-The whole cost of the REST phase is one detail call per thread. A batched
+Looked up one at a time, each thread costs a REST detail call. A batched
 lookup answers 50 in one request for a single rate-limit point, so a 113-thread
 pool costs three requests instead of 113.
 """
@@ -76,7 +78,8 @@ SUBJECT_STATES = {"OPEN": "open", "CLOSED": "closed", "MERGED": "closed"}
 
 REST reports a merged pull request as `closed`, where GraphQL distinguishes
 `MERGED`. Collapsing the two here keeps one vocabulary in the caller, and keeps
-the batched lookup a drop-in for {func}`_get_thread_details`.
+the batched lookup a drop-in for the one-subject REST lookup,
+`_get_thread_details`.
 """
 
 SUBJECT_URL_PATTERN = re.compile(
@@ -128,7 +131,7 @@ mutation($id: ID!) {
 
 
 UNSUBSCRIBE_WORKFLOW = "unsubscribe.yaml"
-"""Workflow file the backlog warning links to for a manual, larger-batch run.
+"""Workflow file the backlog warning links to for a manual run with a higher cap.
 
 The report renders inside that workflow's own run, so the reader is one click
 from the `Run workflow` form the warning tells them to use. Kept equal to the
@@ -190,7 +193,7 @@ class UnsubscribeResult:
     """Accumulated results from both unsubscribe phases."""
 
     dry_run: bool = False
-    months: int = 3
+    months: int = Config.notification_months
     phase1: Phase1Result = field(default_factory=Phase1Result)
     phase2: Phase2Result = field(default_factory=Phase2Result)
 
@@ -224,19 +227,16 @@ def _fetch_notification_threads(cutoff: datetime) -> list[dict[str, Any]]:
     """Fetch Issue/PullRequest notification threads last moved before *cutoff*.
 
     The `before` parameter of `GET /notifications` narrows the list to what is
-    worth a detail call, which is what makes *batch_size* mean something.
-    Against the unfiltered list the batch is spent on whatever the response
-    happens to hold, active threads included: a run of 600 inspected 600 and
-    found no eligible candidate at all, 588 still active and 12 still open.
-    A probe measured the filter cutting 1637 threads to 113.
+    worth a subject lookup. Unfiltered, the list also holds every thread still
+    active: a probe measured the filter cutting 1637 threads to 113.
 
     ```{note}
     `before` is a pre-filter, never a verdict, and the same probe showed it
     reads a clock of its own: of 113 threads it returned against a 90-day
     cutoff, 104 predated that cutoff by `updated_at` and 112 by `last_read_at`.
     So it over-returns rather than under-returns, which is the safe direction.
-    Eligibility is decided per thread by {func}`_get_thread_details`, on the
-    subject's own state and `updated_at`.
+    {func}`_run_rest_phase` decides eligibility per thread, on the subject's own
+    state and `updated_at` as {func}`_fetch_subject_details` resolves them.
     ```
 
     :param cutoff: Inactivity boundary, passed to the API as `before`.
@@ -286,12 +286,11 @@ def _fetch_notification_threads(cutoff: datetime) -> list[dict[str, Any]]:
             logging.warning(f"Skipping malformed notification line: {line!r}")
 
     # Sorted here rather than trusted from the response. The endpoint documents
-    # itself as "sorted by most recently updated", and a probe against 1637 real
+    # itself as "sorted by most recently updated", but a probe against 1637 real
     # threads found the list ordered by neither `updated_at` nor thread id, in
-    # either direction, so the reverse this used to do walked an arbitrary slice
-    # and called it the oldest one. Sorting on the timestamp the payload already
-    # carries is what makes the batch the deepest end of the backlog, so a run
-    # that cannot clear the whole pool leaves the next one where it stopped.
+    # either direction. Oldest first spends the unsubscribe cap on the deepest
+    # end of the backlog, so a run that cannot clear the whole pool leaves the
+    # next one where it stopped.
     threads.sort(key=lambda thread: thread.get("updated_at") or "")
     return threads
 
@@ -320,9 +319,9 @@ def _subject_query(targets: dict[str, tuple[str, str, str]]) -> str:
     :param targets: Alias to `(owner, repo, number)`.
     :return: A query selecting state and timestamps for each alias.
     """
+    fields = "state updatedAt number url"
     blocks = []
     for alias, (owner, repo, number) in targets.items():
-        fields = "state updatedAt number url"
         blocks.append(
             f"  {alias}: repository("
             f"owner: {json.dumps(owner)}, name: {json.dumps(repo)}) {{\n"
@@ -383,9 +382,9 @@ def _fetch_subject_details(subject_urls: list[str]) -> dict[str, dict[str, Any]]
 
     Defence in depth rather than a bet on one API: a batch that fails for any
     reason (a `gh` error, a malformed envelope, a subject URL this code cannot
-    parse) is re-read one REST call at a time, which is what the phase did for
-    every thread before. The run then costs what it used to instead of
-    reporting a pool of inaccessible subjects.
+    parse) is re-read one REST call per subject through
+    {func}`_get_thread_details`. The run then costs one call per subject
+    instead of reporting a pool of inaccessible subjects.
 
     :param subject_urls: Subject URLs from the notification list.
     :return: Subject URL to its detail dict, omitting whatever neither route
@@ -604,7 +603,7 @@ def _render_phase1_fragments(
     # of the formatter that owns the template file.
     oldest_str = p1.oldest_updated.isoformat() if p1.oldest_updated else "-"
     newest_str = p1.newest_updated.isoformat() if p1.newest_updated else "-"
-    batch_details_table = render_markdown_table(
+    notification_details_table = render_markdown_table(
         ("Metric", "Value"),
         (
             ("\U0001f514 Threads before cutoff", p1.threads_total),
@@ -655,7 +654,7 @@ def _render_phase1_fragments(
 
     return {
         "summary_line": summary_line,
-        "batch_details_table": batch_details_table,
+        "notification_details_table": notification_details_table,
         "state_breakdown_table": state_breakdown_table,
         "backlog_warning": backlog_warning,
         "details_section": details_section,
@@ -927,11 +926,11 @@ def unsubscribe_threads(
 
     Runs two phases, each behind its own runner:
 
-    1. **REST notification threads** ({func}`_run_rest_phase`) — Fetches
+    1. **REST notification threads** ({func}`_run_rest_phase`): fetches
        notification threads, inspects each subject for closed + stale status,
        and unsubscribes.
-    2. **GraphQL threadless subscriptions** ({func}`_run_graphql_phase`) —
-       Searches for closed issues/PRs the user is involved in and
+    2. **GraphQL threadless subscriptions** ({func}`_run_graphql_phase`):
+       searches for closed issues/PRs the user is involved in and
        unsubscribes via mutation.
 
     :param months: Inactivity threshold in months.

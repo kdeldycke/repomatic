@@ -2380,8 +2380,8 @@ def test_canonical_input_defaults_match_the_config_field(
 ) -> None:
     """The canonical workflow and the config field declare the same default.
 
-    The literal is spelled four times in `unsubscribe.yaml`: the `workflow_call`
-    input, the `workflow_dispatch` input, and the `|| '...'` fallback each step
+    The literal is spelled three times in `unsubscribe.yaml`: the `workflow_call`
+    input, the `workflow_dispatch` input, and the `|| '...'` fallback the step
     applies when a non-dispatch event leaves `inputs` null. A default that moves
     in the config and not in the YAML would leave a repository configuring
     nothing on a different value than the one the schema documents.

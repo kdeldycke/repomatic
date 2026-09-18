@@ -142,14 +142,10 @@ The PyPI distributions carry their own [PEP 740](https://peps.python.org/pep-074
 
 ## Man pages
 
-`repomatic` exposes a `--man` option on every (sub)command, which typesets the corresponding manual and pages it, the way `man` does:
+`repomatic` exposes a `--man` option on its root command, which typesets the manual and pages it, the way `man` does:
 
 ```{code-block} shell-session
 $ repomatic --man
-```
-
-```{code-block} shell-session
-$ repomatic sync-labels --man
 ```
 
 To get the roff source instead, ask for the `man` rendering of `--help-format`:

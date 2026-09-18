@@ -49,6 +49,7 @@ from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import gh_api_json, gh_graphql, run_gh_command
 from .github.matrix import PYTHON_VERSION_AXIS
 from .github.token import check_all_pat_permissions
+from .http import FetchError
 from .labels import declared_label_names
 from .matrix_axes import (
     TEST_RUNNERS_FULL,
@@ -515,7 +516,27 @@ def check_stale_draft_releases(repo: str) -> CheckResult:
     return CheckResult(True, "No stale draft releases.")
 
 
-def check_undeclared_labels(repo: str, declared: frozenset[str]) -> CheckResult:
+def _resolve_declared_labels(
+    config: Config, *, is_awesome: bool
+) -> frozenset[str] | None:
+    """Every label name the configured sources declare, or `None` if unknown.
+
+    A `labels.extra-files` definition that cannot be fetched leaves the set
+    unknown rather than short, so {func}`check_undeclared_labels` reports
+    skipped instead of calling that file's labels orphans.
+
+    :param config: The resolved `[tool.repomatic]` configuration.
+    :param is_awesome: Whether the repository is an `awesome-*` list.
+    :return: The declared names, or `None` when a definition is unreachable.
+    """
+    try:
+        return frozenset(declared_label_names(config, is_awesome=is_awesome))
+    except FetchError as exc:
+        logging.warning(f"Could not fetch a label definition: {exc}")
+        return None
+
+
+def check_undeclared_labels(repo: str, declared: frozenset[str] | None) -> CheckResult:
     """Report labels the repository carries that no configured source declares.
 
     `sync-labels` runs `labelmaker apply`, which creates, updates and renames
@@ -533,9 +554,17 @@ def check_undeclared_labels(repo: str, declared: frozenset[str]) -> CheckResult:
     the counts told them apart.
 
     :param repo: Repository in 'owner/repo' format.
-    :param declared: Every label name the configured sources declare.
+    :param declared: Every label name the configured sources declare, or
+        `None` when a `labels.extra-files` definition could not be fetched.
     :return: A `CheckResult`.
     """
+    if declared is None:
+        return CheckResult(
+            None,
+            "Undeclared labels check: skipped (could not fetch every"
+            " labels.extra-files definition).",
+        )
+
     # No `--jq` here: it is rejected alongside `--slurp`, and without `--slurp`
     # it would emit bare newline-separated names rather than JSON. Paginating
     # the plain endpoint merges the pages into one array on its own.
@@ -2886,11 +2915,13 @@ class LintContext:
     {func}`check_manpages_toolchain` gates on.
     """
 
-    declared_labels: frozenset[str] = frozenset()
+    declared_labels: frozenset[str] | None = frozenset()
     """Every label name the configured sources declare, per `sync-labels`.
 
     Resolved here rather than inside {func}`check_undeclared_labels` so the
     check reads its expectation from the same place the sync writes it.
+    `None` when a `labels.extra-files` definition could not be fetched: the
+    set is then unknown rather than short, and the check reports skipped.
     """
 
     @cached_property
@@ -3005,8 +3036,8 @@ class LintContext:
             has_notifications_pat=has_notifications_pat,
             unsubscribe_active=config.notification_unsubscribe,
             manpages_script=config.manpages_script,
-            declared_labels=frozenset(
-                declared_label_names(config, is_awesome=metadata.is_awesome)
+            declared_labels=_resolve_declared_labels(
+                config, is_awesome=metadata.is_awesome
             ),
         )
 
@@ -3335,7 +3366,8 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "undeclared-labels",
         lambda ctx: check_undeclared_labels(ctx.repo or "", ctx.declared_labels),
-        applies=lambda ctx: bool(ctx.repo and ctx.declared_labels),
+        # An unknown set (`None`) still applies, so the run reports it skipped.
+        applies=lambda ctx: bool(ctx.repo) and ctx.declared_labels != frozenset(),
     ),
     RepoCheck(
         "install-guide-downloads",

@@ -125,8 +125,8 @@ SOURCE_RANK: dict[str, int] = {
 
 An exact reconstruction supersedes a mined or imported count; a contemporaneous
 sample supersedes those two, since it was taken by this collector against the
-live API. A backfill never overwrites something stronger, which is what lets a
-reconstruction run against an already-populated store without degrading it.
+live API. A weaker reading never overwrites a stronger one of the same day, so
+a collector run against an already-populated store degrades nothing.
 
 `created` ranks under everything, because it is the weakest claim in the
 vocabulary rather than the strongest: it asserts a count of zero from the fact
@@ -150,8 +150,8 @@ point came from rather than presenting a uniform curve it cannot honestly
 claim.
 
 `created` is the outlier: not a measurement but a fact, and the only origin
-every series shares. A repository whose curve starts from a backfill has no
-knowable first star, since its earliest reading already shows a count, so the
+every series shares. A repository whose earliest reading already shows a
+count, like one only ever sampled forward, has no knowable first star, so its
 curve would otherwise begin in mid-air. It is also what a by-age chart aligns
 on.
 
@@ -459,8 +459,8 @@ def sample_subject(
 ) -> SampleOutcome:
     """Read every metric of one subject, through whichever forge hosts it.
 
-    The scheduled collector, and the only one that works for a repository the
-    token does not administer, or that lives outside GitHub entirely.
+    The collector every run applies to every subject, and the only one that
+    reads a repository outside GitHub.
 
     :param records: The in-memory store, mutated in place.
     :param subject: Name the repository gives this subject.

@@ -1,5 +1,5 @@
 ---
-args: [mode, summary_line, batch_details_table, state_breakdown_table, backlog_warning, details_section]
+args: [mode, summary_line, notification_details_table, state_breakdown_table, backlog_warning, details_section]
 footer: false
 ---
 
@@ -7,9 +7,9 @@ footer: false
 
 \$summary_line
 
-### 📊 Batch details
+### 📊 Notification details
 
-\$batch_details_table
+\$notification_details_table
 
 ### 🏷️ Breakdown by state
 

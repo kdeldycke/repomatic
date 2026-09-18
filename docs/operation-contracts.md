@@ -157,7 +157,7 @@ The property that separates it from a `sync-*` is that it never converges. A syn
 
 - **Retention is a property of the metric, not of the caller.** A counter accrues every dated reading; an attribute keeps one row, restamped only when its value moves. One registry entry decides which, and the store's writer is the only code that has to know.
 - **Idempotent within a period, additive across periods.** Re-running on the same day overwrites that day's own reading. Tomorrow's run adds one, and that is the operation working, not a defect in its idempotency.
-- **A weaker provenance never overwrites a stronger one.** A history mixing methodologies records which one each point came from, and a one-off backfill run against an already-populated store must degrade nothing (see {data}`repomatic.metrics.SOURCE_RANK`).
+- **A weaker provenance never overwrites a stronger one.** A history mixing methodologies records which one each point came from, and a collector run against an already-populated store degrades nothing (see {data}`repomatic.metrics.SOURCE_RANK`).
 - **A failed reading costs its own row, never the run.** One unreachable forge must not blank every metric collected beside it, and a stale figure carrying its own date beats a hole.
 - **Rendering is a pure function of the store.** Anything drawn from the history is stamped with the newest reading rather than with the run date, so a pass that found nothing new rewrites no committed file.
 - **The accrual survives an unmerged pull request.** A run reads the store back from its own branch before appending, so readings waiting for review are added to rather than replaced. See [§ Sampling accumulates in one pull request](#sampling-accumulates-in-one-pull-request).
