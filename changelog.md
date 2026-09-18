@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.16.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)
 
 - **Breaking:** `sample-metrics` drops `--backfill-wayback` and `--import-csv`, since GitHub's star-history endpoint now rebuilds every curve. Readings they already wrote stay in the store.
 - **Breaking:** `unsubscribe-threads` replaces `--batch-size` with `--max-unsubscribes`, which caps unsubscribes instead of inspections. The `unsubscribe` workflow's `batch-size` input is renamed `max-unsubscribes` to match.
