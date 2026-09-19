@@ -186,6 +186,19 @@ def test_format_diff_table_override_for_unchanged_name_is_ignored():
     assert "lockstep pin" not in rendered
 
 
+def test_format_diff_table_change_label_leads_the_comparison_link():
+    """A label sits outside the comparison link, so both stay clickable."""
+    rendered = format_diff_table(
+        [("apricot", "1.3.0", "1.2.0")],
+        comparison_urls={"apricot": "https://example.com/compare/v1.3.0...v1.2.0"},
+        change_labels={"apricot": "⏪ stepped back"},
+    )
+    assert rendered.endswith(
+        "| apricot | ⏪ stepped back:"
+        " [`1.3.0` → `1.2.0`](https://example.com/compare/v1.3.0...v1.2.0) |"
+    )
+
+
 def test_format_exclude_newer_note_empty():
     assert format_exclude_newer_note("") == ""
 

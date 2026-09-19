@@ -1073,18 +1073,16 @@ def test_uv_gate_reports_a_release_it_withheld(caplog):
     assert "holding the pin" in caplog.text
 
 
-def test_workflow_pins_step_a_uv_pin_back_onto_the_checksum_table(caplog):
-    """The repair is the pin move itself, not the warning beside it.
+def _resolve_uv_pin(pinned: str) -> SyncPlan:
+    """Resolve the workflow pins of a job installing uv *pinned* via `setup-uv`.
 
-    A repository whose uv pin overtook the table has no forward move left when
-    the newest `setup-uv` is the one it already pins, so the sync walks uv down
-    to the newest release that action can verify.
+    The pinned action's checksum table covers `0.12.3` and `0.12.4`.
     """
     workflow = {
         Path("tests.yaml"): (
             "jobs:\n  tests:\n    steps:\n"
             f"      - uses: {SETUP_UV_SLUG}@{'a' * 40} # v10.0.1\n"
-            '        with:\n          version: "0.12.5"\n'
+            f'        with:\n          version: "{pinned}"\n'
         )
     }
     rc = ResolveContext(config=Config(), today=GATE_TODAY)
@@ -1095,12 +1093,43 @@ def test_workflow_pins_step_a_uv_pin_back_onto_the_checksum_table(caplog):
             "repomatic.sync_ops.setup_uv_verified_versions",
             return_value=frozenset({"0.12.3", "0.12.4"}),
         ),
-        caplog.at_level(logging.WARNING),
     ):
-        plan = _resolve_workflow_pins(rc)
+        return _resolve_workflow_pins(rc)
+
+
+def test_workflow_pins_step_a_uv_pin_back_onto_the_checksum_table(caplog):
+    """The repair is the pin move itself, not the warning beside it.
+
+    A repository whose uv pin overtook the table has no forward move left when
+    the newest `setup-uv` is the one it already pins, so the sync walks uv down
+    to the newest release that action can verify.
+    """
+    with caplog.at_level(logging.WARNING):
+        plan = _resolve_uv_pin("0.12.5")
     assert ("uv", "0.12.5", "0.12.4") in plan.changes
     assert 'version: "0.12.4"' in plan.file_writes[Path("tests.yaml")]
     assert "Stepping the uv pin back" in caplog.text
+
+
+def test_workflow_pins_label_a_uv_step_back_in_the_table():
+    """A pin moving down says so in its own row, and links to why.
+
+    The arrow alone renders a step back like any bump, so without the label
+    the repair reads as an update to an older release.
+    """
+    plan = _resolve_uv_pin("0.12.5")
+    assert (
+        "| [uv](https://pypi.org/project/uv/)"
+        " | [⏪ stepped back](https://repomatic.net/workflows"
+        "#sync-workflow-pins-updater): `0.12.5` → `0.12.4` |"
+    ) in render_plan_markdown(plan)
+
+
+def test_workflow_pins_label_nothing_on_a_forward_uv_bump():
+    """An ordinary uv bump inside the table carries no label."""
+    plan = _resolve_uv_pin("0.12.3")
+    assert ("uv", "0.12.3", "0.12.4") in plan.changes
+    assert not plan.change_labels
 
 
 def _lockstep_workflow(inline_pin: str) -> dict[Path, str]:

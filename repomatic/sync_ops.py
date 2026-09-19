@@ -338,6 +338,14 @@ class SyncPlan:
     the exemption instead of a blank cell.
     """
 
+    change_labels: dict[str, str] = field(default_factory=dict)
+    """Name to literal markdown labelling its "Change" table cell.
+
+    Marks the uv pin stepped back onto the checksum table of the pinned
+    `setup-uv` (see {func}`_gate_uv_on_checksums`), which the arrow alone
+    renders like any bump.
+    """
+
     name_urls: dict[str, str] = field(default_factory=dict)
     """Name to the URL its table cell links to (PyPI, GitHub, npm)."""
 
@@ -1053,6 +1061,16 @@ def _gate_uv_on_checksums(
     return gated, unverified
 
 
+def _docs_marker(marker: str) -> str:
+    """Link a `sync-workflow-pins` table marker to the job's documentation.
+
+    :param marker: The emoji and words shown in the table cell.
+    :return: The marker as a link, or bare when the template names no docs.
+    """
+    docs_url = template_docs_url("sync-workflow-pins")
+    return f"[{marker}]({docs_url})" if docs_url else marker
+
+
 def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     """Bump npm and PyPI version literals embedded in workflow YAML.
 
@@ -1106,10 +1124,8 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             # fetched: the "Released" cell marks the exemption instead.
             resolved[(ecosystem, package)] = lockstep_version
             plan.name_urls[package] = PYPI_PACKAGE_URL.format(package=package)
-            docs_url = template_docs_url("sync-workflow-pins")
-            marker = "⛓️ lockstep with `uses:` refs"
-            plan.released_overrides[package] = (
-                f"[{marker}]({docs_url})" if docs_url else marker
+            plan.released_overrides[package] = _docs_marker(
+                "⛓️ lockstep with `uses:` refs"
             )
             continue
         candidates = (
@@ -1162,6 +1178,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
                 f" {latest.version}, the newest release the pinned"
                 f" {SETUP_UV_SLUG} can checksum-verify."
             )
+            plan.change_labels[package] = _docs_marker("⏪ stepped back")
         elif not is_newer(latest.version, current_version):
             continue
         resolved[(ecosystem, package)] = latest.version
@@ -1276,6 +1293,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
         heading=plan.heading,
         subject=plan.subject,
         released_overrides=plan.released_overrides,
+        change_labels=plan.change_labels,
     )
     held_back_section = format_held_back_table(
         plan.held_back,

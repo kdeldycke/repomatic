@@ -202,6 +202,7 @@ def format_diff_table(
     heading: str = "Updated packages",
     subject: str = "Package",
     released_overrides: dict[str, str] | None = None,
+    change_labels: dict[str, str] | None = None,
 ) -> str:
     """Format version changes as a markdown table with heading.
 
@@ -241,12 +242,17 @@ def format_diff_table(
         replacing their "Released" cell. An override on a changed name also
         forces the column on, even without `upload_times`; entries for
         unchanged names are ignored.
+    :param change_labels: Optional mapping of names to literal markdown
+        leading the "Change" cell of their version move, the way `🆕 new:`
+        leads an added package. Marks a move the arrow alone misreads, like a
+        pin stepped back to an older release.
     :return: A markdown string with a `## 🆙 {heading}` heading and table,
         or an empty string if there are no changes.
     """
     if not changes:
         return ""
     released_overrides = released_overrides or {}
+    change_labels = change_labels or {}
     changed_names = {name for name, _old, _new in changes}
     show_uploaded = bool(upload_times) or bool(
         changed_names & released_overrides.keys()
@@ -257,6 +263,8 @@ def format_diff_table(
             change = f"`{old}` \u2192 `{new}`"
             if comparison_urls and name in comparison_urls:
                 change = f"[{change}]({comparison_urls[name]})"
+            if name in change_labels:
+                change = f"{change_labels[name]}: {change}"
         elif new:
             change = f"🆕 new: `{new}`"
         else:
