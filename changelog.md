@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.16.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.16.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.16.1` (2026-09-19)](https://github.com/kdeldycke/repomatic/compare/v7.16.0...v7.16.1)
 
 - **Breaking:** the bundled `repomatic-upgrade` skill drops its `review` and `fix` modes. It now always applies its changes, uncommitted.
 - Ship the test suite, and the repository files it reads, in the PyPI sdist, where tests needing a git checkout skip themselves.
