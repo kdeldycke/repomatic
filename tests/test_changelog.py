@@ -488,8 +488,8 @@ def _github_unavailable(_repo_url, force_refresh=False):
     """Stand in for `get_github_releases` during a GitHub API outage.
 
     Mirrors the real signature, `force_refresh` included: the lint reloads
-    both sources live when a cached answer would retract an availability
-    claim, and a double that refuses the keyword fails there instead of at
+    both sources live when a cached answer shows a gap the changelog does not
+    record, and a double that refuses the keyword fails there instead of at
     the behavior under test.
     """
     raise GitHubReleasesUnavailable("simulated 502 Bad Gateway")
@@ -1243,6 +1243,68 @@ def test_lint_keeps_availability_when_only_the_cache_is_stale(
     # The read-only symptom: a published version reported as missing. Nothing
     # is written without `--fix`, so this is what the gate fixes there.
     assert "1.1.0: not found on PyPI" not in caplog.text
+
+
+@pytest.mark.parametrize("fix", (False, True))
+def test_lint_finds_a_release_newer_than_the_cache(tmp_path, monkeypatch, caplog, fix):
+    """A release the cache predates is re-confirmed live, not reported missing.
+
+    Its section records no availability yet, as `--fix` has not run since the
+    release. The cached lookups then have no claim to retract, and their
+    answer is still stale.
+    """
+    path = tmp_path / "changelog.md"
+    path.write_text(MULTI_RELEASE_CHANGELOG, encoding="UTF-8")
+    _patch_sources(
+        monkeypatch,
+        # Cached: written before 1.1.0 was published.
+        pypi={"1.0.0": ("2025-12-01", False)},
+        github=["1.0.0"],
+        # Live: 1.1.0 is there.
+        pypi_fresh={
+            "1.1.0": ("2026-02-10", False),
+            "1.0.0": ("2025-12-01", False),
+        },
+        github_fresh=["1.1.0", "1.0.0"],
+    )
+
+    with caplog.at_level(logging.WARNING):
+        lint_changelog_dates(path, fix=fix)
+    result = path.read_text(encoding="UTF-8")
+
+    assert "1.1.0: not found on PyPI" not in caplog.text
+    assert NOT_AVAILABLE_VERB not in result
+    if fix:
+        assert "[🐍 PyPI](https://pypi.org/project/my-package/1.1.0/)" in result
+
+
+def test_lint_leaves_a_recorded_gap_to_the_cache(tmp_path, monkeypatch):
+    """A gap the section already records costs no live request.
+
+    A version that never reached a platform keeps its "not available" warning
+    from one run to the next: re-fetching it on every run would defeat the
+    cache.
+    """
+    warning = build_unavailable_admonition("1.1.0", missing_github=True)
+    path = tmp_path / "changelog.md"
+    path.write_text(
+        MULTI_RELEASE_CHANGELOG.replace(
+            "- Second release.", f"{warning}\n\n- Second release."
+        ),
+        encoding="UTF-8",
+    )
+
+    def github(repo_url, *, force_refresh=False):
+        assert not force_refresh, "A recorded gap triggered a live lookup."
+        return {"1.0.0": GitHubRelease(date="2025-12-01", body="")}
+
+    _patch_sources(
+        monkeypatch,
+        pypi={"1.1.0": ("2026-02-10", False), "1.0.0": ("2025-12-01", False)},
+        github=github,
+    )
+
+    assert lint_changelog_dates(path) == 0
 
 
 def test_lint_fix_retracts_availability_confirmed_missing(tmp_path, monkeypatch):

@@ -176,7 +176,7 @@ def _fetch_json(package: str, *, force_refresh: bool = False) -> dict[str, Any] 
     published" at this layer. A caller about to act on an *absence* around
     release time wants *force_refresh*: see
     {func}`repomatic.changelog.lint_changelog_dates`, which re-confirms live
-    before retracting an availability claim.
+    before it reports or records a release as missing.
     ```
 
     ```{warning}

@@ -828,6 +828,20 @@ def _is_platform_gap(
     )
 
 
+def _records_absence(admonition: str, label: str) -> bool:
+    """Whether an availability admonition already marks a platform missing.
+
+    An available platform renders as a markdown link and a missing one as a
+    bare label, so the `[` prefix is what separates a claim of presence from a
+    record of absence.
+
+    :param admonition: A section's availability admonition, possibly empty.
+    :param label: The platform's display label, like {data}`PYPI_LABEL`.
+    :return: `True` when the admonition names the platform without a link.
+    """
+    return label in admonition and f"[{label}](" not in admonition
+
+
 def _platform_admonition(
     template: str, version: str, verb: str, platforms: Sequence[str]
 ) -> str:
@@ -1151,38 +1165,34 @@ class ReleaseSources:
             logging.info(f"First GitHub version: {sources.first_github_version}")
         return sources
 
-    def retracted_versions(
+    def unrecorded_gaps(
         self, changelog: Changelog, releases: Sequence[tuple[str, str]]
     ) -> set[str]:
-        """Versions whose section claims availability these lookups now deny.
+        """Versions these lookups miss where their section records no absence.
 
-        An available platform renders as a markdown link and a missing one as
-        a bare label, so the `[` prefix is what separates a claim of presence
-        from one of absence.
+        A section claiming the platform is one a stale snapshot would retract,
+        and a section recording nothing yet belongs to a release that may
+        postdate the snapshot: both need a live answer. A gap the section
+        already records is left to the cache, so a permanent one costs no
+        request per run.
         """
         found = set()
         for candidate, _candidate_date in releases:
             existing = changelog.decompose_version(candidate).availability_admonition
             parsed = Version(candidate)
-            drops_pypi = (
-                _is_platform_gap(
-                    parsed,
-                    candidate in self.pypi_data,
-                    bool(self.package),
-                    self.first_pypi_version,
-                )
-                and f"[{PYPI_LABEL}](" in existing
-            )
-            drops_github = (
-                _is_platform_gap(
-                    parsed,
-                    candidate in self.github_releases,
-                    bool(self.repo_url),
-                    self.first_github_version,
-                )
-                and f"[{GITHUB_LABEL}](" in existing
-            )
-            if drops_pypi or drops_github:
+            pypi_unrecorded = _is_platform_gap(
+                parsed,
+                candidate in self.pypi_data,
+                bool(self.package),
+                self.first_pypi_version,
+            ) and not _records_absence(existing, PYPI_LABEL)
+            github_unrecorded = _is_platform_gap(
+                parsed,
+                candidate in self.github_releases,
+                bool(self.repo_url),
+                self.first_github_version,
+            ) and not _records_absence(existing, GITHUB_LABEL)
+            if pypi_unrecorded or github_unrecorded:
                 found.add(candidate)
         return found
 
@@ -1508,29 +1518,30 @@ def lint_changelog_dates(
     # file write as success would report green on a changelog still wrong.
     unfixed_problem = False
 
-    # Retraction gate: never demote an existing "is available" claim to
-    # "is **not available**" on cached data. Both lookups are TTL-cached for a
-    # day, so a snapshot taken before a release landed reports that release as
-    # missing, which is indistinguishable here from one that was never
-    # published. The sanity gates further down catch only a *wholly* empty
-    # result; a stale-but-populated snapshot walks past them, and the window
-    # where it lies is exactly the hours after a release, when this command is
-    # most likely to run. Adding availability stays cheap and cached; dropping
-    # it has to be confirmed live. Running before the date loop means the
-    # spurious "not found on PyPI" warning goes away with it.
-    retracted = sources.retracted_versions(changelog, releases)
-    if retracted:
-        logging.warning(
-            f"Cached lookups would retract availability for"
-            f" {', '.join(sorted(retracted))}; re-confirming live."
+    # Live re-check: never report or record a release as missing on cached
+    # data alone. Both lookups are TTL-cached for a day, so a snapshot taken
+    # before a release landed reports that release as missing, which is
+    # indistinguishable here from one that was never published. The sanity
+    # gates further down catch only a *wholly* empty result; a
+    # stale-but-populated snapshot walks past them, and the window where it
+    # lies is exactly the hours after a release, when this command is most
+    # likely to run. The section of a fresh release usually records nothing
+    # yet, so a gap is re-checked unless its section already records it.
+    # Running before the date loop means the spurious "not found on PyPI"
+    # warning goes away with it.
+    unconfirmed = sources.unrecorded_gaps(changelog, releases)
+    if unconfirmed:
+        logging.info(
+            f"Lookups miss {', '.join(sorted(unconfirmed))}, which the"
+            " changelog does not mark missing; re-confirming live."
         )
         confirmed = ReleaseSources.load(
             changelog, sources.package, pypi_package_history, force_refresh=True
         )
         if sources.repo_url and confirmed.github_fetch_failed and fix:
             msg = (
-                f"Refusing to rewrite changelog: cached data would drop"
-                f" the availability of {', '.join(sorted(retracted))},"
+                f"Refusing to rewrite changelog: cached data would mark"
+                f" {', '.join(sorted(unconfirmed))} as unpublished,"
                 f" and the confirming GitHub lookup failed."
                 f" Re-run when the GitHub API is reachable."
             )
@@ -1542,19 +1553,19 @@ def lint_changelog_dates(
         else:
             # Keep the fresh PyPI half; the GitHub half stays as fetched.
             sources = replace(sources, pypi_data=confirmed.pypi_data)
-        still_missing = sources.retracted_versions(changelog, releases)
+        still_missing = sources.unrecorded_gaps(changelog, releases)
         if still_missing:
-            # Confirmed against the live APIs: the release really is gone (a
-            # deleted GitHub release, a removed PyPI file). Retracting is then
-            # the correct repair, not a stale-cache artifact.
+            # Confirmed against the live APIs: the release really is missing
+            # (a failed upload, a deleted GitHub release, a removed PyPI file).
+            # Recording the absence is then the correct repair, not a
+            # stale-cache artifact.
             logging.warning(
-                f"Confirmed live: {', '.join(sorted(still_missing))} no longer"
-                " published where the changelog claims."
+                f"Confirmed live: {', '.join(sorted(still_missing))} missing"
+                " from a platform the changelog does not mark."
             )
         else:
             logging.info(
-                "Live lookups confirm the existing availability claims;"
-                " the cache was stale."
+                "Live lookups list every release the cache missed; the cache was stale."
             )
 
     orphan_result = _reconcile_orphans(
