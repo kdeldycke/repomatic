@@ -1351,6 +1351,34 @@ def test_lint_fix_refuses_when_confirming_github_lookup_fails(tmp_path, monkeypa
     assert AVAILABLE_VERB in before
 
 
+def test_lint_reports_an_unconfirmed_gap_when_github_lookup_fails(
+    tmp_path, monkeypatch, caplog
+):
+    """A failed confirming lookup is reported as such, never as a confirmation."""
+    path = _changelog_claiming_1_1_0_available(tmp_path)
+
+    def github(repo_url, *, force_refresh=False):
+        if force_refresh:
+            raise GitHubReleasesUnavailable("API unreachable")
+        return {"1.0.0": GitHubRelease(date="2025-12-01", body="")}
+
+    _patch_sources(
+        monkeypatch,
+        pypi={"1.0.0": ("2025-12-01", False)},
+        github=github,
+        pypi_fresh={
+            "1.1.0": ("2026-02-10", False),
+            "1.0.0": ("2025-12-01", False),
+        },
+    )
+
+    with caplog.at_level(logging.WARNING):
+        lint_changelog_dates(path)
+
+    assert "Could not confirm 1.1.0 live" in caplog.text
+    assert "Confirmed live" not in caplog.text
+
+
 def test_extract_all_version_headings():
     """Test that all versions (released and unreleased) are extracted."""
     changelog = Changelog(MULTI_RELEASE_CHANGELOG)

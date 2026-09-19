@@ -1567,7 +1567,14 @@ def lint_changelog_dates(
             # Keep the fresh PyPI half; the GitHub half stays as fetched.
             sources = replace(sources, pypi_data=confirmed.pypi_data)
         still_missing = sources.unrecorded_gaps(changelog, releases)
-        if still_missing:
+        if still_missing and confirmed.github_fetch_failed:
+            # Only reachable without `--fix`, which refuses above: the GitHub
+            # half is still the cached answer, so nothing is confirmed.
+            logging.warning(
+                f"Could not confirm {', '.join(sorted(still_missing))} live:"
+                " the GitHub releases lookup failed."
+            )
+        elif still_missing:
             # Confirmed against the live APIs: the release really is missing
             # (a failed upload, a deleted GitHub release, a removed PyPI file).
             # Recording the absence is then the correct repair, not a
