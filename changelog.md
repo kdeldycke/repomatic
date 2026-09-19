@@ -8,6 +8,7 @@
 - **Breaking:** the bundled `repomatic-upgrade` skill drops its `review` and `fix` modes. It now always applies its changes, uncommitted.
 - Ship the test suite, and the repository files it reads, in the PyPI sdist, where tests needing a git checkout skip themselves.
 - `sync-workflow-pins` pull requests now label a uv pin stepped back onto the `setup-uv` checksum table `⏪ stepped back`.
+- `sync-uv-lock` pull requests now warn when the comment above `exclude-newer-package` still names an entry they cleared.
 - The bundled `probe-workflow` skill now keeps findings out of the retirement commit, gives a side-branch probe a `push` trigger, and records two hosted `macos-26` traps.
 - The bundled `repomatic-upgrade` skill now catches local edits to synced skills and subagents that the upgrade reverts, and passes `--repo` to `lint-repo` so its API-backed checks run.
 - The bundled `repomatic-upgrade` skill now runs a changed job's released code on the repository's own inputs, and regenerates a committed upgrade in a scratch clone to check it.
@@ -18,6 +19,7 @@
 - Fix `lint-repo` asking for GitHub topics that multi-word keywords already declare: `Weather forecast` now matches the `weather-forecast` topic.
 - Fix `lint-changelog` reporting a release newer than its day-old cache as missing, and `--fix` marking it unavailable, when the release's section has no availability note yet.
 - Fix `sync-workflow-pins` and `lint-repo` for `astral-sh/setup-uv` `v10.1.0` and newer: read its moved checksum table, and stop warning that an off-table uv installs unverified.
+- Fix concurrent `repomatic run mdformat` or `shfmt` calls in one directory losing the temporary config another call wrote.
 - Fix the bundled `sphinx-docs` agent asking for a `robots.txt` on a GitHub Pages project site, where crawlers never read it.
 
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)

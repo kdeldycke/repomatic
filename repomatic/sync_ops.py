@@ -299,6 +299,9 @@ class UvProjectExtras:
     frozen_bypasses: list[str] = field(default_factory=list)
     """`exclude-newer-package` entries rewritten into freeze cutoffs."""
 
+    stale_bypass_comments: list[str] = field(default_factory=list)
+    """Pruned entries the comment above `exclude-newer-package` still names."""
+
     bypass_forecasts: list[BypassForecast] = field(default_factory=list)
     """Active cooldown-bypass freezes with their expiry forecasts."""
 
@@ -561,6 +564,7 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
             plan.name_urls = pypi_name_urls(result.changes)
             plan.uv_project.pruned_bypasses = result.pruned_bypasses
             plan.uv_project.frozen_bypasses = result.frozen_bypasses
+            plan.uv_project.stale_bypass_comments = result.stale_bypass_comments
             plan.uv_project.bypass_forecasts = result.bypass_forecasts
 
             _finish_uv_plan(plan, rc, lockfile)
@@ -1313,6 +1317,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
         uv.bypass_forecasts,
         pruned=uv.pruned_bypasses,
         frozen=uv.frozen_bypasses,
+        stale_comments=uv.stale_bypass_comments,
         name_urls=pypi_name_urls([(name, "", "") for name in bypass_names]),
     )
     # A splice-only run moves no version, so it reaches the diff table with

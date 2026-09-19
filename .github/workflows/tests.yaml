@@ -7,6 +7,7 @@ name: 🔬 Tests
       - main
     paths:
       - repomatic/**
+      - .claude/**
       - tests/**
       - pyproject.toml
       - uv.lock
@@ -26,6 +27,7 @@ name: 🔬 Tests
       - prepare-release
     paths:
       - repomatic/**
+      - .claude/**
       - tests/**
       - pyproject.toml
       - uv.lock

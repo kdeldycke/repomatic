@@ -33,6 +33,7 @@ from pathlib import Path
 
 import tomlrt
 from click_extra import parse_friendly_duration, parse_iso8601_duration
+from packaging.utils import canonicalize_name
 from tomlrt import Table
 
 from ..humanize import format_countdown, parse_iso_datetime
@@ -46,6 +47,7 @@ from .dep_report import (
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from typing import Any
 
 
@@ -685,6 +687,43 @@ def prune_stale_exclude_newer_packages(
     return stale
 
 
+def _mentions_package(text: str, name: str) -> bool:
+    """Whether *text* names the package *name*, in any PEP 503 spelling."""
+    parts = canonicalize_name(name).split("-")
+    pattern = r"[-_.]+".join(re.escape(part) for part in parts)
+    match = re.search(rf"(?<![\w.-]){pattern}(?![\w-])", text, re.IGNORECASE)
+    return match is not None
+
+
+def bypass_comment_mentions(pyproject_path: Path, names: Iterable[str]) -> list[str]:
+    """Return the *names* the comments on `exclude-newer-package` still mention.
+
+    Pruning rebuilds the inline table but keeps the comment block above its key,
+    because that block describes the table as a whole. A sentence written to
+    justify one entry therefore outlives the entry, and reads as a live
+    exemption to the next person who opens the file. Rewriting prose is not
+    safe to automate, so {func}`sync_uv_lock` reports these names for a human
+    to edit. A table pruned to nothing loses its comments along with its key,
+    so only a partial prune leaves one behind.
+
+    A name matches case-insensitively and with any separator PEP 503 treats as
+    equal: `lemon-curd` also finds `lemon_curd`.
+
+    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param names: Package names to look for, typically the entries just pruned.
+    :return: The names the comments still mention, sorted.
+    """
+    key = "exclude-newer-package"
+    uv = uv_table(load_pyproject_doc(pyproject_path))
+    if key not in uv:
+        return []
+    lines = [line for line in uv.leading_block.get(key, ()) if line]
+    if eol := uv.comments.get(key):
+        lines.append(eol)
+    comment = "\n".join(lines)
+    return sorted(name for name in names if _mentions_package(comment, name))
+
+
 # ---------------------------------------------------------------------------
 # Lock file version parsing
 # ---------------------------------------------------------------------------
@@ -1202,6 +1241,10 @@ class SyncResult:
     frozen_bypasses: list[str] = field(default_factory=list)
     """`exclude-newer-package` entries rewritten into freeze cutoffs."""
 
+    stale_bypass_comments: list[str] = field(default_factory=list)
+    """Pruned entries the comment above `exclude-newer-package` still names,
+    found by {func}`bypass_comment_mentions`."""
+
     bypass_forecasts: list[BypassForecast] = field(default_factory=list)
     """Active cooldown-bypass freezes with their expiry forecasts (post-run
     state)."""
@@ -1248,12 +1291,20 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
     pruned: set[str] = set()
     pruned_records: list[BypassForecast] = []
     frozen: set[str] = set()
+    stale_comments: list[str] = []
     if pyproject_path.exists():
         pruned = prune_stale_exclude_newer_packages(pyproject_path, lock_path)
         # Snapshot the cleared freezes now, while the lock still holds the
         # versions the entries froze (see compute_pruned_forecasts).
         pruned_records = compute_pruned_forecasts(pruned, lock_path, lock=pre)
         frozen = freeze_exclude_newer_packages(pyproject_path, lock_path)
+        stale_comments = bypass_comment_mentions(pyproject_path, pruned)
+        if stale_comments:
+            logging.warning(
+                f"The comment above exclude-newer-package in {pyproject_path}"
+                f" still names {', '.join(stale_comments)}, which this run"
+                " cleared. Update it by hand."
+            )
     pyproject_changed = bool(pruned or frozen)
 
     # Step 2: Snapshot versions and the raw lock bytes before upgrading. The
@@ -1315,6 +1366,7 @@ def sync_uv_lock(lock_path: Path) -> SyncResult:
         reverted=reverted,
         pruned_bypasses=pruned_records,
         frozen_bypasses=sorted(frozen),
+        stale_bypass_comments=stale_comments,
         bypass_forecasts=compute_bypass_forecasts(
             pyproject_path, lock_path, lock=pre if reverted else post
         ),

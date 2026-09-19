@@ -1247,6 +1247,15 @@ they reference files that only exist in the upstream repository (like
 `repomatic/data/labels.toml`).
 """
 
+UPSTREAM_ASSET_GLOB: str = ".claude/**"
+"""Path glob for the bundled skills and agents in canonical workflows.
+
+The package ships them through symlinks under `repomatic/data/`, so editing one
+changes no path {data}`UPSTREAM_SOURCE_GLOB` matches, while the test suite reads
+every one. Downstream, `.claude/` holds synced copies that no test reads, so the
+glob is dropped there like the {data}`UPSTREAM_SOURCE_PREFIX` paths.
+"""
+
 SKILL_PHASE_ORDER: tuple[str, ...] = (
     "Setup",
     "Development",

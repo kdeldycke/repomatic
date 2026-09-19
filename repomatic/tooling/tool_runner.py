@@ -46,7 +46,7 @@ import tarfile
 import tempfile
 import time
 import zipfile
-from contextlib import nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -59,6 +59,7 @@ from packaging.version import Version
 
 from ..cache import (
     binary_sidecar_path,
+    cache_dir,
     get_cached_binary,
     store_binary,
     store_config,
@@ -81,10 +82,15 @@ from .tool_registry import (
     UnsupportedPlatformError,
 )
 
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
-    from typing import Any
+    from typing import IO, Any
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +187,90 @@ def _write_cwd_config(spec: ToolSpec, content: str, level: int) -> Path:
         "tool has no --config flag; the file will be removed after the run."
     )
     return target
+
+
+LOCK_POLL_SECONDS = 0.1
+"""Delay between two attempts to take a lock Windows reported as held.
+
+Windows has no blocking lock call that waits indefinitely: `msvcrt.LK_LOCK`
+gives up after ten one-second attempts, so `_acquire_lock` polls instead.
+"""
+
+
+def _acquire_lock(handle: IO[bytes], *, blocking: bool) -> bool:
+    """Take the exclusive OS lock on an open file.
+
+    The operating system drops the lock with the process holding it, so a run
+    that dies cannot leave the next one waiting forever.
+
+    :param handle: File opened in binary mode.
+    :param blocking: Wait for the lock instead of giving up when it is held.
+    :return: `True` once the lock is held, `False` when it is held elsewhere and
+        *blocking* is off.
+    """
+    if sys.platform == "win32":
+        while True:
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                if not blocking:
+                    return False
+                time.sleep(LOCK_POLL_SECONDS)
+            else:
+                return True
+    flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+    try:
+        fcntl.flock(handle.fileno(), flags)
+    except BlockingIOError:
+        return False
+    return True
+
+
+def _release_lock(handle: IO[bytes]) -> None:
+    """Release the lock {func}`_acquire_lock` took on *handle*."""
+    if sys.platform == "win32":
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _cwd_config_lock(spec: ToolSpec) -> Iterator[None]:
+    """Hold off other runs that would write the same working-directory config.
+
+    A tool with no `--config` flag gets its config through
+    {func}`_write_cwd_config`, as a file that exists only for the length of one
+    run. Without this lock, a second run of the same tool starting in the same
+    directory takes that file for the repository's own (level 1), then loses it
+    halfway when the first run deletes it, and formats its remaining files with
+    no config at all. Parallel agents sharing one checkout run into exactly that.
+
+    The lock file lives under the cache root, keyed by the config's absolute
+    path, so only runs that would write the same file wait for each other. When
+    it cannot be opened (a read-only cache), the run goes ahead unlocked.
+
+    :param spec: Tool specification with `native_config_files`.
+    """
+    target = Path(spec.native_config_files[0]).resolve()
+    digest = hashlib.sha256(str(target).encode("UTF-8")).hexdigest()[:16]
+    lock_path = cache_dir() / "locks" / f"{spec.name}-{digest}.lock"
+    with ExitStack() as stack:
+        handle: IO[bytes] | None = None
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            handle = stack.enter_context(lock_path.open("a+b"))
+        except OSError:
+            logging.debug(f"{spec.name}: cannot open {lock_path}, running unlocked.")
+        if handle is not None and not _acquire_lock(handle, blocking=False):
+            logging.info(f"{spec.name}: waiting for another run that uses {target}.")
+            _acquire_lock(handle, blocking=True)
+        try:
+            yield
+        finally:
+            if handle is not None:
+                _release_lock(handle)
 
 
 def _deliver_config(
@@ -1146,12 +1236,22 @@ def run_tool(
         new_checksums = {**spec.binary.checksums, key: checksum}
         spec = replace(spec, binary=replace(spec.binary, checksums=new_checksums))
 
-    logging.info(f"Resolving config for {spec.name} {spec.version}...")
-    config_args, tmp_path = resolve_config(spec)
+    # A tool with no `--config` flag may get its config written into the working
+    # directory for the length of this run, so any other run that would write
+    # the same file waits for this one: see _cwd_config_lock.
+    config_lock = ExitStack()
+    if spec.config_flag is None and spec.native_config_files:
+        config_lock.enter_context(_cwd_config_lock(spec))
 
+    tmp_path: Path | None = None
     bin_dir = None
     path_dirs: list[tempfile.TemporaryDirectory[str]] = []
     try:
+        logging.info(f"Resolving config for {spec.name} {spec.version}...")
+        config_args, tmp_path = resolve_config(spec)
+        if tmp_path is None:
+            # Nothing was written into the directory, so nothing to guard.
+            config_lock.close()
         config_args = _dereference_data_dir_symlinks(config_args, path_dirs)
 
         # Build command prefix: binary download or uvx/uv-run.
@@ -1287,6 +1387,7 @@ def run_tool(
         if tmp_path is not None:
             logging.debug(f"Cleaning up temp config: {tmp_path.resolve()}")
             tmp_path.unlink(missing_ok=True)
+        config_lock.close()
 
 
 def verify_via_write_path(

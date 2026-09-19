@@ -481,6 +481,7 @@ def format_bypass_section(
     pruned: list[BypassForecast] | None = None,
     frozen: list[str] | None = None,
     *,
+    stale_comments: list[str] | None = None,
     name_urls: dict[str, str] | None = None,
 ) -> str:
     """Format the cooldown-bypass lifecycle as a single markdown table.
@@ -500,6 +501,10 @@ def format_bypass_section(
         {func}`repomatic.deps.uv.compute_pruned_forecasts` before the prune.
     :param frozen: Names of the entries the run rewrote into freeze cutoffs;
         their *forecasts* rows get the `📌 frozen:` label.
+    :param stale_comments: Cleared entries the comment above
+        `exclude-newer-package` still names, from
+        {func}`repomatic.deps.uv.bypass_comment_mentions`. A warning under the
+        table asks for the comment to be updated by hand.
     :param name_urls: Optional mapping of names to a URL the name links to.
         Names absent from the mapping render plain.
     :return: A markdown string with a `## ❄️ Cooldown bypasses` heading and
@@ -531,12 +536,20 @@ def format_bypass_section(
             expires = f"*{expires}*"
         rows.append((link_name(forecast.name, name_urls), held, expires))
 
-    return markdown_section(
+    section = markdown_section(
         "❄️ Cooldown bypasses",
         BYPASS_SECTION_NOTE,
         BYPASS_COLUMNS,
         rows,
     )
+    if stale_comments:
+        names = ", ".join(f"`{name}`" for name in stale_comments)
+        section += (
+            "\n\n> [!WARNING]\n"
+            "> The comment above `exclude-newer-package` in `pyproject.toml` still"
+            f" names {names}, which this run cleared. Update it by hand."
+        )
+    return section
 
 
 # ---------------------------------------------------------------------------

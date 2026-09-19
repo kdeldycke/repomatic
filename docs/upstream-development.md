@@ -33,7 +33,7 @@ The test: if a downstream repo might reasonably want the opposite setting, it be
 **Config delivery has two paths** depending on whether the tool accepts a `--config` flag:
 
 - Tools with `config_flag`: the bundled default is passed via that flag at invocation time.
-- Tools without `config_flag` (CWD-discovery only): the bundled default is written to the first `native_config_files` path in CWD and cleaned up after invocation.
+- Tools without `config_flag` (CWD-discovery only): the bundled default is written to the first `native_config_files` path in CWD and cleaned up after invocation. A second run of the same tool in that directory waits for the first to finish, so it never reads a config the first run is about to remove.
 
 ## Release checklist
 

@@ -59,6 +59,7 @@ from repomatic.registry import (
     NON_REUSABLE_WORKFLOWS,
     RELEASE_ENGINE_WORKFLOWS,
     REUSABLE_WORKFLOWS,
+    UPSTREAM_ASSET_GLOB,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
@@ -1554,6 +1555,13 @@ def test_header_extraction_nonexistent() -> None:
             ["my_pkg/**", "config.json"],
             id="upstream-specific-dropped",
         ),
+        # Downstream `.claude/` holds synced copies no downstream test reads.
+        pytest.param(
+            [UPSTREAM_SOURCE_GLOB, UPSTREAM_ASSET_GLOB, "tests/**"],
+            ["my_pkg"],
+            ["my_pkg/**", "tests/**"],
+            id="upstream-assets-dropped",
+        ),
         pytest.param(
             ["tests/**", "pyproject.toml", "uv.lock", "changelog.md"],
             ["my_pkg"],
@@ -1729,6 +1737,29 @@ def test_header_with_source_paths_substitutes() -> None:
     )
     assert "my_pkg/**" in header
     assert UPSTREAM_SOURCE_GLOB not in header
+
+
+def test_tests_yaml_runs_on_bundled_assets_upstream_only() -> None:
+    """Upstream Tests run on a skill or agent edit, downstream Tests do not.
+
+    The bundled skills and agents reach the package through symlinks, so an
+    edit to one changes no `repomatic/**` path, while the suite reads them all.
+    """
+    canonical = yaml.safe_load(
+        (PROJECT_ROOT / ".github" / "workflows" / "tests.yaml").read_text(
+            encoding="UTF-8"
+        )
+    )
+    # PyYAML reads the quoted `"on":` key as a string, a bare `on:` as `True`.
+    triggers = canonical.get("on") or canonical[True]
+    for trigger in ("push", "pull_request"):
+        assert UPSTREAM_ASSET_GLOB in triggers[trigger]["paths"]
+
+    header = generate_workflow_header(
+        "tests.yaml", paths_spec=PathsSpec(source_paths=["my_pkg"])
+    )
+    assert UPSTREAM_ASSET_GLOB not in header
+    assert "my_pkg/**" in header
 
 
 def test_header_without_source_paths_drops_upstream_glob() -> None:

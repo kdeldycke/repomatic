@@ -301,6 +301,22 @@ def test_format_bypass_section_covers_every_lifecycle_state():
     )
 
 
+def test_format_bypass_section_warns_about_a_stale_comment():
+    """A cleared entry the table's comment still names gets a warning."""
+    section = format_bypass_section(
+        forecasts=[],
+        pruned=[BypassForecast("cherry", "2.0.0", "2026-06-01")],
+        stale_comments=["cherry"],
+    )
+    assert section.endswith(
+        "| cherry | 🧹 cleared: `2.0.0` | 2026-06-01 |\n"
+        "\n"
+        "> [!WARNING]\n"
+        "> The comment above `exclude-newer-package` in `pyproject.toml` still"
+        " names `cherry`, which this run cleared. Update it by hand."
+    )
+
+
 def test_format_bypass_section_empty():
     assert format_bypass_section([]) == ""
 

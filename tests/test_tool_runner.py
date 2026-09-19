@@ -26,6 +26,7 @@ import os
 import re
 import tarfile
 import tempfile
+import threading
 import zipfile
 from contextlib import contextmanager
 from itertools import combinations
@@ -2136,6 +2137,79 @@ def test_run_tool_mdformat_with_packages(
     with_count = cmd.count("--with")
     spec = TOOL_REGISTRY["mdformat"]
     assert with_count == len(spec.with_packages)
+
+
+@patch("repomatic.tooling.tool_runner._install_binary")
+@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_concurrent_runs_keep_their_cwd_config(
+    mock_ci, mock_install, cache_env, tmp_path, monkeypatch
+):
+    """Two runs sharing a directory each keep a written config for their whole run.
+
+    Without the lock, the second run took the first run's temporary
+    `.mdformat.toml` for the repository's own, then lost it halfway when the
+    first run deleted it on the way out.
+    """
+    monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "shfmt"
+    bin_path.touch()
+    mock_install.return_value = bin_path
+    for name in ("apple.md", "banana.md"):
+        (tmp_path / name).write_text("# Orchard\n", encoding="UTF-8")
+    config = tmp_path / ".mdformat.toml"
+    first_running = threading.Event()
+    second_running = threading.Event()
+    seen: dict[str, tuple[bool, bool]] = {}
+
+    def fake_run(cmd, **kwargs):
+        target = "apple.md" if "apple.md" in cmd else "banana.md"
+        at_start = config.exists()
+        if target == "apple.md":
+            first_running.set()
+            # Leave the second run time to start inside this one, if it can.
+            second_running.wait(timeout=0.5)
+        else:
+            second_running.set()
+            # Outlive the first run, which removes its config on exit.
+            first.join(timeout=5)
+        seen[target] = (at_start, config.exists())
+        return MagicMock(returncode=0)
+
+    first = threading.Thread(
+        target=run_tool, args=("mdformat",), kwargs={"extra_args": ("apple.md",)}
+    )
+    with patch("repomatic.tooling.tool_runner.subprocess.run", side_effect=fake_run):
+        first.start()
+        assert first_running.wait(timeout=5)
+        run_tool("mdformat", extra_args=("banana.md",))
+        first.join(timeout=5)
+
+    assert seen == {"apple.md": (True, True), "banana.md": (True, True)}
+    assert not config.exists()
+
+
+@patch("repomatic.tooling.tool_runner.subprocess.run")
+@patch("repomatic.tooling.tool_runner._install_binary")
+@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_runs_unlocked_when_the_cache_is_unwritable(
+    mock_ci, mock_install, mock_run, tmp_path, monkeypatch
+):
+    """A lock file that cannot be created does not stop the run."""
+    monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "shfmt"
+    bin_path.touch()
+    mock_install.return_value = bin_path
+    # A regular file where the cache root should be: no directory fits under it.
+    blocker = tmp_path / "cache"
+    blocker.write_text("", encoding="UTF-8")
+    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(blocker))
+    (tmp_path / "apple.md").write_text("# Orchard\n", encoding="UTF-8")
+    mock_run.return_value = MagicMock(returncode=0)
+
+    assert run_tool("mdformat", extra_args=("apple.md",)) == 0
+
+    mock_run.assert_called_once()
+    assert not (tmp_path / ".mdformat.toml").exists()
 
 
 @patch("repomatic.tooling.tool_runner.subprocess.run")

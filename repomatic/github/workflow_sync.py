@@ -63,6 +63,7 @@ from .. import __version__
 from ..config import Config
 from ..registry import (
     DEFAULT_REPO,
+    UPSTREAM_ASSET_GLOB,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
@@ -567,7 +568,8 @@ def _apply_paths_spec(
     Order of operations (skipped when a per-workflow override is set):
 
     1. Substitute {data}`UPSTREAM_SOURCE_GLOB` with ``{sp}/**`` for each
-       *source_paths* entry, drop other {data}`UPSTREAM_SOURCE_PREFIX` paths.
+       *source_paths* entry, drop other {data}`UPSTREAM_SOURCE_PREFIX` paths
+       and {data}`UPSTREAM_ASSET_GLOB`.
     2. Strip *ignore_paths* entries (exact string match).
     3. Append *extra_paths* (deduplicated, order-preserving).
 
@@ -640,7 +642,8 @@ def _substitute_source_paths(
       ``{source}/**`` for each entry in *source_paths*; when *source_paths*
       is empty the glob is dropped entirely.
     - Other paths starting with {data}`UPSTREAM_SOURCE_PREFIX` are dropped
-      (upstream-specific files like `repomatic/data/labels.toml`).
+      (upstream-specific files like `repomatic/data/labels.toml`), and so is
+      {data}`UPSTREAM_ASSET_GLOB`, which only upstream tests read.
     - All other paths (universal paths like `pyproject.toml`, `tests/**`)
       are kept as-is.
 
@@ -653,7 +656,7 @@ def _substitute_source_paths(
     for path in paths:
         if path == UPSTREAM_SOURCE_GLOB:
             result.extend(f"{sp}/**" for sp in source_paths)
-        elif path.startswith(UPSTREAM_SOURCE_PREFIX):
+        elif path.startswith(UPSTREAM_SOURCE_PREFIX) or path == UPSTREAM_ASSET_GLOB:
             # Drop upstream-specific paths.
             continue
         else:

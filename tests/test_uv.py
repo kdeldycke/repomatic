@@ -36,6 +36,7 @@ from repomatic.cli.main import repomatic
 from repomatic.config import Config
 from repomatic.deps.dep_report import BYPASS_NEEDS_RELEASE, BypassForecast
 from repomatic.deps.uv import (
+    bypass_comment_mentions,
     compute_bypass_forecasts,
     compute_pruned_forecasts,
     freeze_exclude_newer_packages,
@@ -311,6 +312,72 @@ def test_prune_stale_exclude_newer_packages_keeps_active_freeze(tmp_path):
     before = pyproject.read_text(encoding="UTF-8")
     assert prune_stale_exclude_newer_packages(pyproject, lock) == set()
     assert pyproject.read_text(encoding="UTF-8") == before
+
+
+def test_prune_leaves_a_comment_naming_the_pruned_entry(tmp_path):
+    """A partial prune keeps the table's comment, which still names the entry."""
+    fresh = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    pyproject = _write_uv_config(
+        tmp_path,
+        'exclude-newer = "1 week"\n'
+        "# mango keeps a permanent span. papaya carries a frozen cutoff,\n"
+        "# which the next prune removes.\n"
+        f'exclude-newer-package = {{ mango = "0 day", papaya = "{fresh}" }}\n',
+    )
+    lock = _write_lock(
+        tmp_path,
+        ("mango", "2.0.0", ""),
+        ("papaya", "1.0.0", "2026-01-01T12:00:00Z"),
+    )
+    pruned = prune_stale_exclude_newer_packages(pyproject, lock)
+    assert pruned == {"papaya"}
+    assert bypass_comment_mentions(pyproject, pruned) == ["papaya"]
+
+
+@pytest.mark.parametrize(
+    ("uv_lines", "names", "expected"),
+    [
+        pytest.param(
+            "# lemon_curd is held for a fix.\n"
+            'exclude-newer-package = { mango = "0 day" }\n',
+            {"lemon-curd"},
+            ["lemon-curd"],
+            id="separator-spelling-ignored",
+        ),
+        pytest.param(
+            'exclude-newer-package = { mango = "0 day" }  # Lemon-Curd too.\n',
+            {"lemon-curd"},
+            ["lemon-curd"],
+            id="end-of-line-comment",
+        ),
+        pytest.param(
+            "# lemon-curd is held for a fix.\n"
+            'exclude-newer-package = { mango = "0 day" }\n',
+            {"lemon"},
+            [],
+            id="prefix-of-another-name",
+        ),
+        pytest.param(
+            "# mango keeps a permanent span.\n"
+            'exclude-newer-package = { mango = "0 day" }\n',
+            {"papaya"},
+            [],
+            id="not-mentioned",
+        ),
+        pytest.param(
+            "# papaya was the last entry.\n",
+            {"papaya"},
+            [],
+            id="table-gone",
+        ),
+    ],
+)
+def test_bypass_comment_mentions(tmp_path, uv_lines, names, expected):
+    """Only the comments attached to `exclude-newer-package` are searched."""
+    pyproject = _write_uv_config(tmp_path, f'exclude-newer = "1 week"\n{uv_lines}')
+    assert bypass_comment_mentions(pyproject, names) == expected
 
 
 def test_freeze_exclude_newer_packages_returns_frozen_names(tmp_path):
