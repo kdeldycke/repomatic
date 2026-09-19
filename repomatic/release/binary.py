@@ -534,6 +534,13 @@ LC_BUILD_VERSION: Final[int] = 0x32
 MACHO_PLATFORM_MACOS: Final[int] = 1
 """`platform` field value naming macOS inside an `LC_BUILD_VERSION` command."""
 
+_GLIBC_RELEASE: Final[re.Pattern[str]] = re.compile(r"GLIBC_(\d+(?:\.\d+)*)")
+"""A `.gnu.version_r` entry naming a glibc release, like `GLIBC_2.34`.
+
+glibc also versions feature nodes, like the `GLIBC_ABI_DT_RELR` that every file
+linked with packed relocations requires. They name no release, so they set no
+floor."""
+
 _PE_PROBE_BYTES: Final[int] = 65536
 """Upper bound read when probing for a PE header: enough to cover any
 real-world DOS-stub offset to the COFF header without reading the whole
@@ -551,6 +558,7 @@ def _elf_info(path: Path) -> tuple[str, str | None]:
     The glibc requirement is the maximum `GLIBC_x.y` entry of the
     `.gnu.version_r` section: the version table the dynamic loader checks
     before letting the file run, and so the file's effective glibc floor.
+    Feature entries like `GLIBC_ABI_DT_RELR` are skipped.
     """
     versions = set()
     with path.open("rb") as stream:
@@ -561,8 +569,9 @@ def _elf_info(path: Path) -> tuple[str, str | None]:
                 continue
             for _verneed, aux_iter in section.iter_versions():
                 for aux in aux_iter:
-                    if aux.name.startswith("GLIBC_"):
-                        versions.add(aux.name.removeprefix("GLIBC_"))
+                    release = _GLIBC_RELEASE.fullmatch(aux.name)
+                    if release:
+                        versions.add(release.group(1))
     floor = max(versions, key=_version_key) if versions else None
     return machine, floor
 

@@ -23,6 +23,7 @@ import struct
 import sys
 from pathlib import Path
 from string import ascii_lowercase, digits
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -253,6 +254,34 @@ def test_elf_info_without_verneed(tmp_path):
     sample = tmp_path / "sample.bin"
     sample.write_bytes(make_elf(EM_X86_64))
     assert _elf_info(sample) == ("EM_X86_64", None)
+
+
+def test_elf_info_skips_glibc_feature_versions(tmp_path):
+    """A feature entry like `GLIBC_ABI_DT_RELR` sets no glibc floor.
+
+    Files linked with packed relocations require it, like the Python
+    interpreter Arch Linux ships.
+    """
+
+    class FakeVerNeedSection:
+        def iter_versions(self):
+            names = ("GLIBC_2.34", "GLIBC_ABI_DT_RELR", "GLIBC_2.38")
+            yield None, [SimpleNamespace(name=name) for name in names]
+
+    class FakeELFFile:
+        def __init__(self, stream):
+            self.header = {"e_machine": "EM_X86_64"}
+
+        def iter_sections(self):
+            yield FakeVerNeedSection()
+
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(make_elf(EM_X86_64))
+    with (
+        patch("repomatic.release.binary.ELFFile", FakeELFFile),
+        patch("repomatic.release.binary.GNUVerNeedSection", FakeVerNeedSection),
+    ):
+        assert _elf_info(sample) == ("EM_X86_64", "2.38")
 
 
 def test_macho_info_fat_slices(tmp_path):

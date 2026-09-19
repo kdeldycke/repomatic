@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix `verify-binary` crashing on a Linux binary linked with packed relocations, which requires the `GLIBC_ABI_DT_RELR` symbol version.
+
 ## [`7.16.1` (2026-09-19)](https://github.com/kdeldycke/repomatic/compare/v7.16.0...v7.16.1)
 
 - **Breaking:** the bundled `repomatic-upgrade` skill drops its `review` and `fix` modes. It now always applies its changes, uncommitted.
