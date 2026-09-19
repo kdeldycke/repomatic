@@ -7,6 +7,9 @@
 
 ## [`7.16.1` (2026-09-19)](https://github.com/kdeldycke/repomatic/compare/v7.16.0...v7.16.1)
 
+> [!NOTE]
+> `7.16.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.16.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.16.1).
+
 - **Breaking:** the bundled `repomatic-upgrade` skill drops its `review` and `fix` modes. It now always applies its changes, uncommitted.
 - Ship the test suite, and the repository files it reads, in the PyPI sdist, where tests needing a git checkout skip themselves.
 - `sync-workflow-pins` pull requests now label a uv pin stepped back onto the `setup-uv` checksum table `⏪ stepped back`.
