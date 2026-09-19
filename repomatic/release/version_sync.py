@@ -555,9 +555,12 @@ def setup_uv_verified_versions(shas: Iterable[str]) -> frozenset[str] | None:
     """uv releases every pinned `setup-uv` commit can checksum-verify.
 
     `setup-uv` verifies a download against a checksum table bundled into the
-    action release. A version absent from that table is not refused: it is
-    installed with no verification at all, on a `core.debug` line no CI log
-    shows by default (`src/download/checksum/checksum.ts`). uv ships weekly and
+    action release. A version absent from that table is not refused. Before
+    `v10.1.0` it installs with no verification at all, on a `core.debug` line no
+    CI log shows by default (`src/download/checksum/checksum.ts`). From
+    `v10.1.0` it is checked against the `sha256` in the uv manifest, which the
+    action fetches from the `main` branch of `astral-sh/versions` at run time:
+    a hash, but not one the pin fixes. uv ships weekly and
     `setup-uv` roughly monthly, and `sync-action-pins` and `sync-workflow-pins`
     walk the two pins independently, so the uv pin drifts past the table on its
     own. Measured on 2026-08-20: `setup-uv` `v9.0.0` stopped at uv `0.11.30`

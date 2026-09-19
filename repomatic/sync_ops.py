@@ -994,18 +994,19 @@ def _gate_uv_on_checksums(
     """Drop uv releases the pinned `setup-uv` cannot checksum-verify.
 
     The uv pin is the one literal whose adoptable range is decided by a
-    *second* pin: `setup-uv` verifies a download only against the checksum
-    table its own release bundles, and silently skips verification for anything
-    else (see {func}`~repomatic.release.version_sync.setup_uv_verified_versions`).
-    Walking uv forward past that table therefore trades a hash for nothing,
-    which is the opposite of what pinning it was for.
+    *second* pin: `setup-uv` verifies a download against a pinned hash only
+    for the versions in the checksum table its own release bundles, and gives
+    anything else no hash, or from `v10.1.0` one fetched at run time (see
+    {func}`~repomatic.release.version_sync.setup_uv_verified_versions`).
+    Walking uv forward past that table therefore trades a pinned hash for a
+    live one at best, which is the opposite of what pinning it was for.
 
     So the ceiling moves when the action pin moves, not when uv publishes. A
     pin already sitting above that ceiling is the one case where the caller
     walks a version backwards, down to the newest release the action can
     verify. Waiting for `sync-action-pins` repairs nothing when the newest
     `setup-uv` is the one already pinned, and every job keeps installing uv
-    unverified for as long as that holds.
+    without a pinned hash for as long as that holds.
 
     :param candidates: Every uv release, as offered by PyPI.
     :param pinned: The uv version currently written in the workflows.
@@ -1035,7 +1036,7 @@ def _gate_uv_on_checksums(
     if unverified:
         logging.warning(
             f"uv {pinned} is pinned but carries no checksum in the pinned"
-            f" {SETUP_UV_SLUG}, so every job installs it unverified."
+            f" {SETUP_UV_SLUG}, so no pinned hash verifies it in any job."
         )
 
     gated = [candidate for candidate in candidates if candidate.version in verified]

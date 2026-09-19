@@ -2495,16 +2495,20 @@ def check_setup_uv_checksum_coverage(
 
     The pin check above settles that CI resolves through a uv somebody chose.
     Whether the bytes it downloads are the bytes that version shipped is a
-    second question, and `setup-uv` answers it only for the versions listed in
-    the checksum table its own release bundles: anything else installs with no
-    verification and no warning. So a repository can hold two perfectly good
-    pins that together verify nothing, which is what this reports.
+    second question, and `setup-uv` answers it with a pinned hash only for the
+    versions listed in the checksum table its own release bundles. Anything
+    else installs with no verification before `v10.1.0`, and against a hash
+    fetched at run time from `v10.1.0` on (see
+    {func}`~repomatic.release.version_sync.setup_uv_verified_versions`). So a
+    repository can hold two perfectly good pins that together pin no hash,
+    which is what this reports.
 
     Advisory, and not fatal for the same reason the pin check is not: the
     download succeeds and the job runs, it just carries a cooldown where it
-    could have carried a cooldown and a hash. The repair is a
-    `sync-action-pins` bump, and `sync-workflow-pins` stops widening the gap on
-    its own (see {func}`repomatic.sync_ops._gate_uv_on_checksums`).
+    could have carried a cooldown and a pinned hash. `sync-workflow-pins`
+    repairs it by stepping the uv pin back onto the table, and a
+    `sync-action-pins` bump lets the pin move forward again (see
+    {func}`repomatic.sync_ops._gate_uv_on_checksums`).
 
     :param workflow_dir: Directory holding the workflow YAML files. Ignored
         when *workflows* is supplied.
@@ -2539,8 +2543,8 @@ def check_setup_uv_checksum_coverage(
         return CheckResult(
             False,
             f"uv {', '.join(unverified)} carries no checksum in the pinned"
-            f" {SETUP_UV_SLUG}, so CI installs uv unverified. Bump the"
-            " action pin to one whose table covers it.",
+            f" {SETUP_UV_SLUG}, so no pinned hash verifies it in CI. Step uv"
+            " back onto the table, as `sync-workflow-pins` does.",
         )
     return CheckResult(
         True,

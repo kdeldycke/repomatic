@@ -1005,7 +1005,7 @@ def test_uv_gate_drops_unverifiable_releases():
     """A uv the pinned action cannot checksum is not a candidate.
 
     Without this, `sync-workflow-pins` walks uv past the table on its own
-    schedule and CI installs it with no verification at all.
+    schedule and CI installs it without a pinned hash.
     """
     gated, _unverified = _gate(frozenset({"0.12.2", "0.12.3"}))
     assert [candidate.version for candidate in gated] == ["0.12.2", "0.12.3"]
@@ -1049,7 +1049,7 @@ def test_uv_gate_warns_when_the_pinned_uv_is_unverified(caplog):
     """The pin on disk is audited too, not just the one about to replace it."""
     with caplog.at_level(logging.WARNING):
         _gate(frozenset({"0.11.30"}), pinned="0.12.3")
-    assert "installs it unverified" in caplog.text
+    assert "no pinned hash verifies it" in caplog.text
 
 
 def test_uv_gate_stays_quiet_when_the_pinned_uv_is_verified(caplog):

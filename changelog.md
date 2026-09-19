@@ -15,6 +15,7 @@
 - Remove anecdotes naming past releases or other projects' threads from the bundled skills and the `sphinx-docs` agent.
 - Fix `lint-repo` asking for GitHub topics that multi-word keywords already declare: `Weather forecast` now matches the `weather-forecast` topic.
 - Fix `lint-changelog` reporting a release newer than its day-old cache as missing, and `--fix` marking it unavailable, when the release's section has no availability note yet.
+- Fix `lint-repo` and `sync-workflow-pins` warnings that a uv missing from the `setup-uv` checksum table installs unverified: `v10.1.0` checks it against a live hash.
 
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)
 
