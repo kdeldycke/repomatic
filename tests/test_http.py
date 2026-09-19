@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 from http.client import IncompleteRead
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 
@@ -38,25 +38,32 @@ def _fetch(ttl: int = 3600):
     )
 
 
-def test_get_json_retries_incomplete_read():
-    """A truncated body gets one retry before giving up."""
-    with patch(
-        "repomatic.http.urlopen",
-        side_effect=[IncompleteRead(b""), FakeResponse(RAW)],
-    ):
-        assert get_json("https://example.test/mango") == (PAYLOAD, RAW)
-
-
-def test_get_json_persistent_incomplete_read():
-    """A body truncated on the retry too raises FetchError."""
+@pytest.mark.parametrize("truncations", [1, 2])
+def test_get_json_retries_incomplete_read(truncations):
+    """A truncated body is retried after each pause of the backoff."""
     with (
         patch(
             "repomatic.http.urlopen",
-            side_effect=[IncompleteRead(b""), IncompleteRead(b"")],
+            side_effect=[IncompleteRead(b"")] * truncations + [FakeResponse(RAW)],
         ),
+        patch("repomatic.http.time.sleep") as mock_sleep,
+    ):
+        assert get_json("https://example.test/mango") == (PAYLOAD, RAW)
+    assert mock_sleep.call_args_list == [call(1), call(3)][:truncations]
+
+
+def test_get_json_persistent_incomplete_read():
+    """A body truncated on every retry raises FetchError."""
+    with (
+        patch(
+            "repomatic.http.urlopen",
+            side_effect=[IncompleteRead(b"")] * 3,
+        ),
+        patch("repomatic.http.time.sleep") as mock_sleep,
         pytest.raises(FetchError),
     ):
         get_json("https://example.test/mango")
+    assert mock_sleep.call_args_list == [call(1), call(3)]
 
 
 def test_get_text_decodes_body():
@@ -75,10 +82,13 @@ def test_get_text_rejects_undecodable_body():
 
 
 def test_get_text_retries_incomplete_read():
-    """A truncated text body earns the same single retry as a JSON one."""
-    with patch(
-        "repomatic.http.urlopen",
-        side_effect=[IncompleteRead(b""), FakeResponse(b"pomelo")],
+    """A truncated text body earns the same retries as a JSON one."""
+    with (
+        patch(
+            "repomatic.http.urlopen",
+            side_effect=[IncompleteRead(b""), FakeResponse(b"pomelo")],
+        ),
+        patch("repomatic.http.time.sleep"),
     ):
         assert get_text("https://example.test/fruit") == "pomelo"
 

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from http.client import IncompleteRead
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -62,12 +63,21 @@ registries throttle unidentified agents harder, and an operator reading an
 upstream access log can tell which release of this tool hit them.
 """
 
+_TRUNCATED_BODY_BACKOFF_SECONDS = (1, 3)
+"""Sleep durations before each retry of a truncated body.
+
+A retry sent at once tends to meet the same flaky connection or interfering
+proxy that cut the first read, so each one waits first. Two retries (1s + 3s)
+cost little next to a failed fetch, which callers often turn into a skipped
+check.
+"""
+
 
 class FetchError(RuntimeError):
     """Raised when a JSON fetch could not complete cleanly.
 
     Wraps every failure mode of {func}`get_json`: HTTP 4xx/5xx, network
-    error, timeout, truncated body (after its one retry), and JSON parse
+    error, timeout, truncated body (after its retries), and JSON parse
     error. Callers decide whether a failure is fatal (GitHub pagination,
     where a missing page corrupts the result) or a soft miss (PyPI/npm
     lookups, logged and treated as "no data").
@@ -80,11 +90,12 @@ def _read_body(
     headers: Mapping[str, str] | None,
     timeout: float,
 ) -> bytes:
-    """GET *url* and return its raw body, retrying once on truncation.
+    """GET *url* and return its raw body, retrying on truncation.
 
     A truncated body (`IncompleteRead`) is transient (a flaky connection or
-    an interfering proxy), so it earns one retry; every other failure mode
-    fails straight away.
+    an interfering proxy), so it earns a retry after each pause in
+    `_TRUNCATED_BODY_BACKOFF_SECONDS`; every other failure mode fails
+    straight away.
 
     :param url: The URL to fetch.
     :param accept: Default `Accept` media type, overridable by *headers*.
@@ -93,20 +104,23 @@ def _read_body(
     :param timeout: Socket timeout in seconds.
     :return: The raw response body.
     :raises FetchError: On HTTP error, network error, timeout, or a body
-        still truncated after the retry.
+        still truncated after the last retry.
     """
     request = Request(
         url,
         headers={"Accept": accept, "User-Agent": USER_AGENT, **(headers or {})},
     )
-    for retry in (True, False):
+    for delay in (*_TRUNCATED_BODY_BACKOFF_SECONDS, None):
         try:
             with urlopen(request, timeout=timeout) as response:
                 body: bytes = response.read()
             return body
-        except (URLError, TimeoutError, IncompleteRead) as exc:
-            if retry and isinstance(exc, IncompleteRead):
-                continue
+        except IncompleteRead as exc:
+            if delay is None:
+                raise FetchError(str(exc)) from exc
+            logging.debug(f"Truncated body from {url}, retrying in {delay}s: {exc}")
+            time.sleep(delay)
+        except (URLError, TimeoutError) as exc:
             raise FetchError(str(exc)) from exc
     raise AssertionError("unreachable")  # pragma: no cover
 
@@ -117,7 +131,7 @@ def get_json(
     headers: Mapping[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> tuple[Any, bytes]:
-    """GET *url* and parse the body as JSON, retrying once on truncation.
+    """GET *url* and parse the body as JSON, retrying on truncation.
 
     :param url: The URL to fetch.
     :param headers: Extra request headers, merged over the JSON `Accept`

@@ -17,6 +17,7 @@
 - Fix `lint-changelog` reporting a release newer than its day-old cache as missing, and `--fix` marking it unavailable, when the release's section has no availability note yet.
 - Fix `sync-workflow-pins` and `lint-repo` leaving the uv pin unchecked against `astral-sh/setup-uv` `v10.1.0` and newer, which moved its checksum table.
 - Fix `lint-repo` and `sync-workflow-pins` warnings that a uv missing from the `setup-uv` checksum table installs unverified: `v10.1.0` checks it against a live hash.
+- Pause before retrying a truncated HTTP response, and retry it twice instead of once.
 
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)
 
