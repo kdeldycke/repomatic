@@ -12,6 +12,7 @@
 - The bundled `sphinx-docs-sync` skill now builds the documentation and counts its warnings before auditing, and re-locks `uv.lock` when it adds a docs dependency.
 - The bundled `upstream-audit` skill now sweeps an author's issues and pull requests across GitHub, and resolves their states in one GraphQL query.
 - Remove anecdotes naming past releases or other projects' threads from the bundled skills and the `sphinx-docs` agent.
+- Fix `lint-repo` asking for GitHub topics that multi-word keywords already declare: `Weather forecast` now matches the `weather-forecast` topic.
 - Fix `lint-changelog` reporting a release newer than its day-old cache as missing, and `--fix` marking it unavailable, when the release's section has no availability note yet.
 
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)

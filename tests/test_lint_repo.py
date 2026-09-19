@@ -899,6 +899,28 @@ def test_topics_match_keywords_case_insensitively():
         assert result.passed is True
 
 
+@pytest.mark.parametrize(
+    "keyword", ("Weather forecast", "weather  forecast", " Weather forecast ")
+)
+def test_topics_match_multi_word_keywords(keyword):
+    """A topic holds no whitespace, so a phrase counts as its hyphenated form."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.return_value = "weather-forecast\n"
+        result = check_topics_subset_of_keywords("owner/repo", keywords=[keyword])
+        assert result.passed is True
+
+
+def test_topics_phrase_keyword_does_not_declare_its_words():
+    """A phrase declares its hyphenated topic, not one topic per word."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.return_value = "weather-forecast\nweather\n"
+        result = check_topics_subset_of_keywords(
+            "owner/repo", keywords=["Weather forecast"]
+        )
+        assert result.passed is False
+        assert "keywords: weather. " in result.message
+
+
 def test_topics_api_failure():
     """Skip gracefully when API call fails."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
