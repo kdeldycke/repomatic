@@ -68,7 +68,7 @@ jobs:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
-          version: "0.12.13"
+          version: "0.12.12"
 
       # `gh` inherits this token to read the aggregate counts and the star history. Both are
       # public, so any token can read them, but the PAT carries 5,000 requests an hour where
