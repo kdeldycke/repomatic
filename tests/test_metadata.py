@@ -484,15 +484,15 @@ _ALL_TRACKED = (
 )
 """Every path in the git index, snapshotted once at collection time.
 
-Empty outside a git checkout, where the `repo_maintenance` tests comparing
-against it are skipped.
-
 The independent oracle behind the file-inventory expectations below:
 `Metadata.glob_files` walks the disk under gitignore filtering, while this
 reads the index, so their agreement proves the two views of the tree match. A
 stray untracked file (or a tracked file missing on disk) still fails the
 comparison, deliberately: the metadata a workflow consumes must describe the
 committed tree, and enumerating drift by name is the test's job.
+
+Empty outside a git checkout, where the `repo_maintenance` tests comparing
+against it are skipped.
 """
 
 

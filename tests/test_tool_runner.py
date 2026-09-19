@@ -23,9 +23,7 @@ import io
 import json
 import logging
 import os
-import platform
 import re
-import sys
 import tarfile
 import tempfile
 import zipfile
@@ -3132,16 +3130,10 @@ def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monke
     assert drifted == []
 
 
-@pytest.mark.skipif(
-    not sys.platform.startswith("darwin")
-    and platform.machine().lower() in ("aarch64", "arm64"),
-    reason=(
-        "mdformat-config pulls taplo, which has no prebuilt wheel and a broken "
-        "0.9.3 sdist on Linux and Windows ARM64; only macOS ARM64 ships one"
-    ),
-)
-@pytest.mark.network
-def test_verify_via_write_path_accepts_the_working_directory(tmp_path, monkeypatch):
+@patch("repomatic.tooling.tool_runner.run_tool", return_value=0)
+def test_verify_via_write_path_accepts_the_working_directory(
+    mock_run_tool, tmp_path, monkeypatch
+):
     """A path resolving to the working directory verifies the default set.
 
     The scratch root is created inside the working directory, so mirroring `.`
@@ -3149,19 +3141,21 @@ def test_verify_via_write_path_accepts_the_working_directory(tmp_path, monkeypat
     dies on it as an existing path. It reached users as a bare
     `FileExistsError: .repomatic-verify-<rand>`, which reads as a repository
     problem rather than a rejected argument.
+
+    The collision happens while copying, before the tool runs, so a stubbed
+    `run_tool` keeps the test off the network.
     """
     monkeypatch.chdir(tmp_path)
-    # Explicit LF: `write_text`'s default newline translation would otherwise
-    # write CRLF on Windows, and mdformat normalizes to LF, so the untouched
-    # original would drift from its own formatted copy on line endings alone.
-    (tmp_path / "harvest.md").write_text(
-        "# Mango\n\nRipe.\n", encoding="UTF-8", newline="\n"
-    )
+    (tmp_path / "harvest.md").write_text("# Mango\n\nRipe.\n", encoding="UTF-8")
 
     exit_code, drifted = verify_via_write_path("mdformat", extra_args=(".",))
 
     assert exit_code == 0
     assert drifted == []
+    # The tool ran on a copy of the default set, not on `.` or on nothing.
+    copies = [Path(arg) for arg in mock_run_tool.call_args.kwargs["extra_args"]]
+    assert [copy.name for copy in copies] == ["harvest.md"]
+    assert copies[0].parent.name.startswith(".repomatic-verify-")
     # The scratch directory is the thing that used to collide: nothing of it
     # may outlive the call, or the next one collides with the leftover.
     assert not list(tmp_path.glob(".repomatic-verify-*"))

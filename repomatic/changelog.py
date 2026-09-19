@@ -1165,6 +1165,27 @@ class ReleaseSources:
             logging.info(f"First GitHub version: {sources.first_github_version}")
         return sources
 
+    def platform_gaps(self, version: str) -> tuple[bool, bool]:
+        """Whether *version* is a gap on PyPI and on GitHub, in that order.
+
+        See `_is_platform_gap` for what counts as a gap.
+        """
+        parsed = Version(version)
+        return (
+            _is_platform_gap(
+                parsed,
+                version in self.pypi_data,
+                bool(self.package),
+                self.first_pypi_version,
+            ),
+            _is_platform_gap(
+                parsed,
+                version in self.github_releases,
+                bool(self.repo_url),
+                self.first_github_version,
+            ),
+        )
+
     def unrecorded_gaps(
         self, changelog: Changelog, releases: Sequence[tuple[str, str]]
     ) -> set[str]:
@@ -1178,21 +1199,13 @@ class ReleaseSources:
         """
         found = set()
         for candidate, _candidate_date in releases:
+            pypi_gap, github_gap = self.platform_gaps(candidate)
+            if not (pypi_gap or github_gap):
+                continue
             existing = changelog.decompose_version(candidate).availability_admonition
-            parsed = Version(candidate)
-            pypi_unrecorded = _is_platform_gap(
-                parsed,
-                candidate in self.pypi_data,
-                bool(self.package),
-                self.first_pypi_version,
-            ) and not _records_absence(existing, PYPI_LABEL)
-            github_unrecorded = _is_platform_gap(
-                parsed,
-                candidate in self.github_releases,
-                bool(self.repo_url),
-                self.first_github_version,
-            ) and not _records_absence(existing, GITHUB_LABEL)
-            if pypi_unrecorded or github_unrecorded:
+            if (pypi_gap and not _records_absence(existing, PYPI_LABEL)) or (
+                github_gap and not _records_absence(existing, GITHUB_LABEL)
+            ):
                 found.add(candidate)
         return found
 
@@ -1708,12 +1721,7 @@ def lint_changelog_dates(
             # Build the WARNING admonition for platforms where missing.
             # Only warn about gaps: versions that postdate the first
             # release on that platform but are absent from it.
-            pypi_gap = _is_platform_gap(
-                parsed, on_pypi, bool(sources.package), sources.first_pypi_version
-            )
-            github_gap = _is_platform_gap(
-                parsed, on_github, bool(sources.repo_url), sources.first_github_version
-            )
+            pypi_gap, github_gap = sources.platform_gaps(version)
             warning = build_unavailable_admonition(
                 version,
                 missing_pypi=pypi_gap,

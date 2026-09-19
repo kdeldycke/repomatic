@@ -342,8 +342,8 @@ class SyncPlan:
     """Name to literal markdown labelling its "Change" table cell.
 
     Marks the uv pin stepped back onto the checksum table of the pinned
-    `setup-uv` (see {func}`_gate_uv_on_checksums`), which the arrow alone
-    renders like any bump.
+    `setup-uv` (see `_gate_uv_on_checksums`), which the arrow alone renders
+    like any bump.
     """
 
     name_urls: dict[str, str] = field(default_factory=dict)

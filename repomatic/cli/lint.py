@@ -672,6 +672,7 @@ def lint_repo(
 
     \b
     When a PAT is detected, additional capability checks are run:
+      - Administration permission (error).
       - Contents permission (error).
       - Issues permission (error).
       - Pull requests permission (error).

@@ -75,15 +75,11 @@ WORKFLOWS_DIR = PROJECT_ROOT / ".github" / "workflows"
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Register the markers local to this suite.
+    """Register the marker local to this suite.
 
     Not in `[tool.pytest] markers`, which must match the template bundled in
     `repomatic/data/pytest.toml`.
     """
-    config.addinivalue_line(
-        "markers",
-        "network: Tests that require network access (excluded with -m 'not network').",
-    )
     config.addinivalue_line(
         "markers",
         "repo_maintenance: Tests checking this repository's own checkout (git history, "

@@ -307,11 +307,14 @@ def test_get_trusted_publishers_invalid_json():
 
 
 def test_get_trusted_publishers_retries_incomplete_read():
-    """A truncated provenance body gets one retry before giving up."""
+    """A truncated provenance body is retried before the lookup gives up."""
     body = json.dumps({"version": 1, "attestation_bundles": []}).encode()
-    with patch(
-        "repomatic.http.urlopen",
-        side_effect=[IncompleteRead(b""), FakeResponse(body)],
+    with (
+        patch(
+            "repomatic.http.urlopen",
+            side_effect=[IncompleteRead(b""), FakeResponse(body)],
+        ),
+        patch("repomatic.http.time.sleep"),
     ):
         assert (
             get_trusted_publishers(

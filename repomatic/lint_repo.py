@@ -1893,9 +1893,9 @@ def check_runner_images(
 
     Neither Dependabot nor `sync-workflow-pins` touches a `runs-on:` value:
     the first only rewrites `uses:` references, the second only the
-    `uvx '<pkg>==X.Y.Z'` and `npm install pkg@X.Y.Z` literals. So a runner is
-    the one dependency in a workflow that nothing bumps, and the only defence
-    is keeping the set small and named.
+    `uvx '<pkg>==X.Y.Z'` and `npm install pkg@X.Y.Z` literals. So only
+    `sync-runner-images` moves a runner. It rewrites a literal `runs-on:` when
+    GitHub retires the image or lists a newer version of it.
 
     Two failure modes are flagged:
 
@@ -1941,9 +1941,8 @@ def check_runner_images(
                 CheckResult(
                     False,
                     f"{where} run on `{runner}`, which is not one of the images"
-                    f" the test matrix axes are drawn from ({known}). Nothing"
-                    f" bumps a runner literal, so an image off that list is one"
-                    f" nobody is tracking.",
+                    f" the test matrix axes are drawn from ({known}). It is one"
+                    f" nobody has weighed for speed or cost.",
                 )
             )
         else:
@@ -2508,7 +2507,7 @@ def check_setup_uv_checksum_coverage(
     could have carried a cooldown and a pinned hash. `sync-workflow-pins`
     repairs it by stepping the uv pin back onto the table, and a
     `sync-action-pins` bump lets the pin move forward again (see
-    {func}`repomatic.sync_ops._gate_uv_on_checksums`).
+    `repomatic.sync_ops._gate_uv_on_checksums`).
 
     :param workflow_dir: Directory holding the workflow YAML files. Ignored
         when *workflows* is supplied.

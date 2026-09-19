@@ -102,7 +102,7 @@ sequenceDiagram
     autonumber
     actor Op as Operator
     participant Ship as repomatic-ship (Opus)
-    participant AG as Code and Docs agents
+    participant AG as Sweep agents
     participant CL as repomatic-changelog
     participant Local as Local checks
     participant Main as main (git)
@@ -116,6 +116,8 @@ sequenceDiagram
         Ship->>AG: code review (simplify, dedup, harmonize, fix CI's red inventory)
     and docs
         Ship->>AG: docs verification
+    and bundled assets
+        Ship->>AG: skill and agent check
     end
     Ship->>CL: consolidate changelog (reflects final code and docs)
 

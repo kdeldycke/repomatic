@@ -573,11 +573,11 @@ def setup_uv_verified_versions(shas: Iterable[str]) -> frozenset[str] | None:
     CI log shows by default (`src/download/checksum/checksum.ts`). From
     `v10.1.0` it is checked against the `sha256` in the uv manifest, which the
     action fetches from the `main` branch of `astral-sh/versions` at run time:
-    a hash, but not one the pin fixes. uv ships weekly and
-    `setup-uv` roughly monthly, and `sync-action-pins` and `sync-workflow-pins`
-    walk the two pins independently, so the uv pin drifts past the table on its
-    own. Measured on 2026-08-20: `setup-uv` `v9.0.0` stopped at uv `0.11.30`
-    while every workflow here pinned `0.12.3`, five releases later.
+    a hash, but not one the pin fixes. uv ships weekly and `setup-uv` roughly
+    monthly, and `sync-action-pins` and `sync-workflow-pins` walk the two pins
+    independently, so the uv pin drifts past the table on its own. Measured on
+    2026-08-20: `setup-uv` `v9.0.0` stopped at uv `0.11.30` while every workflow
+    here pinned `0.12.3`, five releases later.
 
     Intersecting rather than picking one table keeps a repository mid-bump
     honest: while `sync-action-pins` has landed on some files and not others,

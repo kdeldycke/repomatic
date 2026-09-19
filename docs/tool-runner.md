@@ -191,7 +191,7 @@ $ repomatic init --delete-unmodified
 
 ## Overriding tool versions
 
-To test a newer version of a tool before the registry is updated:
+To run a tool at a version the registry does not pin:
 
 ```shell-session
 $ repomatic run shfmt --version 3.14.0 --skip-checksum -- .

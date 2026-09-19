@@ -6,21 +6,19 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** the bundled `repomatic-upgrade` skill drops its `review` and `fix` modes. It now always applies its changes, uncommitted.
-- Ship the test suite, and the repository files it reads, in the PyPI sdist.
-- Skip the tests that need a git checkout when the suite runs from the sdist, and mark the one test needing network access `network`.
+- Ship the test suite, and the repository files it reads, in the PyPI sdist, where tests needing a git checkout skip themselves.
+- `sync-workflow-pins` pull requests now label a uv pin stepped back onto the `setup-uv` checksum table `⏪ stepped back`.
 - The bundled `probe-workflow` skill now keeps findings out of the retirement commit, gives a side-branch probe a `push` trigger, and records two hosted `macos-26` traps.
 - The bundled `repomatic-upgrade` skill now catches local edits to synced skills and subagents that the upgrade reverts, and passes `--repo` to `lint-repo` so its API-backed checks run.
 - The bundled `repomatic-upgrade` skill now runs a changed job's released code on the repository's own inputs, and regenerates a committed upgrade in a scratch clone to check it.
 - The bundled `sphinx-docs-sync` skill now builds the documentation and counts its warnings before auditing, and re-locks `uv.lock` when it adds a docs dependency.
 - The bundled `upstream-audit` skill now sweeps an author's issues and pull requests across GitHub, and resolves their states in one GraphQL query.
 - Remove anecdotes naming past releases or other projects' threads from the bundled skills and the `sphinx-docs` agent.
-- `sync-workflow-pins` pull requests now label a uv pin stepped back onto the `setup-uv` checksum table `⏪ stepped back`.
+- Pause before retrying a truncated HTTP response, and retry it twice instead of once.
 - Fix `lint-repo` asking for GitHub topics that multi-word keywords already declare: `Weather forecast` now matches the `weather-forecast` topic.
 - Fix `lint-changelog` reporting a release newer than its day-old cache as missing, and `--fix` marking it unavailable, when the release's section has no availability note yet.
-- Fix `sync-workflow-pins` and `lint-repo` leaving the uv pin unchecked against `astral-sh/setup-uv` `v10.1.0` and newer, which moved its checksum table.
-- Fix `lint-repo` and `sync-workflow-pins` warnings that a uv missing from the `setup-uv` checksum table installs unverified: `v10.1.0` checks it against a live hash.
+- Fix `sync-workflow-pins` and `lint-repo` for `astral-sh/setup-uv` `v10.1.0` and newer: read its moved checksum table, and stop warning that an off-table uv installs unverified.
 - Fix the bundled `sphinx-docs` agent asking for a `robots.txt` on a GitHub Pages project site, where crawlers never read it.
-- Pause before retrying a truncated HTTP response, and retry it twice instead of once.
 
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)
 

@@ -34,3 +34,9 @@ packages.find.include = ["my_package*"]
 Two things make this worth knowing rather than obvious. It is invisible upstream: `uv build`, `uv sync` and every wheel published from CI ignore the section, so the failure only ever appears in a downstream packager's build log, usually weeks after the release that introduced the second top-level directory. And the trailing `*` matters, since it is what keeps subpackages in.
 
 `repomatic init` does not write this section. The value it must carry is the package's own import name, and a bundled template can only approximate that with a list of directories to exclude, which is a worse default than the one line a project can write once and never revisit.
+
+## Test suite
+
+The sdist on PyPI ships the test suite and the repository files it reads, so you can build and test `repomatic` from one archive, without a GitHub tag tarball. The wheel holds the `repomatic` package alone.
+
+Run `pytest` from the unpacked sdist, with the `test` dependency group installed. The tests that check this repository's own git checkout (its history, its development-state workflows, its symlinks) skip themselves outside a git checkout.

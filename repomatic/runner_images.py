@@ -146,8 +146,7 @@ def plan_runner_changes(
     Every label this repository runs is looked up in the table, and yields at
     most one change:
 
-    - **Retirement.** The row is badged deprecated, or the label is absent from
-      the table entirely, which means the image is already gone. Jobs naming it
+    - **Retirement.** The row is badged deprecated. Jobs naming the image
       outright move to {func}`~repomatic.runner_catalog.successor_for`'s pick.
     - **Upgrade.** A strictly newer *version* exists. Jobs naming the old image
       outright move onto it, and the matrix gains it as a `continue-on-error`
@@ -155,6 +154,9 @@ def plan_runner_changes(
       it. The probe half is dropped when the fleet already runs the successor,
       per {attr}`RunnerChange.probe`; the rewrite half is what moves a job no
       probe can reach.
+
+    A label absent from the table is skipped, with no change: the image is
+    already gone, and `actionlint` fails the Lint workflow on an unknown label.
 
     Only literal `runs-on:` values are rewritten, for either kind: one built
     from an expression draws on a matrix axis, which is the axis owner's to
