@@ -7,8 +7,9 @@
 
 - The bundled `babysit-ci` skill now recognizes a runner that died mid-step, which ignores a cancel and leaves no log, and re-runs its job.
 - Fix `verify-binary` crashing on a Linux binary linked with packed relocations, which requires the `GLIBC_ABI_DT_RELR` symbol version.
-- Keep the `init` tests off the network: during the week after a release, they queried GitHub and one of them failed.
 - Fix `lint-changelog` reporting a release gap as confirmed live when the GitHub lookup meant to confirm it failed.
+- Fix the bundled `babysit-ci` skill waiting for a whole run to end before reading a failed job's log, and fetching it without `--allow-escape-sequences`.
+- Keep the `init` tests off the network: during the week after a release, they queried GitHub and one of them failed.
 
 ## [`7.16.1` (2026-09-19)](https://github.com/kdeldycke/repomatic/compare/v7.16.0...v7.16.1)
 

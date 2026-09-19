@@ -148,8 +148,8 @@ def pin_build(monkeypatch: pytest.MonkeyPatch):
 def _offline_cooldown_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Answer the cooldown's release lookup with nothing, as an offline run does.
 
-    A development build never makes that lookup, and development builds are all
-    CI runs. A distribution building a release does make it, so its tests would
+    A development build never makes that lookup, and CI tests only development
+    builds. A distribution building a release does make it, so its tests would
     depend on the network and on the age of that release. A test that exercises
     the cooldown installs its own datasource over this one.
     """

@@ -123,7 +123,7 @@ class BinaryFormat(Enum):
 
         The machine element type follows the format (ELF machine names,
         Mach-O CPU type integers, the PE machine id or `None` when
-        unparsable), matching what {data}`ARCH_MACHINES` records as the
+        unparsable), matching what {data}`MACHINE_IDS` records as the
         expectation. The floor is the measured requirement
         {func}`verify_binary_floor` compares against the declared one:
         always `None` on PE, whose headers record nothing enforceable.
@@ -534,7 +534,7 @@ LC_BUILD_VERSION: Final[int] = 0x32
 MACHO_PLATFORM_MACOS: Final[int] = 1
 """`platform` field value naming macOS inside an `LC_BUILD_VERSION` command."""
 
-_GLIBC_RELEASE: Final[re.Pattern[str]] = re.compile(r"GLIBC_(\d+(?:\.\d+)*)")
+_GLIBC_RELEASE_RE: Final[re.Pattern[str]] = re.compile(r"GLIBC_(\d+(?:\.\d+)*)")
 """A `.gnu.version_r` entry naming a glibc release, like `GLIBC_2.34`.
 
 glibc also versions feature nodes, like the `GLIBC_ABI_DT_RELR` that every file
@@ -569,7 +569,7 @@ def _elf_info(path: Path) -> tuple[str, str | None]:
                 continue
             for _verneed, aux_iter in section.iter_versions():
                 for aux in aux_iter:
-                    release = _GLIBC_RELEASE.fullmatch(aux.name)
+                    release = _GLIBC_RELEASE_RE.fullmatch(aux.name)
                     if release:
                         versions.add(release.group(1))
     floor = max(versions, key=_version_key) if versions else None

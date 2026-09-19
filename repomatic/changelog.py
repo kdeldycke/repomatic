@@ -1551,7 +1551,7 @@ def lint_changelog_dates(
         confirmed = ReleaseSources.load(
             changelog, sources.package, pypi_package_history, force_refresh=True
         )
-        if sources.repo_url and confirmed.github_fetch_failed and fix:
+        if fix and confirmed.github_fetch_failed:
             msg = (
                 f"Refusing to rewrite changelog: cached data would mark"
                 f" {', '.join(sorted(unconfirmed))} as unpublished,"
