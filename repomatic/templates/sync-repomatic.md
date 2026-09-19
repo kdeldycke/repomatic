@@ -25,4 +25,4 @@ Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 - [`workflow.sync`](https://repomatic.net/configuration#workflow-sync)
 
 > [!TIP]
-> After adopting a newer `repomatic` release, run [`/repomatic-upgrade`](https://repomatic.net/agent-skills) in a fresh session to review what it lets this repository adopt, reuse or drop.
+> After adopting a newer `repomatic` release, run [`/repomatic-upgrade`](https://repomatic.net/agent-skills) in a fresh session to apply what it lets this repository adopt, reuse or drop.

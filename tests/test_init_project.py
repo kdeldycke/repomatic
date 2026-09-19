@@ -1222,7 +1222,7 @@ def test_init_cli_prints_the_upgrade_launcher(tmp_path, pin_build):
     )
 
     assert cli_result.exit_code == 0, cli_result.output
-    assert "Review what repomatic v7.4.1 to v7.4.2 lets" in cli_result.output
+    assert "Apply what repomatic v7.4.1 to v7.4.2 lets" in cli_result.output
     assert "claude --model opus '/repomatic-upgrade v7.4.1 v7.4.2'" in cli_result.output
     assert "claude --model opus '/repomatic-audit'" in cli_result.output
     # The skill is not on disk in a fresh tree, and the hint says so.

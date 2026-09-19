@@ -790,7 +790,7 @@ def init_project(
         if moved:
             previous, adopted = moved
             echo(
-                f"  {step}. Review what repomatic v{previous} to v{adopted} lets"
+                f"  {step}. Apply what repomatic v{previous} to v{adopted} lets"
                 " this repository adopt or drop:"
             )
             echo(

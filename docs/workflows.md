@@ -201,7 +201,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
 - Prunes orphans of assets repomatic has dropped (renamed or removed skills, agents, or workflows), so an upstream rename propagates automatically instead of leaving a stale file behind. A skill or agent copy is deleted when its content matches any version repomatic shipped; a removed reusable workflow's thin-caller is deleted when its `uses:` line still points at the dropped upstream workflow. A locally modified copy (edited content, or a thin-caller with extra jobs) is reported for manual review, never deleted. Pass `--keep-removed` to report these without deleting, or `--delete-removed-modified` to also delete locally modified ones
 - In the upstream repository, regenerates bundled data files from the project's own config (workflows are excluded via `[tool.repomatic]`)
-- The upgrade pull request gives the command launching the [`/repomatic-upgrade`](agent-skills.md) skill with both versions filled in. The skill reviews what the new release lets the repository adopt, reuse or drop. A manual `repomatic init` that moves the upstream pin prints the same command as its last next step
+- The upgrade pull request gives the command launching the [`/repomatic-upgrade`](agent-skills.md) skill with both versions filled in. The skill applies what the new release lets the repository adopt, reuse or drop, and leaves the changes uncommitted. A manual `repomatic init` that moves the upstream pin prints the same command as its last next step
 
 #### 📬 Sync `.mailmap` (`sync-mailmap`)
 

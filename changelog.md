@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** the bundled `repomatic-upgrade` skill drops its `review` and `fix` modes. It now always applies its changes, uncommitted.
 - Ship the test suite, and the repository files it reads, in the PyPI sdist.
 - Skip the tests that need a git checkout when the suite runs from the sdist, and mark the one test needing network access `network`.
 - The bundled `probe-workflow` skill now keeps findings out of the retirement commit, gives a side-branch probe a `push` trigger, and records two hosted `macos-26` traps.
